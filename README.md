@@ -76,15 +76,18 @@ These are workflow summaries, not claims of complete Google API compatibility.
 | Enforce bucket-specific XML CORS rules | ✅ | ❌ | ❌ |
 | Upload/download with signed URLs | ✅ | ✅ | ✅ |
 | Verify V4 RSA signatures and expiry | ✅ | ❌ | ❌ |
-| gRPC | ◐ Storage v2 subset | ◐ Storage v1 subset | ❌ |
+| gRPC | ◐ Storage v2 and legacy v1 subsets | ◐ Storage v1 subset | ❌ |
 | Published Docker image | ✅ GHCR | ✅ | ✅ |
 
 The optional plaintext `grpc_listen` serves scoped Storage v2 bucket CRUD,
 updates, IAM and retention locking; object reads, writes, listing, deletion and
 restore; resumable uploads, rewrite, compose, move and bidirectional ranged reads.
 `CancelResumableWrite`, Rapid append and unsupported fields return actionable
-`UNIMPLEMENTED`. Storage v1 is not served; its separate compatibility slice is
-in progress. See the [gRPC contracts](docs/en/slices/grpc-v2-foundation.md) and
+`UNIMPLEMENTED`. The same endpoint serves twelve legacy Storage v1 RPCs for
+reference-emulator migration, with shared strict permissions and documented
+field limits; this is not Google GA/EXACT fidelity. See the
+[legacy contract](docs/en/slices/grpc-v1-legacy.md),
+[v2 gRPC contracts](docs/en/slices/grpc-v2-foundation.md) and
 [SDK journeys](sdk-tests/go/README.md) for verified subsets and limits.
 
 Comparison baseline: fake-gcs-server `v1.56.1` and gcp-storage-emulator

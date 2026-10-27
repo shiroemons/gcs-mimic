@@ -3,6 +3,19 @@
   "note": "Digests identify source snapshots researched for the plan. Public source URLs may advance. The kit packages factual extracts rather than upstream descriptive prose. No runtime conformance is implied.",
   "sources": [
     {
+      "name": "Legacy Storage v1 protobuf",
+      "source_url": "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto",
+      "revision": "b2e2bc62fab90e6829e62d3d189906d9b79899e4",
+      "source_checked_at": "2026-10-28",
+      "sha256": "be9583dad18a6b087ae94b064b44d9ab1ce74c8647b88f85afbd7b10de50a192",
+      "resources_sha256": "875af563ab150552b440d6c8d358cf5c7896b666eef0321d07b149febc6639d7",
+      "reference_source_url": "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+      "reference_sha256": "19935d8e1db0d376abb851826ca8f51d5723d97803a6b6c54bf979a93802b40e",
+      "proto_closure_sha256_manifest": "src/grpc/proto/SHA256SUMS",
+      "proto_closure": "v1 service/resources use the retired revision; common imports retain the v2 foundation googleapis revision and protobuf v36.2. No v2 generated file changes.",
+      "generated_code": "src/grpc/generated/google.storage.v1.rs"
+    },
+    {
       "name": "JSON Discovery v1",
       "source_url": "https://storage.googleapis.com/$discovery/rest?version=v1",
       "revision": "20261013",

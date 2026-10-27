@@ -1,4 +1,5 @@
 //! Storage transports share domain state, never JSON wire representations.
+pub mod v1;
 pub mod v2;
 
 // Generated upstream code retains its own field names and documentation.
@@ -30,6 +31,11 @@ pub(crate) async fn serve_connection(
     state: Arc<State>,
     stopping: watch::Receiver<bool>,
 ) {
+    let legacy = v1::service(
+        state.clone(),
+        config.max_object_bytes,
+        config.compat_profile,
+    );
     let service = v2::service(state, config.max_object_bytes);
     serve_with_service(
         stream,
@@ -38,7 +44,21 @@ pub(crate) async fn serve_connection(
         STREAM_INACTIVITY_TIMEOUT,
         move |request| {
             let mut service = service.clone();
+            let mut legacy = legacy.clone();
             async move {
+                if request
+                    .uri()
+                    .path()
+                    .starts_with("/google.storage.v1.Storage/")
+                {
+                    if !v1::known_method(request.uri().path()) {
+                        return Ok(v2::status::unsupported(
+                            "legacy v1 method outside the reference inventory",
+                        )
+                        .into_http());
+                    }
+                    return legacy.call(request).await;
+                }
                 if !v2::known_method(request.uri().path()) {
                     return Ok(v2::status::unsupported("unknown service or method").into_http());
                 }

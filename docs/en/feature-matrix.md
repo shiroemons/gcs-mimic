@@ -14,7 +14,7 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 251 | 0 | 46 | 1 | 0 | 0 |
+| api_operation | 310 | 251 | 0 | 58 | 1 | 0 | 0 |
 | behavior | 201 | 113 | 0 | 50 | 38 | 0 | 0 |
 | project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
@@ -35,7 +35,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 251 | 28 | 19 | 0 | 0 | 0 |
+| api_operation | 251 | 28 | 31 | 0 | 0 | 0 |
 | behavior | 114 | 53 | 31 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
 
@@ -444,6 +444,23 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-050 | Set bucket tagging | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-051 | Set bucket versioning | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-052 | Set bucket websiteConfig | NOT_STARTED | P3 | EXACT | NONE | 0 |
+
+### gRPC Storage v1 legacy
+
+| ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
+| --- | --- | --- | --- | --- | --- | ---: |
+| RPC-LEGACY-001 | GetBucket | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-002 | DeleteBucket | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-003 | InsertBucket | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-004 | UpdateBucket | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-005 | ListBuckets | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-006 | InsertObject | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-007 | GetObject | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-008 | DeleteObject | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-009 | UpdateObject | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-010 | PatchObject | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-011 | ComposeObject | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
+| RPC-LEGACY-012 | ListObjects | PARTIAL | P6 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
 
 ### gRPC Storage v2
 

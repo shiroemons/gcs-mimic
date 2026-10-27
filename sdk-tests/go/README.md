@@ -10,9 +10,17 @@ grpc-go v1.85.0 and protobuf v1.36.12 in the existing module graph. Storage v2
 supports scoped bucket CRUD/updates/IAM/retention locking, object metadata/media/
 listing/deletion/restore, streaming and resumable writes, rewrite/compose/move and
 bidirectional ranged reads. CancelResumableWrite, Rapid append and unsupported
-fields retain UNIMPLEMENTED. Legacy Storage v1 is not served and is a separate
-compatibility slice in progress; see the
+fields retain UNIMPLEMENTED; see the
 [foundation contract](../../docs/en/slices/grpc-v2-foundation.md).
+
+`grpc_v1_test.go` uses the already pinned
+`google.golang.org/genproto/googleapis/storage/v1` raw client against the same
+h2c listener. Its three tests exercise the twelve reference-emulator RPCs,
+JSON interoperability, metadata read/modify/write, label replacement, strict
+permissions, checksum/offset/finish rejection and immediate ErrorInfo-bearing
+UNIMPLEMENTED for all other v1 methods. Legacy v1 is a limited migration
+profile, not Google GA/EXACT fidelity; see the
+[legacy contract](../../docs/en/slices/grpc-v1-legacy.md).
 
 `grpc_buckets_test.go` verifies ordinary bucket CRUD and paging, JSON visibility,
 routing/read masks, default metadata and strict/public authorization against the

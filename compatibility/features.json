@@ -12,7 +12,7 @@
     "Decompose selected rows into acceptance cases; record only executed tests and existing evidence."
   ],
   "counts_by_kind": {
-    "api_operation": 298,
+    "api_operation": 310,
     "behavior": 201,
     "project_requirement": 92
   },
@@ -31,6 +31,7 @@
     "JSON API / projects.serviceAccount": 1,
     "JSON API / rapidCaches": 5,
     "gRPC Storage v2": 24,
+    "gRPC Storage v1 legacy": 12,
     "FeatureConfigs": 5,
     "XML API": 52,
     "Storage Control v2": 39,
@@ -1162,6 +1163,1026 @@
     }
   },
   "features": [
+    {
+      "id": "RPC-LEGACY-001",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "GetBucket",
+      "interface": "google.storage.v1.Storage/GetBucket",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "GetBucket succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "ACL projections and unsupported common request fields remain UNIMPLEMENTED; full bucket response-field parity is not claimed.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "ACL projections and unsupported common request fields remain UNIMPLEMENTED; full bucket response-field parity is not claimed."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
+    {
+      "id": "RPC-LEGACY-002",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "DeleteBucket",
+      "interface": "google.storage.v1.Storage/DeleteBucket",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "DeleteBucket succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "Provider-exact error precedence and exhaustive concurrent bucket mutation are not verified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Provider-exact error precedence and exhaustive concurrent bucket mutation are not verified."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
+    {
+      "id": "RPC-LEGACY-003",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "InsertBucket",
+      "interface": "google.storage.v1.Storage/InsertBucket",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "InsertBucket succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "Only name, location, storage class, labels, versioning and default event hold inputs are supported; other bucket inputs remain UNIMPLEMENTED.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only name, location, storage class, labels, versioning and default event hold inputs are supported; other bucket inputs remain UNIMPLEMENTED."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
+    {
+      "id": "RPC-LEGACY-004",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "UpdateBucket",
+      "interface": "google.storage.v1.Storage/UpdateBucket",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "UpdateBucket succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "Labels use replacement semantics, including omitted-label clearing; unsupported bucket fields, ACLs and exhaustive read/modify/write concurrency remain unverified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Labels use replacement semantics, including omitted-label clearing; unsupported bucket fields, ACLs and exhaustive read/modify/write concurrency remain unverified."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
+    {
+      "id": "RPC-LEGACY-005",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "ListBuckets",
+      "interface": "google.storage.v1.Storage/ListBuckets",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "ListBuckets succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "Lists require a project and use bounded opaque JSON cursors; global project-free reference listing is not provided.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Lists require a project and use bounded opaque JSON cursors; global project-free reference listing is not provided."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
+    {
+      "id": "RPC-LEGACY-006",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "InsertObject",
+      "interface": "google.storage.v1.Storage/InsertObject",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "InsertObject succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "Resumable upload IDs, reference data and unsupported metadata remain UNIMPLEMENTED; exhaustive crash/cancellation concurrency is not verified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Resumable upload IDs, reference data and unsupported metadata remain UNIMPLEMENTED; exhaustive crash/cancellation concurrency is not verified."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
+    {
+      "id": "RPC-LEGACY-007",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "GetObject",
+      "interface": "google.storage.v1.Storage/GetObject",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "GetObject succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "Metadata only; GetObjectMedia is outside the reference inventory and remains UNIMPLEMENTED. ACL projection and unsupported common parameters are rejected.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Metadata only; GetObjectMedia is outside the reference inventory and remains UNIMPLEMENTED. ACL projection and unsupported common parameters are rejected."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
+    {
+      "id": "RPC-LEGACY-008",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "DeleteObject",
+      "interface": "google.storage.v1.Storage/DeleteObject",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "DeleteObject succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "Shared holds, retention, versioning and soft deletion apply; exhaustive combinations and provider-exact errors are not verified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Shared holds, retention, versioning and soft deletion apply; exhaustive combinations and provider-exact errors are not verified."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
+    {
+      "id": "RPC-LEGACY-009",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "UpdateObject",
+      "interface": "google.storage.v1.Storage/UpdateObject",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "UpdateObject succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "Only fixed/custom content metadata and holds are writable. Matching output-only values are accepted; changed output-only values, encryption and ACL changes are rejected. Complete proto field parity is not claimed.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only fixed/custom content metadata and holds are writable. Matching output-only values are accepted; changed output-only values, encryption and ACL changes are rejected. Complete proto field parity is not claimed."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
+    {
+      "id": "RPC-LEGACY-010",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "PatchObject",
+      "interface": "google.storage.v1.Storage/PatchObject",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "PatchObject succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "Legacy nonempty-field merge only; nonempty update masks remain UNIMPLEMENTED. Proto3 scalar clearing requires UpdateObject.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Legacy nonempty-field merge only; nonempty update masks remain UNIMPLEMENTED. Proto3 scalar clearing requires UpdateObject."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
+    {
+      "id": "RPC-LEGACY-011",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "ComposeObject",
+      "interface": "google.storage.v1.Storage/ComposeObject",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "ComposeObject succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "At most 32 same-bucket sources through shared composition; ACL/KMS and unsupported destination fields are rejected. Exhaustive fault/concurrency combinations are not verified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "At most 32 same-bucket sources through shared composition; ACL/KMS and unsupported destination fields are rejected. Exhaustive fault/concurrency combinations are not verified."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
+    {
+      "id": "RPC-LEGACY-012",
+      "kind": "api_operation",
+      "category": "gRPC Storage v1 legacy",
+      "title": "ListObjects",
+      "interface": "google.storage.v1.Storage/ListObjects",
+      "phase": "P6",
+      "priority": "NORMAL",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go",
+        "https://github.com/googleapis/googleapis/blob/b2e2bc62fab90e6829e62d3d189906d9b79899e4/google/storage/v1/storage.proto"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "Legacy migration profile, not Google GA or EXACT. Pinned reference inventory and supported request/response subset: docs/en/slices/grpc-v1-legacy.md.",
+      "dependencies": [
+        "BEHAVIOR-RPC-005"
+      ],
+      "dependency_status": "TO_REFINE",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "legacy_rpc_journey",
+          "description": "ListObjects succeeds through the raw pinned Go client; JSON and v1 share catalog state.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy"
+          ]
+        },
+        {
+          "id": "legacy_safety_and_permissions",
+          "description": "Shared authorization and atomic publication/metadata conditions apply; invalid offsets/checksums/missing finish do not publish. Other methods/unsupported values fail with ErrorInfo.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "id": "remaining_legacy_semantics",
+          "description": "Bounded shared prefix/delimiter/version listing with JSON query-bound tokens; complete metadata-heavy response pagination parity is not verified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCV1Legacy",
+        "TestGRPCV1LegacySafety",
+        "TestGRPCV1LegacyStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "google.golang.org/genproto/googleapis/storage/v1",
+          "version": "v0.0.0-20260715232425-e75dac1f907d",
+          "transport": "legacy v1 gRPC h2c; raw client; permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacySafety",
+            "TestGRPCV1LegacyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Bounded shared prefix/delimiter/version listing with JSON query-bound tokens; complete metadata-heavy response pagination parity is not verified."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
+    },
     {
       "id": "DIST-003",
       "kind": "project_requirement",
