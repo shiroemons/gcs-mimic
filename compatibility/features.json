@@ -438,8 +438,8 @@
       },
       {
         "id": "bucket-metadata-update",
-        "title": "Bucket metadata PUT replacement with explicit local defaults",
-        "scope": "Delivered order 7 on 2026-10-23: all three original completion conditions map to executed results in docs/en/evidence/bucket-metadata-put.md. Declared labels/default-class/versioning/default-hold replacement, omission defaults, strict permission/revocation, atomic conditions and resource preservation pass final Rust/Go/reference/both-architecture container/native/Docker checks, including Docker restart equality. JSON-BUCKETS-013 remains PARTIAL for advanced fields, ACL/billing/projection and provider defaults/error/permission parity. API client v0.308.0 is adopted with the full SDK suite passing and all dependency inputs CURRENT. Basic JSON contract is the next implementation slice.",
+        "title": "Bucket metadata PUT replacement with local omission preservation",
+        "scope": "Delivered order 7 originally on 2026-10-23 under the omission-reset policy, with historical results in docs/en/evidence/bucket-metadata-put.md. The current local PUT contract replaces supplied modeled settings and preserves omitted values; Rust/Go/Ruby and the native PUT guide verify it in docs/en/slices/bucket-metadata-put.md. Reference, container and Docker guide/restart checks were not rerun for omission preservation. Strict permission/revocation, atomic conditions and resource preservation remain supported. JSON-BUCKETS-013 remains PARTIAL for advanced fields, ACL/billing/projection and provider omission/error/permission parity.",
         "feature_ids": [
           "JSON-BUCKETS-013",
           "BEHAVIOR-COMMON-006",
@@ -6946,20 +6946,21 @@
         "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
         "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
-      "source_checked_at": "2026-10-23",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "Delivered replacement subset: labels, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-put.md. Final Rust/Go/reference/container/native/Docker evidence: docs/en/evidence/bucket-metadata-put.md. All three delivery conditions close the scoped replacement capability; the API client update to v0.308.0 passes the full SDK suite and dependency check. Whole method remains PARTIAL for advanced fields, ACL/billing/full projection and provider defaults/error/permission parity. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
+      "notes": "PUT preserves every omitted modeled setting, including labels, class, versioning/default holds, CORS, PAP/UBLA, lifecycle, retention and soft-delete policy. Supplied labels replace the map; explicit null/empty values retain field-specific contracts. Ruby Storage 1.62.1 update blocks and generated Go PUT verify partial updates without erasing unrelated settings. This local choice is not real-GCS evidence: SPEC-BUCKET-PUT. Contract and current checks: docs/en/slices/bucket-metadata-put.md. Historical reference/container/native/Docker evidence: docs/en/evidence/bucket-metadata-put.md; those runs predate omission preservation. Atomic conditions, strict authorization, persistence, fields, CORS and PAP remain supported. Whole method stays PARTIAL for unmodeled fields, ACL/billing/full projection and provider semantics/error/permission parity.",
       "dependencies": [
         "JSON-BUCKETS-008"
       ],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
-        {"id":"RETENTION-CONFIG-CONTRIBUTION","description":"PUT sets/changes retention and clears omitted unlocked policy; locked removal/shortening fails. Scope: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
-        {"id":"LIFECYCLE-UPDATE-REPLACE","description":"PUT replaces supplied lifecycle rules and clears omitted configuration. Actions are not executed; docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
+        {"id":"PUT-RUBY-UPDATE-BLOCK","description":"Ruby Storage 1.62.1 update block changes only PAP while omitted versioning and labels survive reload; equivalent raw Go PUT and all modeled omitted settings preserve state. Local choice without real-GCS verification: SPEC-BUCKET-PUT.","result":"PASS","test_ids":["bucket_put_ruby_update_block_preserves_unrelated_settings","bucket_put_omitted_settings_survive_partial_iam_updates","TestBucketMetadataReplace"]},
+        {"id":"RETENTION-CONFIG-CONTRIBUTION","description":"PUT sets/changes explicit retention and preserves omitted policy; explicit null clears unlocked policy and locked removal/shortening fails. Scope: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
+        {"id":"LIFECYCLE-UPDATE-REPLACE","description":"PUT replaces supplied lifecycle rules and preserves omitted configuration; explicit null/empty clears. Actions are not executed; docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
         {
           "id": "PUT-REPLACEMENT",
-          "description": "Replace the labels map; omitted/null labels clear, omitted class becomes STANDARD and omitted settings false under the explicit local PUT contract.",
+          "description": "Replace a supplied labels map; null/empty labels clear, while omitted labels, class and all modeled settings survive under the local PUT contract.",
           "test_ids": [
             "bucket_put_replaces_omitted_fields_and_preserves_resources",
             "bucket_put_empty_null_and_invalid_inputs"
@@ -6977,7 +6978,7 @@
         },
         {
           "id": "PUT-CLASS",
-          "description": "Share the supported class set; omission resets to STANDARD; null/empty/invalid and unsupported classes fail without mutation.",
+          "description": "Share the supported class set; omission preserves class; null/empty/invalid and unsupported classes fail without mutation.",
           "test_ids": [
             "bucket_put_label_boundaries_and_classes",
             "bucket_put_replaces_omitted_fields_and_preserves_resources"
@@ -6986,7 +6987,7 @@
         },
         {
           "id": "PUT-SETTINGS",
-          "description": "Replace versioning/default holds; omissions reset to false, native null booleans fail and legacy nulls reset; future effects change while existing holds/history survive.",
+          "description": "Explicit versioning/default holds change future effects; omissions preserve settings, versioning:{} disables, native null booleans fail and legacy nulls reset; existing holds/history survive.",
           "test_ids": [
             "bucket_put_settings_control_future_object_effects",
             "bucket_put_null_settings_follow_profile_defaults"
@@ -7023,7 +7024,7 @@
         },
         {
           "id": "PUT-INPUT-ERRORS",
-          "description": "Reject invalid JSON/types/body limits and unsupported settings without mutation; ignore output-only/unknown fields locally; accept omitted/empty acl and exactly empty lifecycle rules.",
+          "description": "Reject invalid JSON/types/body limits and unsupported settings without mutation; ignore output-only/unknown fields locally; accept omitted/empty acl and scoped lifecycle configuration.",
           "test_ids": [
             "bucket_put_empty_null_and_invalid_inputs",
             "bucket_put_unsupported_and_output_inputs_preserve_state",
@@ -7033,7 +7034,7 @@
         },
         {
           "id": "PUT-QUERIES",
-          "description": "full/noAcl expose the same subset; invalid projection and GET-only generation return 400, predefinedAcl/predefinedDefaultObjectAcl/userProject return 501.",
+          "description": "full/noAcl expose the same subset; invalid projection and GET-only generation return 400 invalidParameter, unsupported predefined ACL/billing queries return 400 badRequest.",
           "test_ids": [
             "bucket_put_conditions_and_query_contract",
             "bucket_put_rejects_get_only_generation_query_parameter"
@@ -7042,7 +7043,7 @@
         },
         {
           "id": "PUT-ROUND-TRIP",
-          "description": "Same-profile full-resource round trip and unchanged case-insensitive rendered location preserve modeled fields; relocation returns 501.",
+          "description": "Same-profile full-resource round trip and unchanged case-insensitive rendered location preserve modeled fields; relocation returns 400 badRequest.",
           "test_ids": [
             "bucket_put_full_resource_round_trip_preserves_unchanged_fields",
             "bucket_put_location_comparison_is_case_insensitive"
@@ -7051,7 +7052,7 @@
         },
         {
           "id": "PUT-GO-SDK",
-          "description": "Pinned generated Go API Buckets.Update emits PUT; replacement/defaults, conditions, high-level Attrs/object effects and strict denial/admin checks.",
+          "description": "Pinned generated Go API Buckets.Update emits PUT; explicit replacement and omitted-setting preservation, conditions, high-level Attrs/object effects and strict denial/admin checks.",
           "test_ids": [
             "TestBucketMetadataReplace",
             "TestStrictAuthBucketMetadataReplace"
@@ -7060,20 +7061,27 @@
         },
         {
           "id": "PUT-REFERENCE",
-          "description": "Compare both pinned reference backends and local profiles; absent reference bucket PUT route returns JSON 404 without metadata/object mutation.",
+          "description": "PUT-ASSERT now expects omission preservation and the shared unsupported response; the reference comparison has not been rerun since those changes.",
           "test_ids": [
             "bucket-put-reference-comparison"
+          ],
+          "result": "PENDING"
+        },
+        {
+          "id": "PUT-GUIDE",
+          "description": "Native PUT guide verifies explicit replacement, omitted-setting preservation and stale 412 without mutation; Docker guide and restart evidence remain historical and predate omission preservation.",
+          "test_ids": [
+            "guide-bucket-put-native"
           ],
           "result": "PASS"
         },
         {
-          "id": "PUT-GUIDE",
-          "description": "Run native/Docker shared create/PATCH/PUT blocks: replacement, omissions reset, stale 412, GET equality and Docker restart equality.",
+          "id": "PUT-GUIDE-CONTAINER",
+          "description": "Docker PUT guide and restart equality have not been rerun for omission preservation; the recorded run predates this local contract.",
           "test_ids": [
-            "guide-bucket-put-native",
             "guide-bucket-put-container"
           ],
-          "result": "PASS"
+          "result": "PENDING"
         },
         {
           "id": "PUT-ADVANCED-FIELDS",
@@ -7083,7 +7091,7 @@
         },
         {
           "id": "PUT-ACL-BILLING-PROJECTION",
-          "description": "Implement predefined ACLs, full ACL/owner projection/permissions and userProject billing; current 501/subset responses are not implementation.",
+          "description": "Implement predefined ACLs, full ACL/owner projection/permissions and userProject billing; current 400 badRequest/subset responses are not implementation.",
           "test_ids": [],
           "result": "PENDING"
         },
@@ -7240,6 +7248,8 @@
         "bucket_put_location_comparison_is_case_insensitive",
         "bucket_put_missing_bucket_validates_body_before_lookup",
         "bucket_put_null_settings_follow_profile_defaults",
+        "bucket_put_omitted_settings_survive_partial_iam_updates",
+        "bucket_put_ruby_update_block_preserves_unrelated_settings",
         "bucket_put_rejects_get_only_generation_query_parameter",
         "bucket_put_replaces_omitted_fields_and_preserves_resources",
         "bucket_put_settings_control_future_object_effects",
@@ -7285,6 +7295,9 @@
         "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
       ],
       "verification": [
+        {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["bucket_put_omitted_settings_survive_partial_iam_updates","bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_empty_null_and_invalid_inputs","bucket_put_full_resource_round_trip_preserves_unchanged_fields","bucket_put_settings_control_future_object_effects","bucket_put_null_settings_follow_profile_defaults","bucket_put_uses_clock_and_rolls_back_invalid_replacement","retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","auth::tests::pap_mutations_require_update_and_set_iam_permissions"]},
+        {"command":"Getting-started native PUT block extracted with awk and executed once with bash -eu against an isolated HTTP/permissive debug binary","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["guide-bucket-put-native"]},
+        {"command":"just check-sdk","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["TestBucketMetadataReplace","TestStrictAuthBucketMetadataReplace","bucket_put_ruby_update_block_preserves_unrelated_settings"]},
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"command":"cargo test --test bucket_http --locked --offline lifecycle","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-lifecycle-config.md","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
         {
@@ -7605,14 +7618,14 @@
         }
       ],
       "known_deviations": [
-        "Recognized unsupported fields and predefined ACL/billing queries return 501; full projection omits ACL/owner.",
-        "SPEC-BUCKET-PUT: omitted labels/class/settings reset to explicit local defaults; null labels clear, per-key null/class null fail, native null booleans fail and legacy nulls reset. Defaults, acl omission/empty wording, revisions, errors and propagation are not provider-observed parity.",
+        "Recognized unsupported fields and predefined ACL/billing queries return the shared non-retryable 400 badRequest; full projection omits ACL/owner.",
+        "SPEC-BUCKET-PUT: omitted labels/class/settings preserve current values as a local SDK compatibility choice; null labels clear, per-key null/class null fail, native null booleans fail and legacy nulls reset. Omission preservation, explicit null/empty rules, acl omission/empty wording, revisions, errors and propagation are not provider-observed parity.",
         "Native-to-legacy metageneration-1 resources can hide labels/class; same-profile full-resource round trips preserve modeled fields. Actual mutable metadata/revisions are exposed after PUT.",
         "Class is default metadata only; no existing object rewrite, placement, billing, full Google identity, power-loss or new performance/resource claim.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
+        "Recognized unsupported semantics use the shared local 400 badRequest response; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
@@ -17191,7 +17204,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Object PATCH distinguishes absent, null, empty string and empty map; PUT replaces the supported writable metadata set and clears omitted fields without changing content. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, and the API client update to v0.308.0 passes the full SDK suite with all dependency inputs CURRENT.",
+      "notes": "Object PATCH distinguishes absent, null, empty string and empty map; PUT replaces the supported writable metadata set and clears omitted fields without changing content. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replaces supplied settings and preserves omitted values as a local SDK compatibility choice, without real-GCS verification: docs/en/slices/bucket-metadata-put.md. Reference/container/Docker integration evidence predates omission preservation: docs/en/evidence/bucket-metadata-put.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -17243,7 +17256,7 @@
         },
         {
           "id": "PUT-REPLACEMENT",
-          "description": "Replace the labels map; omitted/null labels clear, omitted class becomes STANDARD and omitted settings false under the explicit local PUT contract.",
+          "description": "Replace a supplied labels map; explicit null/empty labels clear, while omitted labels, class and modeled settings preserve current values under the local PUT contract.",
           "test_ids": [
             "bucket_put_replaces_omitted_fields_and_preserves_resources",
             "bucket_put_empty_null_and_invalid_inputs"
@@ -18380,7 +18393,7 @@
         },
         {
           "id": "PUT-REPLACEMENT",
-          "description": "Replace the labels map; omitted/null labels clear, omitted class becomes STANDARD and omitted settings false under the explicit local PUT contract.",
+          "description": "Replace a supplied labels map; explicit null/empty labels clear, while omitted labels, class and modeled settings preserve current values under the local PUT contract.",
           "test_ids": [
             "bucket_put_replaces_omitted_fields_and_preserves_resources",
             "bucket_put_empty_null_and_invalid_inputs"
@@ -18561,7 +18574,7 @@
         },
         {
           "id": "PUT-CLASS",
-          "description": "Share the supported class set; omission resets to STANDARD; null/empty/invalid and unsupported classes fail without mutation.",
+          "description": "Share the supported class set; omission preserves the current class; null/empty/invalid and unsupported classes fail without mutation.",
           "test_ids": [
             "bucket_put_label_boundaries_and_classes",
             "bucket_put_replaces_omitted_fields_and_preserves_resources"
@@ -18775,7 +18788,7 @@
         },
         {
           "id": "BUCKET-CORS-SDK",
-          "description": "Official Go create/Attrs/Update/generated PUT, omitted/empty clearing, stale conditions and strict denial.",
+          "description": "Official Go create/Attrs/Update/generated PUT, omitted CORS preservation, explicit empty clearing, stale conditions and strict denial.",
           "result": "PASS",
           "test_ids": [
             "TestBucketCORS",
@@ -19052,7 +19065,7 @@
         },
         {
           "id": "PUT-SETTINGS",
-          "description": "Replace versioning/default holds; omissions reset to false, native null booleans fail and legacy nulls reset; future effects change while existing holds/history survive.",
+          "description": "Replace supplied versioning/default holds; omissions preserve current settings, native null booleans fail and legacy nulls reset; explicit changes affect future effects while existing holds/history survive.",
           "test_ids": [
             "bucket_put_settings_control_future_object_effects",
             "bucket_put_null_settings_follow_profile_defaults"
@@ -23923,7 +23936,7 @@
         },
         {
           "id": "PUT-SETTINGS",
-          "description": "Replace versioning/default holds; omissions reset to false, native null booleans fail and legacy nulls reset; future effects change while existing holds/history survive.",
+          "description": "Replace supplied versioning/default holds; omissions preserve current settings, native null booleans fail and legacy nulls reset; explicit changes affect future effects while existing holds/history survive.",
           "test_ids": [
             "bucket_put_settings_control_future_object_effects",
             "bucket_put_null_settings_follow_profile_defaults"
@@ -24729,7 +24742,7 @@
         {"id":"LIFECYCLE-INSERT-STORE","description":"Validate and persist insert rules; insert/get/list round trip.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
         {"id":"LIFECYCLE-PATCH-REPLACE","description":"PATCH replaces all rules and increments metageneration once.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
         {"id":"LIFECYCLE-PATCH-CLEAR","description":"Null, empty configuration and null/empty rule lists clear and omit lifecycle output.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
-        {"id":"LIFECYCLE-UPDATE-REPLACE","description":"PUT replaces specified lifecycle and clears omitted lifecycle.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
+        {"id":"LIFECYCLE-UPDATE-REPLACE","description":"PUT replaces supplied lifecycle and preserves omitted lifecycle; explicit null/empty clears.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
         {"id":"LIFECYCLE-VALIDATE-ACTION","description":"Validate the three supported actions and required storage class with actionable errors.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation","lifecycle_date_and_prefix_suffix_boundaries"]},
         {"id":"LIFECYCLE-VALIDATE-CONDITION","description":"Validate scoped Discovery fields, dates, types, limits and action combinations.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation","lifecycle_date_and_prefix_suffix_boundaries"]},
         {"id":"LIFECYCLE-PERSIST-RESTART","description":"Restart persistence and schema 23 migration.","result":"PASS","test_ids":["lifecycle_schema_migration_and_restart"]},

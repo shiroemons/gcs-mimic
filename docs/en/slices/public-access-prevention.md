@@ -21,8 +21,8 @@ accepts `inherited` and `enforced`, defaulting to `inherited`.
 and [PUT](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/update)
 require `storage.buckets.update`, adding `storage.buckets.setIamPolicy` for PAP
 changes. The local comparison uses the resulting configured value: resending
-the stored value requires only update; an omitted PUT value requires the extra
-permission only when resetting enforced to inherited. Unchanged-value provider
+the stored value or omitting PAP requires only update. PUT preserves omitted PAP
+under the local SDK compatibility choice in SPEC-BUCKET-PUT. Unchanged-value provider
 permission parity has not been measured; this interpretation is recorded in
 SPEC-PAP-EDGES. Insert retains its project `storage.buckets.create` check.
 
@@ -56,7 +56,7 @@ Fresh fetched HTML hashes, checked on the contract date:
 
 SPEC-PAP-EDGES records local choices: current JSON values exclude legacy
 `unspecified`; null/invalid types return 400 `invalidArgument`; omitted PUT PAP
-resets to inherited; PAP policy rejection uses 412 `conditionNotMet`. Submitting
+preserves the configured value; PAP policy rejection uses 412 `conditionNotMet`. Submitting
 an unchanged public binding under PAP also fails. Existing IAM, XML and signing
 gaps remain open; this slice does not establish provider message/error precedence.
 The official [Go v1.70.0 enum reference](https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/storage/latest)
@@ -77,8 +77,9 @@ invalid enabled types and any lockedTime return 501. Responses still omit these
 two fields; this fields-parity deviation is recorded in SPEC-PAP-EDGES. ACLs and
 uniform-access transitions remain outside this slice.
 
-PATCH preserves omitted PAP; PUT defaults omitted PAP to inherited like other
-modeled replacement fields. Every successful metadata mutation advances
+PATCH and PUT preserve omitted PAP. Only an explicit value changes configured
+PAP. PUT omission preservation is a local choice without real-GCS verification.
+Every successful metadata mutation advances
 metageneration once. Match/NotMatch conditions and both required mutation
 permissions for actual PAP changes are checked in the same transaction. Failed
 updates preserve state.
@@ -149,7 +150,7 @@ propagation delay or external cache invalidation is simulated.
 | `pap_copy_rewrite_compose_recheck_public_source_and_destination_grants` | Public-only copy/rewrite/compose denied under source or destination PAP, including a pre-admitted multi-call rewrite; source/destination metadata/generation/bytes survive and compose deletes no source |
 | `pap_signed_requests_suppress_all_authenticated_users_grants` | Valid registered public-only signer GET/HEAD/PUT denied under PAP without changing object metadata/generation/bytes |
 | `pap_parent_fixture_rejects_malformed_and_unbounded_projects` | Reject malformed, duplicate, invalid and over-limit fixture projects |
-| `pap_mutations_require_update_and_set_iam_permissions` | Update-only authority can change labels while repeating either stored PAP value; both mutation methods reject actual PAP changes and PUT implicit resets atomically |
+| `pap_mutations_require_update_and_set_iam_permissions` | Update-only authority can change labels while repeating or omitting either stored PAP value; both mutation methods reject actual PAP changes atomically |
 | `TestPublicAccessPrevention` | Pinned Go BucketAttrs insert/get/update, anonymous denial, policy preservation/rejection, unmodified official signed GET/PUT at a guarded default-port authority, disable/reactivation |
 
 ## Commands for the runnable signed journey

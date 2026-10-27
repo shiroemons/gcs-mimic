@@ -545,8 +545,8 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
         BTreeMap::from([("new".into(), "value".into())])
     );
     assert_eq!(record.storage_class, "NEARLINE");
-    assert!(!record.versioning_enabled);
-    assert!(!record.default_event_based_hold);
+    assert!(record.versioning_enabled);
+    assert!(record.default_event_based_hold);
     assert_eq!(
         record.updated,
         UNIX_EPOCH + Duration::from_micros(123_456_789)
@@ -647,8 +647,8 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
         )
         .await
         .unwrap();
-    assert!(next.labels.is_empty());
-    assert_eq!(next.storage_class, "STANDARD");
+    assert_eq!(next.labels, full.labels);
+    assert_eq!(next.storage_class, "NEARLINE");
     assert_eq!(next.updated, record.updated);
     assert_eq!(next.metageneration, 6);
     let mut exhausted = bucket("put-exhausted", "project");

@@ -123,9 +123,20 @@ async fn retention_configuration_lock_permissions_and_restart() {
             "{message}"
         );
     }
-    call(&h, "PUT", "/storage/v1/b/bucket", json!({}))
-        .await
-        .error(400, "badRequestException");
+    let preserved = call(&h, "PUT", "/storage/v1/b/bucket", json!({})).await;
+    assert_eq!(preserved.status, 200);
+    assert_eq!(
+        preserved.json()["retentionPolicy"],
+        locked.json()["retentionPolicy"]
+    );
+    call(
+        &h,
+        "PUT",
+        "/storage/v1/b/bucket",
+        json!({"retentionPolicy":null}),
+    )
+    .await
+    .error(400, "badRequestException");
     h.request(
         "PATCH",
         "/storage/v1/b/bucket",
@@ -192,7 +203,19 @@ async fn retention_insert_patch_put_defaults_and_empty_policy_lock() {
         replaced.json()["retentionPolicy"]["retentionPeriod"],
         "7200"
     );
-    let cleared = call(&h, "PUT", "/storage/v1/b/bucket", json!({})).await;
+    let preserved = call(&h, "PUT", "/storage/v1/b/bucket", json!({})).await;
+    assert_eq!(preserved.status, 200);
+    assert_eq!(
+        preserved.json()["retentionPolicy"],
+        replaced.json()["retentionPolicy"]
+    );
+    let cleared = call(
+        &h,
+        "PUT",
+        "/storage/v1/b/bucket",
+        json!({"retentionPolicy":null}),
+    )
+    .await;
     assert_eq!(cleared.status, 200);
     assert!(cleared.json().get("retentionPolicy").is_none());
     for value in [Value::Null, json!({})] {

@@ -135,7 +135,7 @@ remain in the named evidence files.
 | Runtime foundation | HTTP, configuration, probes, non-root container and injected clock | Current-source platform/CI and release claims need their own evidence | [Runtime/container](evidence/distroless.md) |
 | JSON bucket CRUD | Persistent create/get/list/delete, conditions and scoped paging | IAM/ACL, ownership and advanced settings | [Bucket verification](evidence/bucket-crud.md) |
 | Bucket metadata PATCH | Label merge/removal, supported default class, versioning/default holds, atomic conditions, strict permission, restart and HTTP/Go/native/Docker checks | Whole method and affected broad behavior rows remain PARTIAL for advanced settings and provider edge parity | [Final PATCH verification](evidence/bucket-metadata-patch.md) |
-| Bucket metadata PUT | Replacement/local omission defaults, settings effects, atomic conditions, strict permission, resource preservation and final Rust/Go/reference/container/native/Docker checks | Whole method remains PARTIAL; advanced fields, ACL/billing/projection and provider parity pending; API dependency update detected | [Final PUT verification](evidence/bucket-metadata-put.md) |
+| Bucket metadata PUT | Supplied-field replacement with omitted settings preserved locally; settings effects, atomic conditions, strict permission and resource preservation | Whole method remains PARTIAL; advanced fields, ACL/billing/projection and provider parity pending; reference/container/Docker evidence predates omission preservation | [Current PUT contract](slices/bucket-metadata-put.md), [historical integration verification](evidence/bucket-metadata-put.md) |
 | Object media | Live-generation upload/read/delete, hashes and atomic conditions | Header/error parity, token replay and advanced semantics | [Media verification](evidence/object-media.md) |
 | List and metadata | Prefix/delimiter/keyset paging; PATCH merge and PUT replacement | History, filters, full projection and legacy-input parity | [Integrated verification](evidence/object-list-metadata.md) |
 | JSON multipart | Bounded metadata/media/checksum containers and Go single-request Writer | MIME edge parity, replay and advanced fields | [Multipart verification](evidence/multipart.md) |
@@ -169,7 +169,7 @@ a workflow. Whole-feature status remains in the ledger.
 | 4 | Resumable upload | Declared initiation/chunk/status/retry/finalization/cancel/expiry/Location cases, normal pinned Go Writer, native buffering measurements and selected process-kill recovery passed on 2026-10-22 | Delivered: BEHAVIOR-OBJECT-010 through BEHAVIOR-OBJECT-014 and DESIGN-057 IMPLEMENTED; JSON-OBJECTS-007 and DESIGN-082 remain PARTIAL; [final verification](evidence/resumable-upload.md) |
 | 5 | Bucket create, get and delete | Declared native/compatibility creation, basic GET, empty deletion, versioning/default holds and HTTP/SDK/container/guide checks passed on 2026-10-22; both pinned reference backends compared | Delivered: named baseline with explicit intentional/strict/unsupported differences; broad bucket and versioning/hold rows remain PARTIAL; [final verification](evidence/bucket-core-parity.md) |
 | 6 | Bucket metadata PATCH | Declared label merge/removal, default class, versioning/default holds, conditions, strict permission and persistence passed final Rust/Go/container/guide checks on 2026-10-23; both pinned reference backends compared | Delivered: change basic settings without recreating the bucket; JSON-BUCKETS-008 and affected broad behavior rows remain PARTIAL; [final verification](evidence/bucket-metadata-patch.md) |
-| 7 | Bucket metadata PUT | Declared replacement/local defaults, conditions, strict permission and resource preservation passed final Rust/Go/reference/both-architecture container/native/Docker checks on 2026-10-23, including Docker restart equality | Delivered: replace the modeled settings; JSON-BUCKETS-013 remains PARTIAL; [final verification](evidence/bucket-metadata-put.md) includes the verified API client update |
+| 7 | Bucket metadata PUT | The original omission-reset policy passed integration checks on 2026-10-23; the revised local omission-preserving policy has Rust/Go/Ruby and native PUT guide evidence | Delivered: replace supplied modeled settings and preserve omitted settings; JSON-BUCKETS-013 remains PARTIAL; [current contract](slices/bucket-metadata-put.md) separates revised checks from [historical integration evidence](evidence/bucket-metadata-put.md) |
 | 8 | Basic JSON contract | Frozen live-resource profile, documented single conditions/checksums/error envelopes, fields/read ETags and remaining-gap mapping passed final Rust/Go/reference/both-architecture containers and native/Docker guide checks on 2026-10-23 | Delivered: BEHAVIOR-COMMON-007/011 and BEHAVIOR-OBJECT-005 IMPLEMENTED in their declared scope; broad method rows remain PARTIAL; [final verification](evidence/basic-json-contract.md) |
 | 9 | Object copy | Generation-pinned streaming, metadata, strict permissions, atomic conditions, holds/versioning, composites and restart pass the [final integrated gate](evidence/derived-objects.md) | Delivered: BEHAVIOR-OBJECT-023 IMPLEMENTED/EXACT; JSON-OBJECTS-003 remains PARTIAL for full ACL/owner projection |
 | 10 | Object rewrite | One/multi-call progress, request-bound tokens, atomic destination, retry/restart and pinned Copier pass the [final integrated gate](evidence/derived-objects.md) | Delivered: BEHAVIOR-OBJECT-024 IMPLEMENTED/EXACT; JSON-OBJECTS-012 remains PARTIAL for full ACL/owner projection |
@@ -235,10 +235,12 @@ behavior and mobile-origin research without a real-device/cloud claim. Order 12
 including default HTTPS, explicit HTTP regression, CA/SAN/expiry failures,
 bounded handshake/streaming deadlines, both container architectures, official
 Go/Ruby clients and isolated Chromium trust without verification bypass.
-Order 7 is closed by the [final PUT evidence](evidence/bucket-metadata-put.md),
-covering the [frozen replacement contract](slices/bucket-metadata-put.md),
-Rust/Go checks, both reference backends and local profiles, both container
-architectures and affected native/Docker guide blocks with restart equality.
+Order 7 originally closed under the omission-reset policy with the
+[historical PUT evidence](evidence/bucket-metadata-put.md), including Rust/Go,
+reference, container and native/Docker guide checks with restart equality.
+The [current PUT contract](slices/bucket-metadata-put.md) preserves omitted
+settings as a local SDK compatibility choice and records Rust/Go/Ruby and native
+PUT guide checks; reference/container/Docker checks were not rerun for that policy.
 Separate maintenance adopted API client v0.308.0 with Storage v1.70.0 unchanged;
 the full SDK suite passes and all 31 dependency inputs report CURRENT.
 The complete buckets.update row stays PARTIAL for advanced fields,

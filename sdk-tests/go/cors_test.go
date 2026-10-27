@@ -96,12 +96,13 @@ func TestBucketCORS(t *testing.T) {
 		response.Header.Get("Access-Control-Max-Age") != "3600" || response.Header.Get("Access-Control-Allow-Credentials") != "" {
 		t.Fatalf("XML preflight from SDK-configured bucket: status=%s headers=%v", response.Status, response.Header)
 	}
+	wantCORS := attrs.CORS
 	if _, err := api.Buckets.Update(name, &raw.Bucket{}).Context(ctx).Do(); err != nil {
 		t.Fatal(err)
 	}
 	attrs, err = bucket.Attrs(ctx)
-	if err != nil || len(attrs.CORS) != 0 {
-		t.Fatalf("omitted PUT CORS must clear configuration: attrs=%+v err=%v", attrs, err)
+	if err != nil || !reflect.DeepEqual(attrs.CORS, wantCORS) {
+		t.Fatalf("omitted PUT CORS must preserve configuration: attrs=%+v err=%v", attrs, err)
 	}
 }
 

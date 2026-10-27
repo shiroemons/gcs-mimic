@@ -103,6 +103,24 @@ end
 observed = { chunks: 0, locations: [] }
 connection.builder.use(EmulatorOriginGuard, origin, observed)
 
+if ARGV.empty? || ARGV == ["--bucket-put"]
+  put_bucket = storage.create_bucket("sdk-ruby-put-#{SecureRandom.hex(8)}") do |item|
+    item.versioning = true
+    item.labels = { "keep" => "yes" }
+  end
+  begin
+    put_bucket.update { |item| item.public_access_prevention = "enforced" }
+    put_bucket.reload!
+    raise "PUT lost versioning" unless put_bucket.versioning?
+    raise "PUT lost labels" unless put_bucket.labels == { "keep" => "yes" }
+    raise "PUT did not change PAP" unless put_bucket.public_access_prevention_enforced?
+    puts "bucket_put_ruby_update_block_preserves_unrelated_settings passed"
+  ensure
+    put_bucket.delete
+  end
+  exit if ARGV == ["--bucket-put"]
+end
+
 if ARGV == ["--migration-scenario"]
   raise "migration scenario requires an anonymous client" if ENV.key?("GCS_MIMIC_TOKEN")
 
@@ -239,7 +257,7 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     raise "bucket absent from list" unless storage.buckets.any? { |item| item.name == bucket.name }
     bucket.update { |item| item.labels = { "transport" => origin.scheme } }
     bucket.reload!
-    raise "bucket PATCH mismatch" unless bucket.labels == { "transport" => origin.scheme }
+    raise "bucket update block mismatch" unless bucket.labels == { "transport" => origin.scheme }
     api.update_bucket(bucket.name,
       Google::Apis::StorageV1::Bucket.new(labels: { "replacement" => "yes" }, storage_class: "NEARLINE"),
       if_metageneration_match: bucket.metageneration)

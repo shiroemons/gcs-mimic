@@ -7,7 +7,7 @@
 JSON APIのinsert・PATCH・PUTで`retentionPolicy.retentionPeriod`を設定できます。
 期間は1秒以上3,155,760,000秒未満です。`effectiveTime`と`isLocked`を返します。
 ロックされていなければ期間を変更でき、PATCHの`retentionPolicy:null`で削除できます。
-PUTで保持設定を省略した場合も削除します。オブジェクトには作成時刻と現在の期間から
+PUTで保持設定を省略した場合は保持し、明示したnullで削除します。オブジェクトには作成時刻と現在の期間から
 計算した`retentionExpirationTime`を返します。
 
 保持期間中の削除と同名上書き、copy・rewrite・composeの宛先上書き、move元の削除、

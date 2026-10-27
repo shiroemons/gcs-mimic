@@ -104,8 +104,10 @@ enabling Autoclass or supplying additional settings returns 400 badRequest.
 An extensionless `StringIO` upload uses `create_file` without `content_type` and
 verifies application/octet-stream and exact bytes. The migration scenario also
 omits `content_type` for its named text file.
-Bucket/object PUT use the official generated `Google::Apis::StorageV1` client
-because the high-level update methods use PATCH. `StorageService#copy_object`
+`Bucket#update` blocks use PUT with only changed attributes; direct bucket
+setters use PATCH. The PUT regression changes only PAP and verifies that
+versioning and labels survive reload. Generated bucket/object PUT calls also
+exercise `Google::Apis::StorageV1`. `StorageService#copy_object`
 also exercises the actual copy API, since high-level `File#copy` delegates to
 rewrite. `File#rewrite` and `Bucket#compose` exercise their named operations;
 composition omits all optional arguments, so the SDK's `deleteSourceObjects: null`

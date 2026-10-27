@@ -68,9 +68,13 @@ required.
 The [object holds/custom time contract](slices/sdk-object-holds-customtime.md)
 records null defaults and local error details.
 
+| Bucket metadata call | gcs-mimic behavior |
+| --- | --- |
+| Ruby `bucket.update { \|b\| b.public_access_prevention = "enforced" }` / JSON bucket PUT | Only supplied settings change; omitted labels, versioning and other modeled settings survive. Supplied labels replace the map; labels:null clears and versioning:{} disables. This is a local SDK compatibility choice, without real-GCS verification; see the [PUT contract](slices/bucket-metadata-put.md). |
+
 | Soft-delete call | gcs-mimic behavior |
 | --- | --- |
-| Go `BucketAttrs.SoftDeletePolicy` / Ruby `bucket.soft_delete_policy=` | JSON insert/PATCH/PUT accept 0 or 604800–7776000 retention seconds. Omission disables soft delete locally, unlike GCS's seven-day new-bucket default, to avoid unexpected disk retention and preserve existing deletion behavior. |
+| Go `BucketAttrs.SoftDeletePolicy` / Ruby `bucket.soft_delete_policy=` | JSON insert/PATCH/PUT accept 0 or 604800–7776000 retention seconds. Omission at creation disables soft delete locally, unlike GCS's seven-day new-bucket default; omission on PATCH/PUT preserves the current policy. |
 | Go `Query.SoftDeleted`, `Generation(g).SoftDeleted().Attrs`, `Restore` / Ruby `files(soft_deleted: true)`, `file(name, generation:, soft_deleted: true)`, `restore_file` | Deleted/overwritten generations retain bytes until hardDeleteTime; ordinary reads hide them. Omitted policy and explicit zero both allow listing (200, empty unless retained generations remain); missing generations return 404 on get/restore. This differs from Google's absent-policy errors. Restore creates a new live generation and keeps the original retained generation. Holds and retention still protect deletion/replacement. |
 | Delete a bucket containing only soft-deleted generations | Permanently removes the bucket and retained generations. Bucket soft deletion/restore and initialization-file softDeletePolicy remain unsupported; see the [soft-delete contract](slices/sdk-soft-delete-restore.md). |
 

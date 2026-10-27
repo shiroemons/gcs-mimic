@@ -12,7 +12,7 @@ bucket.lifecycleのブロックでadd_delete_rule・add_set_storage_class_rule�
 
 JSON APIのinsert・get・listで設定が往復します。PATCHはルール全体を置き換え、
 省略すると現在の設定を保ちます。null・空オブジェクト・nullまたは空のrule配列は設定を消し、
-応答からlifecycleを省きます。PUTでは省略した設定も消します。
+応答からlifecycleを省きます。PUTでも省略した設定を保持します。
 更新に成功するとmetagenerationが1増え、既存の権限判定と更新条件を適用します。
 再起動後も設定が残り、スキーマ23のカタログは24へ移行します。
 

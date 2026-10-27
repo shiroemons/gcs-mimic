@@ -29,6 +29,10 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 
 `data/assets/`と`data/exports/`の代わりに、起動前に`buckets.json`を作ります。
 
+| バケットメタデータの操作 | gcs-mimicでの動作 |
+| --- | --- |
+| Ruby `bucket.update { \|b\| b.public_access_prevention = "enforced" }`、JSONバケットPUT | 指定した設定だけを変更し、省略したlabels・versioningなどの設定を保持します。labels:nullで消去し、versioning:{}で無効化します。実GCSでは未検証のローカル方針です。[PUTの契約](bucket-metadata-put.md)を参照してください。 |
+
 | 保持ポリシーの操作 | gcs-mimicでの動作 |
 | --- | --- |
 | Go `BucketAttrs.RetentionPolicy`、Ruby `bucket.retention_period = 3600` | JSON APIで保持設定を保存し、保持中の削除・上書きを403で拒否します。 |
@@ -38,7 +42,7 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 
 | soft deleteの操作 | gcs-mimicでの動作 |
 | --- | --- |
-| Go `BucketAttrs.SoftDeletePolicy`、Ruby `bucket.soft_delete_policy=` | JSON APIで0または604800～7776000秒を設定できます。省略時はGCSの既定7日と異なり無効とし、予期しないディスク保持と既存の削除動作の変更を避けます。 |
+| Go `BucketAttrs.SoftDeletePolicy`、Ruby `bucket.soft_delete_policy=` | JSON APIで0または604800～7776000秒を設定できます。作成時の省略はGCSの既定7日と異なり無効ですが、PATCH・PUTで省略した場合は既存設定を保持します。 |
 | 削除済み一覧・世代指定のメタデータ取得・restore | 古い本文を期限まで保持し、復元では新世代を作ります。元の削除済み世代は残ります。省略と0はいずれも一覧200となり、保持中の世代がなければ空です。該当世代がなければget・restoreは404です。ポリシーなしを400にするGoogleの仕様とは異なります。ホールドと保持ポリシーによる拒否も引き続き適用します。 |
 | 削除済み世代だけのバケットを削除 | バケットと保持中の世代を完全削除します。バケット自体のsoft deleteと初期化ファイルの設定は未対応です。[対応範囲](sdk-soft-delete-restore.md)を参照してください。 |
 

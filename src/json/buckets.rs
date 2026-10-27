@@ -406,6 +406,7 @@ fn parse_bucket_update(
                 .as_object()
                 .ok_or_else(|| JsonError::invalid_argument("versioning must be an object"))?;
             boolean(versioning.get("enabled"), "versioning.enabled")
+                .map(|enabled| enabled.or(replace.then_some(false)))
         })
         .transpose()?
         .flatten();

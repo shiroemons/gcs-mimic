@@ -137,15 +137,17 @@ fields, common query rules and response resources are defined above.
 | list / JSON-BUCKETS-006 | Required project; prefix, maxResults, pageToken, projection, softDeleted=false, returnPartialSuccess=false, fields | storage.buckets.list on project; 200 kind/items/nextPageToken; binary keyset order; query-bound token; default/cap 1000 noAcl or 200 full; zero uses default locally; invalid token/query 400 | [CRUD paging](json-bucket-crud.md) |
 | delete / JSON-BUCKETS-001 | Bucket path; fields ignored; no projection | Atomic ifMetagenerationMatch/NotMatch; storage.buckets.delete; native empty body with local status 204 (SPEC-012), missing 404, any retained live/history object 409; failed mutation conditions 412 locally | [core/profile](bucket-core-parity.md), [media races](json-object-media.md) |
 | patch / JSON-BUCKETS-008 | projection, fields; JSON labels key merge/null-key removal, storageClass, versioning.enabled, defaultEventBasedHold; preserve omitted settings | Atomic metageneration conditions; storage.buckets.update; 200 Bucket; invalid input 400, stale comparison 412, unsupported setting 501, missing 404; body-validation/error order is local | [PATCH](bucket-metadata-patch.md) |
-| update / JSON-BUCKETS-013 | projection, fields; replace supported labels/default class/versioning/default hold; accept unchanged rendered location; omitted labels clear, class STANDARD, booleans false locally | Same atomic conditions/permission; 200 Bucket; invalid input 400, stale 412, unsupported 501, missing 404; omitted acl accepted and acl:[] ignored locally, without granting permissions | [PUT](bucket-metadata-put.md) |
+| update / JSON-BUCKETS-013 | projection, fields; replace supplied labels/default class/versioning/default hold; accept unchanged rendered location; preserve every omitted modeled setting locally | Same atomic conditions/permission; 200 Bucket; invalid input 400, stale 412, unsupported 400 badRequest, missing 404; omitted acl accepted and acl:[] ignored locally, without granting permissions | [PUT](bucket-metadata-put.md) |
 
 Bucket PATCH labels:{} preserves keys, labels:null clears under the named local
-interpretation. PUT labels omitted/null clears and per-key null fails. Both
+interpretation. PUT preserves omitted labels; explicit null/empty labels clear
+the map, a supplied map replaces it and per-key null fails. Both
 verbs reject null/empty class; native null booleans fail, legacy null booleans
 reset false. Both accept only exact empty lifecycle.rule without implementing
 lifecycle; unchanged location is compared case-insensitively without relocation.
-Unknown/output-only input handling, no-effect revision increments and omitted
-PUT defaults remain SPEC-BUCKET-PATCH/PUT. Classes are STANDARD, NEARLINE,
+Unknown/output-only input handling, no-effect revision increments and
+PUT omission preservation remain local choices under SPEC-BUCKET-PATCH/PUT,
+without real-GCS verification. Classes are STANDARD, NEARLINE,
 COLDLINE, ARCHIVE, MULTI_REGIONAL and DURABLE_REDUCED_AVAILABILITY; REGIONAL/RAPID
 are 501. Default class updates do not rewrite existing objects.
 

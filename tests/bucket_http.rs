@@ -203,7 +203,10 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
         let put = server.request("PUT", path, &json!({"lifecycle":replacement}).to_string());
         assert_eq!(put.status, 200, "{}", put.body);
         assert_eq!(put.json()["lifecycle"], replacement);
-        let cleared = server.request("PUT", path, "{}");
+        let preserved = server.request("PUT", path, "{}");
+        assert_eq!(preserved.status, 200, "{}", preserved.body);
+        assert_eq!(preserved.json()["lifecycle"], replacement);
+        let cleared = server.request("PUT", path, r#"{"lifecycle":null}"#);
         assert_eq!(cleared.status, 200, "{}", cleared.body);
         assert!(cleared.json().get("lifecycle").is_none());
         let before = cleared.json();
@@ -408,8 +411,8 @@ fn bucket_put_replaces_omitted_fields_and_preserves_resources() {
         assert_eq!(replaced.status, 200, "{}", replaced.body);
         let value = replaced.json();
         assert_eq!(value["labels"], json!({"replace":"only"}));
-        assert_eq!(value["storageClass"], "STANDARD");
-        assert_settings(&value, profile, false, false);
+        assert_eq!(value["storageClass"], "ARCHIVE");
+        assert_settings(&value, profile, true, true);
         assert_eq!(value["metageneration"], "4");
         assert_ne!(value["etag"], merged["etag"]);
         for field in [
@@ -450,7 +453,7 @@ fn bucket_put_replaces_omitted_fields_and_preserves_resources() {
                     "new"
                 )
                 .json()["storageClass"],
-            "STANDARD"
+            "ARCHIVE"
         );
         server.stop();
         let server = profile_server(&dir, profile);
@@ -480,9 +483,13 @@ fn bucket_put_empty_null_and_invalid_inputs() {
             let reply = server.request("PUT", path, body);
             assert_eq!(reply.status, 200, "{}", reply.body);
             let value = reply.json();
-            assert!(value.get("labels").is_none());
-            assert_eq!(value["storageClass"], "STANDARD");
-            assert_settings(&value, profile, false, false);
+            if body == r#"{"labels":{}}"# || body == r#"{"labels":null}"# {
+                assert!(value.get("labels").is_none());
+            } else {
+                assert_eq!(value["labels"], before["labels"]);
+            }
+            assert_eq!(value["storageClass"], "ARCHIVE");
+            assert_settings(&value, profile, body != r#"{"versioning":{}}"#, true);
             assert_eq!(
                 value["metageneration"]
                     .as_str()
@@ -541,6 +548,63 @@ fn bucket_put_empty_null_and_invalid_inputs() {
 }
 
 #[test]
+fn bucket_put_omitted_settings_survive_partial_iam_updates() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let mut server = profile_server(&dir, profile);
+        server.insert("put-settings", "project");
+        let path = "/storage/v1/b/put-settings";
+        let configured = server.request("PUT", path, &json!({
+            "labels":{"keep":"yes"}, "storageClass":"ARCHIVE",
+            "versioning":{"enabled":true}, "defaultEventBasedHold":true,
+            "iamConfiguration":{"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true}},
+            "cors":[{"origin":["https://example.test"],"method":["GET"]}],
+            "lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":30}}]},
+            "retentionPolicy":{"retentionPeriod":"3600"},
+            "softDeletePolicy":{"retentionDurationSeconds":"604800"}
+        }).to_string());
+        assert_eq!(configured.status, 200, "{}", configured.body);
+        let before = configured.json();
+        for body in [
+            "{}",
+            r#"{"iamConfiguration":{"publicAccessPrevention":"inherited"}}"#,
+        ] {
+            let reply = server.request("PUT", path, body);
+            assert_eq!(reply.status, 200, "{}", reply.body);
+            let after = reply.json();
+            for field in [
+                "labels",
+                "storageClass",
+                "versioning",
+                "defaultEventBasedHold",
+                "cors",
+                "lifecycle",
+                "retentionPolicy",
+                "softDeletePolicy",
+            ] {
+                assert_eq!(after[field], before[field], "{profile}: {body}: {field}");
+            }
+            assert_eq!(
+                after["iamConfiguration"]["uniformBucketLevelAccess"],
+                before["iamConfiguration"]["uniformBucketLevelAccess"]
+            );
+            assert_eq!(
+                after["iamConfiguration"]["publicAccessPrevention"],
+                if body == "{}" {
+                    "enforced"
+                } else {
+                    "inherited"
+                }
+            );
+        }
+        let after = server.request("GET", path, "").json();
+        server.stop();
+        let server = profile_server(&dir, profile);
+        assert_eq!(server.request("GET", path, "").json(), after);
+    }
+}
+
+#[test]
 fn bucket_put_null_settings_follow_profile_defaults() {
     for profile in PROFILES {
         let dir = TestDir::new();
@@ -559,9 +623,10 @@ fn bucket_put_null_settings_follow_profile_defaults() {
                 assert_eq!(server.request("GET", path, "").json(), before);
             } else {
                 assert_eq!(reply.status, 200, "{}", reply.body);
-                assert_settings(&reply.json(), profile, false, false);
-                assert!(reply.json().get("labels").is_none());
-                assert_eq!(reply.json()["storageClass"], "STANDARD");
+                let hold_null = body == r#"{"defaultEventBasedHold":null}"#;
+                assert_settings(&reply.json(), profile, hold_null, !hold_null);
+                assert_eq!(reply.json()["labels"], before["labels"]);
+                assert_eq!(reply.json()["storageClass"], "ARCHIVE");
             }
         }
     }
@@ -1281,7 +1346,7 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
         assert_eq!(reply.status, 200, "{}", reply.body);
         let after = reply.json();
         assert_eq!(after["labels"], json!({"after":"yes"}));
-        assert_settings(&after, profile, false, false);
+        assert_settings(&after, profile, true, true);
         assert_ne!(after["etag"], populated["etag"]);
         assert_eq!(
             server.request("GET", &format!("{path}/iam"), "").json(),
@@ -1290,7 +1355,7 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
         let reply = server.request("PUT", path, r#"{"versioning":{"enabled":true,"future":1}}"#);
         assert_eq!(reply.status, 200, "{}", reply.body);
         let after = reply.json();
-        assert_settings(&after, profile, true, false);
+        assert_settings(&after, profile, true, true);
         assert_eq!(server.request("GET", path, "").json(), after);
         for body in [
             json!({"acl":[{"entity":"allUsers","role":"READER"}]}),
@@ -1786,15 +1851,7 @@ fn bucket_metadata_settings(method: &str) {
         );
         assert_eq!(
             server
-                .request(
-                    method,
-                    path,
-                    if method == "PUT" {
-                        r#"{"versioning":{"enabled":true}}"#
-                    } else {
-                        r#"{"defaultEventBasedHold":false}"#
-                    }
-                )
+                .request(method, path, r#"{"defaultEventBasedHold":false}"#)
                 .status,
             200
         );
@@ -1814,15 +1871,7 @@ fn bucket_metadata_settings(method: &str) {
         assert!(third.get("eventBasedHold").is_none());
         assert_eq!(
             server
-                .request(
-                    method,
-                    path,
-                    if method == "PUT" {
-                        "{}"
-                    } else {
-                        r#"{"versioning":{"enabled":false}}"#
-                    }
-                )
+                .request(method, path, r#"{"versioning":{"enabled":false}}"#)
                 .status,
             200
         );
@@ -3010,9 +3059,13 @@ fn bucket_cors_metadata_round_trip_conditions_replacement_and_restart() {
             .request("PUT", path, &json!({"cors":updated_rules}).to_string())
             .json();
         assert_eq!(replaced["cors"], updated_rules);
+        assert_eq!(
+            server.request("PUT", path, "{}").json()["cors"],
+            updated_rules
+        );
         assert!(
             server
-                .request("PUT", path, "{}")
+                .request("PUT", path, r#"{"cors":[]}"#)
                 .json()
                 .get("cors")
                 .is_none()

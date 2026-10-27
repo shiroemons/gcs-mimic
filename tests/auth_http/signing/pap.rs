@@ -110,7 +110,7 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
         let replaced = server.request("PUT", BUCKET, ADMIN, b"{}").ok().json();
         assert_eq!(
             replaced["iamConfiguration"]["publicAccessPrevention"],
-            "inherited"
+            "enforced"
         );
         let before = setting(&server, "enforced");
         server.stop();

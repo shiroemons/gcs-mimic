@@ -1042,6 +1042,7 @@ SDK の 5xx リトライとリソース不在の誤認を防ぐローカルの�
 | 7 | `sdk-object-move` | JSON-OBJECTS-009、BEHAVIOR-OBJECT-028 | 同一バケット内の原子的な move | 段 5 の fail-fast |
 | 8 | `sdk-soft-delete-restore` | BEHAVIOR-BUCKET-015、BEHAVIOR-OBJECT-030、BEHAVIOR-OBJECT-031、JSON-OBJECTS-011 | soft delete と一覧・復元 | 段 5 の fail-fast |
 | 8 | `sdk-retention-policy` | BEHAVIOR-OBJECT-036、JSON-BUCKETS-007 | 保持ポリシーとロックの効果を検証する | 段 5 の fail-fast |
+| 9 | `sdk-ruby-bucket-update-put` | JSON-BUCKETS-013 | Ruby の update ブロックと PUT で省略した設定を維持し、明示した値の既存契約を保つ | 段 5 の fail-fast |
 
 段 8 の `sdk-soft-delete-restore` は、設定・世代保持・削除済み一覧/取得・原子的な復元を
 Go・Ruby の HTTP テストで確認済み。4機能行は未対応の相互作用と仕様差を明記して PARTIAL とし、

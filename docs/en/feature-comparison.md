@@ -51,7 +51,7 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | List live buckets with prefix and pagination (`buckets.list`) | ✅ Project/prefix filters and keyset paging | ✅ Prefix and paging | 🚧 All buckets; no prefix/paging |
 | Bucket delete (`buckets.delete`) | ✅ Empty-bucket deletion; source response via compatibility profile | ✅ Empty-bucket deletion | ✅ Empty-bucket deletion |
 | Bucket labels/default `storageClass` PATCH (merge/remove; `buckets.patch`) | ✅ Merge/key-null removal, whole-map null clearing (local interpretation), empty-map preservation and supported default class | ❌ Executed: labels/class ignored; other PATCH settings exist | 🚧 Source review: assigns fields; no label-key merge/null removal |
-| Bucket labels/default `storageClass` PUT (replacement/defaults; `buckets.update`) | ✅ Executed HTTP/Go/native/Docker replacement and GET consistency; omitted/null labels clear, omitted class STANDARD (local defaults; SPEC-BUCKET-PUT) | ❌ Executed: all 32 PUT cases return JSON 404 on each pinned backend; metadata/bytes preserved | ❌ No bucket PUT route in pinned `server.py`; source review only |
+| Bucket labels/default `storageClass` PUT (`buckets.update`) | ✅ HTTP/Go/Ruby preserve omitted settings; supplied labels replace the map, null clears (local SDK choice; SPEC-BUCKET-PUT). Historical native/Docker runs used omission resets | ❌ Executed: all 32 PUT cases return JSON 404 on each pinned backend; metadata/bytes preserved | ❌ No bucket PUT route in pinned `server.py`; source review only |
 | Single-request raw media upload | ✅ Bounded streamed bytes | ✅ | ✅ |
 | Single-request JSON multipart metadata + media upload | ✅ Bounded metadata/media; optional checksum part also supported | ✅ | ✅ |
 | JSON resumable initiation, chunks, status and finalization | ✅ Also scoped cancellation, seven-day expiry and restart recovery | ✅ Sessions and chunk uploads | ✅ Initiation, chunks, status and finalization |
@@ -92,7 +92,7 @@ retention, lifecycle and other advanced fields are outside these rows.
 | Row | Requirements for ✅ within this field set |
 | --- | --- |
 | Bucket PATCH | Merge labels, remove selected label keys, update the supported default class and preserve omitted fields; empty labels merges no keys, labels:null clears the map; null/empty class is rejected. These null/empty rules are declared local choices pending SPEC-BUCKET-PATCH, not service-verified. |
-| Bucket PUT | Replace all labels and the supported default class; omitted/null labels clear, omitted class becomes STANDARD, null/empty class fails. Freeze PUT independently of PATCH; these defaults are local choices pending SPEC-BUCKET-PUT. |
+| Bucket PUT | Preserve omitted settings; replace a supplied labels map, clear null/empty labels, reject null/empty class. This local choice supports Ruby update blocks and remains unverified against GCS under SPEC-BUCKET-PUT. |
 | Object PATCH | Change only supplied fixed fields; merge custom keys; null clears a fixed field or the map and removes individual custom keys; preserve other keys and empty-string custom values. |
 | Object PUT | Replace all scoped fixed/custom metadata; reset omitted fixed fields and custom metadata, including clearing `contentEncoding`; absent content type serves as `application/octet-stream`. |
 
@@ -114,9 +114,9 @@ consistency. Bucket PATCH uses the [frozen contract](slices/bucket-metadata-patc
 clearing interprets the general PATCH deletion rule; scalar null/default,
 unknown/output-only input and no-effect revision behavior remain unverified
 against Google. The broader method rows remain `PARTIAL`. Bucket PUT uses its independently
-[frozen replacement contract](slices/bucket-metadata-put.md) and
-[final integration evidence](evidence/bucket-metadata-put.md).
-Omitted-field defaults, null settings and
+[omission-preserving local contract](slices/bucket-metadata-put.md) and
+[historical integration evidence](evidence/bucket-metadata-put.md).
+Omitted-field preservation, null settings and
 revision/error choices remain explicit local policy under SPEC-BUCKET-PUT.
 
 The scoped checkmarks above use recorded execution evidence:

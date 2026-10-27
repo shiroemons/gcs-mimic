@@ -187,9 +187,9 @@ retrying a committed conditioned upload fails 412 instead of writing again.
 `cloud.google.com/go/storage` `BucketHandle.Update` sends PATCH and is retained
 as the merge contrast. No modules or checksums change.
 
-The PUT journey replaces labels, sets the supported class/versioning/default
-hold fields, then verifies that omitted labels clear and omitted settings reset
-to STANDARD/false. Both metageneration conditions have success and 412 cases;
+The PUT journey replaces supplied labels, sets class/versioning/default holds,
+then verifies that PAP-only and empty PUT preserve omitted labels and settings.
+Both metageneration conditions have success and 412 cases;
 failed requests preserve metadata. PUT responses agree with high-level Attrs,
 advance one metageneration, change the etag and preserve identity and existing
 object generations/bytes. `TestStrictAuthBucketMetadataReplace` verifies viewer

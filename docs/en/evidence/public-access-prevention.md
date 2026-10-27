@@ -54,9 +54,11 @@ exclude that raw log.
   source/destination metadata, generation and bytes and delete no compose source.
 - Metadata mutations require update permission, adding setIamPolicy only when
   the resulting configured PAP value changes. Unit coverage includes both
-  stored values, PATCH preservation, PUT implicit reset, label changes, revision
+  stored values, PATCH preservation, the historical PUT implicit reset, label changes, revision
   increments and atomic denial. The registry has no update-only predefined role,
   so this specific authority is tested directly at the shared catalog boundary.
+  The current PUT contract preserves omitted PAP; the historical implicit-reset
+  result above does not describe current behavior (SPEC-BUCKET-PUT).
 - The exact Python 3.4.1 IAM configuration body with disabled UBLA passes
   insert/PATCH/PUT. The disabled legacy alias also works; enabled UBLA,
   lockedTime, malformed types and unsupported empty/null forms still return 501.

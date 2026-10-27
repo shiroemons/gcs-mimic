@@ -630,17 +630,17 @@ if [[ $reference_only == 0 ]]; then
                     and $after.updated >= $after.timeCreated and $after.timeCreated == $before.timeCreated
                     and $after.name == $before.name and $after.id == $before.id
                     and $after.location == $before.location and $after.projectNumber == $before.projectNumber
-                    and ($after.labels // {}) == ($input.labels // {})
-                    and $after.storageClass == ($input.storageClass // "STANDARD")
-                    and ($after.versioning.enabled // false) == ($input.versioning.enabled // false)
-                    and ($after.defaultEventBasedHold // false) == ($input.defaultEventBasedHold // false)
+                    and ($after.labels // {}) == (if $input | has("labels") then $input.labels // {} else $before.labels // {} end)
+                    and $after.storageClass == ($input.storageClass // $before.storageClass)
+                    and ($after.versioning.enabled // false) == (if $input | has("versioning") then $input.versioning.enabled // false else $before.versioning.enabled // false end)
+                    and ($after.defaultEventBasedHold // false) == (if $input | has("defaultEventBasedHold") then $input.defaultEventBasedHold // false else $before.defaultEventBasedHold // false end)
                 else $after == $before end))
               | .previous[$name] = $after
             end) | .ok)
         and (resource($rows; "put-objects").items | map(.name)) == ["kept.txt"]
         and $rows["put-object-bytes"].body == "PUT preserved payload")
   ' "$work/results.jsonl" >/dev/null
-  echo 'PUT-ASSERT mimic profiles replace/default metadata, enforce conditions and preserve objects: PASS'
+  echo 'PUT-ASSERT mimic profiles preserve omitted metadata, enforce conditions and preserve objects: PASS'
 fi
 
 echo

@@ -59,7 +59,8 @@ JSON create/GET/list/PATCH/PUT persist the ordered `cors` array. Each rule has
 string arrays `origin`, `method`, `responseHeader` and optional nonnegative
 signed-32-bit `maxAgeSeconds`. Omitted max age evaluates to 3600.
 PATCH omission preserves rules; an array replaces them and `[]`/null clears
-them. PUT omission resets the rules. Unknown fields retain existing bucket
+them. PUT omission preserves the rules under the local choice in SPEC-BUCKET-PUT,
+without real-GCS verification. Unknown fields retain existing bucket
 adapter behavior. Configuration is bounded by the existing 64 KiB metadata
 body/catalog limits. Invalid types, unsafe header names/values and invalid age
 fail before mutation. Updates use the existing atomic metageneration condition

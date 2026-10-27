@@ -2,6 +2,11 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+This is historical evidence for the omission-reset policy. The current
+[PUT contract](../slices/bucket-metadata-put.md) preserves omitted settings.
+PUT-ASSERT was updated for that policy and the shared unsupported response;
+the comparison has not been rerun, so PUT-REFERENCE is PENDING.
+
 Checked and executed on **2026-10-23** against final application, tests, SDK and
 comparison source `c8d327a47446c0340796c87f06c6635059bc1db0`, from verification
 checkout `ff084a91f8b26e67f46b6c36a040538c521bae86`.

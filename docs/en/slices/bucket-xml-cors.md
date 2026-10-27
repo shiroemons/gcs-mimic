@@ -42,7 +42,7 @@ header formatting have not been established by real-cloud differential tests.
 | --- | --- |
 | Create/get/list | JSON create persists ordered CORS rules. Bucket resources expose nonempty rules and omit an empty configuration. Unknown rule fields follow existing ignored-input behavior. |
 | PATCH | Omitted `cors` preserves rules; a supplied list replaces all rules; `[]` or `null` clears them. |
-| PUT | Supplied rules replace all rules; omitted, `[]` or `null` clears them, matching the existing modeled-field replacement profile. |
+| PUT | Omitted `cors` preserves rules; supplied rules replace all rules; explicit `[]` or `null` clears them. Omission preservation is a local SDK compatibility choice under SPEC-BUCKET-PUT, without real-GCS verification. |
 | Schema | Rules are objects; origin/method/responseHeader are optional string arrays; maxAgeSeconds is an optional nonnegative int32. Empty rules/list fields have no match. Empty/whitespace/control-bearing origins, invalid HTTP method/header tokens and negative/overflow/fraction/string max age fail with 400 and preserve the entire bucket. |
 | Limits | Existing bounded JSON metadata bodies and the 64 KiB stored CORS limit remain unchanged, including empty rules. Expanded bucket-list pages use the budget below, independently of `fields`. Catalog concurrency, SQLite cache and queues retain their existing limits. Object bytes never enter this metadata path. |
 | Permissions | Existing strict `storage.buckets.create`, `storage.buckets.get` and `storage.buckets.update` checks apply. Update authorization and metageneration conditions run in the same catalog transaction as CORS mutation. |
@@ -114,7 +114,7 @@ cursor boundaries. The Google listing allowance above was checked on
 
 The bucket HTTP tests cover both native and legacy-emulator resource profiles,
 create/get, ignored unknown rule fields, PATCH preservation/replacement/null and
-empty clearing, PUT replacement/default clearing, restart, malformed input and
+empty clearing, PUT replacement/omission preservation/explicit clearing, restart, malformed input and
 eight-way conditioned mutation. XML unit tests cover ordered matching, headers,
 wildcards, max-age default/zero, credentials, malformed/duplicate input and
 subdomain boundaries. Integrated strict-auth/browser/SDK evidence is recorded

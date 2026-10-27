@@ -700,7 +700,7 @@ mod tests {
                             .patch_bucket("pap-permissions", update, None, None, &access)
                             .await
                     };
-                    let expected = value.unwrap_or(!replace && enforced);
+                    let expected = value.unwrap_or(enforced);
                     if expected == enforced {
                         let after = result.unwrap();
                         assert_eq!(after.public_access_prevention_enforced, enforced);

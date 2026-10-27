@@ -6,8 +6,9 @@ edge details and excluded interactions.
 
 ## Acceptance contract
 
-- RETENTION-CONFIG: insert, PATCH and PUT set/change a period; PATCH null removes
-  an unlocked policy. Return effectiveTime and isLocked. Accept empty defaults.
+- RETENTION-CONFIG: insert, PATCH and PUT set/change a period; PATCH/PUT null removes
+  an unlocked policy. PUT omission preserves it. Return effectiveTime and isLocked.
+  Accept empty defaults.
 - RETENTION-RANGE: require integral seconds greater than zero and less than
   3,155,760,000; reject invalid input without changing state.
 - RETENTION-METADATA: return creation time plus the current period as

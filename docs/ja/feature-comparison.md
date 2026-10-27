@@ -44,7 +44,8 @@ composeはgcs-mimicの宣言済みローカル範囲で、1〜32個の世代を�
 | オブジェクトの標準・独自メタデータPATCH | ✅ | ◐ null削除なし | ◐ マップを置換 |
 | オブジェクトの標準・独自メタデータPUT | ✅ | ◐ 一部項目を保持 | ❌ |
 
-PATCHは省略項目を保持する部分更新、PUTは省略項目のリセットを含む置換で比較します。
+バケットのPATCH・PUTは省略項目を保持し、PUTは指定したlabelsのマップを全置換します。
+オブジェクトのPUTは省略項目のリセットを含む置換で比較します。
 標準メタデータはContent-Typeなどの内容属性で、オブジェクト本体は変更しません。
 対象フィールド、nullの扱い、gcs-mimic独自の既定値は
 [英語版の更新条件](../en/feature-comparison.md#metadata-update-comparison-criteria)

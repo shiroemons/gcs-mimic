@@ -2,6 +2,12 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+This is historical evidence for the original omission-reset contract. The
+2026-10-27 [Ruby PUT revision](../slices/bucket-metadata-put.md#sdk-omission-preservation-verification)
+preserves omitted settings; its current checks are recorded in that contract.
+The container, reference and Docker guide runs below were not repeated for that revision.
+The current native PUT block passes separately on 2026-10-27; see the contract.
+
 Verified on **2026-10-23**. Final application, HTTP/catalog tests, Go SDK tests
 and comparison script are source `c8d327a47446c0340796c87f06c6635059bc1db0`.
 Heavy checks ran from `ff084a91f8b26e67f46b6c36a040538c521bae86`, which adds

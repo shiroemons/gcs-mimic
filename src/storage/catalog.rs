@@ -971,7 +971,7 @@ impl Catalog {
                 .map_err(unavailable)?
                 .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &record.project, &access)?;
-            let pap = update.public_access_prevention_enforced.unwrap_or(!replace && record.public_access_prevention_enforced);
+            let pap = update.public_access_prevention_enforced.unwrap_or(record.public_access_prevention_enforced);
             if pap != record.public_access_prevention_enforced
                 && let BucketAccess::Policy { identity, project, .. } = &access
             {
@@ -1025,7 +1025,7 @@ impl Catalog {
                     return Err(CatalogError::InvalidMetadata("Retention policy is already locked".into()));
                 }
                 policy.is_locked = true;
-            } else if let Some(period) = update.retention_period.or(if replace { Some(None) } else { None }) {
+            } else if let Some(period) = update.retention_period {
                 if let Some(policy) = record.retention_policy.as_ref().filter(|p| p.is_locked && period.is_none_or(|period| period < p.retention_period)) {
                     return Err(CatalogError::RetentionPolicyLocked(policy.retention_period));
                 }
@@ -1041,16 +1041,10 @@ impl Catalog {
                     record.retention_policy = None;
                 }
             }
-            if replace {
-                record.cors.clear();
-                record.lifecycle.clear();
-                record.labels.clear();
-                record.storage_class = "STANDARD".into();
-                record.versioning_enabled = false;
-                record.default_event_based_hold = false;
-                record.public_access_prevention_enforced = false;
-            }
             if let Some(labels) = update.labels {
+                if replace {
+                    record.labels.clear();
+                }
                 if let Some(labels) = labels {
                     for (key, value) in labels {
                         // Library callers can bypass adapter validation.

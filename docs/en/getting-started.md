@@ -272,10 +272,10 @@ CORS, retention, predefined ACL queries and `userProject` return 501;
 
 ## Replace bucket labels and default storage class
 
-PUT replaces the modeled metadata rather than merging it. Omitted or null labels
-clear the map; omitted class becomes STANDARD and omitted versioning/default
-hold settings become false. These defaults are explicit local choices pending
-SPEC-BUCKET-PUT, not provider-verified defaults. Existing objects, retained
+PUT preserves omitted modeled settings. A supplied labels map replaces all keys;
+null/empty labels clear it, and versioning:{} disables versioning. This is a
+local choice supporting Ruby update blocks under SPEC-BUCKET-PUT, without
+real-GCS verification. Existing objects, retained
 versions, holds, identity and IAM policy survive replacement. Changing a default
 class does not rewrite existing objects or simulate physical placement.
 
@@ -295,7 +295,7 @@ jq -e --argjson prior "$put_revision" \
   "$put_dir/replaced.json"
 curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' \
   --data '{}' "$endpoint/storage/v1/b/demo-bucket" > "$put_dir/reset.json"
-jq -e '(.labels // {}) == {} and .storageClass == "STANDARD" and (.versioning.enabled // false) == false and (.defaultEventBasedHold // false) == false' \
+jq -e '.labels == {"stage":"replacement"} and .storageClass == "COLDLINE" and .versioning.enabled and .defaultEventBasedHold' \
   "$put_dir/reset.json"
 put_status=$(curl --disable --noproxy '*' --silent --show-error -o "$put_dir/stale.json" \
   -w '%{http_code}' -X PUT -H 'Content-Type: application/json' --data '{"labels":{"stage":"stale"}}' \
@@ -312,20 +312,23 @@ conditions leave the resource unchanged. Strict mode requires
 `storage.buckets.update`. A supplied labels map replaces all keys, and per-key
 null is invalid. Null/empty class is invalid in both profiles; native null
 boolean settings are invalid, while legacy null settings become false.
-Unsupported settings and ACL/billing queries return 501; projections expose
+Unsupported settings and ACL/billing queries return 400 badRequest; projections expose
 the modeled subset without ACL/owner. See the [contract](slices/bucket-metadata-put.md)
 for accepted full-resource round trips and remaining provider questions.
 
 The [final PUT verification](evidence/bucket-metadata-put.md) records execution
-of the shared create/PATCH/PUT blocks against the native release binary and
-locally built Docker image, including exact resource equality after restart.
+of the original shared create/PATCH/PUT blocks against the native release binary
+and Docker image. Those historical runs predate the omission-preserving policy;
+the current Rust/SDK checks are recorded in the PUT contract.
+The updated native PUT block passes on 2026-10-27; the Docker block and restart
+were not rerun for omission preservation.
 
 ## Verify bucket versioning and default holds
 
 Create-time `versioning.enabled` retains overwritten or deleted generations.
 `defaultEventBasedHold` protects newly uploaded bytes until explicitly released.
 This native walkthrough also works with the compatibility profile; PATCH changes
-supplied defaults and PUT replaces them, including resetting omitted settings.
+supplied defaults and PUT also preserves omitted settings.
 
 ```sh
 history_dir=$(mktemp -d)
@@ -996,7 +999,7 @@ rm -r "$cors_dir"
 
 An XML response without Allow-Origin is intentionally unreadable by a browser;
 curl still sees the normal API response. `cors: []` or null clears rules,
-PATCH omission preserves them, and PUT omission clears them. A missing max age
+PATCH and PUT omission preserve them. A missing max age
 uses 3600 seconds. Whole-origin `*` and `scheme://*.domain` rules are supported.
 HTTP port 80 and HTTPS port 443 match their omitted equivalents; custom schemes
 have no inferred default port. XML never sends Allow-Credentials. Bearer headers
