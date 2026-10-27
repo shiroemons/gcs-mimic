@@ -13,7 +13,18 @@ const DEADLINE: Duration = Duration::from_millis(150);
 
 async fn start<S, F>(service: S) -> (TcpStream, watch::Sender<bool>, JoinHandle<()>)
 where
-    S: Fn(hyper::Request<Incoming>) -> F + Send + Sync + 'static,
+    S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
+    F: Future<Output = Result<hyper::Response<tonic::body::Body>, Infallible>> + Send + 'static,
+{
+    start_with_bound(STREAM_INACTIVITY_TIMEOUT, service).await
+}
+
+async fn start_with_bound<S, F>(
+    bound: Duration,
+    service: S,
+) -> (TcpStream, watch::Sender<bool>, JoinHandle<()>)
+where
+    S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
     F: Future<Output = Result<hyper::Response<tonic::body::Body>, Infallible>> + Send + 'static,
 {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -27,12 +38,18 @@ where
             connection_timeout_ms: DEADLINE.as_millis() as u64,
             ..Config::default()
         };
-        serve_with_service(server, &config, stopping, service).await;
+        serve_with_service(server, &config, stopping, bound, service).await;
     });
     (client, stop, task)
 }
 
-async fn send_frame(client: &mut TcpStream, kind: u8, flags: u8, stream: u32, data: &[u8]) {
+async fn send_frame(
+    client: &mut (impl AsyncWriteExt + Unpin),
+    kind: u8,
+    flags: u8,
+    stream: u32,
+    data: &[u8],
+) {
     let length = data.len() as u32;
     let mut header = [0; 9];
     header[..3].copy_from_slice(&length.to_be_bytes()[1..]);
@@ -56,7 +73,7 @@ async fn request(client: &mut TcpStream, stream: u32) {
     send_frame(client, 1, 5, stream, &[0x83, 0x86, 0x04, 1, b'/']).await;
 }
 
-async fn frame(client: &mut TcpStream) -> Option<(u8, u8, Vec<u8>)> {
+async fn frame(client: &mut (impl AsyncReadExt + Unpin)) -> Option<(u8, u8, Vec<u8>)> {
     let mut header = [0; 9];
     match client.read_exact(&mut header).await {
         Ok(_) => {}
@@ -70,7 +87,7 @@ async fn frame(client: &mut TcpStream) -> Option<(u8, u8, Vec<u8>)> {
     Some((header[3], header[4], data))
 }
 
-async fn acknowledge(client: &mut TcpStream, kind: u8, flags: u8, data: &[u8]) {
+async fn acknowledge(client: &mut (impl AsyncWriteExt + Unpin), kind: u8, flags: u8, data: &[u8]) {
     if flags & 1 == 0 && matches!(kind, 4 | 6) {
         send_frame(client, kind, 1, 0, if kind == 6 { data } else { &[] }).await;
     }
@@ -151,6 +168,89 @@ async fn grpc_idle_never_cuts_in_flight_streams() {
 }
 
 #[tokio::test]
+async fn grpc_silent_open_stream_is_bounded() {
+    for pending_response in [true, false] {
+        let (_sender, body) = Channel::<Bytes, Infallible>::new(1);
+        let body = Arc::new(std::sync::Mutex::new(Some(body)));
+        let (mut client, _stop, task) = start_with_bound(DEADLINE * 3, move |_| {
+            let body = body.clone();
+            async move {
+                if pending_response {
+                    std::future::pending::<()>().await;
+                }
+                Ok(hyper::Response::new(tonic::body::Body::new(
+                    body.lock().unwrap().take().unwrap(),
+                )))
+            }
+        })
+        .await;
+        handshake(&mut client).await;
+        request(&mut client, 1).await;
+        // PING acknowledgements keep the peer alive, but must not renew the silence bound.
+        let started = Instant::now();
+        closed_with_goaway(&mut client).await;
+        assert!(started.elapsed() >= DEADLINE * 3);
+        timeout(DEADLINE * 2, task).await.unwrap().unwrap();
+    }
+}
+
+#[tokio::test]
+async fn grpc_active_stream_survives_past_bound() {
+    for incoming in [true, false] {
+        let (mut sender, body) = Channel::<Bytes, Infallible>::new(1);
+        let body = Arc::new(std::sync::Mutex::new(Some(body)));
+        let (mut client, stop, task) = start_with_bound(DEADLINE * 3, move |mut request| {
+            let body = body.clone();
+            async move {
+                if incoming {
+                    while let Some(frame) = request.body_mut().frame().await {
+                        frame.unwrap();
+                    }
+                }
+                Ok(hyper::Response::new(tonic::body::Body::new(
+                    body.lock().unwrap().take().unwrap(),
+                )))
+            }
+        })
+        .await;
+        handshake(&mut client).await;
+        send_frame(&mut client, 1, 4, 1, &[0x83, 0x86, 0x04, 1, b'/']).await;
+        let (mut reader, mut writer) = client.into_split();
+        let (ack, mut acks) = tokio::sync::mpsc::channel::<Vec<u8>>(8);
+        let producer = tokio::spawn(async move {
+            let mut tick = tokio::time::interval(DEADLINE);
+            loop {
+                tokio::select! {
+                    _ = tick.tick() => {
+                        if incoming {
+                            send_frame(&mut writer, 0, 0, 1, b"progress").await;
+                        } else {
+                            sender.send_data(Bytes::from_static(b"progress")).await.unwrap();
+                        }
+                    }
+                    Some(data) = acks.recv() => {
+                        send_frame(&mut writer, 6, 1, 0, &data).await;
+                    }
+                }
+            }
+        });
+        let until = Instant::now() + DEADLINE * 7;
+        while let Ok(next) = tokio::time::timeout_at(until, frame(&mut reader)).await {
+            let (kind, flags, data) = next.expect("active stream must remain connected");
+            assert_ne!(kind, 7, "progress must prevent silence GOAWAY");
+            if kind == 6 && flags & 1 == 0 {
+                ack.send(data).await.unwrap();
+            }
+        }
+        assert!(!task.is_finished());
+        producer.abort();
+        let _ = producer.await;
+        stop.send_replace(true);
+        timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+    }
+}
+
+#[tokio::test]
 async fn grpc_dead_peer_is_detected_by_keepalive() {
     let (mut client, _stop, task) = start(|_| async {
         std::future::pending::<Result<hyper::Response<tonic::body::Body>, Infallible>>().await
@@ -201,12 +301,15 @@ async fn grpc_goaway_has_bounded_grace() {
 
 #[test]
 fn grpc_response_drop_releases_stream_count() {
-    let (count, receiver) = watch::channel(1);
+    let (count, receiver) = watch::channel(Activity {
+        streams: 1,
+        last_frame: Instant::now(),
+    });
     let (_sender, body) = Channel::<Bytes, Infallible>::new(1);
     let body = ResponseBody {
         body: tonic::body::Body::new(body),
         active: Some(StreamGuard(count)),
     };
     drop(body);
-    assert_eq!(*receiver.borrow(), 0);
+    assert_eq!(receiver.borrow().streams, 0);
 }

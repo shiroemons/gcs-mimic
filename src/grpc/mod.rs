@@ -8,6 +8,7 @@ pub mod generated {
 }
 
 use crate::{config::Config, server::State};
+use http_body_util::BodyExt;
 use hyper::{body::Incoming, server::conn::http2, service::service_fn};
 use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use std::{
@@ -21,6 +22,8 @@ use std::{
 use tokio::{net::TcpStream, sync::watch};
 use tonic::codegen::Service;
 
+const STREAM_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(60);
+
 pub(crate) async fn serve_connection(
     stream: TcpStream,
     config: &Config,
@@ -28,23 +31,35 @@ pub(crate) async fn serve_connection(
     stopping: watch::Receiver<bool>,
 ) {
     let service = v2::service(state);
-    serve_with_service(stream, config, stopping, move |request| {
-        let mut service = service.clone();
-        async move {
-            if !v2::known_method(request.uri().path()) {
-                return Ok(v2::status::unsupported("unknown service or method").into_http());
+    serve_with_service(
+        stream,
+        config,
+        stopping,
+        STREAM_INACTIVITY_TIMEOUT,
+        move |request| {
+            let mut service = service.clone();
+            async move {
+                if !v2::known_method(request.uri().path()) {
+                    return Ok(v2::status::unsupported("unknown service or method").into_http());
+                }
+                service.call(request).await
             }
-            service.call(request).await
-        }
-    })
+        },
+    )
     .await;
 }
 
-struct StreamGuard(watch::Sender<usize>);
+#[derive(Clone, Copy)]
+struct Activity {
+    streams: usize,
+    last_frame: tokio::time::Instant,
+}
+
+struct StreamGuard(watch::Sender<Activity>);
 
 impl Drop for StreamGuard {
     fn drop(&mut self) {
-        self.0.send_modify(|count| *count -= 1);
+        self.0.send_modify(|activity| activity.streams -= 1);
     }
 }
 
@@ -81,12 +96,16 @@ async fn serve_with_service<S, F>(
     stream: TcpStream,
     config: &Config,
     mut stopping: watch::Receiver<bool>,
+    stream_timeout: Duration,
     service: S,
 ) where
-    S: Fn(hyper::Request<Incoming>) -> F + Send + Sync + 'static,
+    S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
     F: Future<Output = Result<hyper::Response<tonic::body::Body>, Infallible>> + Send + 'static,
 {
-    let (active, mut progress) = watch::channel(0usize);
+    let (active, mut progress) = watch::channel(Activity {
+        streams: 0,
+        last_frame: tokio::time::Instant::now(),
+    });
     let timeout = Duration::from_millis(config.connection_timeout_ms);
     let mut builder = http2::Builder::new(TokioExecutor::new());
     builder
@@ -99,13 +118,31 @@ async fn serve_with_service<S, F>(
     let connection = builder.serve_connection(
         TokioIo::new(stream),
         service_fn(move |request: hyper::Request<Incoming>| {
-            active.send_modify(|count| *count += 1);
+            active.send_modify(|activity| {
+                activity.streams += 1;
+                activity.last_frame = tokio::time::Instant::now();
+            });
             let guard = StreamGuard(active.clone());
+            let incoming = active.clone();
+            let outgoing = active.clone();
+            let request = request.map(|body| {
+                tonic::body::Body::new(body.map_frame(move |frame| {
+                    incoming
+                        .send_modify(|activity| activity.last_frame = tokio::time::Instant::now());
+                    frame
+                }))
+            });
             let response = service(request);
             async move {
                 let response = response.await?;
+                outgoing.send_modify(|activity| activity.last_frame = tokio::time::Instant::now());
                 Ok::<_, Infallible>(response.map(|body| ResponseBody {
-                    body,
+                    body: tonic::body::Body::new(body.map_frame(move |frame| {
+                        outgoing.send_modify(|activity| {
+                            activity.last_frame = tokio::time::Instant::now()
+                        });
+                        frame
+                    })),
                     active: Some(guard),
                 }))
             }
@@ -144,13 +181,21 @@ async fn serve_with_service<S, F>(
                 shutting_down = true;
                 idle.as_mut().reset(deadline);
             }
-            Ok(()) = progress.changed(), if !draining => idle.as_mut().reset(tokio::time::Instant::now() + timeout),
-            _ = &mut idle, if draining || *progress.borrow() == 0 => {
+            Ok(()) = progress.changed(), if !draining => {
+                let activity = *progress.borrow_and_update();
+                let bound = if activity.streams == 0 { timeout } else { stream_timeout };
+                idle.as_mut().reset(activity.last_frame + bound);
+            }
+            _ = &mut idle => {
                 if draining {
                     crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "grpc_drain_timeout", serde_json::json!({"message":"gRPC GOAWAY grace expired with an incomplete handshake or unfinished stream; finish client streams or raise connection_timeout_ms, for example 10000; for SIGTERM also raise shutdown_timeout_ms, for example 20000","shutdown":shutting_down}));
                     break;
                 }
-                crate::diagnostics::emit(crate::diagnostics::LogLevel::Debug, "grpc_idle_timeout", serde_json::json!({"message":"gRPC connection idle deadline exceeded; sending GOAWAY; reconnect or raise connection_timeout_ms, for example 10000"}));
+                if progress.borrow().streams == 0 {
+                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Debug, "grpc_idle_timeout", serde_json::json!({"message":"gRPC connection idle deadline exceeded; sending GOAWAY; reconnect or raise connection_timeout_ms, for example 10000"}));
+                } else {
+                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_stream_inactivity_timeout", serde_json::json!({"message":"gRPC stream remained open without request or response frames for 60 seconds; sending GOAWAY; send periodically or close and reopen the stream"}));
+                }
                 connection.as_mut().graceful_shutdown();
                 draining = true;
                 idle.as_mut().reset(tokio::time::Instant::now() + timeout);

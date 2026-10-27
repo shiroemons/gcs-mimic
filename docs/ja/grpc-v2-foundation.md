@@ -29,7 +29,13 @@ strictは共有AuthでBearerを判定し、ローカルprincipalを各RPCグル�
 `connection_timeout_ms`は開いているストリームがない接続の無通信期限です。
 `grpc_idle_connection_closes_with_goaway`では、期限切れにGOAWAYを送ってから閉じ、HTTPと共有する接続枠を解放します。
 `grpc_idle_never_cuts_in_flight_streams`では、リクエスト開始からレスポンス本文の終了・dropまで数を保持し、
-応答待ちや本文のフレーム間隔が期限を超えてもアイドル扱いしません。減算はDropで行います。
+応答待ちや本文のフレーム間隔が期限を超えてもアイドル扱いしません。ただし、別の無通信上限は適用します。減算はDropで行います。
+`grpc_silent_open_stream_is_bounded`では、ストリームを開いたまま60秒間、
+リクエスト・レスポンスのHEADERS、DATA、trailersが出入りしなければGOAWAYを送り、
+既存の猶予後に閉じてHTTPと共有する接続枠を解放します。PING・PONGは活動に数えません。
+GoのMultiRangeDownloaderが次の範囲を待つ正当な使い方を許しつつ、ローカル開発で異常な無通信を制限するため、内部固定値を60秒とし、設定は増やしません。
+`grpc_active_stream_survives_past_bound`では、この上限より短い間隔で送信または受信が続く限り、
+合計時間が上限を超えても切断しません。接続ごとに最後のフレーム時刻を1つ保持します。
 `grpc_dead_peer_is_detected_by_keepalive`では、開いたストリームの相手が応答しなくなった場合、
 間隔・応答期限とも`connection_timeout_ms`のHTTP/2 keepaliveで検出して閉じます。
 `grpc_goaway_has_bounded_grace`では、GOAWAY後の猶予を、アイドル時は
@@ -38,7 +44,8 @@ strictは共有AuthでBearerを判定し、ローカルprincipalを各RPCグル�
 全体の停止予算の半分を接続の後始末・joinに残し、両方が既定の5000msでも正常終了させるためです。
 すでにアイドルのGOAWAY中でもSIGTERMで猶予を短縮し、共有の停止順序は変えません。
 未完のhandshakeにはGOAWAYを送れない場合があり、猶予後に強制終了します。
-アプリ側のタイマーは接続ごとに1本を共用し、ストリーム数の変更はwatch通知で受け取ります。
+アプリ側のタイマーは接続ごとに1本を共用し、ストリーム数と送受信の変更はwatch通知で受け取ります。
+テストでは同じ接続処理へ短い上限を渡します。無通信上限による切断はInfoで原因と、定期送信またはストリームの開き直しという対処を記録します。
 アイドル切断はDebug、keepalive失敗・猶予切れは原因と設定値の例を含むWarnで記録します。
 
 protoと生成コードはコミット済みなので、通常ビルドにprotocは不要です。
@@ -53,3 +60,12 @@ prefaceを送らない接続を保持したままSIGTERMで正常終了し、カ
 台帳の4ケースをPASSに更新し、BEHAVIOR-RPC-005はPARTIALを維持しています。
 機能表は英日とも再生成し、状態・fidelity・SDK証跡数が同じため内容の差分はありません。
 HTTPは変更していないため、HTTP・Ruby SDKの全体実行は繰り返していません。
+
+無通信上限の追加では、受け入れ2ケースを実装前に契約と台帳へ記録しました。
+2026-10-27の最終接続ソースでRustのgRPC単体10件、Go foundation全件とGo vetがPASSしました。
+短い上限を注入し、応答待ち・開いたレスポンス本文でPINGに応えてもGOAWAY後に閉じることと、
+リクエスト側・レスポンス側それぞれの送受信で上限の2倍を超えて継続することを確認しました。
+`RUST_TEST_THREADS=8 just check`も、既存の実プロセス2件を含めてPASSしました。
+台帳の追加2ケースをPASSにし、BEHAVIOR-RPC-005はPARTIALを維持しています。
+英日機能表は再生成して差分なしです。上限は接続単位なので、同じ接続内の別ストリームの通信でも更新します。
+HTTP・Ruby SDK全体、コンテナ、ガイド、ベンチマーク、実クラウド試験は対象外として実行していません。
