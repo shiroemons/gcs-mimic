@@ -435,6 +435,6 @@ async fn import_publication_failure_schema_rolls_back_and_reopens_preserved_stat
         .unwrap();
     reopened.close().await.unwrap();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    super::super::super::validate_schema(&connection, 26).unwrap();
+    super::super::super::validate_schema(&connection, 27).unwrap();
     assert!(super::super::super::validate_schema_version(18, 17).is_err());
 }

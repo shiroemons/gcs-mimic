@@ -30,6 +30,9 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
 }
 
 pub fn downgrade_soft_delete_schema(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch("DROP TABLE IF EXISTS sync_buckets;")
+        .unwrap();
     connection.execute_batch("DROP INDEX objects_soft_deleted; DROP INDEX objects_soft_expiry; ALTER TABLE objects DROP COLUMN soft_delete_time; ALTER TABLE objects DROP COLUMN hard_delete_time; ALTER TABLE buckets DROP COLUMN soft_delete_policy;").unwrap();
 }
 

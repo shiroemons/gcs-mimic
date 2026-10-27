@@ -48,6 +48,9 @@ pub mod writeback;
 #[path = "sync_findings.rs"]
 pub mod findings;
 
+#[path = "sync_buckets.rs"]
+pub(crate) mod buckets;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CatalogId([u8; 16]);
 impl CatalogId {

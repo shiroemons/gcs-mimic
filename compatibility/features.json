@@ -40476,7 +40476,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness without replay over mutations; docs/en/slices/seed.md and docs/en/evidence/seed-platform.md retain prior evidence. Version-1 bucket initialization now selects CLI/environment/config input, validates all entries with native semantics, invokes one administrative create-missing batch before seed and reports ready counts/project warnings. Existing API metadata, IAM, object bytes and versions survive restart, changed/removed entries and project mismatches; local initialization grants no API authority in either auth mode. Native process tests, pinned Go/Ruby SDK suites and both container architectures verify the supported scope in docs/en/slices/bucket-initialization.md. At initializer delivery, schema stayed 14; manifest/sidecar metadata, directory synchronization, source-state import and later publication modes/journals remain pending. Broader commit-boundary kill/ambiguous-result injection is explicitly pending under BUCKET-INIT-ATOMICITY. No performance measurement or complete fake-gcs-server fixture equivalence is claimed. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Continuous synchronization and recovery controls remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; the shared APIs now support the initial-export consumer. Initial export is now connected: sync settings and startup-only reinitialization, pre-bind root/marker ownership, and one post-ready all-owner live-object export through immutable descriptors and durable receipts. Divergent/external-only files remain untouched and keep activation incomplete; continuous journal replay, ingestion, conflict controls and retries remain PENDING. Practical local scope and deferred extreme/platform cases: docs/en/slices/directory-synchronization.md#local-development-scope.",
+      "notes": "Read-only fixture seeding, version-1 create-missing bucket initialization and their SDK/container evidence remain in docs/en/slices/seed.md, docs/en/evidence/seed-platform.md and docs/en/slices/bucket-initialization.md. Existing owners/settings/API mutations survive initialization and restart; local operator actions grant no API authority. Shared root/marker leases, bounded all-owner inventory and journal observation are verified in docs/en/slices/shared-sync-root.md and docs/en/slices/shared-sync-observation.md. Directory synchronization now activates before bind and runs after ready: continuous API export plus one initial external create/edit merge and an internal async rescan. External-only binary/empty files and default buckets are imported through conditional publish_objects with atomic fingerprints; divergent same-name bodies remain untouched and counted. A complete initial merge finishes the baseline, interrupted ingestion resumes without duplicate generations/deletion, and strict sync is rejected until sync-conflicts. Fixed settling remains 1000 ms; no new setting or periodic scan is added. External deletion, conflict transfer/control, watchers and exhaustive interruption/platform guarantees remain PENDING. Current scope and native evidence: docs/en/slices/directory-synchronization.md. No synchronization performance measurement or complete source-fixture equivalence is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -40521,9 +40521,9 @@
         },
         {
           "id": "sync-configuration",
-          "description": "Initial export acceptance: sync_dir and sync_delete_guard are the only settings, with exact defaults/precedence/boolean parsing, guard-without-root and overlap errors, unknown-setting rejection for all five removed tuning keys, startup-only catalog-bound reinitialization and fail-closed root identity. Internal policy is fixed at 1000 ms, at least 100 deletions and more than 50%, 1 GiB and 1000 conflict entries to keep local-development configuration small. Settle/deletion effects remain PENDING with ingestion; contract docs/en/slices/directory-synchronization.md#local-development-scope.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "External create/edit acceptance: keep only sync_dir/sync_delete_guard, fixed 1000 ms settling and deletion policy; reject strict sync until sync-conflicts with permissive/removal examples. External deletion effects remain PENDING. Contract: docs/en/slices/directory-synchronization.md#external-createedit-delivery-scope.",
+          "result": "PASS",
+          "test_ids": ["ingest_strict_configuration_has_actionable_remedy", "ingest_defers_partial_and_replacement_saves_then_resumes_activation"]
         },
         {
           "id": "BUCKET-INIT-INPUT",
@@ -40629,9 +40629,9 @@
         },
         {
           "id": "sync-initial-activation",
-          "description": "Initial export acceptance: after ready, page all-owner buckets/live objects, create empty bucket directories, export immutable binary/empty bodies through durable receipts, count identical/divergent/external-only/ignored/unrepresentable entries and retain activating baseline when unresolved or changed during scan. Divergent and external-only files remain untouched; ingestion, conflict transfer and journal replay remain PENDING. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "External create/edit acceptance: post-ready empty-catalog and external-only publication, same-name divergence preserved/counts, default external buckets, atomic sync state and restart convergence without duplicate publication/deletion; finish baseline only after complete reconciliation. Conflict transfer remains PENDING. Contract: docs/en/slices/directory-synchronization.md#external-createedit-delivery-scope.",
+          "result": "PASS",
+          "test_ids": ["ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations", "ingest_external_only_conflicts_equal_hash_and_unsafe_entries", "ingest_shutdown_finishes_the_active_publication_before_restart"]
         },
         {
           "id": "fixture-directory",
@@ -40720,6 +40720,11 @@
       ],
       "test_ids": [
         "writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion",
+        "ingest_strict_configuration_has_actionable_remedy",
+        "ingest_defers_partial_and_replacement_saves_then_resumes_activation",
+        "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations",
+        "ingest_external_only_conflicts_equal_hash_and_unsafe_entries",
+        "ingest_shutdown_finishes_the_active_publication_before_restart",
         "sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization",
         "sync_removed_settings_and_guard_without_root_fail_with_diagnostics",
         "sync_overlaps_aliases_empty_and_symlink_roots_are_rejected",
@@ -40795,6 +40800,13 @@
           "verified_at": "2026-10-25",
           "artifact": "docs/en/slices/directory-synchronization.md",
           "test_ids": ["sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization", "sync_removed_settings_and_guard_without_root_fail_with_diagnostics", "sync_overlaps_aliases_empty_and_symlink_roots_are_rejected", "initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence", "initial_export_preserves_external_conflicts_and_records_mapping_findings", "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready"]
+        },
+        {
+          "command": "cargo test --locked --offline --lib -- sync::ingest",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["ingest_strict_configuration_has_actionable_remedy", "ingest_defers_partial_and_replacement_saves_then_resumes_activation", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations", "ingest_external_only_conflicts_equal_hash_and_unsafe_entries", "ingest_shutdown_finishes_the_active_publication_before_restart"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
@@ -40991,10 +41003,10 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Manifest/sidecar metadata import is unavailable. Complete its declared fields, validation and behavior with passing evidence before marking this broader fixture requirement IMPLEMENTED.",
-        "Root activation and ownership primitives pass the native adapter-facing cases in docs/en/slices/shared-sync-root.md. Runtime directory synchronization settings/startup, watcher, initial merge, bidirectional ingestion and write-back remain unimplemented."
+        "Post-ready initial merge, create/edit ingestion, continuous API export and interrupted-ingestion restart pass the native subset in docs/en/slices/directory-synchronization.md. External deletion, watchers, conflict transfer/control and exhaustive recovery/platform guarantees remain PENDING."
       ],
-      "implemented_in": "71c5fe87007067819e1e6ea74efcb192b4087231",
-      "last_verified": "2026-10-25"
+      "implemented_in": "56a701b3905f43af372f861307863c0e3104de42",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "DESIGN-063",
@@ -42318,7 +42330,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only filesystem dry-run now provides bounded typed records, source observations, xattr/sidecar decoding and optional streamed body verification without writes; evidence: docs/en/evidence/import-dry-run.md. Shared ownership and bounded import observations are defined in docs/en/slices/onboarding-state-contract.md; sync and broader adapter-state hooks remain pending. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md. Existing publication routes share generation allocation, retirement, insertion and post-commit reclamation; evidence: docs/en/slices/shared-publication-commit.md. Schema 15 adds the transactional origin-bearing change journal, bounded retention/pages/fences, activation/restart/gap rescan and durable parent-PAP invalidation through Catalog APIs; runtime event consumers remain pending. Evidence: docs/en/slices/onboarding-state-contract.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, catalog-bound file staging on two dedicated OS workers and bounded SAVEPOINT batches are verified on native macOS ARM64 in docs/en/slices/shared-publication-modes.md; parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. External ingestion and recovery controls remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; the shared APIs now support the initial-export consumer. Initial export is now connected: sync settings and startup-only reinitialization, pre-bind root/marker ownership, and one post-ready all-owner live-object export through immutable descriptors and durable receipts. Divergent/external-only files remain untouched and keep activation incomplete; continuous journal replay, checked API mutations and pending-work I/O retries are implemented in sync-live-export; ingestion and conflict controls remain PENDING. Practical local scope and deferred extreme/platform cases: docs/en/slices/directory-synchronization.md#local-development-scope. Continuous API export, bounded coalescing and retention/epoch-gap recovery, tracked update/delete conflict findings, pending-only 1-to-30-second I/O retry and live SIGTERM/restart convergence are verified in docs/en/slices/directory-synchronization.md. API bucket deletion retains directories; filesystem ingestion, conflict transfer, controls and exhaustive interruption/platform verification remain PENDING.",
+      "notes": "Indexed object/blob references, persistent generations, bounded recovery and filesystem-import evidence remain in docs/en/slices/json-object-media.md, docs/en/evidence/object-media.md and docs/en/evidence/import-dry-run.md. Shared administrative publication, transaction-local inheritance, stable file staging and bounded batches are verified in docs/en/evidence/shared-admin-interface.md and docs/en/slices/shared-publication-modes.md; durable I/O and reclamation boundaries are in docs/en/slices/shared-publication-io.md. Root leases, bounded owner/state inventory and journal wakeups support post-ready continuous API export with checked replacement/deletion, coalescing/gap recovery and pending-only I/O retries. External create/edit ingestion now uses at-most-256-entry dedicated-worker pages, fixed one-second quiet intervals, stat-first fingerprints, seed MIME/default holds and conditional publish_objects with atomic SyncUpdate. Metadata PATCH survives commit-time inheritance, equal live hashes allocate no generation, sync-ingest echoes are suppressed and API body races win without overwriting divergent external bytes. Initial merge and interrupted-ingestion restart finish the baseline without replay/deletion. API bucket deletion retains directories. External deletion/rename delete side, conflict transfer/control, watchers, exhaustive alias/recovery/platform guarantees and performance measurement remain PENDING. Scope and native evidence: docs/en/slices/directory-synchronization.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -42452,9 +42464,21 @@
         },
         {
           "id": "sync-metadata-and-loops",
-          "description": "Use shared atomic InheritFromReplaced with concurrent metadata PATCH, seed MIME/default-hold behavior for new files, same-hash no-generation publication, live-hash crash convergence and precise origin/fingerprint suppression without masking later API edits; owner sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "PASS local-development create/edit subset: atomic InheritAndSkipIfSameHash preserves concurrent PATCH, seed MIME/default holds apply to new files, equal live hashes update only fingerprints, and recorded/racy fingerprints plus sync-ingest journal origins suppress loops. API generation/incarnation conditions preserve racing API bodies. Scope: docs/en/slices/directory-synchronization.md#external-createedit-delivery-scope.",
+          "result": "PASS",
+          "test_ids": ["ingest_preserves_metadata_patch_and_api_body_racing_publication", "ingest_new_files_use_seed_mime_and_bucket_default_hold", "ingest_external_only_conflicts_equal_hash_and_unsafe_entries", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations"]
+        },
+        {
+          "id": "sync-external-create-edit",
+          "description": "PASS multiple-bucket external create/edit, binary/empty bodies, rename create side, default bucket creation and stable-page observation; initial conflicts preserve external bytes and API state. External deletion/rename delete side, watchers and controls remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations", "ingest_external_only_conflicts_equal_hash_and_unsafe_entries", "ingest_defers_partial_and_replacement_saves_then_resumes_activation"]
+        },
+        {
+          "id": "sync-known-bucket-observations",
+          "description": "Schema 27 adds independent root/bucket/incarnation observations because ordinary API deletion removes object sync state. Known absent API buckets are not recreated on restart/rescan; their directory is skipped with a reason/remedy, while observed directory removal clears only the observation to allow intentional recreation. Other paths progress, unreadable files are deferred with actionable paths, unchanged files do not settle, and shutdown wakes pending settle. Existing catalog migration preserves bucket metadata. Scope: docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recreated", "ingest_unreadable_file_is_deferred_while_other_files_progress", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "sync_bucket_schema_migration_preserves_existing_catalog"]
         },
         {
           "id": "sync-conflict-preservation",
@@ -42712,6 +42736,15 @@
       ],
       "test_ids": [
         "export_directory_walk_rejects_redirects_and_unsafe_components",
+        "ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recreated",
+        "ingest_unreadable_file_is_deferred_while_other_files_progress",
+        "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle",
+        "sync_bucket_schema_migration_preserves_existing_catalog",
+        "ingest_preserves_metadata_patch_and_api_body_racing_publication",
+        "ingest_new_files_use_seed_mime_and_bucket_default_hold",
+        "ingest_external_only_conflicts_equal_hash_and_unsafe_entries",
+        "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations",
+        "ingest_defers_partial_and_replacement_saves_then_resumes_activation",
         "live_export_creates_replaces_deletes_and_preserves_edited_files",
         "live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_directories",
         "live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_polling",
@@ -42847,6 +42880,20 @@
           "verified_at": "2026-10-25",
           "artifact": "docs/en/slices/directory-synchronization.md",
           "test_ids": ["live_export_creates_replaces_deletes_and_preserves_edited_files", "live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_directories", "live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_polling", "live_export_recovers_a_changed_journal_fence_with_paged_reconciliation", "live_export_bucket_incarnation_races_keep_other_buckets_progressing"]
+        },
+        {
+          "command": "cargo test --locked --offline --lib -- sync::ingest",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["ingest_preserves_metadata_patch_and_api_body_racing_publication", "ingest_new_files_use_seed_mime_and_bucket_default_hold", "ingest_external_only_conflicts_equal_hash_and_unsafe_entries", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations", "ingest_defers_partial_and_replacement_saves_then_resumes_activation"]
+        },
+        {
+          "command": "cargo test --locked --offline --lib -- sync::ingest sync::mirror schema_migration storage::catalog_tests sync_state change_journal import_journal import_publication",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recreated", "ingest_unreadable_file_is_deferred_while_other_files_progress", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "sync_bucket_schema_migration_preserves_existing_catalog"]
         },
         {
           "command": "just check",
@@ -43157,20 +43204,20 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Continuous API export and retry/SIGTERM/restart cases pass on macOS ARM64. External ingestion, conflict transfer/control routes, interrupted-intent recovery, Linux/Windows runtime and host power loss remain PENDING. A permanent I/O failure requires correcting space/permissions before graceful drain can finish. Scope: docs/en/slices/directory-synchronization.md.",
+        "Continuous API export and external create/edit ingestion, atomic metadata inheritance, same-hash suppression and interrupted-ingestion restart pass on macOS ARM64. External deletion, conflict transfer/control, watchers, interrupted write-back recovery, Linux/Windows runtime and host power loss remain PENDING. A permanent export I/O failure requires correcting space/permissions before graceful drain can finish. Scope: docs/en/slices/directory-synchronization.md.",
         "Recovery and lookup are indexed. Broader catalog growth/resource behavior remains unverified beyond the six native onboarding workloads in docs/en/evidence/onboarding-state-benchmark.md; startup-10000 CPU calibration, sync and cgroup measurements remain pending. The measured source is 60a4f03, not the later integration target.",
         "Shared imported identity publication preserves positive generations, exact source microseconds and verified MD5/CRC32C through Admin::publish_imported_object; only the new shared-imported-identity acceptance case is complete. Import orchestration, batch/file publication, hold-default exceptions and import journals remain separately owned; no schema change or performance claim. Evidence: docs/en/slices/shared-imported-identity.md.",
         "Publication I/O primitives and bounded reclamation are verified on macOS ARM64; Linux runtime and native Windows execution remain unverified. Windows fsutil metadata compilation passes, but whole-crate cross-check requires the unavailable MinGW compiler; existing-target Windows exchange returns Unsupported for Sync's checked-replace policy. Orphan scanning stays before bind. See docs/en/slices/shared-publication-io.md.",
         "Dry-run repeats bounded bucket-name decoding during preflight, duplicate classification and root validation; Blocked also represents an uninspected valid parent. All invalid-parent child findings and record suppression are tested. import-filesystem owns consolidation into a pending-state record with decoded names/failure material when integrating validated buckets with publication; avoiding that larger representation now preserves the tested diagnostic order. Walker::root_entries is documented and debug-guarded for use before the first next call.",
         "Read-only source inspection is verified on macOS/Linux ARM64. Native Windows runtime and file-ID/ctime observation are unverified; optional non-Unix identity fields remain absent. Dry-run cannot publish, resume, recover original normalized-away names or inspect memory history, and metadata-only reports never certify body bytes. Publication/journal benchmarks remain PENDING; no time/CPU/RSS result is claimed. shared-blob-id is requested to consolidate existing storage/JSON/authentication hex encoders with hashing::encode_lower while migrating hash loops.",
         "The Shared state storage owner is requested to adopt source_tree::is_os_metadata for regular catalog entries. Seed now uses source_tree::Walker on a dedicated bounded traversal thread, preserves native entry/depth limits and counts skipped regular OS metadata files. Local files use Admin::publish_from_file without changing storage recovery or import readers; current verification is in docs/en/slices/import-seed-adapter.md.",
-        "Directory synchronization has tested lexical/runtime mapping, root identity and activation, post-ready API export and continuous journal replay with checked updates/deletes and gap recovery. External ingestion/initial merge, exhaustive alias/platform guarantees, controls/conflict transfer/deletion approval and interruption recovery remain pending. Scope: docs/en/slices/directory-synchronization.md and docs/en/slices/shared-sync-root.md; no measured performance is claimed.",
+        "Directory synchronization has tested lexical/runtime mapping, root identity, post-ready initial merge/create-edit ingestion, baseline completion and continuous API export with checked updates/deletes/gap recovery. External deletion, exhaustive alias/platform guarantees, controls/conflict transfer/deletion approval and interrupted write-back recovery remain pending. Scope: docs/en/slices/directory-synchronization.md and docs/en/slices/shared-sync-root.md; no measured performance is claimed.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
-      "implemented_in": "df6f00f2757860c827d14ee8178730c90b22b970",
-      "last_verified": "2026-10-25"
+      "implemented_in": "56a701b3905f43af372f861307863c0e3104de42",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "DESIGN-073",
@@ -43419,7 +43466,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader crash injection, typed adapter-state hooks and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; the delivered schema-15 change journal is recorded in docs/en/slices/onboarding-state-contract.md. Shared publication preserves transactional completion, derived recovery, rewrite tokens and deferred reclamation; evidence: docs/en/slices/shared-publication-commit.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, 256-handle SAVEPOINT batches, dedicated file staging, actual DiskFull rollback and cancellation/shutdown cleanup are verified on macOS ARM64 in docs/en/slices/shared-publication-modes.md. Parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. External ingestion and recovery controls remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; the shared APIs now support the initial-export consumer. Initial export is now connected: sync settings and startup-only reinitialization, pre-bind root/marker ownership, and one post-ready all-owner live-object export through immutable descriptors and durable receipts. Divergent/external-only files remain untouched and keep activation incomplete; continuous journal replay, checked API mutations and pending-work I/O retries are implemented in sync-live-export; ingestion and conflict controls remain PENDING. Practical local scope and deferred extreme/platform cases: docs/en/slices/directory-synchronization.md#local-development-scope. Continuous API export, bounded coalescing and retention/epoch-gap recovery, tracked update/delete conflict findings, pending-only 1-to-30-second I/O retry and live SIGTERM/restart convergence are verified in docs/en/slices/directory-synchronization.md. API bucket deletion retains directories; filesystem ingestion, conflict transfer, controls and exhaustive interruption/platform verification remain PENDING.",
+      "notes": "Locked startup recovers staging/orphans and pending deletions in bounded pages and rejects missing/truncated live blobs; existing recovery/platform evidence remains in docs/en/slices/json-object-media.md, docs/en/evidence/object-media.md and docs/en/binary-distribution.md. Startup shutdown drains accepted pre-bind work and closes after failure as recorded in docs/en/slices/startup-phases.md; synchronous preflight and unbounded recovery duration are unchanged. Shared transactional publication/reclamation, dedicated file staging, bounded SAVEPOINT batches and rollback/cancellation evidence remain in docs/en/slices/shared-publication-commit.md, docs/en/slices/shared-publication-io.md and docs/en/slices/shared-publication-modes.md. Root identity/leases, atomic fingerprints and fenced observation support continuous API export and now external create/edit ingestion after ready. Ingestion stops between objects, finishes the accepted conditional publication before close, cleans unpublished staging and resumes an interrupted baseline without duplicate generations/deletion. Generation/incarnation conditions retain racing API bodies; metadata PATCH is inherited transactionally. Existing pending write-back blocks ingestion. External deletion, conflict transfer/control, watchers, interrupted write-back recovery, exhaustive kill/ownership boundaries and Linux/Windows runtime or host-power-loss guarantees remain PENDING. Current native scope/evidence: docs/en/slices/directory-synchronization.md. No performance measurement is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -43541,6 +43588,12 @@
           "description": "Drain scans/staging/publication/resolution/write-back on shutdown, clean safe temporary files, and retain exclusive catalog/root ownership until accepted jobs complete; second server cannot acquire the active root even with another catalog, preserving DESIGN-076; owner sync-recovery with Shared state. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Exhaustive scan/publication/conflict cancellation and ownership boundaries remain PENDING.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "sync-ingest-shutdown-restart",
+          "description": "PASS create/edit ingestion stops between objects, completes active conditional publication with atomic fingerprints, resumes an incomplete baseline without duplicate generation/deletion, and leaves no unpublished staging after reopen. Conflict resolution, forced-kill/power-loss and exhaustive boundaries remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["ingest_shutdown_finishes_the_active_publication_before_restart", "ingest_defers_partial_and_replacement_saves_then_resumes_activation", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle"]
         },
         {
           "id": "DESIGN-074-MEDIA",
@@ -43681,6 +43734,9 @@
       ],
       "test_ids": [
         "writeback_export_cross_directory_publication_precedes_state_and_retains_displacement",
+        "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle",
+        "ingest_shutdown_finishes_the_active_publication_before_restart",
+        "ingest_defers_partial_and_replacement_saves_then_resumes_activation",
         "live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack",
         "live_export_retries_identical_observation_at_prepare_arm_durable_and_ack",
         "live_export_identical_observation_preserves_edits_before_durable_and_ack",
@@ -43775,6 +43831,20 @@
           "verified_at": "2026-10-25",
           "artifact": "docs/en/slices/directory-synchronization.md",
           "test_ids": ["live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack", "live_export_sigterm_during_api_writes_restarts_to_the_committed_live_body", "live_export_retries_identical_observation_at_prepare_arm_durable_and_ack", "live_export_identical_observation_preserves_edits_before_durable_and_ack", "live_export_retries_file_and_parent_permissions_without_advancing_the_cursor"]
+        },
+        {
+          "command": "cargo test --locked --offline --lib -- sync::ingest",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["ingest_shutdown_finishes_the_active_publication_before_restart", "ingest_defers_partial_and_replacement_saves_then_resumes_activation"]
+        },
+        {
+          "command": "cargo test --locked --offline --lib ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle"]
         },
         {
           "command": "cargo test --locked --offline --lib -- live_export",
@@ -44017,7 +44087,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Continuous API export and retry/SIGTERM/restart cases pass on macOS ARM64. External ingestion, conflict transfer/control routes, interrupted-intent recovery, Linux/Windows runtime and host power loss remain PENDING. A permanent I/O failure requires correcting space/permissions before graceful drain can finish. Scope: docs/en/slices/directory-synchronization.md.",
+        "Continuous API export and external create/edit ingestion, atomic metadata inheritance, same-hash suppression and interrupted-ingestion restart pass on macOS ARM64. External deletion, conflict transfer/control, watchers, interrupted write-back recovery, Linux/Windows runtime and host power loss remain PENDING. A permanent export I/O failure requires correcting space/permissions before graceful drain can finish. Scope: docs/en/slices/directory-synchronization.md.",
         "Not every instruction boundary has a process-kill test: fsync/deletion windows use recovery-state fixtures; host power loss unverified.",
         "Publication I/O and concurrent media/derived/resumable reclamation are verified on macOS ARM64. Linux/Windows runtime, unsupported-filesystem capability branches and host power loss remain unverified; Windows exchange is explicitly Unsupported. Native batch/mutable-file staging is covered in docs/en/slices/shared-publication-modes.md; exhaustive batch/file crash injection and post-ready orphan scanning remain later scopes. See docs/en/slices/shared-publication-io.md.",
         "Startup CancelSafe is a nominal audit marker, not a compiler proof; new phases require documented side-effect ownership and production-path interruption/owned-effect tests before marking their waits safe. See docs/en/slices/startup-phases.md.",
@@ -44027,8 +44097,8 @@
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
       ],
-      "implemented_in": "df6f00f2757860c827d14ee8178730c90b22b970",
-      "last_verified": "2026-10-25"
+      "implemented_in": "56a701b3905f43af372f861307863c0e3104de42",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "DESIGN-075",

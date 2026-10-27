@@ -86,6 +86,42 @@ async fn soft_delete_schema_migration_preserves_existing_buckets() {
 }
 
 #[tokio::test]
+async fn sync_bucket_schema_migration_preserves_existing_catalog() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let original = catalog
+        .insert_bucket(bucket("sync-migration", "project"))
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection
+        .execute_batch("DROP TABLE sync_buckets; PRAGMA user_version=26;")
+        .unwrap();
+    drop(connection);
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    assert_eq!(
+        catalog.get_bucket("sync-migration").await.unwrap(),
+        Some(original)
+    );
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        27
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM sync_buckets", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
 async fn retention_schema_migration_preserves_existing_buckets() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -306,7 +342,7 @@ async fn timestamp_version_fourteen_reopen_preserves_timestamps() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        26
+        27
     );
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -354,7 +390,7 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        26
+        27
     );
     assert!(
         connection
@@ -1154,7 +1190,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            26
+            27
         );
         assert_eq!(
             connection
@@ -1218,7 +1254,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         match fixture {
             "future" => Connection::open(&path)
                 .unwrap()
-                .pragma_update(None, "user_version", 27)
+                .pragma_update(None, "user_version", 28)
                 .unwrap(),
             "unversioned" => {
                 Connection::open(&path)
@@ -1299,8 +1335,8 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
             );
         }
         if fixture == "future" {
-            assert!(error.to_string().contains("schema version 27"));
-            assert!(error.to_string().contains("supported version is 26"));
+            assert!(error.to_string().contains("schema version 28"));
+            assert!(error.to_string().contains("supported version is 27"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -1360,7 +1396,7 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        26
+        27
     );
     let policies: Vec<(String, String, i64)> = connection
         .prepare(
@@ -1465,7 +1501,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        26
+        27
     );
     assert_eq!(
         connection
@@ -1490,15 +1526,15 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
     let path = directory.join("catalog.sqlite3");
     Connection::open(&path)
         .unwrap()
-        .pragma_update(None, "user_version", 27)
+        .pragma_update(None, "user_version", 28)
         .unwrap();
     let before = fs::read(&path).unwrap();
     for _ in 0..2 {
         assert!(!path.with_extension("sqlite3-wal").exists());
         assert!(!path.with_extension("sqlite3-shm").exists());
         let error = Catalog::open(&directory).await.err().unwrap().to_string();
-        assert!(error.contains("schema version 27"));
-        assert!(error.contains("supported version is 26"));
+        assert!(error.contains("schema version 28"));
+        assert!(error.contains("supported version is 27"));
         assert_eq!(fs::read(&path).unwrap(), before);
         assert!(!path.with_extension("sqlite3-wal").exists());
         assert!(!path.with_extension("sqlite3-shm").exists());
@@ -1517,7 +1553,7 @@ fn catalog_child_process() {
             .as_str()
         {
             "v2" => "PRAGMA user_version = 2;",
-            "future" => "PRAGMA user_version = 27;",
+            "future" => "PRAGMA user_version = 28;",
             "inventory" => "DROP INDEX buckets_project_name;",
             _ => unreachable!(),
         };

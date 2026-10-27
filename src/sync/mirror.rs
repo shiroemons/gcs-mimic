@@ -49,6 +49,8 @@ mod tests;
 
 #[derive(Default, Debug, serde::Serialize)]
 pub struct Reconciliation {
+    pub ingested: u64,
+    pub blocked_buckets: u64,
     pub exported: u64,
     pub identical: u64,
     pub conflicting: u64,
@@ -62,8 +64,14 @@ pub struct Reconciliation {
 pub struct Task {
     stop: tokio::sync::watch::Sender<bool>,
     done: tokio::sync::oneshot::Receiver<()>,
+    rescan: tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<io::Result<Reconciliation>>>,
 }
 impl Task {
+    pub async fn rescan(&self) -> io::Result<Reconciliation> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        self.rescan.send(sender).await.map_err(io::Error::other)?;
+        receiver.await.map_err(io::Error::other)?
+    }
     pub fn stop(&self) {
         self.stop.send_replace(true);
     }
@@ -73,13 +81,16 @@ impl Task {
     }
 }
 
-pub fn start(catalog: Catalog, root: RootLease, _config: &Config) -> io::Result<Task> {
+pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<Task> {
+    let config = config.clone();
     let runtime = tokio::runtime::Handle::current();
     let (stop, mut stopping) = tokio::sync::watch::channel(false);
     let (done, completion) = tokio::sync::oneshot::channel();
+    let (rescan, mut requests) = tokio::sync::mpsc::channel(1);
     std::thread::Builder::new().name("sync-mirror".into()).spawn(move || {
         runtime.block_on(async move {
-            let result = run_live(&catalog, &root, &mut stopping).await;
+            let result = run_live_config(&catalog, &root, &mut stopping, &config, &mut requests).await;
+            drop(requests);
             match result {
                 Ok(()) => {},
                 Err(error) => diagnostics::emit(LogLevel::Error, "sync_stopped", serde_json::json!({
@@ -106,13 +117,28 @@ pub fn start(catalog: Catalog, root: RootLease, _config: &Config) -> io::Result<
     Ok(Task {
         stop,
         done: completion,
+        rescan,
     })
 }
 
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 async fn run_live(
     catalog: &Catalog,
     root: &RootLease,
     stopping: &mut tokio::sync::watch::Receiver<bool>,
+) -> io::Result<()> {
+    let (_sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    run_live_config(catalog, root, stopping, &Config::default(), &mut receiver).await
+}
+
+async fn run_live_config(
+    catalog: &Catalog,
+    root: &RootLease,
+    stopping: &mut tokio::sync::watch::Receiver<bool>,
+    config: &Config,
+    requests: &mut tokio::sync::mpsc::Receiver<
+        tokio::sync::oneshot::Sender<io::Result<Reconciliation>>,
+    >,
 ) -> io::Result<()> {
     catalog
         .set_change_journal_enabled(true)
@@ -123,7 +149,13 @@ async fn run_live(
         .await
         .map_err(io::Error::other)?
         .fence;
-    let summary = reconcile_until(catalog, root, stopping).await?;
+    let ingested = super::ingest::rescan(catalog, root, config, stopping).await?;
+    diagnostics::emit(LogLevel::Info, "sync_ingested", &ingested);
+    let mut ingest_complete =
+        ingested.deferred == 0 && ingested.unrepresentable == 0 && ingested.conflicting == 0;
+    let mut summary = reconcile_until(catalog, root, stopping, ingest_complete).await?;
+    summary.ingested = ingested.ingested;
+    let mut baseline_complete = summary.baseline_complete;
     diagnostics::emit(LogLevel::Info, "sync_reconciled", &summary);
     let writeback = root
         .writeback(
@@ -139,7 +171,7 @@ async fn run_live(
             .map_err(io::Error::other)?;
         if page.rescan_required {
             cursor = page.fence;
-            let summary = reconcile_until(catalog, root, stopping).await?;
+            let summary = reconcile_until(catalog, root, stopping, ingest_complete).await?;
             diagnostics::emit(LogLevel::Info, "sync_reconciled", &summary);
             continue;
         }
@@ -148,6 +180,22 @@ async fn run_live(
             export_checkpoint("idle").await;
             tokio::select! {
                 _ = stopping.changed() => break,
+                Some(request) = requests.recv() => {
+                    let summary = async {
+                        let mut summary = super::ingest::rescan(catalog, root, config, stopping).await?;
+                        ingest_complete = summary.deferred == 0 && summary.unrepresentable == 0 && summary.conflicting == 0;
+                        if !baseline_complete && ingest_complete && !*stopping.borrow() {
+                            let merged = reconcile_until(catalog, root, stopping, true).await?;
+                            baseline_complete = merged.baseline_complete;
+                        }
+                        summary.baseline_complete = baseline_complete;
+                        Ok::<_, io::Error>(summary)
+                    }.await;
+                    if let Ok(summary) = &summary {
+                        diagnostics::emit(LogLevel::Info, "sync_ingested", summary);
+                    }
+                    let _ = request.send(summary);
+                }
                 result = catalog.wait_for_changes(cursor) => { result.map_err(io::Error::other)?; }
             }
             continue;
@@ -188,6 +236,14 @@ async fn run_live(
                 )
                 .await?;
             } else {
+                if !root
+                    .remember_sync_bucket(&bucket)
+                    .await
+                    .map_err(io::Error::other)?
+                {
+                    summary.deferred += 1;
+                    continue;
+                }
                 let directory = PathBuf::from(bucket.as_str());
                 create_directory(root, directory).await?;
             }
@@ -461,7 +517,7 @@ async fn advance_with_retry(
     }
 }
 
-fn fs_error(error: fsutil::FsError) -> AdminError {
+pub(super) fn fs_error(error: fsutil::FsError) -> AdminError {
     match error {
         fsutil::FsError::Io(error) => error.into(),
         fsutil::FsError::Unsupported => AdminError::Io(io::ErrorKind::Unsupported),
@@ -488,7 +544,7 @@ fn exact_entry(directory: &File, name: &OsStr) -> io::Result<bool> {
     }
 }
 
-enum ParentError {
+pub(super) enum ParentError {
     Finding(Reason),
     Io(io::Error),
 }
@@ -498,7 +554,7 @@ impl From<io::Error> for ParentError {
     }
 }
 
-fn parent(root: &File, path: &Path, create: bool) -> Result<File, ParentError> {
+pub(super) fn parent(root: &File, path: &Path, create: bool) -> Result<File, ParentError> {
     let mut directory = root.try_clone()?;
     let mut depth = 0;
     for component in path.iter() {
@@ -542,7 +598,7 @@ enum Target {
     Finding(Reason),
 }
 
-fn structural_entry_error(error: &io::Error) -> bool {
+pub(super) fn structural_entry_error(error: &io::Error) -> bool {
     matches!(
         error.kind(),
         io::ErrorKind::NotADirectory | io::ErrorKind::IsADirectory | io::ErrorKind::InvalidInput
@@ -622,7 +678,7 @@ fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, Ad
     )
 }
 
-async fn hierarchy_collision(
+pub(super) async fn hierarchy_collision(
     admin: &Admin,
     bucket: &BucketName,
     name: &ObjectName,
@@ -801,13 +857,14 @@ pub async fn reconcile(
     _config: &Config,
 ) -> io::Result<Reconciliation> {
     let (_sender, stopping) = tokio::sync::watch::channel(false);
-    reconcile_until(catalog, root, &stopping).await
+    reconcile_until(catalog, root, &stopping, true).await
 }
 
 async fn reconcile_until(
     catalog: &Catalog,
     root: &RootLease,
     stopping: &tokio::sync::watch::Receiver<bool>,
+    allow_baseline: bool,
 ) -> io::Result<Reconciliation> {
     catalog
         .set_change_journal_enabled(true)
@@ -851,6 +908,14 @@ async fn reconcile_until(
                 }
             };
             let directory = PathBuf::from(bucket.as_str());
+            if !root
+                .remember_sync_bucket(&bucket)
+                .await
+                .map_err(io::Error::other)?
+            {
+                summary.deferred += 1;
+                continue;
+            }
             if !create_directory(root, directory).await? {
                 summary.unrepresentable += 1;
             }
@@ -1010,7 +1075,8 @@ async fn reconcile_until(
         .await
         .map_err(io::Error::other)?
         .fence;
-    if summary.deferred == 0
+    if allow_baseline
+        && summary.deferred == 0
         && !*stopping.borrow()
         && summary.conflicting == 0
         && summary.external_only == 0

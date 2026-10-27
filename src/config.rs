@@ -669,6 +669,13 @@ impl Config {
             }
         }
         // Reject mismatched profiles so a registry is never silently ignored or missing.
+        if config.auth_mode == AuthMode::Strict
+            && config.sync_dir.is_some()
+            && let Some(input) = settings.get("sync_dir")
+        {
+            report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
+                "strict authentication for sync management is not supported yet; use --auth-mode permissive and remove identity_file (for example, auth_mode=permissive), or remove sync_dir/GCS_MIMIC_SYNC_DIR/--sync-dir."));
+        }
         match (config.auth_mode, &config.identity_file) {
             (AuthMode::Strict, None) if !report.invalid.contains("identity_file") => {
                 if let Some(input) = settings.get("auth_mode") {

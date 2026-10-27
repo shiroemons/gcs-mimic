@@ -1,6 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 //! Filesystem synchronization adapters and shared reversible name mapping.
 
+mod ingest;
 pub mod mapping;
 mod mirror;
 pub use mirror::{Reconciliation, Task, reconcile, start};

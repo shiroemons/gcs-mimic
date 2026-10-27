@@ -95,7 +95,7 @@ pub mod sync_state;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 26;
+const CATALOG_SCHEMA_VERSION: i64 = 27;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -354,6 +354,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
     if version >= 26 {
         expected
             .execute_batch(SOFT_DELETE_SCHEMA)
+            .map_err(unavailable)?;
+    }
+    if version >= 27 {
+        expected
+            .execute_batch(sync_state::buckets::SCHEMA)
             .map_err(unavailable)?;
     }
     let inventory =
@@ -663,6 +668,9 @@ impl Catalog {
                 let transaction = connection.transaction().map_err(unavailable)?;
                 transaction.execute_batch(SOFT_DELETE_SCHEMA).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
+            }
+            if version < 27 {
+                sync_state::buckets::migrate(&mut connection)?;
             }
             let pending: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)", [], |row| row.get(0)).map_err(unavailable)?;
             if pending {

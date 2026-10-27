@@ -2,10 +2,11 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Contract updated: **2026-10-25**. Scope: DESIGN-062, DESIGN-072 and DESIGN-074
+Contract updated: **2026-10-27**. Scope: DESIGN-062, DESIGN-072 and DESIGN-074
 remain PARTIAL; DESIGN-076 remains IMPLEMENTED. Root activation precedes bind;
-all-owner export and continuous API journal replay run after ready. External
-ingestion, conflict transfer and sync control API/CLI remain PENDING.
+all-owner export, external create/edit ingestion and continuous API journal replay
+run after ready. External deletion, conflict transfer and sync control API/CLI
+remain PENDING.
 
 ## Local-development scope
 
@@ -15,18 +16,18 @@ increment changes only configuration, activation and the export side.
 
 | Acceptance case | Local-development subset | Deferred scope (PENDING) |
 | --- | --- | --- |
-| sync-configuration | Only root selection and the boolean deletion guard are configurable; verify precedence, boolean parsing, removed-key rejection, overlap and CLI-only reinitialization. | The fixed settle/deletion policy requires ingestion. |
-| sync-initial-activation | Export all owners, empty buckets and immutable live bodies; count and preserve divergent/external-only files. | Initial ingestion and conflict transfer. |
+| sync-configuration | Only root selection and the boolean deletion guard are configurable; verify precedence, boolean parsing, removed-key rejection, overlap and CLI-only reinitialization. One-second settle is fixed; strict sync is rejected with permissive/removal examples. | Deletion-guard effects. |
+| sync-initial-activation | Export all owners, empty buckets and immutable live bodies; ingest external-only files/default buckets, preserve/count divergent files and finish a complete baseline. Resume interrupted ingestion from atomic fingerprints without duplicate generations or deletion. | Conflict transfer and exhaustive crash boundaries. |
 | sync-name-mapping | Exact lexical mapping, actual directory spelling, host component limits, prefix/type collisions and no-follow checks. | Exhaustive case/Unicode alias groups and non-Linux platform conflict guarantees. |
 | sync-lexical-name-mapping | Existing exact round-trip/property coverage remains implemented. | Runtime concerns belong to sync-name-mapping. |
-| sync-bidirectional-mutations | API create/overwrite/delete/copy/compose, empty bucket directory creation, binary/empty bodies, and fingerprint-checked updates/deletes that preserve externally edited files. | External mutations and bucket-directory deletion on API bucket deletion. |
+| sync-bidirectional-mutations | API create/overwrite/delete/copy/compose, external create/edit and rename's create side across buckets, binary/empty bodies, and fingerprint-checked updates/deletes that preserve externally edited files. | External deletion/rename's delete side and bucket-directory deletion on API bucket deletion. |
 | sync-api-writeback | Post-ready all-owner export followed by fenced journal replay; coalesce bounded pages against current live state, replace tracked files only, and reconcile journal retention/epoch gaps through the same bounded keyset scans. | Conflict transfer and ingestion. |
-| sync-metadata-and-loops | Export never mutates API metadata or generations. | Ingestion metadata inheritance, MIME and loop suppression. |
+| sync-metadata-and-loops | Conditional ingestion inherits commit-time metadata/PATCH, applies seed MIME/default holds to new files, adopts equal live hashes without generations, and suppresses recorded output and sync-ingest journal echoes. | Exhaustive watcher/platform races. |
 | sync-conflict-preservation | Leave divergent files untouched; ambiguous publication retains its pending intent/workspace. | Conflict transfer/registration, ordinary quota recovery and 1 TiB sparse-body cases. |
 | sync-deletion-approval | Infer no external deletion. | Candidate inspection, threshold effects and approval. |
 | sync-management-authorization | Configuration is a trusted local operator action. | Sync controls and detailed original-owner strict authorization. |
 | sync-status-and-wait | Emit initial exported/identical/conflicting/external_only/ignored/unrepresentable counts. | Control API/CLI, paged status, readiness summary and waits. |
-| sync-bounded-observation | Dedicated OS workers, at-most-256-entry catalog/directory/journal pages, coalescing and gap recovery; wait_for_changes and shutdown notifications are the only idle wakeups. | Watcher events, stat-first rescans and bind-mount coverage. |
+| sync-bounded-observation | Dedicated OS workers, at-most-256-entry catalog/directory/journal pages, coalescing and gap recovery; internal rescan compares fingerprints before staging and hashes only changed/racy files. Startup and explicit internal rescan are the only ingest triggers; idle waits use notifications. | Watcher events and bind-mount coverage. |
 | sync-marker-recovery | Missing/foreign/malformed markers fail before bind; exact-ID missing-marker reinitialization. | Exhaustive process-kill/host-power-loss boundaries. |
 | sync-writeback-recovery | Durable pending intents, checked exchange/removal and synchronized fingerprints; pending-work-only retries at 1, 2, 4, 8, 16, then 30 seconds preserve source descriptors and API/external bodies. | Automated interrupted-operation recovery, every-instruction kill coverage, sparse limits and non-Linux conflict guarantees. |
 | sync-shutdown-lock | Stop between objects, finish active side effects before catalog close, and retain root ownership; live API-write/SIGTERM/restart convergence and initial-export/listener-error drain are tested. | Exhaustive scan/publication/conflict cancellation and lock-boundary coverage. |
@@ -48,7 +49,7 @@ Unfinished write-back stops new exports. Until recovery controls are delivered,
 preserve/back up the working tree and reserved workspace, correct the mount or
 permissions, and select a fresh unassociated root if recovery is required. No
 pending body is automatically deleted. A changed journal fence, divergent file,
-external-only file or unrepresentable entry prevents initial baseline completion.
+unimported external-only file or unrepresentable entry prevents initial baseline completion.
 
 Ordinary shutdown first stops accepting connections and drains HTTP requests,
 then signals the mirror and waits for its current object to finish before closing
@@ -231,6 +232,88 @@ is never persisted as configuration, and requests the safe reactivation below.
 It is not a reset, deletion approval or permission to overwrite foreign markers.
 
 ## Acceptance cases
+
+### External create/edit delivery scope
+
+The ingestion increment accepts empty-catalog activation through `publish_objects`,
+external-only files, new default buckets, binary/empty bodies and rename's create
+side. A one-second stable observation precedes staging. Dedicated OS workers walk
+bounded pages, stat unchanged fingerprints without reading bodies, and stage only
+changed/racy files. Conditional publication inherits current metadata and skips
+equal hashes; API body races win and divergent files remain untouched with a
+durable collision finding. Interrupted activation resumes from atomic sync state.
+The runtime exposes an internal async rescan only; startup scans after ready and
+there is no periodic scan. Strict mode rejects sync until `sync-conflicts`, with
+examples to select permissive mode or remove `sync_dir`.
+
+External disappearance, deletion guards, watcher/control routes, conflict transfer
+and exhaustive crash boundaries remain PENDING. SDK, container and guide journeys
+are out of scope and are not run for this increment.
+
+`Task::rescan` serializes requests through a one-entry channel and returns counts;
+there is no HTTP/CLI endpoint or periodic scan. A depth-bounded cursor stores only
+one name per ancestor and hands at most 256 observations to async code. The scan
+is capped at 10,000 inspected entries per directory and 128 levels. A quiet interval is
+applied only to changed/racy candidates in a page and wakes on shutdown; unchanged
+files require no timer or body read. Descriptor-relative identity checks run before/after
+shared staging; a changing or replaced file is deferred to the next requested
+scan. Symlinks/special files are counted and logged without following them.
+
+Each publication uses `InheritAndSkipIfSameHash`, an observed generation/absence
+condition and catalog-incarnation-bound `SyncUpdate` in the same transaction.
+Equal live size/MD5/CRC32C updates only the observed fingerprint. A racing API body
+fails the condition; a racing metadata PATCH remains visible to inheritance.
+Unfinished write-back blocks ingestion before scanning. Shutdown stops between
+objects and drains the active publication, leaving atomic fingerprints for restart.
+The existing all-owner export completes the baseline after the initial merge;
+an unfinished baseline can also complete after an internal rescan.
+
+Schema 27 adds `sync_buckets(root_id, bucket, incarnation)` because object sync
+records are removed by ordinary API bucket deletion and cannot prevent accidental
+recreation on restart. The new independent observations retain known bucket names
+after API deletion. A directory with a known but absent API bucket is skipped,
+counted as `blocked_buckets`/deferred and diagnosed with a remedy: remove/move the
+directory or explicitly recreate the API bucket. Other buckets continue. Observing
+the directory absent clears only that observation, permitting deliberate later
+directory recreation; it never deletes a bucket or object and never runs `rmdir`.
+Per-path read/access failures are likewise deferred with a relative path and
+permission/space/rescan remedy, leaving other candidates runnable.
+
+### External create/edit verification
+
+Native macOS ARM64 checks on 2026-10-27:
+
+| Command | Result |
+| --- | --- |
+| `cargo check --workspace --all-targets --locked --offline` | PASS |
+| `cargo test --locked --offline --lib -- sync::ingest sync::mirror` | PASS: 18 tests |
+| `cargo test --locked --offline --lib -- sync::ingest sync::mirror schema_migration storage::catalog_tests sync_state change_journal import_journal import_publication` | PASS: 108 tests |
+| `cargo xtask dependencies check` | PASS: compiler and all checked inputs CURRENT |
+| `just check` | FAIL (exit 101): obsolete IAM schema expectation (`27 != 26`), after native/Windows/Linux clippy, 502 library tests and 9 startup tests PASS. Corrected migration expectations pass below; the whole command was not rerun after test-only corrections. |
+| `cargo test --locked --offline --lib ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle` | PASS: enters the pending quiet wait before notifying shutdown |
+| `cargo test --locked --offline --test auth_http --test seed --test object_versioning_http --test bucket_http -- iam_migrates_v5_catalog populated_v4_catalog_migrates_without_seeding versioned_schema_migrations_preserve_objects bucket_core_migrates_v7_settings` | PASS: 4 migration tests |
+
+The tests cover initial binary/empty import, default bucket ownership, runtime
+rescan/baseline/restart, rename's create side and retained API objects after file
+deletion, divergent/external-only summaries, ignored/unsafe entries, equal-hash
+generation suppression, unchanged/racy fingerprints, seed MIME/default hold,
+metadata PATCH/API-body publication races, replacement-save deferral, interrupted
+activation, active-publication shutdown and empty staging after restart.
+Additional cases retain API-deleted buckets across restart/rescan, allow deliberate
+directory removal/recreation, continue past unreadable files, skip unchanged-file
+settling, interrupt changed-file settling on shutdown, and migrate schema 26 to 27
+without changing existing bucket metadata.
+The quiet-wait test polls past its released checkpoint before sending shutdown,
+and four historical migration fixtures expect schema 27. These final edits affect
+tests only; remaining workspace integration suites were not rerun afterward.
+SDK/container/guide journeys are not run because their surfaces are unchanged.
+No benchmark, performance number, Linux/Windows runtime or host-power-loss result
+is claimed. External deletion, conflict transfer/control, watcher events and
+exhaustive interruption boundaries remain PENDING.
+The existing catalog sync-path validator rejects backslash/colon even though the
+Unix lexical mapper admits them as candidates. Those names currently stop runtime
+synchronization; use ordinary slash-separated names until the shared path contract
+is reconciled. This increment does not change the existing storage validator.
 
 ### Initial export delivery scope
 

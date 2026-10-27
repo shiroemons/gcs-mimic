@@ -126,6 +126,9 @@ impl GenerationCondition {
 #[derive(Clone, Debug)]
 pub struct BucketDefinition(BucketRecord);
 impl BucketDefinition {
+    pub(in crate::storage) fn into_record(self) -> BucketRecord {
+        self.0
+    }
     pub fn new(record: BucketRecord) -> Result<Self, AdminError> {
         BucketName::new(record.name.clone())?;
         crate::json::validate_project(&record.project)
