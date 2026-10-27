@@ -245,7 +245,7 @@ async fn sync_findings_migration_rolls_back_and_preserves_catalog_root_and_write
     catalog.close().await.unwrap();
     let mut c = Connection::open(data.0.join("catalog.sqlite3")).unwrap();
     c.execute_batch(
-        "ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; DROP TABLE sync_findings; PRAGMA user_version=20; CREATE TABLE sync_findings(collision)",
+        "ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; DROP TABLE sync_findings; PRAGMA user_version=20; CREATE TABLE sync_findings(collision)",
     )
     .unwrap();
     assert!(migrate(&mut c).is_err());

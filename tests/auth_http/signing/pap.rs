@@ -44,7 +44,7 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
             .json();
         assert_eq!(
             created["iamConfiguration"],
-            json!({"publicAccessPrevention":"enforced"})
+            json!({"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":false},"bucketPolicyOnly":{"enabled":false}})
         );
         assert_eq!(server.get(ADMIN, BUCKET).ok().json(), created);
         assert_eq!(server.get(ADMIN, "/storage/v1/b?project=project-a&fields=items(iamConfiguration/publicAccessPrevention)").ok().json(),
@@ -57,7 +57,7 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
                 )
                 .ok()
                 .json(),
-            json!({"iamConfiguration":created["iamConfiguration"]})
+            json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}})
         );
         for method in ["PATCH", "PUT"] {
             let before = server.get(ADMIN, BUCKET).ok().json();
@@ -90,7 +90,7 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
                 br#"{"iamConfiguration":{"publicAccessPrevention":"inherited"}}"#).ok().json();
             assert_eq!(
                 response,
-                json!({"iamConfiguration":{"publicAccessPrevention":"inherited"},"metageneration":(meta+1).to_string()})
+                json!({"iamConfiguration":{"publicAccessPrevention":"inherited","uniformBucketLevelAccess":{"enabled":false},"bucketPolicyOnly":{"enabled":false}},"metageneration":(meta+1).to_string()})
             );
             setting(&server, "enforced");
         }
@@ -155,19 +155,13 @@ fn pap_invalid_and_unsupported_settings_preserve_resources() {
                 .error(404, "notFound");
         }
         for field in ["uniformBucketLevelAccess", "bucketPolicyOnly"] {
-            for value in [
-                Value::Null,
-                json!({}),
-                json!({"enabled":true}),
-                json!({"enabled":false,"lockedTime":"2026-10-23T00:00:00Z"}),
-                json!({"enabled":"false"}),
-            ] {
+            for value in [json!({"enabled":[]}), json!({"enabled":"false"})] {
                 let path = if method == "POST" {
                     "/storage/v1/b?project=project-a"
                 } else {
                     BUCKET
                 };
-                server.request(method,path,ADMIN,json!({"name":"invalid-pap","iamConfiguration":{field:value,"publicAccessPrevention":"enforced"}}).to_string().as_bytes()).error(400,"badRequest");
+                server.request(method,path,ADMIN,json!({"name":"invalid-pap","iamConfiguration":{field:value,"publicAccessPrevention":"enforced"}}).to_string().as_bytes()).error(400,"invalidArgument");
                 assert_eq!(server.get(ADMIN, BUCKET).ok().json(), before);
             }
         }

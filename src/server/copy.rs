@@ -165,6 +165,7 @@ mod tests {
                 versioning_enabled: false,
                 default_event_based_hold: false,
                 public_access_prevention_enforced: false,
+                uniform_bucket_level_access_locked_time: None,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,

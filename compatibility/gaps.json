@@ -25,6 +25,17 @@
       "required_resolution": "Retain this explicit emulator deviation while these features are unsupported. Replace each rejection with independently verified implementation in its own slice; do not claim provider-exact errors for valid Google requests."
     },
     {
+      "id": "SPEC-UBLA-EDGES",
+      "title": "Uniform access aliases, defaults and error details",
+      "status": "OPEN",
+      "affected_features": ["DESIGN-019", "BEHAVIOR-BUCKET-013", "JSON-BUCKETS-005"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "observed_at": "2026-10-27",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Discovery revision 20261020 requires identical bucketPolicyOnly/uniformBucketLevelAccess output; the resource reference warns that supplying both aliases is unreliable without defining conflict precedence. Locally the explicit modern enabled value takes precedence over the alias: Ruby 1.62.1 resends the old bucketPolicyOnly value from GET when its high-level setter changes uniformBucketLevelAccess. Null/empty settings are absent, disabled output uses enabled:false without lockedTime, and read-only lockedTime input is ignored. Omitted PUT UBLA preserves existing configuration. Predefined ACL under enabled UBLA and disabling at/after 90 consecutive days return 400 invalidArgument with corrective guidance; exact provider reason/message/precedence is unverified. The UBLA limitations in the historical SPEC-PAP-EDGES snapshot are superseded by this slice. See docs/en/slices/sdk-ubla-predefined-acl.md.",
+      "required_resolution": "Obtain authoritative clarification or opted-in provider evidence for alias conflicts, disabled/null/empty/PUT output and input shapes and exact errors. ACL CRUD, default/saved ACL grants, initialization-file uniformBucketLevelAccess and remaining ACL/UBLA/PAP interactions remain pending; retain broad rows PARTIAL."
+    },
+    {
       "id": "SPEC-LIST-GLOB-EDGES",
       "title": "Object listing glob empty inputs and error details",
       "status": "OPEN",

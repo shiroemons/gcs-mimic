@@ -38,8 +38,8 @@ pub(super) fn route(
         let (bucket, name) = names(destination, profile)?;
         let mut query = parse_query(uri.query().unwrap_or_default())?;
         super::Fields::take(&mut query, "Object")?;
+        query.remove("destinationPredefinedAcl");
         for key in [
-            "destinationPredefinedAcl",
             "destinationKmsKeyName",
             "userProject",
             "dropContextGroups",

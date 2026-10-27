@@ -30,6 +30,9 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
 }
 
 pub fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch("ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time;")
+        .unwrap();
     connection.execute_batch("ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time;").unwrap();
     connection
         .execute_batch(

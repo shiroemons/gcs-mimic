@@ -53,11 +53,150 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
         versioning_enabled: false,
         default_event_based_hold: false,
         public_access_prevention_enforced: false,
+        uniform_bucket_level_access_locked_time: None,
         cors: Vec::new(),
         metageneration: 3,
         time_created: UNIX_EPOCH + Duration::from_millis(42_123),
         updated: UNIX_EPOCH + Duration::from_millis(43_987),
     }
+}
+
+#[tokio::test]
+async fn uniform_access_migration_deadline_conditions_and_restart() {
+    struct TestClock(AtomicU64);
+    impl gcs_mimic::clock::Clock for TestClock {
+        fn now(&self) -> std::time::SystemTime {
+            UNIX_EPOCH + Duration::from_secs(self.0.load(Ordering::Relaxed))
+        }
+    }
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let original = catalog
+        .insert_bucket(bucket("uniform-bucket", "project"))
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; PRAGMA user_version = 22;").unwrap();
+    drop(connection);
+    let clock = Arc::new(TestClock(AtomicU64::new(1000)));
+    let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        catalog.get_bucket("uniform-bucket").await.unwrap(),
+        Some(original.clone())
+    );
+    let update = |enabled| BucketMetadataUpdate {
+        uniform_bucket_level_access_enabled: Some(enabled),
+        ..Default::default()
+    };
+    let enabled = catalog
+        .patch_bucket(
+            "uniform-bucket",
+            update(true),
+            Some(original.metageneration),
+            None,
+            &BucketAccess::Permissive,
+        )
+        .await
+        .unwrap();
+    let locked_time = UNIX_EPOCH + Duration::from_secs(1000 + 90 * 24 * 60 * 60);
+    assert_eq!(
+        enabled.uniform_bucket_level_access_locked_time,
+        Some(locked_time)
+    );
+    assert_eq!(enabled.metageneration, original.metageneration + 1);
+    assert_eq!(
+        catalog
+            .patch_bucket(
+                "uniform-bucket",
+                update(false),
+                Some(original.metageneration),
+                None,
+                &BucketAccess::Permissive
+            )
+            .await,
+        Err(CatalogError::PreconditionFailed)
+    );
+    clock.0.store(2000, Ordering::Relaxed);
+    let repeated = catalog
+        .replace_bucket(
+            "uniform-bucket",
+            update(true),
+            None,
+            None,
+            &BucketAccess::Permissive,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        repeated.uniform_bucket_level_access_locked_time,
+        Some(locked_time)
+    );
+    let disabled = catalog
+        .replace_bucket(
+            "uniform-bucket",
+            update(false),
+            Some(repeated.metageneration),
+            None,
+            &BucketAccess::Permissive,
+        )
+        .await
+        .unwrap();
+    assert_eq!(disabled.uniform_bucket_level_access_locked_time, None);
+    let enabled = catalog
+        .patch_bucket(
+            "uniform-bucket",
+            update(true),
+            None,
+            None,
+            &BucketAccess::Permissive,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        enabled.uniform_bucket_level_access_locked_time,
+        Some(UNIX_EPOCH + Duration::from_secs(2000 + 90 * 24 * 60 * 60))
+    );
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        catalog.get_bucket("uniform-bucket").await.unwrap(),
+        Some(enabled.clone())
+    );
+    clock.0.store(2000 + 90 * 24 * 60 * 60, Ordering::Relaxed);
+    for replace in [false, true] {
+        let result = if replace {
+            catalog
+                .replace_bucket(
+                    "uniform-bucket",
+                    update(false),
+                    None,
+                    None,
+                    &BucketAccess::Permissive,
+                )
+                .await
+        } else {
+            catalog
+                .patch_bucket(
+                    "uniform-bucket",
+                    update(false),
+                    None,
+                    None,
+                    &BucketAccess::Permissive,
+                )
+                .await
+        };
+        assert!(matches!(result, Err(CatalogError::InvalidMetadata(_))));
+        assert_eq!(
+            catalog.get_bucket("uniform-bucket").await.unwrap(),
+            Some(enabled.clone())
+        );
+    }
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -74,7 +213,7 @@ async fn timestamp_version_fourteen_reopen_preserves_timestamps() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        22
+        23
     );
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -122,7 +261,7 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        22
+        23
     );
     assert!(
         connection
@@ -922,7 +1061,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            22
+            23
         );
         assert_eq!(
             connection
@@ -986,7 +1125,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         match fixture {
             "future" => Connection::open(&path)
                 .unwrap()
-                .pragma_update(None, "user_version", 23)
+                .pragma_update(None, "user_version", 24)
                 .unwrap(),
             "unversioned" => {
                 Connection::open(&path)
@@ -1067,8 +1206,8 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
             );
         }
         if fixture == "future" {
-            assert!(error.to_string().contains("schema version 23"));
-            assert!(error.to_string().contains("supported version is 22"));
+            assert!(error.to_string().contains("schema version 24"));
+            assert!(error.to_string().contains("supported version is 23"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -1128,7 +1267,7 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        22
+        23
     );
     let policies: Vec<(String, String, i64)> = connection
         .prepare(
@@ -1233,7 +1372,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        22
+        23
     );
     assert_eq!(
         connection
@@ -1258,15 +1397,15 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
     let path = directory.join("catalog.sqlite3");
     Connection::open(&path)
         .unwrap()
-        .pragma_update(None, "user_version", 23)
+        .pragma_update(None, "user_version", 24)
         .unwrap();
     let before = fs::read(&path).unwrap();
     for _ in 0..2 {
         assert!(!path.with_extension("sqlite3-wal").exists());
         assert!(!path.with_extension("sqlite3-shm").exists());
         let error = Catalog::open(&directory).await.err().unwrap().to_string();
-        assert!(error.contains("schema version 23"));
-        assert!(error.contains("supported version is 22"));
+        assert!(error.contains("schema version 24"));
+        assert!(error.contains("supported version is 23"));
         assert_eq!(fs::read(&path).unwrap(), before);
         assert!(!path.with_extension("sqlite3-wal").exists());
         assert!(!path.with_extension("sqlite3-shm").exists());
@@ -1285,7 +1424,7 @@ fn catalog_child_process() {
             .as_str()
         {
             "v2" => "PRAGMA user_version = 2;",
-            "future" => "PRAGMA user_version = 23;",
+            "future" => "PRAGMA user_version = 24;",
             "inventory" => "DROP INDEX buckets_project_name;",
             _ => unreachable!(),
         };

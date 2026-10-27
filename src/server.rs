@@ -665,6 +665,19 @@ async fn object_response(
     // that decision, and publication enforces it inside the catalog transaction if the name is
     // live, so a concurrent create cannot be overwritten.
     let access = authorize_bucket(state, caller, permission, bucket).await?;
+    let query = json::parse_query(request.uri().query().unwrap_or_default())?;
+    if query.contains_key("predefinedAcl") || query.contains_key("destinationPredefinedAcl") {
+        let record = state
+            .catalog
+            .get_bucket(bucket)
+            .await?
+            .ok_or(CatalogError::NotFound)?;
+        json::reject_predefined_acl(
+            request.uri().query(),
+            record.uniform_bucket_level_access_locked_time.is_some(),
+            true,
+        )?;
+    }
     json::validate_read_condition_headers(
         request.headers(),
         matches!(operation, ObjectRequest::Get { .. }),
@@ -1394,6 +1407,7 @@ async fn bucket_response(
         json::Fields::from_query(request.uri().query(), schema)?
     };
     let replace = matches!(operation, BucketRequest::Update { .. });
+    let acl_query = request.uri().query().map(str::to_owned);
     let mut value = match operation {
         BucketRequest::TestIam {
             bucket,
@@ -1421,6 +1435,17 @@ async fn bucket_response(
             } else {
                 json::parse_bucket_patch(&bytes, profile)?
             };
+            let record = state
+                .catalog
+                .get_bucket_authorized(&bucket, &access)
+                .await?
+                .ok_or(CatalogError::NotFound)?;
+            json::reject_predefined_acl(
+                acl_query.as_deref(),
+                record.uniform_bucket_level_access_locked_time.is_some()
+                    || update.uniform_bucket_level_access_enabled == Some(true),
+                false,
+            )?;
             let record = if replace {
                 state
                     .catalog
@@ -1481,6 +1506,11 @@ async fn bucket_response(
                 &state.default_location,
             )?;
             let name = record.name.clone();
+            json::reject_predefined_acl(
+                acl_query.as_deref(),
+                record.uniform_bucket_level_access_locked_time.is_some(),
+                false,
+            )?;
             let record = state
                 .catalog
                 .insert_bucket(record)

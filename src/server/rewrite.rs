@@ -35,6 +35,21 @@ pub(super) async fn respond(
         authorize_bucket(state, caller, auth::OBJECTS_GET, &operation.path[0]).await?;
     let destination_access =
         authorize_bucket(state, caller, auth::OBJECTS_CREATE, &operation.path[2]).await?;
+    if operation
+        .parameters
+        .contains_key("destinationPredefinedAcl")
+    {
+        let record = state
+            .catalog
+            .get_bucket(&operation.path[2])
+            .await?
+            .ok_or(CatalogError::NotFound)?;
+        json::reject_predefined_acl(
+            request.uri().query(),
+            record.uniform_bucket_level_access_locked_time.is_some(),
+            true,
+        )?;
+    }
     json::validate_read_condition_headers(request.headers(), false)?;
     json::validate_object_get_headers(request.headers(), false)?;
     for name in [

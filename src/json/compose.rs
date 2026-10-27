@@ -32,8 +32,8 @@ pub(crate) fn route(
         validate_object_name(&name)?;
         let mut query = crate::json::parse_query(uri.query().unwrap_or_default())?;
         crate::json::Fields::take(&mut query, "Object")?;
+        query.remove("destinationPredefinedAcl");
         for key in [
-            "destinationPredefinedAcl",
             "kmsKeyName",
             "userProject",
             "dropContextGroups",

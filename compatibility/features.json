@@ -4232,7 +4232,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity.",
+      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity. iamConfiguration accepts uniformBucketLevelAccess/bucketPolicyOnly enabled booleans, null/empty child defaults and combined enforced PAP; persisted aliases/deadline, 400 predefined ACL rejection and remaining ACL/default-grant/initializer limits are described in docs/en/slices/sdk-ubla-predefined-acl.md (SPEC-UBLA-EDGES).",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -18938,26 +18938,38 @@
       "interface": "cross-cutting behavior",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access"
       ],
-      "source_checked_at": "2026-10-21",
-      "source_evidence": "SPEC_BASED",
-      "notes": "UBLA lockedTime and deprecated bucketPolicyOnly alias compatibility; ACL prohibitions enforced separately.",
+      "source_checked_at": "2026-10-27",
+      "source_evidence": "DISCOVERY_CONFIRMED",
+      "notes": "Acceptance contract: docs/en/slices/sdk-ubla-predefined-acl.md. Implement insert/get/list/restart, alias/default handling, conditional authorized PATCH/PUT toggles, injected-clock 90-day locking, schema 22 migration, combined PAP creation and pinned Go/Ruby journeys. ACL CRUD/restoration, initialization-file UBLA and remaining ACL/UBLA/PAP interactions remain pending.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "UBLA-STATE", "description": "Create/defaults/aliases/PAP, get/list/restart, authorized conditional PATCH/PUT, repeated enable and 90-day injected-clock deadline; schema 22 migration.", "result": "PASS", "test_ids": ["uniform_access_migration_deadline_conditions_and_restart", "xml::uniform_access_settings_fail_closed", "xml::uniform_access_metadata_and_predefined_acl_rejections"]},
+        {"id": "UBLA-SDK", "description": "Go/Ruby high-level creation, enabled/deadline inspection and disabling; Go Writer predefined ACL rejection.", "result": "PASS", "test_ids": ["TestBucketUniformAccess", "ruby-bucket-uniform-access"]},
+        {"id": "UBLA-REMAINING", "description": "ACL restoration/default IAM grants, initialization-file uniformBucketLevelAccess and remaining ACL/UBLA/PAP interactions are pending; SPEC-UBLA-EDGES retains unverified provider error/default/alias parity.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["uniform_access_migration_deadline_conditions_and_restart", "xml::uniform_access_settings_fail_closed", "xml::uniform_access_metadata_and_predefined_acl_rejections", "TestBucketUniformAccess", "ruby-bucket-uniform-access"],
+      "verification": [
+        {"command": "cargo test --lib --locked --offline uniform_access", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["uniform_access_migration_deadline_conditions_and_restart"]},
+        {"command": "cargo test --test auth_http --locked --offline uniform_access", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["xml::uniform_access_settings_fail_closed", "xml::uniform_access_metadata_and_predefined_acl_rejections"]},
+        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["TestBucketUniformAccess", "ruby-bucket-uniform-access"]}
+      ],
+      "sdk_evidence": [
+        {"sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "HTTP JSON", "result": "PASS", "verified_at": "2026-10-27", "command": "just check-sdk", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["TestBucketUniformAccess"]},
+        {"sdk": "google-cloud-storage", "version": "1.62.1", "transport": "HTTP JSON", "result": "PASS", "verified_at": "2026-10-27", "command": "just check-sdk", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["ruby-bucket-uniform-access"]}
+      ],
+      "known_deviations": ["SPEC-UBLA-EDGES: conflicting aliases, no-op input/disabled output/PUT omission and exact provider errors retain local choices. ACL defaults/restoration, initialization-file UBLA and remaining ACL/UBLA/PAP interactions are pending."],
+      "implemented_in": "d17d6127202117aaf976aa5a2269f72aa928be41",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "BEHAVIOR-BUCKET-014",
@@ -34573,25 +34585,32 @@
       "interface": "JSON/XML predefined ACL",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/access-control"
+        "https://docs.cloud.google.com/storage/docs/access-control",
+        "https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/insert",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
+        "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Translate supported canned ACL choices into real access effects and validate incompatible modes.",
+      "notes": "Acceptance contract: docs/en/slices/sdk-ubla-predefined-acl.md. Reject predefined ACL queries on bucket insert/PATCH/PUT and object insert/copy/rewrite/compose under enabled UBLA with 400 and corrective guidance; disabled UBLA retains shared unsupported responses. Real canned ACL permission effects, ACL CRUD and broader ACL/UBLA/PAP interactions remain pending.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "UBLA-PREDEFINED-ACL", "description": "Bucket insert/PATCH/PUT predefinedAcl/predefinedDefaultObjectAcl and object insert/copy/rewrite/compose predefinedAcl/destinationPredefinedAcl return 400 with removal guidance under enabled UBLA, shared unsupported otherwise, without mutation.", "result": "PASS", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]},
+        {"id": "PREDEFINED-ACL-EFFECTS", "description": "Actual ACL permission effects and remaining ACL/UBLA/PAP interactions are pending for the next ACL slice.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"],
+      "verification": [{"command": "cargo test --test auth_http --locked --offline uniform_access", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]}],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": ["Real canned ACL grants and ACL CRUD are pending. SPEC-UBLA-EDGES records local error reason/message/precedence; remaining ACL/UBLA/PAP interactions and initialization-file uniform access are excluded from this slice."],
+      "implemented_in": "d17d6127202117aaf976aa5a2269f72aa928be41",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "DESIGN-020",

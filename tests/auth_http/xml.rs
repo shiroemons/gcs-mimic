@@ -866,20 +866,23 @@ fn xml_permissive_reads_ignore_credentials_without_granting_public_policy() {
 #[test]
 fn uniform_access_settings_fail_closed() {
     let (_config, _data, server) = fixture();
-    for setting in [
+    for (index, setting) in [
         json!({"bucketPolicyOnly":{"enabled":true}}),
         json!({"uniformBucketLevelAccess":{"enabled":true}}),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         server
             .request(
                 "POST",
                 "/storage/v1/b?project=project-a",
                 ADMIN,
-                json!({"name":"restricted-bucket", "iamConfiguration":setting})
+                json!({"name":format!("restricted-bucket-{index}"), "iamConfiguration":setting})
                     .to_string()
                     .as_bytes(),
             )
-            .error(400, "badRequest");
+            .ok();
         for method in ["PATCH", "PUT"] {
             server
                 .request(
@@ -888,9 +891,152 @@ fn uniform_access_settings_fail_closed() {
                     ADMIN,
                     json!({"iamConfiguration":setting}).to_string().as_bytes(),
                 )
-                .error(400, "badRequest");
+                .ok();
         }
     }
     assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"hello world");
     xml_error(&server.get("", OBJECT), 401, "AuthenticationRequired");
+}
+
+#[test]
+fn uniform_access_metadata_and_predefined_acl_rejections() {
+    let (_config, _data, server) = fixture();
+    let path = "/storage/v1/b/iam-bucket";
+    let conflicting = server.request("PATCH", path, ADMIN, br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false},"bucketPolicyOnly":{"enabled":true}}}"#).ok().json();
+    assert_eq!(
+        conflicting["iamConfiguration"]["uniformBucketLevelAccess"]["enabled"],
+        false
+    );
+    for value in [
+        Value::Null,
+        json!({}),
+        json!({"enabled":false}),
+        json!({"enabled":null}),
+    ] {
+        let result = server
+            .request(
+                "PATCH",
+                path,
+                ADMIN,
+                json!({"iamConfiguration":{"uniformBucketLevelAccess":value}})
+                    .to_string()
+                    .as_bytes(),
+            )
+            .ok()
+            .json();
+        assert_eq!(
+            result["iamConfiguration"]["uniformBucketLevelAccess"],
+            json!({"enabled":false})
+        );
+    }
+    let enabled = server
+        .request(
+            "PATCH",
+            path,
+            ADMIN,
+            br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#,
+        )
+        .ok()
+        .json();
+    let config = &enabled["iamConfiguration"];
+    assert_eq!(config["uniformBucketLevelAccess"]["enabled"], true);
+    assert!(config["uniformBucketLevelAccess"]["lockedTime"].is_string());
+    assert_eq!(
+        config["bucketPolicyOnly"],
+        config["uniformBucketLevelAccess"]
+    );
+    assert_eq!(server.get(ADMIN, path).ok().json(), enabled);
+    let listed = server
+        .get(ADMIN, "/storage/v1/b?project=project-a")
+        .ok()
+        .json();
+    assert!(
+        listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item == &enabled)
+    );
+    for method in ["PATCH", "PUT"] {
+        server
+            .request(
+                method,
+                path,
+                VIEWER,
+                br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false}}}"#,
+            )
+            .error(403, "forbidden");
+        server
+            .request(
+                method,
+                &format!("{path}?ifMetagenerationMatch=0"),
+                ADMIN,
+                br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false}}}"#,
+            )
+            .error(412, "conditionNotMet");
+        server.request(method, path, ADMIN, br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":[]},"bucketPolicyOnly":{"enabled":false}}}"#).error(400, "invalidArgument");
+        for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
+            let reply = server.request(method, &format!("{path}?{key}=publicRead"), ADMIN, b"{}");
+            reply.error(400, "invalidArgument");
+            assert!(
+                reply.json()["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains(&format!("remove {key}"))
+            );
+        }
+    }
+    for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
+        server.request("POST", &format!("/storage/v1/b?project=project-a&{key}=private"), ADMIN, br#"{"name":"rejected-create","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#).error(400, "invalidArgument");
+        server
+            .get(ADMIN, "/storage/v1/b/rejected-create")
+            .error(404, "notFound");
+    }
+    let routes = [
+        "/upload/storage/v1/b/iam-bucket/o?uploadType=media&name=rejected&predefinedAcl=publicRead",
+        "/upload/storage/v1/b/iam-bucket/o?uploadType=multipart&predefinedAcl=publicRead",
+        "/upload/storage/v1/b/iam-bucket/o?uploadType=resumable&name=rejected&predefinedAcl=publicRead",
+        "/storage/v1/b/iam-bucket/o/object/copyTo/b/iam-bucket/o/rejected?destinationPredefinedAcl=publicRead",
+        "/storage/v1/b/iam-bucket/o/object/rewriteTo/b/iam-bucket/o/rejected?destinationPredefinedAcl=publicRead",
+        "/storage/v1/b/iam-bucket/o/rejected/compose?destinationPredefinedAcl=publicRead",
+        "/upload/storage/v1/b/iam-bucket/o?uploadType=media&name=rejected&%70redefinedAcl=publicRead",
+    ];
+    for route in routes {
+        let reply = server.request("POST", route, ADMIN, b"{}");
+        reply.error(400, "invalidArgument");
+        assert!(
+            reply.json()["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("remove ")
+        );
+    }
+    server
+        .get(ADMIN, "/storage/v1/b/iam-bucket/o/rejected")
+        .error(404, "notFound");
+    assert_eq!(server.get(ADMIN, path).ok().json(), enabled);
+    server
+        .request(
+            "PATCH",
+            path,
+            ADMIN,
+            br#"{"iamConfiguration":{"bucketPolicyOnly":{"enabled":false}}}"#,
+        )
+        .ok();
+    for route in routes {
+        let reply = server.request("POST", route, ADMIN, b"{}");
+        assert_eq!(
+            reply.json()["error"]["errors"][0]["reason"],
+            gcs_mimic::json::JsonError::unsupported_object("predefinedAcl").reason
+        );
+    }
+    let terraform = server.request("POST", "/storage/v1/b?project=project-a", ADMIN, br#"{"name":"terraform-ubla","location":"US","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true},"publicAccessPrevention":"enforced"}}"#).ok().json();
+    assert_eq!(
+        terraform["iamConfiguration"]["publicAccessPrevention"],
+        "enforced"
+    );
+    assert_eq!(
+        terraform["iamConfiguration"]["uniformBucketLevelAccess"]["enabled"],
+        true
+    );
 }

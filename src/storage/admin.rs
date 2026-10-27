@@ -608,7 +608,7 @@ impl Admin {
                 let mut has_more = false;
                 while let Some(row) = rows.next().map_err(unavailable)? {
                     let incarnation = row
-                        .get_ref(13)
+                        .get_ref("incarnation")
                         .map_err(unavailable)?
                         .as_str()
                         .map_err(unavailable)?;

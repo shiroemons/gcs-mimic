@@ -1,6 +1,12 @@
 //! Transport-independent bucket state shared by the catalog and protocol adapters.
 
-use std::{collections::BTreeMap, fmt, time::SystemTime};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    time::{Duration, SystemTime},
+};
+
+pub(crate) const UNIFORM_ACCESS_LOCK_PERIOD: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 
 // Pinned to the official locations page checked in sdk-regional-locations.md.
 const REGIONS: &[&str] = &[
@@ -100,6 +106,7 @@ pub struct BucketRecord {
     pub versioning_enabled: bool,
     pub default_event_based_hold: bool,
     pub public_access_prevention_enforced: bool,
+    pub uniform_bucket_level_access_locked_time: Option<SystemTime>,
     pub metageneration: i64,
     /// Microsecond precision; the catalog floors sub-microsecond values.
     pub time_created: SystemTime,
@@ -114,6 +121,7 @@ pub struct BucketMetadataUpdate {
     pub versioning_enabled: Option<bool>,
     pub default_event_based_hold: Option<bool>,
     pub public_access_prevention_enforced: Option<bool>,
+    pub uniform_bucket_level_access_enabled: Option<bool>,
     pub location: Option<String>,
 }
 

@@ -69,6 +69,7 @@ async fn setup(dir: &TestDir) -> Catalog {
             versioning_enabled: false,
             default_event_based_hold: false,
             public_access_prevention_enforced: false,
+            uniform_bucket_level_access_locked_time: None,
             cors: Vec::new(),
             metageneration: 1,
             time_created: UNIX_EPOCH,
@@ -1449,6 +1450,9 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
+        .execute_batch("ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time;")
+        .unwrap();
+    connection
         .execute_batch("DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; DROP TABLE sync_objects; DROP TABLE catalog_identity; DROP TABLE import_observations; DROP TABLE import_journal; DROP TABLE change_journal; DROP TABLE change_journal_state;")
         .unwrap();
     connection
@@ -1510,7 +1514,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        22
+        23
     );
 }
 

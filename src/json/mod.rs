@@ -28,7 +28,9 @@ pub mod resumable_cancel;
 pub(crate) mod rewrite;
 
 pub use body::read_body;
-pub(crate) use buckets::{bucket_etag, timestamp, validate_bucket_name_for_profile};
+pub(crate) use buckets::{
+    bucket_etag, reject_predefined_acl, timestamp, validate_bucket_name_for_profile,
+};
 pub use buckets::{
     bucket_list, bucket_list_with_profile, bucket_resource, bucket_resource_with_profile,
     parse_bucket_patch, parse_bucket_replacement, parse_insert, parse_insert_with_profile,

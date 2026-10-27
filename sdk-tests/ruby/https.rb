@@ -168,6 +168,21 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     ensure
       api.request_options.retries = 0
     end
+    uniform_bucket = nil
+    begin
+      uniform_bucket = storage.create_bucket("sdk-ruby-ubla-#{SecureRandom.hex(8)}") do |item|
+        item.uniform_bucket_level_access = true
+      end
+      uniform_bucket.reload!
+      raise "uniform access missing" unless uniform_bucket.uniform_bucket_level_access?
+      raise "uniform access deadline missing" unless uniform_bucket.uniform_bucket_level_access_locked_at
+      uniform_bucket.uniform_bucket_level_access = false
+      uniform_bucket.reload!
+      raise "uniform access still enabled" if uniform_bucket.uniform_bucket_level_access?
+      puts "ruby-bucket-uniform-access passed"
+    ensure
+      uniform_bucket&.delete
+    end
     permissions = ["storage.objects.get", "storage.objects.create", "storage.buckets.getIamPolicy"]
     raise "bucket test permissions mismatch" unless bucket.test_permissions(*permissions).sort == permissions.sort
     if ENV.key?("GCS_MIMIC_TOKEN")

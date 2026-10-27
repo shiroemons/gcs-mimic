@@ -87,8 +87,8 @@ pub(crate) fn route(
         Fields::take(&mut remaining, "RewriteResponse")?;
         query::common(&mut remaining)?;
         query::projection(&mut remaining)?;
-        if let Some(acl) = remaining.get("destinationPredefinedAcl") {
-            if !matches!(
+        if let Some(acl) = remaining.get("destinationPredefinedAcl")
+            && !matches!(
                 acl.as_str(),
                 "authenticatedRead"
                     | "bucketOwnerFullControl"
@@ -96,13 +96,13 @@ pub(crate) fn route(
                     | "private"
                     | "projectPrivate"
                     | "publicRead"
-            ) {
-                return Err(JsonError::invalid_parameter(
-                    "Invalid destinationPredefinedAcl",
-                ));
-            }
-            return Err(JsonError::unsupported_object("destinationPredefinedAcl"));
+            )
+        {
+            return Err(JsonError::invalid_parameter(
+                "Invalid destinationPredefinedAcl",
+            ));
         }
+        remaining.remove("destinationPredefinedAcl");
         for key in ["destinationKmsKeyName", "dropContextGroups"] {
             if remaining.contains_key(key) {
                 return Err(JsonError::unsupported_object(key));

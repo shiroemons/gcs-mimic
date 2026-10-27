@@ -2416,13 +2416,14 @@ fn bucket_core_strict_protection_settings_never_create_an_unprotected_bucket() {
             ],
         );
         for settings in [
-            json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
+            json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":"true"}}}),
             json!({"retentionPolicy":{"retentionPeriod":"86400"}}),
             json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]}}),
             json!({"acl":[{"entity":"allUsers","role":"READER"}]}),
             json!({"defaultObjectAcl":[{"entity":"allUsers","role":"READER"}]}),
             json!({"encryption":{"defaultKmsKeyName":"unavailable-key"}}),
         ] {
+            let invalid_uniform_access = settings.get("iamConfiguration").is_some();
             let mut body = settings;
             body["name"] = "protected-bucket".into();
             server
@@ -2432,7 +2433,22 @@ fn bucket_core_strict_protection_settings_never_create_an_unprotected_bucket() {
                     "/storage/v1/b?project=local-project",
                     &body.to_string(),
                 )
-                .error(400, "badRequest");
+                .error(
+                    if invalid_uniform_access {
+                        400
+                    } else {
+                        gcs_mimic::json::JsonError::unsupported("bucket metadata")
+                            .status
+                            .as_u16()
+                    },
+                    if invalid_uniform_access && profile == "legacy-emulator" {
+                        "invalid"
+                    } else if invalid_uniform_access {
+                        "invalidArgument"
+                    } else {
+                        gcs_mimic::json::JsonError::unsupported("bucket metadata").reason
+                    },
+                );
             server
                 .authorized(
                     "local-admin-token",
@@ -2682,7 +2698,7 @@ fn bucket_core_migrates_v7_settings() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            22
+            23
         );
     }
 }

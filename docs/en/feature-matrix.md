@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 277 | 0 | 20 | 1 | 0 | 0 |
-| behavior | 201 | 128 | 0 | 35 | 38 | 0 | 0 |
+| behavior | 201 | 126 | 0 | 37 | 38 | 0 | 0 |
 | project_requirement | 92 | 36 | 0 | 27 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 277 | 5 | 16 | 0 | 0 | 0 |
-| behavior | 128 | 41 | 30 | 2 | 0 | 0 |
+| behavior | 126 | 43 | 30 | 2 | 0 | 0 |
 | project_requirement | 36 | 0 | 0 | 0 | 0 | 56 |
 
 ## api_operation
@@ -511,7 +511,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-010 | Website configuration | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-011 | Usage/access logging configuration | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-012 | Default event-based hold | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
-| BEHAVIOR-BUCKET-013 | Uniform access configuration | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-013 | Uniform access configuration | PARTIAL | P2 | EXACT | EXACT | 2 |
 | BEHAVIOR-BUCKET-014 | Public access prevention | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-BUCKET-015 | Soft delete policy | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-016 | Hard delete pause field | NOT_STARTED | P4 | EXACT | NONE | 0 |
@@ -636,7 +636,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-016 | Inherited and bucket policy evaluation | PARTIAL | P2 | EXACT | EXACT | 1 |
 | DESIGN-017 | Object ACL enforcement with bucket IAM | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-018 | Default object ACL inheritance on creation | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-019 | Predefined ACL permission effects | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-019 | Predefined ACL permission effects | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-020 | UBLA disables ACL operations and grants | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-021 | UBLA 90-day irreversible transition | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-022 | PAP effective inherited/enforced state | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |

@@ -215,7 +215,8 @@ fn parse_object_query(
         None
     };
     let method_keys: &[&str] = if method == Method::POST {
-        &["contentEncoding", "kmsKeyName", "predefinedAcl"]
+        query.remove("predefinedAcl");
+        &["contentEncoding", "kmsKeyName"]
     } else if method == Method::GET {
         &["restoreToken"]
     } else if method == Method::PATCH || method == Method::PUT {

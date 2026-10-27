@@ -1,8 +1,8 @@
 use super::lock;
 use crate::auth::{Identity, OBJECTS_DELETE, Policy};
 use crate::bucket::{
-    BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError, cors_from_value, cors_value,
-    valid_label, validate_cors, validate_storage_class,
+    BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError, UNIFORM_ACCESS_LOCK_PERIOD,
+    cors_from_value, cors_value, valid_label, validate_cors, validate_storage_class,
 };
 use crate::clock::{Clock, SystemClock};
 use rusqlite::{
@@ -91,7 +91,8 @@ pub mod sync_state;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 22;
+const CATALOG_SCHEMA_VERSION: i64 = 23;
+const BUCKET_UNIFORM_ACCESS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN uniform_bucket_level_access_locked_time INTEGER; PRAGMA user_version = 23;";
 const OBJECT_HOLDS_CUSTOM_TIME_SCHEMA: &str = "ALTER TABLE objects ADD COLUMN temporary_hold INTEGER NOT NULL DEFAULT 0 CHECK(temporary_hold IN (0, 1)); ALTER TABLE objects ADD COLUMN custom_time TEXT; PRAGMA user_version = 22;";
 const TIMESTAMP_MICROS_SCHEMA_VERSION: i64 = 14;
 const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
@@ -101,7 +102,8 @@ const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
 PRAGMA user_version = 5;";
 const COLUMNS: &str = "name, project, location, location_type, storage_class, labels,
                       metageneration, time_created, updated, versioning_enabled,
-                      default_event_based_hold, cors, public_access_prevention_enforced";
+                      default_event_based_hold, cors, public_access_prevention_enforced,
+                      uniform_bucket_level_access_locked_time";
 const BUCKET_PAP_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN public_access_prevention_enforced INTEGER NOT NULL DEFAULT 0 CHECK(public_access_prevention_enforced IN (0, 1));
 PRAGMA user_version = 13;";
 const BUCKET_CORS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN cors TEXT NOT NULL DEFAULT '[]';
@@ -319,6 +321,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
     if version >= 22 {
         expected
             .execute_batch(OBJECT_HOLDS_CUSTOM_TIME_SCHEMA)
+            .map_err(unavailable)?;
+    }
+    if version >= 23 {
+        expected
+            .execute_batch(BUCKET_UNIFORM_ACCESS_SCHEMA)
             .map_err(unavailable)?;
     }
     let inventory =
@@ -607,6 +614,11 @@ impl Catalog {
             if version < 22 {
                 let transaction = connection.transaction().map_err(unavailable)?;
                 transaction.execute_batch(OBJECT_HOLDS_CUSTOM_TIME_SCHEMA).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)?;
+            }
+            if version < 23 {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(BUCKET_UNIFORM_ACCESS_SCHEMA).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
             }
             let pending: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)", [], |row| row.get(0)).map_err(unavailable)?;
@@ -928,6 +940,22 @@ impl Catalog {
             {
                 return Err(CatalogError::UnsupportedMetadata("location".into()));
             }
+            if let Some(enabled) = update.uniform_bucket_level_access_enabled {
+                match (enabled, record.uniform_bucket_level_access_locked_time) {
+                    (true, None) => {
+                        record.uniform_bucket_level_access_locked_time = Some(clock.now()
+                            .checked_add(UNIFORM_ACCESS_LOCK_PERIOD)
+                            .ok_or_else(|| CatalogError::InvalidMetadata("Uniform access deadline is outside the supported time range".into()))?);
+                    }
+                    (false, Some(locked_time)) => {
+                        if clock.now() >= locked_time {
+                            return Err(CatalogError::InvalidMetadata("Uniform bucket-level access has been enabled for 90 consecutive days and cannot be disabled; keep uniformBucketLevelAccess.enabled=true".into()));
+                        }
+                        record.uniform_bucket_level_access_locked_time = None;
+                    }
+                    _ => {}
+                }
+            }
             if replace {
                 record.cors.clear();
                 record.labels.clear();
@@ -988,11 +1016,14 @@ impl Catalog {
                 .ok_or_else(|| unavailable("bucket metageneration exhausted"))?;
             let updated = unix_micros(clock.now())?;
             record.updated = system_time_micros(updated).map_err(unavailable)?;
+            record.uniform_bucket_level_access_locked_time = record.uniform_bucket_level_access_locked_time
+                .map(|time| unix_micros(time).and_then(|time| system_time_micros(time).map_err(unavailable))).transpose()?;
             transaction
                 .execute(
                     "UPDATE buckets SET labels = ?2, storage_class = ?3,
                      versioning_enabled = ?4, default_event_based_hold = ?5,
-                     metageneration = ?6, updated = ?7, cors = ?8, public_access_prevention_enforced = ?9 WHERE name = ?1",
+                     metageneration = ?6, updated = ?7, cors = ?8, public_access_prevention_enforced = ?9,
+                     uniform_bucket_level_access_locked_time = ?10 WHERE name = ?1",
                     params![
                         name,
                         serde_json::to_string(&record.labels).map_err(unavailable)?,
@@ -1003,6 +1034,7 @@ impl Catalog {
                         updated,
                         cors_value(&record.cors).to_string(),
                         record.public_access_prevention_enforced,
+                        record.uniform_bucket_level_access_locked_time.map(unix_micros).transpose()?,
                     ],
                 )
                 .map_err(unavailable)?;
@@ -1250,10 +1282,16 @@ fn insert_bucket_in_transaction(
     let updated = unix_micros(record.updated)?;
     record.time_created = system_time_micros(created).map_err(unavailable)?;
     record.updated = system_time_micros(updated).map_err(unavailable)?;
+    record.uniform_bucket_level_access_locked_time = record
+        .uniform_bucket_level_access_locked_time
+        .map(|time| {
+            unix_micros(time).and_then(|time| system_time_micros(time).map_err(unavailable))
+        })
+        .transpose()?;
     let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
     let changed = transaction
         .execute(
-            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
          ON CONFLICT(name) DO NOTHING"),
             params![
                 record.name,
@@ -1269,6 +1307,7 @@ fn insert_bucket_in_transaction(
                 record.default_event_based_hold,
                 cors_value(&record.cors).to_string(),
                 record.public_access_prevention_enforced,
+                record.uniform_bucket_level_access_locked_time.map(unix_micros).transpose()?,
             ],
         )
         .map_err(unavailable)?;
@@ -1355,6 +1394,10 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         versioning_enabled: row.get(9)?,
         default_event_based_hold: row.get(10)?,
         public_access_prevention_enforced: row.get(12)?,
+        uniform_bucket_level_access_locked_time: row
+            .get::<_, Option<i64>>(13)?
+            .map(system_time_micros)
+            .transpose()?,
         cors: cors_from_value(
             &serde_json::from_str(&row.get::<_, String>(11)?).map_err(|e| {
                 rusqlite::Error::FromSqlConversionFailure(11, Type::Text, Box::new(e))

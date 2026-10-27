@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 277 | 0 | 20 | 1 | 0 | 0 |
-| behavior | 201 | 128 | 0 | 35 | 38 | 0 | 0 |
+| behavior | 201 | 126 | 0 | 37 | 38 | 0 | 0 |
 | project_requirement | 92 | 36 | 0 | 27 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 277 | 5 | 16 | 0 | 0 | 0 |
-| behavior | 128 | 41 | 30 | 2 | 0 | 0 |
+| behavior | 126 | 43 | 30 | 2 | 0 | 0 |
 | project_requirement | 36 | 0 | 0 | 0 | 0 | 56 |
 
 ## api_operation
@@ -511,7 +511,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-010 | Webサイト設定 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-011 | アクセスログ設定 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-012 | 既定のイベントベース保留 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
-| BEHAVIOR-BUCKET-013 | 均一なバケットレベルアクセス設定 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-013 | 均一なバケットレベルアクセス設定 | PARTIAL | P2 | EXACT | EXACT | 2 |
 | BEHAVIOR-BUCKET-014 | 公開アクセス防止 | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-BUCKET-015 | Soft deleteポリシー | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-016 | 恒久削除一時停止フィールド | NOT_STARTED | P4 | EXACT | NONE | 0 |
@@ -636,7 +636,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-016 | 継承ポリシーとバケットポリシーの評価 | PARTIAL | P2 | EXACT | EXACT | 1 |
 | DESIGN-017 | オブジェクトACLとバケットIAMの併用評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-018 | 作成時のデフォルトオブジェクトACL適用 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-019 | 定義済みACLの権限への反映 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-019 | 定義済みACLの権限への反映 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-020 | UBLAによるACL操作・権限の無効化 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-021 | UBLAの90日経過後の解除不可制約 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-022 | 公開アクセス防止の継承・強制状態の評価 | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |

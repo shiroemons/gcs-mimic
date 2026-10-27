@@ -202,14 +202,7 @@ fn parse(
     common(&mut query)?;
     match (method, bucket) {
         (&Method::POST, None) => {
-            unsupported(
-                &query,
-                &[
-                    "predefinedAcl",
-                    "predefinedDefaultObjectAcl",
-                    "enableObjectRetention",
-                ],
-            )?;
+            unsupported(&query, &["enableObjectRetention"])?;
             if profile == CompatProfile::LegacyEmulator {
                 query
                     .entry("project".into())
@@ -217,6 +210,8 @@ fn parse(
             }
             let project = project(&mut query)?;
             let projection = projection(&mut query)?;
+            query.remove("predefinedAcl");
+            query.remove("predefinedDefaultObjectAcl");
             finish(query)?;
             Ok(BucketRequest::Insert(InsertParams {
                 project,
@@ -277,7 +272,8 @@ fn parse(
                 unsupported(&query, &["generation"])?;
                 false_only(&mut query, "softDeleted")?;
             } else {
-                unsupported(&query, &["predefinedAcl", "predefinedDefaultObjectAcl"])?;
+                query.remove("predefinedAcl");
+                query.remove("predefinedDefaultObjectAcl");
             }
             let conditions = conditions(&mut query)?;
             if *method == Method::PUT && !query.contains_key("projection") {

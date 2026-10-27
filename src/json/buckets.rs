@@ -1,7 +1,7 @@
 use super::{JsonError, Projection, query::validate_project};
 use crate::bucket::{
-    BucketMetadataUpdate, BucketRecord, CorsRule, bucket_location, cors_from_value, cors_value,
-    valid_label, validate_storage_class,
+    BucketMetadataUpdate, BucketRecord, CorsRule, UNIFORM_ACCESS_LOCK_PERIOD, bucket_location,
+    cors_from_value, cors_value, valid_label, validate_storage_class,
 };
 use crate::config::CompatProfile;
 use hyper::StatusCode;
@@ -256,6 +256,19 @@ pub fn parse_insert_with_profile(
             body.get("iamConfiguration"),
         )?
         .unwrap_or(false),
+        uniform_bucket_level_access_locked_time: if parse_uniform_access(
+            body.get("iamConfiguration"),
+        )?
+        .unwrap_or(false)
+        {
+            Some(now.checked_add(UNIFORM_ACCESS_LOCK_PERIOD).ok_or_else(|| {
+                JsonError::invalid_argument(
+                    "Uniform access deadline is outside the supported time range",
+                )
+            })?)
+        } else {
+            None
+        },
         metageneration: 1,
         time_created: now,
         updated: now,
@@ -412,24 +425,46 @@ fn parse_bucket_update(
         public_access_prevention_enforced: parse_public_access_prevention(
             body.get("iamConfiguration"),
         )?,
+        uniform_bucket_level_access_enabled: parse_uniform_access(body.get("iamConfiguration"))?,
     })
 }
 
-fn parse_public_access_prevention(value: Option<&Value>) -> Result<Option<bool>, JsonError> {
-    let Some(value) = value else { return Ok(None) };
+fn parse_uniform_access(value: Option<&Value>) -> Result<Option<bool>, JsonError> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
     let config = value
         .as_object()
         .ok_or_else(|| JsonError::invalid_argument("iamConfiguration must be an object"))?;
+    let mut enabled = None;
     for field in ["uniformBucketLevelAccess", "bucketPolicyOnly"] {
-        if let Some(value) = config.get(field)
-            && !value.as_object().is_some_and(|setting| {
-                setting.get("enabled") == Some(&Value::Bool(false))
-                    && !setting.contains_key("lockedTime")
-            })
-        {
-            return Err(JsonError::unsupported(&format!("iamConfiguration.{field}")));
+        if let Some(value) = config.get(field).filter(|value| !value.is_null()) {
+            let setting = value.as_object().ok_or_else(|| {
+                JsonError::invalid_argument(format!(
+                    "{field} must be an object; use {{\"enabled\":true}}"
+                ))
+            })?;
+            if let Some(value) = setting.get("enabled").filter(|value| !value.is_null()) {
+                let value = value.as_bool().ok_or_else(|| {
+                    JsonError::invalid_argument(format!(
+                        "{field}.enabled must be a boolean; use true or false"
+                    ))
+                })?;
+                // Ruby patches the modern field while retaining the response's legacy alias.
+                enabled = enabled.or(Some(value));
+            }
         }
     }
+    Ok(enabled)
+}
+
+fn parse_public_access_prevention(value: Option<&Value>) -> Result<Option<bool>, JsonError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let config = value
+        .as_object()
+        .ok_or_else(|| JsonError::invalid_argument("iamConfiguration must be an object"))?;
     config
         .get("publicAccessPrevention")
         .map(|value| match value.as_str() {
@@ -453,6 +488,32 @@ fn parse_cors(value: Option<&Value>) -> Result<Option<Vec<CorsRule>>, JsonError>
             Ok(rules)
         })
         .transpose()
+}
+
+pub(crate) fn reject_predefined_acl(
+    query: Option<&str>,
+    enabled: bool,
+    object: bool,
+) -> Result<(), JsonError> {
+    let query = super::parse_query(query.unwrap_or_default())?;
+    for key in [
+        "predefinedAcl",
+        "predefinedDefaultObjectAcl",
+        "destinationPredefinedAcl",
+    ] {
+        if query.contains_key(key) {
+            return Err(if enabled {
+                JsonError::invalid_argument(format!(
+                    "{key} cannot be used with uniform bucket-level access; remove {key} (for example, omit {key}=publicRead) and use bucket IAM permissions"
+                ))
+            } else if object {
+                JsonError::unsupported_object(key)
+            } else {
+                JsonError::unsupported(key)
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Render supported metadata using a caller-validated advertised origin/base path.
@@ -486,6 +547,13 @@ pub fn bucket_resource_with_profile(
         "location": bucket.location, "locationType": bucket.location_type, "storageClass": bucket.storage_class,
         "iamConfiguration": {"publicAccessPrevention": if bucket.public_access_prevention_enforced { "enforced" } else { "inherited" }},
     });
+    let mut uniform_access =
+        json!({"enabled": bucket.uniform_bucket_level_access_locked_time.is_some()});
+    if let Some(locked_time) = bucket.uniform_bucket_level_access_locked_time {
+        uniform_access["lockedTime"] = timestamp(locked_time)?.into();
+    }
+    value["iamConfiguration"]["uniformBucketLevelAccess"] = uniform_access.clone();
+    value["iamConfiguration"]["bucketPolicyOnly"] = uniform_access;
     if !bucket.labels.is_empty() {
         value["labels"] = json!(bucket.labels);
     }

@@ -178,21 +178,30 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             assert!(error.message.contains(parameter));
         }
     }
-    for parameter in [
-        "predefinedAcl",
-        "predefinedDefaultObjectAcl",
-        "enableObjectRetention",
-    ] {
-        assert_eq!(
+    for parameter in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
+        assert!(
             request(
                 Method::POST,
-                &format!("/storage/v1/b?project=p&{parameter}=false")
+                &format!("/storage/v1/b?project=p&{parameter}=private")
             )
-            .unwrap_err()
-            .status,
-            StatusCode::BAD_REQUEST
+            .is_ok()
+        );
+        assert_eq!(
+            reject_predefined_acl(Some(&format!("{parameter}=private")), false, false)
+                .unwrap_err()
+                .reason,
+            JsonError::unsupported(parameter).reason
         );
     }
+    assert_eq!(
+        request(
+            Method::POST,
+            "/storage/v1/b?project=p&enableObjectRetention=false"
+        )
+        .unwrap_err()
+        .status,
+        JsonError::unsupported("enableObjectRetention").status
+    );
     for path in [
         "/storage/v1/b/abc?generation=1",
         "/storage/v1/b/abc?softDeleted=true",
