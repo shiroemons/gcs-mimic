@@ -4228,9 +4228,9 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
-      "source_checked_at": "2026-10-23",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
+      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -4238,6 +4238,12 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "RUBY-DEFAULT-CREATE-BUCKET",
+          "description": "Ruby high-level create_bucket with no optional arguments accepts no-op Autoclass defaults, omits Autoclass in responses and rejects enabled/additional semantics; docs/en/slices/sdk-ruby-defaults.md.",
+          "result": "PASS",
+          "test_ids": ["ruby_default_create_bucket", "ruby-default-create-bucket"]
+        },
         {
           "id": "BKT-INS-001",
           "description": "Metadata defaults/labels/location, project and timestamps survive get.",
@@ -4434,6 +4440,8 @@
       ],
       "test_ids": [
         "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
+        "ruby_default_create_bucket",
+        "ruby-default-create-bucket",
         "bkt_http_crud_metadata_conditions_and_errors",
         "bkt_ins_001_defaults_and_server_owned_values",
         "bkt_http_query_body_name_and_route_boundaries",
@@ -4484,6 +4492,24 @@
         "pap_migrates_version_twelve_and_persists_configured_state"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --test sdk_ruby_defaults_http",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-ruby-defaults.md",
+          "test_ids": [
+            "ruby_default_create_bucket"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-ruby-defaults.md",
+          "test_ids": [
+            "ruby-default-create-bucket"
+          ]
+        },
         {
           "command": "cargo test --workspace --locked",
           "result": "PASS",
@@ -4647,6 +4673,21 @@
       ],
       "sdk_evidence": [
         {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "bundler": "4.0.23",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; guarded loopback permissive/strict endpoints; high-level default calls",
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-ruby-defaults.md",
+          "test_ids": [
+            "ruby-default-create-bucket"
+          ]
+        },
+        {
           "language": "Go",
           "toolchain": "1.27.3",
           "sdk": "cloud.google.com/go/storage",
@@ -4691,7 +4732,7 @@
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
-      "last_verified": "2026-10-23",
+      "last_verified": "2026-10-27",
       "http_method": "POST",
       "path": "b",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -8839,9 +8880,9 @@
         "https://docs.cloud.google.com/storage/docs/composite-objects",
         "https://docs.cloud.google.com/storage/quotas"
       ],
-      "source_checked_at": "2026-10-23",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Bounded JSON compose of 1..32 generation-pinned same-bucket/class sources, atomic destination Match conditions, componentCount/CRC32C without MD5, fields-selected metadata without ACL/owner and strict get/create/delete checks. Undeclared projection returns 400. deleteSourceObjects hard-deletes selected sources atomically with publication under declared local safety rules. Current quotas supersede the obsolete 1024 limit. Full contract and provider questions: docs/en/slices/object-compose.md and SPEC-COMPOSE-EDGES; XML/gRPC compose are separate rows. Final integrated evidence: docs/en/evidence/derived-objects.md. Independent 128-entry ephemeral and continuable quotas keep abandoned rewrites from exhausting copy/compose capacity; total transfers remain bounded at 256 and recovery preserves continuable accounting.",
+      "notes": "Bounded JSON compose of 1..32 generation-pinned same-bucket/class sources, atomic destination Match conditions, componentCount/CRC32C without MD5, fields-selected metadata without ACL/owner and strict get/create/delete checks. Undeclared projection returns 400. deleteSourceObjects hard-deletes selected sources atomically with publication under declared local safety rules. Current quotas supersede the obsolete 1024 limit. Full contract and provider questions: docs/en/slices/object-compose.md and SPEC-COMPOSE-EDGES; XML/gRPC compose are separate rows. Final integrated evidence: docs/en/evidence/derived-objects.md. Independent 128-entry ephemeral and continuable quotas keep abandoned rewrites from exhausting copy/compose capacity; total transfers remain bounded at 256 and recovery preserves continuable accounting. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity.",
       "dependencies": [
         "BEHAVIOR-OBJECT-025",
         "BEHAVIOR-OBJECT-026",
@@ -8850,6 +8891,12 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
+        {
+          "id": "RUBY-DEFAULT-COMPOSE",
+          "description": "Ruby compose without optional arguments treats null deletion/destination as absent, preserves sources and existing true/unsupported behavior; docs/en/slices/sdk-ruby-defaults.md.",
+          "result": "PASS",
+          "test_ids": ["ruby_default_compose", "ruby-default-compose", "TestSDKObjectDefaults"]
+        },
         {
           "id": "COMPOSE-CONSTRUCTION",
           "description": "Ordered one/empty/repeated/32-source and nested composition; same bucket/class, selected source generations, atomic destination conditions and one race winner.",
@@ -8958,6 +9005,9 @@
       ],
       "test_ids": [
         "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+        "ruby_default_compose",
+        "ruby-default-compose",
+        "TestSDKObjectDefaults",
         "compose_source_and_destination_preconditions_preserve_failed_overwrites",
         "compose_concurrent_create_if_absent_has_one_winner",
         "compose_storage_class_defaults_and_event_holds",
@@ -8999,6 +9049,25 @@
         "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --test sdk_ruby_defaults_http",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-ruby-defaults.md",
+          "test_ids": [
+            "ruby_default_compose"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-ruby-defaults.md",
+          "test_ids": [
+            "ruby-default-compose",
+            "TestSDKObjectDefaults"
+          ]
+        },
         {
           "command": "cargo test --workspace --locked --offline (via just pre-push)",
           "result": "PASS",
@@ -9082,6 +9151,21 @@
       ],
       "sdk_evidence": [
         {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "bundler": "4.0.23",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; guarded loopback permissive/strict endpoints; high-level default calls",
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-ruby-defaults.md",
+          "test_ids": [
+            "ruby-default-compose"
+          ]
+        },
+        {
           "language": "Go",
           "toolchain": "1.27.3",
           "sdk": "cloud.google.com/go/storage",
@@ -9100,7 +9184,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
-      "last_verified": "2026-10-23",
+      "last_verified": "2026-10-27",
       "http_method": "POST",
       "path": "b/{destinationBucket}/o/{destinationObject}/compose",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -11132,13 +11216,19 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
         "https://docs.cloud.google.com/storage/docs/data-validation#json-api-multipart-uploads"
       ],
-      "source_checked_at": "2026-10-23",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Media, bounded multipart and JSON resumable initiation/chunk/status/cancel/expiry/finalization subsets pass with MD5/CRC32C, custom metadata, atomic conditions, persistent Object resources and bounded disk-backed sessions. Strict local grants, capability delegation and transaction-time revocation are verified. Scope: docs/en/slices/json-object-media.md, docs/en/slices/json-object-multipart.md and docs/en/slices/resumable-upload.md; final evidence: docs/en/evidence/resumable-upload.md. Full method fields/common parameters, IAM/ACL, encryption/transcoding, Discovery alias and invocation-token replay remain incomplete; retain all prior media/multipart/IAM evidence. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain.",
+      "notes": "Media, bounded multipart and JSON resumable initiation/chunk/status/cancel/expiry/finalization subsets pass with MD5/CRC32C, custom metadata, atomic conditions, persistent Object resources and bounded disk-backed sessions. Strict local grants, capability delegation and transaction-time revocation are verified. Scope: docs/en/slices/json-object-media.md, docs/en/slices/json-object-multipart.md and docs/en/slices/resumable-upload.md; final evidence: docs/en/evidence/resumable-upload.md. Full method fields/common parameters, IAM/ACL, encryption/transcoding, Discovery alias and invocation-token replay remain incomplete; retain all prior media/multipart/IAM evidence. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "RUBY-DEFAULT-CREATE-FILE-CONTENT-TYPE",
+          "description": "Ruby extensionless StringIO create_file without content_type treats an empty upload MIME header as absent and retains 400 for nonempty invalid MIME; docs/en/slices/sdk-ruby-defaults.md.",
+          "result": "PASS",
+          "test_ids": ["ruby_default_create_file_content_type", "ruby-default-create-file-content-type"]
+        },
         {
           "id": "RSM-INSERT-001",
           "description": "positive/negative: Initiation/chunk/status/cancel/finalization subset passes with existing media/multipart regression coverage; advanced fields and replay remain pending. Contract: docs/en/slices/resumable-upload.md.",
@@ -11673,6 +11763,8 @@
       ],
       "test_ids": [
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
+        "ruby_default_create_file_content_type",
+        "ruby-default-create-file-content-type",
         "obj_http_zero_multichunk_binary_and_size_limits",
         "obj_http_bad_hashes_and_unsupported_requests_never_publish",
         "obj_http_disconnected_overwrite_preserves_the_previous_generation",
@@ -11786,6 +11878,24 @@
         "two_create_if_absent_sessions_have_one_finalization_winner"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --test sdk_ruby_defaults_http",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-ruby-defaults.md",
+          "test_ids": [
+            "ruby_default_create_file_content_type"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-ruby-defaults.md",
+          "test_ids": [
+            "ruby-default-create-file-content-type"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -12132,6 +12242,21 @@
       ],
       "sdk_evidence": [
         {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "bundler": "4.0.23",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; guarded loopback permissive/strict endpoints; high-level default calls",
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-ruby-defaults.md",
+          "test_ids": [
+            "ruby-default-create-file-content-type"
+          ]
+        },
+        {
           "language": "Go",
           "toolchain": "1.27.3",
           "sdk": "cloud.google.com/go/storage",
@@ -12247,7 +12372,7 @@
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
-      "last_verified": "2026-10-23",
+      "last_verified": "2026-10-27",
       "http_method": "POST",
       "path": "b/{bucket}/o",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -43728,13 +43853,19 @@
       "source_urls": [
         "https://docs.cloud.google.com/ruby/docs/reference/google-cloud-storage/latest/Google-Cloud-Storage"
       ],
-      "source_checked_at": "2026-10-23",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned basic API gate passes over HTTP/HTTPS in permissive/strict profiles. Generated methods cover bucket/object PUT and copy; explicit false/destination metadata avoids unsupported SDK compose null defaults. docs/en/evidence/cors.md.",
+      "notes": "Pinned basic API gate passes over HTTP/HTTPS in permissive/strict profiles. Ruby default create_file/create_bucket/compose now pass over HTTP without no-op-default workarounds; docs/en/slices/sdk-ruby-defaults.md. Generated methods remain for bucket/object PUT and actual copy. Broader Ruby/Rails scope remains PARTIAL.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "RUBY-DEFAULT-SUITE",
+          "description": "Pinned high-level Ruby default create_file/create_bucket/compose calls pass without content_type, generated bucket insert or compose false/destination workarounds; docs/en/slices/sdk-ruby-defaults.md.",
+          "result": "PASS",
+          "test_ids": ["ruby-default-create-file-content-type", "ruby-default-create-bucket", "ruby-default-compose", "ruby-basic-api", "ruby-migration-scenario"]
+        },
         {
           "id": "RUBY-BASIC",
           "description": "Pinned Ruby 4.0.9/Bundler4.0.23/Storage1.62.1 six bucket and nine object methods, explicit local HTTP/HTTPS and static strict credentials, derived bytes/checksums and resumable streaming pass.",
@@ -43745,7 +43876,7 @@
         },
         {
           "id": "RUBY-BROADER",
-          "description": "Full Ruby/Rails, signing, broad IAM/ACL and default-null compose behavior remain unimplemented or unverified.",
+          "description": "Full Ruby/Rails and broad IAM/ACL behavior remain unimplemented or unverified.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -43760,9 +43891,25 @@
       ],
       "test_ids": [
         "ruby-migration-scenario",
-        "ruby-basic-api"
+        "ruby-basic-api",
+        "ruby-default-create-bucket",
+        "ruby-default-create-file-content-type",
+        "ruby-default-compose"
       ],
       "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-ruby-defaults.md",
+          "test_ids": [
+            "ruby-default-create-file-content-type",
+            "ruby-default-create-bucket",
+            "ruby-default-compose",
+            "ruby-basic-api",
+            "ruby-migration-scenario"
+          ]
+        },
         {
           "command": "just check-sdk",
           "result": "PASS",
@@ -43783,6 +43930,25 @@
         }
       ],
       "sdk_evidence": [
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "bundler": "4.0.23",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; guarded loopback permissive/strict endpoints; high-level default calls",
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-ruby-defaults.md",
+          "test_ids": [
+            "ruby-default-create-bucket",
+            "ruby-default-create-file-content-type",
+            "ruby-default-compose",
+            "ruby-basic-api",
+            "ruby-migration-scenario"
+          ]
+        },
         {
           "language": "Ruby",
           "toolchain": "4.0.9",
@@ -43814,11 +43980,11 @@
         }
       ],
       "known_deviations": [
-        "Rails, signing and broad permission/ACL workflows remain pending.",
-        "High-level bucket create sends unsupported Autoclass; generated insert is used. Compose requires explicit delete_source_objects:false and destination metadata because SDK defaults send unsupported nulls."
+        "Rails and broad permission/ACL workflows remain pending.",
+        "SPEC-RUBY-DEFAULTS records local null/empty/default normalization without provider parity evidence. Generated bucket/object PUT and actual copy remain necessary because high-level update uses PATCH and File#copy uses rewrite. Signed URL custom-host/path adaptation remains required as documented in sdk-tests/ruby/README.md."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-23"
+      "last_verified": "2026-10-27"
     },
     {
       "id": "DESIGN-084",

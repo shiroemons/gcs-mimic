@@ -88,7 +88,9 @@ pub(crate) fn headers(
     if total.is_some_and(|n| n > max) {
         return Err(ObjectError::TooLarge.into());
     }
-    let mime = single(headers, "x-upload-content-type")?.unwrap_or("application/octet-stream");
+    let mime = single(headers, "x-upload-content-type")?
+        .filter(|value| !value.is_empty())
+        .unwrap_or("application/octet-stream");
     let mut clean = headers.clone();
     clean.remove("x-upload-content-type");
     clean.remove("x-upload-content-length");

@@ -125,6 +125,14 @@ pub fn parse_insert_with_profile(
             if *field == "lifecycle" && body.get(*field) == Some(&json!({"rule": []})) {
                 continue;
             }
+            // Ruby sends disabled Autoclass even when no option was supplied.
+            if *field == "autoclass"
+                && body.get(*field).is_some_and(|value| {
+                    value.is_null() || value == &json!({}) || value == &json!({"enabled": false})
+                })
+            {
+                continue;
+            }
             return Err(JsonError::unsupported(field));
         }
     }

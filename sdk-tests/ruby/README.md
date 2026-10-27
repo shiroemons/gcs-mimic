@@ -78,16 +78,20 @@ exact configured origin. Objects and bucket are deleted afterward.
 Every request has a ten-second timeout and automatic retries
 are disabled. Test fixtures are removed on success and failure.
 
-Bucket creation and bucket/object PUT use the official generated
-`Google::Apis::StorageV1` client;
-the high-level `Project#create_bucket` always sends an Autoclass setting, which
-is outside the emulator's supported bucket subset. `StorageService#copy_object`
+Bucket creation uses high-level `Project#create_bucket(name)` without optional
+arguments. The disabled Autoclass setting sent by the SDK is treated as absent;
+enabling Autoclass or supplying additional settings still returns 501.
+An extensionless `StringIO` upload uses `create_file` without `content_type` and
+verifies application/octet-stream and exact bytes. The migration scenario also
+omits `content_type` for its named text file.
+Bucket/object PUT use the official generated `Google::Apis::StorageV1` client
+because the high-level update methods use PATCH. `StorageService#copy_object`
 also exercises the actual copy API, since high-level `File#copy` delegates to
 rewrite. `File#rewrite` and `Bucket#compose` exercise their named operations;
-composition explicitly sets `delete_source_objects: false`, since the pinned SDK
-otherwise sends `deleteSourceObjects: null`, rejected by the documented local
-compose validation contract. A destination block also supplies `content_type` so
-the SDK sends an object rather than unsupported `destination: null`.
+composition omits all optional arguments, so the SDK's `deleteSourceObjects: null`
+and `destination: null` use the existing non-destructive/default-metadata behavior.
+The [defaults contract](../../docs/en/slices/sdk-ruby-defaults.md) records these
+local normalization choices and their provider-verification limits.
 The remaining methods use the high-level SDK. Every generated and high-level
 call shares the same guarded connection and optional static fixture token.
 

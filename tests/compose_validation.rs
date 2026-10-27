@@ -58,6 +58,9 @@ fn compose_body_accepts_one_and_thirty_two_sources_and_empty_destination() {
             .unwrap()
             .delete_sources
     );
+    let defaults = parse(json!({"sourceObjects": [{"name": "source"}], "destination": null, "deleteSourceObjects": null})).unwrap();
+    assert!(!defaults.delete_sources);
+    assert_eq!(defaults.destination.content_type, None);
 }
 
 #[test]
@@ -72,7 +75,7 @@ fn compose_body_rejects_malformed_source_and_destination_shapes() {
         json!({"sourceObjects": [{}]}),
         json!({"sourceObjects": [{"name": ""}]}),
         json!({"sourceObjects": [{"name": "source", "objectPreconditions": null}]}),
-        json!({"sourceObjects": [{"name": "source"}], "destination": null}),
+        json!({"sourceObjects": [{"name": "source"}], "destination": []}),
         json!({"sourceObjects": [{"name": "source"}], "destination": {"bucket": "other"}}),
         json!({"sourceObjects": [{"name": "source"}], "deleteSourceObjects": "false"}),
         json!({"sourceObjects": [{"name": "source"}], "kind": "storage#object"}),

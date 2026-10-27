@@ -2262,6 +2262,11 @@ fn bucket_core_unsupported_settings_preserve_state() {
                 json!(false),
                 json!({"enabled":true}),
             ] {
+                let value = if field == "autoclass" && (value.is_null() || value == json!({})) {
+                    json!({"enabled": false, "terminalStorageClass": "ARCHIVE"})
+                } else {
+                    value
+                };
                 let body = json!({"name":"unsupported-bucket",field:value}).to_string();
                 let reply = server.request("POST", "/storage/v1/b?project=project", &body);
                 reply.error(501, "notImplemented");

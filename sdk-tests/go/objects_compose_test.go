@@ -13,6 +13,33 @@ import (
 	"cloud.google.com/go/storage"
 )
 
+func TestSDKObjectDefaults(t *testing.T) {
+	ctx, client, _, _ := newEmulatorClient(t)
+	bucket := resumableBucket(t, ctx, client, "sdk-defaults")
+	source := resumableObject(t, bucket, "extensionless")
+	writer := source.NewWriter(ctx)
+	if _, err := writer.Write([]byte("default bytes")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	attrs, err := source.Attrs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attrs.ContentType != "text/plain; charset=utf-8" {
+		t.Fatalf("default upload content type: %q", attrs.ContentType)
+	}
+	destination := resumableObject(t, bucket, "composed")
+	composed, err := destination.ComposerFrom(source, source).Run(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readObject(t, ctx, destination, []byte("default bytesdefault bytes"), composed.Generation)
+	readObject(t, ctx, source, []byte("default bytes"), attrs.Generation)
+}
+
 func TestObjectCompose(t *testing.T) {
 	ctx, client, _, _ := newEmulatorClient(t)
 	var nonce [8]byte

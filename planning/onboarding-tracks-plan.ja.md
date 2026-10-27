@@ -3,8 +3,9 @@
 <!-- markdownlint-configure-file {"MD013": false, "MD024": {"siblings_only": true}} -->
 
 2026-10-24 作成。対象は [detailed delivery plan](../docs/en/delivery-plan.md#parallel-work-and-acceptance) の
-「Parallel work and acceptance」表のうち First / Next の 6 トラックと、2026-10-25 に実利用アプリの調査から足した
-fake-gcs-server からの移行トラック（第 9 節）です。
+「Parallel work and acceptance」表のうち First / Next の 6 トラックです。
+2026-10-25 に実利用アプリの調査から足した fake-gcs-server からの移行トラック（第 9 節）と、
+SDK 互換トラック（第 12 節）も扱います。
 
 実装状態の正本は [`compatibility/features.json`](../compatibility/features.json) です。この計画は状態・fidelity・証跡を
 変更しません。調査の詳細とコードの根拠は [調査メモ](onboarding-tracks-findings.ja.md) にあります。
@@ -225,6 +226,12 @@ flowchart TD
   migrate-app-scenario --> migrate-defaults --> migrate-guide-compose
   migrate-app-scenario --> migrate-guide-compose
   migrate-upload-admission --> migrate-guide-compose
+
+  sdk-ruby-defaults --> sdk-object-holds-customtime
+  sdk-ruby-defaults --> sdk-list-glob
+  sdk-ruby-defaults --> sdk-test-permissions
+  sdk-ruby-defaults --> sdk-active-storage-scenario
+  sdk-active-storage-scenario --> sdk-acl-ubla
 ```
 
 - `repo-lints` が入るまで、ほかのトラックのコードのスライスはマージしない（図には最初のコードのスライスへの辺だけを描いている）。
@@ -985,3 +992,54 @@ planning/onboarding-tracks-findings.ja.md の該当箇所がまだ正しいか�
   記録した。サーバーが本文の読み込みに失敗して送信を中断したことを示すが、当時は読み込みのエラーを記録していなかった。
   手元では `auth_http` を 6 本同時に 3 回流しても再現しない。読み込みの失敗は今後 `object_body_read_failed` の
   `cause` に出るので、再発したらその値から調べる。不安定なテストとして片付けず、製品の不具合の可能性を前提に扱う。
+
+## 12. SDK 互換
+
+### 目的と対象
+
+Go（`cloud.google.com/go/storage`）と Ruby（`google-cloud-storage`）を、利用者が最初に書く形のまま動かす。
+機能数より、既定の呼び方で最初の操作が落ちないことを優先する。
+実装状態は台帳、段 1 の契約と証跡は [sdk-ruby-defaults](../docs/en/slices/sdk-ruby-defaults.md) を参照する。
+
+### 着手前チェック
+
+第 1 節と第 2 節、両 SDK の README、対象機能の公式資料と台帳を読む。段 1 は依存なし。
+後続の段は下表の依存を満たしてから着手する。省略できる引数を省いた高水準 API の SDK テストを先に書き、
+修正前の失敗を確認する。SDK に該当 API があるものは Go・Ruby の両方で検証する。
+
+### 決定
+
+既定値と同じ意味の入力（`enabled:false`、`null`、空文字のヘッダー、空の設定）は、指定なしと同じ扱いで受け付ける。
+意味が違う値（`enabled:true`、未対応のリージョンなど）は 501 `notImplemented` で断り、受け付けて無視しない。
+`null` を指定なしと扱う根拠は公式文書・Discovery で確認し、確認できなければ実装前に `compatibility/gaps.json` へ
+ローカルの選択として記録する。新しい設定キーは足さない。
+
+### スライス
+
+| 段 | スライス | 対象機能 ID | 内容 | 依存 |
+| --- | --- | --- | --- | --- |
+| 1 | `sdk-ruby-defaults` | DESIGN-083、JSON-OBJECTS-007、JSON-BUCKETS-005、JSON-OBJECTS-002 | Ruby の既定の作成・合成と回避策の除去 | なし |
+| 2 | `sdk-object-holds-customtime` | BEHAVIOR-OBJECT-035、BEHAVIOR-OBJECT-004 | 一時ホールドと customTime | 段 1 |
+| 2 | `sdk-list-glob` | BEHAVIOR-OBJECT-019 | 一覧の matchGlob | 段 1 |
+| 2 | `sdk-test-permissions` | JSON-BUCKETS-012、DESIGN-028 | strict と同じ権限判定 | 段 1 |
+| 3 | `sdk-active-storage-scenario` | DESIGN-084 | Active Storage のシナリオを先に追加 | 段 1 |
+| 4 | `sdk-acl-ubla`（要分割） | JSON-OBJECTACCESSCONTROLS-*、DESIGN-019、BEHAVIOR-BUCKET-013 | object ACL・predefinedAcl・UBLA | 段 3 の結果 |
+
+段 1 は、空の upload MIME、無効化した Autoclass、compose の null 既定値を正規化し、`https.rb` の該当する回避策を外す。
+段 2 のホールドは設定・解除とホールド中の削除・上書き拒否を扱い、customTime は設定と単調性を守る。
+権限確認は bucket の `testIamPermissions` を実際の strict 判定と一致させる。
+
+段 3 は Rails Active Storage のシナリオを先に入れ、失敗した操作を次のスライスにする。
+Rails の依存追加はオーナー承認が必要。段 4 は IAM・PAP と一緒に設計し、着手前に範囲と分割をオーナーへ報告する。
+第 2 節の依存図にも同じ依存を載せている。
+
+### 保留（困る例が出てから着手する）
+
+ライフサイクル、保持ポリシーとロック、soft delete と復元、move、CSEK・KMS、通知、HMAC・サービスアカウントは保留する。
+POST ポリシー、gRPC、Logging・Website・Autoclass・RPO・階層型名前空間・Requester Pays、regional の Location も保留する。
+
+### 完了条件と対象外
+
+対象ケースは実装前に台帳と slice 文書へ記録し、wire テストと両 SDK で確認する。広い未対応範囲のある行は PARTIAL を保つ。
+想定はバケットあたり千件程度で、開発速度を優先する。ベンチマークの準備・測定は行わず、本文のストリーミングと
+件数に比例しないメモリ、短い SQLite トランザクションはコードで守る。

@@ -1,7 +1,22 @@
 {
-  "as_of": "2026-10-23",
+  "as_of": "2026-10-27",
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
+    {
+      "id": "SPEC-RUBY-DEFAULTS",
+      "title": "Ruby no-op defaults and legacy JSON null acceptance",
+      "status": "OPEN",
+      "affected_features": ["DESIGN-083", "JSON-OBJECTS-007", "JSON-BUCKETS-005", "JSON-OBJECTS-002"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://storage.googleapis.com/$discovery/rest?version=v1"
+      ],
+      "observed_at": "2026-10-27",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Storage v1 Discovery revision 20261020 and the compose method define optional deletion/destination with default deletion false, but do not establish explicit-null acceptance. The local adapter treats deleteSourceObjects:null and destination:null as absent for google-cloud-storage 1.62.1. Empty X-Upload-Content-Type uses the existing absent-header fallback; null/empty or exactly enabled:false Autoclass creates an ordinary bucket without advertising Autoclass. Contract and acceptance: docs/en/slices/sdk-ruby-defaults.md. These are local compatibility choices, not real-service parity evidence.",
+      "required_resolution": "Obtain authoritative clarification or opted-in provider evidence before claiming exact null/empty-input parity. Keep enabled Autoclass and additional properties unsupported; do not generalize normalization to other fields or implement bucket PATCH/PUT Autoclass implicitly."
+    },
     {
       "id": "SPEC-SIGNED-BROWSER-CORS",
       "title": "Signed preflight examples and provider CORS on signed/input errors need clarification",

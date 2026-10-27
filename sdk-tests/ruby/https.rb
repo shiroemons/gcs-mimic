@@ -6,6 +6,7 @@ require "google/cloud/storage"
 require "ipaddr"
 require "net/http"
 require "securerandom"
+require "stringio"
 require "tempfile"
 require "uri"
 
@@ -116,10 +117,8 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
   source.flush
   expected = Digest::SHA256.file(source.path).hexdigest
   begin
-    # High-level create always sends unsupported Autoclass settings in the pinned SDK.
-    created = api.insert_bucket(storage.service.project,
-      Google::Apis::StorageV1::Bucket.new(name: "sdk-ruby-basic-#{SecureRandom.hex(8)}"))
-    bucket = storage.bucket(created.name)
+    bucket = storage.create_bucket("sdk-ruby-basic-#{SecureRandom.hex(8)}")
+    puts "ruby-default-create-bucket passed"
     raise "bucket get mismatch" unless storage.bucket(bucket.name).name == bucket.name
     raise "bucket absent from list" unless storage.buckets.any? { |item| item.name == bucket.name }
     bucket.update { |item| item.labels = { "transport" => origin.scheme } }
@@ -132,8 +131,24 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     raise "bucket PUT mismatch" unless bucket.labels == { "replacement" => "yes" } &&
                                       bucket.storage_class == "NEARLINE"
 
+    default_file = nil
+    begin
+      default_file = bucket.create_file(StringIO.new("Ruby default bytes"), "extensionless")
+      raise "default content type differs" unless default_file.content_type == "application/octet-stream"
+      downloaded = default_file.download
+      begin
+        raise "default upload bytes differ" unless downloaded.read == "Ruby default bytes"
+      ensure
+        downloaded.close
+      end
+      puts "ruby-default-create-file-content-type passed"
+    ensure
+      default_file&.delete
+    end
+    observed[:chunks] = 0
+    observed[:locations].clear
     source.rewind
-    object = bucket.create_file(source, "dir/日本語 +%?.bin", content_type: "application/octet-stream",
+    object = bucket.create_file(source, "dir/日本語 +%?.bin",
                                 if_generation_match: 0)
     objects << object
 
@@ -251,10 +266,8 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     objects << bucket.file(copied.name)
     rewritten = object.rewrite("rewrite.bin", if_generation_match: 0)
     objects << rewritten
-    composed = bucket.compose([object, rewritten], "compose.bin", if_generation_match: 0,
-                              delete_source_objects: false) do |destination|
-      destination.content_type = "application/octet-stream"
-    end
+    composed = bucket.compose([object, rewritten], "compose.bin")
+    puts "ruby-default-compose passed"
     objects << composed
     raise "derived object size mismatch" unless objects[1..2].all? { |item| item.size == source.size } &&
                                                composed.size == 2 * source.size

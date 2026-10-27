@@ -123,6 +123,7 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
     }
     let delete_sources = body
         .get("deleteSourceObjects")
+        .filter(|value| !value.is_null())
         .map(|value| {
             value
                 .as_bool()
@@ -164,6 +165,7 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
         .collect::<Result<_, JsonError>>()?;
     let mut destination = body
         .get("destination")
+        .filter(|value| !value.is_null())
         .map(|value| object(value, "Destination object").cloned())
         .transpose()?
         .unwrap_or_default();

@@ -44,6 +44,18 @@ variables are diagnosed with replacement advice, never accepted as aliases.
 | `-backend filesystem -filesystem-root /storage` | Named volume at `/var/lib/gcs-mimic` | The default persistent backend uses SQLite and opaque blobs. Keep the source volume separate; its format cannot be mounted as native storage. Memory backend has no equivalent here. |
 | `-data /data` with empty bucket directories | `GCS_MIMIC_BUCKETS_FILE: /buckets.json` and a read-only file mount | Missing buckets must be created on each startup. Seed runs only on first catalog initialization; directories added afterward do not create buckets. |
 
+The Ruby SDK's ordinary high-level calls now accept no-op wire defaults:
+
+| Ruby call | gcs-mimic behavior |
+| --- | --- |
+| `create_file(StringIO, extensionless_name)` without content_type | Empty upload MIME is treated as absent; contentType defaults to application/octet-stream. Nonempty invalid MIME still returns 400. |
+| `create_bucket(name)` without optional arguments | Disabled, empty or null Autoclass is treated as absent, with no Autoclass response property. Enabled or additional Autoclass settings still return 501; omit them or use enabled:false. |
+| `compose(sources, name)` without optional arguments | Null deletion/destination uses ordinary non-destructive composition and destination defaults. Explicit true retains hard source deletion. |
+
+These are the scoped [Ruby defaults](slices/sdk-ruby-defaults.md), not Autoclass
+implementation or proof of provider null-input parity. No extra server setting is
+required.
+
 For `data/assets/` and `data/exports/`, write `buckets.json` before startup:
 
 ```json

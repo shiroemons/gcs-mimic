@@ -12,7 +12,7 @@ def migration_scenario(storage)
   begin
     raise "migration object already exists" if bucket.file(name)
 
-    object = bucket.create_file(StringIO.new(payload), name, content_type: "text/plain")
+    object = bucket.create_file(StringIO.new(payload), name)
     found = bucket.file(name)
     unless found && found.generation == object.generation && found.size == payload.bytesize && found.content_type == "text/plain"
       raise "migration bucket.file metadata differs"
