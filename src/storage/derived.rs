@@ -704,7 +704,7 @@ impl Catalog {
                     component_count: destination.component_count,
                     content_encoding: None, content_disposition: None, content_language: None,
                     cache_control: None, metadata: Default::default(), time_created: time, updated: time,
-                    time_deleted: None, event_based_hold: default_hold,
+                    time_deleted: None, soft_delete_time: None, hard_delete_time: None, event_based_hold: default_hold,
                     temporary_hold: false, custom_time: None, retention_expiration_time: None,
                 };
                 destination.metadata.apply(&mut record)?;
@@ -1003,6 +1003,7 @@ mod tests {
                 uniform_bucket_level_access_locked_time: None,
                 lifecycle: Vec::new(),
                 retention_policy: None,
+                soft_delete_policy: None,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,

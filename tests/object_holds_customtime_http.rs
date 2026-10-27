@@ -260,6 +260,7 @@ fn hold_custom_time_migrate_existing_catalog() {
     let original = server.put("held", b"legacy bytes").json();
     server.stop();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    object_effects_support::common::timestamp_support::downgrade_soft_delete_schema(&connection);
     connection.execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; PRAGMA user_version = 21;").unwrap();
     drop(connection);
     server = Server::start(&dir, false);

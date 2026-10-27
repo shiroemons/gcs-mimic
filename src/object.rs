@@ -31,6 +31,8 @@ pub struct ObjectRecord {
     pub time_created: SystemTime,
     pub updated: SystemTime,
     pub time_deleted: Option<SystemTime>,
+    pub soft_delete_time: Option<SystemTime>,
+    pub hard_delete_time: Option<SystemTime>,
     pub event_based_hold: bool,
     pub temporary_hold: bool,
     pub custom_time: Option<String>,
@@ -248,6 +250,7 @@ pub enum ObjectError {
     OverwriteForbidden,
     ActiveHold,
     RetentionPolicyNotMet,
+    ObjectNotSoftDeleted,
     /// The bucket's current owning project is not one the caller was authorized for.
     Forbidden,
     NotModified,
@@ -279,6 +282,9 @@ impl fmt::Display for ObjectError {
             Self::RetentionPolicyNotMet => {
                 formatter.write_str("object retention period has not elapsed")
             }
+            Self::ObjectNotSoftDeleted => formatter.write_str(
+                "object is not soft deleted; select a generation from softDeleted=true listing",
+            ),
             Self::Forbidden => formatter.write_str("forbidden"),
             Self::NotModified => formatter.write_str("not modified"),
             Self::ChecksumMismatch => formatter.write_str("checksum mismatch"),

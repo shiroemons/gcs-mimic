@@ -29,6 +29,7 @@ fn unsupported_google_routes_and_inputs() {
         "storage.objects.move",
         "storage.objects.patch",
         "storage.objects.rewrite",
+        "storage.objects.restore",
         "storage.objects.update",
     ];
     for operation in inventory["methods"].as_array().unwrap() {
@@ -79,16 +80,14 @@ fn unsupported_google_routes_and_inputs() {
         reply.error(400, "badRequest");
         assert!(String::from_utf8_lossy(&reply.body).contains(field));
     }
-    for option in ["softDeleted", "includeFoldersAsPrefixes"] {
-        server
-            .request(
-                "GET",
-                &format!("/storage/v1/b/test-bucket/o?{option}=true"),
-                "",
-                b"",
-            )
-            .error(400, "badRequest");
-    }
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/test-bucket/o?includeFoldersAsPrefixes=true",
+            "",
+            b"",
+        )
+        .error(400, "badRequest");
     server
         .request("GET", "/storage/v1/b/rejected-bucket", "", b"")
         .error(404, "notFound");

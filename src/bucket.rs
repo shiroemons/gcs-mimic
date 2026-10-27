@@ -108,6 +108,7 @@ pub struct BucketRecord {
     pub cors: Vec<CorsRule>,
     pub lifecycle: Vec<serde_json::Value>,
     pub retention_policy: Option<RetentionPolicy>,
+    pub soft_delete_policy: Option<SoftDeletePolicy>,
     pub versioning_enabled: bool,
     pub default_event_based_hold: bool,
     pub public_access_prevention_enforced: bool,
@@ -123,6 +124,7 @@ pub struct BucketMetadataUpdate {
     pub cors: Option<Vec<CorsRule>>,
     pub lifecycle: Option<Vec<serde_json::Value>>,
     pub retention_period: Option<Option<u64>>,
+    pub soft_delete_retention: Option<u64>,
     pub lock_retention_policy: bool,
     pub labels: Option<Option<BTreeMap<String, Option<String>>>>,
     pub storage_class: Option<String>,
@@ -138,6 +140,12 @@ pub struct RetentionPolicy {
     pub retention_period: u64,
     pub effective_time: SystemTime,
     pub is_locked: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SoftDeletePolicy {
+    pub retention_duration_seconds: u64,
+    pub effective_time: SystemTime,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

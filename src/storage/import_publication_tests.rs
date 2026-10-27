@@ -409,6 +409,7 @@ async fn import_publication_failure_schema_rolls_back_and_reopens_preserved_stat
     let id = catalog.sync_state().catalog_id().await.unwrap();
     catalog.close().await.unwrap();
     let mut connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    crate::storage::catalog::test_support::downgrade_soft_delete_schema(&connection);
     connection
         .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; ALTER TABLE import_journal DROP COLUMN failure; PRAGMA user_version = 17;")
         .unwrap();
@@ -434,6 +435,6 @@ async fn import_publication_failure_schema_rolls_back_and_reopens_preserved_stat
         .unwrap();
     reopened.close().await.unwrap();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    super::super::super::validate_schema(&connection, 25).unwrap();
+    super::super::super::validate_schema(&connection, 26).unwrap();
     assert!(super::super::super::validate_schema_version(18, 17).is_err());
 }

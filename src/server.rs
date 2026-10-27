@@ -401,6 +401,7 @@ async fn respond_routed(
     if let Some(parsed) = xml::route(request.method(), config, selected) {
         let head = request.method() == Method::HEAD;
         let put = request.method() == Method::PUT;
+        let delete = request.method() == Method::DELETE;
         let deadline =
             tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
         activity.send_replace(ObjectActivity {
@@ -426,7 +427,7 @@ async fn respond_routed(
             },
             Err(error) => Err(error),
         };
-        if head || put || result.is_err() {
+        if head || put || delete || result.is_err() {
             activity.send_replace(ObjectActivity::default());
         }
         let mut response = result.unwrap_or_else(|error| boxed(error.response(head)));
@@ -650,6 +651,7 @@ async fn object_response(
     };
     let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
     let (permission, bucket) = match &operation {
+        ObjectRequest::Restore { bucket, .. } => (auth::OBJECTS_RESTORE, bucket),
         ObjectRequest::Move(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
@@ -691,6 +693,7 @@ async fn object_response(
             | ObjectRequest::Resumable { .. }
             | ObjectRequest::Update { .. }
             | ObjectRequest::Copy(_)
+            | ObjectRequest::Restore { .. }
     ) && (request.headers().contains_key("transfer-encoding")
         || request
             .headers()
@@ -702,6 +705,30 @@ async fn object_response(
         ));
     }
     let mut value = match operation {
+        ObjectRequest::Restore {
+            bucket,
+            name,
+            generation,
+            conditions,
+            projection,
+        } => {
+            json::validate_object_get_headers(request.headers(), false)?;
+            validate_bodyless_post(request, &query).await?;
+            let create_access =
+                authorize_bucket(state, caller, auth::OBJECTS_CREATE, &bucket).await?;
+            let record = state
+                .catalog
+                .restore_object_authorized(
+                    &bucket,
+                    &name,
+                    generation,
+                    conditions,
+                    &access,
+                    &create_access,
+                )
+                .await?;
+            json::object_resource(&record, &state.api_base_url, projection)?
+        }
         ObjectRequest::Move(params) => {
             json::validate_object_get_headers(request.headers(), false)?;
             let source_read =
@@ -1151,10 +1178,25 @@ async fn object_response(
                 return Ok(response);
             }
             json::validate_object_get_headers(request.headers(), false)?;
-            let record = state
-                .catalog
-                .get_object_authorized(&bucket, &name, params.generation, conditions, &access)
-                .await?;
+            let record = if params.soft_deleted {
+                state
+                    .catalog
+                    .get_soft_deleted_object_authorized(
+                        &bucket,
+                        &name,
+                        params.generation.ok_or_else(|| {
+                            JsonError::invalid_argument("softDeleted=true requires generation")
+                        })?,
+                        conditions,
+                        &access,
+                    )
+                    .await?
+            } else {
+                state
+                    .catalog
+                    .get_object_authorized(&bucket, &name, params.generation, conditions, &access)
+                    .await?
+            };
             return Ok(boxed(read_metadata_response(
                 request.headers(),
                 &json::object_etag(&record),
@@ -1229,10 +1271,34 @@ async fn xml_response(
     state: &State,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Result<Response<ResponseBody>, xml::Error> {
-    let access = authorize_bucket(state, caller, auth::OBJECTS_GET, &operation.bucket)
-        .await
-        .map_err(|error| anonymous_error(error, caller))?;
+    let delete = request.method() == Method::DELETE;
+    let access = authorize_bucket(
+        state,
+        caller,
+        if delete {
+            auth::OBJECTS_DELETE
+        } else {
+            auth::OBJECTS_GET
+        },
+        &operation.bucket,
+    )
+    .await
+    .map_err(|error| anonymous_error(error, caller))?;
     xml::headers(request.headers(), &mut operation)?;
+    if delete {
+        state
+            .catalog
+            .delete_object_authorized(
+                &operation.bucket,
+                &operation.name,
+                operation.generation,
+                operation.conditions,
+                &access,
+            )
+            .await
+            .map_err(|error| anonymous_error(error.into(), caller))?;
+        return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
+    }
     let (record, mut reader) = state
         .catalog
         .open_object_authorized(
@@ -1295,6 +1361,39 @@ async fn xml_response(
     }
     *response.headers_mut() = headers;
     Ok(response)
+}
+
+async fn validate_bodyless_post(
+    request: Request<Incoming>,
+    expected: &std::collections::BTreeMap<String, String>,
+) -> Result<(), JsonError> {
+    // Ruby's generated client repeats URL query parameters in form-encoded POST bodies.
+    let form = request
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(';').next() == Some("application/x-www-form-urlencoded"));
+    let body = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+    if !body.is_empty() {
+        let params = if form {
+            std::str::from_utf8(&body)
+                .ok()
+                .and_then(|body| json::parse_query(body).ok())
+        } else {
+            None
+        };
+        if params.as_ref() != Some(expected) {
+            let example = expected
+                .iter()
+                .next()
+                .map(|(key, value)| format!("{key}={value}"))
+                .unwrap_or_default();
+            return Err(JsonError::invalid_argument(format!(
+                "Use an empty body, or form parameters identical to the URL query, for example {example}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) async fn stream_upload(
@@ -1438,32 +1537,11 @@ async fn bucket_response(
             bucket,
             metageneration,
         } => {
-            // The Ruby generated client repeats query parameters as form data on bodyless POSTs.
-            let form = request
-                .headers()
-                .get("content-type")
-                .and_then(|value| value.to_str().ok())
-                .is_some_and(|value| {
-                    value.split(';').next() == Some("application/x-www-form-urlencoded")
-                });
-            let body = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            if !body.is_empty() {
-                let params = if form {
-                    std::str::from_utf8(&body)
-                        .ok()
-                        .and_then(|body| json::parse_query(body).ok())
-                } else {
-                    None
-                };
-                if params.as_ref().is_none_or(|params| {
-                    params.len() != 1
-                        || params.get("ifMetagenerationMatch") != Some(&metageneration.to_string())
-                }) {
-                    return Err(JsonError::invalid_argument(
-                        "Use an empty lock body, or form-encoded ifMetagenerationMatch matching the query, for example ifMetagenerationMatch=1",
-                    ));
-                }
-            }
+            validate_bodyless_post(
+                request,
+                &[("ifMetagenerationMatch".into(), metageneration.to_string())].into(),
+            )
+            .await?;
             let record = state
                 .catalog
                 .patch_bucket(

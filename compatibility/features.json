@@ -13952,26 +13952,122 @@
       "interface": "storage.objects.restore",
       "phase": "P4",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, object. Query parameters: copySourceAcl, generation, ifGenerationMatch, ifGenerationNotMatch, ifMetagenerationMatch, ifMetagenerationNotMatch, projection, restoreToken, userProject.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "notes": "Soft-delete acceptance: docs/en/slices/sdk-soft-delete-restore.md. Restore preserves the source, creates a new live generation, checks live preconditions atomically and rejects unsupported ACL copying/HNS tokens.",
+      "dependencies": [
+        "DESIGN-082",
+        "DESIGN-083"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "SOFT-DELETE-RESTORE",
+          "description": "New generation, original retained, reset metadata/times, live collision and atomic conditions; false copySourceAcl only.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_restore_conditions_collisions_and_restart",
+            "soft_delete_concurrent_restore_create_if_absent_has_one_winner"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-AUTH",
+          "description": "Restore/create and conditional overwrite-delete permissions.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_configuration_defaults_boundaries_and_permissions"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-SDK",
+          "description": "Pinned Go and Ruby high-level restore/read journeys.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectSoftDeleteRestore",
+            "ruby-soft-delete-restore"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-PENDING",
+          "description": "HNS tokens, ACL copying, Autoclass, billing and provider error precedence remain pending.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "soft_delete_restore_conditions_collisions_and_restart",
+        "soft_delete_concurrent_restore_create_if_absent_has_one_winner",
+        "soft_delete_configuration_defaults_boundaries_and_permissions",
+        "TestObjectSoftDeleteRestore",
+        "ruby-soft-delete-restore"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib soft_delete",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "soft_delete_restore_conditions_collisions_and_restart",
+            "soft_delete_concurrent_restore_create_if_absent_has_one_winner",
+            "soft_delete_configuration_defaults_boundaries_and_permissions"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "TestObjectSoftDeleteRestore",
+            "ruby-soft-delete-restore"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.309.0",
+          "transport": "HTTP JSON; SoftDeletePolicy, Query.SoftDeleted, Generation.SoftDeleted.Attrs and Restore",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "TestObjectSoftDeleteRestore"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; default soft_delete_policy/files/file/restore_file in permissive and strict profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "ruby-soft-delete-restore"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion permanently removes retained generations without bucket soft deletion. Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying/full projection, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
+      ],
+      "implemented_in": "a5807b8",
+      "last_verified": "2026-10-27",
       "http_method": "POST",
       "path": "b/{bucket}/o/{object}/restore",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -19328,26 +19424,129 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "retentionDurationSeconds/effectiveTime and disabling/new-object effects.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "notes": "retentionDurationSeconds/effectiveTime and disabling/new-object effects. Scope: docs/en/slices/sdk-soft-delete-restore.md.",
+      "dependencies": [
+        "DESIGN-082",
+        "DESIGN-083"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "SOFT-DELETE-CONFIG",
+          "description": "Insert/PATCH/PUT integral 0 or 7–90 day policy, get/list fields, invalid-value atomic rejection and null/empty omission.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_configuration_defaults_boundaries_and_permissions"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-DEFAULT",
+          "description": "Local omission disables soft delete like explicit zero; both allow empty softDeleted listing and return 404 for missing generations on get/restore. SPEC-SOFT-DELETE documents GCS default and absent-policy error differences.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_configuration_defaults_boundaries_and_permissions"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-AUTH",
+          "description": "Strict storage.buckets.update for policy changes.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_configuration_defaults_boundaries_and_permissions"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-PERSIST",
+          "description": "Schema 26 policy and generation persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_restore_conditions_collisions_and_restart",
+            "soft_delete_schema_migration_preserves_existing_buckets"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-PENDING",
+          "description": "Initialization-file policy, propagation and provider null/empty/boundary verification remain pending.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "soft_delete_configuration_defaults_boundaries_and_permissions",
+        "soft_delete_restore_conditions_collisions_and_restart",
+        "soft_delete_schema_migration_preserves_existing_buckets",
+        "TestObjectSoftDeleteRestore",
+        "ruby-soft-delete-restore"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib soft_delete",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "soft_delete_configuration_defaults_boundaries_and_permissions",
+            "soft_delete_restore_conditions_collisions_and_restart",
+            "soft_delete_schema_migration_preserves_existing_buckets"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "TestObjectSoftDeleteRestore",
+            "ruby-soft-delete-restore"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.309.0",
+          "transport": "HTTP JSON; SoftDeletePolicy, Query.SoftDeleted, Generation.SoftDeleted.Attrs and Restore",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "TestObjectSoftDeleteRestore"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; default soft_delete_policy/files/file/restore_file in permissive and strict profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "ruby-soft-delete-restore"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion permanently removes retained generations without bucket soft deletion. Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying/full projection, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
+      ],
+      "implemented_in": "a5807b8",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "BEHAVIOR-BUCKET-016",
@@ -23840,26 +24039,141 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/soft-delete",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "Retained deleted generations, immutable hardDeleteTime, no direct user purge through ordinary delete.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "notes": "Retained deleted generations, immutable hardDeleteTime, no direct user purge through ordinary delete. Scope: docs/en/slices/sdk-soft-delete-restore.md.",
+      "dependencies": [
+        "DESIGN-082",
+        "DESIGN-083"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "SOFT-DELETE-DELETE",
+          "description": "Shared JSON/XML deletion preserves bytes and immutable deletion deadlines after holds/retention checks.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_all_overwrite_paths_and_versioned_deletion",
+            "soft_delete_filters_paging_expiry_holds_and_bucket_delete"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-OVERWRITE",
+          "description": "Shared upload/copy/rewrite/compose/move destination retirement and explicit noncurrent deletion.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_all_overwrite_paths_and_versioned_deletion"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-LIST-GET",
+          "description": "Filtered/paged retained-only listing, explicit-generation metadata GET, no media or ordinary access.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_restore_conditions_collisions_and_restart",
+            "soft_delete_filters_paging_expiry_holds_and_bucket_delete"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-EXPIRY",
+          "description": "Injected-clock invisibility and at most 100 expired rows reclaimed on bucket-scoped operations.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_filters_paging_expiry_holds_and_bucket_delete",
+            "soft_delete_expiry_reclaims_at_most_one_hundred_rows_and_rolls_back_errors"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-BUCKET-DELETE",
+          "description": "Only-retained bucket deletion permanently removes retained generations.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_filters_paging_expiry_holds_and_bucket_delete"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-PENDING",
+          "description": "Bucket soft deletion, initialization, lifecycle, HNS and provider edge verification remain pending.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "soft_delete_all_overwrite_paths_and_versioned_deletion",
+        "soft_delete_filters_paging_expiry_holds_and_bucket_delete",
+        "soft_delete_restore_conditions_collisions_and_restart",
+        "soft_delete_expiry_reclaims_at_most_one_hundred_rows_and_rolls_back_errors",
+        "TestObjectSoftDeleteRestore",
+        "ruby-soft-delete-restore"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib soft_delete",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "soft_delete_all_overwrite_paths_and_versioned_deletion",
+            "soft_delete_filters_paging_expiry_holds_and_bucket_delete",
+            "soft_delete_restore_conditions_collisions_and_restart",
+            "soft_delete_expiry_reclaims_at_most_one_hundred_rows_and_rolls_back_errors"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "TestObjectSoftDeleteRestore",
+            "ruby-soft-delete-restore"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.309.0",
+          "transport": "HTTP JSON; SoftDeletePolicy, Query.SoftDeleted, Generation.SoftDeleted.Attrs and Restore",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "TestObjectSoftDeleteRestore"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; default soft_delete_policy/files/file/restore_file in permissive and strict profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "ruby-soft-delete-restore"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion permanently removes retained generations without bucket soft deletion. Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying/full projection, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
+      ],
+      "implemented_in": "a5807b8",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "BEHAVIOR-OBJECT-031",
@@ -23869,26 +24183,122 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/restore",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "New generation, metageneration reset, times, ACL options, Autoclass effects and collisions.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "notes": "New generation, metageneration reset, times, ACL options, Autoclass effects and collisions. Scope: docs/en/slices/sdk-soft-delete-restore.md.",
+      "dependencies": [
+        "DESIGN-082",
+        "DESIGN-083"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "SOFT-DELETE-RESTORE",
+          "description": "New generation/metageneration 1 with reset times, original retained, atomic live conditions and collision retirement.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_restore_conditions_collisions_and_restart",
+            "soft_delete_concurrent_restore_create_if_absent_has_one_winner"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-AUTH",
+          "description": "Strict restore/create and overwrite-delete checked in transaction.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_delete_configuration_defaults_boundaries_and_permissions"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-SDK",
+          "description": "Pinned Go and Ruby default configure/delete/list/get/restore/read journeys.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectSoftDeleteRestore",
+            "ruby-soft-delete-restore"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-PENDING",
+          "description": "ACL copying, HNS tokens, Autoclass, lifecycle and provider error precedence remain pending.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "soft_delete_restore_conditions_collisions_and_restart",
+        "soft_delete_concurrent_restore_create_if_absent_has_one_winner",
+        "soft_delete_configuration_defaults_boundaries_and_permissions",
+        "TestObjectSoftDeleteRestore",
+        "ruby-soft-delete-restore"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib soft_delete",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "soft_delete_restore_conditions_collisions_and_restart",
+            "soft_delete_concurrent_restore_create_if_absent_has_one_winner",
+            "soft_delete_configuration_defaults_boundaries_and_permissions"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "TestObjectSoftDeleteRestore",
+            "ruby-soft-delete-restore"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.309.0",
+          "transport": "HTTP JSON; SoftDeletePolicy, Query.SoftDeleted, Generation.SoftDeleted.Attrs and Restore",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "TestObjectSoftDeleteRestore"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; default soft_delete_policy/files/file/restore_file in permissive and strict profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-soft-delete-restore.md",
+          "test_ids": [
+            "ruby-soft-delete-restore"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion permanently removes retained generations without bucket soft deletion. Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying/full projection, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
+      ],
+      "implemented_in": "a5807b8",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "BEHAVIOR-OBJECT-032",

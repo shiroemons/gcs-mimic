@@ -609,7 +609,6 @@ fn xml_unsupported_operations_fail_before_reading_a_body() {
         ("GET", "/iam-bucket/"),
         ("PUT", "/iam-bucket/object?acl"),
         ("POST", OBJECT),
-        ("DELETE", OBJECT),
         ("OPTIONS", OBJECT),
         ("GET", "/iam-bucket/object?acl"),
         ("GET", "/iam-bucket/object?uploads"),
@@ -620,6 +619,34 @@ fn xml_unsupported_operations_fail_before_reading_a_body() {
         xml_error(&server.raw(request.as_bytes()), 400, "InvalidArgument");
     }
     assert_eq!(server.get("", OBJECT).ok().body, b"hello world");
+}
+
+#[test]
+fn xml_delete_checks_permissions_conditions_and_empty_body() {
+    let (_config, _data, server) = fixture();
+    for auth in [VIEWER, CREATOR] {
+        xml_error(
+            &server.request("DELETE", OBJECT, auth, b""),
+            403,
+            "AccessDenied",
+        );
+    }
+    xml_error(
+        &server.request(
+            "DELETE",
+            OBJECT,
+            &format!("{ADMIN}x-goog-if-generation-match: 1\r\n"),
+            b"",
+        ),
+        412,
+        "PreconditionFailed",
+    );
+    let request =
+        format!("DELETE {OBJECT} HTTP/1.1\r\nHost: local\r\n{ADMIN}Content-Length: 999999\r\n\r\n");
+    xml_error(&server.raw(request.as_bytes()), 400, "UnexpectedContent");
+    assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"hello world");
+    assert_eq!(server.request("DELETE", OBJECT, ADMIN, b"").status, 204);
+    xml_error(&server.get(ADMIN, OBJECT), 404, "NoSuchKey");
 }
 
 #[test]

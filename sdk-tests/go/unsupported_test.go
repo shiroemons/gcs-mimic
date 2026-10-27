@@ -34,10 +34,6 @@ func TestUnsupportedFailsFast(t *testing.T) {
 		name string
 		call func(context.Context) error
 	}{
-		{"SoftDeleted", func(ctx context.Context) error {
-			_, err := bucket.Objects(ctx, &storage.Query{SoftDeleted: true}).Next()
-			return err
-		}},
 		{"IncludeFoldersAsPrefixes", func(ctx context.Context) error {
 			_, err := bucket.Objects(ctx, &storage.Query{Delimiter: "/", IncludeFoldersAsPrefixes: true}).Next()
 			return err
@@ -51,8 +47,8 @@ func TestUnsupportedFailsFast(t *testing.T) {
 			return err
 		}},
 		{"ServiceAccount", func(ctx context.Context) error { _, err := client.ServiceAccount(ctx, "local-project"); return err }},
-		{"Restore", func(ctx context.Context) error {
-			_, err := bucket.Object("missing").Generation(1).Restore(ctx, &storage.RestoreOptions{})
+		{"CopySourceACL", func(ctx context.Context) error {
+			_, err := bucket.Object("missing").Generation(1).Restore(ctx, &storage.RestoreOptions{CopySourceACL: true})
 			return err
 		}},
 	} {

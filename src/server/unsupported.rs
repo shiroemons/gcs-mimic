@@ -24,7 +24,6 @@ const ROUTES: &[(&str, &str)] = &[
     ("GET", "b/{bucket}/storageLayout"),
     ("POST", "b/{bucket}/o"),
     ("POST", "b/{bucket}/o/bulkRestore"),
-    ("POST", "b/{bucket}/o/{object}/restore"),
     ("GET|PUT", "b/{bucket}/o/{object}/iam"),
     ("GET", "b/{bucket}/o/{object}/iam/testPermissions"),
     ("GET", "b/{bucket}/o/{object}/viewFullContext"),
@@ -110,6 +109,7 @@ mod tests {
             "storage.objects.move",
             "storage.objects.patch",
             "storage.objects.rewrite",
+            "storage.objects.restore",
             "storage.objects.update",
         ];
         for operation in inventory["methods"].as_array().unwrap() {

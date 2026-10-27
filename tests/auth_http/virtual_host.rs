@@ -507,9 +507,18 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
             b"selected upload"
         );
         error(
-            &request(&server, "DELETE", &authority, "/new", ADMIN, b""),
-            400,
-            "InvalidArgument",
+            &request(&server, "DELETE", &authority, "/new", VIEWER, b""),
+            403,
+            "AccessDenied",
+        );
+        assert_eq!(
+            request(&server, "DELETE", &authority, "/new", ADMIN, b"").status,
+            204
+        );
+        error(
+            &request(&server, "GET", &authority, "/new", VIEWER, b""),
+            404,
+            "NoSuchKey",
         );
         error(
             &request(&server, "GET", &authority, "/", ADMIN, b""),

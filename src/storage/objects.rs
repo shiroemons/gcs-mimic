@@ -22,11 +22,11 @@ use tokio::{
 };
 
 const CHUNK_SIZE: usize = 64 * 1024;
-const OBJECT_COLUMNS: &str = "bucket, name, generation, metageneration, content_type, size,
+pub(super) const OBJECT_COLUMNS: &str = "bucket, name, generation, metageneration, content_type, size,
     md5, crc32c, storage_class, time_created, updated, blob_id,
     content_encoding, content_disposition, content_language, cache_control, metadata,
     time_deleted, event_based_hold, component_count, temporary_hold, custom_time,
-    time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket)";
+    time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket), soft_delete_time, hard_delete_time";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectListCursor {
@@ -45,6 +45,7 @@ pub struct ObjectListQuery {
     pub end_offset: String,
     pub include_trailing_delimiter: bool,
     pub versions: bool,
+    pub soft_deleted: bool,
     pub cursor: Option<ObjectListCursor>,
 }
 
@@ -442,12 +443,23 @@ impl Catalog {
             ));
         }
         let access = access.clone();
-        self.run_object(move |connection| {
-            // The catalog worker serializes mutations; each seek ends before glob matching.
-            authorized_bucket(connection, &query.bucket, &access)?;
-            list_page(connection, &query, limit)
-        })
-        .await
+        let clock = self.0.clock.clone();
+        let soft_deleted = query.soft_deleted;
+        let result = self
+            .run_object(move |connection| {
+                // The catalog worker serializes mutations; each seek ends before glob matching.
+                authorized_bucket(connection, &query.bucket, &access)?;
+                let now = unix_micros(clock.now()).map_err(object_unavailable)?;
+                if query.soft_deleted {
+                    super::soft_delete::purge_expired(connection, &query.bucket, now)?;
+                }
+                list_page_at(connection, &query, limit, now)
+            })
+            .await;
+        if soft_deleted {
+            self.reclaim_after_commit().await;
+        }
+        result
     }
 
     pub(super) async fn run_upload<T: Send + 'static>(
@@ -748,6 +760,8 @@ impl Catalog {
                                     time_created: time,
                                     updated: time,
                                     time_deleted: None,
+                                    soft_delete_time: None,
+                                    hard_delete_time: None,
                                     event_based_hold: default_hold,
                                     temporary_hold: false,
                                     custom_time: None,
@@ -1094,6 +1108,12 @@ pub(super) fn delete_selected(
     access: &BucketAccess,
     sync_binding: Option<&super::sync_state::SyncBinding>,
 ) -> Result<(), ObjectError> {
+    authorized_bucket(connection, bucket, access)?;
+    super::soft_delete::purge_expired(
+        connection,
+        bucket,
+        unix_micros(clock.now()).map_err(object_unavailable)?,
+    )?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(object_unavailable)?;
@@ -1207,9 +1227,26 @@ fn prefix_end(prefix: &str) -> Option<Vec<u8>> {
     Some(end)
 }
 
-fn list_seek_sql(versions: bool, after: bool, bounded: bool) -> String {
-    let (source, live, order) = if versions {
-        ("objects", "", "name, generation")
+fn list_seek_sql(
+    versions: bool,
+    after: bool,
+    bounded: bool,
+    soft_deleted_after: Option<i64>,
+) -> String {
+    let retained = soft_deleted_after
+        .map(|now| format!("AND soft_delete_time IS NOT NULL AND hard_delete_time > {now}"));
+    let (source, live, order) = if let Some(retained) = retained.as_deref() {
+        (
+            "objects INDEXED BY objects_soft_deleted",
+            retained,
+            "name, generation",
+        )
+    } else if versions {
+        (
+            "objects",
+            "AND soft_delete_time IS NULL",
+            "name, generation",
+        )
     } else {
         // The primary key includes history; a live seek must not walk noncurrent rows.
         (
@@ -1233,6 +1270,15 @@ pub(super) fn list_page(
     connection: &Connection,
     query: &ObjectListQuery,
     limit: usize,
+) -> Result<ObjectListPage, ObjectError> {
+    list_page_at(connection, query, limit, 0)
+}
+
+fn list_page_at(
+    connection: &Connection,
+    query: &ObjectListQuery,
+    limit: usize,
+    now: i64,
 ) -> Result<ObjectListPage, ObjectError> {
     let mut page = ObjectListPage {
         items: Vec::new(),
@@ -1258,14 +1304,27 @@ pub(super) fn list_page(
     } else {
         ""
     };
+    let visibility = if query.soft_deleted {
+        format!("soft_delete_time IS NOT NULL AND hard_delete_time > {now}")
+    } else {
+        "soft_delete_time IS NULL".into()
+    };
+    let seek = |after| {
+        list_seek_sql(
+            query.versions,
+            after,
+            upper.is_some(),
+            query.soft_deleted.then_some(now),
+        )
+    };
     let mut inclusive = connection
-        .prepare(&list_seek_sql(query.versions, false, upper.is_some()))
+        .prepare(&seek(false))
         .map_err(object_unavailable)?;
     let mut exclusive = connection
-        .prepare(&list_seek_sql(query.versions, true, upper.is_some()))
+        .prepare(&seek(true))
         .map_err(object_unavailable)?;
     let mut versioned = connection.prepare(&format!(
-        "SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND (name, generation) > (CAST(?2 AS TEXT), ?4) {upper_clause} ORDER BY name, generation LIMIT 1"
+        "SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND (name, generation) > (CAST(?2 AS TEXT), ?4) {upper_clause} AND {visibility} ORDER BY name, generation LIMIT 1"
     )).map_err(object_unavailable)?;
     loop {
         let mut after = false;
@@ -1284,11 +1343,11 @@ pub(super) fn list_page(
                 lower = bound;
                 // A trailing marker emits an item and prefix as separate page entries.
                 after = !previous.is_prefix && !trailing_marker(&previous.name, query);
-                if query.versions && !previous.is_prefix {
+                if (query.versions || query.soft_deleted) && !previous.is_prefix {
                     after_generation = previous.generation;
                     if trailing_marker(&previous.name, query) {
                         let more: bool = connection.query_row(
-                            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation > ?3)",
+                            &format!("SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation > ?3 AND {visibility})"),
                             params![query.bucket, previous.name, previous.generation], |row| row.get(0),
                         ).map_err(object_unavailable)?;
                         if !more {
@@ -1331,7 +1390,7 @@ pub(super) fn list_page(
                 || cursor.as_ref().is_some_and(|cursor| {
                     !cursor.is_prefix
                         && cursor.name == record.name
-                        && (!query.versions || trailing_prefix)
+                        && (!(query.versions || query.soft_deleted) || trailing_prefix)
                 })
         });
         let name = if is_prefix {
@@ -1350,7 +1409,8 @@ pub(super) fn list_page(
         cursor = Some(ObjectListCursor {
             name: name.clone(),
             is_prefix,
-            generation: (query.versions && !is_prefix).then_some(record.generation),
+            generation: ((query.versions || query.soft_deleted) && !is_prefix)
+                .then_some(record.generation),
         });
         if !matches {
             continue;
@@ -1435,7 +1495,7 @@ pub(super) fn selected(
     authorized_bucket(connection, bucket, access)?;
     let (record, id) = if let Some(generation) = generation {
         connection.query_row(
-            &format!("SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3"),
+            &format!("SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3 AND soft_delete_time IS NULL"),
             params![bucket, name, generation], read_object,
         ).optional().map_err(object_unavailable)?
     } else {
@@ -1704,7 +1764,7 @@ pub(super) fn retire_previous(
     retain: bool,
     micros: i64,
 ) -> Result<Option<String>, ObjectError> {
-    let Some((_, id)) = previous else {
+    let Some((record, id)) = previous else {
         return Ok(None);
     };
     if retain {
@@ -1716,6 +1776,18 @@ pub(super) fn retire_previous(
             .map_err(object_unavailable)?;
         Ok(None)
     } else {
+        let duration = super::soft_delete::retention_seconds(connection, &record.bucket)?;
+        if duration > 0 {
+            let deadline = micros
+                .checked_add(
+                    duration
+                        .checked_mul(1_000_000)
+                        .ok_or(ObjectError::InvalidMetadata)?,
+                )
+                .ok_or(ObjectError::InvalidMetadata)?;
+            connection.execute("UPDATE objects SET time_deleted = COALESCE(time_deleted, ?2), soft_delete_time = ?2, hard_delete_time = ?3 WHERE blob_id = ?1", params![id, micros, deadline]).map_err(object_unavailable)?;
+            return Ok(None);
+        }
         connection
             .execute("DELETE FROM objects WHERE blob_id = ?1", [id])
             .map_err(object_unavailable)?;
@@ -1726,7 +1798,7 @@ pub(super) fn retire_previous(
     }
 }
 
-fn check_conditions(
+pub(super) fn check_conditions(
     record: Option<&ObjectRecord>,
     conditions: ObjectConditions,
     read: bool,
@@ -1758,7 +1830,7 @@ fn check_conditions(
     Ok(())
 }
 
-fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, String)> {
+pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, String)> {
     let md5: Vec<u8> = row.get(6)?;
     let md5 = md5.try_into().map_err(|_| {
         rusqlite::Error::FromSqlConversionFailure(6, Type::Blob, "invalid MD5 length".into())
@@ -1793,6 +1865,14 @@ fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, String)> {
             custom_time: row.get(21)?,
             retention_expiration_time: row
                 .get::<_, Option<i64>>(22)?
+                .map(system_time_micros)
+                .transpose()?,
+            soft_delete_time: row
+                .get::<_, Option<i64>>(23)?
+                .map(system_time_micros)
+                .transpose()?,
+            hard_delete_time: row
+                .get::<_, Option<i64>>(24)?
                 .map(system_time_micros)
                 .transpose()?,
         },
@@ -1933,6 +2013,9 @@ mod tests {
         connection
             .execute_batch(super::super::OBJECT_HOLDS_CUSTOM_TIME_SCHEMA)
             .unwrap();
+        connection
+            .execute_batch(super::super::SOFT_DELETE_SCHEMA)
+            .unwrap();
         let counter = AtomicUsize::new(0);
         // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
         // SAFETY: This live connection invokes the callback synchronously with the live counter.
@@ -1996,6 +2079,9 @@ mod tests {
         connection
             .execute_batch(super::super::OBJECT_HOLDS_CUSTOM_TIME_SCHEMA)
             .unwrap();
+        connection
+            .execute_batch(super::super::SOFT_DELETE_SCHEMA)
+            .unwrap();
         connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
             INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,time_deleted)
             SELECT 'bucket', CASE WHEN n <= 10000 THEN 'a/history' ELSE printf('y/%05d',n) END, n,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,printf('%032x',n),1 FROM entries;
@@ -2008,7 +2094,7 @@ mod tests {
                 for bounded in [false, true] {
                     let sql = format!(
                         "EXPLAIN QUERY PLAN {}",
-                        list_seek_sql(versions, after, bounded)
+                        list_seek_sql(versions, after, bounded, None)
                     );
                     let mut statement = connection.prepare(&sql).unwrap();
                     let read = |row: &Row<'_>| row.get::<_, String>(3);
@@ -2182,6 +2268,7 @@ mod tests {
                     uniform_bucket_level_access_locked_time: None,
                     lifecycle: Vec::new(),
                     retention_policy: None,
+                    soft_delete_policy: None,
                     cors: Vec::new(),
                     metageneration: 1,
                     time_created: UNIX_EPOCH,
@@ -2260,6 +2347,7 @@ mod tests {
                 uniform_bucket_level_access_locked_time: None,
                 lifecycle: Vec::new(),
                 retention_policy: None,
+                soft_delete_policy: None,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
@@ -2414,6 +2502,7 @@ mod tests {
                 uniform_bucket_level_access_locked_time: None,
                 lifecycle: Vec::new(),
                 retention_policy: None,
+                soft_delete_policy: None,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,

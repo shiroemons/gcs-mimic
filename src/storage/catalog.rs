@@ -65,6 +65,8 @@ mod rewrite_token;
 mod object_move;
 #[path = "objects.rs"]
 mod objects;
+#[path = "soft_delete.rs"]
+mod soft_delete;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
 
 #[path = "derived.rs"]
@@ -93,7 +95,13 @@ pub mod sync_state;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 25;
+const CATALOG_SCHEMA_VERSION: i64 = 26;
+const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
+ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
+ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
+CREATE INDEX objects_soft_deleted ON objects(bucket, name, generation) WHERE soft_delete_time IS NOT NULL;
+CREATE INDEX objects_soft_expiry ON objects(bucket, hard_delete_time) WHERE soft_delete_time IS NOT NULL;
+PRAGMA user_version = 26;";
 const BUCKET_RETENTION_SCHEMA: &str =
     "ALTER TABLE buckets ADD COLUMN retention_policy TEXT; PRAGMA user_version = 25;";
 const BUCKET_LIFECYCLE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN lifecycle TEXT NOT NULL DEFAULT '[]'; PRAGMA user_version = 24;";
@@ -108,7 +116,7 @@ PRAGMA user_version = 5;";
 const COLUMNS: &str = "name, project, location, location_type, storage_class, labels,
                       metageneration, time_created, updated, versioning_enabled,
                       default_event_based_hold, cors, public_access_prevention_enforced,
-                      uniform_bucket_level_access_locked_time, lifecycle, retention_policy";
+                      uniform_bucket_level_access_locked_time, lifecycle, retention_policy, soft_delete_policy";
 const BUCKET_PAP_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN public_access_prevention_enforced INTEGER NOT NULL DEFAULT 0 CHECK(public_access_prevention_enforced IN (0, 1));
 PRAGMA user_version = 13;";
 const BUCKET_CORS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN cors TEXT NOT NULL DEFAULT '[]';
@@ -341,6 +349,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
     if version >= 25 {
         expected
             .execute_batch(BUCKET_RETENTION_SCHEMA)
+            .map_err(unavailable)?;
+    }
+    if version >= 26 {
+        expected
+            .execute_batch(SOFT_DELETE_SCHEMA)
             .map_err(unavailable)?;
     }
     let inventory =
@@ -644,6 +657,11 @@ impl Catalog {
             if version < 25 {
                 let transaction = connection.transaction().map_err(unavailable)?;
                 transaction.execute_batch(BUCKET_RETENTION_SCHEMA).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)?;
+            }
+            if version < 26 {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(SOFT_DELETE_SCHEMA).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
             }
             let pending: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)", [], |row| row.get(0)).map_err(unavailable)?;
@@ -981,6 +999,15 @@ impl Catalog {
                     _ => {}
                 }
             }
+            if let Some(duration) = update.soft_delete_retention {
+                if duration != 0 && !(604800..=7776000).contains(&duration) {
+                    return Err(CatalogError::InvalidMetadata("softDeletePolicy.retentionDurationSeconds must be 0 or 604800 through 7776000; use 604800".into()));
+                }
+                let effective_time = record.soft_delete_policy.as_ref()
+                    .filter(|policy| duration <= policy.retention_duration_seconds)
+                    .map_or_else(|| clock.now(), |policy| policy.effective_time);
+                record.soft_delete_policy = Some(crate::bucket::SoftDeletePolicy { retention_duration_seconds: duration, effective_time });
+            }
             if update.lock_retention_policy {
                 if if_metageneration_match.is_none() {
                     return Err(CatalogError::InvalidMetadata("Locking requires ifMetagenerationMatch; read the bucket metageneration first".into()));
@@ -1079,7 +1106,7 @@ impl Catalog {
                     "UPDATE buckets SET labels = ?2, storage_class = ?3,
                      versioning_enabled = ?4, default_event_based_hold = ?5,
                      metageneration = ?6, updated = ?7, cors = ?8, public_access_prevention_enforced = ?9,
-                     uniform_bucket_level_access_locked_time = ?10, lifecycle = ?11, retention_policy = ?12 WHERE name = ?1",
+                     uniform_bucket_level_access_locked_time = ?10, lifecycle = ?11, retention_policy = ?12, soft_delete_policy = ?13 WHERE name = ?1",
                     params![
                         name,
                         serde_json::to_string(&record.labels).map_err(unavailable)?,
@@ -1093,6 +1120,7 @@ impl Catalog {
                         record.uniform_bucket_level_access_locked_time.map(unix_micros).transpose()?,
                         serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
                         record.retention_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
+                        record.soft_delete_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
                     ],
                 )
                 .map_err(unavailable)?;
@@ -1230,7 +1258,7 @@ impl Catalog {
             }
             let nonempty: bool = transaction
                 .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1)",
+                    "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL)",
                     [&name],
                     |r| r.get(0),
                 )
@@ -1238,6 +1266,8 @@ impl Catalog {
             if nonempty {
                 return Err(CatalogError::NotEmpty);
             }
+            transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1", [&name]).map_err(unavailable)?;
+            transaction.execute("DELETE FROM objects WHERE bucket = ?1", [&name]).map_err(unavailable)?;
             change_journal::append(
                 &transaction,
                 change_journal::origin(&access),
@@ -1259,7 +1289,9 @@ impl Catalog {
                 .map_err(unavailable)?;
             transaction.commit().map_err(unavailable)
         })
-        .await
+        .await?;
+        self.reclaim_after_commit().await;
+        Ok(())
     }
 }
 
@@ -1360,7 +1392,7 @@ fn insert_bucket_in_transaction(
     let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
     let changed = transaction
         .execute(
-            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
          ON CONFLICT(name) DO NOTHING"),
             params![
                 record.name,
@@ -1379,6 +1411,7 @@ fn insert_bucket_in_transaction(
                 record.uniform_bucket_level_access_locked_time.map(unix_micros).transpose()?,
                 serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
                 record.retention_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
+                record.soft_delete_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
             ],
         )
         .map_err(unavailable)?;
@@ -1452,6 +1485,14 @@ fn signed_system_time(duration: Duration, negative: bool) -> rusqlite::Result<Sy
 fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
     let labels: String = row.get(5)?;
     Ok(BucketRecord {
+        soft_delete_policy: row
+            .get::<_, Option<String>>(16)?
+            .map(|v| {
+                serde_json::from_str(&v).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(16, Type::Text, Box::new(e))
+                })
+            })
+            .transpose()?,
         retention_policy: row
             .get::<_, Option<String>>(15)?
             .map(|v| {

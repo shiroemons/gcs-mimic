@@ -27,7 +27,6 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "rpo",
     "satisfiesPZI",
     "satisfiesPZS",
-    "softDeletePolicy",
     "website",
 ];
 
@@ -237,6 +236,12 @@ pub fn parse_insert_with_profile(
     }
     timestamp(now)?;
     Ok(BucketRecord {
+        soft_delete_policy: parse_soft_delete_retention(body.get("softDeletePolicy"))?.map(
+            |retention_duration_seconds| crate::bucket::SoftDeletePolicy {
+                retention_duration_seconds,
+                effective_time: now,
+            },
+        ),
         retention_policy: parse_retention_period(body.get("retentionPolicy"))?
             .flatten()
             .map(|retention_period| crate::bucket::RetentionPolicy {
@@ -416,6 +421,7 @@ fn parse_bucket_update(
         location = None;
     }
     Ok(BucketMetadataUpdate {
+        soft_delete_retention: parse_soft_delete_retention(body.get("softDeletePolicy"))?,
         retention_period: parse_retention_period(body.get("retentionPolicy"))?,
         lock_retention_policy: false,
         cors: parse_cors(body.get("cors"))?,
@@ -436,6 +442,30 @@ fn parse_bucket_update(
         )?,
         uniform_bucket_level_access_enabled: parse_uniform_access(body.get("iamConfiguration"))?,
     })
+}
+
+fn parse_soft_delete_retention(value: Option<&Value>) -> Result<Option<u64>, JsonError> {
+    let Some(value) = value.filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    let invalid = || {
+        JsonError::invalid_argument(
+            "softDeletePolicy.retentionDurationSeconds must be 0 or integral seconds from 604800 to 7776000; use {\"retentionDurationSeconds\":\"604800\"}",
+        )
+    };
+    let policy = value.as_object().ok_or_else(invalid)?;
+    let Some(duration) = policy
+        .get("retentionDurationSeconds")
+        .filter(|v| !v.is_null())
+    else {
+        return Ok(None);
+    };
+    duration
+        .as_u64()
+        .or_else(|| duration.as_str().and_then(|v| v.parse().ok()))
+        .filter(|v| *v == 0 || (604800..=7776000).contains(v))
+        .map(Some)
+        .ok_or_else(invalid)
 }
 
 fn parse_retention_period(value: Option<&Value>) -> Result<Option<Option<u64>>, JsonError> {
@@ -596,6 +626,9 @@ pub fn bucket_resource_with_profile(
     }
     if let Some(policy) = &bucket.retention_policy {
         value["retentionPolicy"] = json!({"retentionPeriod":policy.retention_period.to_string(), "effectiveTime":timestamp(policy.effective_time)?, "isLocked":policy.is_locked});
+    }
+    if let Some(policy) = &bucket.soft_delete_policy {
+        value["softDeletePolicy"] = json!({"retentionDurationSeconds": policy.retention_duration_seconds.to_string(), "effectiveTime": timestamp(policy.effective_time)?});
     }
     if bucket.default_event_based_hold || profile == CompatProfile::LegacyEmulator {
         value["defaultEventBasedHold"] = bucket.default_event_based_hold.into();

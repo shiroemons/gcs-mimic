@@ -60,7 +60,8 @@ fn object_scope(query: &ObjectListQuery, projection: super::Projection) -> Strin
         query.end_offset,
         query.include_trailing_delimiter,
         projection == super::Projection::Full,
-        query.versions
+        query.versions,
+        query.soft_deleted
     ]);
     if let Some(glob) = &query.match_glob {
         payload
@@ -123,7 +124,7 @@ pub(super) fn decode_object_page_token(
         || name.len() > 1024
         || !name.starts_with(&query.prefix)
         || generation.is_some_and(|value| value <= 0)
-        || generation.is_some() != (query.versions && !is_prefix)
+        || generation.is_some() != ((query.versions || query.soft_deleted) && !is_prefix)
     {
         return Err(invalid());
     }

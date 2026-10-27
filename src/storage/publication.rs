@@ -801,6 +801,8 @@ fn publish_entry(
                 time_created: time,
                 updated: time,
                 time_deleted: None,
+                soft_delete_time: None,
+                hard_delete_time: None,
                 event_based_hold: staged.import_identity.is_none() && default_hold,
                 temporary_hold: false,
                 custom_time: None,

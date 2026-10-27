@@ -1309,6 +1309,73 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
     }
 }
 
+#[test]
+fn bucket_soft_delete_defaults_and_invalid_shapes_preserve_policy() {
+    for profile in PROFILES {
+        let invalid_reason = if profile == "native" {
+            "invalidArgument"
+        } else {
+            "invalid"
+        };
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        for (name, value) in [
+            ("null-soft-policy", Value::Null),
+            ("empty-soft-policy", json!({})),
+        ] {
+            let created = server.request(
+                "POST",
+                "/storage/v1/b?project=project",
+                &json!({"name":name,"softDeletePolicy":value}).to_string(),
+            );
+            assert_eq!(created.status, 200, "{}", created.body);
+            assert!(created.json().get("softDeletePolicy").is_none());
+        }
+        let path = "/storage/v1/b/soft-defaults";
+        let created = server.request(
+            "POST",
+            "/storage/v1/b?project=project",
+            r#"{"name":"soft-defaults","softDeletePolicy":{"retentionDurationSeconds":"604800"}}"#,
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        let policy = created.json()["softDeletePolicy"].clone();
+        for method in ["PATCH", "PUT"] {
+            for value in [Value::Null, json!({})] {
+                let updated =
+                    server.request(method, path, &json!({"softDeletePolicy":value}).to_string());
+                assert_eq!(updated.status, 200, "{}", updated.body);
+                assert_eq!(updated.json()["softDeletePolicy"], policy);
+                assert_eq!(server.request("GET", path, "").json(), updated.json());
+            }
+            for value in [
+                json!([]),
+                json!(false),
+                json!({"retentionDurationSeconds":"1"}),
+            ] {
+                let before = server.request("GET", path, "").json();
+                server
+                    .request(
+                        method,
+                        path,
+                        &json!({"softDeletePolicy":value,"labels":{"lost":"no"}}).to_string(),
+                    )
+                    .error(400, invalid_reason);
+                assert_eq!(server.request("GET", path, "").json(), before);
+                server
+                    .request(
+                        "POST",
+                        "/storage/v1/b?project=project",
+                        &json!({"name":"invalid-soft-policy","softDeletePolicy":value}).to_string(),
+                    )
+                    .error(400, invalid_reason);
+                server
+                    .request("GET", "/storage/v1/b/invalid-soft-policy", "")
+                    .error(404, "notFound");
+            }
+        }
+    }
+}
+
 fn bucket_metadata_unsupported_inputs(method: &str) {
     for profile in PROFILES {
         let dir = TestDir::new();
@@ -1329,7 +1396,6 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
             "rpo",
             "satisfiesPZI",
             "satisfiesPZS",
-            "softDeletePolicy",
             "website",
         ] {
             for value in [Value::Null, json!({}), json!([]), json!(false)] {
@@ -2548,7 +2614,6 @@ fn bucket_core_unsupported_settings_preserve_state() {
             "rpo",
             "satisfiesPZI",
             "satisfiesPZS",
-            "softDeletePolicy",
             "website",
         ] {
             for value in [
@@ -2885,7 +2950,7 @@ fn bucket_core_migrates_v7_settings() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            25
+            26
         );
     }
 }

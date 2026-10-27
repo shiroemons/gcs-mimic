@@ -1,5 +1,11 @@
 # Official Go SDK tests
 
+`TestObjectSoftDeleteRestore` configures BucketAttrs.SoftDeletePolicy, deletes an
+object, lists Query.SoftDeleted, gets Generation(g).SoftDeleted().Attrs, restores
+with default RestoreOptions, and verifies bytes with a 30-second context. The
+original retained generation stays readable as metadata; a conflicting live
+condition returns 412. See the [soft-delete contract](../../docs/en/slices/sdk-soft-delete-restore.md).
+
 `TestBucketRetentionPolicy` uses ordinary BucketAttrs, Update, Attrs and
 LockRetentionPolicy with a 30-second context. It verifies expiration metadata,
 retained-delete denial, unlocked clearing and locked shortening denial. It locks

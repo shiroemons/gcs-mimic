@@ -136,15 +136,13 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
       api.request_options.retries = 3
       {
         "autoclass" => -> { storage.create_bucket("sdk-ruby-unsupported-#{SecureRandom.hex(8)}", autoclass_enabled: true) },
-        "softDeleted" => -> { bucket.files(soft_deleted: true) },
         "includeFoldersAsPrefixes" => -> { bucket.files(delimiter: "/", include_folders_as_prefixes: true) },
         "bucket ACL" => -> { bucket.acl.reload! },
         "default object ACL" => -> { bucket.default_acl.reload! },
         "object ACL" => -> { bucket.file("missing", skip_lookup: true).acl.reload! },
         "notifications" => -> { bucket.notifications },
         "HMAC keys" => -> { storage.hmac_keys.to_a },
-        "serviceAccount" => -> { storage.service_account_email },
-        "restore" => -> { bucket.restore_file("missing", 1) }
+        "serviceAccount" => -> { storage.service_account_email }
       }.each do |name, call|
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         begin
@@ -438,6 +436,34 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
   ensure
     bucket&.files&.each(&:delete)
     bucket&.delete
+  end
+end
+
+if ARGV.empty? || ARGV == ["--soft-delete"]
+  soft_bucket = storage.create_bucket("ruby-soft-delete-#{SecureRandom.hex(6)}")
+  begin
+    soft_bucket.soft_delete_policy = { retention_duration_seconds: 604800 }
+    soft_bucket.reload!
+    raise "soft delete policy differs" unless soft_bucket.soft_delete_policy.retention_duration_seconds == 604800
+    original = soft_bucket.create_file(StringIO.new("recoverable Ruby bytes"), "recoverable")
+    generation = original.generation
+    original.delete
+    raise "deleted file is live" unless soft_bucket.file("recoverable").nil?
+    deleted = soft_bucket.files(soft_deleted: true).to_a
+    raise "soft deleted listing differs" unless deleted.length == 1 && deleted.first.generation == generation
+    raise "soft deleted metadata missing" unless soft_bucket.file("recoverable", generation: generation, soft_deleted: true)
+    restored = soft_bucket.restore_file("recoverable", generation)
+    raise "restore generation differs" unless restored.generation > generation && restored.metageneration == 1
+    download = restored.download
+    begin
+      raise "restored bytes differ" unless download.read == "recoverable Ruby bytes"
+    ensure
+      download.close
+    end
+    puts "ruby-soft-delete-restore passed"
+  ensure
+    soft_bucket.files.each(&:delete)
+    soft_bucket.delete
   end
 end
 

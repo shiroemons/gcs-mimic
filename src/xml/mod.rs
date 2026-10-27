@@ -366,9 +366,13 @@ pub(crate) fn route(
     let name = &uri.path()[name_start..];
     Some((|| {
         json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
-        if !matches!(*method, Method::GET | Method::HEAD | Method::PUT) || name.is_empty() {
+        if !matches!(
+            *method,
+            Method::GET | Method::HEAD | Method::PUT | Method::DELETE
+        ) || name.is_empty()
+        {
             return Err(Error::unsupported(&format!(
-                "{method} route; use GET, HEAD or PUT on /BUCKET/OBJECT"
+                "{method} route; use GET, HEAD, PUT or DELETE on /BUCKET/OBJECT"
             )));
         }
         let name = json::decode(name, false)?;
@@ -391,6 +395,11 @@ pub(crate) fn route(
             .remove("generation")
             .map(|value| number(&value, false))
             .transpose()?;
+        if *method == Method::DELETE && !query.is_empty() {
+            return Err(Error::unsupported(
+                "DELETE options; use DELETE /BUCKET/OBJECT with only an optional generation",
+            ));
+        }
         let mut response_overrides = HeaderMap::new();
         for (parameter, header) in [
             ("response-content-type", "content-type"),

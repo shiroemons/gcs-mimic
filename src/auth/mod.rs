@@ -32,6 +32,7 @@ pub const OBJECTS_DELETE: &str = "storage.objects.delete";
 pub const OBJECTS_GET: &str = "storage.objects.get";
 pub const OBJECTS_LIST: &str = "storage.objects.list";
 pub const OBJECTS_UPDATE: &str = "storage.objects.update";
+pub const OBJECTS_RESTORE: &str = "storage.objects.restore";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Permission {
@@ -47,6 +48,7 @@ pub enum Permission {
     ObjectsGet,
     ObjectsList,
     ObjectsUpdate,
+    ObjectsRestore,
 }
 
 impl Permission {
@@ -64,6 +66,7 @@ impl Permission {
             Self::ObjectsGet => OBJECTS_GET,
             Self::ObjectsList => OBJECTS_LIST,
             Self::ObjectsUpdate => OBJECTS_UPDATE,
+            Self::ObjectsRestore => OBJECTS_RESTORE,
         }
     }
 }
@@ -84,6 +87,7 @@ impl TryFrom<&str> for Permission {
             Self::ObjectsGet,
             Self::ObjectsList,
             Self::ObjectsUpdate,
+            Self::ObjectsRestore,
         ]
         .into_iter()
         .find(|permission| permission.as_str() == value)

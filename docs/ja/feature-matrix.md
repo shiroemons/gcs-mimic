@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 275 | 0 | 22 | 1 | 0 | 0 |
-| behavior | 201 | 122 | 0 | 41 | 38 | 0 | 0 |
+| api_operation | 298 | 274 | 0 | 23 | 1 | 0 | 0 |
+| behavior | 201 | 119 | 0 | 44 | 38 | 0 | 0 |
 | project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 275 | 7 | 16 | 0 | 0 | 0 |
-| behavior | 122 | 45 | 31 | 3 | 0 | 0 |
+| api_operation | 274 | 8 | 16 | 0 | 0 | 0 |
+| behavior | 119 | 48 | 31 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
 
 ## api_operation
@@ -175,7 +175,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 | JSON-OBJECTS-009 | objects.move | PARTIAL | P3 | EXACT | EXACT | 2 |
 | JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
-| JSON-OBJECTS-011 | objects.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| JSON-OBJECTS-011 | objects.restore | PARTIAL | P4 | EXACT | EXACT | 2 |
 | JSON-OBJECTS-012 | objects.rewrite | PARTIAL | P3 | EXACT | EXACT | 1 |
 | JSON-OBJECTS-013 | objects.setIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-014 | objects.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
@@ -513,7 +513,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-012 | 既定のイベントベース保留 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-BUCKET-013 | 均一なバケットレベルアクセス設定 | PARTIAL | P2 | EXACT | EXACT | 2 |
 | BEHAVIOR-BUCKET-014 | 公開アクセス防止 | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
-| BEHAVIOR-BUCKET-015 | Soft deleteポリシー | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-015 | Soft deleteポリシー | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-BUCKET-016 | 恒久削除一時停止フィールド | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-017 | バケットのSoft deleteと復元 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-018 | 階層名前空間設定 | NOT_STARTED | P5 | EXACT | NONE | 0 |
@@ -711,8 +711,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-027 | compose時の元オブジェクト削除 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-028 | オブジェクトの原子的移動 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | BEHAVIOR-OBJECT-029 | オブジェクトの世代管理 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
-| BEHAVIOR-OBJECT-030 | Soft deleteと恒久削除期限 | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-031 | オブジェクト復元の意味論 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-030 | Soft deleteと恒久削除期限 | PARTIAL | P4 | EXACT | EXACT | 2 |
+| BEHAVIOR-OBJECT-031 | オブジェクト復元の意味論 | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-032 | HNSのrestoreToken識別 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-033 | 一括復元の条件と件数 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-034 | オブジェクト保持設定 | NOT_STARTED | P4 | EXACT | NONE | 0 |

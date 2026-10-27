@@ -33,7 +33,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
     {
         return Err(JsonError::unsupported_object("filter"));
     }
-    for name in ["softDeleted", "includeFoldersAsPrefixes", "prettyPrint"] {
+    for name in ["includeFoldersAsPrefixes", "prettyPrint"] {
         if boolean(&mut params, name)? {
             return Err(JsonError::unsupported_object(name));
         }
@@ -81,8 +81,14 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         end_offset: params.remove("endOffset").unwrap_or_default(),
         include_trailing_delimiter: boolean(&mut params, "includeTrailingDelimiter")?,
         versions: boolean(&mut params, "versions")?,
+        soft_deleted: boolean(&mut params, "softDeleted")?,
         cursor: None,
     };
+    if query.soft_deleted && query.versions {
+        return Err(JsonError::invalid_argument(
+            "softDeleted=true cannot be combined with versions=true; omit versions",
+        ));
+    }
     if query.match_glob.is_some() && !query.delimiter.is_empty() && query.delimiter != "/" {
         return Err(JsonError::invalid_parameter(
             "matchGlob requires delimiter=/ or no delimiter; use matchGlob=**/*.txt&delimiter=/",

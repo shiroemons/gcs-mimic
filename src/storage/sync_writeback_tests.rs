@@ -1135,6 +1135,7 @@ async fn writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_ro
     drop(lease);
     catalog.close().await.unwrap();
     let mut c = Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+    crate::storage::catalog::test_support::downgrade_soft_delete_schema(&c);
     let seed: i64 = c
         .query_row("SELECT complete FROM startup_seed", [], |r| r.get(0))
         .unwrap();

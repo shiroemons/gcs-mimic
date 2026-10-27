@@ -440,7 +440,6 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         "filter=context-filter",
         "fields=",
         "userProject=local",
-        "softDeleted=true",
         "includeFoldersAsPrefixes=true",
         "prettyPrint=true",
         "alt=media",
@@ -455,6 +454,14 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         assert_eq!(status, 400, "{query}: {value}");
         assert_eq!(value["error"]["errors"][0]["reason"], "badRequest");
     }
+    assert!(names(&server.list("softDeleted=true")).is_empty());
+    let (status, value) = server.request(
+        "GET",
+        "/storage/v1/b/test-bucket/o?softDeleted=true&versions=true",
+        "",
+    );
+    assert_eq!(status, 400, "{value}");
+    assert_eq!(value["error"]["errors"][0]["reason"], "invalidArgument");
     let (status, value) = server.request("GET", "/storage/v1/b/missing/o", "");
     assert_eq!(status, 404);
     assert_eq!(value["error"]["errors"][0]["reason"], "notFound");

@@ -152,6 +152,9 @@ fn timestamp_fixture_downgrade_floors_signed_values_and_deletion_times() {
         .unwrap();
     connection.execute_batch(BUCKET_LIFECYCLE_SCHEMA).unwrap();
     connection.execute_batch(BUCKET_RETENTION_SCHEMA).unwrap();
+    // This precision-only fixture needs object index keys for later schema additions.
+    connection.execute_batch("ALTER TABLE objects ADD COLUMN bucket TEXT; ALTER TABLE objects ADD COLUMN name TEXT; ALTER TABLE objects ADD COLUMN generation INTEGER;").unwrap();
+    connection.execute_batch(SOFT_DELETE_SCHEMA).unwrap();
     super::test_support::downgrade_timestamp_precision(&connection);
     assert_eq!(
         timestamp_rows(&connection),

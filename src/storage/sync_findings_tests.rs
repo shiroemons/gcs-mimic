@@ -244,6 +244,7 @@ async fn sync_findings_migration_rolls_back_and_preserves_catalog_root_and_write
     drop(lease);
     catalog.close().await.unwrap();
     let mut c = Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+    crate::storage::catalog::test_support::downgrade_soft_delete_schema(&c);
     c.execute_batch(
         "ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; DROP TABLE sync_findings; PRAGMA user_version=20; CREATE TABLE sync_findings(collision)",
     )

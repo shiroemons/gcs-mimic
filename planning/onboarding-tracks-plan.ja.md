@@ -1043,6 +1043,11 @@ SDK の 5xx リトライとリソース不在の誤認を防ぐローカルの�
 | 8 | `sdk-soft-delete-restore` | BEHAVIOR-BUCKET-015、BEHAVIOR-OBJECT-030、BEHAVIOR-OBJECT-031、JSON-OBJECTS-011 | soft delete と一覧・復元 | 段 5 の fail-fast |
 | 8 | `sdk-retention-policy` | BEHAVIOR-OBJECT-036、JSON-BUCKETS-007 | 保持ポリシーとロックの効果を検証する | 段 5 の fail-fast |
 
+段 8 の `sdk-soft-delete-restore` は、設定・世代保持・削除済み一覧/取得・原子的な復元を
+Go・Ruby の HTTP テストで確認済み。4機能行は未対応の相互作用と仕様差を明記して PARTIAL とし、
+受け入れケースと検証結果は [契約文書](../docs/en/slices/sdk-soft-delete-restore.md) と台帳を参照する。
+バケット自体の soft delete と JSON-BUCKETS-010 は NOT_STARTED、初期化ファイルの設定は PENDING。
+
 段 1 は、空の upload MIME、無効化した Autoclass、compose の null 既定値を正規化し、`https.rb` の該当する回避策を外す。
 段 2 のホールドは設定・解除とホールド中の削除・上書き拒否を扱い、customTime は設定と単調性を守る。
 権限確認は bucket の `testIamPermissions` を実際の strict 判定と一致させる。

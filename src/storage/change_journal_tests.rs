@@ -470,6 +470,7 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
     catalog.close().await.unwrap();
     let path = dir.0.join("catalog.sqlite3");
     let connection = Connection::open(&path).unwrap();
+    crate::storage::catalog::test_support::downgrade_soft_delete_schema(&connection);
     connection
         .execute_batch(
             "ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; DROP TABLE sync_objects; DROP TABLE catalog_identity; DROP TABLE import_observations; DROP TABLE import_journal; DROP TABLE change_journal; DROP TABLE change_journal_state; PRAGMA user_version = 14;",
@@ -506,12 +507,12 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
     drop(lease);
     catalog.close().await.unwrap();
     let connection = Connection::open(&path).unwrap();
-    super::super::validate_schema(&connection, 25).unwrap();
+    super::super::validate_schema(&connection, 26).unwrap();
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        25
+        26
     );
     assert!(super::super::validate_schema(&connection, 14).is_err());
     let snapshot = Connection::open(backup.0.join("catalog.sqlite3")).unwrap();

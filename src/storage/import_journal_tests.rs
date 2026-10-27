@@ -331,6 +331,7 @@ async fn import_journal_upgrade_preserves_native_state_and_stopped_snapshot() {
     catalog.close().await.unwrap();
     let path = dir.0.join("catalog.sqlite3");
     let connection = Connection::open(&path).unwrap();
+    crate::storage::catalog::test_support::downgrade_soft_delete_schema(&connection);
     connection
         .execute_batch(
             "ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; DROP TABLE sync_objects; DROP TABLE catalog_identity; DROP TABLE import_observations; DROP TABLE import_journal; PRAGMA user_version = 15;",
@@ -353,7 +354,7 @@ async fn import_journal_upgrade_preserves_native_state_and_stopped_snapshot() {
     assert!(!catalog.admin(Origin::Seed).seed_complete().await.unwrap());
     catalog.close().await.unwrap();
     let connection = Connection::open(&path).unwrap();
-    super::super::validate_schema(&connection, 25).unwrap();
+    super::super::validate_schema(&connection, 26).unwrap();
     assert!(super::super::validate_schema(&connection, 15).is_err());
     let snapshot = Connection::open(backup.0.join("catalog.sqlite3")).unwrap();
     super::super::validate_schema(&snapshot, 15).unwrap();

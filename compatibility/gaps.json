@@ -3,6 +3,17 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-SOFT-DELETE",
+      "title": "Local soft-delete defaults, boundaries and bucket deletion",
+      "status": "OPEN",
+      "affected_features": ["BEHAVIOR-BUCKET-015", "BEHAVIOR-OBJECT-030", "BEHAVIOR-OBJECT-031", "JSON-OBJECTS-011"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/soft-delete", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/restore", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "observed_at": "2026-10-27",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Discovery revision 20261020 SHA256 eeb0831df501d131c9497534b2c3d130ea40f9fa215195115d011cb64e1a42bc. GCS defaults new buckets to seven days; locally omission disables soft delete to avoid unexpected disk retention and preserve existing deletion behavior. Omission and explicit zero are equivalent for softDeleted listing (200, empty unless retained generations remain) and get/restore of missing retained generations (404 notFound). The official list/restore references document absent-policy 400 errors; this local normalization deliberately differs. Null/empty settings normalize to omission without a provider guarantee. The bucket reference says less than 90 days, but the overview describes 7 to 90 days; the requested local scope accepts the inclusive 90-day boundary. Policy updates apply immediately rather than simulating propagation. Buckets containing only retained generations can be deleted permanently, removing those generations without simulating bucket soft deletion.",
+      "required_resolution": "Verify provider null/empty and 90-day boundary behavior before claiming parity. The pinned Ruby generated client repeats query parameters as form POST data: locally only a form map exactly equal to the validated URL query is accepted, sharing the retention-lock accommodation. Keep bucket restore and bucket soft deletion NOT_STARTED, initialization-file policy, HNS tokens, ACL copying/full projection, signed XML DELETE, Autoclass/lifecycle and exact error precedence PENDING. Acceptance and verification: docs/en/slices/sdk-soft-delete-restore.md."
+    },
+    {
       "id": "SPEC-RETENTION-POLICY",
       "title": "Bucket retention null defaults and edge error details",
       "status": "OPEN",

@@ -29,7 +29,12 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
         DROP TABLE objects_with_versions;").unwrap();
 }
 
+pub fn downgrade_soft_delete_schema(connection: &rusqlite::Connection) {
+    connection.execute_batch("DROP INDEX objects_soft_deleted; DROP INDEX objects_soft_expiry; ALTER TABLE objects DROP COLUMN soft_delete_time; ALTER TABLE objects DROP COLUMN hard_delete_time; ALTER TABLE buckets DROP COLUMN soft_delete_policy;").unwrap();
+}
+
 pub fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {
+    downgrade_soft_delete_schema(connection);
     connection
         .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time;")
         .unwrap();

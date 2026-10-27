@@ -36,6 +36,12 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 
 新しい設定は不要です。[保持ポリシーの対応範囲](sdk-retention-policy.md)を参照してください。
 
+| soft deleteの操作 | gcs-mimicでの動作 |
+| --- | --- |
+| Go `BucketAttrs.SoftDeletePolicy`、Ruby `bucket.soft_delete_policy=` | JSON APIで0または604800～7776000秒を設定できます。省略時はGCSの既定7日と異なり無効とし、予期しないディスク保持と既存の削除動作の変更を避けます。 |
+| 削除済み一覧・世代指定のメタデータ取得・restore | 古い本文を期限まで保持し、復元では新世代を作ります。元の削除済み世代は残ります。省略と0はいずれも一覧200となり、保持中の世代がなければ空です。該当世代がなければget・restoreは404です。ポリシーなしを400にするGoogleの仕様とは異なります。ホールドと保持ポリシーによる拒否も引き続き適用します。 |
+| 削除済み世代だけのバケットを削除 | バケットと保持中の世代を完全削除します。バケット自体のsoft deleteと初期化ファイルの設定は未対応です。[対応範囲](sdk-soft-delete-restore.md)を参照してください。 |
+
 ```json
 {"version":1,"project":"local-project","buckets":[{"name":"assets"},{"name":"exports"}]}
 ```

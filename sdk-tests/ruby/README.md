@@ -1,5 +1,11 @@
 # Official Ruby SDK HTTP and HTTPS test
 
+The soft-delete journey uses ordinary soft_delete_policy=, files(soft_deleted:
+true), file(name, generation:, soft_deleted: true), restore_file and download.
+It passes in permissive and strict profiles; the generated client's form POST
+body must match its URL query exactly. See the
+[soft-delete contract](../../docs/en/slices/sdk-soft-delete-restore.md).
+
 The retention journey uses ordinary `retention_period=` and
 `lock_retention_policy!`, verifies retained-delete denial, removes the unlocked
 policy for cleanup, then locks an empty emulator bucket. The generated client

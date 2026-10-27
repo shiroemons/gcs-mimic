@@ -91,7 +91,7 @@ impl JsonError {
             StatusCode::BAD_REQUEST,
             "badRequest",
             format!(
-                "gcs-mimic does not support object API setting {name}; omit this option or header (for example, list objects without softDeleted=true)."
+                "gcs-mimic does not support object API setting {name}; omit this option or header (for example, use projection=noAcl)."
             ),
         )
     }
@@ -245,6 +245,11 @@ impl From<ObjectError> for JsonError {
             ObjectError::ObjectNotFound => {
                 Self::new(StatusCode::NOT_FOUND, "notFound", "Object not found")
             }
+            ObjectError::ObjectNotSoftDeleted => Self::new(
+                StatusCode::PRECONDITION_FAILED,
+                "objectNotSoftDeleted",
+                error.to_string(),
+            ),
             ObjectError::PreconditionFailed => Self::new(
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",

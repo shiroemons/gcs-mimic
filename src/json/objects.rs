@@ -23,10 +23,18 @@ pub struct ObjectGetParams {
     pub conditions: ObjectConditions,
     pub projection: Projection,
     pub media: bool,
+    pub soft_deleted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObjectRequest {
+    Restore {
+        bucket: String,
+        name: String,
+        generation: i64,
+        conditions: ObjectConditions,
+        projection: Projection,
+    },
     Move(super::ObjectMoveParams),
     Copy(super::ObjectCopyParams),
     Compose {
@@ -80,6 +88,9 @@ pub fn route_object_with_profile(
     uri: &Uri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, JsonError>> {
+    if let Some(operation) = super::object_restore::route(method, uri, profile) {
+        return Some(operation);
+    }
     if let Some(operation) = super::object_move::route(method, uri, profile) {
         return Some(operation);
     }
@@ -344,18 +355,24 @@ fn parse_object_query(
                 conditions,
                 projection,
                 media: false,
+                soft_deleted: false,
             },
         });
     }
     if method == Method::GET {
-        match query.remove("softDeleted").as_deref() {
-            None | Some("false") => {}
-            Some("true") => return Err(JsonError::unsupported_object("softDeleted")),
+        let soft_deleted = match query.remove("softDeleted").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
             Some(_) => {
                 return Err(JsonError::invalid_parameter(
                     "softDeleted must be true or false",
                 ));
             }
+        };
+        if soft_deleted && (generation.is_none() || media) {
+            return Err(JsonError::invalid_argument(
+                "softDeleted=true requires generation and forbids alt=media; use generation=123&softDeleted=true",
+            ));
         }
         let projection = projection(&mut query)?;
         finish(query)?;
@@ -367,6 +384,7 @@ fn parse_object_query(
                 conditions,
                 projection,
                 media,
+                soft_deleted,
             },
         })
     } else {
@@ -668,6 +686,12 @@ pub fn object_resource(
     }
     if let Some(deleted) = object.time_deleted {
         value["timeDeleted"] = json!(timestamp(deleted)?);
+    }
+    if let Some(time) = object.soft_delete_time {
+        value["softDeleteTime"] = json!(timestamp(time)?);
+    }
+    if let Some(time) = object.hard_delete_time {
+        value["hardDeleteTime"] = json!(timestamp(time)?);
     }
     Ok(value)
 }

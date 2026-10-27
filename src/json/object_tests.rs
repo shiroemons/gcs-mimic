@@ -28,6 +28,8 @@ pub(super) fn record() -> ObjectRecord {
         time_created: UNIX_EPOCH + Duration::from_millis(1234),
         updated: UNIX_EPOCH + Duration::from_millis(2345),
         time_deleted: None,
+        soft_delete_time: None,
+        hard_delete_time: None,
         event_based_hold: false,
         temporary_hold: false,
         custom_time: None,
@@ -56,7 +58,7 @@ fn obj_route_001_media_upload_metadata_download_delete() {
             request(Method::GET, &format!("{prefix}/storage/v1/b/abc/o/dir%2F%E7%8C%AB+%252F?alt=media&generation=7&{query}")).unwrap(),
             ObjectRequest::Get {
                 bucket: "abc".to_owned(), name: "dir/猫+%2F".to_owned(),
-                params: ObjectGetParams { generation: Some(7), conditions, projection: Projection::NoAcl, media: true },
+                params: ObjectGetParams { generation: Some(7), conditions, projection: Projection::NoAcl, media: true, soft_deleted: false },
             }
         );
     }
@@ -323,7 +325,7 @@ fn obj_query_002_duplicates_invalid_scalars_and_method_parameters() {
             "{query}"
         );
     }
-    for query in ["softDeleted=true", "prettyPrint=true", "uploadType=media"] {
+    for query in ["prettyPrint=true", "uploadType=media"] {
         assert_eq!(
             request(Method::GET, &format!("/storage/v1/b/abc/o/file?{query}"))
                 .unwrap_err()
