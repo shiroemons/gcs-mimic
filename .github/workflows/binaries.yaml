@@ -138,6 +138,11 @@ jobs:
             https://musl.libc.org/releases/musl-1.2.5.tar.gz \
             --output target/release-notices/musl-1.2.5.tar.gz
           echo 'a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4  target/release-notices/musl-1.2.5.tar.gz' | sha256sum --check
+      # As in the Foundation portability lane, Windows tests keep their many small
+      # synchronized files on the faster D: volume instead of the system temp on C:.
+      - name: Keep Windows test files on the workspace volume
+        if: runner.os == 'Windows'
+        run: printf '%s\n' "TMP=$RUNNER_TEMP" "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - run: cargo fetch --locked
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --target "$TARGET" --locked --offline -- -D warnings
