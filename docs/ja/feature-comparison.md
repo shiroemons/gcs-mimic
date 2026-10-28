@@ -64,7 +64,8 @@ composeはgcs-mimicの宣言済みローカル範囲で、1〜32個の世代を�
 | V4 RSA署名形式のGET・PUTで本体転送 | ✅ | ✅ 検証なし | ✅ 検証なし |
 | V4 RSA署名と期限を検証 | ✅ | ❌ | ❌ |
 | TLSで待ち受ける | ✅ | ✅ | ❌ |
-| gRPC | ◐ Storage v2のバケット・オブジェクト操作と双方向読み取り。Storage v1は別スライスで作業中 | ◐ Storage v1 | ❌ |
+| gRPC Storage v2を公式Goクライアントで使う（平文h2c。バケットCRUD・更新・IAM、オブジェクトの読み書き・一覧・更新・削除・復元、resumableの開始・照会・取消、範囲・双方向読み取り、rewrite・compose・move。通常バケットのみでRapid appendは除く） | ✅ JSON・XMLと状態・strict認可を共有 | ❌ Storage v1のみ | ❌ |
+| 旧Storage v1 gRPC（比較対象の12 RPC。複数メッセージのInsertObject、プロジェクト省略のListBucketsを含む） | ✅ 記載したフィールド範囲 | ◐ InsertObjectは最初のメッセージのデータだけ | ❌ |
 
 署名らしいURLを受け付けることと、署名・期限・権限を検証することを分けています。
 IAMの保存やCORSの成功も、アクセス制御を保証しません。

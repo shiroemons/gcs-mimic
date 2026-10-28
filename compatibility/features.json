@@ -1545,16 +1545,25 @@
           ]
         },
         {
-          "id": "remaining_legacy_semantics",
-          "description": "Lists require a project and use bounded opaque JSON cursors; global project-free reference listing is not provided.",
-          "result": "PENDING",
-          "test_ids": []
+          "id": "project_free_listing",
+          "description": "An omitted project lists every project's buckets in name order with prefix and bounded paging, like the reference's project-independent listing. Strict callers see only projects where they hold storage.buckets.list; callers with that permission nowhere get PERMISSION_DENIED and anonymous callers UNAUTHENTICATED. All-projects and single-project cursors are mutually rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "list_buckets_without_project_spans_projects_with_paging",
+            "strict_list_buckets_without_project_only_sees_listable_projects",
+            "bucket_list_among_projects_orders_by_name_across_owners",
+            "TestGRPCV1Legacy",
+            "TestGRPCV1LegacyStrict"
+          ]
         }
       ],
       "test_ids": [
         "TestGRPCV1Legacy",
         "TestGRPCV1LegacySafety",
-        "TestGRPCV1LegacyStrict"
+        "TestGRPCV1LegacyStrict",
+        "list_buckets_without_project_spans_projects_with_paging",
+        "strict_list_buckets_without_project_only_sees_listable_projects",
+        "bucket_list_among_projects_orders_by_name_across_owners"
       ],
       "verification": [
         {
@@ -1566,6 +1575,17 @@
             "TestGRPCV1Legacy",
             "TestGRPCV1LegacySafety",
             "TestGRPCV1LegacyStrict"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib -- grpc::v1::tests storage::catalog_tests::bucket_list",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v1-legacy.md",
+          "test_ids": [
+            "list_buckets_without_project_spans_projects_with_paging",
+            "strict_list_buckets_without_project_only_sees_listable_projects",
+            "bucket_list_among_projects_orders_by_name_across_owners"
           ]
         }
       ],
@@ -1583,7 +1603,7 @@
         }
       ],
       "known_deviations": [
-        "Lists require a project and use bounded opaque JSON cursors; global project-free reference listing is not provided."
+        "Unlike the reference's single unpaged list, prefix and bounded opaque JSON cursors still apply; the row stays PARTIAL until its BEHAVIOR-RPC-005 dependency is complete."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -18081,26 +18101,90 @@
       "interface": "google.storage.v2.Storage/CancelResumableWrite",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Cancels a shared resumable session through the same catalog operation as the JSON session-URI DELETE: the session becomes unusable and its staged bytes are released without publishing. Contract and results: docs/en/slices/grpc-v2-object-io.md; googleapis 933dd1be8180a22bca2dc473b53d4f4297ee3b0c.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "cancel_discards_session_and_staged_bytes",
+          "description": "Cancelling a fresh or partially written session returns OK; later QueryWriteStatus, WriteObject and BidiWriteObject on that upload_id return NOT_FOUND, staged bytes are released and no object is published. Unknown, malformed and other-bucket upload IDs and a repeated cancel return NOT_FOUND; a finalized upload returns FAILED_PRECONDITION and keeps its object; a session leased by an active write returns retryable UNAVAILABLE.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_cancel_discards_sessions_and_staged_bytes",
+            "TestGRPCCancelResumableWrite"
+          ]
+        },
+        {
+          "id": "strict_cancel_requires_create_permission",
+          "description": "Strict mode requires storage.objects.create on the bucket, as QueryWriteStatus and resumed writes do; a viewer receives PERMISSION_DENIED, an anonymous caller UNAUTHENTICATED, and the session remains usable.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_strict_cancel_requires_create_permission",
+            "TestGRPCFoundationStrictAuth"
+          ]
+        },
+        {
+          "id": "provider_status_parity",
+          "description": "Google documents no status for cancelling a finalized upload, a repeated cancel or a cancel during an in-progress write; provider parity of the local choices is unverified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_io_cancel_discards_sessions_and_staged_bytes",
+        "grpc_io_strict_cancel_requires_create_permission",
+        "TestGRPCCancelResumableWrite",
+        "TestGRPCFoundationStrictAuth"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_io_cancel_discards_sessions_and_staged_bytes",
+            "grpc_io_strict_cancel_requires_create_permission"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPC' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCCancelResumableWrite",
+            "TestGRPCFoundationStrictAuth"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "gRPC h2c; registered v2 descriptors (no high-level cancel helper); permissive/strict",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCCancelResumableWrite",
+            "TestGRPCFoundationStrictAuth"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "FAILED_PRECONDITION for a finalized upload, NOT_FOUND for a repeated cancel and UNAVAILABLE during an active write are local choices; Google documents no status for them. Any principal with storage.objects.create on the bucket may cancel, not only the session creator."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-014",
@@ -27968,7 +28052,7 @@
         },
         {
           "id": "grpc_bucket_routing_remaining",
-          "description": "Only the four bucket RPCs are covered. Object read/write handles, routing tokens and Storage v1 remain pending; unknown semantic routing fields return UNIMPLEMENTED.",
+          "description": "Routing metadata is validated only for the four bucket RPCs; object RPCs take the resource from the request and do not cross-check x-goog-request-params. BidiReadObject read handles are covered by BEHAVIOR-RPC-004; write handles, Rapid append and routing tokens return UNIMPLEMENTED, and legacy v1 rejects routing metadata with UNIMPLEMENTED. Unknown semantic routing fields return UNIMPLEMENTED.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -28014,7 +28098,7 @@
         }
       ],
       "known_deviations": [
-        "Only the four bucket RPCs are covered. Object read/write handles, routing tokens and Storage v1 remain pending; unknown semantic routing fields return UNIMPLEMENTED."
+        "Routing metadata is validated only for the four bucket RPCs; object RPCs take the resource from the request and do not cross-check x-goog-request-params. BidiReadObject read handles are covered by BEHAVIOR-RPC-004; write handles, Rapid append and routing tokens return UNIMPLEMENTED, and legacy v1 rejects routing metadata with UNIMPLEMENTED. Unknown semantic routing fields return UNIMPLEMENTED."
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"
@@ -28286,7 +28370,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Opt-in h2c Storage v2 foundation: all 24 RPCs and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive connection_timeout_ms idle expiry, but 60 seconds without request/response frames triggers GOAWAY with bounded grace. PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive detects dead peers; SIGTERM grace retains its existing cap. Operation success statuses, business logic, deadlines and cancellation remain pending. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED.",
+      "notes": "Opt-in h2c Storage v2 foundation: unsupported RPCs, unsupported fields and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive connection_timeout_ms idle expiry, but 60 seconds without request/response frames triggers GOAWAY with bounded grace. PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive detects dead peers; SIGTERM grace retains its existing cap. Operation success statuses and business logic now come from the per-operation rows (RPC-STORAGE-* and RPC-LEGACY-*); explicit deadline and client-cancellation cases remain pending. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -28305,7 +28389,7 @@
         {"id":"grpc_goaway_has_bounded_grace","description":"Idle GOAWAY uses connection_timeout_ms; SIGTERM caps grace at min(connection_timeout_ms, shutdown_timeout_ms / 2) to exit successfully with incomplete handshakes under default deadlines.","result":"PASS","test_ids":["grpc_goaway_has_bounded_grace","grpc_idle_admission_and_sigterm_drain","grpc_sigterm_default_deadlines_close_incomplete_handshake"]},
         {"id":"grpc_silent_open_stream_is_bounded","description":"No request/response HEADERS, DATA or trailers for 60 seconds with open streams triggers GOAWAY and bounded grace, releasing shared admission; PING/PONG does not renew activity.","result":"PASS","test_ids":["grpc_silent_open_stream_is_bounded"]},
         {"id":"grpc_active_stream_survives_past_bound","description":"Request or response frames at intervals shorter than the silence bound keep streams alive beyond that bound in total elapsed time.","result":"PASS","test_ids":["grpc_active_stream_survives_past_bound"]},
-        {"id":"grpc_success_status_deadlines_cancellation","description":"Operation-specific statuses, success streaming, deadlines and cancellation remain for subsequent slices.","result":"PENDING","test_ids":[]}
+        {"id":"grpc_success_status_deadlines_cancellation","description":"Operation-specific success statuses and streaming are verified by the per-operation rows; explicit deadline-expiry and client-cancellation behavior across operations remains unverified.","result":"PENDING","test_ids":[]}
       ],
       "test_ids": ["grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound","TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"],
       "verification": [
@@ -28318,7 +28402,7 @@
         {"command":"GCS_MIMIC_GO_TEST_RUN=TestGRPCFoundation bash scripts/sdk-go.sh","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["All RPC business operations and legacy Storage v1 remain unsupported. ErrorInfo reason badRequest/domain global intentionally match the JSON emulator rejection contract; this is not provider-exact behavior for valid Google RPCs. Lifecycle and ETag conversion remain for subsequent operation slices."],
+      "known_deviations": ["Deadline-expiry and client-cancellation behavior is not verified across operations. ErrorInfo reason badRequest/domain global intentionally match the JSON emulator rejection contract; this is not provider-exact behavior for valid Google RPCs. Lifecycle and ETag conversion remain for subsequent operation slices."],
       "implemented_in": "bdb8900",
       "last_verified": "2026-10-27"
     },
@@ -51975,7 +52059,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Write through each supported transport and read/list/modify through the others. Assert equivalent bytes, logical generations, metadata and authorization while preserving protocol-specific representations and errors. This is an integration gate distinct from independently passing each route.",
+      "notes": "Write through each supported transport and read/list/modify through the others. Assert equivalent bytes, logical generations, metadata and authorization while preserving protocol-specific representations and errors. This is an integration gate distinct from independently passing each route. Object state: sdk-tests/go/cross_protocol_objects_test.go and docs/en/slices/cross-protocol-objects.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -51990,15 +52074,42 @@
           ]
         },
         {
-          "id": "grpc_bucket_shared_state_remaining",
-          "description": "Only bucket state is verified. Object bytes, generations, mutations and authorization across JSON/XML/gRPC remain pending; this row must stay PARTIAL.",
+          "id": "object_shared_state_permissive",
+          "description": "Objects written through JSON, XML and Storage v2 show identical bytes, generation, metageneration, size, CRC32C, MD5, content type and custom metadata through JSON, XML, Storage v2 and legacy v1 metadata, live and generation-selected. Listings agree; metadata mutations through JSON PATCH and v2 UpdateObject propagate; generation preconditions observed through one transport succeed or fail consistently on the others; cross-transport deletes remove the object everywhere.",
+          "result": "PASS",
+          "test_ids": [
+            "TestCrossProtocolObjects"
+          ]
+        },
+        {
+          "id": "object_shared_state_versions",
+          "description": "Noncurrent generations created across XML, Storage v2 and JSON remain readable and listed with versions=true on every transport, and an XML generation delete removes only that generation everywhere.",
+          "result": "PASS",
+          "test_ids": [
+            "TestCrossProtocolObjectVersions"
+          ]
+        },
+        {
+          "id": "object_shared_authorization_strict",
+          "description": "For the same objects, a viewer reads and lists on JSON, XML, Storage v2 and v1; a creator without storage.objects.get is denied with 403/AccessDenied/PERMISSION_DENIED; anonymous callers receive 401/AuthenticationRequired/UNAUTHENTICATED; denied overwrites change nothing.",
+          "result": "PASS",
+          "test_ids": [
+            "TestCrossProtocolObjectsStrict"
+          ]
+        },
+        {
+          "id": "derived_objects_and_legacy_writes",
+          "description": "Rewrite, compose and move results and legacy v1 writes are verified per transport by their own rows, not by this cross-transport matrix.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
         "TestGRPCBuckets",
-        "TestGRPCBucketsStrict"
+        "TestGRPCBucketsStrict",
+        "TestCrossProtocolObjects",
+        "TestCrossProtocolObjectVersions",
+        "TestCrossProtocolObjectsStrict"
       ],
       "verification": [
         {
@@ -52010,6 +52121,17 @@
             "TestGRPCBuckets",
             "TestGRPCBucketsStrict"
           ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestCrossProtocol' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/cross-protocol-objects.md",
+          "test_ids": [
+            "TestCrossProtocolObjects",
+            "TestCrossProtocolObjectVersions",
+            "TestCrossProtocolObjectsStrict"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -52020,12 +52142,15 @@
           "result": "PASS",
           "test_ids": [
             "TestGRPCBuckets",
-            "TestGRPCBucketsStrict"
+            "TestGRPCBucketsStrict",
+            "TestCrossProtocolObjects",
+            "TestCrossProtocolObjectVersions",
+            "TestCrossProtocolObjectsStrict"
           ]
         }
       ],
       "known_deviations": [
-        "Only bucket state is verified. Object bytes, generations, mutations and authorization across JSON/XML/gRPC remain pending; this row must stay PARTIAL."
+        "XML bucket listing and legacy v1 media are outside their supported subsets and are excluded. Rewrite, compose, move and legacy v1 writes are not yet covered by the cross-transport matrix."
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"

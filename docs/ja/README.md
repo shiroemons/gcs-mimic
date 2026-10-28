@@ -70,7 +70,7 @@ fake-gcs-serverの初期ファイルがある場合は、同じ`data/BUCKET/OBJE
 | 実フォルダとAPIを双方向同期する | 未実装 |
 | 初期バケット設定をファイルで渡す | JSON v1で未作成バケットだけ作成 |
 | fake-gcs-serverのファイルシステムのデータを取り込む | ライブのオブジェクトだけ（履歴は未対応） |
-| gRPCを使う | Storage v2のバケットCRUD・更新・IAM・保持ロック、オブジェクト入出力・一覧・削除・復元、resumable・rewrite・compose・move・双方向範囲読み取りに部分対応。Rapid appendとCancelResumableWriteは未対応。Storage v1は別スライスで作業中。[接続と制限](grpc-v2-bidi-read.md) |
+| gRPCを使う | Storage v2のバケットCRUD・更新・IAM・保持ロック、オブジェクト入出力・一覧・削除・復元、resumable（照会・取消を含む）・rewrite・compose・move・双方向範囲読み取りに対応（記載範囲）。Rapid appendは未対応。比較対象の旧Storage v1の12 RPCにも対応。JSON・XMLとオブジェクトの状態・認可を共有。[接続と制限](grpc-v2-bidi-read.md) |
 | 公開Dockerイメージをpullする | `0.2.1`（amd64・arm64） |
 
 CORSはバケットごとのXML用ルールと、JSON APIの固定ルールに分かれます。

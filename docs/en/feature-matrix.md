@@ -14,7 +14,7 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 251 | 0 | 58 | 1 | 0 | 0 |
+| api_operation | 310 | 250 | 0 | 59 | 1 | 0 | 0 |
 | behavior | 201 | 112 | 0 | 51 | 38 | 0 | 0 |
 | project_requirement | 93 | 35 | 0 | 29 | 29 | 0 | 0 |
 
@@ -35,7 +35,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 251 | 28 | 31 | 0 | 0 | 0 |
+| api_operation | 250 | 29 | 31 | 0 | 0 | 0 |
 | behavior | 113 | 53 | 32 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 58 |
 
@@ -478,7 +478,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | RPC-STORAGE-010 | ComposeObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-011 | DeleteObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-012 | RestoreObject | PARTIAL | P6 | EXACT | EXACT | 1 |
-| RPC-STORAGE-013 | CancelResumableWrite | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| RPC-STORAGE-013 | CancelResumableWrite | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-014 | GetObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-015 | ReadObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-016 | BidiReadObject | PARTIAL | P6 | EXACT | EXACT | 1 |

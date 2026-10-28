@@ -77,16 +77,27 @@ These are workflow summaries, not claims of complete Google API compatibility.
 | Enforce bucket-specific XML CORS rules | ✅ | ❌ | ❌ |
 | Upload/download with signed URLs | ✅ | ✅ | ✅ |
 | Verify V4 RSA signatures and expiry | ✅ | ❌ | ❌ |
-| gRPC | ◐ Storage v2 and legacy v1 subsets | ◐ Storage v1 subset | ❌ |
+| gRPC Storage v2 with the Go client | ✅ | ❌ | ❌ |
+| gRPC legacy Storage v1 reference RPCs | ✅ | ◐ First upload message | ❌ |
 | Published Docker image | ✅ GHCR and Docker Hub | ✅ | ✅ |
+
+The Storage v2 row covers the official Go client's bucket, object I/O,
+resumable (including cancellation), ranged/bidirectional read and
+rewrite/compose/move calls on standard buckets. The legacy v1 row covers the
+reference emulator's twelve RPCs, including multi-message uploads; the
+reference keeps only the first upload message's data.
 
 The optional plaintext `grpc_listen` serves scoped Storage v2 bucket CRUD,
 updates, IAM and retention locking; object reads, writes, listing, deletion and
-restore; resumable uploads, rewrite, compose, move and bidirectional ranged reads.
-`CancelResumableWrite`, Rapid append and unsupported fields return actionable
-`UNIMPLEMENTED`. The same endpoint serves twelve legacy Storage v1 RPCs for
-reference-emulator migration, with shared strict permissions and documented
-field limits; this is not Google GA/EXACT fidelity. See the
+restore; resumable uploads with status queries and cancellation, rewrite,
+compose, move and bidirectional ranged reads. Rapid append (zonal appendable
+objects) and unsupported fields return actionable `UNIMPLEMENTED`. The same
+endpoint serves the reference emulator's twelve legacy Storage v1 RPCs for
+migration, including project-free bucket listing, with shared strict
+permissions and documented field limits. JSON, XML and gRPC share object bytes,
+generations, metadata and authorization ([evidence](docs/en/slices/cross-protocol-objects.md)).
+The rows describe these workflows, not Google GA/EXACT fidelity; individual
+RPC rows in the feature ledger remain `PARTIAL`. See the
 [legacy contract](docs/en/slices/grpc-v1-legacy.md),
 [v2 gRPC contracts](docs/en/slices/grpc-v2-foundation.md) and
 [SDK journeys](sdk-tests/go/README.md) for verified subsets and limits.
