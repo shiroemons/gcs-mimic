@@ -21,6 +21,11 @@ fn object_status(error: ObjectError) -> Status {
     json_status(error.into())
 }
 
+/// Anonymous denials ask for credentials, matching bucket RPCs, BidiReadObject and JSON.
+fn access_status(error: json::JsonError, caller: Option<Caller<'_>>) -> Status {
+    json_status(crate::server::anonymous_error(error, caller))
+}
+
 fn session_status(error: ResumableError) -> Status {
     match error {
         ResumableError::NotFound | ResumableError::Gone => {
@@ -226,7 +231,7 @@ impl Storage {
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_DELETE, bucket)
             .await
-            .map_err(json_status)?;
+            .map_err(|e| access_status(e, caller))?;
         self.state
             .catalog
             .delete_object_authorized(
@@ -245,12 +250,45 @@ impl Storage {
             .map_err(object_status)?;
         Ok(Response::new(()))
     }
+    /// Shares the JSON session-URI cancellation so staged bytes follow one cleanup journal.
     pub(super) async fn cancel_resumable_write(
         &self,
-        _request: Request<pb::CancelResumableWriteRequest>,
-        _caller: Option<Caller<'_>>,
+        request: Request<pb::CancelResumableWriteRequest>,
+        caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::CancelResumableWriteResponse>, Status> {
-        Err(unsupported("CancelResumableWrite", _caller))
+        let r = request.into_inner();
+        let (bucket, id) = parse_upload_id(&r.upload_id)?;
+        // gRPC upload IDs are not bearer capabilities, so cancellation requires the
+        // same permission as QueryWriteStatus and resumed writes.
+        crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, bucket)
+            .await
+            .map_err(|e| access_status(e, caller))?;
+        match self
+            .state
+            .catalog
+            .cancel_resumable_session(id, bucket)
+            .await
+        {
+            Ok(()) => Ok(Response::new(pb::CancelResumableWriteResponse {})),
+            Err(ResumableError::Gone) => {
+                // A completed object is not an in-progress upload; report that distinctly
+                // from a cancelled or expired session, matching resumed WriteObject.
+                let finalized = self
+                    .state
+                    .catalog
+                    .resumable_session(id, bucket)
+                    .await
+                    .is_ok_and(|session| session.state == SessionState::Complete);
+                Err(if finalized {
+                    Status::failed_precondition(
+                        "Upload already finalized; delete the object instead of cancelling",
+                    )
+                } else {
+                    session_status(ResumableError::Gone)
+                })
+            }
+            Err(error) => Err(session_status(error)),
+        }
     }
     pub(super) async fn get_object(
         &self,
@@ -265,7 +303,7 @@ impl Storage {
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_GET, bucket)
             .await
-            .map_err(json_status)?;
+            .map_err(|e| access_status(e, caller))?;
         let record = self
             .state
             .catalog
@@ -298,7 +336,7 @@ impl Storage {
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_GET, bucket)
             .await
-            .map_err(json_status)?;
+            .map_err(|e| access_status(e, caller))?;
         let (record, mut reader) = self
             .state
             .catalog
@@ -530,7 +568,7 @@ impl Storage {
         };
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_LIST, bucket)
             .await
-            .map_err(json_status)?;
+            .map_err(|e| access_status(e, caller))?;
         let page = self
             .state
             .catalog
@@ -586,7 +624,7 @@ impl Storage {
         let (bucket, id) = parse_upload_id(&r.upload_id)?;
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, bucket)
             .await
-            .map_err(json_status)?;
+            .map_err(|e| access_status(e, caller))?;
         let session = self
             .state
             .catalog
@@ -657,7 +695,7 @@ impl Storage {
         let name = name.to_owned();
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, &bucket)
             .await
-            .map_err(json_status)?;
+            .map_err(|e| access_status(e, caller))?;
         let content_type = if resource.content_type.is_empty() {
             "application/octet-stream".to_owned()
         } else {
@@ -776,7 +814,7 @@ impl Storage {
             let access =
                 crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, &bucket)
                     .await
-                    .map_err(json_status)?;
+                    .map_err(|e| access_status(e, caller))?;
             let lease = self
                 .state
                 .catalog
@@ -1475,6 +1513,230 @@ mod tests {
                 .unwrap_err()
                 .code(),
             tonic::Code::Unimplemented
+        );
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    async fn start(storage: &Storage, name: &str, caller: Option<Caller<'_>>) -> String {
+        storage
+            .start_resumable_write(
+                Request::new(pb::StartResumableWriteRequest {
+                    write_object_spec: Some(spec(name)),
+                    ..Default::default()
+                }),
+                caller,
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .upload_id
+    }
+
+    async fn cancel(
+        storage: &Storage,
+        upload_id: &str,
+        caller: Option<Caller<'_>>,
+    ) -> Result<(), tonic::Code> {
+        storage
+            .cancel_resumable_write(
+                Request::new(pb::CancelResumableWriteRequest {
+                    upload_id: upload_id.into(),
+                }),
+                caller,
+            )
+            .await
+            .map(|_| ())
+            .map_err(|status| status.code())
+    }
+
+    async fn query(
+        storage: &Storage,
+        upload_id: &str,
+        caller: Option<Caller<'_>>,
+    ) -> Result<pb::query_write_status_response::WriteStatus, tonic::Code> {
+        storage
+            .query_write_status(
+                Request::new(pb::QueryWriteStatusRequest {
+                    upload_id: upload_id.into(),
+                    ..Default::default()
+                }),
+                caller,
+            )
+            .await
+            .map(|response| response.into_inner().write_status.unwrap())
+            .map_err(|status| status.code())
+    }
+
+    fn resume(
+        upload_id: &str,
+        offset: i64,
+        data: &[u8],
+        finish: bool,
+    ) -> pb::BidiWriteObjectRequest {
+        let mut next = message("ignored", data);
+        next.write_offset = offset;
+        next.finish_write = finish;
+        next.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
+            upload_id.into(),
+        ));
+        next
+    }
+
+    async fn missing(storage: &Storage, name: &str) -> bool {
+        storage
+            .state
+            .catalog
+            .get_object("grpc-io", name, None, ObjectConditions::default())
+            .await
+            .is_err_and(|error| error == ObjectError::ObjectNotFound)
+    }
+
+    #[tokio::test]
+    async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
+        let (dir, storage) = setup(false).await;
+        let fresh = start(&storage, "fresh", None).await;
+        assert_eq!(cancel(&storage, &fresh, None).await, Ok(()));
+        assert_eq!(
+            query(&storage, &fresh, None).await,
+            Err(tonic::Code::NotFound)
+        );
+        for finish in [false, true] {
+            assert_eq!(
+                write(&storage, vec![resume(&fresh, 0, b"abc", finish)])
+                    .await
+                    .unwrap_err()
+                    .code(),
+                tonic::Code::NotFound
+            );
+        }
+        // Repeating a successful cancellation reports the session as gone rather than
+        // succeeding again, so callers cannot mistake it for a still-live upload.
+        assert_eq!(
+            cancel(&storage, &fresh, None).await,
+            Err(tonic::Code::NotFound)
+        );
+
+        let partial = start(&storage, "partial", None).await;
+        assert!(matches!(
+            write(&storage, vec![resume(&partial, 0, b"abc", false)])
+                .await
+                .unwrap(),
+            pb::bidi_write_object_response::WriteStatus::PersistedSize(3)
+        ));
+        let (bucket, id) = parse_upload_id(&partial).unwrap();
+        let blob = storage
+            .state
+            .catalog
+            .resumable_session(id, bucket)
+            .await
+            .unwrap()
+            .blob_id;
+        let staged = dir.0.join("staging").join(&blob);
+        assert!(staged.exists());
+        assert_eq!(cancel(&storage, &partial, None).await, Ok(()));
+        assert!(!staged.exists());
+        assert!(!dir.0.join("blobs").join(&blob[..2]).join(&blob).exists());
+        assert_eq!(
+            write(&storage, vec![resume(&partial, 3, b"def", true)])
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::NotFound
+        );
+        for name in ["fresh", "partial"] {
+            assert!(missing(&storage, name).await);
+        }
+
+        let done = start(&storage, "done", None).await;
+        write(&storage, vec![resume(&done, 0, b"done", true)])
+            .await
+            .unwrap();
+        assert_eq!(
+            cancel(&storage, &done, None).await,
+            Err(tonic::Code::FailedPrecondition)
+        );
+        assert!(matches!(
+            query(&storage, &done, None).await,
+            Ok(pb::query_write_status_response::WriteStatus::Resource(_))
+        ));
+        assert!(!missing(&storage, "done").await);
+
+        let unknown = format!("grpc-io/{}", "0".repeat(64));
+        for id in [
+            unknown.as_str(),
+            "",
+            "grpc-io",
+            "grpc-io/not-hex",
+            "/0000000000000000000000000000000000000000000000000000000000000000",
+        ] {
+            assert_eq!(cancel(&storage, id, None).await, Err(tonic::Code::NotFound));
+        }
+        // An upload_id is scoped to its bucket; reusing it under another bucket finds nothing.
+        let scoped = start(&storage, "scoped", None).await;
+        let (_, id) = parse_upload_id(&scoped).unwrap();
+        assert_eq!(
+            cancel(&storage, &format!("other-bucket/{id}"), None).await,
+            Err(tonic::Code::NotFound)
+        );
+        assert!(query(&storage, &scoped, None).await.is_ok());
+
+        // An in-flight writer holds the session lease; cancellation reports a retryable
+        // conflict and leaves the session intact instead of racing the writer.
+        let lease = storage
+            .state
+            .catalog
+            .lock_resumable_session(id, "grpc-io")
+            .await
+            .unwrap();
+        assert_eq!(
+            cancel(&storage, &scoped, None).await,
+            Err(tonic::Code::Unavailable)
+        );
+        drop(lease);
+        assert_eq!(cancel(&storage, &scoped, None).await, Ok(()));
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_io_strict_cancel_requires_create_permission() {
+        let (_dir, storage) = setup(true).await;
+        let mut request = Request::new(());
+        request
+            .metadata_mut()
+            .insert("authorization", "Bearer admin".parse().unwrap());
+        let admin = storage.authenticate(&request).unwrap();
+        request
+            .metadata_mut()
+            .insert("authorization", "Bearer reader".parse().unwrap());
+        let reader = storage.authenticate(&request).unwrap();
+        let upload = start(&storage, "strict", admin).await;
+        storage
+            .receive_write(
+                &mut tonic::codegen::tokio_stream::iter([Ok(resume(&upload, 0, b"abc", false))]),
+                admin,
+                None,
+                true,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            cancel(&storage, &upload, reader).await,
+            Err(tonic::Code::PermissionDenied)
+        );
+        assert_eq!(
+            cancel(&storage, &upload, Some(Caller::Anonymous)).await,
+            Err(tonic::Code::Unauthenticated)
+        );
+        assert!(matches!(
+            query(&storage, &upload, admin).await,
+            Ok(pb::query_write_status_response::WriteStatus::PersistedSize(
+                3
+            ))
+        ));
+        assert_eq!(cancel(&storage, &upload, admin).await, Ok(()));
+        assert_eq!(
+            query(&storage, &upload, admin).await,
+            Err(tonic::Code::NotFound)
         );
         storage.state.catalog.close().await.unwrap();
     }

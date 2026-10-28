@@ -17,6 +17,11 @@ fn error(error: impl Into<JsonError>) -> Status {
     super::status::from_json(error.into())
 }
 
+/// Anonymous denials ask for credentials, matching bucket RPCs, BidiReadObject and JSON.
+fn access_error(error: JsonError, caller: Option<Caller<'_>>) -> Status {
+    super::status::from_json(crate::server::anonymous_error(error, caller))
+}
+
 fn conditions(
     gm: Option<i64>,
     gn: Option<i64>,
@@ -432,10 +437,10 @@ impl Storage {
         names::object_name(&format!("projects/_/buckets/{db}"), dn)?;
         let read = authorize_bucket(&self.state, caller, auth::OBJECTS_GET, sb)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let create = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, db)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let mut owner = None;
         let token = if let Some(s) = session.as_ref() {
             if [sb, sn, db, dn]
@@ -581,7 +586,7 @@ impl Storage {
         conditions(None, None, Some(r.if_metageneration_match), None)?;
         let access = authorize_bucket(&self.state, caller, auth::BUCKETS_UPDATE, bucket)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let record = self
             .state
             .catalog
@@ -615,7 +620,7 @@ impl Storage {
         }
         let access = authorize_bucket(&self.state, caller, auth::BUCKETS_GET_IAM, bucket)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         Ok(Response::new(policy(
             self.state
                 .catalog
@@ -643,7 +648,7 @@ impl Storage {
         }
         let access = authorize_bucket(&self.state, caller, auth::BUCKETS_SET_IAM, bucket)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let p = r.policy.ok_or_else(|| {
             Status::invalid_argument(
                 "policy is required; supply bindings, for example an empty list",
@@ -726,7 +731,7 @@ impl Storage {
         let mut body = bucket_patch(&b, paths)?;
         let access = authorize_bucket(&self.state, caller, auth::BUCKETS_UPDATE, bucket)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let mut mm = r.if_metageneration_match;
         if paths.iter().any(|p| p == "labels") && !b.labels.is_empty() {
             let current = self
@@ -779,7 +784,7 @@ impl Storage {
         let mut body = object_patch(&o, paths)?;
         let access = authorize_bucket(&self.state, caller, auth::OBJECTS_UPDATE, bucket)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let mut c = conditions(
             r.if_generation_match,
             r.if_generation_not_match,
@@ -852,7 +857,7 @@ impl Storage {
         let (bucket, name) = names::object_name(&o.bucket, &o.name)?;
         let access = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, bucket)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let body = derived_fields(&o)?;
         let sources = r
             .source_objects
@@ -922,13 +927,13 @@ impl Storage {
         names::object_name(&r.bucket, &r.destination_object)?;
         let read = authorize_bucket(&self.state, caller, auth::OBJECTS_GET, bucket)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let delete = authorize_bucket(&self.state, caller, auth::OBJECTS_DELETE, bucket)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let create = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, bucket)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let sc = conditions(
             r.if_source_generation_match,
             r.if_source_generation_not_match,
@@ -978,10 +983,10 @@ impl Storage {
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
         let restore = authorize_bucket(&self.state, caller, auth::OBJECTS_RESTORE, bucket)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let create = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, bucket)
             .await
-            .map_err(error)?;
+            .map_err(|e| access_error(e, caller))?;
         let c = conditions(
             r.if_generation_match,
             r.if_generation_not_match,

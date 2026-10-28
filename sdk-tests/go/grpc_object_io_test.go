@@ -3,9 +3,11 @@ package gcsmimic_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -283,6 +285,96 @@ func grpcIOMessage(t *testing.T, name string, fields map[string]any) *dynamicpb.
 
 func grpcIOField(message *dynamicpb.Message, name string) protoreflect.Value {
 	return message.Get(message.Descriptor().Fields().ByName(protoreflect.Name(name)))
+}
+
+// The pinned Go SDK exposes no CancelResumableWrite helper, so the raw RPC uses the
+// SDK's registered descriptors.
+func TestGRPCCancelResumableWrite(t *testing.T) {
+	endpoint := os.Getenv("STORAGE_EMULATOR_HOST_GRPC")
+	if endpoint == "" {
+		t.Skip("STORAGE_EMULATOR_HOST_GRPC is unset")
+	}
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+		t.Fatal("gRPC endpoint must be loopback IP:PORT")
+	}
+	ctx, jsonClient, _, _ := newEmulatorClient(t)
+	bucket := resumableBucket(t, ctx, jsonClient, "grpc-cancel")
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	msg := func(name string, fields map[string]any) *dynamicpb.Message { return grpcIOMessage(t, name, fields) }
+	invoke := func(method string, request, response *dynamicpb.Message) error {
+		return conn.Invoke(ctx, "/google.storage.v2.Storage/"+method, request, response)
+	}
+	start := func(name string) string {
+		resource := msg("Object", map[string]any{"bucket": "projects/_/buckets/" + bucket.BucketName(), "name": name})
+		response := msg("StartResumableWriteResponse", nil)
+		if err := invoke("StartResumableWrite", msg("StartResumableWriteRequest", map[string]any{"write_object_spec": msg("WriteObjectSpec", map[string]any{"resource": resource})}), response); err != nil {
+			t.Fatal(err)
+		}
+		return grpcIOField(response, "upload_id").String()
+	}
+	cancelUpload := func(id string) error {
+		return invoke("CancelResumableWrite", msg("CancelResumableWriteRequest", map[string]any{"upload_id": id}), msg("CancelResumableWriteResponse", nil))
+	}
+	write := func(id string, offset int64, content string, finish bool) error {
+		stream, err := conn.NewStream(ctx, &grpc.StreamDesc{ClientStreams: true, ServerStreams: true}, "/google.storage.v2.Storage/BidiWriteObject")
+		if err != nil {
+			t.Fatal(err)
+		}
+		stream.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": id, "write_offset": offset, "checksummed_data": msg("ChecksummedData", map[string]any{"content": []byte(content)}), "finish_write": finish, "state_lookup": !finish}))
+		stream.CloseSend()
+		return stream.RecvMsg(msg("BidiWriteObjectResponse", nil))
+	}
+	query := func(id string) error {
+		return invoke("QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": id}), msg("QueryWriteStatusResponse", nil))
+	}
+	t.Cleanup(func() {
+		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		_ = bucket.Object("finalized").Delete(cleanup)
+	})
+
+	partial := start("cancelled")
+	if err := write(partial, 0, "abc", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := cancelUpload(partial); err != nil {
+		t.Fatalf("cancel=%v", err)
+	}
+	if err := query(partial); status.Code(err) != codes.NotFound {
+		t.Fatalf("query after cancel=%v", err)
+	}
+	if err := write(partial, 3, "def", true); status.Code(err) != codes.NotFound {
+		t.Fatalf("write after cancel=%v", err)
+	}
+	if err := cancelUpload(partial); status.Code(err) != codes.NotFound {
+		t.Fatalf("repeated cancel=%v", err)
+	}
+	if _, err := bucket.Object("cancelled").Attrs(ctx); !errors.Is(err, storage.ErrObjectNotExist) {
+		t.Fatalf("cancelled upload published an object: %v", err)
+	}
+
+	finalized := start("finalized")
+	if err := write(finalized, 0, "done", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := cancelUpload(finalized); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("cancel finalized=%v", err)
+	}
+	if attrs, err := bucket.Object("finalized").Attrs(ctx); err != nil || attrs.Size != 4 {
+		t.Fatalf("finalized object changed: %v %v", attrs, err)
+	}
+	for _, id := range []string{"", bucket.BucketName(), bucket.BucketName() + "/not-hex", bucket.BucketName() + "/" + strings.Repeat("0", 64)} {
+		if err := cancelUpload(id); status.Code(err) != codes.NotFound {
+			t.Fatalf("cancel %q=%v", id, err)
+		}
+	}
 }
 
 func TestGRPCObjectIOWire(t *testing.T) {

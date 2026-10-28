@@ -80,8 +80,7 @@ func TestGRPCFoundationWireStatus(t *testing.T) {
 	}
 	defer conn.Close()
 	for _, method := range []string{
-		"CancelResumableWrite", "UnknownMethod",
-		"other.Service/UnknownMethod",
+		"UnknownMethod", "other.Service/UnknownMethod",
 	} {
 		t.Run(method, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -124,16 +123,20 @@ func TestGRPCFoundationStrictAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
+	// A well-formed upload_id in an absent bucket reaches shared authorization without
+	// creating state: rejected and absent credentials fail authentication, and the admin
+	// learns that no such session exists.
+	request := grpcIOMessage(t, "CancelResumableWriteRequest", map[string]any{"upload_id": "grpc-foundation-absent/" + strings.Repeat("0", 64)})
 	for _, token := range []string{"", "Basic garbage", "Bearer unknown", "Bearer local-admin-token"} {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		if token != "" {
 			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", token)
 		}
-		err := conn.Invoke(ctx, "/google.storage.v2.Storage/CancelResumableWrite", &emptypb.Empty{}, &emptypb.Empty{})
+		err := conn.Invoke(ctx, "/google.storage.v2.Storage/CancelResumableWrite", request, grpcIOMessage(t, "CancelResumableWriteResponse", nil))
 		cancel()
 		want := codes.Unauthenticated
 		if token == "Bearer local-admin-token" {
-			want = codes.Unimplemented
+			want = codes.NotFound
 		}
 		if status.Code(err) != want {
 			t.Errorf("credential %q: expected %v, got %v", token, want, err)

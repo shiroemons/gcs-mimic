@@ -40,7 +40,7 @@ Compose accepts 1–32 same-bucket generation-selected sources, source generatio
 
 No setting is added. The gRPC service receives the existing `max_object_bytes` setting so copies/compositions honor the same configured body cap as JSON. Shared storage and startup ordering are unchanged. Every broad ledger row remains PARTIAL because these explicit unsupported cases and broader provider parity remain open.
 
-Storage errors use the common `status::from_json` mapping, including expired-session 410 as FAILED_PRECONDITION and unsupported 501 as UNIMPLEMENTED with ErrorInfo. Foundation fail-fast checks use unsupported Rapid writes and CancelResumableWrite; the bucket and object I/O implementations and their configured size limit remain shared.
+Storage errors use the common `status::from_json` mapping, including expired-session 410 as FAILED_PRECONDITION and unsupported 501 as UNIMPLEMENTED with ErrorInfo. Foundation fail-fast checks use unsupported Rapid writes; CancelResumableWrite is implemented in the [object I/O contract](grpc-v2-object-io.md). The bucket and object I/O implementations and their configured size limit remain shared.
 
 UpdateBucket, UpdateObject and TestIamPermissions retain LOCAL_SIMULATION achieved fidelity, matching their shared JSON operations; the remaining delivered scopes have EXACT achieved fidelity with explicit pending cases. This does not turn local principals, policy propagation or lifecycle metadata into Google infrastructure.
 

@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Scope: RPC-STORAGE-011, RPC-STORAGE-014, RPC-STORAGE-015, RPC-STORAGE-018, RPC-STORAGE-019, RPC-STORAGE-020, RPC-STORAGE-022, RPC-STORAGE-023 and BEHAVIOR-RPC-003. RestoreObject, Rapid append and CancelResumableWrite are excluded.
+Scope: RPC-STORAGE-011, RPC-STORAGE-014, RPC-STORAGE-015, RPC-STORAGE-018, RPC-STORAGE-019, RPC-STORAGE-020, RPC-STORAGE-022, RPC-STORAGE-023 and BEHAVIOR-RPC-003, plus the later CancelResumableWrite addition (RPC-STORAGE-013). RestoreObject and Rapid append are excluded.
 
 ## Acceptance contract
 
@@ -13,6 +13,7 @@ Scope: RPC-STORAGE-011, RPC-STORAGE-014, RPC-STORAGE-015, RPC-STORAGE-018, RPC-S
 - ReadObject supports positive/negative offsets, bounded lengths, out-of-range errors, selected generations, per-message CRC32C and complete-object checksums. Response messages stay below 4 MiB.
 - GetObject supports generations, conditions and read masks. DeleteObject uses shared hold, retention, versioning and soft-delete behavior.
 - ListObjects supports prefix, delimiter prefixes, page size and query-bound continuation tokens; Go Objects iterates them.
+- CancelResumableWrite cancels an active session from StartResumableWrite, including one with persisted bytes. Later QueryWriteStatus, WriteObject and BidiWriteObject on that upload_id fail, staged bytes are released and no object is published.
 - Strict authentication uses shared bucket permissions and rechecks them inside catalog operations. No credentials are discovered and no Google Cloud calls are made.
 
 ## Sources and boundaries
@@ -28,6 +29,18 @@ Object I/O uses the common status::from_json conversion shared with bucket RPCs.
 The existing `max_object_bytes` is passed into the gRPC adapter, with its existing 1 GiB default. No new setting is needed. Incoming protobuf messages retain the foundation's 4 MiB limit. Outgoing object-body messages use the shared reader's 64 KiB chunks; upload bridges use two 64 KiB slots. Lists use bounded catalog pages of at most 1000 entries and shared query-bound continuation tokens, without scanning the whole catalog. No database transaction spans network input.
 
 Single-request streams use shared `prepare_object_upload`/`put_object_prechecked`, not retained resumable sessions. The adapter uses the existing incremental hasher to validate final-message digests before sending shared publication's EOF marker. Only shared publication assigns generations and applies conditions/holds/retention. Both streaming RPCs use this same handler. StartResumableWrite uses shared persisted sessions and exclusive per-message writer leases; each message reaches the shared fsync/checkpoint before its offset is acknowledged. Reopening the catalog preserves those offsets. The opaque upload ID includes the bucket name and random shared capability. QueryWriteStatus rechecks current create permission and returns the original completion snapshot even after the live object changes.
+
+CancelResumableWrite reuses the catalog cancellation behind JSON session-URI DELETE. The pinned proto says that after cancellation "Any attempts to write to the resumable upload after cancelling the upload fail", and that in-progress writes may complete first or fail. The local mapping is:
+
+| Case | Result |
+| --- | --- |
+| Active session, with or without persisted bytes | OK with an empty response. One short catalog transaction marks the session CANCELLED and journals its staging blob; the file is removed after commit, and maintenance retries a failed removal. |
+| QueryWriteStatus, WriteObject or BidiWriteObject after cancellation | NOT_FOUND, the existing status for an invalidated session, so a client restarts with StartResumableWrite. |
+| Repeated cancellation | NOT_FOUND. Cancellation is not reported as a second success, because the session no longer exists for the caller. |
+| Malformed or unknown upload_id, an upload_id under another bucket, or an expired session | NOT_FOUND, consistent with `parse_upload_id` and QueryWriteStatus. |
+| Finalized upload | FAILED_PRECONDITION. The proto cancels an in-progress upload; a finalized one is not in progress, matching resumed WriteObject's finalized response. The object and QueryWriteStatus completion stay unchanged; use DeleteObject to remove the object. |
+| A writer currently holds the session lease | UNAVAILABLE with the session unchanged. This is the proto's unspecified in-progress-write case; retry after the write finishes. |
+| Strict mode | gRPC upload IDs are not bearer capabilities, so the caller needs `storage.objects.create` on the bucket, the same check as QueryWriteStatus and resumed writes. A viewer receives PERMISSION_DENIED and an anonymous caller UNAUTHENTICATED, as for the other v2 RPCs; the session remains usable. |
 
 Write metadata supports content type/encoding/disposition/language/cache control, custom metadata, temporary/event holds and custom time. Empty/default protobuf values are accepted. Nondefault unhandled object fields, predefined ACLs, appendable objects and customer encryption return actionable UNIMPLEMENTED. Metadata protobufs have an 8 KiB local limit; oversized values return RESOURCE_EXHAUSTED. Explicit object_size is checked before staging and at finish.
 
@@ -49,4 +62,11 @@ Acceptance was recorded before implementation. The new default Go Writer test fa
 - `RUST_TEST_THREADS=8 just check`: PASS on the final sources, including native/Windows/Linux clippy, all library tests, remaining Rust unit/integration/doc tests, ledger/generated views and offline script/publication checks; no failures or ignored tests.
 - Markdownlint: PASS for this contract, its Japanese companion, the migration table and Go SDK README.
 
-No benchmark, container build, full guide run, HTTPS-mode SDK run or real-cloud request is required for this gRPC-only slice. The migration table/SDK README changes describe the new calls and do not change the HTTP guide flow. The existing HTTP V2 signed-transfer test's HTTPS-only skip is not gRPC evidence. Next: integrate the parallel update/copy and bidi-read slices.
+CancelResumableWrite results on 2026-10-28, after the RPC previously returned UNIMPLEMENTED:
+
+- `cargo check --locked --offline`: PASS before tests.
+- `cargo test --locked --offline --lib grpc::`: PASS, 33 tests, including `grpc_io_cancel_discards_sessions_and_staged_bytes` (fresh and partial sessions, released staging file, NOT_FOUND for later query/WriteObject/BidiWriteObject and repeated cancellation, finalized FAILED_PRECONDITION, malformed/unknown/cross-bucket IDs, lease-held UNAVAILABLE) and `grpc_io_strict_cancel_requires_create_permission` (viewer and anonymous rejected, session still reports three persisted bytes, admin cancellation succeeds).
+- `cargo clippy --locked --offline --all-targets -- -D warnings`: PASS.
+- `GCS_MIMIC_GO_TEST_RUN='^TestGRPC' bash scripts/sdk-go.sh`: PASS, Go vet and 19 tests with none skipped. `TestGRPCCancelResumableWrite` uses the SDK's registered descriptors because the pinned Go SDK exposes no cancel helper. `TestGRPCFoundationStrictAuth` now probes CancelResumableWrite with a well-formed absent upload_id: rejected and absent credentials are UNAUTHENTICATED and the admin receives NOT_FOUND. Anonymous object denials now apply the shared `anonymous_error` mapping in both the object I/O and update/copy adapters, matching bucket RPCs, BidiReadObject, legacy v1, JSON and XML; `TestGRPCUpdateCopyStrict` checks an anonymous UpdateObject. `TestGRPCFoundationWireStatus` keeps the unknown method/service ErrorInfo checks.
+
+`RUST_TEST_THREADS=8 just check` and `just check-sdk` then passed on the final sources (538 library tests; the only Go skip is the existing HTTPS-only V2 signed-transfer case), and the Japanese companion describes the cancellation behavior. No benchmark, container build, full guide run, HTTPS-mode SDK run or real-cloud request is required for this gRPC-only slice. The migration table/SDK README changes describe the new calls and do not change the HTTP guide flow. The existing HTTP V2 signed-transfer test's HTTPS-only skip is not gRPC evidence.

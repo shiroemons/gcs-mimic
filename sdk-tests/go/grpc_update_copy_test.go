@@ -193,6 +193,9 @@ func TestGRPCUpdateCopyStrict(t *testing.T) {
 	if _, err := b.Object("source").Update(viewer, storage.ObjectAttrsToUpdate{ContentType: "text/plain"}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("viewer object update: %v", err)
 	}
+	if _, err := b.Object("source").Update(ctx, storage.ObjectAttrsToUpdate{ContentType: "text/plain"}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("anonymous object update: %v", err)
+	}
 	if _, err := b.Object("copy").CopierFrom(b.Object("source")).Run(viewer); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("viewer copy: %v", err)
 	}
