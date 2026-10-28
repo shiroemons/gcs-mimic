@@ -4,6 +4,10 @@ use crate::storage::{ObjectListCursor, ObjectListQuery};
 
 const MAX_TOKEN_BYTES: usize = 4096;
 
+/// Version tag of cursors that span every project. Only the legacy gRPC adapter lists without a
+/// project; a distinct tag keeps those cursors from being replayed as one project's cursor.
+const ALL_PROJECTS: &str = "b1*";
+
 /// Tokens detect accidental corruption; they are not authenticated authorization credentials.
 pub fn encode_page_token(
     project: &str,
@@ -11,17 +15,44 @@ pub fn encode_page_token(
     last_name: &str,
 ) -> Result<String, JsonError> {
     super::query::validate_project(project)?;
+    encode_bucket_cursor("b1", project, prefix, last_name)
+}
+
+/// Encodes a cursor for a listing that spans every project the caller may list.
+pub fn encode_all_projects_page_token(prefix: &str, last_name: &str) -> Result<String, JsonError> {
+    encode_bucket_cursor(ALL_PROJECTS, "", prefix, last_name)
+}
+
+fn encode_bucket_cursor(
+    version: &str,
+    project: &str,
+    prefix: &str,
+    last_name: &str,
+) -> Result<String, JsonError> {
     if prefix.len() > 222 || !last_name.starts_with(prefix) {
         return Err(invalid());
     }
     // Native listing must retain cursors for source-only names after a profile switch.
     validate_bucket_name_for_profile(last_name, CompatProfile::LegacyEmulator)?;
-    let payload = serde_json::json!(["b1", project, prefix, last_name]).to_string();
+    let payload = serde_json::json!([version, project, prefix, last_name]).to_string();
     let encoded = crate::hashing::encode_lower(payload.as_bytes());
     Ok(format!("{encoded}.{:016x}", checksum(payload.as_bytes())))
 }
 
 pub fn decode_page_token(token: &str, project: &str, prefix: &str) -> Result<String, JsonError> {
+    decode_bucket_cursor(token, "b1", project, prefix)
+}
+
+pub fn decode_all_projects_page_token(token: &str, prefix: &str) -> Result<String, JsonError> {
+    decode_bucket_cursor(token, ALL_PROJECTS, "", prefix)
+}
+
+fn decode_bucket_cursor(
+    token: &str,
+    expected_version: &str,
+    project: &str,
+    prefix: &str,
+) -> Result<String, JsonError> {
     if token.len() > MAX_TOKEN_BYTES {
         return Err(invalid());
     }
@@ -40,7 +71,7 @@ pub fn decode_page_token(token: &str, project: &str, prefix: &str) -> Result<Str
     let [version, token_project, token_prefix, name] = fields.as_slice() else {
         return Err(invalid());
     };
-    if version != "b1"
+    if version != expected_version
         || token_project != project
         || token_prefix != prefix
         || !name.starts_with(prefix)

@@ -50,6 +50,32 @@ func TestGRPCV1Legacy(t *testing.T) {
 	if _, err = client.ListBuckets(ctx, &pb.ListBucketsRequest{Project: "local-project", Prefix: name}); err != nil {
 		t.Fatal(err)
 	}
+	// Reference-emulator clients often omit the project; the listing then spans every project.
+	other := name + "-other"
+	if _, err = client.InsertBucket(ctx, &pb.InsertBucketRequest{Project: "other-project", Bucket: &pb.Bucket{Name: other}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanup, stop := context.WithTimeout(context.Background(), 2*time.Second)
+		defer stop()
+		_, _ = client.DeleteBucket(cleanup, &pb.DeleteBucketRequest{Bucket: other})
+	})
+	var listed []string
+	for token := ""; ; {
+		page, err := client.ListBuckets(ctx, &pb.ListBucketsRequest{Prefix: name, MaxResults: 1, PageToken: token})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range page.Items {
+			listed = append(listed, item.Name)
+		}
+		if token = page.NextPageToken; token == "" {
+			break
+		}
+	}
+	if len(listed) != 2 || listed[0] != name || listed[1] != other {
+		t.Fatalf("project-free listing=%v", listed)
+	}
 	bucketAttrs, err := client.GetBucket(ctx, &pb.GetBucketRequest{Bucket: name})
 	if err != nil {
 		t.Fatal(err)
@@ -304,6 +330,17 @@ func TestGRPCV1LegacyStrict(t *testing.T) {
 	}
 	if _, err = client.GetObject(ctx, &pb.GetObjectRequest{Bucket: bucket.BucketName(), Object: "private"}); err == nil {
 		t.Fatal("anonymous read succeeded")
+	}
+	// Omitting the project lists only projects where the caller holds storage.buckets.list.
+	listed, err := client.ListBuckets(admin, &pb.ListBucketsRequest{Prefix: bucket.BucketName()})
+	if err != nil || len(listed.Items) != 1 || listed.Items[0].Name != bucket.BucketName() {
+		t.Fatalf("admin project-free listing=%v error=%v", listed, err)
+	}
+	if _, err = client.ListBuckets(viewer, &pb.ListBucketsRequest{}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("viewer project-free listing=%v", err)
+	}
+	if _, err = client.ListBuckets(ctx, &pb.ListBucketsRequest{}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("anonymous project-free listing=%v", err)
 	}
 	if _, err = client.DeleteObject(viewer, &pb.DeleteObjectRequest{Bucket: bucket.BucketName(), Object: "private"}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("viewer delete=%v", err)

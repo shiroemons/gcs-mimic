@@ -14,7 +14,7 @@
 | RPC-LEGACY-002 | DeleteBucket | 原子的なメタ世代条件、空でないバケットの削除拒否 |
 | RPC-LEGACY-003 | InsertBucket | 明示したプロジェクト、名前、location、class、labels、versioning、default event hold |
 | RPC-LEGACY-004 | UpdateBucket | default event hold、versioning、classの更新とlabels全体の置換。省略したラベルは削除し、メタ世代条件を適用 |
-| RPC-LEGACY-005 | ListBuckets | 明示したプロジェクト、prefix、最大1000件のページと継続トークン |
+| RPC-LEGACY-005 | ListBuckets | 省略可能なプロジェクト、prefix、最大1000件のページと継続トークン。プロジェクトを省略すると比較対象と同じく全プロジェクトを一覧し、strictでは storage.buckets.list を持つプロジェクトだけに絞ります |
 | RPC-LEGACY-006 | InsertObject | 複数メッセージの非再開アップロード、offset、CRC32C、16進MD5、原子的な公開条件 |
 | RPC-LEGACY-007 | GetObject | メタデータ、世代選択、世代・メタ世代の4条件 |
 | RPC-LEGACY-008 | DeleteObject | 世代選択、4条件、共有のhold・retention・versioning・soft delete |
@@ -31,7 +31,7 @@
 
 棚卸し外のRPCは、入力やEOFを待たずにErrorInfo付きUNIMPLEMENTEDを返します。GetObjectMediaも対象外なので、本文の読み出しはJSONを使います。billing、quota、common fields、暗号化、ACL/full projection、KMS、非対応メタデータ、resumable upload ID、reference data、空でないPatchObjectのupdate_maskも同じエラーです。空のcommon設定と省略値は受け付けます。
 
-ListBucketsはプロジェクト指定が必要です。比較対象のプロジェクトなし全件一覧は提供しません。UpdateBucketのlabelsは固定protoに従い全体を置き換えます。比較対象はdefault event holdしか更新しないため、ラベルの契約はprotoを根拠にしています。PatchObjectは空でない値のマージであり、固定値を消す場合はUpdateObjectを使います。完全なACL・lifecycle・暗号化の応答、数値プロジェクト番号、メタデータの大きい一覧、クラッシュ・競合の全組み合わせは未検証です。
+ListBucketsはプロジェクトを指定するとそのプロジェクトを、省略すると全プロジェクトのバケットを名前順に返します。比較対象はprefixとページングも無視しますが、gcs-mimicは適用します。strictでプロジェクトを省略した場合は、storage.buckets.listを持つプロジェクトだけを返します。どのプロジェクトでも権限がなければPERMISSION_DENIED、匿名ならUNAUTHENTICATEDになり、他プロジェクトのバケット名は見えません。全プロジェクト用の継続トークンは範囲を区別し、単一プロジェクトのトークンとは相互に使えません。UpdateBucketのlabelsは固定protoに従い全体を置き換えます。比較対象はdefault event holdしか更新しないため、ラベルの契約はprotoを根拠にしています。PatchObjectは空でない値のマージであり、固定値を消す場合はUpdateObjectを使います。完全なACL・lifecycle・暗号化の応答、数値プロジェクト番号、メタデータの大きい一覧、クラッシュ・競合の全組み合わせは未検証です。
 
 取得したBucket/Objectの値を変更してUpdateへ書き戻せます。指定された出力専用値が現在値と一致するときは受け付け、異なる値はUNIMPLEMENTEDで拒否します。Objectは共有更新トランザクションの中で照合し、Bucketは認可したスナップショットのメタ世代を更新条件に使って競合を拒否します。
 
@@ -48,5 +48,7 @@ v1のサービス定義はGoogle側で削除されているため、既存のGo�
 途中の`just check`では既存のTLS時間依存テストが1回失敗しました。失敗箇所はtests/tls.rs:999の初回HTTP 200確認です。TLSのコードや期限を変更せず、単独再実行と次の全体実行では成功しました。
 
 main 414114cに載せ直した最終ソースで、`RUST_TEST_THREADS=8 just check`と`just check-sdk`がともに成功しました。native・Windows・Linuxのclippy、532件のライブラリテスト、残りの単体・統合・docテスト、台帳と生成表、オフラインのスクリプト検査を含みます。Rustの失敗・無視はなく、TLSも9件すべて成功しました。
+
+2026-10-28に、プロジェクトを省略するListBucketsを追加しました。Rustの単体テストで、全プロジェクトの名前順の一覧と1件ずつのページング、全プロジェクト用と単一プロジェクト用のトークンの相互拒否、strictでの権限による絞り込み・PERMISSION_DENIED・UNAUTHENTICATEDを確認しました。Goの生クライアントでは2つのプロジェクトをまたぐ一覧と、strictのadmin・viewer・匿名の結果を確認しました。最終ソースの`RUST_TEST_THREADS=8 just check`と`just check-sdk`も成功し、ライブラリテストは538件、Goのスキップは既存のHTTPS専用V2署名テストだけです。
 
 非対応フィールドと未検証のクラッシュ・競合ケースを残しているため、12行ともPARTIALです。ベンチマーク、コンテナビルド、ガイドの通し実行、HTTPSでの再実行、実クラウドへの接続は行いません。

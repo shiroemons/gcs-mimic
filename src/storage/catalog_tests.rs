@@ -977,6 +977,48 @@ async fn bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries(
 }
 
 #[tokio::test]
+async fn bucket_list_among_projects_orders_by_name_across_owners() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    for (name, project) in [
+        ("mix-a", "p2"),
+        ("mix-b", "p1"),
+        ("mix-c", "p3"),
+        ("other", "p1"),
+    ] {
+        catalog.insert_bucket(bucket(name, project)).await.unwrap();
+    }
+    let names = |page: super::catalog::BucketListPage| {
+        page.items
+            .into_iter()
+            .map(|item| item.name)
+            .collect::<Vec<_>>()
+    };
+    let all = catalog
+        .list_buckets_page_among(None, Some("mix-"), None, 1000)
+        .await
+        .unwrap();
+    assert_eq!(names(all), ["mix-a", "mix-b", "mix-c"]);
+    let first = catalog
+        .list_buckets_page_among(Some(vec!["p1".into(), "p2".into()]), None, None, 2)
+        .await
+        .unwrap();
+    assert!(first.has_more);
+    assert_eq!(names(first), ["mix-a", "mix-b"]);
+    let rest = catalog
+        .list_buckets_page_among(Some(vec!["p1".into(), "p2".into()]), None, Some("mix-b"), 2)
+        .await
+        .unwrap();
+    assert!(!rest.has_more);
+    assert_eq!(names(rest), ["other"]);
+    let none = catalog
+        .list_buckets_page_among(Some(Vec::new()), None, None, 1000)
+        .await
+        .unwrap();
+    assert!(none.items.is_empty() && !none.has_more);
+}
+
+#[tokio::test]
 async fn delete_preconditions_are_atomic_and_preserve_failed_records() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();

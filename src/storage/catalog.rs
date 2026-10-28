@@ -1211,16 +1211,33 @@ impl Catalog {
         start_after: Option<&str>,
         limit: usize,
     ) -> Result<BucketListPage, CatalogError> {
+        self.list_buckets_page_among(Some(vec![project.to_owned()]), prefix, start_after, limit)
+            .await
+    }
+
+    /// Lists buckets owned by any of `projects`, or by every project when `projects` is `None`.
+    pub(crate) async fn list_buckets_page_among(
+        &self,
+        projects: Option<Vec<String>>,
+        prefix: Option<&str>,
+        start_after: Option<&str>,
+        limit: usize,
+    ) -> Result<BucketListPage, CatalogError> {
         if limit > MAX_LIST_LIMIT {
             return Err(CatalogError::Unavailable(format!(
                 "list limit exceeds {MAX_LIST_LIMIT}"
             )));
         }
-        let project = project.to_owned();
+        if projects.as_ref().is_some_and(Vec::is_empty) {
+            return Ok(BucketListPage {
+                items: Vec::new(),
+                has_more: false,
+            });
+        }
         let prefix = prefix.unwrap_or("").to_owned();
         let start_after = start_after.map(str::to_owned);
         self.run(move |connection| {
-            bucket_list_page(connection, project, prefix, start_after, limit)
+            bucket_list_page(connection, projects, prefix, start_after, limit)
         })
         .await
     }
@@ -1311,11 +1328,12 @@ impl Catalog {
 
 fn bucket_list_page(
     connection: &Connection,
-    project: String,
+    projects: Option<Vec<String>>,
     prefix: String,
     start_after: Option<String>,
     limit: usize,
 ) -> Result<BucketListPage, CatalogError> {
+    use rusqlite::types::Value;
     let mut upper = prefix.as_bytes().to_vec();
     let upper = upper
         .iter()
@@ -1330,21 +1348,32 @@ fn bucket_list_page(
         Some(start) if start >= prefix => (start, ">"),
         _ => (prefix, ">="),
     };
-    let upper_clause = if upper.is_some() {
-        "AND name < CAST(?4 AS TEXT)"
-    } else {
-        ""
+    let mut values = Vec::new();
+    let project_clause = match projects {
+        Some(projects) => {
+            let placeholders = vec!["?"; projects.len()].join(", ");
+            values.extend(projects.into_iter().map(Value::Text));
+            format!("project IN ({placeholders}) AND")
+        }
+        None => String::new(),
     };
+    values.push(Value::Text(lower));
+    let upper_clause = match upper {
+        Some(upper) => {
+            values.push(Value::Blob(upper));
+            "AND name < CAST(? AS TEXT)"
+        }
+        None => "",
+    };
+    values.push(Value::Integer(limit as i64 + 1));
     let sql = format!(
         "SELECT {COLUMNS} FROM buckets
-        WHERE project = ?1 AND name {comparison} ?2 {upper_clause} ORDER BY name LIMIT ?3"
+        WHERE {project_clause} name {comparison} ? {upper_clause} ORDER BY name LIMIT ?"
     );
     let mut statement = connection.prepare(&sql).map_err(unavailable)?;
-    let mut rows = match upper {
-        Some(upper) => statement.query(params![project, lower, limit as i64 + 1, upper]),
-        None => statement.query(params![project, lower, limit as i64 + 1]),
-    }
-    .map_err(unavailable)?;
+    let mut rows = statement
+        .query(rusqlite::params_from_iter(values))
+        .map_err(unavailable)?;
     let mut records = Vec::new();
     let mut remaining = BUCKET_LIST_METADATA_BUDGET;
     let mut has_more = false;

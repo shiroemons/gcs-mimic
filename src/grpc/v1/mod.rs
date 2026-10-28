@@ -1,5 +1,7 @@
 //! Retired Storage v1 migration adapter; shared catalog operations enforce state and permissions.
 mod convert;
+#[cfg(test)]
+mod tests;
 mod upload;
 
 #[allow(clippy::all, rustdoc::broken_intra_doc_links)]
@@ -8,7 +10,7 @@ pub mod pb {
 }
 
 use crate::{
-    auth::Caller,
+    auth::{BUCKETS_LIST, Caller},
     bucket::{BucketAccess, CatalogError},
     grpc::v2::status::{from_json, unsupported},
     json,
@@ -448,20 +450,42 @@ impl pb::storage_server::Storage for Storage {
         let r = request.into_inner();
         common(r.common_request_params.as_ref(), None)?;
         projection(r.projection)?;
-        self.project(caller, &r.project, "storage.buckets.list")?;
+        // The reference lists every bucket when project is omitted. Strict callers only see
+        // buckets in projects where they may list, so omission never widens their access.
+        let all_projects = r.project.is_empty();
+        let projects = if all_projects {
+            match caller {
+                Some(caller) => {
+                    caller
+                        .authorize(BUCKETS_LIST, None)
+                        .map_err(|e| from_json(e.into()))?;
+                    let identity = caller.principal().map_err(|e| from_json(e.into()))?;
+                    Some(identity.projects_allowing(BUCKETS_LIST))
+                }
+                None => None,
+            }
+        } else {
+            self.project(caller, &r.project, BUCKETS_LIST)?;
+            Some(vec![r.project.clone()])
+        };
         if r.prefix.len() > 222 {
             return Err(Status::invalid_argument("prefix must be at most 222 bytes"));
         }
         let start = if r.page_token.is_empty() {
             None
+        } else if all_projects {
+            Some(
+                json::decode_all_projects_page_token(&r.page_token, &r.prefix)
+                    .map_err(from_json)?,
+            )
         } else {
             Some(json::decode_page_token(&r.page_token, &r.project, &r.prefix).map_err(from_json)?)
         };
         let page = self
             .state
             .catalog
-            .list_buckets_page(
-                &r.project,
+            .list_buckets_page_among(
+                projects,
                 Some(&r.prefix),
                 start.as_deref(),
                 limit(r.max_results)?,
@@ -469,15 +493,16 @@ impl pb::storage_server::Storage for Storage {
             .await
             .map_err(catalog_error)?;
         let next_page_token = if page.has_more {
-            json::encode_page_token(
-                &r.project,
-                &r.prefix,
-                &page
-                    .items
-                    .last()
-                    .ok_or_else(|| Status::internal("Missing continuation bucket"))?
-                    .name,
-            )
+            let last = &page
+                .items
+                .last()
+                .ok_or_else(|| Status::internal("Missing continuation bucket"))?
+                .name;
+            if all_projects {
+                json::encode_all_projects_page_token(&r.prefix, last)
+            } else {
+                json::encode_page_token(&r.project, &r.prefix, last)
+            }
             .map_err(from_json)?
         } else {
             String::new()

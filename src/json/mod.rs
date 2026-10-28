@@ -55,7 +55,10 @@ pub use objects::{
     validate_object_get_headers, validate_object_media_encoding, validate_object_name,
 };
 pub(crate) use objects::{decode_hash, object_etag, validate_read_condition_headers};
-pub use page_token::{decode_page_token, encode_page_token};
+pub use page_token::{
+    decode_all_projects_page_token, decode_page_token, encode_all_projects_page_token,
+    encode_page_token,
+};
 pub use query::{
     BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection, route,
     route_with_profile, validate_project,

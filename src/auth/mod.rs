@@ -226,6 +226,15 @@ impl Identity {
             .values()
             .any(|permissions| permissions.contains(permission))
     }
+
+    /// Projects in which any granted role contains `permission`.
+    pub fn projects_allowing(&self, permission: &str) -> Vec<String> {
+        self.permissions
+            .iter()
+            .filter(|(_, permissions)| permissions.contains(permission))
+            .map(|(project, _)| project.clone())
+            .collect()
+    }
 }
 
 /// The resolved strict-mode caller.
