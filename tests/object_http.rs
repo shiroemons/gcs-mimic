@@ -870,7 +870,12 @@ fn obj_http_trickle_download_stops_at_absolute_deadline() {
     assert!(headers.starts_with(b"HTTP/1.1 200"));
     let mut received = 0;
     let mut chunk = vec![0; 256 * 1024];
-    // Time the server's close itself, not the client's remaining sleeps.
+    // The client sees the server's close only after draining the socket buffers,
+    // which can hold megabytes; draining them at the trickle pace made the
+    // measured close follow runner load instead of the server. Trickling well
+    // past the 1.2 s deadline and then reading without pauses keeps that wait
+    // short, and a server without the deadline would finish the download.
+    let trickle = Duration::from_millis(2000);
     let closed = loop {
         match reader.read(&mut chunk) {
             Ok(0) => break started.elapsed(),
@@ -879,7 +884,9 @@ fn obj_http_trickle_download_stops_at_absolute_deadline() {
             Err(error) => panic!("{error}"),
         }
         assert!(received < size, "trickled download completed");
-        thread::sleep(Duration::from_millis(80));
+        if started.elapsed() < trickle {
+            thread::sleep(Duration::from_millis(80));
+        }
     };
     assert!(
         received > 0 && received < size,
