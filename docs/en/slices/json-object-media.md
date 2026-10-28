@@ -357,8 +357,9 @@ committed catalog row before checking media bytes with its 100 ms GET startup bu
 both upload 503 assertions and the 500 ms–2 s pre-release bound remain independent.
 Bucket/probe/unknown routes keep a total deadline, now per request, and answer its
 expiry with 503 `backendError`. HTTP/1.1 connections stay open between requests: each
-request starts its own deadlines, and an idle connection closes after the connection
-timeout. Graceful drain closes idle connections and still has the independent
+request starts its own deadlines, and an idle connection closes after
+`keep_alive_timeout_ms` (default 120000 ms) or when every connection slot is taken.
+Graceful drain closes idle connections and still has the independent
 `shutdown_timeout_ms` network bound.
 Before confirmed EOF, timeout/disconnect cancels the upload and triggers bounded cleanup
 without publishing partial data; channel closure without an explicit EOF marker is an abort.

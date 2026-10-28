@@ -2008,7 +2008,8 @@ and `-log-level` remain errors with native migration advice.
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 32 | 1–1024; total across listeners, including TLS handshakes |
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–32 |
 | `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 2 | 1–32 |
-| `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | 5000 | 1–60000 |
+| `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | 5000 | 1–60000; request headers, then object response startup and chunk inactivity |
+| `--keep-alive-timeout-ms` | `GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS` | 120000 (2 minutes) | 1–600000 (10 minutes); idle time between HTTP/1.1 requests on one connection |
 | `--object-request-timeout-ms` | `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` | 900000 (15 minutes) | 1–86400000 (24 hours) |
 | `--catalog-wait-timeout-ms` | `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 30000 | 1–60000 |
 | `--shutdown-timeout-ms` | `GCS_MIMIC_SHUTDOWN_TIMEOUT_MS` | 5000 | 1–60000 |
@@ -2038,8 +2039,10 @@ file or a file with `permissive` fails before readiness. Run
 `gcs-mimic url public --help` for the URL helper, which accepts no serve options.
 
 HTTP/1.1 connections stay open for further requests, with a 16 KiB parser buffer and
-64 headers. Each request has its own deadline; an idle connection closes when the next
-request's headers do not arrive within the connection timeout (default five seconds).
+64 headers. Each request has its own deadline. An idle connection closes when no next
+request starts within `--keep-alive-timeout-ms` (default two minutes), or at once when
+every `--max-connections` slot is taken, so a waiting client can connect; a request
+head that starts must finish within the connection timeout (default five seconds).
 Object routes use a header deadline followed by renewed chunk-inactivity
 deadlines; active transfers can exceed the default five seconds. After confirmed upload EOF,
 body inactivity is suspended while storage finishes. Upload/media requests additionally

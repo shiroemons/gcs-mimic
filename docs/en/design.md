@@ -78,10 +78,15 @@ reader. Neither a database transaction nor a blocking worker is held waiting for
 Catalog admission remains 32 calls with one executing SQLite job. HTTP/1.1 connections stay
 open between requests. Each request's deadlines start when it is dispatched and end when its
 last response byte is written, so idle time between requests is never charged to a request.
-The five-second default `connection_timeout_ms` bounds header reads, including the wait for
-the next request on an idle connection, which then closes; for an active request it bounds
-object-route response startup and inactivity between chunks, and each progressing chunk
-renews it. An idle connection still holds its `max_connections` slot. Upload advisory checks suspend this
+After a response, a connection waits for the next request's first byte for
+`keep_alive_timeout_ms` (default 120000 ms, longer than the Go SDK's 90-second idle pool)
+and then closes without a warning or lingering. The five-second default
+`connection_timeout_ms` bounds request header reads once they start, warning when they
+stall; for an active request it bounds object-route response startup and inactivity between
+chunks, and each progressing chunk renews it. An idle connection holds its
+`max_connections` slot until every slot is taken; then it closes at once, whether or not
+a client is waiting, as nginx reuses idle connections. With `max_connections` of 1, a
+connection therefore closes after each response. Upload advisory checks suspend this
 body-inactivity deadline while waiting for bounded catalog admission/execution; it restarts
 before body streaming. Independently, `object_request_timeout_ms` defaults to 900000 ms
 (validated 1–86400000) from object upload/media request dispatch and never renews on chunks.

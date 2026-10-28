@@ -52052,10 +52052,13 @@
         },
         {
           "id": "connection_reuse",
-          "description": "Persistent HTTP/1.1 connections serve sequential requests with per-request deadlines and Content-Length framing, close after the connection timeout when idle, and close instead of parsing an unread rejected body as the next request.",
+          "description": "Persistent HTTP/1.1 connections serve sequential requests with per-request deadlines and Content-Length framing; an idle connection closes quietly after keep_alive_timeout_ms (default 120000) or at once when every connection slot is taken, a stalled next request head closes after connection_timeout_ms with a warning, and an unread rejected body is never parsed as the next request.",
           "result": "PASS",
           "test_ids": [
             "keep_alive_serves_sequential_requests_until_idle_timeout",
+            "keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns",
+            "full_server_reclaims_idle_keep_alive_slots_for_waiting_clients",
+            "transfer_timeout_precedence_and_bounds",
             "bkt_http_deadline_before_response_returns_backend_error"
           ]
         },
@@ -52077,11 +52080,14 @@
         "obj_http_expect_continue_rejection_skips_the_interim_response",
         "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
         "obj_http_trickle_download_stops_at_absolute_deadline",
-        "keep_alive_serves_sequential_requests_until_idle_timeout"
+        "keep_alive_serves_sequential_requests_until_idle_timeout",
+        "keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns",
+        "full_server_reclaims_idle_keep_alive_slots_for_waiting_clients",
+        "transfer_timeout_precedence_and_bounds"
       ],
       "verification": [
         {
-          "command": "env -u RUSTUP_TOOLCHAIN bash scripts/with-test-tmpdir.sh bash scripts/check.sh; GitHub Actions Foundation checks run 40643077472",
+          "command": "env -u RUSTUP_TOOLCHAIN bash scripts/with-test-tmpdir.sh bash scripts/check.sh; GitHub Actions Foundation checks run 40646838968",
           "result": "PASS",
           "verified_at": "2026-10-28",
           "artifact": "docs/en/evidence/http-connection-semantics.md",
@@ -52096,13 +52102,16 @@
             "obj_http_expect_continue_rejection_skips_the_interim_response",
             "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
             "obj_http_trickle_download_stops_at_absolute_deadline",
-            "keep_alive_serves_sequential_requests_until_idle_timeout"
+            "keep_alive_serves_sequential_requests_until_idle_timeout",
+            "keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns",
+            "full_server_reclaims_idle_keep_alive_slots_for_waiting_clients",
+            "transfer_timeout_precedence_and_bounds"
           ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "connection_timeout_ms is both the header read deadline and the idle timeout between requests, so a pooled client reusing a connection at the moment it closes sees a closed connection, and an idle connection holds a max_connections slot until it closes; HTTP/2 flow control and the remaining framing matrix stay pending.",
+        "An idle connection closes as soon as every connection slot is taken, whether or not a client is waiting, so max_connections of 1 closes after each response; a partial next request head that arrives with the previous body waits for keep_alive_timeout_ms; HTTP/2 flow control and the remaining framing matrix stay pending.",
         "Timeout statuses follow the documented status/reason pairs without a real-cloud differential; a body sent to a non-upload route receives 503 because the cancelled handler cannot report whether its small body was read.",
         "Lingering close waits at most one second of client silence instead of nginx's five seconds, and a client that keeps sending can hold its connection slot for up to 30 seconds."
       ],

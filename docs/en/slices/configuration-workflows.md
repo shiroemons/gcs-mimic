@@ -85,6 +85,7 @@ The following existing defaults and validation remain unchanged:
 | `connection_timeout_ms`, `shutdown_timeout_ms` | `5000`, `5000` | Each `1..60000` |
 | `object_request_timeout_ms` | `900000` | `1..86400000` |
 | `catalog_wait_timeout_ms` | `30000` | `1..60000` |
+| `keep_alive_timeout_ms` | `120000` | `1..600000`; idle time between HTTP/1.1 requests |
 
 ### Endpoint roles and reserved settings
 
