@@ -2301,7 +2301,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "After GHCR publication, the release workflow copies the index recorded in CONTAINER-DIGESTS.json to docker.io/shiroemons/gcs-mimic without rebuilding, so both registries share one index digest with its SPDX SBOM and SLSA provenance. A main-branch manual run backfills versions already on GHCR. The Docker Hub token is confined to the dockerhub GitHub environment. Exact versions remain immutable and minor/latest aliases follow the GHCR policy.",
+      "notes": "After GHCR publication, the release workflow copies the index recorded in CONTAINER-DIGESTS.json to docker.io/shiroemons/gcs-mimic without rebuilding, so both registries share one index digest with its SPDX SBOM and SLSA provenance. A main-branch manual run backfills versions already on GHCR. The Docker Hub token is confined to the dockerhub GitHub environment. Exact versions remain immutable and minor/latest aliases follow the GHCR policy. docker.io/shiroemons/gcs-mimic:0.2.1 is the first mirrored image; see docs/en/evidence/dockerhub.md.",
       "dependencies": [
         "DIST-003"
       ],
@@ -2318,13 +2318,22 @@
         },
         {
           "id": "DIST-004-PUBLICATION",
-          "description": "Observe an authorized mirror run end to end: equal GHCR and Docker Hub index digests, per-platform SBOM and provenance on Docker Hub, anonymous digest access and alias selection.",
+          "description": "Observe an authorized mirror run end to end: equal GHCR and Docker Hub index digests, per-platform SBOM and provenance on Docker Hub, anonymous digest access and alias selection. Manual backfill run 40693113466 published 0.2.1, 0.2 and latest at sha256:d3846b7b42f5dc60a5c50f0bfb5248cb0fe35ebec0361eaf1eaf271ee34c73bb; both platforms report gcs-mimic 0.2.1.",
+          "result": "PASS",
+          "test_ids": [
+            "dockerhub-mirror-publication"
+          ]
+        },
+        {
+          "id": "DIST-004-TAG-RELEASE",
+          "description": "Observe a version tag release run the Docker Hub job after GHCR publication without manual dispatch.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
-        "dockerhub-mirror-offline"
+        "dockerhub-mirror-offline",
+        "dockerhub-mirror-publication"
       ],
       "verification": [
         {
@@ -2335,11 +2344,20 @@
           "test_ids": [
             "dockerhub-mirror-offline"
           ]
+        },
+        {
+          "command": "gh run view 40693113466 (Mirror release container to Docker Hub, 0.2.1); docker buildx imagetools inspect docker.io/shiroemons/gcs-mimic:0.2.1|0.2|latest; docker run --pull always --platform linux/amd64|linux/arm64 docker.io/shiroemons/gcs-mimic:0.2.1 --version",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/evidence/dockerhub.md",
+          "test_ids": [
+            "dockerhub-mirror-publication"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No Docker Hub publication has run. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
+        "The tag-triggered release path has not run. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"

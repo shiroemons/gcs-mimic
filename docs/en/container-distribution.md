@@ -99,6 +99,9 @@ docker pull ghcr.io/shiroemons/gcs-mimic:X.Y.Z
 docker run --rm ghcr.io/shiroemons/gcs-mimic:X.Y.Z --version
 ```
 
+The [Docker Hub mirror](#docker-hub-mirror) serves the same tags and digests as
+`shiroemons/gcs-mimic:X.Y.Z`.
+
 Replace `X.Y.Z` with a version that actually exists. For digest pinning, use
 `ghcr.io/shiroemons/gcs-mimic@sha256:<index-digest>` from the release report. Bind
 the server only to local development networks and follow the existing

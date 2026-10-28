@@ -12,7 +12,8 @@ Requires Docker with Compose and curl. No checkout, Rust toolchain or certificat
 setup is needed for this HTTP example.
 
 The image `ghcr.io/shiroemons/gcs-mimic:0.2.1` is published for `linux/amd64`
-and `linux/arm64`. The [0.2.1 release notes](docs/en/releases/0.2.1.md)
+and `linux/arm64`. Docker Hub serves the same image digest as
+`shiroemons/gcs-mimic:0.2.1`. The [0.2.1 release notes](docs/en/releases/0.2.1.md)
 describe the release, and the [0.1.0 notes](docs/en/releases/0.1.0.md) list its
 features and known limitations. To build from source instead, follow the
 [source-build guide](docs/en/getting-started.md).
@@ -77,7 +78,7 @@ These are workflow summaries, not claims of complete Google API compatibility.
 | Upload/download with signed URLs | ✅ | ✅ | ✅ |
 | Verify V4 RSA signatures and expiry | ✅ | ❌ | ❌ |
 | gRPC | ◐ Storage v2 and legacy v1 subsets | ◐ Storage v1 subset | ❌ |
-| Published Docker image | ✅ GHCR | ✅ | ✅ |
+| Published Docker image | ✅ GHCR and Docker Hub | ✅ | ✅ |
 
 The optional plaintext `grpc_listen` serves scoped Storage v2 bucket CRUD,
 updates, IAM and retention locking; object reads, writes, listing, deletion and

@@ -1,9 +1,10 @@
 # Use the Docker image
 
 The image `ghcr.io/shiroemons/gcs-mimic:0.2.1` is published for `linux/amd64`
-and `linux/arm64`; pulling it needs no registry login. Pin this exact version in
-CI. To test unreleased source instead, build a local image from a checkout and
-use its tag in the commands below:
+and `linux/arm64`; pulling it needs no registry login. Docker Hub serves the same
+image digest as `shiroemons/gcs-mimic:0.2.1`, so either name works in the
+commands below. Pin this exact version in CI. To test unreleased source instead,
+build a local image from a checkout and use its tag in the commands below:
 
 ```sh
 docker build -t gcs-mimic:local .

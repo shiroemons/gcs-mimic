@@ -1,8 +1,34 @@
 # Docker Hub mirror verification
 
-Scope: `DIST-004`, on 2026-10-28. Publication remains PARTIAL. No Docker Hub
-writes, release tags or GitHub Releases were performed while preparing this
-evidence.
+<!-- markdownlint-configure-file {"MD013": {"code_blocks": false}} -->
+
+Scope: `DIST-004`, on 2026-10-28. Status remains PARTIAL: the authorized manual
+backfill of 0.2.1 succeeded, while the tag-triggered release path has not run.
+No release tags or GitHub Releases were created.
+
+## Authorized 0.2.1 backfill
+
+The owner authorized adding `main` to the `dockerhub` environment's deployment
+refs and a manual run from `main` at `60ab255`.
+[Run 40693113466](https://github.com/shiroemons/gcs-mimic/actions/runs/40693113466)
+(**Mirror release container to Docker Hub**, version `0.2.1`) passed every step.
+Its log ends with:
+
+```text
+PASS: docker.io/shiroemons/gcs-mimic:0.2.1 at sha256:d3846b7b42f5dc60a5c50f0bfb5248cb0fe35ebec0361eaf1eaf271ee34c73bb; SPDX SBOM, SLSA provenance and anonymous access verified
+```
+
+Independent checks afterwards:
+
+- `docker buildx imagetools inspect --format '{{.Manifest.Digest}}'` reports
+  `sha256:d3846b7b42f5dc60a5c50f0bfb5248cb0fe35ebec0361eaf1eaf271ee34c73bb` for
+  Docker Hub tags `0.2.1`, `0.2` and `latest`, equal to the GHCR index and the
+  v0.2.1 `CONTAINER-DIGESTS.json` report.
+- `{{json .SBOM}}` on the Docker Hub tag returns SPDX-2.3 for `linux/amd64` and
+  `linux/arm64`.
+- `docker run --rm --pull always --platform linux/amd64|linux/arm64
+  docker.io/shiroemons/gcs-mimic:0.2.1 --version` prints `gcs-mimic 0.2.1` for
+  both platforms. The local host is macOS ARM64; amd64 runs under emulation.
 
 ## Executed offline checks
 
@@ -28,7 +54,8 @@ they do not establish the behavior of the real services.
 
 ## Executed read-only registry observations
 
-Against the published `ghcr.io/shiroemons/gcs-mimic:0.2.1`, read anonymously:
+Before the backfill, against the published
+`ghcr.io/shiroemons/gcs-mimic:0.2.1`, read anonymously:
 
 - `docker buildx imagetools inspect --format '{{.Manifest.Digest}}'` returned
   `sha256:d3846b7b42f5dc60a5c50f0bfb5248cb0fe35ebec0361eaf1eaf271ee34c73bb`,
@@ -43,6 +70,7 @@ The Docker Hub API reported `shiroemons/gcs-mimic` as public with zero tags.
 
 ## Limits
 
-No Docker Hub push, cross-registry copy, alias assignment or anonymous Docker Hub
-pull has run. The environment token scope and branch policy were observed through
-the GitHub API, not exercised by a workflow.
+The tag-triggered path from **Release binaries** through GHCR publication to the
+Docker Hub job has not run; the next version tag exercises it. An identical-input
+rerun against Docker Hub has not run. Docker Hub permits a token holder to move
+tags, so exact-version immutability depends on the workflow and token custody.

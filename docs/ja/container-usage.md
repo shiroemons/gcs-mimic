@@ -4,7 +4,8 @@
 
 最短の起動方法は[READMEのCompose例](README.md#まず動かす)です。
 イメージ`ghcr.io/shiroemons/gcs-mimic:0.2.1`は`linux/amd64`と`linux/arm64`向けに公開済みで、
-ログインなしでpullできます。CIではこのバージョンを明示してください。
+ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.2.1`として公開しており、
+以下のコマンドではどちらの名前も使えます。CIではこのバージョンを明示してください。
 未公開のソースを試す場合は、チェックアウトでローカルイメージをビルドし、以下のコマンドのイメージ名を置き換えます。
 
 ```sh
