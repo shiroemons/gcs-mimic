@@ -52286,6 +52286,15 @@
           ]
         },
         {
+          "id": "catalog-upgrade-visibility",
+          "description": "Startup on a catalog schema newer than the release fails before readiness with a data_dir diagnostic naming the stored and supported versions and the recovery choices, without changing the catalog file. A completed migration from an older schema logs one info catalog_schema_migrated event with from/to before ready; new and already current catalogs log none.",
+          "result": "PASS",
+          "test_ids": [
+            "schema_upgrade_is_logged_once_and_newer_schema_explains_recovery",
+            "rejects_future_schema_unversioned_data_and_corruption"
+          ]
+        },
+        {
           "id": "catalog-upgrade-policy",
           "description": "Verify all supported schema upgrades with existing generations, permissions and resumable sessions, reject newer formats without reset, and test complete stopped-data backup restoration with matching executables. Accepted in docs/en/slices/onboarding-state-contract.md: each schema-owning slice uses its own atomic version and adds rollback/retry/downgrade cases; shared-timestamp-precision retains schema 14 evidence and replacement-validation retains the final gate. Broader restoration, cutover and platform coverage remain pending.",
           "result": "PENDING",
@@ -52312,9 +52321,20 @@
         "filesystem_import_changed_export_is_terminal_after_source_repair",
         "filesystem_import_foreign_options_refuse_without_poisoning_original_resume",
         "filesystem_import_rejects_destination_records_outside_its_prefix",
-        "filesystem_import_generation_urls_conditions_and_strict_permissions"
+        "filesystem_import_generation_urls_conditions_and_strict_permissions",
+        "schema_upgrade_is_logged_once_and_newer_schema_explains_recovery"
       ],
       "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/releases/0.2.1.md",
+          "test_ids": [
+            "schema_upgrade_is_logged_once_and_newer_schema_explains_recovery",
+            "rejects_future_schema_unversioned_data_and_corruption"
+          ]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
           "result": "PASS",

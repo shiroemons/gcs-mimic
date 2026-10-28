@@ -125,7 +125,7 @@ existing app, edit the service in your own Compose file instead.
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.2.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.2.1
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:

@@ -11,8 +11,8 @@ objects without a Google Cloud account.
 Requires Docker with Compose and curl. No checkout, Rust toolchain or certificate
 setup is needed for this HTTP example.
 
-The image `ghcr.io/shiroemons/gcs-mimic:0.2.0` is published for `linux/amd64`
-and `linux/arm64`. The [0.2.0 release notes](docs/en/releases/0.2.0.md)
+The image `ghcr.io/shiroemons/gcs-mimic:0.2.1` is published for `linux/amd64`
+and `linux/arm64`. The [0.2.1 release notes](docs/en/releases/0.2.1.md)
 describe the release, and the [0.1.0 notes](docs/en/releases/0.1.0.md) list its
 features and known limitations. To build from source instead, follow the
 [source-build guide](docs/en/getting-started.md).
@@ -22,7 +22,7 @@ Save this as `compose.yaml`:
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.2.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.2.1
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -91,7 +91,7 @@ field limits; this is not Google GA/EXACT fidelity. See the
 [SDK journeys](sdk-tests/go/README.md) for verified subsets and limits.
 
 Comparison baseline: fake-gcs-server `v1.56.1` and gcp-storage-emulator
-`v2026.07.19`; gcs-mimic is `0.2.0`.
+`v2026.07.19`; gcs-mimic is `0.2.1`.
 Seed loading excludes migration of existing backend metadata and history.
 See the [detailed comparison](docs/en/feature-comparison.md) for criteria,
 sources and verification limits, and the generated
@@ -130,7 +130,7 @@ For existing fake-gcs-server setups, see the
 - [Roadmap](docs/en/roadmap.md)
 - [Development and checks](docs/en/development.md)
 - [Release policy](docs/en/release-policy.md)
-- [0.2.0 release notes](docs/en/releases/0.2.0.md) and
+- [0.2.1 release notes](docs/en/releases/0.2.1.md) and
   [0.1.0 features and known limitations](docs/en/releases/0.1.0.md)
 
 ## License
