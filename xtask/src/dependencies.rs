@@ -173,7 +173,7 @@ fn go_mod(source: &str) -> Result<GoModule> {
         if comment.trim() == "indirect" {
             continue;
         }
-        if go_stable_version(pin).is_none()
+        if (go_stable_version(pin).is_none() && go_pseudo_version(pin).is_none())
             || !name
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b"/.-_".contains(&b))
@@ -199,6 +199,21 @@ fn go_mod(source: &str) -> Result<GoModule> {
 fn go_stable_version(name: &str) -> Option<(u64, u64, u64)> {
     let core = name.strip_prefix('v')?;
     version(core.strip_suffix("+incompatible").unwrap_or(core))
+}
+
+/// Returns the commit timestamp of a Go pseudo-version, such as
+/// `v0.0.0-20260715232425-e75dac1f907d` or `v1.2.4-0.20260715232425-e75dac1f907d`,
+/// which is how a module without tagged releases is published.
+fn go_pseudo_version(name: &str) -> Option<&str> {
+    let (rest, hash) = name.rsplit_once('-')?;
+    let (base, stamp) = rest.split_once('-')?;
+    let stamp = stamp.rsplit('.').next()?;
+    let valid = hash.len() == 12
+        && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        && stamp.len() == 14
+        && stamp.bytes().all(|b| b.is_ascii_digit())
+        && go_stable_version(base).is_some();
+    valid.then_some(stamp)
 }
 
 fn proxy_path(name: &str) -> String {
@@ -304,8 +319,32 @@ fn go_proxy_response(status: u16, body: String) -> Result<Option<String>> {
 
 fn latest_go_dependency(
     name: &str,
+    fetch: impl FnMut(&str) -> Result<Option<String>>,
+) -> Result<String> {
+    latest_stable_go(name, fetch)?.ok_or_else(|| format!("missing Go module: {name}"))
+}
+
+/// A pseudo-version pin targets the newest stable release once the module has
+/// one; until then it follows the proxy's `@latest` pseudo-version.
+fn latest_untagged_go(
+    name: &str,
     mut fetch: impl FnMut(&str) -> Result<Option<String>>,
 ) -> Result<String> {
+    if let Some(stable) = latest_stable_go(name, &mut fetch)? {
+        return Ok(stable);
+    }
+    let url = format!("https://proxy.golang.org/{}/@latest", proxy_path(name));
+    let info = json(&fetch(&url)?.ok_or_else(|| format!("missing Go module: {name}"))?)?;
+    let latest = text(&info, "Version")?;
+    go_pseudo_version(latest)
+        .map(|_| latest.to_owned())
+        .ok_or_else(|| format!("invalid Go pseudo-version for {name}: {latest}"))
+}
+
+fn latest_stable_go(
+    name: &str,
+    mut fetch: impl FnMut(&str) -> Result<Option<String>>,
+) -> Result<Option<String>> {
     let (root, major) = match name.rsplit_once("/v") {
         Some((root, suffix)) if suffix.parse::<u64>().is_ok_and(|n| n >= 2) => {
             (root, suffix.parse::<u64>().unwrap())
@@ -318,7 +357,7 @@ fn latest_go_dependency(
     loop {
         let base = format!("https://proxy.golang.org/{}", proxy_path(&path));
         let Some(versions) = fetch(&format!("{base}/@v/list"))? else {
-            return latest.ok_or_else(|| format!("missing Go module: {name}"));
+            return Ok(latest);
         };
         let highest = versions
             .lines()
@@ -369,10 +408,15 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
     );
     drift |= compare("Go toolchain", &module.toolchain, latest);
     for (name, current) in module.direct {
-        let latest = latest_go_dependency(&name, |url| {
+        let proxy = |url: &str| {
             let (status, body) = fetch_response(url, &[], false)?;
             go_proxy_response(status, body).map_err(|error| format!("{url}: {error}"))
-        })?;
+        };
+        let latest = if go_pseudo_version(&current).is_some() {
+            latest_untagged_go(&name, proxy)?
+        } else {
+            latest_go_dependency(&name, proxy)?
+        };
         drift |= compare(&name, &current, &latest);
     }
     Ok(drift)
@@ -927,6 +971,73 @@ mod tests {
         ] {
             assert!(latest_gem(invalid).is_err());
         }
+    }
+
+    #[test]
+    fn go_pseudo_versions_pin_untagged_modules_until_a_stable_release() {
+        for (pin, stamp) in [
+            ("v0.0.0-20260715232425-e75dac1f907d", "20260715232425"),
+            ("v1.2.4-0.20260715232425-e75dac1f907d", "20260715232425"),
+            ("v1.2.3-pre.0.20260715232425-e75dac1f907d", "20260715232425"),
+        ] {
+            assert_eq!(go_pseudo_version(pin), Some(stamp));
+        }
+        for invalid in [
+            "v1.70.0-rc.1",
+            "v0.0.0-2026071523242-e75dac1f907d",
+            "v0.0.0-20260715232425-E75DAC1F907D",
+            "v0.0.0-20260715232425-e75dac1f90",
+            "0.0.0-20260715232425-e75dac1f907d",
+        ] {
+            assert_eq!(go_pseudo_version(invalid), None, "{invalid}");
+        }
+        let source = "module local/test\ngo 1.27.3\ntoolchain go1.27.3\nrequire google.golang.org/genproto v0.0.0-20260715232425-e75dac1f907d\n";
+        assert_eq!(
+            go_mod(source).unwrap().direct["google.golang.org/genproto"],
+            "v0.0.0-20260715232425-e75dac1f907d"
+        );
+        let untagged = |url: &str| -> Result<Option<String>> {
+            Ok(
+                match url.strip_prefix("https://proxy.golang.org/example.com/gen").unwrap() {
+                    "/@v/list" => Some(String::new()),
+                    "/v2/@v/list" => None,
+                    "/@latest" => Some(
+                        r#"{"Version":"v0.0.0-20261026165753-2ffab32bce7e","Time":"2026-10-26T16:57:53Z"}"#
+                            .into(),
+                    ),
+                    path => panic!("unexpected proxy path: {path}"),
+                },
+            )
+        };
+        assert_eq!(
+            latest_untagged_go("example.com/gen", untagged).unwrap(),
+            "v0.0.0-20261026165753-2ffab32bce7e"
+        );
+        // A first stable release replaces the pseudo-version as the update target.
+        let released = |url: &str| -> Result<Option<String>> {
+            Ok(
+                match url
+                    .strip_prefix("https://proxy.golang.org/example.com/gen")
+                    .unwrap()
+                {
+                    "/@v/list" => Some("v0.1.0\n".into()),
+                    "/@v/v0.1.0.mod" => Some("module example.com/gen\n".into()),
+                    "/v2/@v/list" => None,
+                    path => panic!("unexpected proxy path: {path}"),
+                },
+            )
+        };
+        assert_eq!(
+            latest_untagged_go("example.com/gen", released).unwrap(),
+            "v0.1.0"
+        );
+        let malformed = |url: &str| -> Result<Option<String>> {
+            Ok(match url.rsplit('/').next().unwrap() {
+                "list" => (!url.contains("/v2/")).then(String::new),
+                _ => Some(r#"{"Version":"v1.0.0-rc.1"}"#.into()),
+            })
+        };
+        assert!(latest_untagged_go("example.com/gen", malformed).is_err());
     }
 
     #[test]

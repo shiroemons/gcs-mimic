@@ -98,7 +98,11 @@ the highest release's `go.mod`, including self-retractions. Direct dependencies
 are checked on the current module path; new majors are discovered through successive
 `/v2`, `/v3`, etc. module paths (starting after an existing major suffix). A 404/410
 ends discovery; other HTTP failures and transport/parse failures fail closed.
-Pre-release-only paths do not count as stable updates. Indirect requirements
+Pre-release-only paths do not count as stable updates. A direct requirement may
+pin a pseudo-version only when its module publishes no tagged releases, as
+`google.golang.org/genproto` does for the legacy Storage v1 stubs; it is then
+compared with the proxy's `@latest` pseudo-version, and the module's first stable
+release becomes the update target. Indirect requirements
 remain graph constraints. Unsupported manifest directives fail explicitly.
 The checker uses the same bounded curl path and exit statuses as Rust and needs
 no Go installation. Unrecognized SDK ecosystems fail instead of being ignored.
