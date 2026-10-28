@@ -52052,9 +52052,12 @@
         },
         {
           "id": "connection_reuse",
-          "description": "Persistent HTTP/1.1 connections with per-request deadlines, as pooled SDK clients expect.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Persistent HTTP/1.1 connections serve sequential requests with per-request deadlines and Content-Length framing, close after the connection timeout when idle, and close instead of parsing an unread rejected body as the next request.",
+          "result": "PASS",
+          "test_ids": [
+            "keep_alive_serves_sequential_requests_until_idle_timeout",
+            "bkt_http_deadline_before_response_returns_backend_error"
+          ]
         },
         {
           "id": "framing_matrix",
@@ -52073,11 +52076,12 @@
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
         "obj_http_expect_continue_rejection_skips_the_interim_response",
         "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
-        "obj_http_trickle_download_stops_at_absolute_deadline"
+        "obj_http_trickle_download_stops_at_absolute_deadline",
+        "keep_alive_serves_sequential_requests_until_idle_timeout"
       ],
       "verification": [
         {
-          "command": "env -u RUSTUP_TOOLCHAIN bash scripts/with-test-tmpdir.sh bash scripts/check.sh; GitHub Actions Foundation checks run 40631319684",
+          "command": "env -u RUSTUP_TOOLCHAIN bash scripts/with-test-tmpdir.sh bash scripts/check.sh; GitHub Actions Foundation checks run 40643077472",
           "result": "PASS",
           "verified_at": "2026-10-28",
           "artifact": "docs/en/evidence/http-connection-semantics.md",
@@ -52091,13 +52095,14 @@
             "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
             "obj_http_expect_continue_rejection_skips_the_interim_response",
             "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
-            "obj_http_trickle_download_stops_at_absolute_deadline"
+            "obj_http_trickle_download_stops_at_absolute_deadline",
+            "keep_alive_serves_sequential_requests_until_idle_timeout"
           ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Keep-alive stays disabled, so every response closes its connection; connection reuse and HTTP/2 flow control remain pending.",
+        "connection_timeout_ms is both the header read deadline and the idle timeout between requests, so a pooled client reusing a connection at the moment it closes sees a closed connection, and an idle connection holds a max_connections slot until it closes; HTTP/2 flow control and the remaining framing matrix stay pending.",
         "Timeout statuses follow the documented status/reason pairs without a real-cloud differential; a body sent to a non-upload route receives 503 because the cancelled handler cannot report whether its small body was read.",
         "Lingering close waits at most one second of client silence instead of nginx's five seconds, and a client that keeps sending can hold its connection slot for up to 30 seconds."
       ],

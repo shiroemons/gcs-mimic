@@ -355,16 +355,19 @@ external SQLite lock does not confirm a background upload's commit: SQLite may s
 sleeping between busy retries. The catalog-timeout regression therefore observes the
 committed catalog row before checking media bytes with its 100 ms GET startup budget;
 both upload 503 assertions and the 500 ms–2 s pre-release bound remain independent.
-Bucket/probe/unknown routes retain the previous total connection deadline and answer its
-expiry with 503 `backendError`. Keep-alive stays disabled; graceful drain still has the
-independent `shutdown_timeout_ms` network bound.
+Bucket/probe/unknown routes keep a total deadline, now per request, and answer its
+expiry with 503 `backendError`. HTTP/1.1 connections stay open between requests: each
+request starts its own deadlines, and an idle connection closes after the connection
+timeout. Graceful drain closes idle connections and still has the independent
+`shutdown_timeout_ms` network bound.
 Before confirmed EOF, timeout/disconnect cancels the upload and triggers bounded cleanup
 without publishing partial data; channel closure without an explicit EOF marker is an abort.
 After confirmed EOF, the complete body may commit even if the client disconnects or shutdown
-aborts the connection. Normal completion returns the committed result. Every response,
-including an early rejection, is followed by a half-close and lingering close: the server
-discards client input until the client closes or pauses for one second, for at most
-30 seconds, or until shutdown, so the client's remaining body cannot reset the response.
+aborts the connection. Normal completion returns the committed result. A deadline
+response or an early rejection that leaves the body unread closes the connection with a
+half-close and lingering close: the server discards client input until the client closes
+or pauses for one second, for at most 30 seconds, or until shutdown, so the client's
+remaining body cannot reset the response.
 
 ## Numbered acceptance cases
 

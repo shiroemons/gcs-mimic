@@ -75,9 +75,13 @@ the active count to reach zero through notification after publication or cleanup
 Each upload uses two channel slots with copied chunks of at most 64 KiB, incremental
 MD5/CRC32C and asynchronous short file jobs. Downloads use one channel slot and a 64 KiB
 reader. Neither a database transaction nor a blocking worker is held waiting for body input.
-Catalog admission remains 32 calls with one executing SQLite job. The five-second default
-`connection_timeout_ms` bounds header reads, then object-route response startup and inactivity
-between chunks; each progressing chunk renews it. Upload advisory checks suspend this
+Catalog admission remains 32 calls with one executing SQLite job. HTTP/1.1 connections stay
+open between requests. Each request's deadlines start when it is dispatched and end when its
+last response byte is written, so idle time between requests is never charged to a request.
+The five-second default `connection_timeout_ms` bounds header reads, including the wait for
+the next request on an idle connection, which then closes; for an active request it bounds
+object-route response startup and inactivity between chunks, and each progressing chunk
+renews it. An idle connection still holds its `max_connections` slot. Upload advisory checks suspend this
 body-inactivity deadline while waiting for bounded catalog admission/execution; it restarts
 before body streaming. Independently, `object_request_timeout_ms` defaults to 900000 ms
 (validated 1–86400000) from object upload/media request dispatch and never renews on chunks.
@@ -90,10 +94,11 @@ transfers can raise `--object-request-timeout-ms` (for example, 3600000 ms for o
 Upload advisory and post-EOF waits each use `catalog_wait_timeout_ms`, default 30000 ms
 (validated 1–60000), capped by the remaining absolute request budget; expiry returns
 503 `backendError`. Both settings use CLI > environment > JSON > default precedence.
-Bucket/probe/unknown routes keep their total connection deadline, now answered with 503.
-After each response the server sends FIN and discards further client input until the
-client closes or pauses for one second, for at most 30 seconds (nginx's default
-`lingering_time`), or until shutdown. Closing with unread input would reset the
+Bucket/probe/unknown routes keep a total deadline per request, answered with 503.
+A deadline response closes its connection, as does a rejection that leaves the request
+body unread. When a connection closes, the server sends FIN and discards further client
+input until the client closes or pauses for one second, for at most 30 seconds (nginx's
+default `lingering_time`), or until shutdown. Closing with unread input would reset the
 connection and could discard an early rejection; a client that keeps sending can hold
 its connection slot for that lingering time.
 Shutdown has its independent drain deadline. Compose additionally

@@ -2037,14 +2037,17 @@ The identity file is read once at startup; an invalid registry, `strict` without
 file or a file with `permissive` fails before readiness. Run
 `gcs-mimic url public --help` for the URL helper, which accepts no serve options.
 
-Each HTTP/1 connection handles one request, with a 16 KiB parser buffer, 64 headers
-and a deadline. Object routes use a header deadline followed by renewed chunk-inactivity
+HTTP/1.1 connections stay open for further requests, with a 16 KiB parser buffer and
+64 headers. Each request has its own deadline; an idle connection closes when the next
+request's headers do not arrive within the connection timeout (default five seconds).
+Object routes use a header deadline followed by renewed chunk-inactivity
 deadlines; active transfers can exceed the default five seconds. After confirmed upload EOF,
 body inactivity is suspended while storage finishes. Upload/media requests additionally
 have an absolute 15-minute ceiling that chunks cannot renew. Expiry before a response
 returns a retryable error without publication: 408 `uploadBrokenConnection` for object
 uploads and 503 `backendError` for other requests. Expiry during download truncates the
-stream after its headers and closes the connection. After a response the server keeps
+stream after its headers and closes the connection. A deadline response, or a rejection
+that leaves the request body unread, closes the connection; the server then keeps
 reading and discarding client input for up to 30 seconds, so a rejected upload still
 reads its response instead of a connection reset.
 For large/slow transfers, use `--object-request-timeout-ms 3600000` for one hour or set
