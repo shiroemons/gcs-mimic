@@ -1918,7 +1918,9 @@ async fn failed_finalization_and_cancel_cleanup_retry_before_session_deadline() 
                 .await
         };
         assert_eq!(response.status, if cancel { 499 } else { 400 });
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        // A hang guard shared by the polling loops below; each exits as soon as its
+        // state appears, and a loaded runner has needed more than three seconds.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
         while h.state.catalog.resumable_maintenance_error().is_none() {
             assert!(
                 tokio::time::Instant::now() < deadline,
