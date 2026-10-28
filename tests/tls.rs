@@ -953,6 +953,29 @@ fn tls_invalid_material_never_reaches_readiness_or_creates_data() {
     }
 }
 
+/// Reads response bytes that have already arrived, reporting whether there were any.
+/// Decrypting first keeps post-handshake session tickets from counting as a response.
+fn read_arrived(
+    stream: &mut tokio_rustls::rustls::StreamOwned<
+        tokio_rustls::rustls::ClientConnection,
+        TcpStream,
+    >,
+    response: &mut Vec<u8>,
+) -> bool {
+    stream.sock.set_nonblocking(true).unwrap();
+    let mut chunk = [0; 4096];
+    let read = stream.read(&mut chunk);
+    stream.sock.set_nonblocking(false).unwrap();
+    match read {
+        Ok(read) => {
+            response.extend_from_slice(&chunk[..read]);
+            true
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => false,
+        Err(error) => panic!("{error}"),
+    }
+}
+
 /// An upload stopped by a deadline is answered as Cloud Storage documents, not by a silent close.
 fn assert_upload_timed_out(response: &[u8]) {
     let text = String::from_utf8_lossy(response);
@@ -1027,9 +1050,14 @@ fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
     trickle.write_all(b"1\r\nx\r\n").unwrap();
     trickle.flush().unwrap();
     let started = Instant::now();
+    let mut response = Vec::new();
     for _ in 0..25 {
         std::thread::sleep(Duration::from_millis(70));
-        // The server closing first at its deadline is the outcome under test.
+        // Lingering close keeps accepting writes after the timeout response, so stop
+        // when it arrives, as a client reading while it sends would.
+        if read_arrived(&mut trickle, &mut response) {
+            break;
+        }
         if let Err(error) = trickle
             .write_all(b"1\r\nx\r\n")
             .and_then(|()| trickle.flush())
@@ -1038,11 +1066,11 @@ fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
             break;
         }
     }
-    let mut response = Vec::new();
+    let answered = started.elapsed();
     trickle.read_to_end(&mut response).unwrap();
     assert_upload_timed_out(&response);
-    assert!(started.elapsed() >= Duration::from_millis(1400));
-    assert!(started.elapsed() < Duration::from_secs(3));
+    assert!(answered >= Duration::from_millis(1400), "{answered:?}");
+    assert!(answered < Duration::from_secs(3), "{answered:?}");
     assert_eq!(
         success(curl(
             &server,
