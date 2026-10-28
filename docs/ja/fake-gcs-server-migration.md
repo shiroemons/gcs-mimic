@@ -84,7 +84,7 @@ Goでは削除前に`err`を確認してください。未設定での`softDelet
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.1.3
+    image: ghcr.io/shiroemons/gcs-mimic:0.2.0
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:

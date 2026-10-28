@@ -1,6 +1,6 @@
 # Use the Docker image
 
-The image `ghcr.io/shiroemons/gcs-mimic:0.1.3` is published for `linux/amd64`
+The image `ghcr.io/shiroemons/gcs-mimic:0.2.0` is published for `linux/amd64`
 and `linux/arm64`; pulling it needs no registry login. Pin this exact version in
 CI. To test unreleased source instead, build a local image from a checkout and
 use its tag in the commands below:
@@ -25,7 +25,7 @@ docker run -d --name gcs-mimic \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
   -e GCS_MIMIC_API_BASE_URL=http://localhost:4443 \
-  ghcr.io/shiroemons/gcs-mimic:0.1.3
+  ghcr.io/shiroemons/gcs-mimic:0.2.0
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 

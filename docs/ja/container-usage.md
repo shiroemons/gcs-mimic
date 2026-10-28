@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": {"code_blocks": false}} -->
 
 最短の起動方法は[READMEのCompose例](README.md#まず動かす)です。
-イメージ`ghcr.io/shiroemons/gcs-mimic:0.1.3`は`linux/amd64`と`linux/arm64`向けに公開済みで、
+イメージ`ghcr.io/shiroemons/gcs-mimic:0.2.0`は`linux/amd64`と`linux/arm64`向けに公開済みで、
 ログインなしでpullできます。CIではこのバージョンを明示してください。
 未公開のソースを試す場合は、チェックアウトでローカルイメージをビルドし、以下のコマンドのイメージ名を置き換えます。
 
@@ -25,7 +25,7 @@ docker run -d --name gcs-mimic \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
   -e GCS_MIMIC_API_BASE_URL=http://localhost:4443 \
-  ghcr.io/shiroemons/gcs-mimic:0.1.3
+  ghcr.io/shiroemons/gcs-mimic:0.2.0
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
