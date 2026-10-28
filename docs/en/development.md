@@ -71,9 +71,9 @@ system disk and otherwise dominates test time. Concurrent tests on the system
 disk delay processes enough to break wall-clock deadline tests, so the pool
 stays serial there. Set `GCSM_TEST_RAMDISK=0` to use the normal `TMPDIR`.
 If the RAM disk cannot be created, the wrapper warns and continues serially. On
-other platforms the wrapper changes nothing; CI sets its own temporary
-directories as described below. Local checks and CI therefore run tests under
-different timing, so a timing-sensitive failure can appear in only one of them; treat it
+other platforms the wrapper changes nothing, and CI runs the binaries serially
+on its disk. Local macOS checks and CI therefore run tests under different
+timing, so a timing-sensitive failure can appear in only one of them; treat it
 as a test defect in either place. These settings use the `GCSM_TEST_` prefix
 because the server reads every `GCS_MIMIC_` and `FAKE_GCS_` variable as its own
 setting and rejects unknown names.
@@ -93,11 +93,8 @@ The Foundation checks workflow restores Cargo dependency builds with
 `Swatinem/rust-cache`, and only runs on `main` save them, so branches and pull
 requests reuse the latest `main` cache. A newer push cancels the previous run
 for the same branch or pull request; `main` keeps every run. CI builds debug
-profiles with `CARGO_PROFILE_DEV_DEBUG=line-tables-only` to shorten linking.
-Linux CI tests use a `/dev/shm` `TMPDIR`, and the `rust` lane runs two test
-binaries at a time there. The macOS portability lane uses the same RAM disk
-wrapper as `just check`, sized to 2048 MiB. Windows tests use `RUNNER_TEMP` on
-the runner's real disk, so one lane still exercises disk synchronization.
+profiles with `CARGO_PROFILE_DEV_DEBUG=line-tables-only` to shorten linking,
+and Windows tests use `RUNNER_TEMP` as their temporary directory.
 
 Run the separate online freshness check at slice start and before release:
 

@@ -47,16 +47,8 @@ jobs:
         with:
           key: ${{ matrix.toolchain }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # Test time is dominated by file synchronization on the runner disk. On
-      # tmpfs the same sync calls return quickly, so concurrent test binaries no
-      # longer delay one another enough to break wall-clock deadline tests; the
-      # Windows portability lane keeps exercising a real disk.
-      - name: Keep test files in memory
-        run: echo "TMPDIR=$(mktemp -d /dev/shm/gcs-mimic-tmp.XXXXXX)" >> "$GITHUB_ENV"
       - run: bash scripts/test-check.sh
       - run: bash scripts/check.sh
-        env:
-          GCSM_TEST_JOBS: '2'
   # Runtime behavior differs by OS (socket resets, timing, file APIs); run one
   # target per OS family on every push instead of only at tag time. Release
   # workflows skip it because their build matrix tests every target natively.
@@ -103,11 +95,6 @@ jobs:
       - name: Keep Windows test files on the workspace volume
         if: runner.os == 'Windows'
         run: printf '%s\n' "TMP=$RUNNER_TEMP" "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
-      # Linux uses tmpfs here and macOS gets a RAM disk from the wrapper below,
-      # which avoids its whole-disk F_FULLFSYNC; Windows stays on a real disk.
-      - name: Keep Linux test files in memory
-        if: runner.os == 'Linux'
-        run: echo "TMPDIR=$(mktemp -d /dev/shm/gcs-mimic-tmp.XXXXXX)" >> "$GITHUB_ENV"
       # Restored after the compiler environment is final because CC and CARGO
       # variables contribute to the cache key.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -115,13 +102,11 @@ jobs:
           key: ${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fetch --locked
-      - run: bash scripts/with-test-tmpdir.sh cargo test --workspace --target "$TARGET" --locked --offline
+      - run: cargo test --workspace --target "$TARGET" --locked --offline
         # Deadline tests still use wall-clock budgets; fewer concurrent tests keep
         # slower macOS and Windows runners from starving them.
         env:
           RUST_TEST_THREADS: '2'
-          # Hosted macOS runners have 7 GB of memory, half the local default.
-          GCSM_TEST_RAMDISK_MB: '2048'
   containers:
     strategy:
       fail-fast: false
