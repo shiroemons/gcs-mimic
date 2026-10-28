@@ -152,13 +152,18 @@ fn process_restarts_on_same_port_without_allowing_a_second_live_listener() {
         let (mut stdout, ready) = process_ready(&mut child);
         assert_eq!(ready["event"], "ready");
         address = ready["listen"].as_str().unwrap().into();
-        assert!(
-            request(
-                address.parse().unwrap(),
-                "GET /_internal/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        let mut health = BufReader::new(stream(address.parse().unwrap()));
+        health
+            .get_mut()
+            .write_all(
+                b"GET /_internal/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
             )
-            .starts_with("HTTP/1.1 200")
-        );
+            .unwrap();
+        let response = common::read_http_response(&mut health, false).unwrap();
+        assert!(response.starts_with(b"HTTP/1.1 200"));
+        // TIME_WAIT stays with the side that closes first; waiting for the server's
+        // close keeps it on the listener port that the bind_wait check reuses.
+        assert_eq!(health.read(&mut [0; 1]).unwrap(), 0);
         let collision = conflicting_process(&address, &other);
         assert!(!collision.status.success());
         assert!(collision.stdout.is_empty());
