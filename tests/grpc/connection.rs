@@ -43,6 +43,18 @@ where
     (client, stop, task)
 }
 
+// One write per frame: a peer that already closed accepts the first write and resets the
+// connection, so a frame split across writes would fail on its second half.
+fn encode_frame(kind: u8, flags: u8, stream: u32, data: &[u8]) -> Vec<u8> {
+    let length = data.len() as u32;
+    let mut frame = Vec::with_capacity(9 + data.len());
+    frame.extend_from_slice(&length.to_be_bytes()[1..]);
+    frame.extend_from_slice(&[kind, flags]);
+    frame.extend_from_slice(&stream.to_be_bytes());
+    frame.extend_from_slice(data);
+    frame
+}
+
 async fn send_frame(
     client: &mut (impl AsyncWriteExt + Unpin),
     kind: u8,
@@ -50,14 +62,10 @@ async fn send_frame(
     stream: u32,
     data: &[u8],
 ) {
-    let length = data.len() as u32;
-    let mut header = [0; 9];
-    header[..3].copy_from_slice(&length.to_be_bytes()[1..]);
-    header[3] = kind;
-    header[4] = flags;
-    header[5..].copy_from_slice(&stream.to_be_bytes());
-    client.write_all(&header).await.unwrap();
-    client.write_all(data).await.unwrap();
+    client
+        .write_all(&encode_frame(kind, flags, stream, data))
+        .await
+        .unwrap();
 }
 
 async fn handshake(client: &mut TcpStream) {
@@ -73,35 +81,69 @@ async fn request(client: &mut TcpStream, stream: u32) {
     send_frame(client, 1, 5, stream, &[0x83, 0x86, 0x04, 1, b'/']).await;
 }
 
-async fn frame(client: &mut (impl AsyncReadExt + Unpin)) -> Option<(u8, u8, Vec<u8>)> {
+async fn read_frame(
+    client: &mut (impl AsyncReadExt + Unpin),
+) -> std::io::Result<Option<(u8, u8, Vec<u8>)>> {
     let mut header = [0; 9];
     match client.read_exact(&mut header).await {
         Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return None,
-        Err(error) => panic!("HTTP/2 read failed: {error}"),
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+        Err(error) => return Err(error),
     }
     let length = u32::from_be_bytes([0, header[0], header[1], header[2]]) as usize;
     assert!(length <= 64 * 1024);
     let mut data = vec![0; length];
-    client.read_exact(&mut data).await.unwrap();
-    Some((header[3], header[4], data))
+    client.read_exact(&mut data).await?;
+    Ok(Some((header[3], header[4], data)))
+}
+
+async fn frame(client: &mut (impl AsyncReadExt + Unpin)) -> Option<(u8, u8, Vec<u8>)> {
+    read_frame(client)
+        .await
+        .unwrap_or_else(|error| panic!("HTTP/2 read failed: {error}"))
+}
+
+fn acknowledgement(kind: u8, flags: u8, data: &[u8]) -> Option<Vec<u8>> {
+    (flags & 1 == 0 && matches!(kind, 4 | 6))
+        .then(|| encode_frame(kind, 1, 0, if kind == 6 { data } else { &[] }))
 }
 
 async fn acknowledge(client: &mut (impl AsyncWriteExt + Unpin), kind: u8, flags: u8, data: &[u8]) {
-    if flags & 1 == 0 && matches!(kind, 4 | 6) {
-        send_frame(client, kind, 1, 0, if kind == 6 { data } else { &[] }).await;
+    if let Some(frame) = acknowledgement(kind, flags, data) {
+        client.write_all(&frame).await.unwrap();
     }
+}
+
+fn peer_closed(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+    )
 }
 
 async fn closed_with_goaway(client: &mut TcpStream) {
     timeout(DEADLINE * 10, async {
         let mut goaway = false;
-        while let Some((kind, flags, data)) = frame(client).await {
+        loop {
+            let (kind, flags, data) = match read_frame(client).await {
+                Ok(Some(frame)) => frame,
+                Ok(None) => break,
+                // Acknowledging a keepalive PING read just before GOAWAY can reach a peer that
+                // has already closed, which resets the connection after GOAWAY was delivered.
+                Err(error) if goaway && peer_closed(&error) => break,
+                Err(error) => panic!("HTTP/2 read failed: {error}"),
+            };
             if kind == 7 {
                 assert_eq!(&data[4..8], &[0; 4], "GOAWAY must have NO_ERROR");
                 goaway = true;
             }
-            acknowledge(client, kind, flags, &data).await;
+            if let Some(frame) = acknowledgement(kind, flags, &data)
+                && let Err(error) = client.write_all(&frame).await
+            {
+                assert!(peer_closed(&error), "HTTP/2 write failed: {error}");
+            }
         }
         assert!(goaway, "the peer must receive GOAWAY before EOF");
     })
@@ -172,7 +214,10 @@ async fn grpc_silent_open_stream_is_bounded() {
     for pending_response in [true, false] {
         let (_sender, body) = Channel::<Bytes, Infallible>::new(1);
         let body = Arc::new(std::sync::Mutex::new(Some(body)));
-        let (mut client, _stop, task) = start_with_bound(DEADLINE * 3, move |_| {
+        // Keepalive PINGs repeat every DEADLINE, so a bound between two of them keeps the
+        // silence close from coinciding with a PING that the client must acknowledge.
+        let bound = DEADLINE * 7 / 2;
+        let (mut client, _stop, task) = start_with_bound(bound, move |_| {
             let body = body.clone();
             async move {
                 if pending_response {
@@ -189,7 +234,7 @@ async fn grpc_silent_open_stream_is_bounded() {
         // PING acknowledgements keep the peer alive, but must not renew the silence bound.
         let started = Instant::now();
         closed_with_goaway(&mut client).await;
-        assert!(started.elapsed() >= DEADLINE * 3);
+        assert!(started.elapsed() >= bound);
         timeout(DEADLINE * 2, task).await.unwrap().unwrap();
     }
 }
