@@ -139,6 +139,7 @@ impl From<JsonError> for Error {
             StatusCode::NOT_FOUND => "NoSuchKey",
             StatusCode::PRECONDITION_FAILED => "PreconditionFailed",
             StatusCode::RANGE_NOT_SATISFIABLE => "InvalidRange",
+            StatusCode::REQUEST_TIMEOUT => "uploadBrokenConnection",
             StatusCode::SERVICE_UNAVAILABLE => "ServiceUnavailable",
             _ => "InvalidArgument",
         };

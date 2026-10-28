@@ -1260,14 +1260,15 @@ fn obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots() 
         thread::sleep(Duration::from_millis(40));
     }
     for mut stream in streams {
+        // Lingering close keeps the timeout response from being reset by the trickle.
         let mut response = Vec::new();
-        match stream.read_to_end(&mut response) {
-            Ok(_) => {}
-            // Closing an incomplete request can reset TCP if a trickle arrives after FIN;
-            // Windows reports the same close as an aborted connection.
-            Err(error) => assert!(common::closed_by_server(&error), "{error}"),
-        }
-        assert!(response.is_empty());
+        stream.read_to_end(&mut response).unwrap();
+        let text = String::from_utf8_lossy(&response);
+        assert!(text.starts_with("HTTP/1.1 408 "), "{text}");
+        assert!(
+            text.contains("\"reason\":\"uploadBrokenConnection\""),
+            "{text}"
+        );
     }
     no_leaks(&dir, 1);
     assert_eq!(server.get("existing").json(), original);

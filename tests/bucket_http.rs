@@ -3817,6 +3817,31 @@ fn bkt_http_failed_recovery_never_reports_ready() {
 }
 
 #[test]
+fn bkt_http_deadline_before_response_returns_backend_error() {
+    let dir = TestDir::new();
+    let server = Server::start_options(&dir, &["--connection-timeout-ms", "500"]);
+    // An external reserved lock keeps the catalog write waiting past the connection deadline.
+    let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    database.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let blocked = server.insert("blocked-bucket", "deadline");
+    blocked.error(503, "backendError");
+    assert!(
+        blocked
+            .body
+            .contains("timed out before a response was ready"),
+        "{}",
+        blocked.body
+    );
+    database.execute_batch("ROLLBACK").unwrap();
+    // The dropped handler's write may still commit, as after any retryable 503.
+    assert!(matches!(
+        server.insert("blocked-bucket", "deadline").status,
+        200 | 409
+    ));
+    assert_eq!(server.insert("after-deadline", "deadline").status, 200);
+}
+
+#[test]
 fn bkt_http_list_clamps_to_1000_with_lookahead() {
     let dir = TestDir::new();
     let server = Server::start(&dir);

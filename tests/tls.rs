@@ -953,6 +953,16 @@ fn tls_invalid_material_never_reaches_readiness_or_creates_data() {
     }
 }
 
+/// An upload stopped by a deadline is answered as Cloud Storage documents, not by a silent close.
+fn assert_upload_timed_out(response: &[u8]) {
+    let text = String::from_utf8_lossy(response);
+    assert!(text.starts_with("HTTP/1.1 408 "), "{text}");
+    assert!(
+        text.contains("\"reason\":\"uploadBrokenConnection\""),
+        "{text}"
+    );
+}
+
 #[test]
 fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
     let dir = TestDir::new();
@@ -1009,10 +1019,7 @@ fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
     let started = Instant::now();
     let mut response = Vec::new();
     idle.read_to_end(&mut response).unwrap();
-    assert!(
-        response.is_empty(),
-        "an incomplete overwrite must not succeed"
-    );
+    assert_upload_timed_out(&response);
     assert!(started.elapsed() >= Duration::from_millis(500));
     assert!(started.elapsed() < Duration::from_secs(2));
     let mut trickle = tls_stream(&server, &ca);
@@ -1032,13 +1039,8 @@ fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
         }
     }
     let mut response = Vec::new();
-    if let Err(error) = trickle.read_to_end(&mut response) {
-        assert!(closed_by_server(&error), "{error}");
-    }
-    assert!(
-        response.is_empty(),
-        "the absolute deadline must prevent a trickled overwrite"
-    );
+    trickle.read_to_end(&mut response).unwrap();
+    assert_upload_timed_out(&response);
     assert!(started.elapsed() >= Duration::from_millis(1400));
     assert!(started.elapsed() < Duration::from_secs(3));
     assert_eq!(

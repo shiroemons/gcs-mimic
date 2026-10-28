@@ -65,6 +65,70 @@ mod resumable;
 mod rewrite;
 mod unsupported;
 
+/// The longest pause in client input that lingering close waits through. An
+/// interrupted local upload keeps sending without pauses, while an idle client
+/// would otherwise hold a connection slot for the whole lingering time.
+const LINGER_IDLE: Duration = Duration::from_secs(1);
+/// The cap on discarding input from a client that keeps sending after its
+/// response, matching nginx's default `lingering_time`.
+const LINGER_TIME: Duration = Duration::from_secs(30);
+
+/// The response for a request whose deadline expires before its handler answers.
+/// Cloud Storage documents both statuses as retryable. An object upload reports
+/// the broken upload; other requests, including bucket writes whose small bodies
+/// are read at once, report a backend timeout.
+struct DeadlineReply {
+    xml: bool,
+    head: bool,
+    upload: bool,
+}
+
+impl DeadlineReply {
+    fn new(request: &Request<Incoming>, config: &Config) -> Self {
+        let headers = request.headers();
+        let xml = matches!(
+            xml::select_object(request.uri(), headers, config),
+            Ok(Some(_))
+        );
+        let has_body = headers.contains_key(hyper::header::TRANSFER_ENCODING)
+            || headers
+                .get(hyper::header::CONTENT_LENGTH)
+                .is_some_and(|length| length != "0");
+        let upload_route = request.uri().path().starts_with("/upload/")
+            || (xml && matches!(*request.method(), Method::PUT | Method::POST));
+        Self {
+            xml,
+            head: request.method() == Method::HEAD,
+            upload: has_body && upload_route,
+        }
+    }
+
+    fn response(self) -> Response<ResponseBody> {
+        let error = if self.upload {
+            JsonError::new(
+                StatusCode::REQUEST_TIMEOUT,
+                "uploadBrokenConnection",
+                "The upload timed out; retry the request, or raise connection_timeout_ms for slow clients or object_request_timeout_ms for large uploads.",
+            )
+        } else {
+            JsonError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backendError",
+                "The request timed out before a response was ready; retry the request, or raise connection_timeout_ms.",
+            )
+        };
+        let mut response = if self.xml {
+            boxed(xml::Error::from(error).response(self.head))
+        } else {
+            boxed(error.into_response())
+        };
+        response
+            .headers_mut()
+            .insert("connection", "close".parse().unwrap());
+        response
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 pub(crate) struct ObjectActivity {
     awaiting_catalog: bool,
@@ -229,6 +293,10 @@ async fn serve_connection(
 ) {
     let timeout = Duration::from_millis(config.connection_timeout_ms);
     let (activity, mut progress) = watch::channel(ObjectActivity::default());
+    // Set once the service returns, after which hyper may already have sent the
+    // response head; until then an expired deadline can still be answered.
+    let responded = Arc::new(AtomicBool::new(false));
+    let (expire, expired) = watch::channel(false);
     let mut builder = http1::Builder::new();
     builder
         .keep_alive(false)
@@ -236,14 +304,26 @@ async fn serve_connection(
         .max_buf_size(16 * 1024)
         .timer(TokioTimer::new())
         .header_read_timeout(timeout);
+    let service_responded = responded.clone();
     let mut connection = builder.serve_connection(
         TokioIo::new(stream),
         service_fn(move |request| {
             let state = state.clone();
             let activity = activity.clone();
             let config = config.clone();
+            let responded = service_responded.clone();
+            let mut expired = expired.clone();
             Box::pin(async move {
-                Ok::<_, Infallible>(respond(request, &state, &config, &activity).await)
+                let expiry = DeadlineReply::new(&request, &config);
+                // Dropping the handler cancels its work exactly as closing the
+                // connection did, so an unfinished upload is still never published.
+                let response = tokio::select! {
+                    biased;
+                    response = respond(request, &state, &config, &activity) => response,
+                    _ = expired.wait_for(|expired| *expired) => expiry.response(),
+                };
+                responded.store(true, Ordering::Release);
+                Ok::<_, Infallible>(response)
             })
         }),
     );
@@ -251,38 +331,57 @@ async fn serve_connection(
     tokio::pin!(deadline);
     let mut current = ObjectActivity::default();
     let mut draining = false;
+    let mut expiring = false;
     loop {
         tokio::select! {
             biased;
-            Ok(()) = progress.changed() => {
+            Ok(()) = progress.changed(), if !expiring => {
                 current = *progress.borrow_and_update();
                 deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
             },
-            _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if current.deadline.is_some() && !current.awaiting_catalog => {
+            _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if current.deadline.is_some() && !current.awaiting_catalog && !expiring => {
                 crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "object_request_timeout", serde_json::json!({"message":"object request deadline exceeded"}));
-                break;
+                if responded.load(Ordering::Acquire) { break; }
+                expire.send_replace(true);
+                deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+                expiring = true;
             },
             result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
                 // hyper's Display names only the failure kind (body stream, write, parse), never the wrapped I/O detail.
                 if let Err(error) = result { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport","cause":error.to_string()})); }
                 break;
             }
-            _ = &mut deadline, if !current.awaiting_catalog => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"connection deadline or object body inactivity timeout exceeded"})); break; },
+            _ = &mut deadline, if !current.awaiting_catalog || expiring => {
+                // After an expiry the same budget bounds writing its error response to a client that does not read.
+                if expiring { break; }
+                crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"connection deadline or object body inactivity timeout exceeded"}));
+                if responded.load(Ordering::Acquire) { break; }
+                expire.send_replace(true);
+                deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+                expiring = true;
+            },
             _ = stopping.changed(), if !draining => {
                 std::pin::Pin::new(&mut connection).graceful_shutdown();
                 draining = true;
             }
         }
     }
-    // Send FIN after the response, then bound unread-body disposal to avoid a reset
-    // hiding an early rejection from a client still sending a large request.
+    // Send FIN after the response, then read and discard what the client still sends,
+    // like an HTTP server's lingering close: closing with unread input sends a reset
+    // that can discard an early rejection before the client reads it. The phase ends
+    // when the client closes or pauses, after the lingering time, or on shutdown.
     let mut stream = connection.into_parts().io.into_inner();
     let _ = tokio::time::timeout(timeout, stream.shutdown()).await;
-    let _ = tokio::time::timeout(
-        Duration::from_millis(100),
-        tokio::io::copy(&mut stream.take(256 * 1024), &mut tokio::io::sink()),
-    )
-    .await;
+    let linger = async {
+        let mut discarded = vec![0; 16 * 1024];
+        while let Ok(Ok(1..)) = tokio::time::timeout(LINGER_IDLE, stream.read(&mut discarded)).await
+        {
+        }
+    };
+    tokio::select! {
+        _ = tokio::time::timeout(LINGER_TIME, linger) => {},
+        _ = stopping.wait_for(|stopping| *stopping) => {},
+    }
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Debug,
         "connection_closed",

@@ -768,10 +768,10 @@ fn obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out() {
     let mut stream = server.stream();
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=idle HTTP/1.1\r\nHost: local\r\nContent-Length: 100\r\n\r\nx").unwrap();
     let start = Instant::now();
-    let mut bytes = Vec::new();
-    stream.read_to_end(&mut bytes).unwrap();
+    let timed_out = Reply::read(stream);
     assert!(start.elapsed() >= Duration::from_millis(500));
     assert!(start.elapsed() < Duration::from_secs(2));
+    timed_out.error(408, "uploadBrokenConnection");
     server.get("idle").error(404, "notFound");
     assert_eq!(server.upload("name=after-timeout", "", b"ok").status, 200);
 }
@@ -803,12 +803,9 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
             }
         }
     }
-    for mut stream in uploads {
-        let mut response = Vec::new();
-        if let Err(error) = stream.read_to_end(&mut response) {
-            assert!(closed_by_server(&error), "{error}");
-        }
-        assert!(response.is_empty(), "unfinished upload must not succeed");
+    for stream in uploads {
+        // Lingering close lets the timeout response survive the client's late writes.
+        Reply::read(stream).error(408, "uploadBrokenConnection");
     }
     assert!(started.elapsed() >= Duration::from_millis(800));
     assert!(started.elapsed() < Duration::from_secs(3));
@@ -1243,13 +1240,25 @@ fn obj_http_early_rejections_survive_body_larger_than_socket_buffers() {
         let mut stream = server.stream();
         stream.write_all(format!("POST /upload/storage/v1/b/test-bucket/o?{query} HTTP/1.1\r\nHost: local\r\nContent-Length: 8388608\r\n\r\n").as_bytes()).unwrap();
         let mut writer = stream.try_clone().unwrap();
-        let sending = thread::spawn(move || {
-            // Rejection may interrupt the write; the response must still reach the reader.
-            let _ = writer.write_all(&vec![b'x'; 8 * 1024 * 1024]);
-        });
+        // Lingering close discards the rest of the body, so neither the write nor
+        // the early response is lost to a reset.
+        let sending = thread::spawn(move || writer.write_all(&vec![b'x'; 8 * 1024 * 1024]));
         Reply::read(stream).error(status, reason);
-        sending.join().unwrap();
+        sending.join().unwrap().unwrap();
     }
+}
+
+#[test]
+fn obj_http_expect_continue_rejection_skips_the_interim_response() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 2000);
+    server.bucket();
+    let mut stream = server.stream();
+    stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=large HTTP/1.1\r\nHost: local\r\nExpect: 100-continue\r\nContent-Length: 8388608\r\n\r\n").unwrap();
+    // A rejection before the body is polled answers without 100 Continue, so the
+    // client never sends the body; the first response is already the final one.
+    Reply::read(stream).error(413, "uploadTooLarge");
+    server.get("large").error(404, "notFound");
 }
 
 #[test]

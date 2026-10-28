@@ -692,7 +692,8 @@ fn xml_put_chunked_trailers_and_body_deadlines_cannot_publish() {
     let mut stream = expect_continue(&server, OBJECT, "", 99999);
     stream.write_all(b"partial").unwrap();
     let mut received = Vec::new();
-    assert_eq!(stream.read_to_end(&mut received).unwrap(), 0);
+    stream.read_to_end(&mut received).unwrap();
+    assert_upload_timed_out(&received);
     clean(&data);
     assert_eq!(snapshot(&server, &data), before);
     server.stop();
@@ -705,14 +706,20 @@ fn xml_put_chunked_trailers_and_body_deadlines_cannot_publish() {
         thread::sleep(Duration::from_millis(100));
     }
     let mut received = Vec::new();
-    match stream.read_to_end(&mut received) {
-        Ok(0) => {}
-        Err(error) if common::closed_by_server(&error) => {}
-        result => panic!("Expected a closed timed-out upload, got {result:?}"),
-    }
-    assert!(received.is_empty());
+    stream.read_to_end(&mut received).unwrap();
+    assert_upload_timed_out(&received);
     clean(&data);
     assert_eq!(snapshot(&server, &data), before);
+}
+
+/// Both deadlines answer an unfinished XML upload with the documented XML timeout code.
+fn assert_upload_timed_out(response: &[u8]) {
+    let text = String::from_utf8_lossy(response);
+    assert!(text.starts_with("HTTP/1.1 408 "), "{text}");
+    assert!(
+        text.contains("<Code>uploadBrokenConnection</Code>"),
+        "{text}"
+    );
 }
 
 #[test]
