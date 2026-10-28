@@ -415,7 +415,9 @@ impl Admin {
             .await
     }
 
-    async fn publish_objects_with_budget(
+    // The budget bounds real write-transaction time, so tests that require every element to be
+    // attempted widen it instead of relying on an unloaded machine finishing within 20 ms.
+    pub(in crate::storage) async fn publish_objects_with_budget(
         &self,
         entries: Vec<BatchPublication>,
         budget: Duration,
@@ -428,6 +430,22 @@ impl Admin {
         binding: ImportBinding,
         expected_cursor: i64,
         entries: Vec<ImportedPublication>,
+    ) -> Result<ImportedBatchResult, AdminError> {
+        self.publish_import_objects_with_budget(
+            binding,
+            expected_cursor,
+            entries,
+            Duration::from_millis(20),
+        )
+        .await
+    }
+
+    pub(in crate::storage) async fn publish_import_objects_with_budget(
+        &self,
+        binding: ImportBinding,
+        expected_cursor: i64,
+        entries: Vec<ImportedPublication>,
+        budget: Duration,
     ) -> Result<ImportedBatchResult, AdminError> {
         if entries.is_empty() || entries.len() > 256 {
             return Err(AdminError::Invalid(
@@ -448,7 +466,7 @@ impl Admin {
         let batch = self
             .publish_batch(
                 publications,
-                Duration::from_millis(20),
+                budget,
                 Some(ImportBatch {
                     binding,
                     cursor: expected_cursor,

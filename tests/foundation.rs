@@ -1460,8 +1460,10 @@ async fn healthcheck_exit_status_tracks_readiness() {
 fn healthcheck_deadline_includes_slow_streaming_responses() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
+    let (accepted_send, accepted) = std::sync::mpsc::channel();
     let mock = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
+        accepted_send.send(std::time::Instant::now()).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(2)))
             .unwrap();
@@ -1486,7 +1488,6 @@ fn healthcheck_deadline_includes_slow_streaming_responses() {
             }
         }
     });
-    let start = std::time::Instant::now();
     let output = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
         .clean_env()
         .args([
@@ -1498,6 +1499,8 @@ fn healthcheck_deadline_includes_slow_streaming_responses() {
         .unwrap();
     assert!(!output.status.success());
     assert!(!output.stderr.is_empty());
-    assert!(start.elapsed() < Duration::from_secs(3));
+    // The deadline starts before the connection, so timing from acceptance excludes process
+    // startup, which loaded machines delay independently of the healthcheck deadline.
+    assert!(accepted.recv().unwrap().elapsed() < Duration::from_secs(3));
     mock.join().unwrap();
 }

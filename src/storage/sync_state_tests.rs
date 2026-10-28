@@ -9,7 +9,7 @@ use crate::{
     },
     test_support::TestDir,
 };
-use std::fs;
+use std::{fs, time::Duration};
 
 async fn setup() -> (TestDir, Catalog, Admin, BucketName) {
     let dir = TestDir::new();
@@ -386,7 +386,10 @@ async fn sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_i
         item.staged = item.staged.with_sync_state(change);
         entries.push(item);
     }
-    let batch = admin.publish_objects(entries).await.unwrap();
+    let batch = admin
+        .publish_objects_with_budget(entries, Duration::from_secs(1))
+        .await
+        .unwrap();
     assert!(batch.results[0].is_ok());
     assert_eq!(batch.results[1], Err(AdminError::Precondition));
     assert!(batch.results[2].is_ok());

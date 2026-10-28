@@ -172,7 +172,12 @@ async fn import_publication_keeps_independent_successes_and_terminal_failure_aft
     b.publication.request.expected.md5 = Some([0; 16]);
     let c = entry(&dir, &admin, 4, "c", b"c").await;
     let result = admin
-        .publish_import_objects(source.clone(), 1, vec![a, b, c])
+        .publish_import_objects_with_budget(
+            source.clone(),
+            1,
+            vec![a, b, c],
+            Duration::from_secs(1),
+        )
         .await
         .unwrap();
     assert!(result.results[0].is_ok());
