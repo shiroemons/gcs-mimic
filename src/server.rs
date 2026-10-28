@@ -83,6 +83,14 @@ struct DeadlineReply {
     upload: bool,
 }
 
+fn has_body(request: &Request<Incoming>) -> bool {
+    let headers = request.headers();
+    headers.contains_key(hyper::header::TRANSFER_ENCODING)
+        || headers
+            .get(hyper::header::CONTENT_LENGTH)
+            .is_some_and(|length| length != "0")
+}
+
 impl DeadlineReply {
     fn new(request: &Request<Incoming>, config: &Config) -> Self {
         let headers = request.headers();
@@ -90,16 +98,12 @@ impl DeadlineReply {
             xml::select_object(request.uri(), headers, config),
             Ok(Some(_))
         );
-        let has_body = headers.contains_key(hyper::header::TRANSFER_ENCODING)
-            || headers
-                .get(hyper::header::CONTENT_LENGTH)
-                .is_some_and(|length| length != "0");
         let upload_route = request.uri().path().starts_with("/upload/")
             || (xml && matches!(*request.method(), Method::PUT | Method::POST));
         Self {
             xml,
             head: request.method() == Method::HEAD,
-            upload: has_body && upload_route,
+            upload: has_body(request) && upload_route,
         }
     }
 
@@ -478,13 +482,22 @@ async fn serve_connection(
                     reads,
                 };
                 let expiry = DeadlineReply::new(&request, &config);
+                let sent_body = has_body(&request);
                 // Dropping the handler cancels its work exactly as closing the
                 // connection did, so an unfinished upload is still never published.
-                let response = tokio::select! {
+                let mut response = tokio::select! {
                     biased;
                     response = respond(request, &state, &config, &activity) => response,
                     _ = expired.wait_for(|expired| *expired) => expiry.response(),
                 };
+                // Handlers stop reading a body early only to reject it, and hyper then
+                // closes the connection. Announcing the close keeps a pooled client from
+                // sending its next request into the closing socket.
+                if sent_body && response.status().as_u16() >= 400 {
+                    response
+                        .headers_mut()
+                        .insert("connection", "close".parse().unwrap());
+                }
                 responded.store(true, Ordering::Release);
                 Ok::<_, Infallible>(response.map(|body| finished.track(body)))
             })

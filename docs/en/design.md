@@ -101,7 +101,9 @@ Upload advisory and post-EOF waits each use `catalog_wait_timeout_ms`, default 3
 503 `backendError`. Both settings use CLI > environment > JSON > default precedence.
 Bucket/probe/unknown routes keep a total deadline per request, answered with 503.
 A deadline response closes its connection, as does a rejection that leaves the request
-body unread. When a connection closes, the server sends FIN and discards further client
+body unread; every error response to a request that carried a body sends
+`Connection: close`, so pooled clients do not reuse a connection that is closing.
+When a connection closes, the server sends FIN and discards further client
 input until the client closes or pauses for one second, for at most 30 seconds (nginx's
 default `lingering_time`), or until shutdown. Closing with unread input would reset the
 connection and could discard an early rejection; a client that keeps sending can hold

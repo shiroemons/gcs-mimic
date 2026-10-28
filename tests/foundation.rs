@@ -935,6 +935,8 @@ async fn keep_alive_serves_sequential_requests_until_idle_timeout() {
     let mut rejected = BufReader::new(stream(address));
     let response = exchange(&mut rejected, b"POST /upload/storage/v1/b/keep-alive-bucket/o?uploadType=media&name=large HTTP/1.1\r\nHost: localhost\r\nContent-Length: 32\r\n\r\nGET /_internal/health HTTP/1.1\r\n\r\n");
     assert!(response.starts_with("HTTP/1.1 413"), "{response}");
+    // The close is announced, so a pooled client never reuses the connection for its next request.
+    assert!(response.contains("\r\nconnection: close\r\n"), "{response}");
     rejected
         .get_ref()
         .set_read_timeout(Some(Duration::from_secs(5)))
