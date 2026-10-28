@@ -378,6 +378,12 @@
       "tag": "v8.0.2",
       "sha": "9000827ccba6bdab643e8b6fd33ac0654aef8333",
       "source_url": "https://api.github.com/repos/actions/download-artifact/git/ref/tags/v8.0.2"
+    },
+    {
+      "repository": "Swatinem/rust-cache",
+      "tag": "v2.9.3",
+      "sha": "d1527c8f67ef9af357290475d4af4b0fab8f12e0",
+      "source_url": "https://api.github.com/repos/Swatinem/rust-cache/git/ref/tags/v2.9.3"
     }
   ],
   "exceptions": []

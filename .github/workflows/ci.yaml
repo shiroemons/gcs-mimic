@@ -13,9 +13,19 @@ on:
         default: false
 permissions:
   contents: read
+# A newer push supersedes branch and pull request runs. Main keeps every run so
+# each commit there has a complete result and refreshes the shared caches.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+env:
+  # Line tables keep panic locations while shrinking debug builds, which
+  # shortens linking (notably MSVC PDBs) and the cached target directories.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 jobs:
   rust:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       matrix:
         toolchain: [pinned, stable]
@@ -31,6 +41,12 @@ jobs:
           if [[ '${{ matrix.toolchain }}' == stable ]]; then pin=stable; fi
           rustup toolchain install "$pin" --profile minimal --component rustfmt --component clippy
           echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
+      # Only main saves, so branches and pull requests reuse its dependency
+      # builds without evicting them from the repository cache quota.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.toolchain }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: bash scripts/test-check.sh
       - run: bash scripts/check.sh
   # Runtime behavior differs by OS (socket resets, timing, file APIs); run one
@@ -73,6 +89,18 @@ jobs:
           echo "CC_${TARGET//-/_}=musl-gcc" >> "$GITHUB_ENV"
           linker="CARGO_TARGET_${TARGET^^}_LINKER"
           echo "${linker//-/_}=musl-gcc" >> "$GITHUB_ENV"
+      # Tests synchronize many small files under the system temporary directory.
+      # Windows runners keep it on C:, while the workspace and RUNNER_TEMP use
+      # the faster D: volume.
+      - name: Keep Windows test files on the workspace volume
+        if: runner.os == 'Windows'
+        run: printf '%s\n' "TMP=$RUNNER_TEMP" "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      # Restored after the compiler environment is final because CC and CARGO
+      # variables contribute to the cache key.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fetch --locked
       - run: cargo test --workspace --target "$TARGET" --locked --offline
         # Deadline tests still use wall-clock budgets; fewer concurrent tests keep
@@ -111,5 +139,8 @@ jobs:
           pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
           test -n "$pin"
           rustup toolchain install "$pin" --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: bash -n scripts/sdk-go.sh
       - run: bash scripts/sdk-go.sh

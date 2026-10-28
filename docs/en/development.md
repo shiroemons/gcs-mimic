@@ -89,6 +89,13 @@ No Git hook is installed and no commit or push is performed. Re-run the checks
 after changes. A local pass does not establish native amd64 or GitHub Actions
 success: the configured remote lanes must also pass after pushing.
 
+The Foundation checks workflow restores Cargo dependency builds with
+`Swatinem/rust-cache`, and only runs on `main` save them, so branches and pull
+requests reuse the latest `main` cache. A newer push cancels the previous run
+for the same branch or pull request; `main` keeps every run. CI builds debug
+profiles with `CARGO_PROFILE_DEV_DEBUG=line-tables-only` to shorten linking,
+and Windows tests use `RUNNER_TEMP` as their temporary directory.
+
 Run the separate online freshness check at slice start and before release:
 
 ```sh

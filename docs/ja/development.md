@@ -73,4 +73,9 @@ Dockerを起動せずに実行できます。
 
 ローカルでの成功だけでは、GitHub Actionsや実機AMD64での成功は確認できません。
 push後はCIの結果も確認してください。
+Foundation checksワークフローは`Swatinem/rust-cache`でCargoの依存ビルドを復元し、
+保存は`main`の実行だけが行います。ブランチとプルリクエストは最新の`main`のキャッシュを再利用します。
+同じブランチやプルリクエストに新しいpushがあると前の実行は取り消されますが、`main`ではすべて実行します。
+CIはリンク時間を短くするため`CARGO_PROFILE_DEV_DEBUG=line-tables-only`でデバッグビルドを行い、
+Windowsのテストは一時ディレクトリに`RUNNER_TEMP`を使います。
 依存の更新確認や直接実行するコマンドは[英語の開発手順](../en/development.md)を参照してください。
