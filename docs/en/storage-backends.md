@@ -192,7 +192,7 @@ range read, listing, overwrite and restart.
 
 Record process RSS separately from cgroup/cache, CPU time, throughput, latency
 percentiles, errors, temporary disk and recovery duration. Also run naming,
-atomic-precondition, generation, restart/crash and seed-no-replay cases.
+atomic-precondition, generation, restart/crash and seed-replay cases.
 Do not weaken guarantees for a favorable result. Report unequal profiles
 separately. No new dependency or default change is authorized by this report.
 

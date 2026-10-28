@@ -1,8 +1,12 @@
 # Dockerで使う
 
-<!-- markdownlint-configure-file {"MD013": {"code_blocks": false}} -->
+<!-- markdownlint-configure-file
+{"MD013": {"code_blocks": false, "tables": false}}
+-->
 
-最短の起動方法は[READMEのCompose例](README.md#まず動かす)です。
+最短の起動方法は[READMEの「まず動かす」](README.md#まず動かす)です。
+`docker run`ひとつで組み込みの開発用証明書を使うHTTPSが起動し、`-e GCS_MIMIC_SCHEME=http`でHTTPになります。
+すべての設定は`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.2.1 --help`で確認できます。
 イメージ`ghcr.io/shiroemons/gcs-mimic:0.2.1`は`linux/amd64`と`linux/arm64`向けに公開済みで、
 ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.2.1`として公開しており、
 以下のコマンドではどちらの名前も使えます。CIではこのバージョンを明示してください。
@@ -25,12 +29,13 @@ docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
-  -e GCS_MIMIC_API_BASE_URL=http://localhost:4443 \
   ghcr.io/shiroemons/gcs-mimic:0.2.1
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
 readinessの確認に成功したら、READMEの保存・取得コマンドを実行します。
+ホストとコンテナのポートがどちらも4443なので、通知するAPI URLは`http://127.0.0.1:4443`になります。
+ポートが異なる場合は[アプリから接続する](#アプリから接続する)を参照してください。
 起動中で失敗した場合は、readinessのコマンドを再実行してください。
 イメージのヘルスチェックは`GCS_MIMIC_SCHEME`、`GCS_MIMIC_LISTEN`と
 `GCS_MIMIC_CONFIG`で選んだJSON設定に従うため、HTTPでも上書きは不要です。
@@ -76,6 +81,8 @@ resumableのLocationへ接続できるようにします。ホストやブラウ
 API URLを明示しない場合、実際にbindしたアドレスとポートから決まります。
 `0.0.0.0`は`127.0.0.1`、`::`は`[::1]`に置き換え、ポート0は割り当て後のポートを使います。
 ready通知の`api_base_url`で確認できます。
+イメージでは`http://127.0.0.1:4443`（HTTPSなら`https://`）になり、ホスト側のポートも4443のときだけホストから正しく使えます。
+例えば`-p 127.0.0.1:14443:4443`なら、`GCS_MIMIC_API_BASE_URL=http://localhost:14443`を指定します。
 リポジトリのComposeファイルでは、`GCS_MIMIC_PORT`のホスト側ポート（既定4443）に合わせます。
 `GCS_MIMIC_API_BASE_URL`の明示値があれば、そちらを優先します。
 Dockerのホスト側ポートを0にした場合は、割り当て後の値を調べ、通知するURLを再設定してください。
@@ -93,34 +100,71 @@ data/
     example.txt
 ```
 
-初回起動前に、READMEのサービスへ次の項目を追加します。
-既存の`environment`と`volumes`へ追記し、各セクションを置き換えないでください。
+このディレクトリを読み取り専用で`/data`にマウントします。
 
-```yaml
-    environment:
-      GCS_MIMIC_SEED_DIR: /data
-    volumes:
-      - ./data:/data:ro
+```sh
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
+  -e GCS_MIMIC_SCHEME=http \
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.2.1
+curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
-永続カタログの初期化時だけ、readinessの成功前にファイルを読み込みます。
-再起動時に初期ファイルを再読込して、APIの変更を上書きすることはありません。
-初期バケットの所有プロジェクトは既定で`local-project`です。
-変更する場合は`GCS_MIMIC_SEED_PROJECT`を指定します。
-初期化後に足したバケットディレクトリは、再起動しても作成されません。
-空ディレクトリでのバケット準備は[バケット設定ファイル](#初期バケット設定ファイルを使う)に
-置き換えます。こちらは毎回、未作成のバケットを作ります。
+Composeでは、サービスの既存の`volumes`へ`- ./data:/data:ro`を追記します。
+次のリリースからは環境変数は不要です。0.2.1では`GCS_MIMIC_SEED_DIR=/data`も指定してください。
+新しいデータディレクトリへ一度だけ読み込み、再起動や後から足したバケットディレクトリでは読み込みません。
 
-すでにREADMEの例を起動した場合は、`docker compose down`で停止します。
-次に`docker compose -p gcs-seeded up -d --wait`で別プロジェクトを起動できます。
-別の新しいボリュームが作られ、元のプロジェクトのデータは残ります。
+以降は次のリリースの動作です。
 
-現在、初期ファイルのContent-Typeは`application/octet-stream`になります。
+### 初期ファイルのディレクトリが使われる条件
+
+イメージは`GCS_MIMIC_DEFAULT_SEED_DIR=/data`（`--default-seed-dir`、JSONでは`default_seed_dir`。
+nativeの既定値はなし）を設定します。`seed_dir`が未指定で、ディレクトリが存在し、
+データディレクトリや同期ディレクトリと重ならない場合だけ使い、それ以外は何も表示せずに無視します。
+明示した`GCS_MIMIC_SEED_DIR`（`--seed-dir`、JSONでは`seed_dir`）が常に優先するため、別のパスも指定できます。
+
+### 起動のたびに行うこと
+
+readinessより前に、起動のたびに初期ファイルを反映します。最上位のディレクトリはバケットになり、
+未作成なら作成し、既存のバケットは設定をそのまま残します。バケットは初期ファイル用のproject
+（既定は`local-project`、`GCS_MIMIC_SEED_PROJECT`で変更）に属します。
+既存のバケットが別のprojectのものなら起動に失敗します。空のディレクトリからは空のバケットを作ります。
+初期ファイルのルート直下にある通常のファイル（`README.md`や`.gitkeep`など）は、fake-gcs-serverと同じく無視し、
+`seed_skipped`の警告を出します。シンボリックリンクと不正なバケット名では、これまでどおり起動に失敗します。
+
+バケットのディレクトリ以下の各ファイルは、相対パスを名前とするオブジェクトになります。
+
+| 現行オブジェクト | 結果 |
+| --- | --- |
+| ない | 作成する |
+| 初期ファイルから書き込む内容と完全に同じ（本体と初期ファイルのContent-Typeが同じで、Content-Encoding・Content-Disposition・Content-Language・Cache-Control・custom time・独自メタデータがない） | そのまま。世代も変えず、`unchanged`として数える |
+| それ以外の違いがある（APIで変更したメタデータを含む） | 初期ファイルの既定メタデータで新しい現行世代に置き換える。バージョニングが有効なバケットでは以前の世代をnoncurrentとして残す |
+| 違いはあるが、オブジェクトホールドや保持期間の対象 | そのままにし、警告を出して`blocked`として数える |
+
+ホールドとストレージクラスは比較しないため、内容が同じならホールド中のオブジェクトも`unchanged`です。
+
+初期ファイルのないオブジェクトには触れず、初期ファイルを消してもオブジェクトは削除しません。
+APIで削除したオブジェクトは次回の起動時に再作成し、初期ファイルの編集も次回の起動時に反映します。
+ファイル監視やreseed用のエンドポイントはないため、コンテナを再起動してください。
+
+Content-Typeは、固定の対応表を使ってファイルの拡張子から決めます（例: `.png`は`image/png`）。
+以前の既定値どおりすべて`application/octet-stream`にするには、`GCS_MIMIC_SEED_CONTENT_TYPE=octet-stream`を指定します。
+この設定は[同期ディレクトリ](#オブジェクトをホストのディレクトリへ書き出す)から取り込むファイルにも適用します。
+`.DS_Store`や`._*`などのmacOSのメタデータファイルは読み飛ばします。
+
+結果はready通知の`seed`に出ます。例えば
+`{"outcome":"imported","buckets":1,"objects":2,"replaced":0,"unchanged":3,"blocked":0,"skipped_os_metadata":0}`
+のようになり、`buckets`と`objects`は新しく作成した件数です。初期ファイルがない場合は`{"outcome":"disabled"}`です。
+
+### fake-gcs-serverとの違い
+
+fake-gcs-serverと同じく、再起動すると内容が異なる初期オブジェクトは置き換わり、APIでのメタデータ変更も残りません。
+意図した違いは2点だけです。fake-gcs-serverは完全に同じオブジェクトでも新しい世代を書き込みますが、
+gcs-mimicはそのまま残します。また、gcs-mimicには`/_internal/reseed`のルートがありません。
 fake-gcs-serverの実行用ストレージにあるxattrやサイドカーのメタデータは移行しません。
-初期ファイルのディレクトリは読み込み専用の入力です。初期化後の外部編集は反映されず、
-APIで保存しても`/data`へは書き戻しません。APIで保存したオブジェクトをファイルとして
-見るには、別の[同期ディレクトリ](#オブジェクトをホストのディレクトリへ書き出す)を使います。
-既存の永続データを使う前に[保存方式の違い](storage-backends.md)を確認してください。
+初期ファイルのディレクトリは読み込み専用の入力で、APIで保存しても`/data`へは書き戻しません。
+APIで保存したオブジェクトをファイルとして見るには、別の[同期ディレクトリ](#オブジェクトをホストのディレクトリへ書き出す)を使います。
+CORSやバージョニングの設定付きでバケットを作るには[バケット設定ファイル](#初期バケット設定ファイルを使う)を使います。
+こちらは初期ファイルより先に動きます。既存の永続データを使う前に[保存方式の違い](storage-backends.md)を確認してください。
 
 ## オブジェクトをホストのディレクトリへ書き出す
 

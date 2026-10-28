@@ -174,6 +174,22 @@ Their implementations were inspected; full upstream test suites were not execute
 | Virtual-hosted-style object endpoints | ✅ Explicit DNS suffix opt-in, GET/HEAD/PUT and strict signing; supplied matching SAN required for HTTPS; [scope](slices/xml-virtual-host.md) | ✅ Bucket-host GET/HEAD and upload routes in [router](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go#L306-L343); source review only | ❌ Path-only [public routes](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/server.py#L133-L143); source review only |
 | Public access prevention with preserved grants and valid signed access | ✅ Bucket enforcement and stored-grant reactivation; parent policy is LOCAL_SIMULATION; [scope](slices/public-access-prevention.md) | ❌ [Object handlers](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/object.go) do not enforce public grants/PAP; source review only | ❌ [Download handler](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py#L687-L740) does not enforce public grants/PAP; source review only |
 
+The optional plaintext `grpc_listen` serves the scoped Storage v2 subset in the
+first gRPC row: bucket CRUD, updates, IAM and retention locking; object reads,
+writes, listing, deletion and restore; resumable uploads with status queries and
+cancellation, rewrite, compose, move and bidirectional ranged reads on standard
+buckets. Rapid append (zonal appendable objects) and unsupported fields return
+actionable `UNIMPLEMENTED`. The same endpoint serves the reference emulator's
+twelve legacy Storage v1 RPCs for migration, including multi-message uploads and
+project-free bucket listing, with shared strict permissions and documented field
+limits; the reference keeps only the first upload message's data. JSON, XML and
+gRPC share object bytes, generations, metadata and authorization
+([evidence](slices/cross-protocol-objects.md)). These rows describe workflows,
+not Google GA/EXACT fidelity; individual RPC rows in the feature ledger remain
+`PARTIAL`. See the [legacy contract](slices/grpc-v1-legacy.md),
+[v2 gRPC contracts](slices/grpc-v2-foundation.md) and
+[SDK journeys](../../sdk-tests/go/README.md) for verified subsets and limits.
+
 An ACL value, stored IAM policy, accepted signed URL or CORS response does not
 establish access control. Actual-browser execution is a separate evidence question:
 gcs-mimic has [trusted-HTTPS signed-browser results](evidence/signed-browser.md);
@@ -217,10 +233,21 @@ not imply complete XML semantics or authenticated-only public access.
 | API-created objects appear as bucket/object files | ✅ `--sync-dir` mirror beside opaque storage | ✅ Filesystem backend | ✅ Disk backend |
 | Reconcile external edits with hashes and generation metadata | 🚧 Create/edit at startup; no deletion or watcher | ❌ Direct reads can expose stale metadata | ❌ No reconciliation contract |
 | Optional in-memory backend | ❌ | ✅ | ✅ |
-| Import a bucket/object seed directory | ✅ One-time native import | ✅ Startup and explicit reseed | ❌ Default bucket creation is separate |
+| Import a bucket/object seed directory | ✅ Every startup; an exactly identical object keeps its generation (0.2.1: one-time import) | ✅ Startup and explicit reseed | ❌ Default bucket creation is separate |
 | Published native binaries | ✅ macOS, Windows and Linux amd64+arm64 | ✅ macOS/Linux amd64+arm64; Windows amd64 | ❌ Python runtime required |
 | Published Docker image | ✅ GHCR and Docker Hub linux/amd64+arm64 | ✅ Docker Hub | ✅ Docker Hub |
 | Project license | MIT OR Apache-2.0 | BSD-2-Clause | BSD-3-Clause |
+
+From the next release, gcs-mimic applies its seed directory before readiness on
+every startup, and the image reads `/data` without extra settings. As in
+fake-gcs-server, an object that differs from its seed file in bytes or metadata,
+including API metadata edits, becomes a new live generation. Only an object
+exactly matching what seeding would write keeps its generation, where
+fake-gcs-server writes a new one; fake-gcs-server also offers
+`/_internal/reseed`, while gcs-mimic has no reseed endpoint or watcher, so
+restart to apply edits. Neither product deletes
+objects whose seed file was removed. The 0.2.1 release imports once into a fresh
+data directory.
 
 gcs-mimic's sync directory is a mirror beside its catalog, not a second storage
 backend: API writes appear shortly after each response, and external creates and

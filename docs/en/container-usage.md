@@ -1,5 +1,7 @@
 # Use the Docker image
 
+<!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
+
 The image `ghcr.io/shiroemons/gcs-mimic:0.2.1` is published for `linux/amd64`
 and `linux/arm64`; pulling it needs no registry login. Docker Hub serves the same
 image digest as `shiroemons/gcs-mimic:0.2.1`, so either name works in the
@@ -14,9 +16,10 @@ The [Compose migration walkthrough](fake-gcs-server-migration.md#replace-a-fake-
 replaces a fake-gcs-server service with the published image and initializes
 empty buckets. It covers UX-012, DESIGN-061 and UX-001.
 
-The [README Compose example](../../README.md#quick-start) is the shortest start.
-It selects HTTP and persists data in a named volume. HTTPS remains the server
-default when no scheme is selected.
+The [README quick start](../../README.md#quick-start) is the shortest start: one
+`docker run` serves HTTPS with a built-in development certificate, and
+`-e GCS_MIMIC_SCHEME=http` selects plain HTTP. List every option with
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.2.1 --help`.
 
 ## Docker run
 
@@ -25,12 +28,14 @@ docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
-  -e GCS_MIMIC_API_BASE_URL=http://localhost:4443 \
   ghcr.io/shiroemons/gcs-mimic:0.2.1
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
 Once the readiness command succeeds, run the README's bucket and object commands.
+The advertised API base is derived as `http://127.0.0.1:4443` because the host
+and container ports are both 4443; see [Connect an application](#connect-an-application)
+when they differ.
 The image healthcheck follows `GCS_MIMIC_SCHEME`, `GCS_MIMIC_LISTEN` and the
 JSON file selected by `GCS_MIMIC_CONFIG`; HTTP needs no probe override.
 Wildcard listeners connect through loopback; `both` probes its HTTP listener.
@@ -65,9 +70,13 @@ container SDKs can follow resumable Location. A host/browser needs its own
 published origin, for example `http://localhost:14443`; the walkthrough explains
 unsigned session translation, cancellation 499 and separate worktree ports.
 
-Without an explicit API base, native startup derives it from the actual bound
+Without an explicit API base, startup derives it from the actual bound
 listener, replacing wildcard IPs with loopback and port zero with the allocated
-port. The ready event includes this effective `api_base_url`. The checked-in
+port. The ready event includes this effective `api_base_url`. In the image this
+is `http://127.0.0.1:4443` (or `https://`), which is correct for host clients
+only when the published host port is also 4443. With
+`-p 127.0.0.1:14443:4443`, for example, set
+`GCS_MIMIC_API_BASE_URL=http://localhost:14443`. The checked-in
 Compose files instead advertise the published `GCS_MIMIC_PORT` (default 4443)
 using their HTTP/HTTPS mode; an explicit `GCS_MIMIC_API_BASE_URL` wins.
 Docker port-zero mappings require discovering and configuring the assigned host
@@ -86,35 +95,81 @@ data/
     example.txt
 ```
 
-Before the first start, add these entries to the README's service, retaining its
-other environment variables and persistent volume:
+Mount it read-only at `/data`:
 
-```yaml
-    environment:
-      GCS_MIMIC_SEED_DIR: /data
-    volumes:
-      - ./data:/data:ro
+```sh
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
+  -e GCS_MIMIC_SCHEME=http \
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.2.1
+curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
-Merge the entries into the existing `environment` and `volumes` sections;
-do not replace those sections. Files load before readiness only when the
-persistent catalog is first initialized. Existing data is not re-seeded on
-restart. The default owning project for seeded buckets is `local-project`;
-use `GCS_MIMIC_SEED_PROJECT` to select another project.
-Bucket directories added after initialization do not create buckets on restart.
-For empty-directory bucket setup, replace the seed mount with a
-[buckets file](#initialize-bucket-settings); it creates missing buckets every start.
+In Compose, add `- ./data:/data:ro` to the service's existing `volumes` list.
+No environment variable is needed from the next release. With 0.2.1, also set
+`GCS_MIMIC_SEED_DIR=/data`; it imports once into a fresh data directory, and
+later restarts or added bucket directories do not import again.
 
-If you already ran the quick start, stop it with `docker compose down`, then use
-`docker compose -p gcs-seeded up -d --wait` for a separate, fresh data volume.
-The original project's data is retained.
+The rest of this section describes the next release.
 
-Native import currently uses `application/octet-stream` for file content.
-It does not import fake-gcs-server's runtime xattrs/sidecars or preserve their
-metadata. The seed directory stays read-only input: external edits after
-initialization are not synchronized, and API writes do not appear under `/data`.
-To browse API-written objects as files, use a separate
-[sync directory](#mirror-objects-to-a-host-directory). See the
+### When the seed directory is used
+
+The image sets `GCS_MIMIC_DEFAULT_SEED_DIR=/data` (`--default-seed-dir`, JSON
+`default_seed_dir`; native default none). It applies only when `seed_dir` is
+unset, the directory exists, and it does not overlap the data or sync directory;
+otherwise it is silently ignored. An explicit `GCS_MIMIC_SEED_DIR`
+(`--seed-dir`, JSON `seed_dir`) always wins, for example to read another path.
+
+### What each startup does
+
+Seeding runs on every startup, before readiness. Each top-level directory is a
+bucket: it is created if missing, and an existing bucket keeps its settings.
+Buckets belong to the seed project, `local-project` by default
+(`GCS_MIMIC_SEED_PROJECT`); an existing bucket owned by another project stops
+startup. Empty directories create empty buckets. Regular files directly under
+the seed root, such as a `README.md` or `.gitkeep`, are skipped with a
+`seed_skipped` warning, as fake-gcs-server ignores them; symbolic links and
+invalid bucket names still stop startup.
+
+Each file below a bucket directory is an object named by its relative path:
+
+| Live object | Result |
+| --- | --- |
+| Absent | Created |
+| Exactly what seeding would write: same bytes and seed Content-Type, with no Content-Encoding, Content-Disposition, Content-Language, Cache-Control, custom time or custom metadata | Left unchanged, keeping its generation; counted as `unchanged` |
+| Any other difference, including metadata edited through the API | Replaced as a new live generation with seed default metadata; a versioned bucket keeps the previous one as noncurrent |
+| Different, but under an object hold or retention | Left unchanged and counted as `blocked`, with a warning |
+
+Holds and storage class are not compared, so an identical held object counts as
+`unchanged`.
+
+Objects without a seed file are untouched, and removing a seed file never
+deletes an object. An object deleted through the API is recreated on the next
+restart, and edits to seed files apply on the next restart. There is no file
+watcher and no reseed endpoint; restart the container instead.
+
+Content-Type comes from the filename extension through a pinned table, for
+example `.png` becomes `image/png`. Set `GCS_MIMIC_SEED_CONTENT_TYPE=octet-stream`
+to store every file as `application/octet-stream`, the previous default. The
+same setting applies to files ingested from a
+[sync directory](#mirror-objects-to-a-host-directory). macOS metadata files such
+as `.DS_Store` and `._*` are skipped.
+
+The ready event reports the result in its `seed` field, for example
+`{"outcome":"imported","buckets":1,"objects":2,"replaced":0,"unchanged":3,"blocked":0,"skipped_os_metadata":0}`,
+where `buckets` and `objects` count newly created entries. Without a seed
+directory it is `{"outcome":"disabled"}`.
+
+### Differences from fake-gcs-server
+
+Like fake-gcs-server, a restart replaces seeded objects that differ, including
+API metadata edits. The only intended differences: fake-gcs-server writes a new
+generation even for an exactly identical object, which gcs-mimic keeps, and
+gcs-mimic has no `/_internal/reseed` route. Seeding does not import fake-gcs-server's
+runtime xattrs/sidecars or preserve their metadata. The seed directory stays
+read-only input: API writes do not appear under `/data`. To browse API-written
+objects as files, use a separate [sync directory](#mirror-objects-to-a-host-directory).
+To create buckets with CORS or versioning settings, use a
+[buckets file](#initialize-bucket-settings); it runs before seed. See the
 [storage comparison](fake-gcs-server-storage.md) before reusing a persistent
 source directory.
 

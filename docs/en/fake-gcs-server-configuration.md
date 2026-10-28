@@ -85,7 +85,7 @@ generally mean “use the default.” See the
 | Bind host and port | `GCS_MIMIC_LISTEN` | One `IP:port` value |
 | Second HTTP listener | `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; defaults to primary IP:8000 |
 | Advertised API endpoint | `GCS_MIMIC_API_BASE_URL` | API origin, separate from public URL construction |
-| Seed input | `GCS_MIMIC_SEED_DIR`, `GCS_MIMIC_SEED_PROJECT` | One-time import; MIME and metadata differ |
+| Seed input | `GCS_MIMIC_SEED_DIR`, `GCS_MIMIC_DEFAULT_SEED_DIR` (image: `/data`), `GCS_MIMIC_SEED_PROJECT`, `GCS_MIMIC_SEED_CONTENT_TYPE` | From the next release, applied on every startup with extension-derived MIME; differing objects, including API metadata edits, get a new generation, an exactly identical object keeps its generation, and there is no reseed route. 0.2.1 imports once and needs `GCS_MIMIC_SEED_DIR`. Sidecar metadata is not imported |
 | Persistent destination | `GCS_MIMIC_DATA_DIR` | SQLite plus opaque files; cannot mount legacy `/storage` directly |
 | Supplied certificate/key | `GCS_MIMIC_TLS_CERT`, `GCS_MIMIC_TLS_KEY` | Supply a matching pair |
 | Public-host behavior | `GCS_MIMIC_PUBLIC_BASE_URL` | Origin with DNS-domain routing; legacy Host matching is opt-in. Normalized default ports, IP virtual disabling and authority conflicts retain documented local boundaries. |
@@ -146,10 +146,14 @@ to change them while keeping the automatic healthcheck on the same listener.
 `GCS_MIMIC_PORT`, `GCS_MIMIC_IMAGE` and `GCS_MIMIC_TLS_DIR` are Compose-only
 interpolation variables; keep them outside the native server environment.
 Use `LISTEN` for server binding and `TLS_CERT`/`TLS_KEY` for actual PEM files.
-With no `seed_dir`, an unrelated nonempty `/data` warns that
+In 0.2.1, with no `seed_dir`, an unrelated nonempty `/data` warns that
 `GCS_MIMIC_SEED_DIR=/data` imports once into a fresh data directory. No implicit
 import occurs. Overlap, ancestors and symlink aliases of native storage suppress
 that advice; inspection uncertainty warns without recommending overlapping seed.
+From the next release, the image sets `GCS_MIMIC_DEFAULT_SEED_DIR=/data` instead:
+an existing `/data` that does not overlap the data or sync directory is seeded
+when `seed_dir` is unset, and is otherwise silently ignored. See
+[loading local files](container-usage.md#load-local-files).
 
 Configuration accepts at most 1024 supplied settings across CLI/environment/file
 and keys at most 256 UTF-8 bytes; duplicate JSON keys count as occurrences.

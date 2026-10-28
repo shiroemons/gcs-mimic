@@ -10,7 +10,7 @@ get/set and object media/multipart upload,
 metadata get/patch/update, generation-pinned copy, continuation rewrite, ordered compose,
 prefix/delimiter/paged listing, whole-object and single-range download and delete,
 with a persistent SQLite catalog and disk blobs.
-Initial seed directory import runs before readiness. Path-style XML GET/HEAD and
+Seed directory import runs before readiness. Path-style XML GET/HEAD and
 bucket `allUsers` / `allAuthenticatedUsers` grants support public and private reads.
 V4 RSA query signatures, bounded XML PUT, opt-in virtual hosts, response overrides
 and public access prevention are implemented in the
@@ -2001,7 +2001,9 @@ and `-log-level` remain errors with native migration advice.
 | `--tls-key` | `GCS_MIMIC_TLS_KEY` | built-in development key | Optional matching unencrypted PEM private key, at most 1 MiB; requires certificate |
 | `--tls-handshake-timeout-ms` | `GCS_MIMIC_TLS_HANDSHAKE_TIMEOUT_MS` | 5000 | 1–60000; HTTPS only, within connection admission |
 | `--data-dir` | `GCS_MIMIC_DATA_DIR` | `data` relative to cwd | Nonempty path; exclusive catalog ownership |
-| `--seed-dir` | `GCS_MIMIC_SEED_DIR` | none | Stable read-only bucket-directory input; only before initial catalog completion |
+| `--seed-dir` | `GCS_MIMIC_SEED_DIR` | none | JSON key `seed_dir`; stable read-only bucket-directory input applied before readiness on every startup (next release; 0.2.1 imports only before initial catalog completion). Wins over `default_seed_dir` |
+| `--default-seed-dir` | `GCS_MIMIC_DEFAULT_SEED_DIR` | none; the image sets `/data` | JSON key `default_seed_dir` (next release). Used only when `seed_dir` is unset, the directory exists and it does not overlap the data or sync directory; otherwise silently ignored |
+| `--seed-content-type` | `GCS_MIMIC_SEED_CONTENT_TYPE` | `extension` (next release; `octet-stream` in 0.2.1) | JSON key `seed_content_type`; `extension` uses the pinned filename-extension table, `octet-stream` stores `application/octet-stream`. Also applies to files ingested from `--sync-dir` |
 | `--seed-project` | `GCS_MIMIC_SEED_PROJECT` | `local-project` | Existing bucket project validation; administrative import |
 | `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved |
 | `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Actual bound listener URL | Wildcard IP becomes loopback; port 0 becomes the allocated port. Explicit absolute HTTP(S) base remains independent; optional base path, no credentials/query/fragment. Ready includes the effective string |
@@ -2115,7 +2117,7 @@ and unknown fields are rejected even when empty or disabled. Limits are 1 MiB,
 1000 buckets and 64 KiB per entry. See the [schema](slices/bucket-initialization.md)
 and [read-only Compose example](container-usage.md#initialize-bucket-settings).
 
-## Seed a fresh native catalog and read a byte range
+## Seed a native catalog and read a byte range
 
 After building the native binary above, run this standalone example in Bash from
 the repository root. It uses fresh data and a separate seed directory.
@@ -2160,20 +2162,32 @@ decompression return 501. See the [range contract](slices/json-object-range.md)
 for local malformed/multiple-range fallback rules and header-parity limits.
 
 Each top-level seed directory names a bucket; nested regular files name objects
-with `/` separators. Empty bucket directories work. Imported objects have explicit
-`application/octet-stream` MIME; size, MD5 and CRC32C come from their bytes.
-Keep fixtures stable and read-only throughout startup. Symlinks, special files,
-invalid names and overlapping roots fail before readiness. Traversal is limited
-to 10000 entries and 32 nested directories; `max_object_bytes` applies per new file.
-No sidecar metadata is imported.
+with `/` separators. Empty bucket directories work. Imported objects take their
+MIME from the pinned filename-extension table (`seed_content_type=extension`,
+the default from the next release); `octet-stream` stores
+`application/octet-stream`, the 0.2.1 default. Size, MD5 and CRC32C come from
+their bytes. Keep fixtures stable and read-only throughout startup. Symlinks,
+special files, invalid names and overlapping roots fail before readiness.
+Traversal is limited to 10000 entries and 32 nested directories;
+`max_object_bytes` applies per new file. No sidecar metadata is imported.
 
-A durable seed marker prevents replay after restart or deletion of all buckets.
-Interrupted imports resume create-if-absent and preserve existing objects.
-First startup without `seed_dir` and migrations of existing catalogs also mark
-initialization complete: configuring fixtures later does not import them. Use a
-new data directory or deliberately reset a disposable volume to seed again.
-Import is administrative in both profiles; strict API reads still need a
-permitted local bearer token. See the [seed contract](slices/seed.md).
+From the next release, seeding runs on every startup while a seed directory is
+in effect. Missing buckets are created and existing ones keep their settings;
+a bucket owned by a project other than `seed_project` stops startup. A missing
+object is created. An object exactly matching what seeding would write (same
+bytes and seed Content-Type, with no Content-Encoding, Content-Disposition,
+Content-Language, Cache-Control, custom time or custom metadata) keeps its
+generation. Any other difference, including API metadata edits, is replaced as
+a new live generation with seed default metadata (versioned buckets keep the
+previous one as noncurrent). A differing object under a hold or retention is
+left unchanged and reported as `blocked`; holds and storage class are not
+compared. Objects without a seed file are untouched, and removing a
+seed file never deletes an object. Restart to apply fixture edits; there is no
+watcher or reseed endpoint. The ready event's `seed` field reports `buckets` and
+`objects` (newly created), `replaced`, `unchanged`, `blocked` and
+`skipped_os_metadata`. In 0.2.1, a durable seed marker instead limits import to
+a fresh catalog. Import is administrative in both profiles; strict API reads
+still need a permitted local bearer token. See the [seed contract](slices/seed.md).
 
 ### Seed with Compose
 
@@ -2199,7 +2213,8 @@ mounts fixtures read-only. Keep both `-f` arguments on restart/recreate commands
 add `-f compose.strict.yaml` and the local admin bearer token for strict mode.
 Ordinary `stop` or `down` preserves data. To delete only this disposable demo's
 emulator data, explicitly run `docker compose -f compose.yaml -f compose.http.yaml -f compose.seed.yaml
-down --volumes`; the next `up -d --wait` imports into the fresh volume.
+down --volumes`; the next `up -d --wait` imports into the fresh volume. From the
+next release, a plain restart also reapplies the fixtures as described above.
 This complete guide, including bucket versioning/default holds, resumable upload,
 seeded Compose and strict bucket IAM/public/private journeys, passed on 2026-10-22;
 see the [final bucket integration evidence](evidence/bucket-core-parity.md).

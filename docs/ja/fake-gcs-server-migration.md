@@ -29,7 +29,7 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 | `-host 0.0.0.0 -port 4443` | `GCS_MIMIC_LISTEN: 0.0.0.0:4443` | ループバックだけで待ち受けると他のコンテナから接続できません。イメージの既定値を明示しています。 |
 | `-public-host gcs:4443 -external-url http://gcs:4443` | `GCS_MIMIC_API_BASE_URL: http://gcs:4443` | コンテナのSDKがresumableのLocationへ接続するために必要です。nativeのpath-style読み取りにはpublic-host設定が不要です。旧来の仮想ホスト判定や公開権限は再現しません。 |
 | `-backend filesystem -filesystem-root /storage` | `/var/lib/gcs-mimic`へ名前付きボリューム | 既定はSQLiteと内部blobの永続ストレージです。保存形式が違うため、移行元のボリュームは別に保管します。この手順にmemory backendの代替はありません。 |
-| 空のバケットディレクトリを置く`-data /data` | `GCS_MIMIC_BUCKETS_FILE: /buckets.json`と読み取り専用マウント | 毎回、未作成のバケットを作るために必要です。seedはカタログの初期化時だけ動き、後から足したディレクトリはバケットになりません。 |
+| 空のバケットディレクトリを置く`-data /data` | `GCS_MIMIC_BUCKETS_FILE: /buckets.json`と読み取り専用マウント | 毎回、未作成のバケットを作るために必要です。0.2.1のseedはカタログの初期化時だけ動き、後から足したディレクトリはバケットになりません。次のリリースからは`./data:/data:ro`のマウントだけで起動のたびにseedを反映し、空のディレクトリもバケットになります。バケットにCORSやバージョニングを設定するには、引き続きバケットファイルを使います。 |
 
 `data/assets/`と`data/exports/`の代わりに、起動前に`buckets.json`を作ります。
 
@@ -75,7 +75,7 @@ Goでは削除前に`err`を確認してください。未設定での`softDelet
 空ディレクトリのseedマウントは外し、このファイルを渡します。
 再起動時は未作成のバケットだけを追加し、既存のオブジェクトやAPIで変更した設定を保ちます。
 ファイルから項目を消してもバケットは削除しません。次のバケットはファイルに追加して再起動します。
-オブジェクトの初期ファイルは別の[初回seed](container-usage.md#初期ファイルを読み込む)で扱います。
+オブジェクトの初期ファイルは別の[初期ファイルのディレクトリ](container-usage.md#初期ファイルを読み込む)で扱います。
 
 `gcs`サービスを公開イメージに置き換え、アプリのサービスはそのままにします。
 `buckets.json`はComposeファイルの隣に置きます（マウント元はComposeファイルからの相対パスです）。
@@ -227,7 +227,7 @@ SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALSを参照してください。DESIGN-084は
 | `-scheme`や`FAKE_GCS_SCHEME`で起動が止まる | 旧設定名は別名ではない | 古いcommandやキーを消し、`GCS_MIMIC_SCHEME: http`へ置き換える。 |
 | SDKの開始は成功するが次の接続が失敗する | Locationがループバックかホスト専用のURL | コンテナ向けに`GCS_MIMIC_API_BASE_URL: http://gcs:4443`を指定し、サービスを再作成する。 |
 | ブラウザーが`gcs`を名前解決できない | コンテナDNSはホストでは使えない | この例では`http://localhost:14443`を使い、署名なしセッションのpath/queryを保って変換する。 |
-| 後から足した空ディレクトリがバケットにならない | seedは初回で完了している | バケットファイルへ`{"name":"exports"}`を追加して再起動する。データボリュームは消さない。 |
+| 後から足した空ディレクトリがバケットにならない | 0.2.1のseedは初回で完了している | バケットファイルへ`{"name":"exports"}`を追加して再起動する。データボリュームは消さない。次のリリースからは起動のたびにseedを反映するため、再起動でバケットが作られる。 |
 | HTTPで接続できない・probeがunhealthy | スキームや待受設定の不一致 | `GCS_MIMIC_SCHEME: http`と`GCS_MIMIC_LISTEN: 0.0.0.0:4443`を使い、probeにも継承させる。 |
 | 一覧でprojectの例つき400が返る | nativeではprojectが必須 | `/storage/v1/b?project=local-project`を使う。既存のlegacyプロファイルは省略時にseed_projectを使う。 |
 | ホスト側ポートが使用中 | 別の作業ツリーと重複 | `GCS_MIMIC_PORT=24443`と別プロジェクト名を指定し、ブラウザーのURLも変更する。内部URLは変えない。 |

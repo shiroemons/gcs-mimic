@@ -42,7 +42,7 @@ variables are diagnosed with replacement advice, never accepted as aliases.
 | `-host 0.0.0.0 -port 4443` | `GCS_MIMIC_LISTEN: 0.0.0.0:4443` | Peers need a wildcard listener; a loopback-only listener is unreachable from other containers. This repeats the image default. |
 | `-public-host gcs:4443 -external-url http://gcs:4443` | `GCS_MIMIC_API_BASE_URL: http://gcs:4443` | Container SDKs must reach resumable Location. Native path-style reads need no public-host setting; this does not reproduce legacy virtual-host matching or grant permissions. |
 | `-backend filesystem -filesystem-root /storage` | Named volume at `/var/lib/gcs-mimic` | The default persistent backend uses SQLite and opaque blobs. Keep the source volume separate; its format cannot be mounted as native storage. Memory backend has no equivalent here. |
-| `-data /data` with empty bucket directories | `GCS_MIMIC_BUCKETS_FILE: /buckets.json` and a read-only file mount | Missing buckets must be created on each startup. Seed runs only on first catalog initialization; directories added afterward do not create buckets. |
+| `-data /data` with empty bucket directories | `GCS_MIMIC_BUCKETS_FILE: /buckets.json` and a read-only file mount | Missing buckets must be created on each startup. In 0.2.1, seed runs only on first catalog initialization, so directories added afterward do not create buckets. From the next release, a `./data:/data:ro` mount alone replays seed on every startup, including empty directories; the buckets file remains the way to give buckets CORS or versioning settings. |
 
 The Ruby SDK's ordinary high-level calls now accept no-op wire defaults:
 
@@ -115,7 +115,7 @@ For `data/assets/` and `data/exports/`, write `buckets.json` before startup:
 Remove the empty-directory seed mount and add this file instead. Restart creates
 only missing entries, preserves existing objects and API settings, and does not
 delete buckets removed from the file. Add future bucket names to this file and
-restart. Object fixtures are a separate [one-time seed](container-usage.md#load-local-files).
+restart. Object fixtures use a separate [seed directory](container-usage.md#load-local-files).
 
 Replace the `gcs` service with the published image and keep your application
 services unchanged. Place `buckets.json` beside the Compose file; the mount
@@ -272,7 +272,7 @@ and SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALS; DESIGN-084 remains PARTIAL.
 | Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | Source names are not aliases | Remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
 | SDK initiation succeeds but its next request cannot connect | Location contains loopback or a host-only address | Set `GCS_MIMIC_API_BASE_URL: http://gcs:4443` for container clients and recreate the service. |
 | Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when translating unsigned URLs. |
-| A newly added empty directory creates no bucket | Seed completed during the first catalog initialization | Add `{"name":"exports"}` to the version-1 buckets file and restart; do not erase the data volume. |
+| A newly added empty directory creates no bucket | In 0.2.1, seed completed during the first catalog initialization | Add `{"name":"exports"}` to the version-1 buckets file and restart; do not erase the data volume. From the next release, seed replays on every startup and creates the bucket after a restart. |
 | HTTP connection fails or an inherited probe is unhealthy | Scheme/listener differs from the client or probe environment | Use `GCS_MIMIC_SCHEME: http` and `GCS_MIMIC_LISTEN: 0.0.0.0:4443`; let the image's probe inherit them. |
 | Bucket listing returns 400 with a project example | Native requires an explicit project | Request `/storage/v1/b?project=local-project`. The existing legacy profile defaults omitted project to seed_project. |
 | Docker reports the host port is in use | Another worktree publishes the same port | Set `GCS_MIMIC_PORT=24443` and a different Compose project; update browser URLs, leaving `http://gcs:4443` unchanged. |
@@ -439,7 +439,7 @@ assume that changing the image name is sufficient.
 | `-port-http` | `--listen-http IP:PORT`, `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; default primary IP:8000 |
 | `-external-url` | `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Fixed origin for API-generated links; not a public-host allowlist |
 | `-public-host` | `--public-base-url`, `GCS_MIMIC_PUBLIC_BASE_URL` | HTTP(S) origin; adds a DNS virtual domain. Legacy Host matching requires `--compat-profile legacy-emulator`; native path-style accepts any Host. |
-| `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR` | Initial import into a fresh catalog, not startup replay or live synchronization |
+| `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` (next release) | Applied before readiness on every startup from the next release (0.2.1 imports once into a fresh catalog). Differing objects, including API metadata edits, are replaced as in the source; an exactly identical object keeps its generation instead of getting a new one; no reseed route or live synchronization |
 | `-filesystem-root` | `--data-dir`, `GCS_MIMIC_DATA_DIR` | Persistent destination with a different format; cannot reuse the source root directly |
 | `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
 | `-log-level` | `--log-level`, `GCS_MIMIC_LOG_LEVEL`, JSON `log_level` | Minimum runtime stderr severity; default info; debug/info/warn/error and warning alias; diagnostics and stdout lifecycle are unfiltered |
@@ -522,9 +522,13 @@ The existing `auth_mode=permissive` is not already a complete legacy profile.
 - A strict corpus checks local identities, effective permissions and valid
   signatures against the Google contract. Legacy signature acceptance must not
   leak into strict requests.
-- Existing native seeding remains one-time and does not replay over mutations.
-  Source-compatible seed/reseed behavior must be selected explicitly; durable
-  migration must never silently replay fixtures over imported changes.
+- From the next release, native seeding replays on every startup: an object
+  that differs from its seed file in bytes or metadata is replaced as a new
+  generation, so seed files win over API edits at restart; only an exactly
+  identical object keeps its generation. A reseed route is not
+  implemented. Durable migration must never silently replay fixtures over
+  imported changes; do not mount seed files that overlap imported objects unless
+  the seed file should win.
 - Resource limits and unsupported settings remain visible. A recognized setting
   must not be accepted with no effect merely to pass a startup test.
 
@@ -560,7 +564,8 @@ Three source formats must remain distinct:
 
 1. **Seed directory:** the source loader treats regular files below bucket
    directories as object content and derives MIME types from extensions. Native
-   gcs-mimic seed input currently uses octet-stream. Do not claim the existing
+   gcs-mimic seed input derives MIME from a pinned extension table by default
+   from the next release (octet-stream in 0.2.1). Do not claim the existing
    seed implementation already preserves fake-gcs-server metadata/defaults.
 2. **Persistent filesystem:** decode the source's bucket metadata, object
    attributes and xattr/sidecar selection from the selected source format.
