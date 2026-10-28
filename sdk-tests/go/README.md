@@ -2,14 +2,14 @@
 
 `grpc_foundation_test.go` uses `STORAGE_EMULATOR_HOST_GRPC` and ordinary
 `storage.NewGRPCClient(ctx)` to verify immediate non-retryable UNIMPLEMENTED for
-Rapid Writer through Close, CancelResumableWrite and unknown service/method
-ErrorInfo. Strict authentication checks use CancelResumableWrite.
+Rapid Writer through Close and unknown service/method ErrorInfo. Strict
+authentication checks call CancelResumableWrite with an absent upload_id.
 `scripts/sdk-go.sh` starts separate plaintext h2c listeners for permissive
 and strict profiles; HTTP/HTTPS ports remain separate. Wire tests directly pin
 grpc-go v1.85.0 and protobuf v1.36.12 in the existing module graph. Storage v2
 supports scoped bucket CRUD/updates/IAM/retention locking, object metadata/media/
 listing/deletion/restore, streaming and resumable writes, rewrite/compose/move and
-bidirectional ranged reads. CancelResumableWrite, Rapid append and unsupported
+bidirectional ranged reads and CancelResumableWrite. Rapid append and unsupported
 fields retain UNIMPLEMENTED; see the
 [foundation contract](../../docs/en/slices/grpc-v2-foundation.md).
 
@@ -39,17 +39,22 @@ retention locking, Copier, Composer, Move and soft-deleted-generation Restore.
 JSON prepares resources and verifies the resulting metadata and bytes. Strict
 tests use the same registered local principals and permission decisions as JSON.
 Independent UBLA/PAP updates preserve the unspecified setting. Unsupported masks
-fail immediately with UNIMPLEMENTED; foundation authentication checks use the
-unsupported CancelResumableWrite RPC. See the [update/copy contract](../../docs/en/slices/grpc-v2-update-copy.md).
+fail immediately with UNIMPLEMENTED. See the [update/copy contract](../../docs/en/slices/grpc-v2-update-copy.md).
 
 `grpc_object_io_test.go` verifies ordinary Storage v2 Writer with its default
 chunk size (5-byte and 5-MiB payloads), readers, ranges, metadata, deletion and
 prefix/delimiter/paged iteration. JSON and gRPC read each other's objects.
 Strict tests exercise admin/viewer/anonymous callers. Wire tests use the SDK's
 registered pinned protobuf descriptors to verify WriteObject, resumable offsets,
-QueryWriteStatus, CRC32C/MD5 rejection and negative-offset reads without copying
+QueryWriteStatus, CancelResumableWrite, CRC32C/MD5 rejection and negative-offset reads without copying
 the schema or adding dependencies. Deletion checks share JSON holds, retention
 and soft-delete behavior. See the [object I/O contract](../../docs/en/slices/grpc-v2-object-io.md).
+
+`cross_protocol_objects_test.go` writes objects through raw JSON, raw XML and the
+Storage v2 Writer and observes them through the other transports and legacy v1:
+generations, metadata, hashes, bytes, listings, metageneration bumps, generation
+preconditions, deletion, noncurrent versions and strict viewer/creator/anonymous
+decisions. See the [cross-protocol contract](../../docs/en/slices/cross-protocol-objects.md).
 
 `TestObjectSoftDeleteRestore` configures BucketAttrs.SoftDeletePolicy, deletes an
 object, lists Query.SoftDeleted, gets Generation(g).SoftDeleted().Attrs, restores
