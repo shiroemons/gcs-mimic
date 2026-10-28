@@ -90,7 +90,6 @@ start_server() {
     -u GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS \
     -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY -u GCS_MIMIC_CA_CERT -u GCS_MIMIC_SDK_SCHEME \
     -u GCS_MIMIC_TLS_DIR -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT \
-    -u GCS_MIMIC_TEST_JOBS -u GCS_MIMIC_TEST_RAMDISK -u GCS_MIMIC_TEST_RAMDISK_MB \
     "$server" serve --scheme "$scheme" --listen "$address" --grpc-listen "$grpc_address" --api-base-url "$origin" ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
   server_pid=$!
   printf -v "$pid_var" '%s' "$server_pid"

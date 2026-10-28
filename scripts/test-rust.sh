@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs every workspace test that `cargo test --workspace` runs, with test binaries in a bounded pool.
 # Cargo runs test binaries one at a time while most of their time waits on file synchronization, so
-# the doctests and the SDK server build share that wait. GCS_MIMIC_TEST_JOBS (default 1) bounds the
+# the doctests and the SDK server build share that wait. GCSM_TEST_JOBS (default 1) bounds the
 # pool: concurrent syncs on a system disk delay unrelated processes enough to break wall-clock
 # deadline tests, so scripts/with-test-tmpdir.sh raises the default only on a RAM-backed TMPDIR.
 set -euo pipefail
@@ -25,9 +25,9 @@ if [[ $# != 0 ]]; then echo 'Usage: bash scripts/test-rust.sh' >&2; exit 2; fi
 
 cd "$(dirname "$0")/.."
 script=$PWD/scripts/test-rust.sh
-jobs=${GCS_MIMIC_TEST_JOBS:-1}
+jobs=${GCSM_TEST_JOBS:-1}
 if [[ ! $jobs =~ ^[1-9][0-9]*$ ]]; then
-  echo 'GCS_MIMIC_TEST_JOBS must be a positive integer' >&2
+  echo 'GCSM_TEST_JOBS must be a positive integer' >&2
   exit 2
 fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/gcs-mimic-test-rust.XXXXXX")

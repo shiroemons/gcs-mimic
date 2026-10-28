@@ -52,26 +52,31 @@ filter cannot silently omit tests. CI calls the same `scripts/check.sh` directly
 preserving its selected pinned/current-stable toolchain; CI does not require
 just. `scripts/test-check.sh` verifies command order and failure propagation
 without compiling or starting containers.
-
-`scripts/test-rust.sh` runs every test binary and doctest that
-`cargo test --workspace` runs. It runs the test binaries in a pool of
-`GCS_MIMIC_TEST_JOBS` (default 1), while the doctests and the SDK server binary
-build run alongside them. `just check` and `just check-sdk` run through
-`scripts/with-test-tmpdir.sh`. On macOS, that wrapper attaches a temporary RAM
-disk (`GCS_MIMIC_TEST_RAMDISK_MB`, default 4096), uses it as `TMPDIR`, raises
-the default pool to 4, and detaches the disk on exit. Tests keep their real file
-synchronization. macOS implements it with `F_FULLFSYNC`, which flushes the
-system disk and otherwise dominates test time. Concurrent tests on the system
-disk delay processes enough to break wall-clock deadline tests, so the pool
-stays serial there. Set `GCS_MIMIC_TEST_RAMDISK=0` to use the normal `TMPDIR`.
-If the RAM disk cannot be created, the wrapper warns and continues serially. On
-other platforms the wrapper changes nothing, and CI runs the binaries serially.
 `just check` also runs `scripts/test-pre-push.sh`, which checks the actual
 Justfile with stub harnesses: overlapping workers, prefixed output, completion
 of both workers after failure, stage ordering and the serial fallback. Run it
 directly with `bash scripts/test-pre-push.sh` after changing recipes. This local
 Justfile test requires just; CI continues to use the direct shell harnesses and
 separate native container jobs.
+
+`scripts/test-rust.sh` runs every test binary and doctest that
+`cargo test --workspace` runs. It runs the test binaries in a pool of
+`GCSM_TEST_JOBS` (default 1), while the doctests and the SDK server binary
+build run alongside them. `just check` and `just check-sdk` run through
+`scripts/with-test-tmpdir.sh`. On macOS, that wrapper attaches a temporary RAM
+disk (`GCSM_TEST_RAMDISK_MB`, default 4096), uses it as `TMPDIR`, raises
+the default pool to 4, and detaches the disk on exit. Tests keep their real file
+synchronization. macOS implements it with `F_FULLFSYNC`, which flushes the
+system disk and otherwise dominates test time. Concurrent tests on the system
+disk delay processes enough to break wall-clock deadline tests, so the pool
+stays serial there. Set `GCSM_TEST_RAMDISK=0` to use the normal `TMPDIR`.
+If the RAM disk cannot be created, the wrapper warns and continues serially. On
+other platforms the wrapper changes nothing, and CI runs the binaries serially
+on its disk. Local macOS checks and CI therefore run tests under different
+timing, so a timing-sensitive failure can appear in only one of them; treat it
+as a test defect in either place. These settings use the `GCSM_TEST_` prefix
+because the server reads every `GCS_MIMIC_` and `FAKE_GCS_` variable as its own
+setting and rejects unknown names.
 
 `bash scripts/sdk-go.sh` remains Go-only for the existing CI job; the SDK recipe
 explicitly passes `--with-ruby`. It requires installed pinned Ruby gems and fails

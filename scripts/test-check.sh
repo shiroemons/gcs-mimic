@@ -56,7 +56,7 @@ SH
 chmod +x "$work/bin/cargo" "$work/bin/rustc" "$work/bin/rustup" "$work"/tests/*
 export PATH="$work/bin:$PATH"
 export GCS_MIMIC_CHECK_LOG="$work/actual"
-unset GCS_MIMIC_TEST_JOBS
+unset GCSM_TEST_JOBS
 cat >"$work/expected" <<'TEXT'
 fetch --locked
 fmt --all --check
@@ -85,7 +85,7 @@ diff -u "$work/expected" "$work/actual"
 sort "$work/ran" | diff -u "$work/expected-ran" -
 grep -F 'PASS: 2 test binaries and doctests with 1 concurrent binaries' "$work/output" >/dev/null
 
-GCS_MIMIC_CHECK_FAIL='' GCS_MIMIC_CHECK_OVERLAP=true GCS_MIMIC_TEST_JOBS=2 run_check
+GCS_MIMIC_CHECK_FAIL='' GCS_MIMIC_CHECK_OVERLAP=true GCSM_TEST_JOBS=2 run_check
 test "$status" = 0
 sort "$work/ran" | diff -u "$work/expected-ran" -
 
@@ -121,20 +121,20 @@ grep -F 'reported no test executables' "$work/output" >/dev/null
 
 for jobs in 0 -1 x; do
   status=0
-  GCS_MIMIC_TEST_JOBS=$jobs bash scripts/test-rust.sh >"$work/output" 2>&1 || status=$?
+  GCSM_TEST_JOBS=$jobs bash scripts/test-rust.sh >"$work/output" 2>&1 || status=$?
   test "$status" = 2
 done
 
 # The RAM disk wrapper preserves the command's arguments and status when it is disabled.
 status=0
-GCS_MIMIC_TEST_RAMDISK=0 TMPDIR="$work/tmp" bash scripts/with-test-tmpdir.sh \
-  bash -c 'test "$TMPDIR|$1|${GCS_MIMIC_TEST_JOBS:-unset}" = "$0|two words|unset"; exit 7' "$work/tmp" 'two words' ||
+GCSM_TEST_RAMDISK=0 TMPDIR="$work/tmp" bash scripts/with-test-tmpdir.sh \
+  bash -c 'test "$TMPDIR|$1|${GCSM_TEST_JOBS:-unset}" = "$0|two words|unset"; exit 7' "$work/tmp" 'two words' ||
   status=$?
 test "$status" = 7
-for setting in 'GCS_MIMIC_TEST_RAMDISK=2' 'GCS_MIMIC_TEST_RAMDISK_MB=0'; do
+for setting in 'GCSM_TEST_RAMDISK=2' 'GCSM_TEST_RAMDISK_MB=0'; do
   status=0
   env "$setting" bash scripts/with-test-tmpdir.sh true >"$work/output" 2>&1 || status=$?
-  if [[ $(uname -s) == Darwin || $setting == GCS_MIMIC_TEST_RAMDISK=2 ]]; then test "$status" = 2; fi
+  if [[ $(uname -s) == Darwin || $setting == GCSM_TEST_RAMDISK=2 ]]; then test "$status" = 2; fi
 done
 status=0
 bash scripts/with-test-tmpdir.sh >"$work/output" 2>&1 || status=$?

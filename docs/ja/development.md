@@ -39,17 +39,21 @@ just pre-push
 ## テストの実行時間
 
 `scripts/test-rust.sh`は、`cargo test --workspace`と同じテストバイナリとdoctestをすべて実行します。
-テストバイナリは`GCS_MIMIC_TEST_JOBS`本ずつ（既定は1）並列に実行し、
+テストバイナリは`GCSM_TEST_JOBS`本ずつ（既定は1）並列に実行し、
 doctestとSDK用サーバーのビルドもその間に進めます。
 
 `just check`と`just check-sdk`は`scripts/with-test-tmpdir.sh`を通して実行します。
-macOSでは実行中だけRAMディスク（`GCS_MIMIC_TEST_RAMDISK_MB`、既定は4096）を作って`TMPDIR`にし、
+macOSでは実行中だけRAMディスク（`GCSM_TEST_RAMDISK_MB`、既定は4096）を作って`TMPDIR`にし、
 並列数の既定を4に上げ、終了時に取り外します。テストのファイル同期はそのまま行います。
 macOSの同期は`F_FULLFSYNC`でシステムディスク全体を書き出すため、通常はこれがテスト時間の大半を占めます。
 システムディスク上で並列に実行すると、期限を確かめるテストが遅れて失敗するため、その場合は逐次実行のままにします。
-通常の`TMPDIR`を使うには`GCS_MIMIC_TEST_RAMDISK=0`を指定します。
+通常の`TMPDIR`を使うには`GCSM_TEST_RAMDISK=0`を指定します。
 RAMディスクを作れなかった場合は警告を出し、逐次実行で続けます。
 macOS以外では何も変えず、CIも逐次実行です。
+そのため、手元のmacOSとCIではテストの時間条件が異なり、時間に敏感な失敗が片方だけに出ることがあります。
+どちらで出た場合もテストの欠陥として扱ってください。
+これらの設定に`GCSM_TEST_`接頭辞を使うのは、サーバーが`GCS_MIMIC_`と`FAKE_GCS_`で始まる変数を
+すべて自分の設定として読み、知らない名前を拒否するためです。
 
 ## コンテナ検証だけ実行する
 

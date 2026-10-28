@@ -2,23 +2,25 @@
 # Runs a command with TMPDIR on a temporary macOS RAM disk, then detaches it. Tests keep their real
 # sync calls, but macOS implements them with F_FULLFSYNC, which flushes the whole system disk and
 # dominates test time. On a RAM disk the same calls finish quickly, so the wrapper also raises the
-# default test binary concurrency. Other platforms, or GCS_MIMIC_TEST_RAMDISK=0, run the command
-# unchanged with serial test binaries.
+# default test binary concurrency. Other platforms, or GCSM_TEST_RAMDISK=0, run the command
+# unchanged with serial test binaries. The GCSM_TEST_ settings stay outside the GCS_MIMIC_ and
+# FAKE_GCS_ prefixes, which the server reads as its own settings and rejects when unknown, so
+# exporting them in a shell profile cannot stop a server from starting.
 set -euo pipefail
 
 if [[ $# == 0 ]]; then
   echo 'Usage: bash scripts/with-test-tmpdir.sh COMMAND [ARGUMENT...]' >&2
   exit 2
 fi
-case ${GCS_MIMIC_TEST_RAMDISK:-1} in
+case ${GCSM_TEST_RAMDISK:-1} in
   0) exec "$@" ;;
   1) ;;
-  *) echo 'GCS_MIMIC_TEST_RAMDISK must be 0 or 1' >&2; exit 2 ;;
+  *) echo 'GCSM_TEST_RAMDISK must be 0 or 1' >&2; exit 2 ;;
 esac
 if [[ $(uname -s) != Darwin ]]; then exec "$@"; fi
-size_mb=${GCS_MIMIC_TEST_RAMDISK_MB:-4096}
+size_mb=${GCSM_TEST_RAMDISK_MB:-4096}
 if [[ ! $size_mb =~ ^[1-9][0-9]*$ ]]; then
-  echo 'GCS_MIMIC_TEST_RAMDISK_MB must be a positive integer' >&2
+  echo 'GCSM_TEST_RAMDISK_MB must be a positive integer' >&2
   exit 2
 fi
 
@@ -63,5 +65,5 @@ if [[ -z $device ]] || ! diskutil erasevolume APFS "$name" "$device" >/dev/null 
 fi
 echo "Using a $size_mb MiB RAM disk for TMPDIR: $mount_point" >&2
 export TMPDIR=$mount_point
-export GCS_MIMIC_TEST_JOBS=${GCS_MIMIC_TEST_JOBS:-4}
+export GCSM_TEST_JOBS=${GCSM_TEST_JOBS:-4}
 "$@"
