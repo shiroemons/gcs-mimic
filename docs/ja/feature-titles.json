@@ -15,6 +15,7 @@
     "RPC-LEGACY-011": "旧Storage v1 ComposeObject",
     "RPC-LEGACY-012": "旧Storage v1 ListObjects",
     "DIST-003": "検証・証跡付きのGHCR複数CPU公開と不変バージョン",
+    "DIST-004": "検証済みGHCRイメージのDocker Hubへの複製",
     "DIST-001": "macOS・Windows・Linux向けのライセンス同梱バイナリ",
     "DIST-002": "手動検証成果物と不変タグによるGitHub Release",
     "JSON-ANYWHERECACHES-001": "anywhereCaches.disable",

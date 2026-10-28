@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 251 | 0 | 58 | 1 | 0 | 0 |
 | behavior | 201 | 112 | 0 | 51 | 38 | 0 | 0 |
-| project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
+| project_requirement | 93 | 35 | 0 | 29 | 29 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 251 | 28 | 31 | 0 | 0 | 0 |
 | behavior | 113 | 53 | 32 | 3 | 0 | 0 |
-| project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
+| project_requirement | 35 | 0 | 0 | 0 | 0 | 58 |
 
 ## api_operation
 
@@ -838,6 +838,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DIST-003 | 検証・証跡付きのGHCR複数CPU公開と不変バージョン | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DIST-004 | 検証済みGHCRイメージのDocker Hubへの複製 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### Dependency freshness
 

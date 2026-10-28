@@ -287,3 +287,11 @@ jobs:
     uses: ./.github/workflows/ghcr.yaml
     with:
       version: ${{ needs.validate.outputs.version }}
+  publish-dockerhub:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [validate, publish-container]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/dockerhub.yaml
+    with:
+      version: ${{ needs.validate.outputs.version }}

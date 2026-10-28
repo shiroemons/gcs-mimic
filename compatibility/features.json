@@ -14,7 +14,7 @@
   "counts_by_kind": {
     "api_operation": 310,
     "behavior": 201,
-    "project_requirement": 92
+    "project_requirement": 93
   },
   "api_counts_by_category": {
     "JSON API / anywhereCaches": 7,
@@ -2283,6 +2283,66 @@
       ],
       "implemented_in": null,
       "last_verified": "2026-10-26"
+    },
+    {
+      "id": "DIST-004",
+      "kind": "project_requirement",
+      "category": "Container distribution",
+      "title": "Docker Hub mirror of the verified GHCR index",
+      "interface": "Project distribution",
+      "phase": "P0",
+      "priority": "MEDIUM",
+      "status": "PARTIAL",
+      "target_fidelity": "PROJECT",
+      "actual_fidelity": "PROJECT",
+      "source_urls": [
+        "https://docs.docker.com/build/ci/github-actions/copy-image-registries/",
+        "https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/"
+      ],
+      "source_checked_at": "2026-10-28",
+      "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
+      "notes": "After GHCR publication, the release workflow copies the index recorded in CONTAINER-DIGESTS.json to docker.io/shiroemons/gcs-mimic without rebuilding, so both registries share one index digest with its SPDX SBOM and SLSA provenance. A main-branch manual run backfills versions already on GHCR. The Docker Hub token is confined to the dockerhub GitHub environment. Exact versions remain immutable and minor/latest aliases follow the GHCR policy.",
+      "dependencies": [
+        "DIST-003"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DIST-004-OFFLINE",
+          "description": "Reject private or unreachable repositories, Hub API failures, mismatched digest reports, moved source tags, GHCR tag drift, missing source attestations, foreign pagination links and changed exact versions before any copy; keep the index digest, reuse identical exact versions and select aliases by stable Release order.",
+          "result": "PASS",
+          "test_ids": [
+            "dockerhub-mirror-offline"
+          ]
+        },
+        {
+          "id": "DIST-004-PUBLICATION",
+          "description": "Observe an authorized mirror run end to end: equal GHCR and Docker Hub index digests, per-platform SBOM and provenance on Docker Hub, anonymous digest access and alias selection.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "dockerhub-mirror-offline"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/test-container-mirror.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/evidence/dockerhub.md",
+          "test_ids": [
+            "dockerhub-mirror-offline"
+          ]
+        }
+      ],
+      "sdk_evidence": [],
+      "known_deviations": [
+        "No Docker Hub publication has run. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-28"
     },
     {
       "id": "DIST-001",

@@ -104,6 +104,38 @@ Replace `X.Y.Z` with a version that actually exists. For digest pinning, use
 the server only to local development networks and follow the existing
 [configuration and volume guide](getting-started.md).
 
+## Docker Hub mirror
+
+After the GHCR manifest job succeeds, the release workflow calls
+`.github/workflows/dockerhub.yaml`. It copies the index recorded in the Release's
+`CONTAINER-DIGESTS.json` to `docker.io/shiroemons/gcs-mimic` without rebuilding.
+A single-source `imagetools create` copies the index unchanged, so both registries
+share one index digest, platform manifests, SBOM and provenance. The job then
+applies the same exact, `X.Y` and `latest` tag policy as GHCR.
+
+Before any copy, `scripts/container-mirror.sh` verifies that the Docker Hub
+repository is public, the source Git tag still names the reported commit, the
+GHCR version tag matches the report, and both platforms carry SPDX and SLSA
+attestations. An existing Docker Hub exact version is reused only when it has
+the same digest. After the copy, it checks the attestations on Docker Hub and
+anonymous digest access before moving aliases. Rerun the failed job after a
+transient failure. The Docker Hub copy is a separate remote operation and can
+lag or fail after GHCR succeeds.
+
+One-time setup by the repository owner:
+
+1. Create the public Docker Hub repository `shiroemons/gcs-mimic`. A first push
+   would otherwise create it with the account's default visibility.
+2. Create a Docker Hub personal access token with **Read & Write** access only.
+3. Create the GitHub environment `dockerhub` with the secret `DOCKERHUB_TOKEN`
+   and the variable `DOCKERHUB_USERNAME`. Restrict its deployment refs to the
+   tag pattern `v*` and the `main` branch.
+
+To mirror a version that GHCR already published, run **Mirror release container
+to Docker Hub** manually from `main` with that version. Manual runs from other
+refs are skipped. Docker Hub permits any token holder to move tags; the workflow
+alone enforces exact-version immutability, so keep the token in the environment.
+
 ## Notices, SBOM and provenance
 
 Images include both project license texts and Cargo/Rust/SQLite/crc32c/GCC
