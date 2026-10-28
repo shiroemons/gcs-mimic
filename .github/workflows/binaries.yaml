@@ -91,6 +91,9 @@ jobs:
       HOST: ${{ matrix.host }}
       VERSION: ${{ needs.validate.outputs.version }}
       CARGO_PROFILE_RELEASE_STRIP: symbols
+      # Test builds keep panic locations with less debug info, which shortens
+      # linking; the release profile that produces the archives is unaffected.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

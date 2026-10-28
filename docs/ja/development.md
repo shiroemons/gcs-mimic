@@ -78,4 +78,6 @@ Foundation checksワークフローは`Swatinem/rust-cache`でCargoの依存ビ�
 同じブランチやプルリクエストに新しいpushがあると前の実行は取り消されますが、`main`ではすべて実行します。
 CIはリンク時間を短くするため`CARGO_PROFILE_DEV_DEBUG=line-tables-only`でデバッグビルドを行い、
 Windowsのテストは一時ディレクトリに`RUNNER_TEMP`を使います。
+リリースワークフローのネイティブテストも同じ2つの設定を使いますが、Cargoのキャッシュは使わず、
+配布アーカイブは常にクリーンなtargetディレクトリからビルドします。
 依存の更新確認や直接実行するコマンドは[英語の開発手順](../en/development.md)を参照してください。

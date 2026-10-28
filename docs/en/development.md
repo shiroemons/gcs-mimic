@@ -94,7 +94,9 @@ The Foundation checks workflow restores Cargo dependency builds with
 requests reuse the latest `main` cache. A newer push cancels the previous run
 for the same branch or pull request; `main` keeps every run. CI builds debug
 profiles with `CARGO_PROFILE_DEV_DEBUG=line-tables-only` to shorten linking,
-and Windows tests use `RUNNER_TEMP` as their temporary directory.
+and Windows tests use `RUNNER_TEMP` as their temporary directory. The release
+workflow's native test runs use the same two settings but no Cargo cache, so
+release archives always build from a clean target directory.
 
 Run the separate online freshness check at slice start and before release:
 
