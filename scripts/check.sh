@@ -6,7 +6,7 @@ cargo fetch --locked
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 bash scripts/check-cross.sh
-cargo test --workspace --locked --offline
+bash scripts/test-rust.sh
 cargo xtask compatibility check
 bash scripts/test-container-release.sh
 for script in scripts/*.sh; do bash -n "$script"; done

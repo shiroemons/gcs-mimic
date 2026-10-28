@@ -14,6 +14,7 @@ mkdir "$work/scripts"
 for script in test-pre-push test-check; do
   printf 'exit 0\n' >"$work/scripts/$script.sh"
 done
+printf 'exec "$@"\n' >"$work/scripts/with-test-tmpdir.sh"
 cat >"$work/scripts/check.sh" <<'SH'
 set -euo pipefail
 if [[ ${GCS_MIMIC_PRE_PUSH_TEST_FAIL:-} == check ]]; then exit 23; fi

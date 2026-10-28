@@ -6,7 +6,7 @@ default:
 check:
     bash scripts/test-pre-push.sh
     bash scripts/test-check.sh
-    env -u RUSTUP_TOOLCHAIN bash scripts/check.sh
+    env -u RUSTUP_TOOLCHAIN bash scripts/with-test-tmpdir.sh bash scripts/check.sh
 
 # Check upstream dependency freshness; requires network access.
 check-dependencies:
@@ -14,7 +14,7 @@ check-dependencies:
 
 # Run the complete pinned Go and Ruby SDK suites against isolated servers.
 check-sdk:
-    env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh --with-ruby
+    env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby
 
 # Report Rails GCS compatibility cases independently; known failures return nonzero.
 check-active-storage:
