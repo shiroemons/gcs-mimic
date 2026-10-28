@@ -117,8 +117,74 @@ data/
 
 現在、初期ファイルのContent-Typeは`application/octet-stream`になります。
 fake-gcs-serverの実行用ストレージにあるxattrやサイドカーのメタデータは移行しません。
-初期化後の外部編集は反映されず、APIで保存しても`/data`へは書き戻しません。
+初期ファイルのディレクトリは読み込み専用の入力です。初期化後の外部編集は反映されず、
+APIで保存しても`/data`へは書き戻しません。APIで保存したオブジェクトをファイルとして
+見るには、別の[同期ディレクトリ](#オブジェクトをホストのディレクトリへ書き出す)を使います。
 既存の永続データを使う前に[保存方式の違い](storage-backends.md)を確認してください。
+
+## オブジェクトをホストのディレクトリへ書き出す
+
+`GCS_MIMIC_SYNC_DIR`（`--sync-dir`、JSONでは`sync_dir`）を指定すると、既存の書き込み可能な
+ディレクトリへ、すべてのバケットと現行オブジェクトを`BUCKET/OBJECT`のファイルとして書き出します。
+READMEのサービスへ次の項目を追加します。既存の環境変数と永続ボリュームは残してください。
+
+```yaml
+    environment:
+      GCS_MIMIC_SYNC_DIR: /sync
+    volumes:
+      - ./sync:/sync
+```
+
+起動前に`./sync`を作り、あとは通常どおりAPIを使います。
+
+```sh
+mkdir -p sync
+docker compose up -d --wait
+curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
+  'http://localhost:4443/storage/v1/b?project=demo-project'
+curl --fail --data-binary 'hello' \
+  'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=docs%2Fhello.txt'
+cat sync/demo-bucket/docs/hello.txt
+```
+
+readinessの成功後、既存のバケット（空のバケットを含む）とオブジェクトを書き出します。
+以後はAPIでの作成・上書き・コピー・compose・削除が、応答の少し後にファイルへ反映されます。
+応答した時点でファイルがあるとは限らないため、必要ならポーリングしてください。
+保存状態の本体はSQLiteのカタログと内部ファイルで、このディレクトリは写しです。
+データの永続化には、引き続き`/var/lib/gcs-mimic`のボリュームが必要です。
+
+サーバーの外で作成・編集したファイルは、起動時に新しい世代としてhash付きで取り込みます。
+ファイル監視はないため、編集を反映するには再起動します。取り込んだファイルがAPIから
+見えるのは、readinessの約1秒後です。ファイルを消してもオブジェクトは削除されず、
+APIでバケットを削除してもディレクトリは残ります。同じオブジェクトをAPIとファイルの両方で
+変更した場合は、どちらも相手を上書きせず、ファイルはそのまま残ります。起動時の
+`sync_ingested`・`sync_reconciled`ログイベントでは、こうしたファイルを`conflicting`として数えます。
+`logs/2026-10-28T12:00:00.log`のように`\`や`:`を含む名前と、ホストのファイル名に
+対応付けられないオブジェクト名は書き出さずに飛ばします。書き出し自体は止まらず、APIからは使えます。
+
+ディレクトリには、1つのデータディレクトリと結び付ける`.gcs-mimic-sync.json`と
+`.gcs-mimic-sync-work`が作られます。どちらも`.gitignore`に追加してください。
+`docker compose down --volumes`などでデータボリュームを新しくすると、古いディレクトリは
+`ForeignMarker`の診断で起動時に拒否されます。古いディレクトリは退避し、新しい空のディレクトリを
+使ってください。データや初期ファイルのディレクトリと重ねることはできません。
+同期にはpermissive認証が必要で（strictでは拒否します）、LinuxとmacOSで動作します。
+Windowsでは拒否します。
+
+書き出したファイルとディレクトリは、サーバーのユーザーだけが読めるモード（`0600`・`0700`）です。
+Docker Desktopはbind mountの所有者を対応付けるため、macOSのホストでは読めます。
+Linuxのホストでは、イメージのUID `10001`の所有になります。コンテナを自分のユーザーで実行し、
+データディレクトリも同じユーザーが所有するbind mountにしてください。
+
+```sh
+mkdir -p data sync
+docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
+  -p 127.0.0.1:4443:4443 \
+  -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
+  -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/data -e GCS_MIMIC_SYNC_DIR=/sync \
+  ghcr.io/shiroemons/gcs-mimic:0.2.1
+```
+
+検証済みの範囲、復旧の挙動、未実装の作業は[同期の契約（英語）](../en/slices/directory-synchronization.md)を参照してください。
 
 ## バケットごとに設定する
 

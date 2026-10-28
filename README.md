@@ -71,7 +71,7 @@ These are workflow summaries, not claims of complete Google API compatibility.
 | Rewrite with multi-call continuation | ✅ | ❌ | ❌ |
 | Retain object version history | ✅ | ◐ Memory backend | ❌ |
 | Keep API-created bytes across restart | ✅ | ✅ Filesystem | ✅ Disk |
-| API writes visible as bucket/object files | ❌ | ✅ Filesystem | ✅ Disk |
+| API writes visible as bucket/object files | ✅ Mirror | ✅ Filesystem | ✅ Disk |
 | Load bucket/object seed bytes | ✅ Once | ✅ Startup or reseed | ❌ |
 | Default CORS for JSON API requests | ✅ | ✅ | ❌ |
 | Enforce bucket-specific XML CORS rules | ✅ | ❌ | ❌ |
@@ -86,6 +86,9 @@ resumable (including cancellation), ranged/bidirectional read and
 rewrite/compose/move calls on standard buckets. The legacy v1 row covers the
 reference emulator's twelve RPCs, including multi-message uploads; the
 reference keeps only the first upload message's data.
+The mirror row uses an optional `--sync-dir`
+[directory](docs/en/container-usage.md#mirror-objects-to-a-host-directory)
+beside the internal storage; external deletion is not imported.
 
 The optional plaintext `grpc_listen` serves scoped Storage v2 bucket CRUD,
 updates, IAM and retention locking; object reads, writes, listing, deletion and
@@ -116,8 +119,11 @@ sources and verification limits, and the generated
   to XML requests; JSON uses fixed defaults.
 - Data persists in embedded SQLite metadata and separate object files.
   No database server is required. Internal filenames are not object names.
-- A `bucket/object` seed directory can be imported once. Live directory sync
-  is not implemented yet. A [versioned initialization file](docs/en/container-usage.md#initialize-bucket-settings)
+- A `bucket/object` seed directory can be imported once. A
+  [sync directory](docs/en/container-usage.md#mirror-objects-to-a-host-directory)
+  mirrors API writes as `bucket/object` files and imports external creates and
+  edits at startup; external deletion and a file watcher are not implemented.
+  A [versioned initialization file](docs/en/container-usage.md#initialize-bucket-settings)
   creates missing buckets before seed, preserving existing settings and API changes.
 - `gcs-mimic import fake-gcs-server` converts live objects from a stopped
   fake-gcs-server filesystem snapshot; archived history is not imported.

@@ -32,8 +32,9 @@ blocks another track; a higher-priority row does not make every later row wait.
 
 Public image publication is pending; local ARM64 and emulated AMD64 images pass
 the [onboarding checks](evidence/container-onboarding.md). Version-1 initialization
-files create missing buckets and preserve API changes; directory synchronization
-and source-state import are not implemented.
+files create missing buckets and preserve API changes. A sync directory mirrors
+API writes and imports external creates and edits at startup; external deletion,
+a file watcher, conflict transfer and source-state import are not implemented.
 
 Configuration work covers all [19 source environment variables](fake-gcs-server-configuration.md).
 Missing behavior includes combined public-host/routing configuration, dual
@@ -69,7 +70,9 @@ does not delete a bucket. Its [version-1 schema and local administrative authori
 are implemented; IAM policy bootstrap remains outside that schema.
 
 Directory sync must handle API/file conflicts, unusual names, partial writes,
-missed events and recovery. Those policies must be fixed before implementation.
+missed events and recovery. The delivered subset leaves conflicting files in
+place; fix the remaining deletion and conflict-transfer policies before
+implementing them.
 SQLite remains the catalog; monitoring files and updating only their sizes is
 not sufficient. See the [filesystem requirements](fake-gcs-server-storage.md#required-gcs-mimic-follow-up).
 

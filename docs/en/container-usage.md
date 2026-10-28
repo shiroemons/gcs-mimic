@@ -111,9 +111,83 @@ The original project's data is retained.
 
 Native import currently uses `application/octet-stream` for file content.
 It does not import fake-gcs-server's runtime xattrs/sidecars or preserve their
-metadata. External edits after initialization are not synchronized, and API
-writes do not appear under `/data`. See the [storage comparison](fake-gcs-server-storage.md)
-before reusing a persistent source directory.
+metadata. The seed directory stays read-only input: external edits after
+initialization are not synchronized, and API writes do not appear under `/data`.
+To browse API-written objects as files, use a separate
+[sync directory](#mirror-objects-to-a-host-directory). See the
+[storage comparison](fake-gcs-server-storage.md) before reusing a persistent
+source directory.
+
+## Mirror objects to a host directory
+
+`GCS_MIMIC_SYNC_DIR` (`--sync-dir`, JSON `sync_dir`) writes every bucket and live
+object to `BUCKET/OBJECT` files under an existing writable directory. Add these
+entries to the README's service, retaining its other environment variables and
+persistent volume:
+
+```yaml
+    environment:
+      GCS_MIMIC_SYNC_DIR: /sync
+    volumes:
+      - ./sync:/sync
+```
+
+Create `./sync` before starting, then use the API as usual:
+
+```sh
+mkdir -p sync
+docker compose up -d --wait
+curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
+  'http://localhost:4443/storage/v1/b?project=demo-project'
+curl --fail --data-binary 'hello' \
+  'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=docs%2Fhello.txt'
+cat sync/demo-bucket/docs/hello.txt
+```
+
+After readiness, the server exports existing buckets and objects, including empty
+buckets. API create, overwrite, copy, compose and delete then update the files
+shortly after each response; poll rather than expecting the file at response time.
+The SQLite catalog and internal blobs remain the stored state, so the directory
+is a mirror. Data persistence still requires the `/var/lib/gcs-mimic` volume.
+
+Files created or edited outside the server are imported as new object
+generations, with hashes, when the server starts; there is no file watcher, so
+restart to pick up edits. Imported files appear through the API about a second
+after readiness. Deleting a file does not delete its object, and deleting a
+bucket through the API keeps its directory. When both the API and a file changed
+the same object, neither overwrites the other and the file stays as it is; at
+startup, the `sync_ingested` and `sync_reconciled` log events count such files
+as `conflicting`. Object names containing `\` or `:`, such as
+`logs/2026-10-28T12:00:00.log`, and other names that cannot be mapped to host
+file names are skipped without stopping the mirror; they stay available through
+the API.
+
+The directory holds `.gcs-mimic-sync.json` and `.gcs-mimic-sync-work`, which tie
+it to one data directory; add both to `.gitignore`. After
+`docker compose down --volumes` or another new data volume, startup rejects the
+old directory with a `ForeignMarker` diagnostic. Move it aside and create a fresh
+empty directory instead. The directory must not overlap the data or seed
+directory. Sync requires permissive authentication (strict mode rejects it) and
+runs on Linux and macOS; Windows rejects it.
+
+Exported files and directories are private to the server user (modes `0600` and
+`0700`). Docker Desktop maps ownership on bind mounts, so the files are readable
+on macOS hosts. On a Linux host, the image's UID `10001` would own them; run the
+container as your user and keep the data directory on a bind mount owned by the
+same user:
+
+```sh
+mkdir -p data sync
+docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
+  -p 127.0.0.1:4443:4443 \
+  -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
+  -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/data \
+  -e GCS_MIMIC_SYNC_DIR=/sync \
+  ghcr.io/shiroemons/gcs-mimic:0.2.1
+```
+
+See the [synchronization contract](slices/directory-synchronization.md) for the
+verified subset, recovery behavior and pending work.
 
 ## Configure the server and buckets
 

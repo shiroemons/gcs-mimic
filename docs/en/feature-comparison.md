@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Comparison baseline: **2026-10-23** (filesystem follow-up: **2026-10-24**): gcs-mimic's pre-release development source (the first image is `0.1.1`)
+Comparison baseline: **2026-10-23** (filesystem follow-up: **2026-10-24**; sync directory follow-up: **2026-10-28**): gcs-mimic's pre-release development source (the first image is `0.1.1`)
 compared with fake-gcs-server `v1.56.1` and gcp-storage-emulator `v2026.07.19`.
 Planned features are not counted.
 
@@ -214,14 +214,21 @@ not imply complete XML semantics or authenticated-only public access.
 | --- | --- | --- | --- |
 | Runtime / embedded use | Rust binary | Go binary or Go test library | Python CLI or Python test server |
 | Preserve API-created bytes across normal restart | ✅ SQLite catalog and opaque files | ✅ Filesystem backend | ✅ Files and JSON metadata |
-| API-created objects appear as bucket/object files | ❌ Opaque internal IDs | ✅ Filesystem backend | ✅ Disk backend |
-| Reconcile external edits with hashes and generation metadata | ❌ | ❌ Direct reads can expose stale metadata | ❌ No reconciliation contract |
+| API-created objects appear as bucket/object files | ✅ `--sync-dir` mirror beside opaque storage | ✅ Filesystem backend | ✅ Disk backend |
+| Reconcile external edits with hashes and generation metadata | 🚧 Create/edit at startup; no deletion or watcher | ❌ Direct reads can expose stale metadata | ❌ No reconciliation contract |
 | Optional in-memory backend | ❌ | ✅ | ✅ |
 | Import a bucket/object seed directory | ✅ One-time native import | ✅ Startup and explicit reseed | ❌ Default bucket creation is separate |
 | Published native binaries | ✅ macOS, Windows and Linux amd64+arm64 | ✅ macOS/Linux amd64+arm64; Windows amd64 | ❌ Python runtime required |
 | Published Docker image | ✅ GHCR and Docker Hub linux/amd64+arm64 | ✅ Docker Hub | ✅ Docker Hub |
 | Project license | MIT OR Apache-2.0 | BSD-2-Clause | BSD-3-Clause |
 
+gcs-mimic's sync directory is a mirror beside its catalog, not a second storage
+backend: API writes appear shortly after each response, and external creates and
+edits become new generations with recomputed hashes at the next startup.
+External deletion, a file watcher and conflict resolution are not implemented.
+The follow-up ran the container smoke's sync stage on `linux/arm64` and
+`linux/amd64`; see [sync directory evidence](evidence/sync-dir-containers.txt)
+and [Docker usage](container-usage.md#mirror-objects-to-a-host-directory).
 Disk persistence does not imply equivalent crash or power-loss guarantees.
 CPU, memory, throughput and image size are not ranked: no equivalent cross-product
 benchmark was run.
