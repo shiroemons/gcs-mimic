@@ -198,8 +198,14 @@ impl Reply {
         } else {
             headers["content-length"].parse().unwrap()
         };
-        let mut body = vec![0; length];
-        reader.read_exact(&mut body).unwrap();
+        let mut body = Vec::with_capacity(length);
+        // A short body names the response, so a rare truncation identifies its request.
+        let read = reader.by_ref().take(length as u64).read_to_end(&mut body);
+        assert!(
+            read.is_ok() && body.len() == length,
+            "HTTP {status} body ended after {} of {length} bytes ({read:?}); headers: {headers:?}",
+            body.len()
+        );
         Self {
             status,
             headers,
