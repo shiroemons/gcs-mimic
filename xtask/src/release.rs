@@ -19,6 +19,25 @@ const TARGETS: [&str; 8] = [
     "x86_64-unknown-linux-musl",
 ];
 const MUSL_SOURCE_SHA256: &str = "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4";
+// These MIT crates were published from one grpc-rust revision without their license text. The
+// supplied text is that revision's repository-root LICENSE, which tonic 0.14.7 packages verbatim.
+const GRPC_RUST_REVISION: &str = "818532da3abfa6068b0855f483e3c627d9e14640";
+const GRPC_RUST_LICENSE: &str = "distribution/notices/grpc-rust-818532da/LICENSE";
+const GRPC_RUST_SUPPLIED: [&str; 2] = ["tonic-prost", "tonic-prost-build"];
+const GRPC_RUST_VERSION: &str = "0.14.7";
+
+fn grpc_rust_supplied(package: &Value) -> Result<bool> {
+    if !GRPC_RUST_SUPPLIED.contains(&text(package, "name")?) {
+        return Ok(false);
+    }
+    if package["version"] != GRPC_RUST_VERSION {
+        return Err(format!(
+            "{} notice exception requires review for this version",
+            text(package, "name")?
+        ));
+    }
+    Ok(true)
+}
 
 fn capture(command: &mut Command) -> Result<String> {
     let output = command.output().map_err(|e| e.to_string())?;
@@ -126,7 +145,7 @@ fn package_notices(package: &Value) -> Result<(PathBuf, BTreeSet<PathBuf>)> {
             notice_files(&base, Path::new(name), &mut files)?;
         }
     }
-    if files.is_empty() {
+    if files.is_empty() && !grpc_rust_supplied(package)? {
         return Err(format!("no license notices for {}", text(package, "name")?));
     }
     Ok((base, files))
@@ -216,7 +235,7 @@ pub fn prepare(root: &Path, target: &str, binary: &Path, output: &Path) -> Resul
     if sha.len() != 40 || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("source commit must be a full Git SHA".into());
     }
-    write_notices(root, target, packages, output)?;
+    write_notices(root, target, &metadata, output)?;
     let binary_name = if target.contains("windows") {
         "gcs-mimic.exe"
     } else {
@@ -252,8 +271,7 @@ pub fn notices(root: &Path, output: &Path) -> Result<()> {
         .ok_or("container notices require a native GNU Linux build toolchain")?;
     check_destination(target, output)?;
     let metadata = cargo_metadata(root)?;
-    let packages = metadata["packages"].as_array().ok_or("missing packages")?;
-    write_notices(root, target, packages, output)?;
+    write_notices(root, target, &metadata, output)?;
     let index_path = output.join("third-party-licenses/INDEX.json");
     let mut index: Value =
         serde_json::from_slice(&fs::read(&index_path).map_err(|e| e.to_string())?)
@@ -267,7 +285,27 @@ pub fn notices(root: &Path, output: &Path) -> Result<()> {
     write_json(&index_path, &index)
 }
 
-fn write_notices(root: &Path, target: &str, packages: &[Value], output: &Path) -> Result<()> {
+// Workspace members are first-party sources; any other package must come from a registry so its
+// notices can be collected. Path and Git dependencies outside the workspace stay unreviewed.
+fn third_party_packages(metadata: &Value) -> Result<Vec<&Value>> {
+    let packages = metadata["packages"].as_array().ok_or("missing packages")?;
+    let members = metadata["workspace_members"]
+        .as_array()
+        .ok_or("missing workspace members")?;
+    let mut registry = Vec::new();
+    for package in packages {
+        match package["source"].as_str() {
+            Some(source) if source.starts_with("registry+") || source.starts_with("sparse+") => {
+                registry.push(package);
+            }
+            None if members.contains(&package["id"]) => {}
+            _ => return Err("unreviewed dependency source in release metadata".into()),
+        }
+    }
+    Ok(registry)
+}
+
+fn write_notices(root: &Path, target: &str, metadata: &Value, output: &Path) -> Result<()> {
     let sysroot = PathBuf::from(capture(Command::new("rustc").args(["--print", "sysroot"]))?);
     let rust_notices = sysroot.join("share/doc/rust");
     let mut rust_files = BTreeSet::new();
@@ -291,16 +329,10 @@ fn write_notices(root: &Path, target: &str, packages: &[Value], output: &Path) -
             return Err("musl source notice archive does not match the pinned SHA-256".into());
         }
     }
-    let mut registry = Vec::new();
-    for package in packages {
-        match package["source"].as_str() {
-            Some(source) if source.starts_with("registry+") || source.starts_with("sparse+") => {
-                registry.push((package, package_notices(package)?));
-            }
-            None if ["gcs-mimic", "xtask"].contains(&text(package, "name")?) => {}
-            _ => return Err("unreviewed dependency source in release metadata".into()),
-        }
-    }
+    let mut registry = third_party_packages(metadata)?
+        .into_iter()
+        .map(|package| Ok((package, package_notices(package)?)))
+        .collect::<Result<Vec<_>>>()?;
     registry.sort_by_key(|(package, _)| (package["name"].as_str(), package["version"].as_str()));
     if let Some(parent) = output
         .parent()
@@ -360,6 +392,17 @@ fn write_notices(root: &Path, target: &str, packages: &[Value], output: &Path) -
                 "additional_license": "Zlib",
                 "additional_license_source": "https://raw.githubusercontent.com/madler/zlib/v1.2.11/zlib.h",
                 "review_scope": "crc32c 0.6.8 only; other versions require a fresh notice review.",
+            }));
+        }
+        if grpc_rust_supplied(package)? {
+            copy(&root.join(GRPC_RUST_LICENSE), &destination.join("LICENSE"))?;
+            files.insert(PathBuf::from("LICENSE"));
+            license_selection = Some(json!({
+                "chosen_license": "MIT",
+                "basis": "The published crate declares MIT but omits the license text, so LICENSE is the repository-root text from the revision it was published from.",
+                "upstream_revision": GRPC_RUST_REVISION,
+                "upstream_source": format!("https://raw.githubusercontent.com/grpc/grpc-rust/{GRPC_RUST_REVISION}/LICENSE"),
+                "review_scope": "tonic-prost and tonic-prost-build 0.14.7 only; other versions require a fresh notice review.",
             }));
         }
         if package["name"] == "libsqlite3-sys" {
@@ -444,6 +487,44 @@ mod tests {
     }
 
     #[test]
+    fn notices_cover_registry_packages_and_reject_sources_outside_the_workspace() {
+        let member = |name: &str| json!({"id": format!("path+file:///repo#{name}@0.1.0"), "name": name, "source": null});
+        let registry = json!({"id": "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.0", "name": "serde", "source": "registry+https://github.com/rust-lang/crates.io-index"});
+        // Every workspace member, including generation-only tools, is first-party.
+        let mut metadata = json!({
+            "packages": [member("gcs-mimic"), member("xtask"), member("grpc-codegen"), registry],
+            "workspace_members": ["path+file:///repo#gcs-mimic@0.1.0", "path+file:///repo#xtask@0.1.0", "path+file:///repo#grpc-codegen@0.1.0"],
+        });
+        let names = |packages: Vec<&Value>| {
+            packages
+                .iter()
+                .map(|package| package["name"].clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names(third_party_packages(&metadata).unwrap()),
+            [json!("serde")]
+        );
+        let unreviewed = [
+            member("vendored"),
+            json!({"id": "git+https://example.invalid/x#x@0.1.0", "name": "x", "source": "git+https://example.invalid/x"}),
+        ];
+        for package in unreviewed {
+            metadata["packages"].as_array_mut().unwrap().push(package);
+            assert_eq!(
+                third_party_packages(&metadata).err().as_deref(),
+                Some("unreviewed dependency source in release metadata")
+            );
+            metadata["packages"].as_array_mut().unwrap().pop();
+        }
+        metadata
+            .as_object_mut()
+            .unwrap()
+            .remove("workspace_members");
+        assert!(third_party_packages(&metadata).is_err());
+    }
+
+    #[test]
     fn binary_version_must_match_exactly() {
         assert!(check_version("gcs-mimic 0.1.0", "0.1.0").is_ok());
         assert!(check_version("gcs-mimic 0.2.0", "0.1.0").is_err());
@@ -518,7 +599,8 @@ mod tests {
             "manifest_path": package_dir.join("Cargo.toml"),
         });
         let output = directory.0.join("notices");
-        write_notices(&directory.0, TARGETS[0], &[package], &output).unwrap();
+        let metadata = json!({"packages": [package], "workspace_members": []});
+        write_notices(&directory.0, TARGETS[0], &metadata, &output).unwrap();
         assert_eq!(
             fs::read_to_string(output.join("LICENSE-MIT")).unwrap(),
             "project terms"
@@ -566,6 +648,52 @@ mod tests {
             BTreeSet::from([PathBuf::from("README.md"), PathBuf::from("src/combine.rs")])
         );
         package["version"] = json!("0.6.9");
+        assert!(package_notices(&package).is_err());
+    }
+
+    #[test]
+    fn grpc_rust_crates_without_license_text_receive_the_reviewed_upstream_text() {
+        let directory = Directory::new();
+        for name in ["LICENSE-MIT", "LICENSE-APACHE"] {
+            fs::write(directory.0.join(name), "project terms").unwrap();
+        }
+        let supplied = directory.0.join(GRPC_RUST_LICENSE);
+        fs::create_dir_all(supplied.parent().unwrap()).unwrap();
+        fs::write(&supplied, "grpc-rust MIT text").unwrap();
+        let package_dir = directory.0.join("tonic-prost");
+        fs::create_dir(&package_dir).unwrap();
+        let mut package = json!({
+            "name": "tonic-prost", "version": "0.14.7", "license": "MIT",
+            "source": "registry+https://github.com/rust-lang/crates.io-index",
+            "manifest_path": package_dir.join("Cargo.toml"),
+        });
+        let output = directory.0.join("notices");
+        let metadata = json!({"packages": [package.clone()], "workspace_members": []});
+        write_notices(&directory.0, TARGETS[0], &metadata, &output).unwrap();
+        let crate_notices = output.join("third-party-licenses/crates/tonic-prost-0.14.7");
+        assert_eq!(
+            fs::read_to_string(crate_notices.join("LICENSE")).unwrap(),
+            "grpc-rust MIT text"
+        );
+        let index: Value = serde_json::from_slice(
+            &fs::read(output.join("third-party-licenses/INDEX.json")).unwrap(),
+        )
+        .unwrap();
+        let entry = index["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"] == "tonic-prost")
+            .unwrap();
+        assert_eq!(
+            entry["license_selection"]["upstream_revision"],
+            GRPC_RUST_REVISION
+        );
+        // An unreviewed version, or an unrelated crate without notices, still fails closed.
+        package["version"] = json!("0.14.8");
+        assert!(package_notices(&package).is_err());
+        package["name"] = json!("other");
+        package["version"] = json!("0.14.7");
         assert!(package_notices(&package).is_err());
     }
 }
