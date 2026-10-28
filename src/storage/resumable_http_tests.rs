@@ -149,14 +149,50 @@ impl Harness {
         }
     }
     async fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-        let mut stream = TcpStream::connect(&self.address).await.unwrap();
-        stream.write_all(format!("{method} {path} HTTP/1.1\r\nHost: spoofed.invalid\r\nForwarded: host=evil.invalid;proto=https\r\nX-Forwarded-Host: evil.invalid\r\nContent-Length: {}\r\n{headers}\r\n",body.len()).as_bytes()).await.unwrap();
-        stream.write_all(body).await.unwrap();
-        Self::read_response(stream).await
+        let (mut reader, mut writer) = TcpStream::connect(&self.address)
+            .await
+            .unwrap()
+            .into_split();
+        let head = format!(
+            "{method} {path} HTTP/1.1\r\nHost: spoofed.invalid\r\nForwarded: host=evil.invalid;proto=https\r\nX-Forwarded-Host: evil.invalid\r\nContent-Length: {}\r\n{headers}\r\n",
+            body.len()
+        );
+        // The server may answer before reading the whole body, for example with a
+        // 503 when a short catalog budget expires, and then close the connection.
+        // Reading while writing keeps that response for the caller to retry
+        // instead of failing the remaining write with a broken pipe.
+        let write = async {
+            writer.write_all(head.as_bytes()).await?;
+            writer.write_all(body).await
+        };
+        let read = async {
+            let mut raw = Vec::new();
+            let result = reader.read_to_end(&mut raw).await;
+            (raw, result)
+        };
+        let (written, (raw, read)) = tokio::join!(write, read);
+        for (stage, result) in [("write", written), ("read", read.map(drop))] {
+            if let Err(error) = result {
+                let closed = matches!(
+                    error.kind(),
+                    std::io::ErrorKind::BrokenPipe
+                        | std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                );
+                assert!(
+                    closed && !raw.is_empty(),
+                    "{method} {path}: {stage} failed without a response: {error}"
+                );
+            }
+        }
+        Self::parse_response(&raw)
     }
     async fn read_response(mut stream: TcpStream) -> Reply {
         let mut raw = Vec::new();
         stream.read_to_end(&mut raw).await.unwrap();
+        Self::parse_response(&raw)
+    }
+    fn parse_response(raw: &[u8]) -> Reply {
         let split = raw.windows(4).position(|v| v == b"\r\n\r\n").unwrap();
         let header = std::str::from_utf8(&raw[..split]).unwrap();
         let mut lines = header.split("\r\n");
