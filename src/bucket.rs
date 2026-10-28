@@ -311,6 +311,11 @@ pub enum CatalogError {
     UnsupportedMetadata(String),
     Io(std::io::ErrorKind),
     Corrupt(String),
+    /// A later release migrated the catalog; migrations are one-way.
+    NewerSchema {
+        version: i64,
+        supported: i64,
+    },
     Unavailable(String),
 }
 
@@ -333,6 +338,10 @@ impl fmt::Display for CatalogError {
             Self::RetentionPolicyNotSet => formatter.write_str("No retention policy to lock; set retentionPolicy.retentionPeriod first, for example 3600"),
             Self::Io(kind) => write!(formatter, "catalog I/O: {kind}"),
             Self::Corrupt(reason) => write!(formatter, "catalog corrupt: {reason}"),
+            Self::NewerSchema { version, supported } => write!(
+                formatter,
+                "unsupported catalog schema version {version}; this release supports schema {supported} and older"
+            ),
             Self::InvalidMetadata(reason) | Self::UnsupportedMetadata(reason) => {
                 formatter.write_str(reason)
             }

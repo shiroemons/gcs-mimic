@@ -794,6 +794,66 @@ async fn populated_v4_catalog_migrates_without_seeding() {
     );
 }
 
+fn migration_events(data: &Path) -> Vec<Value> {
+    let mut server = Server::start(command(data, None).stderr(Stdio::piped()), false);
+    let stderr = server.child.stderr.take().unwrap();
+    server.stop();
+    BufReader::new(stderr)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(&line.unwrap()).unwrap())
+        .filter(|event| event["event"] == "catalog_schema_migrated")
+        .collect()
+}
+
+#[test]
+fn schema_upgrade_is_logged_once_and_newer_schema_explains_recovery() {
+    let dir = TestDir::new();
+    let data = dir.0.join("data");
+    assert!(
+        migration_events(&data).is_empty(),
+        "fresh catalog is not a migration"
+    );
+    let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
+    common::downgrade_object_schema(&connection);
+    connection
+        .execute_batch("ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE startup_seed; PRAGMA user_version = 4;")
+        .unwrap();
+    drop(connection);
+    let events = migration_events(&data);
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0]["level"], "info");
+    assert_eq!(events[0]["from"], 4);
+    assert!(
+        migration_events(&data).is_empty(),
+        "migrated catalog reopened"
+    );
+
+    // Derive the current schema so later schema bumps do not need to edit this test.
+    let path = data.join("catalog.sqlite3");
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let current: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(events[0]["to"], current);
+    let newer = current + 1;
+    connection
+        .pragma_update(None, "user_version", newer)
+        .unwrap();
+    drop(connection);
+    let before = fs::read(&path).unwrap();
+    fails(
+        &mut command(&data, None),
+        &format!(
+            "catalog schema version {newer} was written by a newer gcs-mimic release; this release reads schema {current} and older"
+        ),
+    );
+    fails(
+        &mut command(&data, None),
+        "migrated catalogs cannot be downgraded",
+    );
+    assert_eq!(fs::read(&path).unwrap(), before);
+}
+
 #[tokio::test]
 async fn probes_cannot_succeed_while_seed_publication_is_blocked() {
     let dir = TestDir::new();

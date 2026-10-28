@@ -184,7 +184,10 @@ fn migrate_timestamp_precision(connection: &mut Connection) -> Result<(), Catalo
 }
 
 fn validate_schema_version(version: i64, supported: i64) -> Result<(), CatalogError> {
-    if !(0..=supported).contains(&version) {
+    if version > supported {
+        return Err(CatalogError::NewerSchema { version, supported });
+    }
+    if version < 0 {
         return Err(unavailable(format!(
             "unsupported catalog schema version {version}; supported version is {supported}"
         )));
@@ -500,6 +503,7 @@ impl Catalog {
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
             validate_schema_version(version, CATALOG_SCHEMA_VERSION)?;
+            let stored_version = version;
             if version == 2 {
                 return Err(unavailable("unsupported unreleased catalog schema version 2; deleted generation history cannot be recovered"));
             }
@@ -671,6 +675,14 @@ impl Catalog {
             }
             if version < 27 {
                 sync_state::buckets::migrate(&mut connection)?;
+            }
+            // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
+            if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Info,
+                    "catalog_schema_migrated",
+                    serde_json::json!({"message":format!("migrated catalog schema from version {stored_version} to {CATALOG_SCHEMA_VERSION}; releases that support only schema {stored_version} can no longer open this data directory"),"from":stored_version,"to":CATALOG_SCHEMA_VERSION}),
+                );
             }
             let pending: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)", [], |row| row.get(0)).map_err(unavailable)?;
             if pending {

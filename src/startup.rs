@@ -1,5 +1,6 @@
 use gcs_mimic::{
     auth::Auth,
+    bucket::CatalogError,
     bucket_init::InitOutcome,
     clock::{Clock, SystemClock},
     config::Config,
@@ -140,7 +141,10 @@ async fn open_catalog(
     shutdown: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<()>>>,
 ) -> io::Result<PhaseResult<Catalog>> {
     let opening = async {
-        Catalog::open_with_clock(&config.data_dir, clock).await.map_err(|_| phase(DiagnosticSource::Catalog, "data_dir", "catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state."))
+        Catalog::open_with_clock(&config.data_dir, clock).await.map_err(|error| match error {
+            CatalogError::NewerSchema { version, supported } => phase(DiagnosticSource::Catalog, "data_dir", &format!("catalog schema version {version} was written by a newer gcs-mimic release; this release reads schema {supported} and older. Start a release that supports schema {version}, restore a backup taken before the upgrade, or choose a different data directory; migrated catalogs cannot be downgraded.")),
+            _ => phase(DiagnosticSource::Catalog, "data_dir", "catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state."),
+        })
     };
     tokio::pin!(opening);
     // Dropping this borrowed wait keeps the pinned owner alive for the required recovery drain.

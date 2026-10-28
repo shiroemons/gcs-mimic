@@ -183,13 +183,14 @@ impl From<CatalogError> for JsonError {
             ),
             CatalogError::InvalidMetadata(reason) => Self::invalid_argument(reason),
             CatalogError::UnsupportedMetadata(field) => Self::unsupported(&field),
-            CatalogError::Unavailable(_) | CatalogError::Io(_) | CatalogError::Corrupt(_) => {
-                Self::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "Bucket catalog is unavailable",
-                )
-            }
+            CatalogError::Unavailable(_)
+            | CatalogError::Io(_)
+            | CatalogError::Corrupt(_)
+            | CatalogError::NewerSchema { .. } => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backendError",
+                "Bucket catalog is unavailable",
+            ),
         }
     }
 }

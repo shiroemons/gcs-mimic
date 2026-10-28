@@ -81,7 +81,7 @@ fn timestamp_migration_scales_extrema_and_rolls_back_after_partial_update() {
         validate_schema_version(14, 13)
             .unwrap_err()
             .to_string()
-            .contains("supported version is 13")
+            .contains("supports schema 13 and older")
     );
     assert!(validate_schema_version(15, 14).is_err());
 }

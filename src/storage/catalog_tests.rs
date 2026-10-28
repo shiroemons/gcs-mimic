@@ -1328,15 +1328,22 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
                 matches!(error, CatalogError::Corrupt(_)),
                 "{fixture}: {error}"
             );
+        } else if fixture == "future" {
+            assert!(
+                matches!(
+                    error,
+                    CatalogError::NewerSchema {
+                        version: 28,
+                        supported: 27
+                    }
+                ),
+                "{fixture}: {error}"
+            );
         } else {
             assert!(
                 matches!(error, CatalogError::Unavailable(_)),
                 "{fixture}: {error}"
             );
-        }
-        if fixture == "future" {
-            assert!(error.to_string().contains("schema version 28"));
-            assert!(error.to_string().contains("supported version is 27"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -1534,7 +1541,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
         assert!(!path.with_extension("sqlite3-shm").exists());
         let error = Catalog::open(&directory).await.err().unwrap().to_string();
         assert!(error.contains("schema version 28"));
-        assert!(error.contains("supported version is 27"));
+        assert!(error.contains("supports schema 27 and older"));
         assert_eq!(fs::read(&path).unwrap(), before);
         assert!(!path.with_extension("sqlite3-wal").exists());
         assert!(!path.with_extension("sqlite3-shm").exists());
