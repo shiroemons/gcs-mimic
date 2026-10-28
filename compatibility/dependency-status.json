@@ -1,6 +1,6 @@
 {
-  "checked_at_utc": "2026-10-28T07:34:50Z",
-  "scope": "Pre-release refresh: tonic/tonic-prost/tonic-prost-build 0.14.8 with unchanged generated gRPC code, the rebuilt rust:1.99.1-slim-trixie digest and the latest google.golang.org/genproto pseudo-version, which has no tagged releases. Rust/Go/Ruby toolchains, Storage SDK, API client, other Docker inputs and catalog schema are unchanged.",
+  "checked_at_utc": "2026-10-28T11:22:24Z",
+  "scope": "0.2.1 pre-release refresh: the rebuilt rust:1.99.1-slim-trixie index digest, whose linux/amd64 and linux/arm64 platform digests are unchanged. Rust crates, Rust/Go/Ruby toolchains, Storage SDK, API client, other Docker inputs and catalog schema are unchanged.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
     "exit_code": 1,
@@ -188,10 +188,10 @@
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie",
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
-        "digest": "sha256:45afd9478205dcdf7f98b099019fee773a33644cf69ac0a3b862eb31d2a1ccef",
-        "latest_verified_digest": "sha256:45afd9478205dcdf7f98b099019fee773a33644cf69ac0a3b862eb31d2a1ccef",
+        "digest": "sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247",
+        "latest_verified_digest": "sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247",
         "verification_status": "ADOPTED",
-        "update_scope": "Pre-release registry inspection on 2026-10-28 found a rebuilt index for both 1.99.1-slim-trixie and slim-trixie with new linux/amd64 and linux/arm64 platform digests; Rust stays 1.99.1. The Foundation checks container jobs build and smoke-test both platforms from this digest.",
+        "update_scope": "Registry inspection before 0.2.1 on 2026-10-28 found a rebuilt index for both 1.99.1-slim-trixie and slim-trixie. The linux/amd64 and linux/arm64 platform digests are unchanged, so the build stage inputs are identical; Rust stays 1.99.1. The Foundation checks container jobs build and smoke-test both platforms from this digest.",
         "platforms": {
           "linux/amd64": "sha256:11b01282eaac5ba4ab9fc503d3a4a4d5db601597ce85479ab8c29495be660670",
           "linux/arm64": "sha256:752ae176b955dd798d28b8f91a9f8cc3aed3d050fa3eb36fa877d61608d6867f"
