@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Contract updated: **2026-10-27**. Scope: DESIGN-062, DESIGN-072 and DESIGN-074
+Contract updated: **2026-10-28**. Scope: DESIGN-062, DESIGN-072 and DESIGN-074
 remain PARTIAL; DESIGN-076 remains IMPLEMENTED. Root activation precedes bind;
 all-owner export, external create/edit ingestion and continuous API journal replay
 run after ready. External deletion, conflict transfer and sync control API/CLI
@@ -42,8 +42,10 @@ findings for those legacy buckets require a later shared typed interface.
 Directories are capped at 10,000 inspected entries, pages at 256, traversal at
 128 levels and individual components at 255 bytes. Exceeding an inventory bound
 stops reconciliation without inferring deletion. No catalog-sized in-memory
-inventory is built. Actual Linux runtime and non-Linux conflict guarantees are
-PENDING; the current native verification runs on macOS without claiming parity.
+inventory is built. Linux runs the sync integration tests in the
+`x86_64-unknown-linux-musl` CI lane and the container smoke's sync stage on
+`linux/amd64` and `linux/arm64` ([container verification](#container-and-linux-verification)).
+Linux exchange/displaced-inode races and non-Linux conflict guarantees remain PENDING.
 
 Unfinished write-back stops new exports. Until recovery controls are delivered,
 preserve/back up the working tree and reserved workspace, correct the mount or
@@ -310,10 +312,33 @@ SDK/container/guide journeys are not run because their surfaces are unchanged.
 No benchmark, performance number, Linux/Windows runtime or host-power-loss result
 is claimed. External deletion, conflict transfer/control, watcher events and
 exhaustive interruption boundaries remain PENDING.
-The existing catalog sync-path validator rejects backslash/colon even though the
-Unix lexical mapper admits them as candidates. Those names currently stop runtime
-synchronization; use ordinary slash-separated names until the shared path contract
-is reconciled. This increment does not change the existing storage validator.
+The catalog sync-path validator rejects backslash/colon. The lexical mapper now
+returns `HostRestriction` for those components on every OS, so export records a
+finding and continues and ingestion counts such files as unrepresentable instead
+of stopping the root. The storage validator is unchanged.
+
+### Container and Linux verification
+
+Checks on 2026-10-28 against the source that skips backslash/colon names:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --offline --lib sync::mapping` | PASS: 5 tests; backslash, colon and timestamp-style names map to `HostRestriction` in both directions. |
+| `cargo test --locked --offline --test sync_live_export --test sync_mapping --test sync_mirror --test sync_configuration` | PASS: 17 tests, including `live_export_skips_colon_and_backslash_names_and_keeps_exporting`, which failed before the mapping change because the root stopped at the first colon name. |
+| `bash scripts/smoke-containers.sh` | PASS on `linux/arm64` (native) and `linux/amd64` (emulated); see [evidence](../evidence/sync-dir-containers.txt). The sync stage runs a read-only, capability-free container with sibling data/sync directories in one volume and checks API create/overwrite/copy/delete export, a skipped colon name, external create ingestion after restart and exit code 0. |
+
+The `x86_64-unknown-linux-musl` CI lane already ran `sync_configuration`,
+`sync_live_export`, `sync_mapping` and `sync_mirror` on Linux before this change
+(3, 4, 2 and 7 tests PASS on main at `a64dd5a`).
+
+Manual Docker Desktop checks on macOS ARM64 also passed for a host bind mount,
+the published `0.2.1` image and a non-default `--user` with data and sync
+directories owned by that user. Exported entries use modes `0600`/`0700`, so a
+Linux host user reads them only when the container runs with that user's UID.
+A replaced data volume with the old directory fails before bind with
+`ForeignMarker`. Ingested files become visible about one second after readiness.
+External deletion, conflict transfer, watcher events, Linux exchange races and
+host-power-loss behavior are not covered.
 
 ### Initial export delivery scope
 
@@ -383,14 +408,15 @@ Apply existing bucket/object validators first, then this mapping. Paths contain
 one literal UTF-8 bucket component followed by object components split on `/`.
 No percent decoding/encoding, separator cleaning, case folding, Unicode
 normalization, escaping or truncation is allowed. `%2F` names a literal `%2F`
-file component. `/` is the logical separator on every OS. A backslash is literal
-on Unix and unrepresentable on Windows; it never acts as an implicit separator.
+file component. `/` is the logical separator on every OS. Backslash and colon
+components are unrepresentable on every OS because the catalog sync-path validator
+rejects them; a backslash never acts as an implicit separator.
 Do not change the API's wider accepted-name set to fit a filesystem.
 
 | Reason | Cases and behavior |
 | --- | --- |
 | `InvalidName` | Invalid UTF-8 on disk, invalid API name, NUL, leading/trailing `/`, empty component, `.` or `..` component; report, do not clean into another name. |
-| `HostRestriction` | Host-invalid characters, Windows device names/drive/UNC syntax, trailing spaces/dots where not reversible, component/path length limits; retain API state, report the exact restriction. |
+| `HostRestriction` | Backslash/colon on every OS, host-invalid characters, Windows device names/drive/UNC syntax, trailing spaces/dots where not reversible, component/path length limits; retain API state, report the exact restriction. |
 | `Reserved` | Root marker `.gcs-mimic-sync.json`, workspace `.gcs-mimic-sync-work` and either reserved component at any object depth; reserve root names against legacy bucket names too. |
 | `Ignored` | Regular files named `.DS_Store` or `4913`, beginning `._`, ending `.swp` or `~`. Use one shared predicate for ingestion and API write-back. Traverse ordinary matching directories such as `._assets/`; they are not ignored files. |
 | `Collision` | `a` and `a/b`, aliases differing only by case or Unicode normalization on the actual filesystem, bucket aliases, or a conflicting directory/file type. Report all members, never choose one silently or delete either API object. |

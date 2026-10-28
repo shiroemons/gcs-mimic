@@ -205,6 +205,29 @@ async fn live_export_creates_replaces_deletes_and_preserves_edited_files() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn live_export_skips_colon_and_backslash_names_and_keeps_exporting() {
+    let (_data, tree, catalog, bucket, config) = setup().await;
+    let root = sync::preflight(&catalog, &config).await.unwrap().unwrap();
+    let worker = sync::start(catalog.clone(), root.clone(), &config).unwrap();
+    publish(&catalog, &bucket, "logs/2026-10-28T12:00:00.log", b"colon").await;
+    publish(&catalog, &bucket, r"dir\file", b"backslash").await;
+    let after = publish(&catalog, &bucket, "after", b"after").await;
+    wait_generation(&catalog, &bucket, "test-bucket/after", after).await;
+    wait_body(&tree.0.join("test-bucket/after"), Some(b"after")).await;
+    worker.finish().await.unwrap();
+    assert!(
+        !tree
+            .0
+            .join("test-bucket/logs/2026-10-28T12:00:00.log")
+            .exists()
+    );
+    assert!(!tree.0.join(r"test-bucket/dir\file").exists());
+    assert_eq!(root.findings_page(0, 256).await.unwrap().len(), 2);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn live_export_recovers_a_changed_journal_fence_with_paged_reconciliation() {
     let (_data, tree, catalog, bucket, config) = setup().await;
     let root = sync::preflight(&catalog, &config).await.unwrap().unwrap();

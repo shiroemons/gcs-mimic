@@ -257,4 +257,99 @@ for platform in "$@"; do
   "${seed_compose[@]}" down --volumes
   project=
   echo "PASS: $platform read-only seed then ready, mutation/deletion persistence across stop/start and recreate, fresh-volume reseeding"
+
+  # One volume holds sibling data and sync directories so the existing cleanup owns
+  # it. The mount point is absent from the image, so Docker does not copy ownership.
+  volume="gcs-mimic-sync-${arch}-$$"
+  docker volume create "$volume" >/dev/null
+  docker run --rm --read-only --network none --user 0 --entrypoint sh \
+    --mount "type=volume,src=$volume,dst=/state" "$peer_image" \
+    -c 'mkdir /state/data /state/sync && chown 10001:10001 /state/data /state/sync'
+  container=$(docker run --detach --read-only --cap-drop ALL --security-opt no-new-privileges \
+    --memory 128m --cpus 1 --pids-limit 64 --publish 127.0.0.1::4443 \
+    --mount "type=volume,src=$volume,dst=/state" \
+    -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/state/data -e GCS_MIMIC_SYNC_DIR=/state/sync \
+    "$GCS_MIMIC_IMAGE")
+  wait_sync_ready() {
+    for ((attempt = 0; attempt < 40; attempt++)); do
+      if docker exec "$container" gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready; then
+        address=$(docker port "$container" 4443/tcp)
+        return 0
+      fi
+      sleep 1
+    done
+    docker logs "$container"
+    return 1
+  }
+  # Exported files keep the runtime user's private 0600 mode, so the reader is root.
+  sync_cat() {
+    docker run --rm --read-only --network none --user 0 --entrypoint cat \
+      --mount "type=volume,src=$volume,dst=/state,readonly" "$peer_image" "/state/sync/$1"
+  }
+  # Export runs after the API response, so poll for the expected file state.
+  expect_sync_file() {
+    for ((attempt = 0; attempt < 40; attempt++)); do
+      if [[ $2 == absent ]]; then
+        sync_cat "$1" >/dev/null 2>&1 || return 0
+      elif sync_cat "$1" >"$work/sync-actual" 2>/dev/null && cmp -s "$2" "$work/sync-actual"; then
+        return 0
+      fi
+      sleep 0.25
+    done
+    echo "sync_dir file $1 did not reach the expected state" >&2
+    return 1
+  }
+  # Ingestion of external files also runs after readiness.
+  expect_ingested_object() {
+    for ((attempt = 0; attempt < 40; attempt++)); do
+      if curl --disable --noproxy '*' --fail --silent --max-time 5 \
+        "http://$address/storage/v1/b/sync-bucket/o/$1?alt=media" >"$work/sync-actual" &&
+        cmp -s "$2" "$work/sync-actual"; then
+        return 0
+      fi
+      sleep 0.25
+    done
+    echo "external file $1 was not ingested after restart" >&2
+    return 1
+  }
+  wait_sync_ready
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    -H 'Content-Type: application/json' --data '{"name":"sync-bucket"}' \
+    "http://$address/storage/v1/b?project=local-project" >/dev/null
+  # A name outside the sync path contract is skipped without stopping later exports.
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary colon \
+    "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=logs%2F2026-10-28T12%3A00%3A00.log" >/dev/null
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    -H 'Content-Type: application/octet-stream' --data-binary @"$work/expected" \
+    "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=dir%2Ffile.bin" >/dev/null
+  expect_sync_file sync-bucket/dir/file.bin "$work/expected"
+  expect_sync_file sync-bucket/logs/2026-10-28T12:00:00.log absent
+  printf 'replaced' >"$work/sync-replaced"
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    --data-binary @"$work/sync-replaced" \
+    "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=dir%2Ffile.bin" >/dev/null
+  expect_sync_file sync-bucket/dir/file.bin "$work/sync-replaced"
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 -X POST \
+    "http://$address/storage/v1/b/sync-bucket/o/dir%2Ffile.bin/copyTo/b/sync-bucket/o/copied.bin" >/dev/null
+  expect_sync_file sync-bucket/copied.bin "$work/sync-replaced"
+  expect_status DELETE /storage/v1/b/sync-bucket/o/copied.bin 204
+  expect_sync_file sync-bucket/copied.bin absent
+  # External creates are ingested at startup; there is no file watcher.
+  docker run --rm --read-only --network none --user 10001:10001 --entrypoint sh \
+    --mount "type=volume,src=$volume,dst=/state" "$peer_image" \
+    -c 'printf external > /state/sync/sync-bucket/external.txt && printf colon > /state/sync/sync-bucket/a:b.txt'
+  docker stop --timeout 15 "$container" >/dev/null
+  [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]]
+  docker start "$container" >/dev/null
+  wait_sync_ready
+  printf external >"$work/sync-external"
+  expect_ingested_object external.txt "$work/sync-external"
+  expect_sync_file sync-bucket/dir/file.bin "$work/sync-replaced"
+  docker stop --timeout 15 "$container" >/dev/null
+  [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]]
+  docker rm "$container" >/dev/null
+  container=
+  docker volume rm "$volume" >/dev/null
+  volume=
+  echo "PASS: $platform sync_dir export of API create/overwrite/copy/delete, skipped colon names, external create ingestion at restart and clean shutdown"
 done

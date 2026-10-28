@@ -42,6 +42,11 @@ fn candidate(bucket: &BucketName, object: &ObjectName) -> Result<PathBuf, Reason
         if matches!(component, MARKER | WORKSPACE) {
             return Err(Reason::Reserved);
         }
+        // The catalog's sync-path validator rejects these on every platform; a
+        // candidate it would refuse must be skipped here instead of stopping the root.
+        if component.contains(['\\', ':']) {
+            return Err(Reason::HostRestriction);
+        }
         if cfg!(windows) && windows_component_is_invalid(component) {
             return Err(Reason::HostRestriction);
         }
@@ -136,18 +141,17 @@ mod tests {
                 ("demo-bucket".into(), object.into())
             );
         }
-        let mapping = mapping("demo-bucket", r"a\b");
-        if cfg!(windows) {
+        for object in [r"a\b", "a:b", "logs/2026-10-28T12:00:00.log"] {
             assert_eq!(
-                mapping,
-                PathMapping::Unrepresentable(Reason::HostRestriction)
+                mapping("demo-bucket", object),
+                PathMapping::Unrepresentable(Reason::HostRestriction),
+                "{object:?}"
             );
-        } else {
-            let PathMapping::File(path) = mapping else {
-                panic!("Unix literal backslash");
-            };
-            assert_eq!(decode(&path).unwrap().1, r"a\b");
         }
+        assert_eq!(
+            path_to_name(Path::new("demo-bucket/a:b")),
+            Err(Reason::HostRestriction)
+        );
     }
 
     #[test]
