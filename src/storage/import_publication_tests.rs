@@ -443,3 +443,59 @@ async fn import_publication_failure_schema_rolls_back_and_reopens_preserved_stat
     super::super::super::validate_schema(&connection, 27).unwrap();
     assert!(super::super::super::validate_schema_version(18, 17).is_err());
 }
+
+#[tokio::test]
+async fn import_publication_budget_returns_unattempted_elements_for_the_next_cursor() {
+    let (dir, catalog, admin, source) = setup(3).await;
+    bucket(&admin, &source).await;
+    let a = entry(&dir, &admin, 2, "a", b"a").await;
+    let b = entry(&dir, &admin, 3, "b", b"b").await;
+    let result = admin
+        .publish_import_objects_with_budget(source.clone(), 1, vec![a, b], Duration::ZERO)
+        .await
+        .unwrap();
+    assert_eq!(result.results.len(), 1);
+    assert_eq!(result.results[0].as_ref().unwrap().generation, 902);
+    assert!(result.budget_exceeded);
+    assert_eq!(result.unattempted.len(), 1);
+    assert_eq!(result.unattempted[0].element, element(3));
+    assert_eq!(
+        result.unattempted[0].publication.name,
+        ObjectName::new("b").unwrap()
+    );
+    // Only the attempted prefix is journaled, so the remainder resumes at the next cursor.
+    assert_eq!(
+        catalog
+            .import_journal()
+            .page(source.clone(), 0, 256)
+            .await
+            .unwrap(),
+        vec![element(1), element(2)]
+    );
+    assert_eq!(
+        admin
+            .get_object(
+                &BucketName::new("test-bucket").unwrap(),
+                &ObjectName::new("b").unwrap(),
+                None
+            )
+            .await,
+        Err(AdminError::NotFound)
+    );
+    let resumed = admin
+        .publish_import_objects(source.clone(), 2, result.unattempted)
+        .await
+        .unwrap();
+    assert!(resumed.unattempted.is_empty());
+    assert_eq!(resumed.results[0].as_ref().unwrap().generation, 903);
+    assert_eq!(
+        catalog
+            .import_journal()
+            .page(source.clone(), 0, 256)
+            .await
+            .unwrap(),
+        vec![element(1), element(2), element(3)]
+    );
+    catalog.import_journal().finish(source).await.unwrap();
+    catalog.close().await.unwrap();
+}
