@@ -214,6 +214,15 @@ async fn live_export_skips_colon_and_backslash_names_and_keeps_exporting() {
     let after = publish(&catalog, &bucket, "after", b"after").await;
     wait_generation(&catalog, &bucket, "test-bucket/after", after).await;
     wait_body(&tree.0.join("test-bucket/after"), Some(b"after")).await;
+    // One change page is exported in name order, so "after" can land before the skipped names
+    // are recorded; stopping at that point would drop their findings.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while root.findings_page(0, 256).await.unwrap().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
     worker.finish().await.unwrap();
     assert!(
         !tree
