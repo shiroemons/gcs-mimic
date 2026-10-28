@@ -1027,8 +1027,7 @@ fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
     }
     active.write_all(b"0\r\n\r\n").unwrap();
     active.flush().unwrap();
-    let mut response = Vec::new();
-    active.read_to_end(&mut response).unwrap();
+    let response = common::read_http_response(&mut BufReader::new(&mut active), false).unwrap();
     assert!(response.starts_with(b"HTTP/1.1 200"));
     let original = success(curl(
         &server,

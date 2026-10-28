@@ -7,7 +7,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
     process::Stdio,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 fn events(bytes: &[u8]) -> Vec<Value> {
@@ -130,6 +130,97 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
             );
         }
     }
+}
+
+#[test]
+fn keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns() {
+    let directory = TestDir::new();
+    let mut child = common::server_command()
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            "127.0.0.1:0",
+            "--connection-timeout-ms",
+            "300",
+            "--keep-alive-timeout-ms",
+            "3000",
+            "--data-dir",
+        ])
+        .arg(directory.0.join("data"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    let ready: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(ready["keep_alive_timeout_ms"], 3000);
+    let served = || {
+        let connection = TcpStream::connect(ready["listen"].as_str().unwrap()).unwrap();
+        connection
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut connection = BufReader::new(connection);
+        connection
+            .get_mut()
+            .write_all(b"GET /_internal/health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .unwrap();
+        common::read_http_response(&mut connection, false).unwrap();
+        connection
+    };
+    // Waiting for the next request uses the keep-alive timeout, not the header deadline.
+    let mut idle = served();
+    let started = Instant::now();
+    assert_eq!(idle.read(&mut [0]).unwrap(), 0);
+    assert!(
+        started.elapsed() >= Duration::from_millis(2500),
+        "{:?}",
+        started.elapsed()
+    );
+    // Once the next request head starts, the header deadline applies again.
+    let mut stalled = served();
+    stalled
+        .get_mut()
+        .write_all(b"GET /_internal/health HTTP/1.1\r\n")
+        .unwrap();
+    let started = Instant::now();
+    assert_eq!(stalled.read(&mut [0]).unwrap(), 0);
+    assert!(
+        started.elapsed() < Duration::from_millis(2500),
+        "{:?}",
+        started.elapsed()
+    );
+    common::stop_server(&mut child, &mut stdout);
+    let mut stderr = Vec::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_end(&mut stderr)
+        .unwrap();
+    let records = events(&stderr);
+    let timeouts: Vec<_> = records
+        .iter()
+        .filter(|event| event["event"] == "connection_timeout")
+        .collect();
+    // Only the stalled head warns; the idle close is a normal keep-alive ending.
+    assert_eq!(timeouts.len(), 1, "{records:?}");
+    assert!(
+        timeouts[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("request headers"),
+        "{records:?}"
+    );
+    assert!(
+        !records
+            .iter()
+            .any(|event| event["event"] == "connection_failed"),
+        "{records:?}"
+    );
 }
 
 #[test]

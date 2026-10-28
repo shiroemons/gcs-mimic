@@ -36,6 +36,7 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "worker_threads",
     "max_blocking_threads",
     "connection_timeout_ms",
+    "keep_alive_timeout_ms",
     "object_request_timeout_ms",
     "catalog_wait_timeout_ms",
     "shutdown_timeout_ms",

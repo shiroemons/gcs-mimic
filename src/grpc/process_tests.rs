@@ -96,8 +96,11 @@ async fn grpc_idle_admission_and_sigterm_drain() {
     };
     let mut idle = connect_grpc();
     let mut http = TcpStream::connect(http_address).unwrap();
-    http.write_all(b"GET /_internal/ready HTTP/1.1\r\nHost: localhost\r\n\r\n")
-        .unwrap();
+    // A one-shot client asks the server to close, so the response read ends at EOF.
+    http.write_all(
+        b"GET /_internal/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .unwrap();
     http.set_read_timeout(Some(Duration::from_millis(50)))
         .unwrap();
     let error = http.read(&mut [0; 1]).unwrap_err();

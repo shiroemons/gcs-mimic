@@ -93,6 +93,7 @@ pub struct Config {
     pub worker_threads: usize,
     pub max_blocking_threads: usize,
     pub connection_timeout_ms: u64,
+    pub keep_alive_timeout_ms: u64,
     pub object_request_timeout_ms: u64,
     pub catalog_wait_timeout_ms: u64,
     pub shutdown_timeout_ms: u64,
@@ -130,6 +131,7 @@ impl Default for Config {
             worker_threads: 2,
             max_blocking_threads: 2,
             connection_timeout_ms: 5_000,
+            keep_alive_timeout_ms: 120_000,
             object_request_timeout_ms: 900_000,
             catalog_wait_timeout_ms: 30_000,
             shutdown_timeout_ms: 5_000,
@@ -493,6 +495,9 @@ impl Config {
                     }
                     "connection_timeout_ms" => {
                         config.connection_timeout_ms = bounded(key, &value, 1, 60_000)?
+                    }
+                    "keep_alive_timeout_ms" => {
+                        config.keep_alive_timeout_ms = bounded(key, &value, 1, 600_000)?
                     }
                     "object_request_timeout_ms" => {
                         config.object_request_timeout_ms = bounded(key, &value, 1, 86_400_000)?
@@ -1717,15 +1722,14 @@ mod tests {
         for (setting, default, maximum) in [
             ("object_request_timeout_ms", 900_000, 86_400_000),
             ("catalog_wait_timeout_ms", 30_000, 60_000),
+            ("keep_alive_timeout_ms", 120_000, 600_000),
         ] {
             let file = std::env::temp_dir()
                 .join(format!("gcs-mimic-{setting}-{}.json", std::process::id()));
-            let value = |config: Config| {
-                if setting == "object_request_timeout_ms" {
-                    config.object_request_timeout_ms
-                } else {
-                    config.catalog_wait_timeout_ms
-                }
+            let value = |config: Config| match setting {
+                "object_request_timeout_ms" => config.object_request_timeout_ms,
+                "catalog_wait_timeout_ms" => config.catalog_wait_timeout_ms,
+                _ => config.keep_alive_timeout_ms,
             };
             let flag = format!("--{}", setting.replace('_', "-"));
             let key = format!("GCS_MIMIC_{}", setting.to_ascii_uppercase());

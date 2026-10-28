@@ -236,6 +236,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
                 "worker_threads",
                 "max_blocking_threads",
                 "connection_timeout_ms",
+                "keep_alive_timeout_ms",
                 "object_request_timeout_ms",
                 "catalog_wait_timeout_ms",
                 "shutdown_timeout_ms",
@@ -260,6 +261,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert_eq!(ready["worker_threads"], 2);
         assert_eq!(ready["max_blocking_threads"], 2);
         assert_eq!(ready["connection_timeout_ms"], 5000);
+        assert_eq!(ready["keep_alive_timeout_ms"], 120_000);
         assert_eq!(ready["object_request_timeout_ms"], 900_000);
         assert_eq!(ready["catalog_wait_timeout_ms"], 30_000);
         assert_eq!(ready["shutdown_timeout_ms"], 5000);
@@ -890,6 +892,7 @@ fn exchange(connection: &mut BufReader<TcpStream>, request: &[u8]) -> String {
 async fn keep_alive_serves_sequential_requests_until_idle_timeout() {
     let config = Config {
         connection_timeout_ms: 500,
+        keep_alive_timeout_ms: 500,
         max_object_bytes: 16,
         ..common::http_config()
     };
@@ -916,7 +919,7 @@ async fn keep_alive_serves_sequential_requests_until_idle_timeout() {
         assert!(head.contains("\r\ncontent-length: "), "{head}");
         assert!(!head.contains("\r\nconnection: close"), "{head}");
     }
-    // The connection timeout closes a persistent connection left idle after a response.
+    // The keep-alive timeout closes a persistent connection left idle after a response.
     connection
         .get_ref()
         .set_read_timeout(Some(Duration::from_secs(5)))
@@ -937,6 +940,31 @@ async fn keep_alive_serves_sequential_requests_until_idle_timeout() {
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
     assert_eq!(rejected.read(&mut [0]).unwrap(), 0);
+    stop.send(()).unwrap();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn full_server_reclaims_idle_keep_alive_slots_for_waiting_clients() {
+    let config = Config {
+        max_connections: 1,
+        keep_alive_timeout_ms: 60_000,
+        ..common::http_config()
+    };
+    let (address, _, stop, task, _dir) = start(config).await;
+    let health = b"GET /_internal/health HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    let mut idle = BufReader::new(stream(address));
+    assert!(exchange(&mut idle, health).starts_with("HTTP/1.1 200"));
+    // The only slot is idle, so the next client gets it long before the keep-alive timeout.
+    let started = Instant::now();
+    let mut waiting = BufReader::new(stream(address));
+    assert!(exchange(&mut waiting, health).starts_with("HTTP/1.1 200"));
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(idle.read(&mut [0]).unwrap(), 0);
     stop.send(()).unwrap();
     task.await.unwrap().unwrap();
 }

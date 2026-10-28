@@ -317,8 +317,15 @@ fn xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revo
         .json();
     assert_ne!(replacement["generation"], old["generation"]);
     iam::set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    // The connection stays open after the body, so read exactly the declared length.
+    let length: u64 = headers
+        .lines()
+        .find_map(|line| line.strip_prefix("content-length: "))
+        .unwrap()
+        .parse()
+        .unwrap();
     let mut body = Vec::new();
-    reader.read_to_end(&mut body).unwrap();
+    reader.take(length).read_to_end(&mut body).unwrap();
     assert_eq!(body.len(), 8 * 1024 * 1024 - 1);
     assert!(body.iter().all(|byte| *byte == b'a'));
     xml_error(&server.get("", OBJECT), 401, "AuthenticationRequired");

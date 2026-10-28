@@ -16,14 +16,14 @@ use hyper::{
     server::conn::http1,
     service::service_fn,
 };
-use hyper_util::rt::{TokioIo, TokioTimer};
+use hyper_util::rt::TokioIo;
 use std::{
     convert::Infallible,
     future::Future,
     io,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, UNIX_EPOCH},
 };
@@ -134,6 +134,85 @@ impl DeadlineReply {
 struct RequestFinished {
     active: Arc<AtomicBool>,
     activity: watch::Sender<ObjectActivity>,
+    reads: Arc<ReadActivity>,
+}
+
+/// Counts bytes read from a connection, so the idle wait between keep-alive
+/// requests can tell when the client starts its next request head.
+#[derive(Default)]
+struct ReadActivity {
+    read: AtomicU64,
+    idle_mark: AtomicU64,
+    arrived: tokio::sync::Notify,
+}
+
+impl ReadActivity {
+    fn mark_idle(&self) {
+        self.idle_mark
+            .store(self.read.load(Ordering::Acquire), Ordering::Release);
+    }
+
+    fn arrived_since_idle(&self) -> bool {
+        self.read.load(Ordering::Acquire) > self.idle_mark.load(Ordering::Acquire)
+    }
+}
+
+struct CountingIo<S> {
+    inner: S,
+    reads: Arc<ReadActivity>,
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for CountingIo<S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        let before = buf.filled().len();
+        let result = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
+        let read = buf.filled().len() - before;
+        if read > 0 {
+            self.reads.read.fetch_add(read as u64, Ordering::AcqRel);
+            self.reads.arrived.notify_one();
+        }
+        result
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for CountingIo<S> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_write_vectored(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> std::task::Poll<io::Result<usize>> {
+        std::pin::Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }
 
 impl RequestFinished {
@@ -175,6 +254,8 @@ impl hyper::body::Body for TrackedBody {
 
 impl Drop for RequestFinished {
     fn drop(&mut self) {
+        // Bytes read after this point begin the next request head.
+        self.reads.mark_idle();
         self.active.store(false, Ordering::Release);
         self.activity.send_replace(ObjectActivity::default());
     }
@@ -234,6 +315,10 @@ pub async fn serve_with_grpc_and_drain(
         listeners.push((listener, None));
     }
     let (stop, _) = watch::channel(false);
+    // True while every connection slot is taken, so idle keep-alive connections
+    // give their slots to waiting clients, as nginx reuses idle connections.
+    let (full, _) = watch::channel(false);
+    let max_connections = config.max_connections;
     let mut connections = JoinSet::new();
     let mut next_listener = 0;
     tokio::pin!(shutdown);
@@ -244,6 +329,7 @@ pub async fn serve_with_grpc_and_drain(
                 if let Err(error) = result.expect("nonempty task set") {
                     break Err(io::Error::other(error));
                 }
+                full.send_replace(connections.len() >= max_connections);
             }
             incoming = std::future::poll_fn(|cx| {
                 #[cfg(test)]
@@ -265,6 +351,7 @@ pub async fn serve_with_grpc_and_drain(
                 next_listener = (index + 1) % listeners.len();
                 let state = state.clone();
                 let mut stopping = stop.subscribe();
+                let saturated = full.subscribe();
                 let config = config.clone();
                 let acceptor = listeners[index].1.clone();
                 connections.spawn(async move {
@@ -284,11 +371,12 @@ pub async fn serve_with_grpc_and_drain(
                                 Err(_) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"})); return; }
                             }
                         };
-                        serve_connection(stream, state, config, stopping).await;
+                        serve_connection(stream, state, config, stopping, saturated).await;
                     } else {
-                        serve_connection(stream, state, config, stopping).await;
+                        serve_connection(stream, state, config, stopping, saturated).await;
                     }
                 });
+                full.send_replace(connections.len() >= max_connections);
             }
         }
     };
@@ -341,34 +429,42 @@ async fn serve_connection(
     state: Arc<State>,
     config: Config,
     mut stopping: watch::Receiver<bool>,
+    mut saturated: watch::Receiver<bool>,
 ) {
     let timeout = Duration::from_millis(config.connection_timeout_ms);
+    let keep_alive = Duration::from_millis(config.keep_alive_timeout_ms);
     let (activity, mut progress) = watch::channel(ObjectActivity::default());
     // A request is active from dispatch until hyper drops its response body after
-    // the last byte. Deadlines apply only then; between keep-alive requests hyper's
-    // header read timeout closes an idle connection after the same duration.
+    // the last byte. Request deadlines apply only then. Between keep-alive requests
+    // the connection waits for the next byte for keep_alive_timeout_ms; once one
+    // arrives, the rest of the request head gets connection_timeout_ms.
     let active = Arc::new(AtomicBool::new(false));
     let served = Arc::new(AtomicBool::new(false));
+    let reads = Arc::new(ReadActivity::default());
     // Set once the service returns, after which hyper may already have sent the
     // response head; until then an expired deadline can still be answered.
     let responded = Arc::new(AtomicBool::new(false));
     let (expire, expired) = watch::channel(false);
     let mut builder = http1::Builder::new();
-    builder
-        .max_headers(64)
-        .max_buf_size(16 * 1024)
-        .timer(TokioTimer::new())
-        .header_read_timeout(timeout);
-    let (service_active, service_served, service_responded) =
-        (active.clone(), served.clone(), responded.clone());
+    builder.max_headers(64).max_buf_size(16 * 1024);
+    let (service_active, service_served, service_responded, service_reads) = (
+        active.clone(),
+        served.clone(),
+        responded.clone(),
+        reads.clone(),
+    );
     let mut connection = builder.serve_connection(
-        TokioIo::new(stream),
+        TokioIo::new(CountingIo {
+            inner: stream,
+            reads: reads.clone(),
+        }),
         service_fn(move |request| {
             let state = state.clone();
             let activity = activity.clone();
             let config = config.clone();
             let active = service_active.clone();
             let responded = service_responded.clone();
+            let reads = service_reads.clone();
             let mut expired = expired.clone();
             service_served.store(true, Ordering::Release);
             Box::pin(async move {
@@ -379,6 +475,7 @@ async fn serve_connection(
                 let finished = RequestFinished {
                     active,
                     activity: activity.clone(),
+                    reads,
                 };
                 let expiry = DeadlineReply::new(&request, &config);
                 // Dropping the handler cancels its work exactly as closing the
@@ -398,13 +495,26 @@ async fn serve_connection(
     let mut current = ObjectActivity::default();
     let mut draining = false;
     let mut expiring = false;
+    let mut next_head = false;
+    // An idle connection has no unread request bytes to discard before closing.
+    let mut lingering = true;
     loop {
         let requesting = active.load(Ordering::Acquire);
+        let idle = served.load(Ordering::Acquire) && !requesting;
         tokio::select! {
             biased;
             Ok(()) = progress.changed(), if !expiring => {
                 current = *progress.borrow_and_update();
-                deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+                next_head = false;
+                // A finished request leaves the connection waiting for the next one.
+                let idle = served.load(Ordering::Acquire) && !active.load(Ordering::Acquire);
+                deadline.as_mut().reset(tokio::time::Instant::now() + if idle { keep_alive } else { timeout });
+            },
+            _ = reads.arrived.notified(), if idle && !next_head && !expiring => {
+                if reads.arrived_since_idle() {
+                    next_head = true;
+                    deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+                }
             },
             _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if requesting && current.deadline.is_some() && !current.awaiting_catalog && !expiring => {
                 crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "object_request_timeout", serde_json::json!({"message":"object request deadline exceeded"}));
@@ -414,23 +524,38 @@ async fn serve_connection(
                 expiring = true;
             },
             result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
-                match result {
-                    // An idle keep-alive connection reaching the header read timeout is a normal close.
-                    Err(error) if error.is_timeout() && served.load(Ordering::Acquire) && !active.load(Ordering::Acquire) => {}
-                    // hyper's Display names only the failure kind (body stream, write, parse), never the wrapped I/O detail.
-                    Err(error) => crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport","cause":error.to_string()})),
-                    Ok(()) => {}
-                }
+                // hyper's Display names only the failure kind (body stream, write, parse), never the wrapped I/O detail.
+                if let Err(error) = result { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport","cause":error.to_string()})); }
                 break;
             }
-            _ = &mut deadline, if (requesting && !current.awaiting_catalog) || expiring => {
+            _ = &mut deadline, if !requesting || !current.awaiting_catalog || expiring => {
                 // After an expiry the same budget bounds writing its error response to a client that does not read.
                 if expiring { break; }
+                if !requesting {
+                    // An idle keep-alive connection closes quietly; a request head that
+                    // stalls after it started, or never arrives, is a client fault.
+                    if !idle || next_head {
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"request headers were not received before connection_timeout_ms"}));
+                    }
+                    lingering = !idle || reads.arrived_since_idle();
+                    break;
+                }
                 crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"connection deadline or object body inactivity timeout exceeded"}));
                 if responded.load(Ordering::Acquire) { break; }
                 expire.send_replace(true);
                 deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
                 expiring = true;
+            },
+            _ = saturated.wait_for(|full| *full), if idle && !next_head && !expiring => {
+                // A full server takes the slot back for a waiting client unless the
+                // next request has already started arriving.
+                if reads.arrived_since_idle() {
+                    next_head = true;
+                    deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+                } else {
+                    lingering = false;
+                    break;
+                }
             },
             _ = stopping.changed(), if !draining => {
                 std::pin::Pin::new(&mut connection).graceful_shutdown();
@@ -444,15 +569,17 @@ async fn serve_connection(
     // when the client closes or pauses, after the lingering time, or on shutdown.
     let mut stream = connection.into_parts().io.into_inner();
     let _ = tokio::time::timeout(timeout, stream.shutdown()).await;
-    let linger = async {
-        let mut discarded = vec![0; 16 * 1024];
-        while let Ok(Ok(1..)) = tokio::time::timeout(LINGER_IDLE, stream.read(&mut discarded)).await
-        {
+    if lingering {
+        let linger = async {
+            let mut discarded = vec![0; 16 * 1024];
+            while let Ok(Ok(1..)) =
+                tokio::time::timeout(LINGER_IDLE, stream.read(&mut discarded)).await
+            {}
+        };
+        tokio::select! {
+            _ = tokio::time::timeout(LINGER_TIME, linger) => {},
+            _ = stopping.wait_for(|stopping| *stopping) => {},
         }
-    };
-    tokio::select! {
-        _ = tokio::time::timeout(LINGER_TIME, linger) => {},
-        _ = stopping.wait_for(|stopping| *stopping) => {},
     }
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Debug,
