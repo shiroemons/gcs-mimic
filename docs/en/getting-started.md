@@ -2041,9 +2041,12 @@ Each HTTP/1 connection handles one request, with a 16 KiB parser buffer, 64 head
 and a deadline. Object routes use a header deadline followed by renewed chunk-inactivity
 deadlines; active transfers can exceed the default five seconds. After confirmed upload EOF,
 body inactivity is suspended while storage finishes. Upload/media requests additionally
-have an absolute 15-minute ceiling that chunks cannot renew. Expiry during upload body
-streaming closes the connection without an HTTP error response or publication; expiry
-during download truncates the stream after its headers and closes the connection.
+have an absolute 15-minute ceiling that chunks cannot renew. Expiry before a response
+returns a retryable error without publication: 408 `uploadBrokenConnection` for object
+uploads and 503 `backendError` for other requests. Expiry during download truncates the
+stream after its headers and closes the connection. After a response the server keeps
+reading and discarding client input for up to 30 seconds, so a rejected upload still
+reads its response instead of a connection reset.
 For large/slow transfers, use `--object-request-timeout-ms 3600000` for one hour or set
 the corresponding environment/JSON value. Advisory checks and post-EOF storage waits each default to 30 seconds,
 capped by the remaining absolute request budget, and return 503 `backendError` on expiry.

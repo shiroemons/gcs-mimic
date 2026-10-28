@@ -11536,7 +11536,7 @@
         },
         {
           "id": "JSON-OBJECTS-005-PUBLICATION",
-          "description": "Early 413/501/400 is readable on loopback during an attempted 8 MiB body; bounded lingering close is implemented without causal attribution.",
+          "description": "Early 413/501/400 is readable on loopback during an attempted 8 MiB body; lingering close behavior is verified under AUDIT-010.",
           "result": "PASS",
           "test_ids": [
             "obj_http_early_rejections_survive_body_larger_than_socket_buffers"
@@ -12413,7 +12413,7 @@
         "Single untranscoded JSON byte ranges work. If-Range, transcoding, userProject remains unsupported; scoped fields selection and read ETag validators work; full omits ACL/owner; retained historical versions now work. SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS and SPEC-012 retain fallback, empty-suffix, validator and partial-header questions.",
         "Strict mode enforces storage.objects.get through project-plus-bucket predefined roles; allUsers and allAuthenticatedUsers bucket grants are enforced; broader bucket policies, object IAM policies and ACLs remain unsupported and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "SPEC-013: accepted GET/DELETE retry tokens execute again without response replay.",
-        "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery.",
+        "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-JSON-ETAG-WIRE: scoped GET validators and mixed query conditions pass; provider opaque tag/header/error parity remains open. Legacy bucket JSON etag can differ from HTTP; equal-revision same-millisecond incarnations can share a tag.",
         "SPEC-JSON-ETAG-WIRE: for gzip-stored media with an ETag request header, Accept-Encoding validation precedes a NotMatch-query 304; encoding errors can win. A NotMatch-query-only 304 without an ETag request header emits no ETag response header, preserving existing behavior.",
@@ -12588,7 +12588,7 @@
         },
         {
           "id": "JSON-OBJECTS-007-PUBLICATION",
-          "description": "Both completed-body commit waits and queued advisory checks outlive body inactivity and receive 200; Closure without an explicit EOF marker aborts and preserves the previous object; Unreleased v2 is rejected read-only; v1 migrates atomically to v3 without an intermediate version; Committed overwrite/delete succeeds with deferred reclamation; restart clears the journal; Four-worker EOF-barrier races cover both mutation outcomes without staging/blob leaks; Early 413/501/400 is readable on loopback during an attempted 8 MiB body; bounded lingering close is implemented without causal attribution; Advisory checks reject before body consumption/staging; publication rechecks atomically.",
+          "description": "Both completed-body commit waits and queued advisory checks outlive body inactivity and receive 200; Closure without an explicit EOF marker aborts and preserves the previous object; Unreleased v2 is rejected read-only; v1 migrates atomically to v3 without an intermediate version; Committed overwrite/delete succeeds with deferred reclamation; restart clears the journal; Four-worker EOF-barrier races cover both mutation outcomes without staging/blob leaks; Early 413/501/400 is readable on loopback during an attempted 8 MiB body; lingering close behavior is verified under AUDIT-010. Advisory checks reject before body consumption/staging; publication rechecks atomically.",
           "result": "PASS",
           "test_ids": [
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -13035,7 +13035,7 @@
         },
         {
           "id": "BEHAVIOR-COMMON-007-PUBLICATION",
-          "description": "Both completed-body commit waits and queued advisory checks outlive body inactivity and receive 200; Committed overwrite/delete succeeds with deferred reclamation; restart clears the journal; Early 413/501/400 is readable on loopback during an attempted 8 MiB body; bounded lingering close is implemented without causal attribution.",
+          "description": "Both completed-body commit waits and queued advisory checks outlive body inactivity and receive 200; Committed overwrite/delete succeeds with deferred reclamation; restart clears the journal; Early 413/501/400 is readable on loopback during an attempted 8 MiB body; lingering close behavior is verified under AUDIT-010.",
           "result": "PASS",
           "test_ids": [
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -13682,7 +13682,7 @@
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. Ordinary object reclamation retains its startup retry; resumable terminal cleanup additionally has explicit due maintenance and a deadline scheduler.",
-        "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery.",
+        "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation.",
         "SPEC-013/SPEC-016: media/multipart upload tokens require ifGenerationMatch with no replay; resumable initiation accepts one nonempty token without it and creates another bounded session; multipart MIME caps/errors, contentType precedence and checksum-container edge rules remain local choices awaiting direct service evidence.",
         "SPEC-RSM-DISCOVERY-PATH/EDGES/AUTH-CONDITIONS: JSON resumable has explicit local edge/error/terminal-retention and permission-recheck choices. XML/signed initiation, gRPC and invocation-token replay are excluded. Selected native resumable process-kill boundaries pass; final hash reread and prepublication error-resolution timing limits are recorded in docs/en/evidence/resumable-upload.md.",
@@ -23428,7 +23428,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-008-PUBLICATION",
-          "description": "Both completed-body commit waits and queued advisory checks outlive body inactivity and receive 200; Closure without an explicit EOF marker aborts and preserves the previous object; Committed overwrite/delete succeeds with deferred reclamation; restart clears the journal; Four-worker EOF-barrier races cover both mutation outcomes without staging/blob leaks; Early 413/501/400 is readable on loopback during an attempted 8 MiB body; bounded lingering close is implemented without causal attribution; Advisory checks reject before body consumption/staging; publication rechecks atomically.",
+          "description": "Both completed-body commit waits and queued advisory checks outlive body inactivity and receive 200; Closure without an explicit EOF marker aborts and preserves the previous object; Committed overwrite/delete succeeds with deferred reclamation; restart clears the journal; Four-worker EOF-barrier races cover both mutation outcomes without staging/blob leaks; Early 413/501/400 is readable on loopback during an attempted 8 MiB body; lingering close behavior is verified under AUDIT-010. Advisory checks reject before body consumption/staging; publication rechecks atomically.",
           "result": "PASS",
           "test_ids": [
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -23567,7 +23567,7 @@
         "No ACL/IAM/auth, encoding/encryption or token replay; metadata upload belongs to the multipart subset. Media/multipart tokens require ifGenerationMatch, otherwise 501 before input (SPEC-013); default 1 GiB cap and inspected bounds are not performance measurements.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
-        "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery.",
+        "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
       ],
       "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
@@ -44854,7 +44854,7 @@
         "Only media transfers exist; other transfer modes and checksum throughput/fairness remain unverified.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "SPEC-008: header validation and the known-size check precede connection-bounded upload admission; one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation.",
-        "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
+        "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010."
       ],
       "implemented_in": "fcb1a338c2e34de41f369591a4f03c127c6604f8",
       "last_verified": "2026-10-25"
@@ -47232,7 +47232,7 @@
         },
         {
           "id": "DESIGN-082-PUBLICATION",
-          "description": "Committed overwrite/delete succeeds with deferred reclamation; restart clears the journal; Early 413/501/400 is readable on loopback during an attempted 8 MiB body; bounded lingering close is implemented without causal attribution.",
+          "description": "Committed overwrite/delete succeeds with deferred reclamation; restart clears the journal; Early 413/501/400 is readable on loopback during an attempted 8 MiB body; lingering close behavior is verified under AUDIT-010.",
           "result": "PASS",
           "test_ids": [
             "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
@@ -47768,7 +47768,7 @@
         "Single-request multipart and normal nonzero ChunkSize resumable Writer are verified for the scoped metadata/checksum/condition subset. Other transports and unrestricted size/retry guarantees remain unverified; native resource results do not prove constrained-container memory.",
         "SPEC-013: GET/DELETE/update invocation tokens re-execute without deduplication; media/multipart upload tokens require generation-match and return 412 after committed conditioned retry. Resumable initiation accepts a token without generation-match but does not replay it; session offsets govern chunk retries. Signing, XML beyond the scoped reads, gRPC and full strict IAM/ACL semantics remain unavailable; local strict project/bucket and public grants are verified.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. Resumable terminal cleanup additionally has explicit due maintenance and a deadline scheduler.",
-        "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery.",
+        "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged."
       ],
       "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
@@ -49124,7 +49124,7 @@
         },
         {
           "id": "UX-003-PUBLICATION",
-          "description": "Early 413/501/400 is readable on loopback during an attempted 8 MiB body; bounded lingering close is implemented without causal attribution.",
+          "description": "Early 413/501/400 is readable on loopback during an attempted 8 MiB body; lingering close behavior is verified under AUDIT-010.",
           "result": "PASS",
           "test_ids": [
             "obj_http_early_rejections_survive_body_larger_than_socket_buffers"
@@ -49557,7 +49557,7 @@
       ],
       "known_deviations": [
         "Scoped listing, metadata, multipart/resumable, strict auth, ranges, HTTPS and browser CORS now have evidence; broader SDK/signing coverage remains pending.",
-        "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
+        "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
       "last_verified": "2026-10-25"
@@ -51988,26 +51988,121 @@
       "interface": "HTTP transport",
       "phase": "P1",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
-        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/retry-strategy"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Test Content-Length, chunked transfer, empty bodies, truncated bodies, Expect: 100-continue where applicable, connection reuse, and HTTP/2 flow control. Reject malformed or incomplete uploads without publishing partial objects. Bound header/parser state as well as body buffers.",
+      "notes": "Test Content-Length, chunked transfer, empty bodies, truncated bodies, Expect: 100-continue where applicable, connection reuse, and HTTP/2 flow control. Reject malformed or incomplete uploads without publishing partial objects. Bound header/parser state as well as body buffers. Deadline responses, lingering close, Expect: 100-continue rejection and post-head truncation are verified in docs/en/evidence/http-connection-semantics.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "upload_deadline_response",
+          "description": "A connection or absolute deadline that expires before an object upload handler answers cancels it without publication and returns 408 uploadBrokenConnection, as a JSON error or the XML error code.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
+            "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
+            "tls_streaming_progress_and_upload_deadlines_preserve_existing_object",
+            "xml_put_chunked_trailers_and_body_deadlines_cannot_publish"
+          ]
+        },
+        {
+          "id": "backend_deadline_response",
+          "description": "A deadline that expires before any other handler answers returns 503 backendError instead of a silent close, and the server stays usable.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_deadline_before_response_returns_backend_error"
+          ]
+        },
+        {
+          "id": "lingering_close",
+          "description": "After a response the server half-closes and discards client input until the client closes or pauses for one second, for at most 30 seconds or until shutdown, so an early rejection survives an 8 MiB body on every CI platform.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_http_early_rejections_survive_body_larger_than_socket_buffers"
+          ]
+        },
+        {
+          "id": "expect_continue",
+          "description": "Expect: 100-continue sends the interim response only when the handler polls the body; a rejection before that answers with the final response alone.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_http_expect_continue_rejection_skips_the_interim_response",
+            "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden"
+          ]
+        },
+        {
+          "id": "post_head_truncation",
+          "description": "A deadline after the response head truncates the body and closes the connection.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_http_trickle_download_stops_at_absolute_deadline"
+          ]
+        },
+        {
+          "id": "connection_reuse",
+          "description": "Persistent HTTP/1.1 connections with per-request deadlines, as pooled SDK clients expect.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "framing_matrix",
+          "description": "Content-Length, chunked, empty and truncated body framing across every upload route, and HTTP/2 flow control.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+        "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
+        "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
+        "tls_streaming_progress_and_upload_deadlines_preserve_existing_object",
+        "xml_put_chunked_trailers_and_body_deadlines_cannot_publish",
+        "bkt_http_deadline_before_response_returns_backend_error",
+        "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
+        "obj_http_expect_continue_rejection_skips_the_interim_response",
+        "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
+        "obj_http_trickle_download_stops_at_absolute_deadline"
+      ],
+      "verification": [
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN bash scripts/with-test-tmpdir.sh bash scripts/check.sh; GitHub Actions Foundation checks run 40631319684",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/evidence/http-connection-semantics.md",
+          "test_ids": [
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
+            "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
+            "tls_streaming_progress_and_upload_deadlines_preserve_existing_object",
+            "xml_put_chunked_trailers_and_body_deadlines_cannot_publish",
+            "bkt_http_deadline_before_response_returns_backend_error",
+            "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
+            "obj_http_expect_continue_rejection_skips_the_interim_response",
+            "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
+            "obj_http_trickle_download_stops_at_absolute_deadline"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Keep-alive stays disabled, so every response closes its connection; connection reuse and HTTP/2 flow control remain pending.",
+        "Timeout statuses follow the documented status/reason pairs without a real-cloud differential; a body sent to a non-upload route receives 503 because the cancelled handler cannot report whether its small body was read.",
+        "Lingering close waits at most one second of client silence instead of nginx's five seconds, and a client that keeps sending can hold its connection slot for up to 30 seconds."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "AUDIT-011",

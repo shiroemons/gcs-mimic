@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 251 | 0 | 58 | 1 | 0 | 0 |
-| behavior | 201 | 113 | 0 | 50 | 38 | 0 | 0 |
+| behavior | 201 | 112 | 0 | 51 | 38 | 0 | 0 |
 | project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 251 | 28 | 31 | 0 | 0 | 0 |
-| behavior | 114 | 53 | 31 | 3 | 0 | 0 |
+| behavior | 113 | 53 | 32 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
 
 ## api_operation
@@ -782,7 +782,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-010 | HTTPボディ形式と接続の意味論 | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| AUDIT-010 | HTTPボディ形式と接続の意味論 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 
 ### Transport semantics
 

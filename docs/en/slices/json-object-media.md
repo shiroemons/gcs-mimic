@@ -320,11 +320,12 @@ Connection admission remains the configured `max_connections` (default 32).
 (24 hours). `--object-request-timeout-ms`, `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` and JSON
 `object_request_timeout_ms` follow CLI > environment > JSON > default precedence.
 The absolute ceiling starts when a recognized upload/media request is dispatched and is
-never renewed by upload or download progress. Expiry during upload-body streaming closes
-the connection without an HTTP error response, cancels the unfinished body and preserves the previous generation without
-publishing partial data. Existing cleanup releases admission permits after its work ends.
-Expiry during media download closes the connection and truncates the stream; already
-buffered socket bytes may still reach the client. No minimum transfer rate is enforced.
+never renewed by upload or download progress. Expiry during upload-body streaming returns
+408 `uploadBrokenConnection`, cancels the unfinished body and preserves the previous
+generation without publishing partial data. Existing cleanup releases admission permits
+after its work ends. Expiry during media download, after the response head, closes the
+connection and truncates the stream; already buffered socket bytes may still reach the
+client. No minimum transfer rate is enforced.
 For large or slow transfers, raise `--object-request-timeout-ms 3600000` to allow one hour,
 or use the corresponding environment/JSON setting; zero never disables the ceiling.
 
@@ -354,13 +355,16 @@ external SQLite lock does not confirm a background upload's commit: SQLite may s
 sleeping between busy retries. The catalog-timeout regression therefore observes the
 committed catalog row before checking media bytes with its 100 ms GET startup budget;
 both upload 503 assertions and the 500 ms–2 s pre-release bound remain independent.
-Bucket/probe/unknown routes retain the previous total connection deadline. Keep-alive stays
-disabled; graceful drain still has the independent `shutdown_timeout_ms` network bound.
+Bucket/probe/unknown routes retain the previous total connection deadline and answer its
+expiry with 503 `backendError`. Keep-alive stays disabled; graceful drain still has the
+independent `shutdown_timeout_ms` network bound.
 Before confirmed EOF, timeout/disconnect cancels the upload and triggers bounded cleanup
 without publishing partial data; channel closure without an explicit EOF marker is an abort.
 After confirmed EOF, the complete body may commit even if the client disconnects or shutdown
-aborts the connection. Normal completion returns the committed result. Early rejections
-send the response, half-close the socket and discard at most 256 KiB for at most 100 ms.
+aborts the connection. Normal completion returns the committed result. Every response,
+including an early rejection, is followed by a half-close and lingering close: the server
+discards client input until the client closes or pauses for one second, for at most
+30 seconds, or until shutdown, so the client's remaining body cannot reset the response.
 
 ## Numbered acceptance cases
 

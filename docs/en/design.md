@@ -81,13 +81,21 @@ between chunks; each progressing chunk renews it. Upload advisory checks suspend
 body-inactivity deadline while waiting for bounded catalog admission/execution; it restarts
 before body streaming. Independently, `object_request_timeout_ms` defaults to 900000 ms
 (validated 1–86400000) from object upload/media request dispatch and never renews on chunks.
-Expiry closes an upload before EOF without an HTTP error response or publication, or
-truncates a media download after its headers. Large/slow transfers can raise
-`--object-request-timeout-ms` (for example, 3600000 ms for one hour).
+A deadline that expires before the handler answers cancels the handler without
+publication and answers with a retryable status that Cloud Storage documents: object
+uploads (`/upload/...` and XML PUT/POST with a body) receive 408 `uploadBrokenConnection`,
+and other requests receive 503 `backendError`. Once a response head has been sent, expiry
+can only truncate the body, as for a media download after its headers. Large/slow
+transfers can raise `--object-request-timeout-ms` (for example, 3600000 ms for one hour).
 Upload advisory and post-EOF waits each use `catalog_wait_timeout_ms`, default 30000 ms
 (validated 1–60000), capped by the remaining absolute request budget; expiry returns
 503 `backendError`. Both settings use CLI > environment > JSON > default precedence.
-Bucket/probe/unknown routes retain their total connection deadline.
+Bucket/probe/unknown routes keep their total connection deadline, now answered with 503.
+After each response the server sends FIN and discards further client input until the
+client closes or pauses for one second, for at most 30 seconds (nginx's default
+`lingering_time`), or until shutdown. Closing with unread input would reset the
+connection and could discard an early rejection; a client that keeps sending can hold
+its connection slot for that lingering time.
 Shutdown has its independent drain deadline. Compose additionally
 sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. The
 [local ARM64 resource evidence](evidence/dist-resource-measurement.md) measures idle
