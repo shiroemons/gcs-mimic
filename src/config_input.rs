@@ -21,6 +21,7 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "tls_handshake_timeout_ms",
     "data_dir",
     "seed_dir",
+    "default_seed_dir",
     "seed_project",
     "seed_content_type",
     "sync_dir",
@@ -362,7 +363,7 @@ fn legacy_fix(name: &str, values: &BTreeMap<&str, &str>) -> String {
                 .unwrap_or_else(|_| "https://storage.example.invalid:4443".into());
             format!("Use GCS_MIMIC_PUBLIC_BASE_URL={example} including the scheme; legacy Host matching also requires GCS_MIMIC_COMPAT_PROFILE=legacy-emulator. Native path-style accepts any Host. For SDK XML reads in legacy mode the public authority must match the API endpoint authority; unequal authorities fall back to a hostname bucket")
         }
-        "data" => "use GCS_MIMIC_SEED_DIR=fixtures; seed runs once for a fresh native data directory and never overwrites changes on restart".into(),
+        "data" => "mount fixtures at /data in the image or use GCS_MIMIC_SEED_DIR=fixtures; seed replays on every startup, overwriting changed objects at fixture names".into(),
         "filesystem_root" => "use GCS_MIMIC_DATA_DIR=data only for native storage; the source format differs. Retain the old root for the separately delivered Import conversion; never mount it as native data".into(),
         "backend" => "the backend selector and memory mode are unsupported; remove this setting and use the default disk-backed native catalog".into(),
         "cert_location" | "private_key_location" => "supply both GCS_MIMIC_TLS_CERT=certs/server.pem and GCS_MIMIC_TLS_KEY=certs/server-key.pem; one-sided overrides fail".into(),
@@ -403,36 +404,44 @@ pub fn cli_diagnostics(args: &[String]) -> Diagnostics {
     inputs.diagnostics
 }
 
-/// Bounded migration inspection; never imports fixtures or creates a path.
-pub fn data_warning(
-    config: &crate::config::Config,
-    legacy_data: &std::path::Path,
-) -> Vec<Diagnostic> {
+/// Adopts `default_seed_dir` as the seed root when no explicit seed is configured. The image
+/// sets it to `/data`, so a fake-gcs-server style mount loads without another variable, while a
+/// `/data` used as the data or sync directory keeps its existing role.
+pub fn resolve_default_seed(config: &mut crate::config::Config) -> Vec<Diagnostic> {
+    let Some(candidate) = config.default_seed_dir.clone() else {
+        return Vec::new();
+    };
     if config.seed_dir.is_some() {
         return Vec::new();
     }
     let inspect = || -> std::io::Result<bool> {
-        let legacy = migration_path(legacy_data)?;
-        let native = migration_path(&config.data_dir)?;
-        if legacy.starts_with(&native) || native.starts_with(&legacy) {
-            return Ok(false);
+        match std::fs::symlink_metadata(&candidate) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => return Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
         }
-        match std::fs::read_dir(legacy_data) {
-            Ok(mut entries) => entries.next().transpose().map(|entry| entry.is_some()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-            Err(error) => Err(error),
+        let seed = migration_path(&candidate)?;
+        for other in std::iter::once(&config.data_dir).chain(config.sync_dir.as_ref()) {
+            let other = migration_path(other)?;
+            if seed.starts_with(&other) || other.starts_with(&seed) {
+                return Ok(false);
+            }
         }
+        std::fs::read_dir(&candidate).map(|_| true)
     };
-    let fix = match inspect() {
-        Ok(false) => return Vec::new(),
+    match inspect() {
         Ok(true) => {
-            "Nonempty /data is not imported automatically; set GCS_MIMIC_SEED_DIR=/data to import it once into a fresh native data directory. Restart never overwrites API changes."
+            config.seed_dir = Some(candidate);
+            Vec::new()
         }
-        Err(_) => {
-            "Cannot inspect /data or establish that it is disjoint from data_dir; inspect permissions, symlinks and path overlap before choosing a separate read-only seed directory. No implicit import occurs."
-        }
-    };
-    vec![Diagnostic::new(DiagnosticSource::Filesystem, "/data", fix)]
+        Ok(false) => Vec::new(),
+        Err(_) => vec![Diagnostic::new(
+            DiagnosticSource::Filesystem,
+            "default_seed_dir",
+            "Cannot inspect default_seed_dir or establish that it is disjoint from data_dir and sync_dir; fix its permissions or set seed_dir explicitly. No implicit import occurs.",
+        )],
+    }
 }
 
 fn migration_path(path: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
@@ -790,48 +799,75 @@ mod tests {
     }
 
     #[test]
-    fn data_inspection_is_bounded_conservative_and_resolves_missing_ancestors() {
+    fn default_seed_is_adopted_only_when_present_and_disjoint() {
         let root =
-            std::env::temp_dir().join(format!("gcs-mimic-data-warning-{}", std::process::id()));
+            std::env::temp_dir().join(format!("gcs-mimic-default-seed-{}", std::process::id()));
         std::fs::create_dir_all(root.join("legacy")).unwrap();
         std::fs::write(root.join("legacy/object"), "fixture").unwrap();
-        let mut config = crate::config::Config {
-            data_dir: root.join("native/new"),
-            ..Default::default()
-        };
         let legacy = root.join("legacy");
-        assert!(
-            data_warning(&config, &legacy)[0]
-                .fix
-                .contains("GCS_MIMIC_SEED_DIR=/data")
-        );
-        for native in [legacy.clone(), root.clone(), legacy.join("missing/new")] {
-            config.data_dir = native;
-            assert!(data_warning(&config, &legacy).is_empty());
-        }
-        config.data_dir = root.join("native");
-        assert!(data_warning(&config, &root.join("missing")).is_empty());
+        let resolve = |data_dir: std::path::PathBuf,
+                       sync_dir: Option<std::path::PathBuf>,
+                       default: &std::path::Path| {
+            let mut config = crate::config::Config {
+                data_dir,
+                sync_dir,
+                default_seed_dir: Some(default.to_owned()),
+                ..Default::default()
+            };
+            let warnings = resolve_default_seed(&mut config);
+            (config.seed_dir, warnings)
+        };
+        let (seed, warnings) = resolve(root.join("native/new"), None, &legacy);
+        assert_eq!(seed.as_deref(), Some(legacy.as_path()));
+        assert!(warnings.is_empty());
         std::fs::create_dir(root.join("empty")).unwrap();
-        assert!(data_warning(&config, &root.join("empty")).is_empty());
+        let (seed, _) = resolve(root.join("native"), None, &root.join("empty"));
+        assert_eq!(seed.as_deref(), Some(root.join("empty").as_path()));
+        for native in [legacy.clone(), root.clone(), legacy.join("missing/new")] {
+            assert_eq!(resolve(native, None, &legacy), (None, Vec::new()));
+        }
+        assert_eq!(
+            resolve(root.join("native"), Some(legacy.clone()), &legacy),
+            (None, Vec::new())
+        );
+        assert_eq!(
+            resolve(root.join("native"), None, &root.join("missing")),
+            (None, Vec::new())
+        );
         std::fs::write(root.join("file"), "not a directory").unwrap();
-        assert!(
-            data_warning(&config, &root.join("file"))[0]
-                .fix
-                .contains("Cannot inspect")
+        assert_eq!(
+            resolve(root.join("native"), None, &root.join("file")),
+            (None, Vec::new())
         );
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(&legacy, root.join("alias")).unwrap();
-            config.data_dir = root.join("alias/missing");
-            assert!(data_warning(&config, &legacy).is_empty());
+            assert_eq!(
+                resolve(root.join("alias/missing"), None, &legacy),
+                (None, Vec::new())
+            );
             std::os::unix::fs::symlink(root.join("absent"), root.join("dangling")).unwrap();
-            config.data_dir = root.join("dangling/native");
-            let warning = data_warning(&config, &legacy);
-            assert!(warning[0].fix.contains("Cannot inspect"));
-            assert!(!warning[0].fix.contains("GCS_MIMIC_SEED_DIR=/data"));
+            let (seed, warnings) = resolve(root.join("dangling/native"), None, &legacy);
+            assert_eq!(seed, None);
+            assert!(warnings[0].fix.contains("Cannot inspect"));
         }
-        config.seed_dir = Some(legacy.clone());
-        assert!(data_warning(&config, &legacy).is_empty());
+        let mut explicit = crate::config::Config {
+            data_dir: root.join("native"),
+            seed_dir: Some(root.join("empty")),
+            default_seed_dir: Some(legacy.clone()),
+            ..Default::default()
+        };
+        assert!(resolve_default_seed(&mut explicit).is_empty());
+        assert_eq!(
+            explicit.seed_dir.as_deref(),
+            Some(root.join("empty").as_path())
+        );
+        let mut unset = crate::config::Config {
+            data_dir: root.join("native"),
+            ..Default::default()
+        };
+        assert!(resolve_default_seed(&mut unset).is_empty());
+        assert_eq!(unset.seed_dir, None);
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -78,6 +78,8 @@ pub struct Config {
     pub tls_handshake_timeout_ms: u64,
     pub data_dir: PathBuf,
     pub seed_dir: Option<PathBuf>,
+    /// Fallback seed root used only when it exists and is disjoint from data/sync directories.
+    pub default_seed_dir: Option<PathBuf>,
     pub sync_dir: Option<PathBuf>,
     pub sync_delete_guard: bool,
     pub sync_reinitialize: Option<crate::storage::sync_state::CatalogId>,
@@ -116,11 +118,12 @@ impl Default for Config {
             tls_handshake_timeout_ms: 5_000,
             data_dir: PathBuf::from("data"),
             seed_dir: None,
+            default_seed_dir: None,
             sync_dir: None,
             sync_delete_guard: true,
             sync_reinitialize: None,
             seed_project: "local-project".into(),
-            seed_content_type: crate::mime::SeedContentType::OctetStream,
+            seed_content_type: crate::mime::SeedContentType::Extension,
             default_location: "US".into(),
             buckets_file: None,
             api_base_url: None,
@@ -440,6 +443,12 @@ impl Config {
                             return Err("seed_dir must not be empty".into());
                         }
                         config.seed_dir = Some(PathBuf::from(value));
+                    }
+                    "default_seed_dir" => {
+                        if value.is_empty() {
+                            return Err("default_seed_dir must not be empty".into());
+                        }
+                        config.default_seed_dir = Some(PathBuf::from(value));
                     }
                     "sync_dir" => {
                         if value.is_empty() {

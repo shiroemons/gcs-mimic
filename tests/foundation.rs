@@ -271,10 +271,8 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert_eq!(ready["catalog_wait_timeout_ms"], 30_000);
         assert_eq!(ready["shutdown_timeout_ms"], 5000);
         assert_eq!(ready["tls_handshake_timeout_ms"], 5000);
-        assert!(matches!(
-            ready["seed"]["outcome"].as_str(),
-            Some("disabled" | "skipped")
-        ));
+        // Without seed_dir every startup, including the restart, reports the same outcome.
+        assert_eq!(ready["seed"], serde_json::json!({"outcome":"disabled"}));
         common::stop_server(&mut child, &mut stdout);
     }
 }

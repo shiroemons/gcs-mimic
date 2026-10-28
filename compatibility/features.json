@@ -43401,9 +43401,9 @@
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/README.md"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only fixture seeding, version-1 create-missing bucket initialization and their SDK/container evidence remain in docs/en/slices/seed.md, docs/en/evidence/seed-platform.md and docs/en/slices/bucket-initialization.md. Existing owners/settings/API mutations survive initialization and restart; local operator actions grant no API authority. Shared root/marker leases, bounded all-owner inventory and journal observation are verified in docs/en/slices/shared-sync-root.md and docs/en/slices/shared-sync-observation.md. Directory synchronization now activates before bind and runs after ready: continuous API export plus one initial external create/edit merge and an internal async rescan. External-only binary/empty files and default buckets are imported through conditional publish_objects with atomic fingerprints; divergent same-name bodies remain untouched and counted. A complete initial merge finishes the baseline, interrupted ingestion resumes without duplicate generations/deletion, and strict sync is rejected until sync-conflicts. Fixed settling remains 1000 ms; no new setting or periodic scan is added. External deletion, conflict transfer/control, watchers and exhaustive interruption/platform guarantees remain PENDING. Current scope and native evidence: docs/en/slices/directory-synchronization.md. No synchronization performance measurement or complete source-fixture equivalence is claimed.",
+      "notes": "Read-only fixture seeding, version-1 create-missing bucket initialization and their SDK/container evidence remain in docs/en/slices/seed.md, docs/en/evidence/seed-platform.md and docs/en/slices/bucket-initialization.md. Seed replays its fixture files on every startup: API overwrites and metadata edits at fixture names are reverted, matching objects keep their generation, held objects are reported blocked, and objects without a fixture file are never touched or deleted. Bucket initialization keeps existing owners/settings and API bucket mutations across restart; local operator actions grant no API authority. Shared root/marker leases, bounded all-owner inventory and journal observation are verified in docs/en/slices/shared-sync-root.md and docs/en/slices/shared-sync-observation.md. Directory synchronization now activates before bind and runs after ready: continuous API export plus one initial external create/edit merge and an internal async rescan. External-only binary/empty files and default buckets are imported through conditional publish_objects with atomic fingerprints; divergent same-name bodies remain untouched and counted. A complete initial merge finishes the baseline, interrupted ingestion resumes without duplicate generations/deletion, and strict sync is rejected until sync-conflicts. Fixed settling remains 1000 ms; no new setting or periodic scan is added. External deletion, conflict transfer/control, watchers and exhaustive interruption/platform guarantees remain PENDING. Current scope and native evidence: docs/en/slices/directory-synchronization.md. No synchronization performance measurement or complete source-fixture equivalence is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -43578,19 +43578,19 @@
         },
         {
           "id": "source-seed-profile",
-          "description": "Pinned extension MIME uses Go suffix/simple-lowercase rules, empty buckets and counted regular-file OS-metadata skipping at every depth; matching directories including ._assets children remain input and native octet-stream stays the default; contracts: docs/en/slices/source-storage-contract.md and docs/en/slices/import-seed-adapter.md.",
+          "description": "Pinned extension MIME uses Go suffix/simple-lowercase rules, empty buckets and counted regular-file OS-metadata skipping at every depth; matching directories including ._assets children remain input; extension MIME is the seed default and octet-stream is opt-in; contracts: docs/en/slices/source-storage-contract.md and docs/en/slices/import-seed-adapter.md.",
           "result": "PASS",
           "test_ids": ["pinned_go_suffix_case_and_media_types", "seeded_http_metadata_bytes_and_strict_administrative_import", "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart"]
         },
         {
           "id": "filesystem-import-seed-guard",
-          "description": "Filesystem import retains empty buckets and source bytes, refuses serve while incomplete, and atomically completes import/seed so later seed_dir cannot replay imported data. Scope: docs/en/slices/import-filesystem.md.",
+          "description": "Filesystem import retains empty buckets and source bytes, refuses serve while incomplete, and atomically completes import/seed initialization; a later seed_dir replays only its own fixture files, so an empty fixture root leaves imported objects and generations untouched and a missing configured root fails. Scope: docs/en/slices/import-filesystem.md.",
           "result": "PASS",
           "test_ids": ["filesystem_import_preserves_source_identity_and_skips_later_seed", "filesystem_import_interrupt_resume_and_serve_gate"]
         },
         {
           "id": "source-seed-safety",
-          "description": "Retain native validation, read-only input and one-time initialization; reject unsupported inputs instead of silently skipping them, exclude only the generated seed ACL without granting permissions, and verify shutdown drains side effects, removes temporary files and releases locks.",
+          "description": "Retain native validation and read-only input while replaying fixtures on every startup; reject unsupported inputs except top-level regular files, which are skipped with a seed_skipped warning like fake-gcs-server; exclude only the generated seed ACL without granting permissions, and verify shutdown drains side effects, removes temporary files and releases locks.",
           "result": "PASS",
           "test_ids": ["seeded_http_metadata_bytes_and_strict_administrative_import", "sigterm_during_seed_drains_writes_releases_lock_and_retries", "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files"]
         },
@@ -43721,6 +43721,21 @@
         "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
       ],
       "verification": [
+        {
+          "command": "RUST_TEST_THREADS=4 cargo test --locked --offline --test seed --test import_filesystem; cargo test --locked --offline --lib -- mime::tests",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/seed.md",
+          "test_ids": [
+            "pinned_go_suffix_case_and_media_types",
+            "seeded_http_metadata_bytes_and_strict_administrative_import",
+            "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart",
+            "sigterm_during_seed_drains_writes_releases_lock_and_retries",
+            "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
+            "filesystem_import_preserves_source_identity_and_skips_later_seed",
+            "filesystem_import_interrupt_resume_and_serve_gate"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --test sync_mirror --test sync_configuration",
           "result": "PASS",
@@ -48988,16 +49003,16 @@
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [],
-      "source_checked_at": "2026-10-22",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Read-only bucket-directory fixtures import sequentially before listener readiness. The durable seed marker prevents replay after restart or deletion; interrupted imports resume create-if-absent. First startup without fixtures and migrated catalogs are already initialized. Octet-stream remains the default; explicit seed_content_type=extension uses the pinned Go/mailcap/YAML table. Regular .DS_Store/._* files are skipped/countable at every depth, matching directories are traversed, and existing catalog objects remain. Shared bounded traversal and publish_from_file retain 10000 entries, 32 directory levels and max_object_bytes; no sidecar or source mutation. Current adapter evidence: docs/en/slices/import-seed-adapter.md. Historical Linux/Compose evidence: docs/en/evidence/seed-platform.md. Stable administrative input remains required; no directory-wide atomic import or complete source compatibility is claimed.",
+      "notes": "Read-only bucket-directory fixtures are replayed sequentially before listener readiness on every startup that has a seed root, matching fake-gcs-server -data ergonomics. Buckets are ensured (existing buckets must belong to seed_project). Per file: a missing live object is created; a live object that is exactly what seeding would write (same size/MD5/CRC32C, seed content type, no content encoding/disposition/language, cache control, custom time or custom metadata) is unchanged with no new generation; anything else is replaced under an ifGenerationMatch condition with seed-default metadata, so API overwrites and metadata edits at fixture names are reverted while versioned buckets keep the previous generation as noncurrent. An event-based/temporary hold or unmet retention skips a needed replacement as blocked with a seed_blocked warning; holds and storage class are not compared. Objects without a fixture file are never touched or deleted, and an API-deleted fixture object or bucket is recreated. Regular files directly under the root are skipped with a seed_skipped warning. The ready event reports created/replaced/unchanged/blocked/skipped_os_metadata counts. seed_content_type defaults to extension (pinned Go/mailcap/YAML table); octet-stream is opt-in. default_seed_dir (container image: /data) becomes the seed root only when seed_dir is unset and the path is an existing directory disjoint from data_dir and sync_dir. Regular .DS_Store/._* files are skipped/countable at every depth. Shared bounded traversal and file publication retain 10000 entries, 32 directory levels and max_object_bytes; no sidecar or source mutation. Contract: docs/en/slices/seed.md; adapter: docs/en/slices/import-seed-adapter.md. No reseed endpoint, directory-wide atomic replay or complete source compatibility is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "seed-config",
-          "description": "CLI/environment/JSON/default precedence and invalid configuration rejection.",
+          "description": "CLI/environment/JSON/default precedence for seed_dir, default_seed_dir, seed_project and seed_content_type (default extension) and invalid configuration rejection.",
           "result": "PASS",
           "test_ids": [
             "seed_configuration_precedence_and_validation"
@@ -49005,7 +49020,7 @@
         },
         {
           "id": "seed-layout",
-          "description": "Empty buckets, nested Unicode/binary/hidden files, metadata, exact bytes, hashes and default octet-stream MIME; skip/count regular OS metadata at every depth while traversing matching directories.",
+          "description": "Empty buckets, nested Unicode/binary/hidden files, metadata, exact bytes, hashes and default extension MIME; skip/count regular OS metadata at every depth while traversing matching directories.",
           "result": "PASS",
           "test_ids": [
             "seeded_http_metadata_bytes_and_strict_administrative_import"
@@ -49021,7 +49036,7 @@
         },
         {
           "id": "seed-adapter",
-          "description": "Explicit pinned extension MIME and settings precedence leave durable-source ContentType unchanged; retain previously imported OS metadata identity/bytes and drain staged file publication through shutdown without leaks.",
+          "description": "Pinned extension MIME and settings precedence leave durable-source ContentType unchanged; replay retains API objects at OS metadata names and drains staged file publication through shutdown without leaks.",
           "result": "PASS",
           "test_ids": ["pinned_go_suffix_case_and_media_types", "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart", "seed_mime_setting_does_not_replace_durable_source_content_type", "sigterm_during_seed_drains_writes_releases_lock_and_retries", "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files"]
         },
@@ -49034,24 +49049,64 @@
           ]
         },
         {
-          "id": "seed-once",
-          "description": "Restart preserves mutations; deleting every bucket does not replay; fresh data reseeds.",
+          "id": "seed-replay",
+          "description": "Restart restores fixture bytes and seed-default metadata over API overwrites and metadata edits, keeps the generation of objects that already match, recreates API-deleted fixture objects and buckets, keeps API-only objects and never deletes an object whose fixture file was removed.",
           "result": "PASS",
           "test_ids": [
-            "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds"
+            "restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects"
+          ]
+        },
+        {
+          "id": "seed-replace",
+          "description": "An edited fixture file publishes a new live generation; a versioned bucket keeps the previous generation as noncurrent and an unversioned bucket drops it.",
+          "result": "PASS",
+          "test_ids": [
+            "edited_fixture_replaces_live_generation_and_versioning_keeps_noncurrent"
+          ]
+        },
+        {
+          "id": "seed-blocked",
+          "description": "A held object whose bytes or metadata differ is counted blocked, left unchanged and reported with a seed_blocked warning; an identical held object is unchanged; releasing the hold lets the next replay replace it.",
+          "result": "PASS",
+          "test_ids": [
+            "held_object_is_blocked_while_identical_held_object_is_unchanged"
+          ]
+        },
+        {
+          "id": "seed-content-type",
+          "description": "Default extension MIME; seed_content_type=octet-stream restores application/octet-stream; changing the mode replaces only objects whose seed mapping changes and a repeated replay is unchanged.",
+          "result": "PASS",
+          "test_ids": [
+            "default_content_type_is_extension_and_octet_stream_is_opt_in"
+          ]
+        },
+        {
+          "id": "seed-default-dir",
+          "description": "default_seed_dir seeds an existing directory when seed_dir is unset; a missing path, a regular file and a path overlapping data_dir in either direction are ignored with a disabled outcome; an explicit seed_dir wins.",
+          "result": "PASS",
+          "test_ids": [
+            "default_seed_dir_imports_only_an_existing_disjoint_directory"
           ]
         },
         {
           "id": "seed-disabled",
-          "description": "First startup without fixtures permanently disables import for that catalog.",
+          "description": "Startups without a seed root report disabled and replay nothing; adding seed_dir later imports the fixtures.",
           "result": "PASS",
           "test_ids": [
-            "disabled_startup_never_replays_fixtures_later"
+            "seed_dir_added_after_disabled_startup_imports_and_removal_disables_again"
+          ]
+        },
+        {
+          "id": "seed-top-level-file",
+          "description": "A regular file directly under the seed root is skipped with a seed_skipped warning and startup reaches readiness.",
+          "result": "PASS",
+          "test_ids": [
+            "top_level_files_are_skipped_with_a_warning"
           ]
         },
         {
           "id": "seed-retry",
-          "description": "Interrupted import blocks readiness, releases ownership and retries create-if-absent without overwrite.",
+          "description": "Interrupted import blocks readiness, releases ownership, rejects a changed bucket project and retries without a new generation for already committed matching objects.",
           "result": "PASS",
           "test_ids": [
             "interrupted_import_retries_without_overwrite_and_releases_lock"
@@ -49059,7 +49114,7 @@
         },
         {
           "id": "seed-invalid",
-          "description": "Reject invalid/missing/overlapping roots, names and oversized files; accept zero and inclusive size cap.",
+          "description": "Reject invalid/missing/overlapping configured roots, invalid bucket/object names and oversized files; accept zero and inclusive size cap.",
           "result": "PASS",
           "test_ids": [
             "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive"
@@ -49091,10 +49146,10 @@
         },
         {
           "id": "seed-migration",
-          "description": "Populated v4 migrates to v5 without seeding or overwrite; prior migration regressions stay green.",
+          "description": "Populated v4 migrates to the current schema, then replay restores the fixture at its name and keeps migrated API-only objects; prior migration regressions stay green.",
           "result": "PASS",
           "test_ids": [
-            "populated_v4_catalog_migrates_without_seeding",
+            "populated_v4_catalog_migrates_and_replays_seed",
             "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
             "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog"
           ]
@@ -49109,7 +49164,7 @@
         },
         {
           "id": "seed-compose",
-          "description": "Read-only seeded Compose up --wait, mutation persistence across stop/start and recreate, all-bucket deletion without replay, and deliberate reset/reseed pass on Linux ARM64/native and AMD64/emulated.",
+          "description": "Read-only seeded Compose up --wait, fixture replay over an API overwrite across stop/start (ready replaced count), API-only objects kept, recreation of a deleted fixture bucket after recreate, and an image /data mount seeded through default_seed_dir without seed variables. Verified locally on Linux ARM64; the CI container matrix runs the same script for AMD64 and ARM64.",
           "result": "PASS",
           "test_ids": [
             "container-seed-lifecycle"
@@ -49125,13 +49180,18 @@
         "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
         "seeded_http_metadata_bytes_and_strict_administrative_import",
         "explicit_project_and_empty_seed_directory_are_supported",
-        "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds",
-        "disabled_startup_never_replays_fixtures_later",
+        "restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects",
+        "edited_fixture_replaces_live_generation_and_versioning_keeps_noncurrent",
+        "held_object_is_blocked_while_identical_held_object_is_unchanged",
+        "default_content_type_is_extension_and_octet_stream_is_opt_in",
+        "default_seed_dir_imports_only_an_existing_disjoint_directory",
+        "seed_dir_added_after_disabled_startup_imports_and_removal_disables_again",
+        "top_level_files_are_skipped_with_a_warning",
         "interrupted_import_retries_without_overwrite_and_releases_lock",
         "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive",
         "fixture_depth_and_entry_count_are_bounded",
         "symlinks_and_special_files_fail_closed",
-        "populated_v4_catalog_migrates_without_seeding",
+        "populated_v4_catalog_migrates_and_replays_seed",
         "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
         "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
         "probes_cannot_succeed_while_seed_publication_is_blocked",
@@ -49140,138 +49200,72 @@
       ],
       "verification": [
         {
-          "command": "RUST_TEST_THREADS=4 cargo test --locked --offline --test seed; cargo test --locked --offline --lib mime::tests",
+          "command": "Linux ARM64 in rust:1.99.1-slim-trixie with procps: cargo test --locked --test seed -- --test-threads=4 (22 passed, including non_utf8_fixture_names_fail_closed)",
           "result": "PASS",
-          "verified_at": "2026-10-25",
-          "artifact": "docs/en/slices/import-seed-adapter.md",
-          "test_ids": ["pinned_go_suffix_case_and_media_types", "seed_configuration_precedence_and_validation", "seeded_http_metadata_bytes_and_strict_administrative_import", "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart", "seed_mime_setting_does_not_replace_durable_source_content_type", "sigterm_during_seed_drains_writes_releases_lock_and_retries", "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files"]
-        },
-        {
-          "command": "just check",
-          "result": "PASS",
-          "verified_at": "2026-10-22",
-          "artifact": "docs/en/evidence/seed-range-checks.txt",
+          "verified_at": "2026-10-29",
+          "artifact": "tests/seed.rs",
           "test_ids": [
-            "seed_configuration_precedence_and_validation",
-            "seeded_http_metadata_bytes_and_strict_administrative_import",
-            "explicit_project_and_empty_seed_directory_are_supported",
-            "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds",
-            "disabled_startup_never_replays_fixtures_later",
-            "interrupted_import_retries_without_overwrite_and_releases_lock",
-            "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive",
-            "fixture_depth_and_entry_count_are_bounded",
-            "symlinks_and_special_files_fail_closed",
-            "populated_v4_catalog_migrates_without_seeding",
-            "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
-            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
-            "probes_cannot_succeed_while_seed_publication_is_blocked"
-          ]
-        },
-        {
-          "command": "Docker Linux ARM64, network none, pinned Rust 1.99.1: cargo +1.99.1 test --locked --offline --test seed",
-          "result": "PASS",
-          "verified_at": "2026-10-22",
-          "artifact": "docs/en/evidence/seed-platform-linux.txt",
-          "test_ids": [
-            "disabled_startup_never_replays_fixtures_later",
-            "explicit_project_and_empty_seed_directory_are_supported",
-            "interrupted_import_retries_without_overwrite_and_releases_lock",
-            "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive",
             "non_utf8_fixture_names_fail_closed",
-            "populated_v4_catalog_migrates_without_seeding",
-            "fixture_depth_and_entry_count_are_bounded",
-            "probes_cannot_succeed_while_seed_publication_is_blocked",
-            "seed_configuration_precedence_and_validation",
-            "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds",
-            "seeded_http_metadata_bytes_and_strict_administrative_import",
-            "symlinks_and_special_files_fail_closed"
+            "restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects",
+            "held_object_is_blocked_while_identical_held_object_is_unchanged",
+            "default_seed_dir_imports_only_an_existing_disjoint_directory",
+            "top_level_files_are_skipped_with_a_warning"
           ]
         },
         {
-          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "command": "docker build -t gcs-mimic:seed-replay . && bash scripts/smoke-containers.sh --image gcs-mimic:seed-replay linux/arm64",
           "result": "PASS",
-          "verified_at": "2026-10-22",
-          "artifact": "docs/en/evidence/seed-platform-containers.txt",
+          "verified_at": "2026-10-29",
+          "artifact": "scripts/smoke-containers.sh",
           "test_ids": [
             "container-seed-lifecycle"
           ]
         },
         {
-          "command": "just check",
+          "command": "RUST_TEST_THREADS=4 cargo test --locked --offline --test seed; cargo test --locked --offline --lib -- mime::tests v1_migration_is_transactional_and_current_schema_reopens_idempotently metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
           "result": "PASS",
-          "verified_at": "2026-10-22",
-          "artifact": "docs/en/evidence/seed-platform-checks.txt",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/seed.md",
           "test_ids": [
             "seed_configuration_precedence_and_validation",
+            "pinned_go_suffix_case_and_media_types",
+            "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart",
+            "seed_mime_setting_does_not_replace_durable_source_content_type",
+            "sigterm_during_seed_drains_writes_releases_lock_and_retries",
+            "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
             "seeded_http_metadata_bytes_and_strict_administrative_import",
             "explicit_project_and_empty_seed_directory_are_supported",
-            "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds",
-            "disabled_startup_never_replays_fixtures_later",
+            "restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects",
+            "edited_fixture_replaces_live_generation_and_versioning_keeps_noncurrent",
+            "held_object_is_blocked_while_identical_held_object_is_unchanged",
+            "default_content_type_is_extension_and_octet_stream_is_opt_in",
+            "default_seed_dir_imports_only_an_existing_disjoint_directory",
+            "seed_dir_added_after_disabled_startup_imports_and_removal_disables_again",
+            "top_level_files_are_skipped_with_a_warning",
             "interrupted_import_retries_without_overwrite_and_releases_lock",
             "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive",
             "fixture_depth_and_entry_count_are_bounded",
             "symlinks_and_special_files_fail_closed",
-            "populated_v4_catalog_migrates_without_seeding",
+            "populated_v4_catalog_migrates_and_replays_seed",
             "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
             "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
             "probes_cannot_succeed_while_seed_publication_is_blocked"
           ]
         },
         {
-          "command": "just check",
+          "command": "Linux ARM64, network none, Rust 1.99.1, read-only tests/config mounts: cargo +1.99.1 test --locked --offline --test seed (Linux-only fixture-name test, unchanged by replay)",
           "result": "PASS",
           "verified_at": "2026-10-24",
           "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
           "test_ids": [
-            "seed_configuration_precedence_and_validation",
-            "seeded_http_metadata_bytes_and_strict_administrative_import",
-            "explicit_project_and_empty_seed_directory_are_supported",
-            "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds",
-            "disabled_startup_never_replays_fixtures_later",
-            "interrupted_import_retries_without_overwrite_and_releases_lock",
-            "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive",
-            "fixture_depth_and_entry_count_are_bounded",
-            "symlinks_and_special_files_fail_closed",
-            "populated_v4_catalog_migrates_without_seeding",
-            "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
-            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
-            "probes_cannot_succeed_while_seed_publication_is_blocked"
-          ]
-        },
-        {
-          "command": "Linux ARM64, network none, Rust 1.99.1, read-only tests/config mounts: cargo +1.99.1 test --locked --offline --test seed",
-          "result": "PASS",
-          "verified_at": "2026-10-24",
-          "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
-          "test_ids": [
-            "disabled_startup_never_replays_fixtures_later",
-            "explicit_project_and_empty_seed_directory_are_supported",
-            "interrupted_import_retries_without_overwrite_and_releases_lock",
-            "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive",
-            "non_utf8_fixture_names_fail_closed",
-            "populated_v4_catalog_migrates_without_seeding",
-            "fixture_depth_and_entry_count_are_bounded",
-            "probes_cannot_succeed_while_seed_publication_is_blocked",
-            "seed_configuration_precedence_and_validation",
-            "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds",
-            "seeded_http_metadata_bytes_and_strict_administrative_import",
-            "symlinks_and_special_files_fail_closed"
-          ]
-        },
-        {
-          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
-          "result": "PASS",
-          "verified_at": "2026-10-24",
-          "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
-          "test_ids": [
-            "container-seed-lifecycle"
+            "non_utf8_fixture_names_fail_closed"
           ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": "8ad9e4ecdf8a034442a1291b9272df0d7d005cc4",
-      "last_verified": "2026-10-25"
+      "last_verified": "2026-10-29"
     },
     {
       "id": "UX-003",

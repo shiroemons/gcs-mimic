@@ -640,6 +640,10 @@ mod tests {
         let reopened = Catalog::open(&dir.0).await.unwrap();
         assert!(reopened.import_journal().in_progress().await.unwrap());
         reopened.import_journal().finish(binding).await.unwrap();
+        // The missing root above proves the import gate runs before seeding; replay now reads
+        // the seed root on every start, so the completed startup needs an existing one.
+        let seed = TestDir::new();
+        config.seed_dir = Some(seed.0.clone());
         let started = prepare_startup(
             &reopened,
             &config,

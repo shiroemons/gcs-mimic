@@ -147,53 +147,70 @@ fn seed_configuration_precedence_and_validation() {
     let file = dir.0.join("settings.json");
     fs::write(
         &file,
-        r#"{"seed_dir":"file-seed","seed_project":"file-project","seed_content_type":"extension"}"#,
+        r#"{"seed_dir":"file-seed","default_seed_dir":"file-default","seed_project":"file-project","seed_content_type":"octet-stream"}"#,
     )
     .unwrap();
     let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
     let defaults = common::load_http_config(&[], &BTreeMap::new()).unwrap();
     assert_eq!(defaults.seed_dir, None);
+    assert_eq!(defaults.default_seed_dir, None);
     assert_eq!(defaults.seed_project, "local-project");
     assert_eq!(
         defaults.seed_content_type,
-        gcs_mimic::mime::SeedContentType::OctetStream
+        gcs_mimic::mime::SeedContentType::Extension
     );
     let loaded = common::load_http_config(&args, &BTreeMap::new()).unwrap();
     assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("file-seed")));
+    assert_eq!(
+        loaded.default_seed_dir.as_deref(),
+        Some(Path::new("file-default"))
+    );
     assert_eq!(loaded.seed_project, "file-project");
     assert_eq!(
         loaded.seed_content_type,
-        gcs_mimic::mime::SeedContentType::Extension
+        gcs_mimic::mime::SeedContentType::OctetStream
     );
     let env = BTreeMap::from([
         ("GCS_MIMIC_SEED_DIR".into(), "env-seed".into()),
+        ("GCS_MIMIC_DEFAULT_SEED_DIR".into(), "env-default".into()),
         ("GCS_MIMIC_SEED_PROJECT".into(), "env-project".into()),
-        ("GCS_MIMIC_SEED_CONTENT_TYPE".into(), "octet-stream".into()),
+        ("GCS_MIMIC_SEED_CONTENT_TYPE".into(), "extension".into()),
     ]);
     let loaded = common::load_http_config(&args, &env).unwrap();
     assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("env-seed")));
+    assert_eq!(
+        loaded.default_seed_dir.as_deref(),
+        Some(Path::new("env-default"))
+    );
     assert_eq!(loaded.seed_project, "env-project");
     assert_eq!(
         loaded.seed_content_type,
-        gcs_mimic::mime::SeedContentType::OctetStream
+        gcs_mimic::mime::SeedContentType::Extension
     );
     args.extend([
         "--seed-dir".into(),
         "cli-seed".into(),
+        "--default-seed-dir".into(),
+        "cli-default".into(),
         "--seed-project".into(),
         "cli-project".into(),
         "--seed-content-type".into(),
-        "extension".into(),
+        "octet-stream".into(),
     ]);
     let loaded = common::load_http_config(&args, &env).unwrap();
     assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("cli-seed")));
+    assert_eq!(
+        loaded.default_seed_dir.as_deref(),
+        Some(Path::new("cli-default"))
+    );
     assert_eq!(loaded.seed_project, "cli-project");
     assert_eq!(
         loaded.seed_content_type,
-        gcs_mimic::mime::SeedContentType::Extension
+        gcs_mimic::mime::SeedContentType::OctetStream
     );
     for (key, invalid) in [
         ("seed_dir", ""),
+        ("default_seed_dir", ""),
         ("seed_content_type", ""),
         ("seed_content_type", "unknown"),
         ("seed_content_type", "Extension"),
@@ -244,7 +261,7 @@ fn seeded_http_metadata_bytes_and_strict_administrative_import() {
         let server = Server::start(&mut cmd, strict);
         assert_eq!(
             server.ready["seed"],
-            json!({"outcome":"imported","buckets":2,"objects":5,"existing_objects":0,"skipped_os_metadata":5})
+            json!({"outcome":"imported","buckets":2,"objects":5,"replaced":0,"unchanged":0,"blocked":0,"skipped_os_metadata":5})
         );
         assert_eq!(server.request("GET", "/_internal/ready", b"").0, 200);
         let buckets = server.json("/storage/v1/b?project=local-project");
@@ -279,7 +296,11 @@ fn seeded_http_metadata_bytes_and_strict_administrative_import() {
         assert_eq!(metadata["size"], "5");
         assert_eq!(metadata["md5Hash"], "XUFAKrxLKna5cZ2REBfFkg==");
         assert_eq!(metadata["crc32c"], "mnG7TA==");
-        assert_eq!(metadata["contentType"], "application/octet-stream");
+        assert_eq!(metadata["contentType"], "text/plain; charset=utf-8");
+        assert_eq!(
+            server.json("/storage/v1/b/local-bucket/o/large.bin")["contentType"],
+            "application/octet-stream"
+        );
         assert_eq!(
             server.request(
                 "GET",
@@ -330,6 +351,7 @@ fn extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart()
     for &(name, _) in &cases {
         fixture(&seed, &format!("local-bucket/{name}"), b"fixture");
     }
+    let seeded = cases.len();
     let before = fs::metadata(seed.join("local-bucket/NOTE.TXT")).unwrap();
     let server = Server::start(
         command(&data, Some(&seed)).args(["--seed-content-type", "extension"]),
@@ -363,7 +385,12 @@ fn extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart()
     server.stop();
     fixture(&seed, "local-bucket/.DS_Store", b"new metadata");
     let server = Server::start(&mut command(&data, Some(&seed)), false);
-    assert_eq!(server.ready["seed"]["outcome"], "skipped");
+    // Replay still skips OS metadata files, so the API-written object at that name is not
+    // treated as a seeded object and is neither replaced nor counted.
+    assert_eq!(
+        server.ready["seed"],
+        json!({"outcome":"imported","buckets":0,"objects":0,"replaced":0,"unchanged":seeded,"blocked":0,"skipped_os_metadata":1})
+    );
     let retained = server.json("/storage/v1/b/local-bucket/o/.DS_Store");
     for field in [
         "generation",
@@ -432,101 +459,384 @@ fn seed_mime_setting_does_not_replace_durable_source_content_type() {
     assert!(!dir.0.join("destination").exists());
 }
 
+fn seed_counts(objects: u64, replaced: u64, unchanged: u64, blocked: u64) -> Value {
+    json!({
+        "outcome": "imported",
+        "buckets": 0,
+        "objects": objects,
+        "replaced": replaced,
+        "unchanged": unchanged,
+        "blocked": blocked,
+        "skipped_os_metadata": 0,
+    })
+}
+
+impl Server {
+    fn upload(&self, bucket: &str, name: &str, body: &[u8]) -> Value {
+        let (status, bytes) = self.request(
+            "POST",
+            &format!("/upload/storage/v1/b/{bucket}/o?uploadType=media&name={name}"),
+            body,
+        );
+        assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn patch(&self, path: &str, body: &str) -> Value {
+        let (status, bytes) = self.request("PATCH", path, body.as_bytes());
+        assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn delete(&self, path: &str) {
+        let (status, bytes) = self.request("DELETE", path, b"");
+        assert_eq!(status, 204, "{}", String::from_utf8_lossy(&bytes));
+    }
+
+    fn media(&self, path: &str) -> (u16, Vec<u8>) {
+        self.request("GET", &format!("{path}?alt=media"), b"")
+    }
+}
+
 #[test]
-fn restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds() {
+fn restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects() {
     let dir = TestDir::new();
     let seed = dir.0.join("fixtures");
     let data = dir.0.join("data");
     fixture(&seed, "local-bucket/hello.txt", b"fixture");
+    fixture(&seed, "local-bucket/keep.txt", b"keep");
+    fixture(&seed, "local-bucket/gone.txt", b"gone");
+    fixture(&seed, "local-bucket/untouched.txt", b"untouched");
     let server = Server::start(&mut command(&data, Some(&seed)), false);
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                "/upload/storage/v1/b/local-bucket/o?uploadType=media&name=hello.txt",
-                b"mutation"
-            )
-            .0,
-        200
+    assert_eq!(server.ready["seed"]["objects"], 4);
+    let untouched = server.json("/storage/v1/b/local-bucket/o/untouched.txt");
+    server.upload("local-bucket", "hello.txt", b"mutation");
+    server.patch(
+        "/storage/v1/b/local-bucket/o/hello.txt",
+        r#"{"metadata":{"owner":"user"}}"#,
     );
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                "/upload/storage/v1/b/local-bucket/o?uploadType=media&name=created.txt",
-                b"new"
-            )
-            .0,
-        200
+    server.upload("local-bucket", "created.txt", b"new");
+    let kept = server.patch(
+        "/storage/v1/b/local-bucket/o/keep.txt",
+        r#"{"metadata":{"owner":"user"},"contentType":"application/x-custom"}"#,
     );
-    assert_eq!(
-        server
-            .request(
-                "PATCH",
-                "/storage/v1/b/local-bucket/o/hello.txt",
-                br#"{"metadata":{"owner":"user"}}"#
-            )
-            .0,
-        200
-    );
+    server.delete("/storage/v1/b/local-bucket/o/gone.txt");
     server.stop();
-    fs::remove_dir_all(&seed).unwrap();
+
     let server = Server::start(&mut command(&data, Some(&seed)), false);
-    assert_eq!(server.ready["seed"]["outcome"], "skipped");
+    assert_eq!(server.ready["seed"], seed_counts(1, 2, 1, 0));
+    // A fixture file wins over an API overwrite at its name, with seed-default metadata.
     assert_eq!(
-        server.request(
-            "GET",
-            "/storage/v1/b/local-bucket/o/hello.txt?alt=media",
-            b""
-        ),
-        (200, b"mutation".to_vec())
+        server.media("/storage/v1/b/local-bucket/o/hello.txt"),
+        (200, b"fixture".to_vec())
     );
-    assert_eq!(
-        server.json("/storage/v1/b/local-bucket/o/hello.txt")["metadata"]["owner"],
-        "user"
-    );
-    assert_eq!(
-        server.request(
-            "GET",
-            "/storage/v1/b/local-bucket/o/created.txt?alt=media",
-            b""
-        ),
-        (200, b"new".to_vec())
-    );
-    for object in ["hello.txt", "created.txt"] {
-        assert_eq!(
-            server
-                .request(
-                    "DELETE",
-                    &format!("/storage/v1/b/local-bucket/o/{object}"),
-                    b""
-                )
-                .0,
-            204
-        );
+    let restored = server.json("/storage/v1/b/local-bucket/o/hello.txt");
+    assert!(restored["metadata"].is_null(), "{restored}");
+    assert_eq!(restored["contentType"], "text/plain; charset=utf-8");
+    // Identical bytes with API metadata edits are still reverted to what seeding writes.
+    let reverted = server.json("/storage/v1/b/local-bucket/o/keep.txt");
+    assert!(reverted["metadata"].is_null(), "{reverted}");
+    assert_eq!(reverted["contentType"], "text/plain; charset=utf-8");
+    let before: u64 = kept["generation"].as_str().unwrap().parse().unwrap();
+    let after: u64 = reverted["generation"].as_str().unwrap().parse().unwrap();
+    assert!(after > before, "{before} -> {after}");
+    // Exactly what seeding would write mints no generation and keeps every field.
+    let unchanged = server.json("/storage/v1/b/local-bucket/o/untouched.txt");
+    for field in ["generation", "metageneration", "contentType", "updated"] {
+        assert_eq!(unchanged[field], untouched[field], "{field}");
     }
     assert_eq!(
-        server
-            .request("DELETE", "/storage/v1/b/local-bucket", b"")
-            .0,
-        204
+        server.media("/storage/v1/b/local-bucket/o/gone.txt"),
+        (200, b"gone".to_vec())
+    );
+    assert_eq!(
+        server.media("/storage/v1/b/local-bucket/o/created.txt"),
+        (200, b"new".to_vec())
     );
     server.stop();
-    fixture(&seed, "local-bucket/hello.txt", b"fixture");
+
+    // Removing a fixture file never deletes the object it seeded.
+    fs::remove_file(seed.join("local-bucket/keep.txt")).unwrap();
+    let server = Server::start(&mut command(&data, Some(&seed)), false);
+    assert_eq!(server.ready["seed"], seed_counts(0, 0, 3, 0));
+    assert_eq!(
+        server.media("/storage/v1/b/local-bucket/o/keep.txt"),
+        (200, b"keep".to_vec())
+    );
+    for object in [
+        "hello.txt",
+        "keep.txt",
+        "gone.txt",
+        "untouched.txt",
+        "created.txt",
+    ] {
+        server.delete(&format!("/storage/v1/b/local-bucket/o/{object}"));
+    }
+    server.delete("/storage/v1/b/local-bucket");
+    server.stop();
+
+    // A deleted seeded bucket is recreated with only the current fixture files.
     let server = Server::start(&mut command(&data, Some(&seed)), false);
     assert_eq!(
-        server.request("GET", "/storage/v1/b/local-bucket", b"").0,
-        404
+        server.ready["seed"],
+        json!({"outcome":"imported","buckets":1,"objects":3,"replaced":0,"unchanged":0,"blocked":0,"skipped_os_metadata":0})
+    );
+    let names: Vec<_> = server.json("/storage/v1/b/local-bucket/o")["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["name"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(names, ["gone.txt", "hello.txt", "untouched.txt"]);
+    server.stop();
+}
+
+#[test]
+fn edited_fixture_replaces_live_generation_and_versioning_keeps_noncurrent() {
+    let dir = TestDir::new();
+    let seed = dir.0.join("fixtures");
+    let data = dir.0.join("data");
+    fixture(&seed, "versioned-bucket/file.txt", b"first");
+    fixture(&seed, "plain-bucket/file.txt", b"first");
+    let server = Server::start(&mut command(&data, Some(&seed)), false);
+    server.patch(
+        "/storage/v1/b/versioned-bucket",
+        r#"{"versioning":{"enabled":true}}"#,
+    );
+    let versioned = server.json("/storage/v1/b/versioned-bucket/o/file.txt");
+    let plain = server.json("/storage/v1/b/plain-bucket/o/file.txt");
+    server.stop();
+
+    fixture(&seed, "versioned-bucket/file.txt", b"second");
+    fixture(&seed, "plain-bucket/file.txt", b"second");
+    let server = Server::start(&mut command(&data, Some(&seed)), false);
+    assert_eq!(server.ready["seed"], seed_counts(0, 2, 0, 0));
+    for (bucket, before) in [("versioned-bucket", &versioned), ("plain-bucket", &plain)] {
+        let live = server.json(&format!("/storage/v1/b/{bucket}/o/file.txt"));
+        let old: u64 = before["generation"].as_str().unwrap().parse().unwrap();
+        let new: u64 = live["generation"].as_str().unwrap().parse().unwrap();
+        assert!(new > old, "{bucket}: {old} -> {new}");
+        assert_eq!(live["size"], "6");
+        assert_eq!(
+            server.media(&format!("/storage/v1/b/{bucket}/o/file.txt")),
+            (200, b"second".to_vec())
+        );
+        let previous = server.request(
+            "GET",
+            &format!("/storage/v1/b/{bucket}/o/file.txt?alt=media&generation={old}"),
+            b"",
+        );
+        if bucket == "versioned-bucket" {
+            assert_eq!(previous, (200, b"first".to_vec()));
+            let versions = server.json(&format!("/storage/v1/b/{bucket}/o?versions=true"));
+            assert_eq!(versions["items"].as_array().unwrap().len(), 2);
+        } else {
+            assert_eq!(previous.0, 404);
+        }
+    }
+    server.stop();
+}
+
+#[test]
+fn held_object_is_blocked_while_identical_held_object_is_unchanged() {
+    let dir = TestDir::new();
+    let seed = dir.0.join("fixtures");
+    let data = dir.0.join("data");
+    fixture(&seed, "local-bucket/held.txt", b"first");
+    fixture(&seed, "local-bucket/meta.txt", b"meta");
+    fixture(&seed, "local-bucket/same.txt", b"same");
+    let server = Server::start(&mut command(&data, Some(&seed)), false);
+    let [held, _, same] = ["held.txt", "meta.txt", "same.txt"].map(|name| {
+        server.patch(
+            &format!("/storage/v1/b/local-bucket/o/{name}"),
+            r#"{"eventBasedHold":true}"#,
+        )
+    });
+    // Same bytes but API metadata differs from what seeding writes: replacement is needed.
+    let meta = server.patch(
+        "/storage/v1/b/local-bucket/o/meta.txt",
+        r#"{"metadata":{"owner":"user"}}"#,
     );
     server.stop();
-    let server = Server::start(&mut command(&dir.0.join("fresh-data"), Some(&seed)), false);
+
+    fixture(&seed, "local-bucket/held.txt", b"second");
+    let mut server = Server::start(command(&data, Some(&seed)).stderr(Stdio::piped()), false);
+    assert_eq!(server.ready["seed"], seed_counts(0, 0, 1, 2));
+    for (name, before) in [
+        ("held.txt", &held),
+        ("meta.txt", &meta),
+        ("same.txt", &same),
+    ] {
+        let current = server.json(&format!("/storage/v1/b/local-bucket/o/{name}"));
+        for field in [
+            "generation",
+            "metageneration",
+            "md5Hash",
+            "eventBasedHold",
+            "metadata",
+        ] {
+            assert_eq!(current[field], before[field], "{name} {field}");
+        }
+    }
     assert_eq!(
-        server.request(
-            "GET",
-            "/storage/v1/b/local-bucket/o/hello.txt?alt=media",
-            b""
-        ),
-        (200, b"fixture".to_vec())
+        server.media("/storage/v1/b/local-bucket/o/held.txt"),
+        (200, b"first".to_vec())
+    );
+    let stderr = server.child.stderr.take().unwrap();
+    server.stop();
+    let blocked: Vec<Value> = BufReader::new(stderr)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(&line.unwrap()).unwrap())
+        .filter(|event| event["event"] == "seed_blocked")
+        .collect();
+    let event = |name: &str| {
+        let path = Path::new("local-bucket").join(name);
+        json!({"event":"seed_blocked","level":"warn","path":path.display().to_string()})
+    };
+    assert_eq!(blocked, [event("held.txt"), event("meta.txt")]);
+
+    // Releasing the holds lets the next replay publish seed content and metadata.
+    let server = Server::start(&mut command(&data, Some(&seed)), false);
+    assert_eq!(server.ready["seed"], seed_counts(0, 0, 1, 2));
+    for name in ["held.txt", "meta.txt"] {
+        server.patch(
+            &format!("/storage/v1/b/local-bucket/o/{name}"),
+            r#"{"eventBasedHold":false}"#,
+        );
+    }
+    server.stop();
+    let server = Server::start(&mut command(&data, Some(&seed)), false);
+    assert_eq!(server.ready["seed"], seed_counts(0, 2, 1, 0));
+    assert_eq!(
+        server.media("/storage/v1/b/local-bucket/o/held.txt"),
+        (200, b"second".to_vec())
+    );
+    assert!(server.json("/storage/v1/b/local-bucket/o/meta.txt")["metadata"].is_null());
+    server.stop();
+}
+
+#[test]
+fn default_content_type_is_extension_and_octet_stream_is_opt_in() {
+    let dir = TestDir::new();
+    let seed = dir.0.join("fixtures");
+    let data = dir.0.join("data");
+    fixture(&seed, "local-bucket/note.txt", b"text");
+    fixture(&seed, "local-bucket/blob.unknown-extension", b"blob");
+    let server = Server::start(
+        command(&data, Some(&seed)).args(["--seed-content-type", "octet-stream"]),
+        false,
+    );
+    for name in ["note.txt", "blob.unknown-extension"] {
+        assert_eq!(
+            server.json(&format!("/storage/v1/b/local-bucket/o/{name}"))["contentType"],
+            "application/octet-stream"
+        );
+    }
+    server.stop();
+    // Switching to the default mode replaces only objects whose seed mapping changes, as
+    // happens once for a catalog seeded with the previous octet-stream default.
+    fixture(&seed, "local-bucket/new.txt", b"new");
+    let server = Server::start(&mut command(&data, Some(&seed)), false);
+    assert_eq!(server.ready["seed"], seed_counts(1, 1, 1, 0));
+    for (name, expected) in [
+        ("note.txt", "text/plain; charset=utf-8"),
+        ("new.txt", "text/plain; charset=utf-8"),
+        ("blob.unknown-extension", "application/octet-stream"),
+    ] {
+        assert_eq!(
+            server.json(&format!("/storage/v1/b/local-bucket/o/{name}"))["contentType"],
+            expected,
+            "{name}"
+        );
+    }
+    let note = server.json("/storage/v1/b/local-bucket/o/note.txt");
+    server.stop();
+    let server = Server::start(&mut command(&data, Some(&seed)), false);
+    assert_eq!(server.ready["seed"], seed_counts(0, 0, 3, 0));
+    assert_eq!(
+        server.json("/storage/v1/b/local-bucket/o/note.txt")["generation"],
+        note["generation"]
+    );
+    server.stop();
+    let server = Server::start(
+        command(&data, Some(&seed)).args(["--seed-content-type", "octet-stream"]),
+        false,
+    );
+    assert_eq!(server.ready["seed"], seed_counts(0, 2, 1, 0));
+    assert_eq!(
+        server.json("/storage/v1/b/local-bucket/o/note.txt")["contentType"],
+        "application/octet-stream"
+    );
+    server.stop();
+}
+
+fn default_seed_command(data: &Path, default: &Path) -> Command {
+    let mut command = command(data, None);
+    command.env("GCS_MIMIC_DEFAULT_SEED_DIR", default);
+    command
+}
+
+#[test]
+fn default_seed_dir_imports_only_an_existing_disjoint_directory() {
+    let dir = TestDir::new();
+    let defaults = dir.0.join("defaults");
+    fixture(&defaults, "default-bucket/file.txt", b"default");
+
+    let server = Server::start(
+        &mut default_seed_command(&dir.0.join("data"), &defaults),
+        false,
+    );
+    assert_eq!(
+        server.ready["seed"],
+        json!({"outcome":"imported","buckets":1,"objects":1,"replaced":0,"unchanged":0,"blocked":0,"skipped_os_metadata":0})
+    );
+    assert_eq!(
+        server.media("/storage/v1/b/default-bucket/o/file.txt"),
+        (200, b"default".to_vec())
+    );
+    server.stop();
+
+    let not_directory = dir.0.join("not-directory");
+    fs::write(&not_directory, b"file").unwrap();
+    let outer = dir.0.join("outer");
+    fixture(&outer, "seed/default-bucket/file.txt", b"inside data");
+    for (data, default) in [
+        (dir.0.join("missing-data"), dir.0.join("missing")),
+        (dir.0.join("file-data"), not_directory),
+        // Overlap in either direction keeps the data directory's role instead of seeding it.
+        (defaults.join("nested-data"), defaults.clone()),
+        (outer.clone(), outer.join("seed")),
+        (defaults.clone(), defaults.clone()),
+    ] {
+        let server = Server::start(&mut default_seed_command(&data, &default), false);
+        assert_eq!(
+            server.ready["seed"],
+            json!({"outcome":"disabled"}),
+            "{default:?}"
+        );
+        assert_eq!(
+            server.request("GET", "/storage/v1/b/default-bucket", b"").0,
+            404
+        );
+        server.stop();
+    }
+
+    let explicit = dir.0.join("explicit");
+    fixture(&explicit, "explicit-bucket/file.txt", b"explicit");
+    let server = Server::start(
+        default_seed_command(&dir.0.join("explicit-data"), &defaults)
+            .arg("--seed-dir")
+            .arg(&explicit),
+        false,
+    );
+    assert_eq!(server.ready["seed"]["buckets"], 1);
+    assert_eq!(
+        server.media("/storage/v1/b/explicit-bucket/o/file.txt"),
+        (200, b"explicit".to_vec())
+    );
+    assert_eq!(
+        server.request("GET", "/storage/v1/b/default-bucket", b"").0,
+        404
     );
     server.stop();
 }
@@ -557,11 +867,11 @@ async fn interrupted_import_retries_without_overwrite_and_releases_lock() {
         "belongs to another project",
     );
     fs::remove_dir_all(seed.join("z-Invalid")).unwrap();
-    fixture(&seed, "local-bucket/a-valid", b"changed fixture");
     fixture(&seed, "local-bucket/z-valid", b"new");
     let server = Server::start(&mut command(&data, Some(&seed)), false);
-    assert_eq!(server.ready["seed"]["existing_objects"], 1);
-    assert_eq!(server.ready["seed"]["objects"], 1);
+    // The committed object from the failed attempt matches its fixture, so the retry keeps
+    // that generation and only publishes what is still missing.
+    assert_eq!(server.ready["seed"], seed_counts(1, 0, 1, 0));
     assert_eq!(
         server.json("/storage/v1/b/local-bucket/o/a-valid")["generation"],
         original.generation.to_string()
@@ -580,7 +890,6 @@ async fn interrupted_import_retries_without_overwrite_and_releases_lock() {
 #[test]
 fn invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive() {
     for (name, diagnostic) in [
-        ("top.txt", "top-level entries"),
         ("Invalid/bad", "Invalid bucket name"),
         #[cfg(unix)]
         ("valid-bucket/bad\n", "Invalid object name"),
@@ -624,6 +933,36 @@ fn invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive() {
     fails(
         &mut command(&seed.join("data"), Some(&seed)),
         "must not overlap",
+    );
+}
+
+#[test]
+fn top_level_files_are_skipped_with_a_warning() {
+    let dir = TestDir::new();
+    let seed = dir.0.join("fixtures");
+    fixture(&seed, "top.txt", b"not a bucket");
+    fixture(&seed, "local-bucket/file", b"fixture");
+    let mut server = Server::start(
+        command(&dir.0.join("data"), Some(&seed)).stderr(Stdio::piped()),
+        false,
+    );
+    assert_eq!(
+        server.ready["seed"],
+        json!({"outcome":"imported","buckets":1,"objects":1,"replaced":0,"unchanged":0,"blocked":0,"skipped_os_metadata":0})
+    );
+    assert_eq!(server.request("GET", "/storage/v1/b/top.txt", b"").0, 404);
+    let stderr = server.child.stderr.take().unwrap();
+    server.stop();
+    let skipped: Vec<Value> = BufReader::new(stderr)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(&line.unwrap()).unwrap())
+        .filter(|event| event["event"] == "seed_skipped")
+        .collect();
+    assert_eq!(
+        skipped,
+        [
+            json!({"event":"seed_skipped","level":"warn","path":"top.txt","reason":"top-level entries must be bucket directories"})
+        ]
     );
 }
 
@@ -710,19 +1049,27 @@ fn non_utf8_fixture_names_fail_closed() {
 }
 
 #[test]
-fn disabled_startup_never_replays_fixtures_later() {
+fn seed_dir_added_after_disabled_startup_imports_and_removal_disables_again() {
     let dir = TestDir::new();
     let data = dir.0.join("data");
     let server = Server::start(&mut command(&data, None), false);
-    assert_eq!(server.ready["seed"]["outcome"], "disabled");
+    assert_eq!(server.ready["seed"], json!({"outcome":"disabled"}));
     server.stop();
     let seed = dir.0.join("fixtures");
     fixture(&seed, "local-bucket/file", b"fixture");
     let server = Server::start(&mut command(&data, Some(&seed)), false);
-    assert_eq!(server.ready["seed"]["outcome"], "skipped");
     assert_eq!(
-        server.request("GET", "/storage/v1/b/local-bucket", b"").0,
-        404
+        server.ready["seed"],
+        json!({"outcome":"imported","buckets":1,"objects":1,"replaced":0,"unchanged":0,"blocked":0,"skipped_os_metadata":0})
+    );
+    server.upload("local-bucket", "file", b"mutation");
+    server.stop();
+    // Without seed_dir nothing is replayed, so the API change survives that startup.
+    let server = Server::start(&mut command(&data, None), false);
+    assert_eq!(server.ready["seed"], json!({"outcome":"disabled"}));
+    assert_eq!(
+        server.media("/storage/v1/b/local-bucket/o/file"),
+        (200, b"mutation".to_vec())
     );
     server.stop();
 }
@@ -747,28 +1094,20 @@ fn explicit_project_and_empty_seed_directory_are_supported() {
     let server = Server::start(&mut command(&dir.0.join("empty-data"), Some(&empty)), false);
     assert_eq!(
         server.ready["seed"],
-        json!({"outcome":"imported", "buckets":0, "objects":0, "existing_objects":0,"skipped_os_metadata":0})
+        json!({"outcome":"imported","buckets":0,"objects":0,"replaced":0,"unchanged":0,"blocked":0,"skipped_os_metadata":0})
     );
     server.stop();
 }
 
 #[tokio::test]
-async fn populated_v4_catalog_migrates_without_seeding() {
+async fn populated_v4_catalog_migrates_and_replays_seed() {
     let dir = TestDir::new();
     let data = dir.0.join("data");
     let seed = dir.0.join("fixtures");
     fixture(&seed, "local-bucket/file", b"fixture");
     let server = Server::start(&mut command(&data, Some(&seed)), false);
-    assert_eq!(
-        server
-            .request(
-                "POST",
-                "/upload/storage/v1/b/local-bucket/o?uploadType=media&name=file",
-                b"user"
-            )
-            .0,
-        200
-    );
+    server.upload("local-bucket", "file", b"user");
+    server.upload("local-bucket", "api-only", b"api");
     server.stop();
     let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
     common::downgrade_object_schema(&connection);
@@ -776,11 +1115,17 @@ async fn populated_v4_catalog_migrates_without_seeding() {
         .execute_batch("ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE startup_seed; PRAGMA user_version = 4;")
         .unwrap();
     drop(connection);
+    // A migrated catalog is initialized, but replay still runs: the fixture replaces the API
+    // overwrite at its name while the migrated API-only object stays.
     let server = Server::start(&mut command(&data, Some(&seed)), false);
-    assert_eq!(server.ready["seed"]["outcome"], "skipped");
+    assert_eq!(server.ready["seed"], seed_counts(0, 1, 0, 0));
     assert_eq!(
-        server.request("GET", "/storage/v1/b/local-bucket/o/file?alt=media", b""),
-        (200, b"user".to_vec())
+        server.media("/storage/v1/b/local-bucket/o/file"),
+        (200, b"fixture".to_vec())
+    );
+    assert_eq!(
+        server.media("/storage/v1/b/local-bucket/o/api-only"),
+        (200, b"api".to_vec())
     );
     server.stop();
     let catalog = Catalog::open(&data).await.unwrap();

@@ -14,13 +14,29 @@ the pinned Rust 1.99.1 toolchain, edition 2024 and the committed lockfile.
 
 | Case | Required behavior | Result |
 | --- | --- | --- |
-| source-seed-profile | Literal names, empty buckets, binary/empty bodies, default octet-stream, explicit pinned extension MIME and Go suffix/case rules; skip/count regular OS metadata at every depth while traversing matching directories | PASS |
-| source-seed-safety | Preserve native validation, read-only sources, strict authority, create-if-absent retries and one-time completion; use bounded dedicated traversal and file publication; shutdown drains side effects and removes uncommitted staging | PASS |
+| source-seed-profile | Literal names, empty buckets, binary/empty bodies, pinned extension MIME (now the default; octet-stream is opt-in) and Go suffix/case rules; skip/count regular OS metadata at every depth while traversing matching directories | PASS |
+| source-seed-safety | Preserve native validation, read-only sources and strict authority while replaying fixtures on every startup; use bounded dedicated traversal and file publication; shutdown drains side effects and removes uncommitted staging | PASS |
 | seed-content-type-config | CLI > environment > JSON > default; reject empty/unknown values; seed-only MIME leaves durable input metadata untouched | PASS |
+
+## Replay update (2026-10-29)
+
+The startup lifecycle in [the seed contract](seed.md#replay-on-every-startup)
+replaced one-time import with replay on every startup. Each fixture file is
+created when missing, left `unchanged` when the live object is exactly what
+seeding would write, `replaced` with a new generation otherwise, or counted
+`blocked` with a `seed_blocked` warning when a hold or retention rejects the
+replacement. `seed_content_type` now defaults to `extension`; `octet-stream` is
+opt-in. Top-level regular files are skipped with a `seed_skipped` warning
+instead of failing startup. `default_seed_dir` supplies a seed root only when
+`seed_dir` is unset and the path is an existing directory disjoint from
+`data_dir` and `sync_dir`. The verification table below is the historical
+record of the adapter slice; current replay results are recorded in the seed
+contract.
 
 ## Boundaries
 
-Existing catalogs retain previously imported OS metadata objects. Matching
+Replay skips OS metadata files, so API objects at such names are neither
+replaced nor deleted. Matching
 directories are traversed rather than silently dropping their children. No
 generated upstream seed ACL is imported; stored durable ACLs remain unsupported.
 The [release note](../releases/seed-adapter.md) explains the fresh-catalog change.
@@ -30,9 +46,11 @@ No repository dependency or benchmark harness is added.
 
 The adapter uses the shared Walker on one dedicated traversal thread with a
 two-slot entry channel. Its existing 10000-entry and 32-directory-depth bounds
-still apply, including skipped files. New objects use `publish_from_file` with
-create-if-absent and native metadata; existing objects are checked before opening
-source bodies. No transaction spans traversal or body staging. File staging
+still apply, including skipped files. Objects are staged from the file and
+published with `publish_objects` under an absent or exact-generation condition
+and native metadata; a live object that already matches is detected by hashing
+the fixture read-only before staging. No transaction spans traversal or body
+staging. File staging
 retains shared source-change and cleanup checks.
 
 The fixed 1406-entry table is assembled from the pinned Go built-ins, mailcap

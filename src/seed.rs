@@ -3,14 +3,15 @@
 use crate::{
     clock::Clock,
     config::Config,
+    hashing::{Hasher, Hashes},
     json::validate_object_name,
-    object::ExpectedHashes,
+    object::{ExpectedHashes, ObjectRecord},
     source_tree::{WalkError, Walker, is_os_metadata},
     storage::{
         Catalog,
         admin::{
-            Admin, AdminError, BucketDefinition, BucketName, EnsureBucket, GenerationCondition,
-            ObjectName, Origin, Publication, PublishMode,
+            Admin, AdminError, BatchPublication, BucketDefinition, BucketName, EnsureBucket,
+            Generation, GenerationCondition, ObjectName, Origin, Publication, PublishMode,
         },
     },
 };
@@ -29,24 +30,34 @@ type Entry = io::Result<(PathBuf, std::fs::Metadata, usize)>;
 #[serde(tag = "outcome", rename_all = "lowercase")]
 pub enum SeedOutcome {
     Disabled,
-    Skipped,
     Imported {
         buckets: usize,
         objects: usize,
-        existing_objects: usize,
+        replaced: usize,
+        unchanged: usize,
+        blocked: usize,
         skipped_os_metadata: usize,
     },
 }
 
+#[derive(Default)]
+struct Counts {
+    buckets: usize,
+    objects: usize,
+    replaced: usize,
+    unchanged: usize,
+    blocked: usize,
+    skipped_os_metadata: usize,
+}
+
+/// Replays the seed tree on every startup, like fake-gcs-server's `-data`: fixture files win
+/// over API changes at the same name, while unrelated objects are never deleted.
 pub async fn import(
     catalog: &Catalog,
     config: &Config,
     clock: &dyn Clock,
 ) -> io::Result<SeedOutcome> {
     let admin = catalog.admin(Origin::Seed);
-    if admin.seed_complete().await.map_err(io::Error::other)? {
-        return Ok(SeedOutcome::Skipped);
-    }
     let Some(root) = &config.seed_dir else {
         admin.finish_seed().await.map_err(io::Error::other)?;
         return Ok(SeedOutcome::Disabled);
@@ -58,6 +69,35 @@ pub async fn import(
     );
     let result = import_directory(&admin, config, clock, root).await;
     result.map_err(|error| io::Error::other(format!("seed import: {error}")))
+}
+
+/// True when the live object carries exactly the metadata a seed publication would write, so
+/// API metadata edits at a fixture name are reverted like fake-gcs-server's overwrite. Holds and
+/// storage class come from bucket defaults and are deliberately not compared.
+fn matches_seed(live: &ObjectRecord, content_type: &str) -> bool {
+    live.content_type == content_type
+        && live.content_encoding.is_none()
+        && live.content_disposition.is_none()
+        && live.content_language.is_none()
+        && live.cache_control.is_none()
+        && live.custom_time.is_none()
+        && live.metadata.is_empty()
+}
+
+/// Hashes with a fixed buffer and rewinds, so the same descriptor can be staged afterwards.
+fn hash_file(file: &mut std::fs::File) -> io::Result<Hashes> {
+    use std::io::{Read, Seek};
+    let mut hasher = Hasher::default();
+    let mut buffer = vec![0; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    file.rewind()?;
+    Ok(hasher.finish())
 }
 
 fn walk_error(error: WalkError) -> io::Error {
@@ -113,7 +153,7 @@ async fn import_directory(
         return Err(io::Error::other("seed_dir and data_dir must not overlap"));
     }
     let mut entries = entries(root.clone())?;
-    let (mut buckets, mut objects, mut existing_objects, mut skipped_os_metadata) = (0, 0, 0, 0);
+    let mut counts = Counts::default();
     while let Some(entry) = entries.recv().await {
         let (path, metadata, depth) = entry?;
         let label = path.strip_prefix(&root).expect("fixture path").display();
@@ -129,7 +169,7 @@ async fn import_directory(
                 ));
             }
             if kind.is_file() && is_os_metadata(leaf) {
-                skipped_os_metadata += 1;
+                counts.skipped_os_metadata += 1;
                 return Ok(());
             }
             let relative = path.strip_prefix(&root).map_err(io::Error::other)?;
@@ -149,16 +189,24 @@ async fn import_directory(
                 validate_object_name(&name).map_err(|error| io::Error::other(error.message))?;
                 (bucket.to_owned(), name)
             } else {
+                // fake-gcs-server ignores top-level files, and an implicit /data mount often holds
+                // a README or .gitkeep, so skipping keeps such trees startable.
                 if !kind.is_dir() {
-                    return Err(io::Error::other(
-                        "top-level entries must be bucket directories",
-                    ));
+                    crate::diagnostics::emit(
+                        crate::diagnostics::LogLevel::Warn,
+                        "seed_skipped",
+                        serde_json::json!({
+                            "path": label.to_string(),
+                            "reason": "top-level entries must be bucket directories",
+                        }),
+                    );
+                    return Ok(());
                 }
                 let name = BucketName::new(leaf).map_err(io::Error::other)?;
                 let record = BucketDefinition::default_for(&name, &config.seed_project, clock)
                     .map_err(io::Error::other)?;
                 match catalog.ensure_bucket(record).await {
-                    Ok(EnsureBucket::Created(_)) => buckets += 1,
+                    Ok(EnsureBucket::Created(_)) => counts.buckets += 1,
                     Ok(EnsureBucket::Existing(existing)) => {
                         if existing.project != config.seed_project {
                             return Err(io::Error::other(
@@ -173,17 +221,11 @@ async fn import_directory(
             if kind.is_file() {
                 let bucket = BucketName::new(bucket).map_err(io::Error::other)?;
                 let name = ObjectName::new(name).map_err(io::Error::other)?;
-                match catalog
-                    .check_upload(&bucket, &name, Some(GenerationCondition::Absent))
-                    .await
-                {
-                    Ok(()) => {}
-                    Err(AdminError::Precondition) => {
-                        existing_objects += 1;
-                        return Ok(());
-                    }
+                let live = match catalog.get_object(&bucket, &name, None).await {
+                    Ok(record) => Some(record),
+                    Err(AdminError::NotFound) => None,
                     Err(error) => return Err(io::Error::other(error)),
-                }
+                };
                 let file = tokio::fs::File::open(&path).await?;
                 let metadata = file.metadata().await?;
                 if !metadata.is_file() || metadata.len() > config.max_object_bytes {
@@ -191,23 +233,69 @@ async fn import_directory(
                         "seed file is not regular or exceeds max_object_bytes",
                     ));
                 }
-                catalog
-                    .publish_from_file(
-                        &bucket,
-                        &name,
-                        Publication {
-                            content_type: config.seed_content_type.for_name(leaf).into(),
+                let content_type = config.seed_content_type.for_name(leaf);
+                // Compare before staging or publishing: a replay of an unchanged tree must not copy
+                // bodies or mint generations, and the retention check would otherwise report a
+                // held but unchanged object as blocked.
+                let mut file = file.into_std().await;
+                if let Some(live) = &live
+                    && live.size == metadata.len()
+                    && matches_seed(live, content_type)
+                {
+                    let (hashes, rewound) = tokio::task::spawn_blocking(move || {
+                        hash_file(&mut file).map(|hashes| (hashes, file))
+                    })
+                    .await
+                    .map_err(io::Error::other)??;
+                    if live.md5 == hashes.md5 && live.crc32c == hashes.crc32c {
+                        counts.unchanged += 1;
+                        return Ok(());
+                    }
+                    file = rewound;
+                }
+                let staged = catalog
+                    .stage_from_file(file, ExpectedHashes::default(), config.max_object_bytes)
+                    .await
+                    .map_err(io::Error::other)?;
+                let condition = match &live {
+                    Some(live) => GenerationCondition::Is(
+                        Generation::new(live.generation).map_err(io::Error::other)?,
+                    ),
+                    None => GenerationCondition::Absent,
+                };
+                let mut published = catalog
+                    .publish_objects(vec![BatchPublication {
+                        bucket,
+                        name,
+                        request: Publication {
+                            content_type: content_type.into(),
                             expected: ExpectedHashes::default(),
-                            condition: Some(GenerationCondition::Absent),
+                            condition: Some(condition),
                             metadata: Default::default(),
                             max_bytes: config.max_object_bytes,
                             mode: PublishMode::Replace,
                         },
-                        file.into_std().await,
-                    )
+                        staged,
+                    }])
                     .await
                     .map_err(io::Error::other)?;
-                objects += 1;
+                let result = published
+                    .results
+                    .pop()
+                    .ok_or_else(|| io::Error::other("single seed publication was not attempted"))?;
+                match result {
+                    Ok(_) if live.is_some() => counts.replaced += 1,
+                    Ok(_) => counts.objects += 1,
+                    Err(AdminError::Hold) => {
+                        counts.blocked += 1;
+                        crate::diagnostics::emit(
+                            crate::diagnostics::LogLevel::Warn,
+                            "seed_blocked",
+                            serde_json::json!({ "path": label.to_string() }),
+                        );
+                    }
+                    Err(error) => return Err(io::Error::other(error)),
+                }
             }
             Ok::<_, io::Error>(())
         }
@@ -216,9 +304,11 @@ async fn import_directory(
     }
     catalog.finish_seed().await.map_err(io::Error::other)?;
     Ok(SeedOutcome::Imported {
-        buckets,
-        objects,
-        existing_objects,
-        skipped_os_metadata,
+        buckets: counts.buckets,
+        objects: counts.objects,
+        replaced: counts.replaced,
+        unchanged: counts.unchanged,
+        blocked: counts.blocked,
+        skipped_os_metadata: counts.skipped_os_metadata,
     })
 }

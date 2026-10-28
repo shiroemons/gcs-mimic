@@ -1,5 +1,8 @@
 # Seed adapter compatibility change
 
+The [seed replay change](seed-replay.md) supersedes the one-time import and
+octet-stream default described here.
+
 Fresh seed imports skip regular `.DS_Store` and `._*` OS metadata files at every
 depth, including the source root. The ready event reports their count as
 `seed.skipped_os_metadata`. Matching directories remain ordinary input and their

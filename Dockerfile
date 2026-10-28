@@ -28,5 +28,6 @@ EXPOSE 4443
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=2s --timeout=2s --start-period=2s --retries=15 CMD ["gcs-mimic", "healthcheck"]
 ENTRYPOINT ["gcs-mimic"]
-ENV GCS_MIMIC_LISTEN=0.0.0.0:4443 GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic
+# Like fake-gcs-server's `-data /data`, a bucket/object tree mounted at /data seeds every start.
+ENV GCS_MIMIC_LISTEN=0.0.0.0:4443 GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic GCS_MIMIC_DEFAULT_SEED_DIR=/data
 CMD ["serve"]

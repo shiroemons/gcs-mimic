@@ -226,37 +226,56 @@ for platform in "$@"; do
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     "http://$address/storage/v1/b/local-bucket/o/hello.txt?alt=media" >"$work/seed-actual"
   cmp fixtures/local-bucket/hello.txt "$work/seed-actual"
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
-    -H 'Content-Type: application/octet-stream' --data-binary @"$work/expected" \
-    "http://$address/upload/storage/v1/b/local-bucket/o?uploadType=media&name=hello.txt" >/dev/null
+  # Overwrite a seeded name and add an API-only object; replay must restore only the former.
+  for name in hello.txt api-only.bin; do
+    curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+      -H 'Content-Type: application/octet-stream' --data-binary @"$work/expected" \
+      "http://$address/upload/storage/v1/b/local-bucket/o?uploadType=media&name=$name" >/dev/null
+  done
   "${seed_compose[@]}" stop --timeout 15
   "${seed_compose[@]}" up --detach --no-build --no-recreate --wait --wait-timeout 40
   [[ $("${seed_compose[@]}" ps --quiet gcs) == "$service" ]]
+  "${seed_compose[@]}" logs --no-color gcs | grep '"event":"ready"' | tail -n 1 | sed 's/^[^{]*//' |
+    jq -e '.seed.outcome == "imported" and .seed.replaced == 1' >/dev/null
   address=$("${seed_compose[@]}" port gcs 4443)
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     "http://$address/storage/v1/b/local-bucket/o/hello.txt?alt=media" >"$work/seed-actual"
-  cmp "$work/expected" "$work/seed-actual"
-  "${seed_compose[@]}" down
-  "${seed_compose[@]}" up --detach --no-build --wait --wait-timeout 40
-  address=$("${seed_compose[@]}" port gcs 4443)
+  cmp fixtures/local-bucket/hello.txt "$work/seed-actual"
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
-    "http://$address/storage/v1/b/local-bucket/o/hello.txt?alt=media" >"$work/seed-actual"
+    "http://$address/storage/v1/b/local-bucket/o/api-only.bin?alt=media" >"$work/seed-actual"
   cmp "$work/expected" "$work/seed-actual"
   expect_status DELETE /storage/v1/b/local-bucket/o/hello.txt 204
+  expect_status DELETE /storage/v1/b/local-bucket/o/api-only.bin 204
   expect_status DELETE /storage/v1/b/local-bucket 204
   "${seed_compose[@]}" down
-  "${seed_compose[@]}" up --detach --no-build --wait --wait-timeout 40
-  address=$("${seed_compose[@]}" port gcs 4443)
-  expect_status GET /storage/v1/b/local-bucket 404
-  "${seed_compose[@]}" down --volumes
   "${seed_compose[@]}" up --detach --no-build --wait --wait-timeout 40
   address=$("${seed_compose[@]}" port gcs 4443)
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     "http://$address/storage/v1/b/local-bucket/o/hello.txt?alt=media" >"$work/seed-actual"
   cmp fixtures/local-bucket/hello.txt "$work/seed-actual"
+  expect_status GET /storage/v1/b/local-bucket/o/api-only.bin 404
   "${seed_compose[@]}" down --volumes
   project=
-  echo "PASS: $platform read-only seed then ready, mutation/deletion persistence across stop/start and recreate, fresh-volume reseeding"
+  echo "PASS: $platform read-only seed then ready, replay over API changes across stop/start and recreate, API-only objects kept until deleted"
+
+  # The image's default_seed_dir must load a fake-gcs-server style /data mount without
+  # any seed variable.
+  container=$(docker run --detach --publish 127.0.0.1::4443 --env GCS_MIMIC_SCHEME=http \
+    --mount "type=bind,src=$PWD/fixtures,dst=/data,readonly" "$GCS_MIMIC_IMAGE")
+  ready=false
+  for ((attempt = 0; attempt < 40; attempt++)); do
+    if docker exec "$container" gcs-mimic healthcheck; then ready=true; break; fi
+    sleep 1
+  done
+  if [[ $ready != true ]]; then docker logs "$container"; exit 1; fi
+  address=$(docker port "$container" 4443/tcp | head -n 1)
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    "http://$address/storage/v1/b/local-bucket/o/hello.txt?alt=media" >"$work/seed-actual"
+  cmp fixtures/local-bucket/hello.txt "$work/seed-actual"
+  docker stop --timeout 15 "$container" >/dev/null
+  docker rm "$container" >/dev/null
+  container=
+  echo "PASS: $platform implicit /data seed without seed variables"
 
   # One volume holds sibling data and sync directories so the existing cleanup owns
   # it. The mount point is absent from the image, so Docker does not copy ownership.

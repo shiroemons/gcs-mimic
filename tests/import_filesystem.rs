@@ -178,15 +178,48 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
             .unwrap();
         assert!(later.generation > GENERATION);
         assert!(later.event_based_hold);
+        // Seed replays on imported catalogs too: fixtures without a matching file leave every
+        // imported object and its source generation untouched.
         let mut config = common::http_config();
         config.data_dir = options.destination.clone();
-        config.seed_dir = Some(options.source.join("does-not-exist"));
+        let empty_fixture = options.destination.parent().unwrap().join("empty-seed");
+        fs::create_dir(&empty_fixture).unwrap();
+        config.seed_dir = Some(empty_fixture);
         assert!(matches!(
             gcs_mimic::seed::import(&catalog, &config, &gcs_mimic::clock::SystemClock)
                 .await
                 .unwrap(),
-            gcs_mimic::seed::SeedOutcome::Skipped
+            gcs_mimic::seed::SeedOutcome::Imported {
+                buckets: 0,
+                objects: 0,
+                replaced: 0,
+                unchanged: 0,
+                blocked: 0,
+                skipped_os_metadata: 0,
+            }
         ));
+        let replayed = admin
+            .get_object(&bucket, &ObjectName::new("a").unwrap(), None)
+            .await
+            .unwrap();
+        assert_eq!(replayed.generation, GENERATION);
+        assert_eq!(replayed.metageneration, 1);
+        assert_eq!(replayed.content_type, "text/plain");
+        assert_eq!(
+            admin
+                .get_object(&bucket, &ObjectName::new("later").unwrap(), None)
+                .await
+                .unwrap()
+                .generation,
+            later.generation
+        );
+        config.seed_dir = Some(options.source.join("does-not-exist"));
+        assert!(
+            gcs_mimic::seed::import(&catalog, &config, &gcs_mimic::clock::SystemClock)
+                .await
+                .is_err(),
+            "a configured but missing seed root is an error, not a silent skip"
+        );
         catalog.close().await.unwrap();
     });
 }

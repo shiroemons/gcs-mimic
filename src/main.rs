@@ -29,9 +29,10 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
   --tls-handshake-timeout-ms N  5000 (1..60000; HTTPS listener)
   --data-dir PATH              data (exclusive persistent catalog)
-  --seed-dir PATH              none (read-only fixtures; fresh data directory only)
+  --seed-dir PATH              none (read-only fixtures; replayed on every startup)
+  --default-seed-dir PATH      none (seed root when seed_dir is unset and PATH exists; image: /data)
   --seed-project ID            local-project (owning project for seeded buckets)
-  --seed-content-type MODE     octet-stream (octet-stream|extension; pinned MIME table)
+  --seed-content-type MODE     extension (extension|octet-stream; pinned MIME table)
   --sync-dir PATH              none (existing working tree; initial export after ready)
   --sync-delete-guard BOOL     true (deletion ingestion pending)
   --sync-reinitialize ID       startup only (exact catalog ID; missing marker only)
@@ -227,14 +228,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         "Cannot load identity_file; provide a readable valid registry at most 64 KiB with unique ids/tokens, supported project_roles and valid RSA public_keys; remove unknown fields and private keys.")),
                 }
             }
-            if report.valid(&["data_dir", "seed_dir"]) {
-                report
-                    .diagnostics
-                    .warnings
-                    .extend(gcs_mimic::config_input::data_warning(
-                        &report.config,
-                        Path::new("/data"),
-                    ));
+            if report.valid(&["data_dir", "seed_dir", "default_seed_dir", "sync_dir"]) {
+                let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
+                report.diagnostics.warnings.extend(warnings);
             }
             if report.diagnostics.is_err() {
                 return Err(report.diagnostics.into());

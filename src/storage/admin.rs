@@ -451,6 +451,7 @@ impl Admin {
         self.grant.origin()
     }
 
+    #[cfg(test)]
     pub(crate) async fn seed_complete(&self) -> Result<bool, AdminError> {
         self.catalog
             .run_admin(|connection| {
