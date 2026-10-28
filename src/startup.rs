@@ -782,7 +782,10 @@ mod tests {
             tokio::pin!(shutdown);
             open_catalog(&config, clock, shutdown.as_mut()).await
         });
-        tokio::time::timeout(Duration::from_secs(5), recovering)
+        // Hang guards only: opening the catalog on a loaded Windows runner disk
+        // has exceeded five seconds before recovery began.
+        let hang_guard = Duration::from_secs(30);
+        tokio::time::timeout(hang_guard, recovering)
             .await
             .unwrap()
             .unwrap();
@@ -792,7 +795,7 @@ mod tests {
         assert!(Catalog::open(&dir.0).await.is_err());
         release.send(()).unwrap();
         assert!(matches!(
-            tokio::time::timeout(Duration::from_secs(5), task)
+            tokio::time::timeout(hang_guard, task)
                 .await
                 .unwrap()
                 .unwrap()
