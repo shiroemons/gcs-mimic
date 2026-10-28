@@ -7,7 +7,7 @@ tests. Current Storage v2 operation subsets are described in the
 [bucket](grpc-v2-buckets.md), [object I/O](grpc-v2-object-io.md),
 [update/copy](grpc-v2-update-copy.md) and [bidi read](grpc-v2-bidi-read.md)
 contracts. CancelResumableWrite, Rapid append and unsupported fields remain
-UNIMPLEMENTED; Storage v1 is a separate compatibility slice in progress.
+UNIMPLEMENTED; the legacy Storage v1 migration profile is described in [its contract](grpc-v1-legacy.md).
 The all-RPC rejection statements below describe the original foundation snapshot.
 
 Scope: BEHAVIOR-RPC-005 and the unsupported gRPC portion of DESIGN-082. RPC-STORAGE-001–024 retain their existing status: this slice supplies an entry point, not their implementation. Storage v1, Rapid append, CancelResumableWrite and every operation's business logic remain unsupported.

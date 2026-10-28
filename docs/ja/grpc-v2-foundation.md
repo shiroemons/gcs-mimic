@@ -7,7 +7,7 @@
 [オブジェクト入出力](grpc-v2-object-io.md)、[更新・派生操作](grpc-v2-update-copy.md)、
 [双方向範囲読み取り](grpc-v2-bidi-read.md)の契約を参照してください。
 CancelResumableWrite、Rapid append、未対応フィールドはUNIMPLEMENTEDのままです。
-Storage v1は別スライスで作業中です。
+Storage v1の移行プロファイルは[その契約](grpc-v1-legacy.md)を参照してください。
 
 [英語の契約と検証](../en/slices/grpc-v2-foundation.md)が正本です。
 BEHAVIOR-RPC-005とDESIGN-082はPARTIALのままです。
