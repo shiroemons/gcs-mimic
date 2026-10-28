@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
-FROM rust:1.99.1-slim-trixie@sha256:1a939748a7cbab172de91a014e3804a97af1394a8c844faa67fce9401c4e40fb AS build
+FROM rust:1.99.1-slim-trixie@sha256:45afd9478205dcdf7f98b099019fee773a33644cf69ac0a3b862eb31d2a1ccef AS build
 WORKDIR /build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY xtask/Cargo.toml ./xtask/Cargo.toml
