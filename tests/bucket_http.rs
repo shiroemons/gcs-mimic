@@ -3,7 +3,7 @@ mod common;
 use common::{CleanEnv, TestDir};
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Write},
     net::TcpStream,
     process::{Child, ChildStdout, Command, Stdio},
     time::Duration,
@@ -115,8 +115,10 @@ fn raw(address: &str, request: &str) -> Reply {
         .set_write_timeout(Some(Duration::from_secs(5)))
         .unwrap();
     stream.write_all(request.as_bytes()).unwrap();
-    let mut reply = String::new();
-    stream.read_to_string(&mut reply).unwrap();
+    let reply =
+        common::read_http_response(&mut BufReader::new(stream), request.starts_with("HEAD "))
+            .unwrap();
+    let reply = String::from_utf8(reply).unwrap();
     let (headers, body) = reply.split_once("\r\n\r\n").unwrap();
     Reply {
         status: headers.split_whitespace().nth(1).unwrap().parse().unwrap(),
@@ -3831,6 +3833,12 @@ fn bkt_http_deadline_before_response_returns_backend_error() {
             .contains("timed out before a response was ready"),
         "{}",
         blocked.body
+    );
+    // The cancelled handler leaves the request state unknown, so the connection closes.
+    assert!(
+        blocked.headers.contains("\r\nconnection: close"),
+        "{}",
+        blocked.headers
     );
     database.execute_batch("ROLLBACK").unwrap();
     // The dropped handler's write may still commit, as after any retryable 503.

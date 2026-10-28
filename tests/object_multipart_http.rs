@@ -141,6 +141,11 @@ impl Reply {
                 reader.read_exact(&mut crlf).unwrap();
                 assert_eq!(&crlf, b"\r\n");
             }
+        } else if let Some(length) = headers.get("content-length") {
+            // A persistent connection stays open after the body, so read only its length.
+            let length = length.parse().unwrap();
+            reader.take(length).read_to_end(&mut body).unwrap();
+            assert_eq!(body.len() as u64, length, "truncated HTTP {status} body");
         } else {
             reader.read_to_end(&mut body).unwrap();
         }

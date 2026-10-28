@@ -3,7 +3,7 @@ mod common;
 use common::TestDir;
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Write},
     net::TcpStream,
     process::{Child, ChildStdout, Stdio},
     time::Duration,
@@ -52,8 +52,9 @@ impl Server {
             .set_write_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         write!(stream, "{method} {path} HTTP/1.1\r\nHost: untrusted.invalid\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
-        let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
+        let response =
+            common::read_http_response(&mut BufReader::new(stream), method == "HEAD").unwrap();
+        let response = String::from_utf8(response).unwrap();
         let (head, body) = response.split_once("\r\n\r\n").unwrap();
         let status = head.split_whitespace().nth(1).unwrap().parse().unwrap();
         (

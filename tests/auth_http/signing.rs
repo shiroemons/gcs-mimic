@@ -59,8 +59,13 @@ fn send(server: &Server, method: &str, url: &str, headers: &str) -> Reply {
         uri.path_and_query().unwrap(),
         uri.authority().unwrap()
     );
+    let raw = if method == "HEAD" {
+        close_after_head(raw.as_bytes())
+    } else {
+        raw.into_bytes()
+    };
     let mut stream = server.stream();
-    stream.write_all(raw.as_bytes()).unwrap();
+    stream.write_all(&raw).unwrap();
     Reply::read_body(stream, method == "HEAD")
 }
 

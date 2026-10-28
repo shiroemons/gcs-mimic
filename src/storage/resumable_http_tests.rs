@@ -21,7 +21,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
     sync::oneshot,
     task::JoinHandle,
@@ -167,17 +167,18 @@ impl Harness {
         };
         let read = async {
             let mut raw = Vec::new();
-            let result = reader.read_to_end(&mut raw).await;
+            let result = Self::read_framed(&mut BufReader::new(&mut reader), &mut raw).await;
             (raw, result)
         };
         let (written, (raw, read)) = tokio::join!(write, read);
-        for (stage, result) in [("write", written), ("read", read.map(drop))] {
+        for (stage, result) in [("write", written), ("read", read)] {
             if let Err(error) = result {
                 let closed = matches!(
                     error.kind(),
                     std::io::ErrorKind::BrokenPipe
                         | std::io::ErrorKind::ConnectionReset
                         | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::UnexpectedEof
                 );
                 assert!(
                     closed && !raw.is_empty(),
@@ -187,10 +188,79 @@ impl Harness {
         }
         Self::parse_response(&raw)
     }
-    async fn read_response(mut stream: TcpStream) -> Reply {
+    async fn read_response(stream: TcpStream) -> Reply {
         let mut raw = Vec::new();
-        stream.read_to_end(&mut raw).await.unwrap();
+        Self::read_framed(&mut BufReader::new(stream), &mut raw)
+            .await
+            .unwrap();
         Self::parse_response(&raw)
+    }
+    /// Reads one response, after any 1xx interim responses, framed by its status,
+    /// Content-Length or chunked encoding, because the server keeps the connection
+    /// open for further requests instead of closing it after the response.
+    async fn read_framed(
+        reader: &mut (impl AsyncBufRead + Unpin),
+        raw: &mut Vec<u8>,
+    ) -> std::io::Result<()> {
+        async fn line(
+            reader: &mut (impl AsyncBufRead + Unpin),
+            raw: &mut Vec<u8>,
+        ) -> std::io::Result<usize> {
+            let start = raw.len();
+            if reader.read_until(b'\n', raw).await? == 0 {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            Ok(start)
+        }
+        let head = loop {
+            let start = raw.len();
+            while !raw[start..].ends_with(b"\r\n\r\n") {
+                line(reader, raw).await?;
+            }
+            let head = String::from_utf8_lossy(&raw[start..]).to_ascii_lowercase();
+            let status: u16 = head
+                .split_whitespace()
+                .nth(1)
+                .and_then(|status| status.parse().ok())
+                .ok_or(std::io::ErrorKind::InvalidData)?;
+            if !(100..200).contains(&status) {
+                if status == 204 || status == 304 {
+                    return Ok(());
+                }
+                break head;
+            }
+        };
+        let header = |name: &str| {
+            head.lines()
+                .find_map(|line| line.strip_prefix(name)?.strip_prefix(':'))
+                .map(str::trim)
+        };
+        if header("transfer-encoding").is_some_and(|value| value.contains("chunked")) {
+            loop {
+                let start = line(reader, raw).await?;
+                let size = String::from_utf8_lossy(&raw[start..]).trim().to_owned();
+                let size = usize::from_str_radix(size.split(';').next().unwrap_or(""), 16)
+                    .map_err(|_| std::io::ErrorKind::InvalidData)?;
+                if size == 0 {
+                    while line(reader, raw)
+                        .await
+                        .map(|start| raw[start..] != *b"\r\n")?
+                    {}
+                    return Ok(());
+                }
+                let start = raw.len();
+                raw.resize(start + size + 2, 0);
+                reader.read_exact(&mut raw[start..]).await?;
+            }
+        }
+        let length: usize = header("content-length")
+            .ok_or(std::io::ErrorKind::InvalidData)?
+            .parse()
+            .map_err(|_| std::io::ErrorKind::InvalidData)?;
+        let start = raw.len();
+        raw.resize(start + length, 0);
+        reader.read_exact(&mut raw[start..]).await?;
+        Ok(())
     }
     fn parse_response(raw: &[u8]) -> Reply {
         let split = raw.windows(4).position(|v| v == b"\r\n\r\n").unwrap();

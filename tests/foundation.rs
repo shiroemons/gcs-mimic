@@ -313,9 +313,10 @@ fn stream(address: SocketAddr) -> TcpStream {
 fn request(address: SocketAddr, request: &str) -> String {
     let mut stream = stream(address);
     stream.write_all(request.as_bytes()).unwrap();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    response
+    let response =
+        common::read_http_response(&mut BufReader::new(stream), request.starts_with("HEAD "))
+            .unwrap();
+    String::from_utf8(response).unwrap()
 }
 
 fn dual_tls_request(
@@ -571,8 +572,8 @@ fn dual_listener_connection_cap_counts_tls_handshakes_and_shutdown_closes_both()
         std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
     ));
     http.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-    let mut response = String::new();
-    http.read_to_string(&mut response).unwrap();
+    let response = common::read_http_response(&mut BufReader::new(&mut http), false).unwrap();
+    let response = String::from_utf8(response).unwrap();
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     let mut handshake = stream(primary);
     handshake.write_all(b"\x16\x03\x01\x00\x10").unwrap();
@@ -878,6 +879,68 @@ async fn rejects_bodies_and_oversized_or_malformed_headers() {
     task.await.unwrap().unwrap();
 }
 
+/// Sends one request on a persistent connection and reads its framed response.
+fn exchange(connection: &mut BufReader<TcpStream>, request: &[u8]) -> String {
+    connection.get_mut().write_all(request).unwrap();
+    let head = request.starts_with(b"HEAD ");
+    String::from_utf8(common::read_http_response(connection, head).unwrap()).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn keep_alive_serves_sequential_requests_until_idle_timeout() {
+    let config = Config {
+        connection_timeout_ms: 500,
+        max_object_bytes: 16,
+        ..common::http_config()
+    };
+    let (address, _, stop, task, _dir) = start(config).await;
+    let mut connection = BufReader::new(stream(address));
+    let bucket = r#"{"name":"keep-alive-bucket"}"#;
+    let created = exchange(&mut connection, format!("POST /storage/v1/b?project=keep-alive HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{bucket}", bucket.len()).as_bytes());
+    assert!(created.starts_with("HTTP/1.1 200"), "{created}");
+    let uploaded = exchange(&mut connection, b"POST /upload/storage/v1/b/keep-alive-bucket/o?uploadType=media&name=object HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nhello");
+    assert!(uploaded.starts_with("HTTP/1.1 200"), "{uploaded}");
+    let media = exchange(
+        &mut connection,
+        b"GET /storage/v1/b/keep-alive-bucket/o/object?alt=media HTTP/1.1\r\nHost: localhost\r\n\r\n",
+    );
+    assert!(media.starts_with("HTTP/1.1 200"), "{media}");
+    assert!(media.ends_with("\r\n\r\nhello"), "{media}");
+    for response in [&created, &uploaded, &media] {
+        let head = response
+            .split_once("\r\n\r\n")
+            .unwrap()
+            .0
+            .to_ascii_lowercase();
+        // Exact lengths keep responses framed on the reused connection.
+        assert!(head.contains("\r\ncontent-length: "), "{head}");
+        assert!(!head.contains("\r\nconnection: close"), "{head}");
+    }
+    // The connection timeout closes a persistent connection left idle after a response.
+    connection
+        .get_ref()
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let idle = Instant::now();
+    assert_eq!(connection.read(&mut [0]).unwrap(), 0);
+    assert!(
+        idle.elapsed() >= Duration::from_millis(400),
+        "{:?}",
+        idle.elapsed()
+    );
+    // A rejection before the body is read never parses that body as the next request.
+    let mut rejected = BufReader::new(stream(address));
+    let response = exchange(&mut rejected, b"POST /upload/storage/v1/b/keep-alive-bucket/o?uploadType=media&name=large HTTP/1.1\r\nHost: localhost\r\nContent-Length: 32\r\n\r\nGET /_internal/health HTTP/1.1\r\n\r\n");
+    assert!(response.starts_with("HTTP/1.1 413"), "{response}");
+    rejected
+        .get_ref()
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    assert_eq!(rejected.read(&mut [0]).unwrap(), 0);
+    stop.send(()).unwrap();
+    task.await.unwrap().unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn connection_limit_deadline_and_shutdown_release_idle_clients() {
     let config = Config {
@@ -907,9 +970,8 @@ async fn connection_limit_deadline_and_shutdown_release_idle_clients() {
     second
         .set_read_timeout(Some(Duration::from_secs(2)))
         .unwrap();
-    let mut response = String::new();
-    second.read_to_string(&mut response).unwrap();
-    assert!(response.starts_with("HTTP/1.1 200"));
+    let response = common::read_http_response(&mut BufReader::new(&mut second), false).unwrap();
+    assert!(response.starts_with(b"HTTP/1.1 200"));
     let mut idle = stream(address);
     idle.write_all(b"GET /_internal/health HTTP/1.1\r\n")
         .unwrap();

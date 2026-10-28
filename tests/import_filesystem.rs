@@ -12,7 +12,7 @@ use gcs_mimic::{
 use serde_json::{Value, json};
 use std::{
     fs::{self, File, FileTimes},
-    io::{self, BufRead, BufReader, Read, Write},
+    io::{self, BufRead, BufReader, Write},
     net::TcpStream,
     path::Path,
     process::Stdio,
@@ -410,8 +410,7 @@ fn request(address: &str, path: &str, token: bool) -> (u16, Vec<u8>) {
         "GET {path} HTTP/1.1\r\nHost: localhost\r\n{authorization}\r\n"
     )
     .unwrap();
-    let mut response = Vec::new();
-    socket.read_to_end(&mut response).unwrap();
+    let response = common::read_http_response(&mut std::io::BufReader::new(socket), false).unwrap();
     let end = response
         .windows(4)
         .position(|bytes| bytes == b"\r\n\r\n")

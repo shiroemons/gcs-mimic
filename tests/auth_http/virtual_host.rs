@@ -227,13 +227,16 @@ fn request(
     body: &[u8],
 ) -> Reply {
     let mut stream = server.stream();
-    write!(
-        stream,
+    let mut request = format!(
         "{method} {path} HTTP/1.1\r\nHost: {host}\r\nContent-Length: {}\r\n{headers}\r\n",
         body.len()
     )
-    .unwrap();
-    stream.write_all(body).unwrap();
+    .into_bytes();
+    request.extend_from_slice(body);
+    if method == "HEAD" {
+        request = close_after_head(&request);
+    }
+    stream.write_all(&request).unwrap();
     Reply::read_body(stream, method == "HEAD")
 }
 

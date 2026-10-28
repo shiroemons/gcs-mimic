@@ -144,7 +144,7 @@ impl Server {
         request.extend_from_slice(body);
         if method == "HEAD" {
             let mut stream = self.stream();
-            stream.write_all(&request).unwrap();
+            stream.write_all(&close_after_head(&request)).unwrap();
             Reply::read_body(stream, true)
         } else {
             self.raw(&request)
@@ -202,6 +202,17 @@ impl Drop for Server {
     }
 }
 
+/// Adds `Connection: close` after the request line, so the server closes the
+/// persistent connection and a HEAD reply can be checked for stray body bytes.
+fn close_after_head(request: &[u8]) -> Vec<u8> {
+    let line = request
+        .windows(2)
+        .position(|bytes| bytes == b"\r\n")
+        .unwrap()
+        + 2;
+    [&request[..line], b"Connection: close\r\n", &request[line..]].concat()
+}
+
 struct Reply {
     status: u16,
     headers: BTreeMap<String, String>,
@@ -213,6 +224,8 @@ impl Reply {
         Self::read_body(stream, false)
     }
 
+    /// A HEAD reply is checked for stray body bytes until EOF, so callers send HEAD
+    /// requests through [`close_after_head`] to have the persistent connection closed.
     fn read_body(stream: TcpStream, head: bool) -> Self {
         let mut reader = BufReader::new(stream);
         let mut bytes = Vec::new();

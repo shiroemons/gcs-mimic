@@ -41,6 +41,77 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
     timestamp_support::downgrade_object_schema(connection);
 }
 
+/// Reads one HTTP/1.1 response as raw bytes, including any 1xx interim responses
+/// before it. The status, Content-Length or chunked encoding frames it, because a
+/// client on a persistent connection cannot wait for the server to close; `head`
+/// marks a response to HEAD, which carries no body.
+#[allow(dead_code)]
+pub fn read_http_response(reader: &mut impl BufRead, head: bool) -> std::io::Result<Vec<u8>> {
+    use std::io::{Error, ErrorKind, Read};
+    fn line(reader: &mut impl BufRead, raw: &mut Vec<u8>) -> std::io::Result<usize> {
+        let start = raw.len();
+        if reader.read_until(b'\n', raw)? == 0 {
+            return Err(Error::from(ErrorKind::UnexpectedEof));
+        }
+        Ok(start)
+    }
+    let mut raw = Vec::new();
+    let response_head = loop {
+        let start = raw.len();
+        while !raw[start..].ends_with(b"\r\n\r\n") {
+            line(reader, &mut raw)?;
+        }
+        let response_head = String::from_utf8_lossy(&raw[start..]).to_ascii_lowercase();
+        let status = response_head
+            .split_whitespace()
+            .nth(1)
+            .and_then(|status| status.parse::<u16>().ok())
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "missing HTTP status"))?;
+        if (100..200).contains(&status) {
+            continue;
+        }
+        if head || status == 204 || status == 304 {
+            return Ok(raw);
+        }
+        break response_head;
+    };
+    let header = |name: &str| {
+        response_head
+            .lines()
+            .find_map(|line| line.strip_prefix(name)?.strip_prefix(':'))
+            .map(str::trim)
+    };
+    if header("transfer-encoding").is_some_and(|value| value.contains("chunked")) {
+        loop {
+            let start = line(reader, &mut raw)?;
+            let size = String::from_utf8_lossy(&raw[start..]);
+            let size = usize::from_str_radix(size.trim().split(';').next().unwrap_or(""), 16)
+                .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
+            if size == 0 {
+                while line(reader, &mut raw).map(|start| raw[start..] != *b"\r\n")? {}
+                return Ok(raw);
+            }
+            let start = raw.len();
+            raw.resize(start + size + 2, 0);
+            reader.read_exact(&mut raw[start..])?;
+        }
+    }
+    match header("content-length") {
+        Some(length) => {
+            let length = length
+                .parse::<u64>()
+                .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
+            if reader.by_ref().take(length).read_to_end(&mut raw)? as u64 != length {
+                return Err(Error::from(ErrorKind::UnexpectedEof));
+            }
+        }
+        None => {
+            reader.read_to_end(&mut raw)?;
+        }
+    }
+    Ok(raw)
+}
+
 /// macOS reports a peer close during transfer as a reset or broken pipe where
 /// Linux often still accepts the write or returns EOF.
 #[allow(dead_code)]

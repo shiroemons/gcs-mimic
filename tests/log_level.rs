@@ -57,8 +57,7 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
             connection.write_all(request.as_bytes()).unwrap();
-            let mut response = Vec::new();
-            connection.read_to_end(&mut response).unwrap();
+            common::read_http_response(&mut BufReader::new(connection), false).unwrap();
         }
         for (method, path, body) in [
             (
@@ -80,8 +79,9 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
             write!(connection, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
-            let mut response = String::new();
-            connection.read_to_string(&mut response).unwrap();
+            let response =
+                common::read_http_response(&mut BufReader::new(connection), false).unwrap();
+            let response = String::from_utf8(response).unwrap();
             assert!(response.starts_with("HTTP/1.1 200"), "{response}");
             if method == "GET" {
                 let (_, body) = response.split_once("\r\n\r\n").unwrap();

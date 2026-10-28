@@ -129,6 +129,57 @@ impl DeadlineReply {
     }
 }
 
+/// Ends a request when hyper drops its response body, after the last byte is written
+/// or the connection fails, so keep-alive idle time is never charged to the request.
+struct RequestFinished {
+    active: Arc<AtomicBool>,
+    activity: watch::Sender<ObjectActivity>,
+}
+
+impl RequestFinished {
+    fn track(self, body: ResponseBody) -> ResponseBody {
+        TrackedBody {
+            body,
+            _finished: self,
+        }
+        .boxed_unsync()
+    }
+}
+
+/// Forwards every body method, including the exact size hint that lets hyper send
+/// Content-Length instead of chunked encoding, while owning the request's end marker.
+struct TrackedBody {
+    body: ResponseBody,
+    _finished: RequestFinished,
+}
+
+impl hyper::body::Body for TrackedBody {
+    type Data = Bytes;
+    type Error = io::Error;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, io::Error>>> {
+        std::pin::Pin::new(&mut self.body).poll_frame(cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        self.body.size_hint()
+    }
+}
+
+impl Drop for RequestFinished {
+    fn drop(&mut self) {
+        self.active.store(false, Ordering::Release);
+        self.activity.send_replace(ObjectActivity::default());
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 pub(crate) struct ObjectActivity {
     awaiting_catalog: bool,
@@ -293,27 +344,42 @@ async fn serve_connection(
 ) {
     let timeout = Duration::from_millis(config.connection_timeout_ms);
     let (activity, mut progress) = watch::channel(ObjectActivity::default());
+    // A request is active from dispatch until hyper drops its response body after
+    // the last byte. Deadlines apply only then; between keep-alive requests hyper's
+    // header read timeout closes an idle connection after the same duration.
+    let active = Arc::new(AtomicBool::new(false));
+    let served = Arc::new(AtomicBool::new(false));
     // Set once the service returns, after which hyper may already have sent the
     // response head; until then an expired deadline can still be answered.
     let responded = Arc::new(AtomicBool::new(false));
     let (expire, expired) = watch::channel(false);
     let mut builder = http1::Builder::new();
     builder
-        .keep_alive(false)
         .max_headers(64)
         .max_buf_size(16 * 1024)
         .timer(TokioTimer::new())
         .header_read_timeout(timeout);
-    let service_responded = responded.clone();
+    let (service_active, service_served, service_responded) =
+        (active.clone(), served.clone(), responded.clone());
     let mut connection = builder.serve_connection(
         TokioIo::new(stream),
         service_fn(move |request| {
             let state = state.clone();
             let activity = activity.clone();
             let config = config.clone();
+            let active = service_active.clone();
             let responded = service_responded.clone();
             let mut expired = expired.clone();
+            service_served.store(true, Ordering::Release);
             Box::pin(async move {
+                responded.store(false, Ordering::Release);
+                active.store(true, Ordering::Release);
+                // Each request starts its own deadline without an earlier transfer's state.
+                activity.send_replace(ObjectActivity::default());
+                let finished = RequestFinished {
+                    active,
+                    activity: activity.clone(),
+                };
                 let expiry = DeadlineReply::new(&request, &config);
                 // Dropping the handler cancels its work exactly as closing the
                 // connection did, so an unfinished upload is still never published.
@@ -323,7 +389,7 @@ async fn serve_connection(
                     _ = expired.wait_for(|expired| *expired) => expiry.response(),
                 };
                 responded.store(true, Ordering::Release);
-                Ok::<_, Infallible>(response)
+                Ok::<_, Infallible>(response.map(|body| finished.track(body)))
             })
         }),
     );
@@ -333,13 +399,14 @@ async fn serve_connection(
     let mut draining = false;
     let mut expiring = false;
     loop {
+        let requesting = active.load(Ordering::Acquire);
         tokio::select! {
             biased;
             Ok(()) = progress.changed(), if !expiring => {
                 current = *progress.borrow_and_update();
                 deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
             },
-            _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if current.deadline.is_some() && !current.awaiting_catalog && !expiring => {
+            _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if requesting && current.deadline.is_some() && !current.awaiting_catalog && !expiring => {
                 crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "object_request_timeout", serde_json::json!({"message":"object request deadline exceeded"}));
                 if responded.load(Ordering::Acquire) { break; }
                 expire.send_replace(true);
@@ -347,11 +414,16 @@ async fn serve_connection(
                 expiring = true;
             },
             result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
-                // hyper's Display names only the failure kind (body stream, write, parse), never the wrapped I/O detail.
-                if let Err(error) = result { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport","cause":error.to_string()})); }
+                match result {
+                    // An idle keep-alive connection reaching the header read timeout is a normal close.
+                    Err(error) if error.is_timeout() && served.load(Ordering::Acquire) && !active.load(Ordering::Acquire) => {}
+                    // hyper's Display names only the failure kind (body stream, write, parse), never the wrapped I/O detail.
+                    Err(error) => crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport","cause":error.to_string()})),
+                    Ok(()) => {}
+                }
                 break;
             }
-            _ = &mut deadline, if !current.awaiting_catalog || expiring => {
+            _ = &mut deadline, if (requesting && !current.awaiting_catalog) || expiring => {
                 // After an expiry the same budget bounds writing its error response to a client that does not read.
                 if expiring { break; }
                 crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"connection deadline or object body inactivity timeout exceeded"}));
@@ -430,9 +502,6 @@ async fn respond(
             respond_routed(request, state, config, activity, selected).await
         };
         response.headers_mut().extend(headers);
-        response
-            .headers_mut()
-            .insert("connection", "close".parse().unwrap());
         return response;
     }
     // CORS must also wrap invalid object names and signed queries without authorizing them.
@@ -476,9 +545,6 @@ async fn respond(
                 .unwrap(),
             );
         }
-        response
-            .headers_mut()
-            .insert("connection", "close".parse().unwrap());
         return response;
     }
     respond_routed(request, state, config, activity, selected).await
@@ -546,11 +612,7 @@ async fn respond_routed(
         if head || put || delete || result.is_err() {
             activity.send_replace(ObjectActivity::default());
         }
-        let mut response = result.unwrap_or_else(|error| boxed(error.response(head)));
-        response
-            .headers_mut()
-            .insert("connection", "close".parse().unwrap());
-        return response;
+        return result.unwrap_or_else(|error| boxed(error.response(head)));
     }
     if let Some(parsed) =
         json::resumable::session_route(request.method(), request.uri(), config.compat_profile)
@@ -571,11 +633,7 @@ async fn respond_routed(
             Err(error) => Err(error),
         };
         activity.send_replace(ObjectActivity::default());
-        let mut response = result.unwrap_or_else(|error| boxed(error.into_response()));
-        response
-            .headers_mut()
-            .insert("connection", "close".parse().unwrap());
-        return response;
+        return result.unwrap_or_else(|error| boxed(error.into_response()));
     }
     if let Some(parsed) =
         json::rewrite::route(request.method(), request.uri(), config.compat_profile)
@@ -596,11 +654,7 @@ async fn respond_routed(
             Err(error) => Err(error),
         };
         activity.send_replace(ObjectActivity::default());
-        let mut response = result.unwrap_or_else(|error| boxed(error.into_response()));
-        response
-            .headers_mut()
-            .insert("connection", "close".parse().unwrap());
-        return response;
+        return result.unwrap_or_else(|error| boxed(error.into_response()));
     }
     if let Some(parsed) =
         json::route_object_with_profile(request.method(), request.uri(), config.compat_profile)
@@ -636,11 +690,7 @@ async fn respond_routed(
         if !media || result.is_err() {
             activity.send_replace(ObjectActivity::default());
         }
-        let mut response = result.unwrap_or_else(|error| boxed(error.into_response()));
-        response
-            .headers_mut()
-            .insert("connection", "close".parse().unwrap());
-        return response;
+        return result.unwrap_or_else(|error| boxed(error.into_response()));
     }
     if let Some(parsed) = json::route_with_profile(
         request.method(),
@@ -686,9 +736,6 @@ async fn respond_routed(
                 .insert("content-type", "application/json".parse().unwrap());
             response = Response::from_parts(parts, Full::new(Bytes::from(bytes)));
         }
-        response
-            .headers_mut()
-            .insert("connection", "close".parse().unwrap());
         return boxed(response);
     }
     boxed(probe_or_unknown(&request, state))
@@ -2034,8 +2081,7 @@ fn probe_or_unknown(request: &Request<Incoming>, state: &State) -> Response<Full
     let mut response = Response::builder()
         .status(status)
         .header("content-type", "application/json")
-        .header("content-length", body.len())
-        .header("connection", "close");
+        .header("content-length", body.len());
     if status == StatusCode::METHOD_NOT_ALLOWED {
         response = response.header("allow", "GET, HEAD");
     }

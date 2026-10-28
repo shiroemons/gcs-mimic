@@ -4,7 +4,8 @@ const OBJECT: &str = "/storage/v1/b/range-bucket/o/data";
 const BUCKET: &str = "/storage/v1/b/range-bucket";
 
 fn not_modified(server: &Server, path: &str, headers: &str, etag: &str, cache: &str) {
-    let mut stream = server.open("GET", path, headers, b"");
+    // Closing after the 304 lets the EOF check prove that no content followed it.
+    let mut stream = server.open("GET", path, &format!("{headers}Connection: close\r\n"), b"");
     let reply = Reply::headers(&mut stream);
     assert_eq!(reply.status, 304, "{path}: {headers}");
     assert_eq!(reply.headers["etag"], etag);
