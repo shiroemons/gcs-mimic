@@ -233,17 +233,17 @@ impl Catalog {
         let access = access.clone();
         let token = hash(token.as_bytes());
         let expected_incarnation = permit.replay.as_ref().map(|r| r.incarnation.clone());
-        let principal = match &access {
-            BucketAccess::Permissive => serde_json::Value::String("permissive".into()),
-            BucketAccess::Policy { identity, .. } => {
-                identity.as_ref().map_or(serde_json::Value::Null, |i| {
-                    i.upload_snapshot()["id"].clone()
-                })
-            }
+        let (profile, principal) = match &access {
+            BucketAccess::Permissive => ("permissive", None),
+            BucketAccess::Policy { identity: None, .. } => ("strict-anonymous", None),
+            BucketAccess::Policy {
+                identity: Some(identity),
+                ..
+            } => ("strict-principal", Some(identity.id())),
             BucketAccess::Admin(_) => return Err(ObjectError::Forbidden),
         };
         let request = hash(
-            serde_json::to_vec(&(request, principal))
+            serde_json::to_vec(&(request, profile, principal))
                 .map_err(objects::object_unavailable)?
                 .as_slice(),
         );

@@ -1,6 +1,81 @@
 use super::*;
 
 #[tokio::test]
+async fn upload_replay_never_crosses_authentication_profiles_after_restart() {
+    let h = Harness::start(1000, false, Some("http://example.invalid")).await;
+    let path = "/upload/storage/v1/b/bucket/o?uploadType=media&name=profile&ifGenerationMatch=0";
+    let original = h
+        .request(
+            "POST",
+            path,
+            "X-Goog-Gcs-Idempotency-Token: profile\r\n",
+            b"original",
+        )
+        .await;
+    assert_eq!(original.status, 200);
+    h.state.catalog.close().await.unwrap();
+    let catalog = Catalog::open_with_clock(&h.dir.0, h.clock.clone())
+        .await
+        .unwrap();
+    let auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"permissive","tokens":["strict"],"project_roles":{"project":["roles/storage.objectCreator"]}}]}"#).unwrap());
+    let mut headers = hyper::HeaderMap::new();
+    headers.insert("authorization", "Bearer strict".parse().unwrap());
+    let identity = auth
+        .authenticate(&headers, None)
+        .unwrap()
+        .unwrap()
+        .principal()
+        .unwrap()
+        .clone();
+    let access = crate::bucket::BucketAccess::Policy {
+        identity: Some(identity),
+        permission: crate::auth::Permission::ObjectsCreate,
+        project: None,
+    };
+    let mut permit = catalog.admit_object_upload().unwrap();
+    let result = catalog
+        .check_upload_replay(
+            "bucket",
+            "profile",
+            crate::object::ObjectConditions {
+                if_generation_match: Some(0),
+                ..Default::default()
+            },
+            &access,
+            Some("profile"),
+            &format!("{path}|{}|None", h.base),
+            &mut permit,
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(crate::object::ObjectError::InvalidFixedMetadata(_))
+    ));
+    let (record, mut reader) = catalog
+        .open_object_authorized(
+            "bucket",
+            "profile",
+            None,
+            Default::default(),
+            &crate::bucket::BucketAccess::Permissive,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        record.generation.to_string(),
+        original.json()["generation"].as_str().unwrap()
+    );
+    assert_eq!(
+        reader.next_chunk().await.unwrap().unwrap().as_ref(),
+        b"original"
+    );
+    assert!(reader.next_chunk().await.unwrap().is_none());
+    drop(permit);
+    catalog.close().await.unwrap();
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn upload_replay_capacity_expiry_and_current_permissions() {
     let h = Harness::start(1000, true, Some("http://example.invalid")).await;
     let path = "/upload/storage/v1/b/bucket/o?uploadType=media&name=replay";
