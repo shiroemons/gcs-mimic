@@ -85,6 +85,13 @@ pub(crate) enum InputError {
     Encoding,
 }
 
+/// Which command the CLI arguments belong to: only `serve` accepts native server settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CliCommand {
+    Serve,
+    Helper,
+}
+
 #[derive(Default)]
 pub(crate) struct Inputs {
     pub entries: Vec<Input>,
@@ -94,7 +101,7 @@ pub(crate) struct Inputs {
 }
 
 impl Inputs {
-    pub fn push(&mut self, input: Input) -> bool {
+    pub(crate) fn push(&mut self, input: Input) -> bool {
         if self.limited {
             return false;
         }
@@ -121,7 +128,7 @@ impl Inputs {
         true
     }
 
-    pub fn cli(&mut self, args: &[String], server: bool) {
+    pub(crate) fn cli(&mut self, args: &[String], command: CliCommand) {
         let mut index = 0;
         while let Some(token) = args.get(index) {
             let (key, inline) = token
@@ -130,7 +137,8 @@ impl Inputs {
             let hyphens = key.bytes().take_while(|byte| *byte == b'-').count();
             let name = &key[hyphens..];
             let normalized = name.replace('-', "_");
-            let native_name = server && NATIVE_KEYS.contains(&normalized.as_str());
+            let native_name =
+                command == CliCommand::Serve && NATIVE_KEYS.contains(&normalized.as_str());
             let native = hyphens == 2 && native_name;
             let legacy = !native
                 && (1..=2).contains(&hyphens)
@@ -191,7 +199,7 @@ impl Inputs {
         }
     }
 
-    pub fn environment(&mut self, env: &BTreeMap<String, String>) {
+    pub(crate) fn environment(&mut self, env: &BTreeMap<String, String>) {
         for (key, value) in env {
             if let Some(suffix) = key.strip_prefix("FAKE_GCS_") {
                 let legacy = LEGACY.iter().any(|(name, _)| *name == suffix);
@@ -220,7 +228,7 @@ impl Inputs {
         }
     }
 
-    pub fn environment_os(
+    pub(crate) fn environment_os(
         &mut self,
         env: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
     ) {
@@ -278,7 +286,7 @@ impl Inputs {
         }
     }
 
-    pub fn diagnose_legacy(&mut self) {
+    pub(crate) fn diagnose_legacy(&mut self) {
         let mut effective = BTreeMap::new();
         for source in [DiagnosticSource::Environment, DiagnosticSource::Cli] {
             for input in self
@@ -395,15 +403,15 @@ pub fn cli_diagnostics(args: &[String]) -> Diagnostics {
     {
         return Diagnostics::default();
     }
-    let (offset, server) = match args.first().map(String::as_str) {
-        Some("serve") => (1, true),
-        Some("url") => (2.min(args.len()), false),
-        Some("healthcheck") => (1, false),
-        Some("tls") => (2.min(args.len()), false),
-        _ => (0, false),
+    let (offset, command) = match args.first().map(String::as_str) {
+        Some("serve") => (1, CliCommand::Serve),
+        Some("url") => (2.min(args.len()), CliCommand::Helper),
+        Some("healthcheck") => (1, CliCommand::Helper),
+        Some("tls") => (2.min(args.len()), CliCommand::Helper),
+        _ => (0, CliCommand::Helper),
     };
     let mut inputs = Inputs::default();
-    inputs.cli(&args[offset..], server);
+    inputs.cli(&args[offset..], command);
     inputs.diagnose_legacy();
     if args.first().is_some_and(|v| v.starts_with('-')) && inputs.diagnostics.is_err() {
         inputs.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Cli, "command",

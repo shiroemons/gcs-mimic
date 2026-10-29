@@ -3,7 +3,7 @@
 use crate::{
     auth::AuthMode,
     bucket::bucket_location,
-    config_input::{Input, InputError, Inputs, NATIVE_KEYS},
+    config_input::{CliCommand, Input, InputError, Inputs, NATIVE_KEYS},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
     url::PublicOrigin,
 };
@@ -245,7 +245,7 @@ impl Config {
 
     pub fn preflight(args: &[String], env: &BTreeMap<String, String>) -> ConfigurationReport {
         let mut inputs = Inputs::default();
-        inputs.cli(args, true);
+        inputs.cli(args, CliCommand::Serve);
         inputs.environment(env);
         Self::from_inputs(inputs)
     }
@@ -255,125 +255,15 @@ impl Config {
         env: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
     ) -> ConfigurationReport {
         let mut inputs = Inputs::default();
-        inputs.cli(args, true);
+        inputs.cli(args, CliCommand::Serve);
         inputs.environment_os(env);
         Self::from_inputs(inputs)
     }
 
     fn from_inputs(mut inputs: Inputs) -> ConfigurationReport {
         inputs.diagnose_legacy();
-        let mut invalid_file_fields = BTreeSet::new();
-        let selector = inputs
-            .entries
-            .iter()
-            .filter(|i| {
-                i.name == "config"
-                    && !i.legacy
-                    && i.source != DiagnosticSource::Config
-                    && !i.key.starts_with("FAKE_GCS_")
-            })
-            .max_by_key(|i| {
-                if i.source == DiagnosticSource::Cli {
-                    1
-                } else {
-                    0
-                }
-            })
-            .cloned();
-        if let Some(selector) = selector.filter(|input| input.invalid.is_none()) {
-            match read_config(&selector.value) {
-                Ok(values) => {
-                    for (key, value) in values {
-                        let text = if key == "default_location" && value.is_null() {
-                            Some(String::new())
-                        } else if key == "sync_delete_guard" && value.is_boolean() {
-                            Some(value.to_string())
-                        } else if key == "buckets_file" {
-                            value.as_str().map(str::to_owned)
-                        } else {
-                            setting_text(&value)
-                        };
-                        if !inputs.push(Input {
-                            source: DiagnosticSource::Config,
-                            key: key.clone(),
-                            name: key.clone(),
-                            value: text.clone().unwrap_or_default(),
-                            legacy: false,
-                            invalid: None,
-                        }) {
-                            break;
-                        }
-                        if text.is_none() {
-                            invalid_file_fields.insert(key.clone());
-                            inputs.diagnostics.errors.push(Diagnostic::new(
-                                DiagnosticSource::Config,
-                                key,
-                                CONFIG_VALUE_FIX,
-                            ));
-                            inputs.entries.pop();
-                        }
-                    }
-                }
-                Err(error) => inputs.diagnostics.errors.push(Diagnostic::new(
-                    selector.source,
-                    selector.key,
-                    error.fix(if selector.source == DiagnosticSource::Environment {
-                        "GCS_MIMIC_CONFIG=config.json"
-                    } else {
-                        "--config PATH"
-                    }),
-                )),
-            }
-        }
-        let mut settings = BTreeMap::new();
-        let mut seen_cli = BTreeSet::new();
-        for source in [
-            DiagnosticSource::Config,
-            DiagnosticSource::Environment,
-            DiagnosticSource::Cli,
-        ] {
-            for input in inputs
-                .entries
-                .iter()
-                .filter(|i| i.source == source && !i.legacy && !i.key.starts_with("FAKE_GCS_"))
-            {
-                if source == DiagnosticSource::Cli && !seen_cli.insert(&input.name) {
-                    inputs.diagnostics.errors.push(Diagnostic::new(
-                        source,
-                        &input.key,
-                        "Duplicate option; supply each --name VALUE option exactly once.",
-                    ));
-                }
-                if !NATIVE_KEYS.contains(&input.name.as_str())
-                    || (input.name == "config" && source == DiagnosticSource::Config)
-                    || (input.name == "sync_reinitialize" && source != DiagnosticSource::Cli)
-                {
-                    let fix = match input.name.as_str() {
-                        "sync_reinitialize" => {
-                            "sync_reinitialize is startup-only CLI input; remove it here and use --sync-dir DIRECTORY --sync-reinitialize CATALOG_ID once."
-                        }
-                        "port" => {
-                            "GCS_MIMIC_PORT is Compose-only host port publication; keep it in the Compose invocation, remove it from the server environment and use GCS_MIMIC_LISTEN=0.0.0.0:4443 for server binding."
-                        }
-                        "image" => {
-                            "GCS_MIMIC_IMAGE is Compose-only image selection; remove it from the server environment; there is no server equivalent."
-                        }
-                        "tls_dir" => {
-                            "GCS_MIMIC_TLS_DIR is Compose-only mount selection; remove it from the server environment and supply GCS_MIMIC_TLS_CERT=certs/server.pem and GCS_MIMIC_TLS_KEY=certs/server-key.pem."
-                        }
-                        _ => {
-                            "Unknown setting; remove it and use --help for supported native settings. Reserved future settings are unsupported."
-                        }
-                    };
-                    inputs
-                        .diagnostics
-                        .errors
-                        .push(Diagnostic::new(source, &input.key, fix));
-                    continue;
-                }
-                settings.insert(input.name.clone(), input.clone());
-            }
-        }
+        let invalid_file_fields = read_selected_config(&mut inputs);
+        let settings = collect_settings(&mut inputs);
         let mut report = ConfigurationReport {
             config: Self::default(),
             diagnostics: inputs.diagnostics,
@@ -382,17 +272,386 @@ impl Config {
                 .filter(|key| !settings.contains_key(key))
                 .collect(),
         };
-        let tls_options_supplied = settings.keys().any(|key| {
-            matches!(
-                key.as_str(),
-                "tls_cert" | "tls_key" | "tls_handshake_timeout_ms"
-            )
-        });
-        for (key, input) in &settings {
+        report.apply_settings(&settings);
+        report.check_sync(&settings);
+        report.check_tls(&settings);
+        report.check_listeners(&settings);
+        report.check_public_base_url(&settings);
+        report.check_api_base_url(&settings);
+        report.check_auth(&settings);
+        report
+    }
+}
+
+/// Effective settings by native name, after config file, environment and CLI precedence.
+type Settings = BTreeMap<String, Input>;
+
+/// Reads the config file selected by `--config` or `GCS_MIMIC_CONFIG` into `inputs` and
+/// returns the file keys whose values had an unsupported JSON type.
+fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
+    let mut invalid_file_fields = BTreeSet::new();
+    let selector = inputs
+        .entries
+        .iter()
+        .filter(|i| {
+            i.name == "config"
+                && !i.legacy
+                && i.source != DiagnosticSource::Config
+                && !i.key.starts_with("FAKE_GCS_")
+        })
+        .max_by_key(|i| {
+            if i.source == DiagnosticSource::Cli {
+                1
+            } else {
+                0
+            }
+        })
+        .cloned();
+    let Some(selector) = selector.filter(|input| input.invalid.is_none()) else {
+        return invalid_file_fields;
+    };
+    match read_config(&selector.value) {
+        Ok(values) => {
+            for (key, value) in values {
+                let text = if key == "default_location" && value.is_null() {
+                    Some(String::new())
+                } else if key == "sync_delete_guard" && value.is_boolean() {
+                    Some(value.to_string())
+                } else if key == "buckets_file" {
+                    value.as_str().map(str::to_owned)
+                } else {
+                    setting_text(&value)
+                };
+                if !inputs.push(Input {
+                    source: DiagnosticSource::Config,
+                    key: key.clone(),
+                    name: key.clone(),
+                    value: text.clone().unwrap_or_default(),
+                    legacy: false,
+                    invalid: None,
+                }) {
+                    break;
+                }
+                if text.is_none() {
+                    invalid_file_fields.insert(key.clone());
+                    inputs.diagnostics.errors.push(Diagnostic::new(
+                        DiagnosticSource::Config,
+                        key,
+                        CONFIG_VALUE_FIX,
+                    ));
+                    inputs.entries.pop();
+                }
+            }
+        }
+        Err(error) => inputs.diagnostics.errors.push(Diagnostic::new(
+            selector.source,
+            selector.key,
+            error.fix(if selector.source == DiagnosticSource::Environment {
+                "GCS_MIMIC_CONFIG=config.json"
+            } else {
+                "--config PATH"
+            }),
+        )),
+    }
+    invalid_file_fields
+}
+
+/// Merges native inputs by precedence (config file, then environment, then CLI) and diagnoses
+/// duplicate CLI options and settings that are unknown or not accepted from their source.
+fn collect_settings(inputs: &mut Inputs) -> Settings {
+    let mut settings = BTreeMap::new();
+    let mut seen_cli = BTreeSet::new();
+    for source in [
+        DiagnosticSource::Config,
+        DiagnosticSource::Environment,
+        DiagnosticSource::Cli,
+    ] {
+        for input in inputs
+            .entries
+            .iter()
+            .filter(|i| i.source == source && !i.legacy && !i.key.starts_with("FAKE_GCS_"))
+        {
+            if source == DiagnosticSource::Cli && !seen_cli.insert(&input.name) {
+                inputs.diagnostics.errors.push(Diagnostic::new(
+                    source,
+                    &input.key,
+                    "Duplicate option; supply each --name VALUE option exactly once.",
+                ));
+            }
+            if !NATIVE_KEYS.contains(&input.name.as_str())
+                || (input.name == "config" && source == DiagnosticSource::Config)
+                || (input.name == "sync_reinitialize" && source != DiagnosticSource::Cli)
+            {
+                inputs.diagnostics.errors.push(Diagnostic::new(
+                    source,
+                    &input.key,
+                    rejected_setting_fix(&input.name),
+                ));
+                continue;
+            }
+            settings.insert(input.name.clone(), input.clone());
+        }
+    }
+    settings
+}
+
+fn rejected_setting_fix(name: &str) -> &'static str {
+    match name {
+        "sync_reinitialize" => {
+            "sync_reinitialize is startup-only CLI input; remove it here and use --sync-dir DIRECTORY --sync-reinitialize CATALOG_ID once."
+        }
+        "port" => {
+            "GCS_MIMIC_PORT is Compose-only host port publication; keep it in the Compose invocation, remove it from the server environment and use GCS_MIMIC_LISTEN=0.0.0.0:4443 for server binding."
+        }
+        "image" => {
+            "GCS_MIMIC_IMAGE is Compose-only image selection; remove it from the server environment; there is no server equivalent."
+        }
+        "tls_dir" => {
+            "GCS_MIMIC_TLS_DIR is Compose-only mount selection; remove it from the server environment and supply GCS_MIMIC_TLS_CERT=certs/server.pem and GCS_MIMIC_TLS_KEY=certs/server-key.pem."
+        }
+        _ => {
+            "Unknown setting; remove it and use --help for supported native settings. Reserved future settings are unsupported."
+        }
+    }
+}
+
+/// The user-facing fix for a rejected setting value; it becomes the diagnostic text verbatim.
+#[derive(Debug)]
+struct SettingFix(String);
+
+impl From<String> for SettingFix {
+    fn from(fix: String) -> Self {
+        Self(fix)
+    }
+}
+
+impl From<&str> for SettingFix {
+    fn from(fix: &str) -> Self {
+        Self(fix.to_owned())
+    }
+}
+
+/// Parses one setting into `config`. A rejected value may leave `config` partly updated, so the
+/// caller applies it to a candidate copy and keeps the copy only on success.
+fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
+    match key {
+        "log_level"
+        | "scheme"
+        | "listen"
+        | "listen_http"
+        | "grpc_listen"
+        | "tls_cert"
+        | "tls_key"
+        | "tls_handshake_timeout_ms" => apply_network_setting(config, key, value),
+        "api_base_url" | "public_base_url" | "xml_virtual_host_domains" => {
+            apply_url_setting(config, key, &value)
+        }
+        "data_dir" | "seed_dir" | "default_seed_dir" | "sync_dir" | "sync_delete_guard"
+        | "sync_reinitialize" | "seed_project" | "seed_content_type" | "default_location"
+        | "buckets_file" => apply_storage_setting(config, key, value),
+        "auth_mode" | "compat_profile" | "cors_fallback" | "identity_file" => {
+            apply_access_setting(config, key, value)
+        }
+        _ => apply_limit_setting(config, key, &value),
+    }
+}
+
+fn unknown_setting() -> SettingFix {
+    "Unknown setting; remove it and use --help.".into()
+}
+
+fn apply_network_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
+    match key {
+        "log_level" => config.log_level = value.parse()?,
+        "scheme" => config.scheme = value.parse()?,
+        "listen" => {
+            config.listen = value
+                .parse()
+                .map_err(|_| "listen must be an IP:port socket address")?
+        }
+        "listen_http" => {
+            config.listen_http = Some(value.parse().map_err(
+                |_| "listen_http must be an IP socket address, for example 127.0.0.1:8000",
+            )?);
+        }
+        "grpc_listen" => {
+            config.grpc_listen = Some(value.parse().map_err(|_| {
+                "grpc_listen must be an IP socket address; use 127.0.0.1:4444 for a separate plaintext gRPC port"
+            })?);
+        }
+        "tls_cert" | "tls_key" => {
+            if value.is_empty() {
+                return Err(format!("{key} must not be empty").into());
+            }
+            if key == "tls_cert" {
+                config.tls_cert = Some(PathBuf::from(value));
+            } else {
+                config.tls_key = Some(PathBuf::from(value));
+            }
+        }
+        "tls_handshake_timeout_ms" => {
+            config.tls_handshake_timeout_ms = bounded(key, &value, 1, 60_000)?
+        }
+        _ => return Err(unknown_setting()),
+    }
+    Ok(())
+}
+
+fn apply_url_setting(config: &mut Config, key: &str, value: &str) -> Result<(), SettingFix> {
+    match key {
+        "api_base_url" => {
+            config.api_base_url = Some(
+                crate::url::normalize_base_url(value)
+                    .map_err(|error| format!("api_base_url: {error}"))?,
+            );
+        }
+        "public_base_url" => {
+            config.public_base_url = Some(
+                PublicOrigin::parse(value).map_err(|error| format!("public_base_url: {error}"))?,
+            );
+        }
+        "xml_virtual_host_domains" => {
+            if !value.is_empty() {
+                for domain in value.split(',') {
+                    let domain = domain.trim().to_ascii_lowercase();
+                    validate_dns_name(&domain).map_err(|error| error.to_string())?;
+                    if config.xml_virtual_host_domains.contains(&domain) {
+                        return Err(
+                            "duplicate xml_virtual_host_domains entry; remove repeated DNS names"
+                                .into(),
+                        );
+                    }
+                    if config.xml_virtual_host_domains.len() == 32 {
+                        return Err(
+                            "xml_virtual_host_domains must contain at most 32 DNS names".into()
+                        );
+                    }
+                    config.xml_virtual_host_domains.push(domain);
+                }
+                // The most specific configured suffix owns overlapping domains.
+                config
+                    .xml_virtual_host_domains
+                    .sort_by_key(|d| std::cmp::Reverse(d.len()));
+            }
+        }
+        _ => return Err(unknown_setting()),
+    }
+    Ok(())
+}
+
+fn apply_storage_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
+    match key {
+        "data_dir" => config.data_dir = PathBuf::from(non_empty(key, value)?),
+        "seed_dir" => config.seed_dir = Some(PathBuf::from(non_empty(key, value)?)),
+        "default_seed_dir" => {
+            config.default_seed_dir = Some(PathBuf::from(non_empty(key, value)?));
+        }
+        "sync_dir" => {
+            if value.is_empty() {
+                return Err(
+                    "sync_dir must not be empty; supply an existing writable directory".into(),
+                );
+            }
+            config.sync_dir = Some(PathBuf::from(value));
+        }
+        "sync_delete_guard" => {
+            config.sync_delete_guard = value
+                .parse::<bool>()
+                .map_err(|_| "sync_delete_guard must be true or false")?
+        }
+        "sync_reinitialize" => {
+            config.sync_reinitialize =
+                Some(crate::sync::parse_catalog_id(&value).map_err(|error| error.to_string())?)
+        }
+        "seed_project" => {
+            crate::json::validate_project(&value)
+                .map_err(|error| format!("seed_project: {}", error.message))?;
+            config.seed_project = value;
+        }
+        "seed_content_type" => config.seed_content_type = value.parse()?,
+        "default_location" => {
+            let value = if value.is_empty() { "US" } else { &value };
+            config.default_location = bucket_location(value)
+                .map_err(|_| "default_location must be a supported bucket location; use US or ASIA-NORTHEAST1")?
+                .0
+                .to_owned();
+        }
+        "buckets_file" => {
+            if value.is_empty() {
+                return Err(
+                    "buckets_file must not be empty; use buckets.json or omit the setting".into(),
+                );
+            }
+            config.buckets_file = Some(PathBuf::from(value));
+        }
+        _ => return Err(unknown_setting()),
+    }
+    Ok(())
+}
+
+fn apply_access_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
+    match key {
+        "auth_mode" => config.auth_mode = value.parse()?,
+        "compat_profile" => config.compat_profile = value.parse()?,
+        "cors_fallback" => config.cors_fallback = value.parse()?,
+        "identity_file" => config.identity_file = Some(PathBuf::from(non_empty(key, value)?)),
+        _ => return Err(unknown_setting()),
+    }
+    Ok(())
+}
+
+fn apply_limit_setting(config: &mut Config, key: &str, value: &str) -> Result<(), SettingFix> {
+    match key {
+        "max_connections" => config.max_connections = bounded(key, value, 1, 1024)? as usize,
+        "max_object_bytes" => {
+            config.max_object_bytes = bounded(key, value, 1, 5 * 1024_u64.pow(4))?
+        }
+        "worker_threads" => config.worker_threads = bounded(key, value, 1, 32)? as usize,
+        "max_blocking_threads" => {
+            config.max_blocking_threads = bounded(key, value, 1, 32)? as usize
+        }
+        "connection_timeout_ms" => config.connection_timeout_ms = bounded(key, value, 1, 60_000)?,
+        "keep_alive_timeout_ms" => config.keep_alive_timeout_ms = bounded(key, value, 1, 600_000)?,
+        "object_request_timeout_ms" => {
+            config.object_request_timeout_ms = bounded(key, value, 1, 86_400_000)?
+        }
+        "catalog_wait_timeout_ms" => {
+            config.catalog_wait_timeout_ms = bounded(key, value, 1, 60_000)?
+        }
+        "shutdown_timeout_ms" => config.shutdown_timeout_ms = bounded(key, value, 1, 60_000)?,
+        _ => return Err(unknown_setting()),
+    }
+    Ok(())
+}
+
+fn non_empty(key: &str, value: String) -> Result<String, SettingFix> {
+    if value.is_empty() {
+        return Err(format!("{key} must not be empty").into());
+    }
+    Ok(value)
+}
+
+pub struct ConfigurationReport {
+    pub config: Config,
+    pub diagnostics: Diagnostics,
+    invalid: BTreeSet<String>,
+}
+
+impl ConfigurationReport {
+    pub fn valid(&self, keys: &[&str]) -> bool {
+        !keys.iter().any(|key| self.invalid.contains(*key))
+    }
+
+    fn any_invalid(&self, keys: &[&str]) -> bool {
+        !self.valid(keys)
+    }
+
+    fn apply_settings(&mut self, settings: &Settings) {
+        for (key, input) in settings {
             if let Some(invalid) = input.invalid {
-                report.invalid.insert(key.clone());
+                self.invalid.insert(key.clone());
                 if invalid == InputError::Encoding {
-                    report.diagnostics.errors.push(Diagnostic::new(
+                    self.diagnostics.errors.push(Diagnostic::new(
                         input.source,
                         &input.key,
                         "Setting values must be valid UTF-8; correct the environment value.",
@@ -403,204 +662,40 @@ impl Config {
             if key == "config" {
                 continue;
             }
-            let mut candidate = report.config.clone();
-            let config = &mut candidate;
-            let value = input.value.clone();
-            let result: Result<(), String> = (|| {
-                match key.as_str() {
-                    "log_level" => config.log_level = value.parse()?,
-                    "scheme" => config.scheme = value.parse()?,
-                    "listen_http" => {
-                        config.listen_http = Some(value.parse().map_err(|_| {
-                            "listen_http must be an IP socket address, for example 127.0.0.1:8000".to_owned()
-                        })?);
-                    }
-                    "grpc_listen" => {
-                        config.grpc_listen = Some(value.parse().map_err(|_| {
-                            "grpc_listen must be an IP socket address; use 127.0.0.1:4444 for a separate plaintext gRPC port".to_owned()
-                        })?);
-                    }
-                    "tls_cert" | "tls_key" => {
-                        if value.is_empty() {
-                            return Err(format!("{key} must not be empty"));
-                        }
-                        if key == "tls_cert" {
-                            config.tls_cert = Some(PathBuf::from(value));
-                        } else {
-                            config.tls_key = Some(PathBuf::from(value));
-                        }
-                    }
-                    "tls_handshake_timeout_ms" => {
-                        config.tls_handshake_timeout_ms = bounded(key, &value, 1, 60_000)?
-                    }
-                    "api_base_url" => {
-                        config.api_base_url = Some(
-                            crate::url::normalize_base_url(&value)
-                                .map_err(|error| format!("api_base_url: {error}"))?,
-                        );
-                    }
-                    "public_base_url" => {
-                        config.public_base_url = Some(
-                            PublicOrigin::parse(&value)
-                                .map_err(|error| format!("public_base_url: {error}"))?,
-                        );
-                    }
-                    "xml_virtual_host_domains" => {
-                        if !value.is_empty() {
-                            for domain in value.split(',') {
-                                let domain = domain.trim().to_ascii_lowercase();
-                                validate_dns_name(&domain).map_err(|error| error.to_string())?;
-                                if config.xml_virtual_host_domains.contains(&domain) {
-                                    return Err("duplicate xml_virtual_host_domains entry; remove repeated DNS names".into());
-                                }
-                                if config.xml_virtual_host_domains.len() == 32 {
-                                    return Err(
-                                    "xml_virtual_host_domains must contain at most 32 DNS names"
-                                        .into(),
-                                );
-                                }
-                                config.xml_virtual_host_domains.push(domain);
-                            }
-                            // The most specific configured suffix owns overlapping domains.
-                            config
-                                .xml_virtual_host_domains
-                                .sort_by_key(|d| std::cmp::Reverse(d.len()));
-                        }
-                    }
-                    "data_dir" => {
-                        if value.is_empty() {
-                            return Err("data_dir must not be empty".into());
-                        }
-                        config.data_dir = PathBuf::from(value);
-                    }
-                    "seed_dir" => {
-                        if value.is_empty() {
-                            return Err("seed_dir must not be empty".into());
-                        }
-                        config.seed_dir = Some(PathBuf::from(value));
-                    }
-                    "default_seed_dir" => {
-                        if value.is_empty() {
-                            return Err("default_seed_dir must not be empty".into());
-                        }
-                        config.default_seed_dir = Some(PathBuf::from(value));
-                    }
-                    "sync_dir" => {
-                        if value.is_empty() {
-                            return Err(
-                                "sync_dir must not be empty; supply an existing writable directory"
-                                    .into(),
-                            );
-                        }
-                        config.sync_dir = Some(PathBuf::from(value));
-                    }
-                    "sync_delete_guard" => {
-                        config.sync_delete_guard = value
-                            .parse::<bool>()
-                            .map_err(|_| "sync_delete_guard must be true or false")?
-                    }
-                    "sync_reinitialize" => {
-                        config.sync_reinitialize = Some(
-                            crate::sync::parse_catalog_id(&value)
-                                .map_err(|error| error.to_string())?,
-                        )
-                    }
-                    "seed_project" => {
-                        crate::json::validate_project(&value)
-                            .map_err(|error| format!("seed_project: {}", error.message))?;
-                        config.seed_project = value;
-                    }
-                    "seed_content_type" => config.seed_content_type = value.parse()?,
-                    "default_location" => {
-                        let value = if value.is_empty() { "US" } else { &value };
-                        config.default_location = bucket_location(value)
-                            .map_err(|_| "default_location must be a supported bucket location; use US or ASIA-NORTHEAST1")?
-                            .0.to_owned();
-                    }
-                    "buckets_file" => {
-                        if value.is_empty() {
-                            return Err("buckets_file must not be empty; use buckets.json or omit the setting".into());
-                        }
-                        config.buckets_file = Some(PathBuf::from(value));
-                    }
-                    "listen" => {
-                        config.listen = value
-                            .parse()
-                            .map_err(|_| "listen must be an IP:port socket address")?
-                    }
-                    "max_connections" => {
-                        config.max_connections = bounded(key, &value, 1, 1024)? as usize
-                    }
-                    "max_object_bytes" => {
-                        config.max_object_bytes = bounded(key, &value, 1, 5 * 1024_u64.pow(4))?
-                    }
-                    "worker_threads" => {
-                        config.worker_threads = bounded(key, &value, 1, 32)? as usize
-                    }
-                    "max_blocking_threads" => {
-                        config.max_blocking_threads = bounded(key, &value, 1, 32)? as usize
-                    }
-                    "connection_timeout_ms" => {
-                        config.connection_timeout_ms = bounded(key, &value, 1, 60_000)?
-                    }
-                    "keep_alive_timeout_ms" => {
-                        config.keep_alive_timeout_ms = bounded(key, &value, 1, 600_000)?
-                    }
-                    "object_request_timeout_ms" => {
-                        config.object_request_timeout_ms = bounded(key, &value, 1, 86_400_000)?
-                    }
-                    "catalog_wait_timeout_ms" => {
-                        config.catalog_wait_timeout_ms = bounded(key, &value, 1, 60_000)?
-                    }
-                    "shutdown_timeout_ms" => {
-                        config.shutdown_timeout_ms = bounded(key, &value, 1, 60_000)?
-                    }
-                    "auth_mode" => config.auth_mode = value.parse()?,
-                    "compat_profile" => config.compat_profile = value.parse()?,
-                    "cors_fallback" => config.cors_fallback = value.parse()?,
-                    "identity_file" => {
-                        if value.is_empty() {
-                            return Err("identity_file must not be empty".into());
-                        }
-                        config.identity_file = Some(PathBuf::from(value));
-                    }
-                    _ => return Err("Unknown setting; remove it and use --help.".into()),
-                }
-                Ok(())
-            })();
-            match result {
-                Ok(()) => report.config = candidate,
-                Err(fix) => {
-                    report.invalid.insert(key.clone());
-                    report
-                        .diagnostics
+            let mut candidate = self.config.clone();
+            match apply_setting(&mut candidate, key, input.value.clone()) {
+                Ok(()) => self.config = candidate,
+                Err(SettingFix(fix)) => {
+                    self.invalid.insert(key.clone());
+                    self.diagnostics
                         .errors
                         .push(Diagnostic::new(input.source, &input.key, fix));
                 }
             }
         }
-        let config = &mut report.config;
-        if config.sync_dir.is_none() && !report.invalid.contains("sync_dir") {
+    }
+
+    fn check_sync(&mut self, settings: &Settings) {
+        let config = &self.config;
+        if config.sync_dir.is_none() && !self.invalid.contains("sync_dir") {
             for input in settings
                 .values()
                 .filter(|input| input.name.starts_with("sync_"))
             {
-                if report.invalid.insert(input.name.clone()) {
-                    report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
+                if self.invalid.insert(input.name.clone()) {
+                    self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
                         "This setting requires sync_dir; supply --sync-dir DIRECTORY or remove the guard/reinitialization setting."));
                 }
             }
         }
-        if !["sync_dir", "data_dir", "seed_dir"]
-            .iter()
-            .any(|key| report.invalid.contains(*key))
+        if !self.any_invalid(&["sync_dir", "data_dir", "seed_dir"])
             && let Some(root) = &config.sync_dir
             && let Err(error) =
                 crate::sync::validate_directory(root, &config.data_dir, config.seed_dir.as_deref())
         {
             let input = &settings["sync_dir"];
-            report.invalid.insert("sync_dir".into());
-            report.diagnostics.errors.push(Diagnostic::new(
+            self.invalid.insert("sync_dir".into());
+            self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
                 &input.key,
                 error.to_string(),
@@ -608,35 +703,43 @@ impl Config {
         }
         if config.compat_profile == CompatProfile::LegacyEmulator
             && let Some(input) = settings.get("default_location")
-            && !report.invalid.contains("default_location")
+            && !self.invalid.contains("default_location")
         {
-            report.diagnostics.errors.push(Diagnostic::new(
+            self.diagnostics.errors.push(Diagnostic::new(
                 input.source,
                 &input.key,
                 "default_location requires compat_profile=native; use --compat-profile native --default-location EU or remove the default_location setting.",
             ));
-            report.invalid.insert("default_location".into());
+            self.invalid.insert("default_location".into());
         }
+    }
+
+    fn check_tls(&mut self, settings: &Settings) {
+        let tls_options_supplied = settings.keys().any(|key| {
+            matches!(
+                key.as_str(),
+                "tls_cert" | "tls_key" | "tls_handshake_timeout_ms"
+            )
+        });
+        let config = &self.config;
         match config.scheme {
-            Scheme::Http if tls_options_supplied && !report.invalid.contains("scheme") => {
+            Scheme::Http if tls_options_supplied && !self.invalid.contains("scheme") => {
                 for name in ["tls_cert", "tls_key", "tls_handshake_timeout_ms"] {
                     if let Some(input) = settings.get(name)
-                        && !report.invalid.contains(name)
+                        && !self.invalid.contains(name)
                     {
-                        report.diagnostics.errors.push(Diagnostic::new(
+                        self.diagnostics.errors.push(Diagnostic::new(
                             input.source,
                             &input.key,
                             "TLS settings require scheme=https or both; remove TLS settings for HTTP.",
                         ));
-                        report.invalid.insert(name.into());
+                        self.invalid.insert(name.into());
                     }
                 }
             }
             Scheme::Https | Scheme::Both
                 if config.tls_cert.is_some() != config.tls_key.is_some()
-                    && !["scheme", "tls_cert", "tls_key"]
-                        .iter()
-                        .any(|k| report.invalid.contains(*k)) =>
+                    && !self.any_invalid(&["scheme", "tls_cert", "tls_key"]) =>
             {
                 let name = if config.tls_cert.is_some() {
                     "tls_cert"
@@ -644,47 +747,51 @@ impl Config {
                     "tls_key"
                 };
                 if let Some(input) = settings.get(name) {
-                    report.diagnostics.errors.push(Diagnostic::new(
+                    self.diagnostics.errors.push(Diagnostic::new(
                         input.source,
                         &input.key,
                         "tls_cert and tls_key must be supplied together; provide both PEM paths.",
                     ));
                 }
-                report.invalid.insert(name.into());
+                self.invalid.insert(name.into());
             }
             _ => {}
         }
-        if !["scheme", "listen", "listen_http"]
-            .iter()
-            .any(|key| report.invalid.contains(*key))
-        {
-            let fix = if config.scheme != Scheme::Both && config.listen_http.is_some() {
-                Some("listen_http requires scheme=both; remove listen_http or use --scheme both.")
-            } else if config.listen.port() != 0
-                && config.effective_listen_http() == Some(config.listen)
-            {
-                Some(
-                    "listen and listen_http must use different nonzero endpoints; use --listen-http 127.0.0.1:8001 or port 0.",
-                )
-            } else {
-                None
-            };
-            if let Some(fix) = fix {
-                let name = if settings.contains_key("listen_http") {
-                    "listen_http"
-                } else {
-                    "listen"
-                };
-                if let Some(input) = settings.get(name) {
-                    report
-                        .diagnostics
-                        .errors
-                        .push(Diagnostic::new(input.source, &input.key, fix));
-                }
-                report.invalid.insert("listen_http".into());
-            }
+    }
+
+    fn check_listeners(&mut self, settings: &Settings) {
+        if self.any_invalid(&["scheme", "listen", "listen_http"]) {
+            return;
         }
-        if !report.invalid.contains("public_base_url")
+        let config = &self.config;
+        let fix = if config.scheme != Scheme::Both && config.listen_http.is_some() {
+            Some("listen_http requires scheme=both; remove listen_http or use --scheme both.")
+        } else if config.listen.port() != 0 && config.effective_listen_http() == Some(config.listen)
+        {
+            Some(
+                "listen and listen_http must use different nonzero endpoints; use --listen-http 127.0.0.1:8001 or port 0.",
+            )
+        } else {
+            None
+        };
+        if let Some(fix) = fix {
+            let name = if settings.contains_key("listen_http") {
+                "listen_http"
+            } else {
+                "listen"
+            };
+            if let Some(input) = settings.get(name) {
+                self.diagnostics
+                    .errors
+                    .push(Diagnostic::new(input.source, &input.key, fix));
+            }
+            self.invalid.insert("listen_http".into());
+        }
+    }
+
+    fn check_public_base_url(&mut self, settings: &Settings) {
+        let config = &mut self.config;
+        if !self.invalid.contains("public_base_url")
             && let Some(input) = settings.get("public_base_url")
             && let Some(origin) = config.public_base_url.as_ref()
         {
@@ -692,9 +799,9 @@ impl Config {
                 let domain = domain.to_owned();
                 if !config.xml_virtual_host_domains.contains(&domain) {
                     if config.xml_virtual_host_domains.len() == 32 {
-                        report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
+                        self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
                             "public_base_url and xml_virtual_host_domains must contain at most 32 distinct DNS names; remove a domain or reuse one already configured."));
-                        report.invalid.insert("public_base_url".into());
+                        self.invalid.insert("public_base_url".into());
                     } else {
                         config.xml_virtual_host_domains.push(domain);
                         config
@@ -703,13 +810,15 @@ impl Config {
                     }
                 }
             } else {
-                report.diagnostics.warnings.push(Diagnostic::new(input.source, &input.key,
+                self.diagnostics.warnings.push(Diagnostic::new(input.source, &input.key,
                     "public_base_url is an IP address: virtual-host routing is disabled; use path-style URLs or a DNS origin such as http://storage.example.invalid."));
             }
         }
-        if !["api_base_url", "xml_virtual_host_domains", "listen"]
-            .iter()
-            .any(|k| report.invalid.contains(*k))
+    }
+
+    fn check_api_base_url(&mut self, settings: &Settings) {
+        let config = &self.config;
+        if !self.any_invalid(&["api_base_url", "xml_virtual_host_domains", "listen"])
             && config
                 .effective_api_base_url(config.listen)
                 .parse::<hyper::Uri>()
@@ -725,45 +834,36 @@ impl Config {
                 .or_else(|| settings.get("xml_virtual_host_domains"))
                 .or_else(|| settings.get("public_base_url"));
             if let Some(input) = input {
-                report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "api_base_url host selects an XML virtual bucket; use a host outside xml_virtual_host_domains or configure that host itself as a base domain."));
+                self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "api_base_url host selects an XML virtual bucket; use a host outside xml_virtual_host_domains or configure that host itself as a base domain."));
             }
         }
+    }
+
+    fn check_auth(&mut self, settings: &Settings) {
+        let config = &self.config;
         // Reject mismatched profiles so a registry is never silently ignored or missing.
         if config.auth_mode == AuthMode::Strict
             && config.sync_dir.is_some()
             && let Some(input) = settings.get("sync_dir")
         {
-            report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
+            self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
                 "strict authentication for sync management is not supported yet; use --auth-mode permissive and remove identity_file (for example, auth_mode=permissive), or remove sync_dir/GCS_MIMIC_SYNC_DIR/--sync-dir."));
         }
         match (config.auth_mode, &config.identity_file) {
-            (AuthMode::Strict, None) if !report.invalid.contains("identity_file") => {
+            (AuthMode::Strict, None) if !self.invalid.contains("identity_file") => {
                 if let Some(input) = settings.get("auth_mode") {
-                    report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "auth_mode=strict requires identity_file; provide --identity-file identities.json."));
+                    self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "auth_mode=strict requires identity_file; provide --identity-file identities.json."));
                 }
-                report.invalid.insert("identity_file".into());
+                self.invalid.insert("identity_file".into());
             }
-            (AuthMode::Permissive, Some(_)) if !report.invalid.contains("auth_mode") => {
+            (AuthMode::Permissive, Some(_)) if !self.invalid.contains("auth_mode") => {
                 if let Some(input) = settings.get("identity_file") {
-                    report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "identity_file requires auth_mode=strict; select strict mode or remove the registry setting."));
+                    self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "identity_file requires auth_mode=strict; select strict mode or remove the registry setting."));
                 }
-                report.invalid.insert("identity_file".into());
+                self.invalid.insert("identity_file".into());
             }
             _ => {}
         }
-        report
-    }
-}
-
-pub struct ConfigurationReport {
-    pub config: Config,
-    pub diagnostics: Diagnostics,
-    invalid: BTreeSet<String>,
-}
-
-impl ConfigurationReport {
-    pub fn valid(&self, keys: &[&str]) -> bool {
-        !keys.iter().any(|key| self.invalid.contains(*key))
     }
 }
 
@@ -910,12 +1010,12 @@ pub(crate) fn validate_dns_name(value: &str) -> Result<(), InvalidDnsName> {
     Ok(())
 }
 
-fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
+fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, SettingFix> {
     value
         .parse::<u64>()
         .ok()
         .filter(|n| (min..=max).contains(n))
-        .ok_or_else(|| format!("{key} must be an integer in {min}..={max}"))
+        .ok_or_else(|| format!("{key} must be an integer in {min}..={max}").into())
 }
 
 #[cfg(test)]
