@@ -679,13 +679,20 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
     server
         .update("PATCH", "", json!({"contentEncoding":"gzip"}))
         .json();
-    server
-        .request(
-            "GET",
-            "/storage/v1/b/test-bucket/o/dir%2Ffile?alt=media",
-            b"",
-        )
-        .error(400, "badRequest");
+    let mut stream = TcpStream::connect(&server.address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    stream.write_all(b"GET /storage/v1/b/test-bucket/o/dir%2Ffile?alt=media HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();
+    let mut response = Vec::new();
+    if let Err(error) = stream.read_to_end(&mut response) {
+        assert!(common::closed_by_server(&error), "{error}");
+    }
+    assert!(response.starts_with(b"HTTP/1.1 200"));
+    assert!(
+        !response.ends_with(b"\r\n0\r\n\r\n"),
+        "invalid gzip must abort, not complete successfully"
+    );
     server
         .update("PATCH", "", json!({"cacheControl":"no-transform"}))
         .json();
@@ -741,17 +748,17 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
             json!({"contentEncoding":"gzip","metadata":{"key":"value"}}),
         )
         .json();
-    for (encoding, status) in [
-        ("gzip", 200),
-        ("gzip;q=1.0", 200),
-        ("*", 200),
-        ("br, gzip;q=0.1", 200),
-        ("gzip;q=0", 400),
-        ("*;q=1,gzip;q=0", 400),
-        ("gzip;q=0,*", 400),
-        ("*;q=0", 400),
-        ("gzip;q=2", 400),
-        ("gzip;q=oops", 400),
+    for (encoding, status, expanded) in [
+        ("gzip", 200, false),
+        ("gzip;q=1.0", 200, false),
+        ("*", 200, false),
+        ("br, gzip;q=0.1", 200, false),
+        ("gzip;q=0", 200, true),
+        ("*;q=1,gzip;q=0", 200, true),
+        ("gzip;q=0,*", 200, true),
+        ("*;q=0", 200, true),
+        ("gzip;q=2", 400, false),
+        ("gzip;q=oops", 400, false),
     ] {
         let reply = request_headers(
             &server.address,
@@ -761,9 +768,15 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
             &format!("Accept-Encoding: {encoding}\r\n"),
         );
         assert_eq!(reply.status, status, "{encoding}");
-        if status == 200 {
+        if expanded {
+            assert_eq!(reply.body, b"abc");
+            assert!(!reply.headers.contains_key("content-encoding"));
+            assert!(!reply.headers.contains_key("content-length"));
+        } else if status == 200 {
             assert_eq!(reply.body, compressed);
             assert_eq!(reply.headers["content-encoding"], "gzip");
+        } else {
+            reply.error(400, "invalidParameter");
         }
     }
     let replaced = server

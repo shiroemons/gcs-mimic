@@ -160,7 +160,34 @@ impl Reply {
         }
     }
 
-    fn read_body(&mut self, stream: &mut impl Read) {
+    fn read_body(&mut self, stream: &mut impl BufRead) {
+        if self
+            .headers
+            .get("transfer-encoding")
+            .is_some_and(|value| value == "chunked")
+        {
+            loop {
+                let mut line = String::new();
+                assert_ne!(
+                    stream.read_line(&mut line).unwrap(),
+                    0,
+                    "incomplete chunked body"
+                );
+                let size = usize::from_str_radix(line.trim(), 16).unwrap();
+                if size == 0 {
+                    line.clear();
+                    stream.read_line(&mut line).unwrap();
+                    assert_eq!(line, "\r\n");
+                    return;
+                }
+                let offset = self.body.len();
+                self.body.resize(offset + size, 0);
+                stream.read_exact(&mut self.body[offset..]).unwrap();
+                let mut crlf = [0; 2];
+                stream.read_exact(&mut crlf).unwrap();
+                assert_eq!(&crlf, b"\r\n");
+            }
+        }
         let length = if matches!(self.status, 204 | 304) {
             0
         } else {
@@ -392,9 +419,17 @@ fn obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding() {
             .status,
         200
     );
-    server
-        .get("", "Range: bytes=2-5\r\n")
-        .error(400, "badRequest");
+    let expanded = server.get("", "Range: bytes=2-5\r\n");
+    assert_eq!(expanded.status, 200);
+    assert_eq!(expanded.body, b"hello");
+    for name in [
+        "content-encoding",
+        "content-range",
+        "content-length",
+        "accept-ranges",
+    ] {
+        assert!(!expanded.headers.contains_key(name), "{name}");
+    }
     let reply = server.get("", "Range: bytes=2-5\r\nAccept-Encoding: gzip\r\n");
     assert_eq!(reply.status, 206);
     assert_eq!(reply.body, gzip[2..6]);
