@@ -239,11 +239,6 @@ pub(crate) fn final_options(
     headers: &HeaderMap,
     mut options: ResumableOptions,
 ) -> Result<ResumableOptions, JsonError> {
-    let conflicting_hash = |message| {
-        let mut error = JsonError::invalid_parameter(message);
-        error.header_location = Some("x-goog-hash");
-        error
-    };
     let mut clean = headers.clone();
     clean.remove("content-range");
     clean.remove("x-goog-hash");
@@ -280,14 +275,16 @@ pub(crate) fn final_options(
                 "md5" => {
                     let md5 = super::objects::decode_hash(value)?;
                     if options.expected.md5.is_some_and(|v| v != md5) {
-                        return Err(conflicting_hash("Conflicting MD5 declarations"));
+                        return Err(JsonError::invalid_parameter("Conflicting MD5 declarations"));
                     }
                     options.expected.md5 = Some(md5);
                 }
                 "crc32c" => {
                     let crc = u32::from_be_bytes(super::objects::decode_hash(value)?);
                     if options.expected.crc32c.is_some_and(|v| v != crc) {
-                        return Err(conflicting_hash("Conflicting CRC32C declarations"));
+                        return Err(JsonError::invalid_parameter(
+                            "Conflicting CRC32C declarations",
+                        ));
                     }
                     options.expected.crc32c = Some(crc);
                 }

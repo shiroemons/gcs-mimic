@@ -1754,10 +1754,9 @@ async fn object_response(
                 let bucket = value["bucket"]
                     .as_str()
                     .ok_or_else(|| JsonError::from(ObjectError::InvalidMetadata))?;
-                if !acl::may_read(state, caller, crate::acl::AclKind::Object, bucket).await? {
-                    return Err(ObjectError::Forbidden.into());
+                if acl::may_read(state, caller, crate::acl::AclKind::Object, bucket).await? {
+                    json::acl::add_object_acl_fields(&mut value, &state.api_base_url, entries);
                 }
-                json::acl::add_object_acl_fields(&mut value, &state.api_base_url, entries);
             }
         } else {
             acl::add_full_projection(state, caller, &mut value).await?;

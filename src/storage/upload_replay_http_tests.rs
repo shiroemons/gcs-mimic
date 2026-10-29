@@ -110,9 +110,38 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
         original.body
     );
     let next = "Authorization: Bearer admin\r\nX-Goog-Gcs-Idempotency-Token: next\r\n";
-    h.request("POST", path, next, b"new")
-        .await
-        .error(503, "backendError");
+    let admitted = h.request("POST", path, next, b"new").await;
+    assert_eq!(admitted.status, 200);
+    assert_eq!(
+        h.request("POST", path, headers, b"original").await.body,
+        original.body
+    );
+    let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1024 UNION ALL SELECT n + 1 FROM entries WHERE n < 4094) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created, deadline, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM upload_replays", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        4096
+    );
+    drop(connection);
+    h.request(
+        "POST",
+        path,
+        "Authorization: Bearer admin\r\nX-Goog-Gcs-Idempotency-Token: full\r\n",
+        b"blocked",
+    )
+    .await
+    .error(503, "backendError");
+    assert_eq!(
+        h.request("POST", path, next, b"new").await.body,
+        admitted.body
+    );
+    assert_eq!(
+        h.request("POST", path, headers, b"original").await.body,
+        original.body
+    );
     assert_eq!(
         h.request(
             "GET",
@@ -122,7 +151,7 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
         )
         .await
         .body,
-        b"original"
+        b"new"
     );
     *h.clock.0.lock().unwrap() += Duration::from_secs(600);
     let replacement = h.request("POST", path, next, b"new").await;
@@ -192,15 +221,44 @@ async fn upload_replay_full_projection_rechecks_revoked_acl_permission() {
     let h = Harness::start(1000, true, None).await;
     let admin = "Authorization: Bearer admin\r\nContent-Type: application/json\r\n";
     assert_eq!(h.request("PUT", "/storage/v1/b/bucket/iam", admin, br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["user:viewer@example.test"]}]}"#).await.status, 200);
-    let path = "/upload/storage/v1/b/bucket/o?uploadType=media&name=revoked&projection=full";
-    let headers = "Authorization: Bearer viewer\r\nX-Goog-Gcs-Idempotency-Token: revoke\r\n";
-    let original = h.request("POST", path, headers, b"data").await;
-    assert_eq!(original.status, 200);
-    assert!(original.json()["acl"].is_array());
+    let mut completions = Vec::new();
+    for (fields, token) in [("", "revoke"), ("&fields=name,generation", "revoke-fields")] {
+        let path = format!(
+            "/upload/storage/v1/b/bucket/o?uploadType=media&name=revoked&projection=full{fields}"
+        );
+        let headers =
+            format!("Authorization: Bearer viewer\r\nX-Goog-Gcs-Idempotency-Token: {token}\r\n");
+        let original = h.request("POST", &path, &headers, b"data").await;
+        assert_eq!(original.status, 200);
+        if fields.is_empty() {
+            assert!(original.json()["acl"].is_array());
+        }
+        completions.push((path, headers, original));
+    }
     assert_eq!(h.request("PUT", "/storage/v1/b/bucket/iam", admin, br#"{"bindings":[{"role":"roles/storage.objectCreator","members":["user:viewer@example.test"]}]}"#).await.status, 200);
-    h.request("POST", path, headers, b"data")
-        .await
-        .error(403, "forbidden");
+    for (path, headers, original) in &completions {
+        let retry = h.request("POST", path, headers, b"data").await;
+        assert_eq!(retry.status, 200);
+        let mut expected = original.json();
+        expected.as_object_mut().unwrap().remove("acl");
+        expected.as_object_mut().unwrap().remove("owner");
+        assert_eq!(retry.json(), expected);
+    }
+    h.request(
+        "POST",
+        &completions[0].0,
+        "Authorization: Bearer viewer\r\nX-Goog-Gcs-Idempotency-Token: fresh\r\n",
+        b"data",
+    )
+    .await
+    .error(403, "forbidden");
+    assert_eq!(h.request("PUT", "/storage/v1/b/bucket/iam", admin, br#"{"bindings":[{"role":"roles/storage.objectAdmin","members":["user:viewer@example.test"]}]}"#).await.status, 200);
+    for (path, headers, original) in &completions {
+        assert_eq!(
+            h.request("POST", path, headers, b"data").await.body,
+            original.body
+        );
+    }
     assert_eq!(
         h.request(
             "GET",
@@ -210,7 +268,7 @@ async fn upload_replay_full_projection_rechecks_revoked_acl_permission() {
         )
         .await
         .json()["generation"],
-        original.json()["generation"]
+        completions.last().unwrap().2.json()["generation"]
     );
     h.stop().await;
 }
@@ -315,6 +373,29 @@ async fn php_chunk_hashes_persist_and_validate_the_whole_object() {
                 .status,
             308
         );
+        let status = h
+            .request(
+                "PUT",
+                &path,
+                &format!("Content-Range: bytes */262145\r\nX-Goog-Hash: {hashes}\r\n"),
+                b"",
+            )
+            .await;
+        assert_eq!(status.status, 308);
+        assert_eq!(status.headers["range"], "bytes=0-262143");
+        h.request(
+            "PUT",
+            &path,
+            "Content-Range: bytes */262145\r\nX-Goog-Hash: md5=/////////////////////w==\r\n",
+            b"",
+        )
+        .await
+        .error(400, "invalidParameter");
+        let unchanged = h
+            .request("PUT", &path, "Content-Range: bytes */262145\r\n", b"")
+            .await;
+        assert_eq!(unchanged.status, 308);
+        assert_eq!(unchanged.headers["range"], status.headers["range"]);
         assert_eq!(
             h.request("PUT", &path, &header, &vec![0; 262144])
                 .await

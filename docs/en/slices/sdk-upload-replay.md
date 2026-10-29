@@ -70,19 +70,22 @@ The response is rendered deterministically from that snapshot using the bound
 base/projection/fields. Full projection never reloads mutable object ACLs on a
 replay. Only ACLs visible to the original identity at publication are retained
 for rendering; current ACL-read permission is required before exposing them.
-Revocation can therefore deny a retry instead of returning its former ACLs.
+Loss of ACL-read permission omits ACL/owner fields while retaining the original
+authorized metadata response. Current upload permission is still required.
 Failed requests are not cached. A failed checksum or conflicting token returns
 an error without publishing or replacing the original object.
 
 Schema 35 adds `upload_replays` with an indexed deadline. The local retention
 period is exactly ten minutes from successful publication, without renewal.
-At most 1024 successful invocations and 64 KiB per completion are retained.
+At most 4096 successful invocations and 64 KiB per completion are retained.
 Expiry is enforced on lookup and reclaimed by subsequent token publications;
 there is no replay maintenance polling task. Full capacity rejects a new token
 with 503 `backendError`; retained duplicates still replay. Oversized completion
 snapshots reject publication. Expired records may remain physically present
 until the next token operation, while count and per-record size stay bounded.
 Startup validates schema, capacity and completion decoding one row at a time.
+The serialized completion bound is 256 MiB on disk; no completion is evicted
+early to admit new work or silently weaken the ten-minute replay guarantee.
 
 SQLite commit and filesystem publication retain their existing crash protocol.
 A duplicate's redundant blob is reclaimed by reference lookup; a successful
@@ -109,8 +112,9 @@ the session's existing declarations, then persist those declarations with the
 durable offset in the same checkpoint. An interrupted chunk cannot acknowledge
 its data or introduce a new declaration. Repeated chunks may repeat the same
 declaration; conflicts fail without changing the acknowledged prefix.
-Nonfinal status-only requests reject checksum declarations instead of silently
-discarding them.
+Nonfinal status-only requests may repeat an already-persisted declaration or
+subset after syntax/consistency validation, without changing hashes or offsets.
+New or conflicting declarations fail without invalidating the usable session.
 
 Finalization rereads the complete staged object in bounded buffers and verifies
 all persisted MD5/CRC32C declarations, including when the final request omits

@@ -15,7 +15,7 @@ struct Completion {
     acl: Option<Vec<crate::acl::AclEntry>>,
 }
 
-const CAPACITY: i64 = 1024;
+const CAPACITY: i64 = 4096;
 const LIFETIME_MICROS: i64 = 600_000_000;
 pub(super) const SCHEMA: &str = "CREATE TABLE upload_replays (
     token BLOB PRIMARY KEY CHECK(length(token) = 32),

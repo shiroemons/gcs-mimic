@@ -13,7 +13,7 @@ use crate::{
     storage::{ResumableChunk, SessionState},
 };
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full};
+use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Incoming};
 use tokio::sync::{mpsc, watch};
 
@@ -244,35 +244,12 @@ pub(super) async fn session_response(
     }
     // Validate the override before any bytes can be acknowledged.
     resumable::single(&headers, "x-guploader-no-308")?;
-    if status && !finalize && headers.contains_key("x-goog-hash") {
-        return Err(JsonError::invalid_parameter(
-            "Checksum declarations require a data or final request",
-        ));
-    }
     // PHP repeats whole-object hashes on every data chunk; checkpoint them for completion.
     let options = match resumable::final_options(&headers, session.options.clone()) {
         Ok(options) => options,
         Err(error) => {
             if finalize {
                 state.catalog.invalidate_resumable_session(&lease).await?;
-            }
-            drop(lease);
-            if finalize && error.header_location == Some("x-goog-hash") {
-                // Finish receiving a rejected final checksum so TLS proxies can deliver its 400.
-                let mut body = request.into_body();
-                let mut received = 0_u64;
-                while let Some(frame) = body.frame().await {
-                    let frame = frame.map_err(|_| {
-                        JsonError::invalid_parameter("Could not read rejected upload body")
-                    })?;
-                    if let Ok(data) = frame.into_data() {
-                        received = received
-                            .checked_add(data.len() as u64)
-                            .filter(|size| *size <= config.max_object_bytes)
-                            .ok_or(ObjectError::TooLarge)?;
-                        activity.send_modify(|progress| progress.awaiting_catalog = false);
-                    }
-                }
             }
             return Err(error);
         }
@@ -292,6 +269,11 @@ pub(super) async fn session_response(
         ));
     }
     if status && !finalize {
+        if options.expected != session.options.expected {
+            return Err(JsonError::invalid_parameter(
+                "Status cannot introduce new checksum declarations",
+            ));
+        }
         json::read_body(request.into_body(), 0).await?;
         let file = tokio::fs::OpenOptions::new()
             .write(true)
