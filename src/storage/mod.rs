@@ -16,6 +16,7 @@ pub use catalog::sync_state;
 pub(crate) use catalog::CopyReplay;
 pub(crate) use catalog::ResumableChunk;
 pub use catalog::ResumableError;
+pub(crate) use catalog::SourceDisposal;
 pub(crate) use catalog::acl::{AclChange, AclError, AclState};
 pub(crate) use catalog::{AppendError, AppendWriter};
 pub use catalog::{

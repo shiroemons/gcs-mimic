@@ -245,7 +245,7 @@ async fn live_export_recovers_a_changed_journal_fence_with_paged_reconciliation(
     wait_generation(&catalog, &bucket, "test-bucket/body", generation).await;
     let removed = publish(&catalog, &bucket, "removed", b"before gap deletion").await;
     wait_generation(&catalog, &bucket, "test-bucket/removed", removed).await;
-    catalog.set_change_journal_enabled(false).await.unwrap();
+    catalog.disable_change_journal().await.unwrap();
     let generation = publish(&catalog, &bucket, "body", b"after gap").await;
     catalog
         .admin(Origin::Api)
@@ -256,7 +256,7 @@ async fn live_export_recovers_a_changed_journal_fence_with_paged_reconciliation(
         )
         .await
         .unwrap();
-    catalog.set_change_journal_enabled(true).await.unwrap();
+    catalog.enable_change_journal().await.unwrap();
     wait_generation(&catalog, &bucket, "test-bucket/body", generation).await;
     wait_body(&tree.0.join("test-bucket/body"), Some(b"after gap")).await;
     worker.finish().await.unwrap();

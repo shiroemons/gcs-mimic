@@ -338,7 +338,7 @@ fn load(
                 name,
                 *generation,
                 ObjectConditions::default(),
-                true,
+                super::objects::RequestKind::Read,
                 access,
             )?;
             let entries = stored_object_entries(connection, bucket, name, record.generation)?

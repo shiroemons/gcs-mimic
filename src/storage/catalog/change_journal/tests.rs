@@ -57,7 +57,7 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
             .sequence,
         JournalSeq(0)
     );
-    let baseline = catalog.set_change_journal_enabled(true).await.unwrap();
+    let baseline = catalog.enable_change_journal().await.unwrap();
     assert!(
         catalog
             .read_changes(None, None, 1)
@@ -159,7 +159,7 @@ async fn journal_retention_activation_restart_and_pap_require_rescan() {
         .ensure_bucket(bucket("test-bucket"))
         .await
         .unwrap();
-    let baseline = catalog.set_change_journal_enabled(true).await.unwrap();
+    let baseline = catalog.enable_change_journal().await.unwrap();
     catalog
         .run(|connection| {
             let tx = connection.transaction().map_err(unavailable)?;
@@ -226,13 +226,13 @@ async fn journal_retention_activation_restart_and_pap_require_rescan() {
             .fence,
         pap
     );
-    catalog.set_change_journal_enabled(false).await.unwrap();
+    catalog.disable_change_journal().await.unwrap();
     catalog
         .admin(Origin::Import)
         .ensure_bucket(bucket("unlogged-bucket"))
         .await
         .unwrap();
-    let enabled = catalog.set_change_journal_enabled(true).await.unwrap();
+    let enabled = catalog.enable_change_journal().await.unwrap();
     assert_eq!(enabled.sequence, pap.sequence);
     assert!(
         catalog
@@ -250,7 +250,7 @@ async fn journal_retention_activation_restart_and_pap_require_rescan() {
             .unwrap()
             .rescan_required
     );
-    let restarted = catalog.set_change_journal_enabled(true).await.unwrap();
+    let restarted = catalog.enable_change_journal().await.unwrap();
     catalog
         .configure_public_access_prevention(&[])
         .await
@@ -309,7 +309,7 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
     use crate::{bucket::BucketMetadataUpdate, object::ComposeSource};
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    let baseline = catalog.set_change_journal_enabled(true).await.unwrap();
+    let baseline = catalog.enable_change_journal().await.unwrap();
     catalog
         .admin(Origin::BucketInit)
         .ensure_bucket(bucket("test-bucket"))
@@ -357,7 +357,7 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
                 generation: None,
                 if_generation_match: None,
             }],
-            true,
+            crate::storage::SourceDisposal::Delete,
             100,
         )
         .await

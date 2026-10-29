@@ -34,7 +34,7 @@ fn blob_count(dir: &std::path::Path) -> usize {
 #[tokio::test]
 async fn publication_disk_full_rolls_back_the_batch_and_journal() {
     let (dir, catalog, admin, bucket, _) = setup().await;
-    catalog.set_change_journal_enabled(true).await.unwrap();
+    catalog.enable_change_journal().await.unwrap();
     let fence = catalog.read_changes(None, None, 256).await.unwrap().fence;
     let a = entry(&admin, &dir.0, "a", b"a").await;
     let mut b = entry(&admin, &dir.0, "b", b"b").await;
@@ -216,7 +216,7 @@ async fn publication_inherits_metadata_patched_after_staging() {
 #[tokio::test]
 async fn publication_equal_hash_keeps_generation_metadata_and_journal() {
     let (dir, catalog, admin, bucket, name) = setup().await;
-    catalog.set_change_journal_enabled(true).await.unwrap();
+    catalog.enable_change_journal().await.unwrap();
     let first = admin
         .publish_object(&bucket, &name, request(None), body(b"same"))
         .await
@@ -257,7 +257,7 @@ async fn publication_equal_hash_keeps_generation_metadata_and_journal() {
 #[tokio::test]
 async fn publication_batch_isolates_failed_elements_and_cleans_unused_blobs() {
     let (dir, catalog, admin, bucket, _) = setup().await;
-    catalog.set_change_journal_enabled(true).await.unwrap();
+    catalog.enable_change_journal().await.unwrap();
     let name = ObjectName::new("exists").unwrap();
     let old = admin
         .publish_object(&bucket, &name, request(None), body(b"old"))

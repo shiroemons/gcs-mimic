@@ -61,6 +61,14 @@ fn stage_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
         .ok_or_else(|| object_unclassified("invalid opaque blob ID"))
 }
 
+/// Whether a derived transfer can be continued by later requests, or belongs to one request
+/// and is reclaimed when that request or the process ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TransferKind {
+    Continuable,
+    Ephemeral,
+}
+
 /// A metadata snapshot and independent link to immutable bytes, including after source deletion.
 /// Unconsumed handles clean their staging link; `begin_derived` transfers ownership to SQLite.
 pub(crate) struct DerivedSource {
@@ -264,7 +272,13 @@ impl Catalog {
         access: &BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
         objects::selected(
-            connection, bucket, name, generation, conditions, false, access,
+            connection,
+            bucket,
+            name,
+            generation,
+            conditions,
+            super::objects::RequestKind::Write,
+            access,
         )
         .map(|value| value.0)
     }
@@ -286,7 +300,7 @@ impl Catalog {
             name,
             Some(generation),
             conditions,
-            false,
+            super::objects::RequestKind::Write,
             access,
         )?;
         object.check_retention(now)?;
@@ -358,7 +372,7 @@ impl Catalog {
                         &source.name,
                         source.generation,
                         source.conditions,
-                        false,
+                        super::objects::RequestKind::Write,
                         &source.access,
                     )?;
                     super::customer_keys::check(&object, key)?;
@@ -385,7 +399,7 @@ impl Catalog {
         segments: Vec<DerivedSegment>,
         max_bytes: u64,
     ) -> Result<DerivedTransfer, ObjectError> {
-        self.begin_derived_with_kind(segments, max_bytes, false)
+        self.begin_derived_with_kind(segments, max_bytes, TransferKind::Continuable)
             .await
     }
 
@@ -395,7 +409,7 @@ impl Catalog {
         segments: Vec<DerivedSegment>,
         max_bytes: u64,
     ) -> Result<DerivedTransfer, ObjectError> {
-        self.begin_derived_with_kind(segments, max_bytes, true)
+        self.begin_derived_with_kind(segments, max_bytes, TransferKind::Ephemeral)
             .await
     }
 
@@ -403,9 +417,9 @@ impl Catalog {
         &self,
         segments: Vec<DerivedSegment>,
         max_bytes: u64,
-        ephemeral: bool,
+        kind: TransferKind,
     ) -> Result<DerivedTransfer, ObjectError> {
-        self.begin_derived_with_binding(segments, max_bytes, ephemeral, |_, _| Ok(()))
+        self.begin_derived_with_binding(segments, max_bytes, kind, |_, _| Ok(()))
             .await
     }
 
@@ -414,9 +428,10 @@ impl Catalog {
         &self,
         mut segments: Vec<DerivedSegment>,
         max_bytes: u64,
-        ephemeral: bool,
+        kind: TransferKind,
         bind: impl FnOnce(&Connection, &DerivedTransfer) -> Result<(), ObjectError> + Send + 'static,
     ) -> Result<DerivedTransfer, ObjectError> {
+        let ephemeral = kind == TransferKind::Ephemeral;
         if segments.is_empty() || segments.len() > 32 {
             return Err(ObjectError::InvalidDerivedArgument(
                 "derived transfer requires 1 to 32 sources".into(),
@@ -1476,17 +1491,17 @@ mod tests {
         let (catalog, path) = setup().await;
         put(&catalog, "source", b"bytes").await;
         let mut persistent = Vec::new();
-        for ephemeral in [true, false] {
+        for kind in [TransferKind::Ephemeral, TransferKind::Continuable] {
             for _ in 0..MAX_TRANSFERS_PER_KIND {
                 let transfer = catalog
                     .begin_derived_with_kind(
                         vec![source(&catalog, "source").await.whole()],
                         5,
-                        ephemeral,
+                        kind,
                     )
                     .await
                     .unwrap();
-                if !ephemeral {
+                if kind == TransferKind::Continuable {
                     persistent.push(transfer);
                 }
             }
@@ -1495,7 +1510,7 @@ mod tests {
                     .begin_derived_with_kind(
                         vec![source(&catalog, "source").await.whole()],
                         5,
-                        ephemeral,
+                        kind,
                     )
                     .await,
                 Err(object_unclassified("derived transfer limit reached"))
@@ -1675,7 +1690,7 @@ mod tests {
             .begin_derived_with_binding(
                 vec![source(&catalog, "source").await.whole()],
                 5,
-                false,
+                TransferKind::Continuable,
                 |connection, transfer| {
                     assert_eq!(inputs(connection, &transfer.id)?.len(), 1);
                     connection
@@ -1698,7 +1713,7 @@ mod tests {
             .begin_derived_with_binding(
                 vec![source(&catalog, "source").await.whole()],
                 5,
-                false,
+                TransferKind::Continuable,
                 |connection, transfer| {
                     assert_eq!(inputs(connection, &transfer.id)?.len(), 1);
                     connection
@@ -1987,19 +2002,24 @@ mod tests {
         let (release, blocked) = std::sync::mpsc::channel();
         let request = tokio::spawn(async move {
             worker
-                .begin_derived_with_binding(vec![source.whole()], 5, true, move |_, transfer| {
-                    assert_eq!(
-                        transfer
-                            .deadline
-                            .duration_since(transfer.created)
-                            .unwrap()
-                            .as_millis(),
-                        EPHEMERAL_LIFETIME_MILLIS as u128
-                    );
-                    entered.send(transfer.id.clone()).unwrap();
-                    blocked.recv().unwrap();
-                    Ok(())
-                })
+                .begin_derived_with_binding(
+                    vec![source.whole()],
+                    5,
+                    TransferKind::Ephemeral,
+                    move |_, transfer| {
+                        assert_eq!(
+                            transfer
+                                .deadline
+                                .duration_since(transfer.created)
+                                .unwrap()
+                                .as_millis(),
+                            EPHEMERAL_LIFETIME_MILLIS as u128
+                        );
+                        entered.send(transfer.id.clone()).unwrap();
+                        blocked.recv().unwrap();
+                        Ok(())
+                    },
+                )
                 .await
         });
         let id = started.await.unwrap();

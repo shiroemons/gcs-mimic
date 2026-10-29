@@ -47,7 +47,7 @@ impl Catalog {
                     &source,
                     None,
                     source_conditions,
-                    false,
+                    super::objects::RequestKind::Write,
                     &source_delete,
                 )?;
                 let (_, allow_overwrite) =

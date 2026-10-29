@@ -1,20 +1,9 @@
 {
   "schema_version": 1,
   "counts": {
-    "clippy::fn_params_excessive_bools": {
-      "src/storage/catalog.rs": 2,
-      "src/storage/catalog/appendable.rs": 1,
-      "src/storage/catalog/change_journal.rs": 1,
-      "src/storage/catalog/compose.rs": 1,
-      "src/storage/catalog/derived.rs": 2,
-      "src/storage/catalog/objects.rs": 5,
-      "src/storage/catalog/sync_state/writeback.rs": 1,
-      "src/storage/catalog/sync_state/writeback/unpublished.rs": 1
-    },
     "clippy::too_many_lines": {
-      "src/storage/catalog.rs": 3,
+      "src/storage/catalog.rs": 2,
       "src/storage/catalog/admin/publication.rs": 1,
-      "src/storage/catalog/compose.rs": 1,
       "src/storage/catalog/derived.rs": 1,
       "src/storage/catalog/objects.rs": 2,
       "src/storage/catalog/resumable_transfer.rs": 1,

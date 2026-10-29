@@ -143,7 +143,7 @@ schema 15 is rejected by executables supporting only schema 14. Never downgrade
 in place. The migration tests retain an unchanged catalog-only snapshot for
 schema-14 validation; that snapshot alone is not a usable data-directory backup.
 
-`Catalog::set_change_journal_enabled(true)` activates the aggregate consumer
+`Catalog::enable_change_journal()` activates the aggregate consumer
 requirement and returns a baseline `JournalFence`. The consumer owner must keep
 logging enabled until its last reader stops. No CLI/environment/file setting is
 added. Reopening an enabled catalog disables logging and advances the durable

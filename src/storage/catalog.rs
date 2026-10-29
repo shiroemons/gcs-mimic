@@ -51,6 +51,7 @@ mod resumable_maintenance;
 mod resumable_recovery;
 
 mod compose;
+pub(crate) use compose::SourceDisposal;
 mod compose_crc32c;
 pub(crate) mod rewrite;
 mod rewrite_token;
@@ -62,6 +63,8 @@ pub(crate) use appendable::{AppendError, AppendWriter};
 
 mod object_move;
 mod objects;
+#[cfg(test)]
+pub(crate) use objects::Versioning;
 mod soft_delete;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
 
@@ -1187,7 +1190,7 @@ impl Catalog {
             if_metageneration_match,
             if_metageneration_not_match,
             access,
-            false,
+            BucketWrite::Patch,
         )
         .await
     }
@@ -1206,7 +1209,7 @@ impl Catalog {
             if_metageneration_match,
             if_metageneration_not_match,
             access,
-            true,
+            BucketWrite::Replace,
         )
         .await
     }
@@ -1218,7 +1221,7 @@ impl Catalog {
         if_metageneration_match: Option<i64>,
         if_metageneration_not_match: Option<i64>,
         access: &BucketAccess,
-        replace: bool,
+        mode: BucketWrite,
     ) -> Result<BucketRecord, CatalogError> {
         let name = name.to_owned();
         let access = access.clone();
@@ -1251,86 +1254,21 @@ impl Catalog {
             {
                 return Err(CatalogError::UnsupportedMetadata("location".into()));
             }
-            if let Some(enabled) = update.uniform_bucket_level_access_enabled {
-                match (enabled, record.uniform_bucket_level_access_locked_time) {
-                    (true, None) => {
-                        record.uniform_bucket_level_access_locked_time = Some(clock.now()
-                            .checked_add(UNIFORM_ACCESS_LOCK_PERIOD)
-                            .ok_or_else(|| CatalogError::InvalidMetadata("Uniform access deadline is outside the supported time range".into()))?);
-                    }
-                    (false, Some(locked_time)) => {
-                        if clock.now() >= locked_time {
-                            return Err(CatalogError::InvalidMetadata("Uniform bucket-level access has been enabled for 90 consecutive days and cannot be disabled; keep uniformBucketLevelAccess.enabled=true".into()));
-                        }
-                        record.uniform_bucket_level_access_locked_time = None;
-                    }
-                    _ => {}
-                }
-            }
+            apply_uniform_access(
+                &mut record,
+                update.uniform_bucket_level_access_enabled,
+                clock.now(),
+            )?;
             if update.object_retention_enabled.is_some_and(|enabled| enabled != record.object_retention_enabled) {
                 return Err(CatalogError::InvalidMetadata("objectRetention can only be enabled when the bucket is created (enableObjectRetention=true) and can never be disabled; omit objectRetention".into()));
             }
             if let Some(duration) = update.soft_delete_retention {
-                if duration != 0 && !(604800..=7776000).contains(&duration) {
-                    return Err(CatalogError::InvalidMetadata("softDeletePolicy.retentionDurationSeconds must be 0 or 604800 through 7776000; use 604800".into()));
-                }
-                let effective_time = record.soft_delete_policy.as_ref()
-                    .filter(|policy| duration <= policy.retention_duration_seconds)
-                    .map_or_else(|| clock.now(), |policy| policy.effective_time);
-                record.soft_delete_policy = Some(crate::bucket::SoftDeletePolicy { retention_duration_seconds: duration, effective_time });
+                apply_soft_delete_retention(&mut record, duration, clock.now())?;
             }
-            if update.lock_retention_policy {
-                if if_metageneration_match.is_none() {
-                    return Err(CatalogError::InvalidMetadata("Locking requires ifMetagenerationMatch; read the bucket metageneration first".into()));
-                }
-                let policy = record.retention_policy.as_mut().ok_or(CatalogError::RetentionPolicyNotSet)?;
-                if policy.is_locked {
-                    return Err(CatalogError::InvalidMetadata("Retention policy is already locked".into()));
-                }
-                policy.is_locked = true;
-            } else if let Some(period) = update.retention_period {
-                if let Some(policy) = record.retention_policy.as_ref().filter(|p| p.is_locked && period.is_none_or(|period| period < p.retention_period)) {
-                    return Err(CatalogError::RetentionPolicyLocked(policy.retention_period));
-                }
-                if let Some(period) = period {
-                    if !(1..3_155_760_000).contains(&period) {
-                        return Err(CatalogError::InvalidMetadata("retentionPeriod must be greater than 0 and less than 3155760000; use 3600".into()));
-                    }
-                    let locked = record.retention_policy.as_ref().is_some_and(|p| p.is_locked);
-                    if record.retention_policy.as_ref().is_none_or(|p| p.retention_period != period) {
-                        record.retention_policy = Some(crate::bucket::RetentionPolicy { retention_period: period, effective_time: clock.now(), is_locked: locked });
-                    }
-                } else {
-                    record.retention_policy = None;
-                }
-            }
+            apply_retention_policy(&mut record, &update, if_metageneration_match, clock.now())?;
             bucket_autoclass::update(&transaction, &mut record, &update, clock.now())?;
             if let Some(labels) = update.labels {
-                if replace {
-                    record.labels.clear();
-                }
-                if let Some(labels) = labels {
-                    for (key, value) in labels {
-                        // Library callers can bypass adapter validation.
-                        if (replace && value.is_none())
-                            || !valid_label(&key, LabelPart::Key)
-                            || value
-                                .as_deref()
-                                .is_some_and(|value| !valid_label(value, LabelPart::Value))
-                        {
-                            return Err(CatalogError::InvalidMetadata(
-                                "Invalid bucket label".into(),
-                            ));
-                        }
-                        if let Some(value) = value {
-                            record.labels.insert(key, value);
-                        } else {
-                            record.labels.remove(&key);
-                        }
-                    }
-                } else {
-                    record.labels.clear();
-                }
+                apply_labels(&mut record, labels, mode)?;
             }
             if record.labels.len() > 64 {
                 return Err(CatalogError::InvalidMetadata(
@@ -1409,12 +1347,19 @@ impl Catalog {
     pub(crate) fn bucket_settings_in_transaction(
         transaction: &rusqlite::Transaction<'_>,
         name: &str,
-    ) -> Result<(bool, bool), CatalogError> {
+    ) -> Result<(objects::Versioning, bool), CatalogError> {
         transaction
             .query_row(
                 "SELECT versioning_enabled, default_event_based_hold FROM buckets WHERE name = ?1",
                 [name],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| {
+                    let versioning = if row.get(0)? {
+                        objects::Versioning::Enabled
+                    } else {
+                        objects::Versioning::Disabled
+                    };
+                    Ok((versioning, row.get(1)?))
+                },
             )
             .optional()
             .map_err(unavailable)?
@@ -1577,6 +1522,156 @@ impl Catalog {
         self.reclaim_after_commit().await;
         Ok(())
     }
+}
+
+/// Whether a bucket metadata write merges into (PATCH) or replaces (PUT) stored labels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BucketWrite {
+    Patch,
+    Replace,
+}
+
+fn apply_uniform_access(
+    record: &mut BucketRecord,
+    requested: Option<bool>,
+    now: SystemTime,
+) -> Result<(), CatalogError> {
+    let Some(enabled) = requested else {
+        return Ok(());
+    };
+    match (enabled, record.uniform_bucket_level_access_locked_time) {
+        (true, None) => {
+            record.uniform_bucket_level_access_locked_time =
+                Some(now.checked_add(UNIFORM_ACCESS_LOCK_PERIOD).ok_or_else(|| {
+                    CatalogError::InvalidMetadata(
+                        "Uniform access deadline is outside the supported time range".into(),
+                    )
+                })?);
+        }
+        (false, Some(locked_time)) => {
+            if now >= locked_time {
+                return Err(CatalogError::InvalidMetadata("Uniform bucket-level access has been enabled for 90 consecutive days and cannot be disabled; keep uniformBucketLevelAccess.enabled=true".into()));
+            }
+            record.uniform_bucket_level_access_locked_time = None;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn apply_soft_delete_retention(
+    record: &mut BucketRecord,
+    duration: u64,
+    now: SystemTime,
+) -> Result<(), CatalogError> {
+    if duration != 0 && !(604800..=7776000).contains(&duration) {
+        return Err(CatalogError::InvalidMetadata("softDeletePolicy.retentionDurationSeconds must be 0 or 604800 through 7776000; use 604800".into()));
+    }
+    let effective_time = record
+        .soft_delete_policy
+        .as_ref()
+        .filter(|policy| duration <= policy.retention_duration_seconds)
+        .map_or(now, |policy| policy.effective_time);
+    record.soft_delete_policy = Some(crate::bucket::SoftDeletePolicy {
+        retention_duration_seconds: duration,
+        effective_time,
+    });
+    Ok(())
+}
+
+/// Locks, sets or clears the bucket retention policy; a locked policy never shrinks.
+fn apply_retention_policy(
+    record: &mut BucketRecord,
+    update: &BucketMetadataUpdate,
+    if_metageneration_match: Option<i64>,
+    now: SystemTime,
+) -> Result<(), CatalogError> {
+    if update.lock_retention_policy {
+        if if_metageneration_match.is_none() {
+            return Err(CatalogError::InvalidMetadata(
+                "Locking requires ifMetagenerationMatch; read the bucket metageneration first"
+                    .into(),
+            ));
+        }
+        let policy = record
+            .retention_policy
+            .as_mut()
+            .ok_or(CatalogError::RetentionPolicyNotSet)?;
+        if policy.is_locked {
+            return Err(CatalogError::InvalidMetadata(
+                "Retention policy is already locked".into(),
+            ));
+        }
+        policy.is_locked = true;
+        return Ok(());
+    }
+    let Some(period) = update.retention_period else {
+        return Ok(());
+    };
+    if let Some(policy) = record
+        .retention_policy
+        .as_ref()
+        .filter(|p| p.is_locked && period.is_none_or(|period| period < p.retention_period))
+    {
+        return Err(CatalogError::RetentionPolicyLocked(policy.retention_period));
+    }
+    let Some(period) = period else {
+        record.retention_policy = None;
+        return Ok(());
+    };
+    if !(1..3_155_760_000).contains(&period) {
+        return Err(CatalogError::InvalidMetadata(
+            "retentionPeriod must be greater than 0 and less than 3155760000; use 3600".into(),
+        ));
+    }
+    let locked = record
+        .retention_policy
+        .as_ref()
+        .is_some_and(|p| p.is_locked);
+    if record
+        .retention_policy
+        .as_ref()
+        .is_none_or(|p| p.retention_period != period)
+    {
+        record.retention_policy = Some(crate::bucket::RetentionPolicy {
+            retention_period: period,
+            effective_time: now,
+            is_locked: locked,
+        });
+    }
+    Ok(())
+}
+
+/// Applies a label update; `None` clears every label and a replace starts from none.
+fn apply_labels(
+    record: &mut BucketRecord,
+    labels: Option<std::collections::BTreeMap<String, Option<String>>>,
+    mode: BucketWrite,
+) -> Result<(), CatalogError> {
+    if mode == BucketWrite::Replace {
+        record.labels.clear();
+    }
+    let Some(labels) = labels else {
+        record.labels.clear();
+        return Ok(());
+    };
+    for (key, value) in labels {
+        // Library callers can bypass adapter validation.
+        if (mode == BucketWrite::Replace && value.is_none())
+            || !valid_label(&key, LabelPart::Key)
+            || value
+                .as_deref()
+                .is_some_and(|value| !valid_label(value, LabelPart::Value))
+        {
+            return Err(CatalogError::InvalidMetadata("Invalid bucket label".into()));
+        }
+        if let Some(value) = value {
+            record.labels.insert(key, value);
+        } else {
+            record.labels.remove(&key);
+        }
+    }
+    Ok(())
 }
 
 fn bucket_list_page(
@@ -1779,16 +1874,17 @@ fn unix_timestamp(time: SystemTime, nanos_per_unit: i128) -> Result<i64, Catalog
 }
 
 fn system_time_millis(millis: i64) -> rusqlite::Result<SystemTime> {
-    let duration = Duration::from_millis(millis.unsigned_abs());
-    signed_system_time(duration, millis < 0)
+    signed_system_time(millis, Duration::from_millis)
 }
 
 fn system_time_micros(micros: i64) -> rusqlite::Result<SystemTime> {
-    signed_system_time(Duration::from_micros(micros.unsigned_abs()), micros < 0)
+    signed_system_time(micros, Duration::from_micros)
 }
 
-fn signed_system_time(duration: Duration, negative: bool) -> rusqlite::Result<SystemTime> {
-    let time = if negative {
+/// Converts a signed count of `unit`s since the Unix epoch.
+fn signed_system_time(value: i64, unit: fn(u64) -> Duration) -> rusqlite::Result<SystemTime> {
+    let duration = unit(value.unsigned_abs());
+    let time = if value < 0 {
         UNIX_EPOCH.checked_sub(duration)
     } else {
         UNIX_EPOCH.checked_add(duration)
@@ -1868,18 +1964,18 @@ mod tests {
 
     #[tokio::test]
     async fn bucket_patch_rechecks_revocation_and_bucket_recreation() {
-        bucket_metadata_rechecks_revocation(false).await;
+        bucket_metadata_rechecks_revocation(BucketWrite::Patch).await;
     }
 
     #[tokio::test]
     async fn bucket_put_rechecks_revocation_and_bucket_recreation() {
-        bucket_metadata_rechecks_revocation(true).await;
+        bucket_metadata_rechecks_revocation(BucketWrite::Replace).await;
     }
 
-    async fn bucket_metadata_rechecks_revocation(replace: bool) {
+    async fn bucket_metadata_rechecks_revocation(mode: BucketWrite) {
         use crate::auth::{BUCKETS_UPDATE, Binding};
         let directory =
-            std::env::temp_dir().join(format!("gcs-mimic-policy-{replace}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("gcs-mimic-policy-{mode:?}-{}", std::process::id()));
         let catalog = Catalog::open(&directory).await.unwrap();
         let record =
             crate::json::parse_insert(br#"{"name":"patch-policy"}"#, "project", UNIX_EPOCH)
@@ -1926,7 +2022,7 @@ mod tests {
                     Some(99),
                     None,
                     &access,
-                    replace
+                    mode
                 )
                 .await,
             Err(CatalogError::Forbidden)
@@ -1950,7 +2046,7 @@ mod tests {
                     Some(99),
                     None,
                     &access,
-                    replace
+                    mode
                 )
                 .await,
             Err(CatalogError::Forbidden)
@@ -1968,7 +2064,7 @@ mod tests {
         catalog.insert_bucket(replacement.clone()).await.unwrap();
         assert_eq!(
             catalog
-                .update_bucket("patch-policy", update, None, None, &access, replace)
+                .update_bucket("patch-policy", update, None, None, &access, mode)
                 .await,
             Err(CatalogError::Forbidden)
         );
@@ -1978,7 +2074,7 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .update_bucket("patch-policy", invalid, None, None, &access, replace)
+                .update_bucket("patch-policy", invalid, None, None, &access, mode)
                 .await,
             Err(CatalogError::Forbidden)
         );

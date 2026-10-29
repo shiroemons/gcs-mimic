@@ -230,7 +230,11 @@ pub(super) async fn compose(
                 component_count: None,
             },
             body.sources,
-            body.delete_sources,
+            if body.delete_sources {
+                crate::storage::SourceDisposal::Delete
+            } else {
+                crate::storage::SourceDisposal::Keep
+            },
             ctx.config.max_object_bytes,
         )
         .await?;

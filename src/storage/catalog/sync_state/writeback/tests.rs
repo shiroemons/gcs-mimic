@@ -23,7 +23,7 @@ async fn setup() -> (TestDir, TestDir, Catalog, RootLease, Writeback, BucketName
         .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
         .await
         .unwrap();
-    catalog.set_change_journal_enabled(true).await.unwrap();
+    catalog.enable_change_journal().await.unwrap();
     let lease = catalog
         .sync_state()
         .activate_root(&root.0, super::super::root::Activation::Open)

@@ -123,6 +123,13 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(super::unavailable)
 }
 
+/// Whether finalization of an appendable generation started or was abandoned before publishing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Finalizing {
+    Started,
+    Abandoned,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum AppendError {
     Object(ObjectError),
@@ -582,13 +589,13 @@ impl AppendWriter {
             super::admin::PublishMode::Replace,
             Some(identity),
         );
-        self.mark_finalizing(true).await?;
+        self.mark_finalizing(Finalizing::Started).await?;
         let (copied, published) = tokio::join!(producer, publish);
         let published = match published {
             Ok(published) => published,
             Err(error) => {
                 // Nothing was published, so the generation stays appendable.
-                self.mark_finalizing(false).await?;
+                self.mark_finalizing(Finalizing::Abandoned).await?;
                 return Err(error.into());
             }
         };
@@ -599,7 +606,8 @@ impl AppendWriter {
         Ok(published)
     }
 
-    async fn mark_finalizing(&self, finalizing: bool) -> Result<(), AppendError> {
+    async fn mark_finalizing(&self, state: Finalizing) -> Result<(), AppendError> {
+        let finalizing = state == Finalizing::Started;
         let (bucket, name, generation, handle) = (
             self.bucket.clone(),
             self.name.clone(),
@@ -785,7 +793,7 @@ impl Catalog {
                 Some(record) => Some(record),
                 None => lookup(&transaction, &bucket, &name)?.map(|(record, _)| record),
             };
-            check_conditions(current.as_ref(), options.conditions, false)?;
+            check_conditions(current.as_ref(), options.conditions, super::objects::RequestKind::Write)?;
             if current.is_some() {
                 return Ok(Err(AppendError::ReplaceUnsupported));
             }
@@ -869,7 +877,7 @@ impl Catalog {
                     }
                     Some(_) => {}
                     None => {
-                        if let Err(error) = check_conditions(Some(&record), conditions, false) {
+                        if let Err(error) = check_conditions(Some(&record), conditions, super::objects::RequestKind::Write) {
                             return Ok(Err(error.into()));
                         }
                     }
@@ -941,7 +949,7 @@ impl Catalog {
                     return Err(ObjectError::ObjectNotFound);
                 }
                 let record = record(&transaction, &bucket, &name, storage_class, &row)?;
-                check_conditions(Some(&record), conditions, true)?;
+                check_conditions(Some(&record), conditions, super::objects::RequestKind::Read)?;
                 // Opened inside the transaction so finalization cannot unlink it first.
                 let file = fs::File::open(data_path(&data_dir, &row.blob_id)?)
                     .map_err(object_unavailable)?;
@@ -987,7 +995,11 @@ impl Catalog {
                 storage_class,
                 &row,
             )?;
-            check_conditions(Some(&record), conditions, false)?;
+            check_conditions(
+                Some(&record),
+                conditions,
+                super::objects::RequestKind::Write,
+            )?;
             record.check_retention(clock.now())?;
             transaction
                 .execute(

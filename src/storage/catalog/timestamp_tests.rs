@@ -294,7 +294,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
                     generation: None,
                     if_generation_match: None,
                 }],
-                false,
+                crate::storage::SourceDisposal::Keep,
                 1,
             )
             .await

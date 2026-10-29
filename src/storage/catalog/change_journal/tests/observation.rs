@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::change_journal::JournalSwitch;
 use std::{sync::Arc, time::Duration};
 
 async fn setup() -> (TestDir, Catalog) {
@@ -128,7 +129,7 @@ async fn sync_observation_owner_inventory_recreation_preserves_keyset_and_incarn
     for name in ["page-a", "page-m", "page-z"] {
         admin.ensure_bucket(bucket(name)).await.unwrap();
     }
-    let baseline = catalog.set_change_journal_enabled(true).await.unwrap();
+    let baseline = catalog.enable_change_journal().await.unwrap();
     let first = admin.list_all_buckets(None, 1).await.unwrap();
     let old = &first.items[0];
     assert_eq!(old.bucket.name, "page-a");
@@ -235,7 +236,7 @@ async fn sync_observation_owner_pages_share_metadata_budget_and_bounded_lookahea
 async fn sync_observation_commits_before_during_and_after_registration_are_not_lost() {
     for phase in ["before-register", "registered", "checked"] {
         let (_dir, catalog) = setup().await;
-        let baseline = catalog.set_change_journal_enabled(true).await.unwrap();
+        let baseline = catalog.enable_change_journal().await.unwrap();
         let (hook, wait) = paused_wait(&catalog, baseline, phase).await;
         publish(&catalog, Origin::SyncIngest, "object").await;
         let observed = finish(hook, wait).await;
@@ -259,7 +260,7 @@ async fn sync_observation_commits_before_during_and_after_registration_are_not_l
 #[tokio::test]
 async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
     let (_dir, catalog) = setup().await;
-    let mut cursor = catalog.set_change_journal_enabled(true).await.unwrap();
+    let mut cursor = catalog.enable_change_journal().await.unwrap();
     for kind in [
         ChangeKind::Publish,
         ChangeKind::Metadata,
@@ -371,7 +372,7 @@ async fn sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require
             .unwrap()
             .rescan_required
     );
-    let baseline = catalog.set_change_journal_enabled(true).await.unwrap();
+    let baseline = catalog.enable_change_journal().await.unwrap();
     for invalid in [
         disabled,
         JournalFence {
@@ -393,7 +394,11 @@ async fn sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require
     }
     for change in ["disable", "enable", "parent-pap"] {
         let current = catalog
-            .set_change_journal_enabled(change != "enable")
+            .switch_change_journal(if change == "enable" {
+                JournalSwitch::Disabled
+            } else {
+                JournalSwitch::Enabled
+            })
             .await
             .unwrap();
         let phase = if change == "enable" {
@@ -409,7 +414,11 @@ async fn sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require
                 .unwrap();
         } else {
             catalog
-                .set_change_journal_enabled(change == "enable")
+                .switch_change_journal(if change == "enable" {
+                    JournalSwitch::Enabled
+                } else {
+                    JournalSwitch::Disabled
+                })
                 .await
                 .unwrap();
         }
@@ -417,7 +426,7 @@ async fn sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require
         assert!(observed.rescan_required);
         assert!(observed.fence.revision > current.revision);
     }
-    let current = catalog.set_change_journal_enabled(true).await.unwrap();
+    let current = catalog.enable_change_journal().await.unwrap();
     catalog
         .run_admin(|connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
@@ -453,7 +462,7 @@ async fn sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require
 #[tokio::test]
 async fn sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits() {
     let (_dir, catalog) = setup().await;
-    let baseline = catalog.set_change_journal_enabled(true).await.unwrap();
+    let baseline = catalog.enable_change_journal().await.unwrap();
     let (hook, mut wait) = paused_wait(&catalog, baseline, "checked").await;
     assert_eq!(catalog.0.admin_reads.available_permits(), 32);
     assert_eq!(catalog.0.execution.available_permits(), 1);

@@ -1,12 +1,22 @@
-use super::{Catalog, DerivedDestination, DerivedSourceSpec, compose_crc32c::combine, objects};
+use super::{
+    Catalog, DerivedDestination, DerivedSource, DerivedSourceSpec, compose_crc32c::combine, objects,
+};
 use crate::{
     bucket::BucketAccess,
+    clock::Clock,
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord},
 };
 use rusqlite::Connection;
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 use crate::storage::failure::object_unclassified;
+
+/// Whether a compose deletes its source objects once the destination is published.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SourceDisposal {
+    Keep,
+    Delete,
+}
 
 fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectError> {
     connection
@@ -18,182 +28,269 @@ fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectEr
         .map_err(object_unclassified)
 }
 
+/// The source identities a compose read, re-checked when it publishes.
+type SourceKeys = BTreeSet<(String, i64)>;
+
+/// Combines source checksums and component counts into the destination's expectations.
+fn combine_sources(
+    sources: &[DerivedSource],
+    disposal: SourceDisposal,
+    clock: &dyn Clock,
+    destination: &mut DerivedDestination,
+) -> Result<SourceKeys, ObjectError> {
+    let class = sources[0].object.storage_class.clone();
+    let mut crc = 0;
+    let mut count = 0_i64;
+    let mut keys = BTreeSet::new();
+    for source in sources {
+        if source.object.storage_class != class {
+            return Err(ObjectError::InvalidDerivedArgument(
+                "Compose sources must use the same storage class".into(),
+            ));
+        }
+        if disposal == SourceDisposal::Delete {
+            source.object.check_retention(clock.now())?;
+        }
+        crc = combine(
+            crc,
+            source.object.crc32c,
+            usize::try_from(source.object.size).map_err(object_unclassified)?,
+        );
+        count = count
+            .saturating_add(source.object.component_count.unwrap_or(1))
+            .min(i32::MAX as i64);
+        keys.insert((source.object.name.clone(), source.object.generation));
+    }
+    destination.storage_class = Some(class);
+    destination.component_count = Some(count);
+    destination.expected = ExpectedHashes {
+        md5: None,
+        crc32c: Some(crc),
+    };
+    Ok(keys)
+}
+
+/// Inside the publication transaction: the bucket is unchanged and, when sources are
+/// deleted, the caller may still delete them and their retention allows it.
+fn validate_composition(
+    connection: &Connection,
+    bucket: &str,
+    expected_incarnation: &str,
+    access: &BucketAccess,
+    disposal: SourceDisposal,
+    keys: SourceKeys,
+    clock: &dyn Clock,
+) -> Result<(), ObjectError> {
+    let (_, delete) = objects::authorized_bucket(connection, bucket, access)?;
+    if incarnation(connection, bucket)? != expected_incarnation {
+        return Err(ObjectError::PreconditionFailed);
+    }
+    if disposal == SourceDisposal::Keep {
+        return Ok(());
+    }
+    if delete == objects::Overwrite::Forbidden {
+        return Err(ObjectError::Forbidden);
+    }
+    for (name, generation) in keys {
+        let source = Catalog::check_derived_source_in_transaction(
+            connection,
+            bucket,
+            &name,
+            Some(generation),
+            ObjectConditions::default(),
+            access,
+        )?;
+        source.check_retention(clock.now())?;
+    }
+    Ok(())
+}
+
+/// Inside the publication transaction: deletes every source except the destination itself.
+fn delete_sources(
+    connection: &Connection,
+    record: &ObjectRecord,
+    keys: SourceKeys,
+    access: &BucketAccess,
+    clock: &dyn Clock,
+) -> Result<(), ObjectError> {
+    for (name, generation) in keys {
+        // The destination follows normal overwrite/versioning rules, never source deletion.
+        if name == record.name {
+            continue;
+        }
+        Catalog::delete_derived_source_in_transaction(
+            connection,
+            &record.bucket,
+            &name,
+            generation,
+            ObjectConditions::default(),
+            access,
+            clock.now(),
+        )?;
+    }
+    Ok(())
+}
+
+/// The read access a compose needs on its sources: the destination grant, narrowed to reads.
+fn source_access(destination: &BucketAccess) -> BucketAccess {
+    let mut access = destination.clone();
+    if let BucketAccess::Policy { permission, .. } = &mut access {
+        *permission = crate::auth::Permission::ObjectsGet;
+    }
+    access
+}
+
 impl Catalog {
     pub(crate) async fn compose_object(
         &self,
-        mut destination: DerivedDestination,
+        destination: DerivedDestination,
         sources: Vec<ComposeSource>,
-        delete_sources: bool,
+        disposal: SourceDisposal,
         max_bytes: u64,
     ) -> Result<ObjectRecord, ObjectError> {
         let catalog = self.clone();
         // A complete JSON request owns its cleanup even when the HTTP response is cancelled.
         tokio::spawn(async move {
-            if !(1..=32).contains(&sources.len()) {
-                return Err(ObjectError::InvalidDerivedArgument(
-                    "Compose requires 1 to 32 sources".into(),
-                ));
-            }
-            let bucket = destination.bucket.clone();
-            let mut source_access = destination.access.clone();
-            if let BucketAccess::Policy { permission, .. } = &mut source_access {
-                *permission = crate::auth::Permission::ObjectsGet;
-            }
-            let initial = destination.clone();
-            let read_access = source_access.clone();
-            let clock = catalog.0.clock.clone();
-            let expected_incarnation = catalog
-                .run_object(move |connection| {
-                    let transaction = connection.transaction().map_err(object_unclassified)?;
-                    let (_, overwrite) =
-                        objects::authorized_bucket(&transaction, &initial.bucket, &initial.access)?;
-                    let (_, delete) =
-                        objects::authorized_bucket(&transaction, &initial.bucket, &read_access)?;
-                    if delete_sources && !delete {
-                        return Err(ObjectError::Forbidden);
-                    }
-                    let previous = objects::lookup(&transaction, &initial.bucket, &initial.name)?;
-                    objects::check_publication(
-                        previous.as_ref(),
-                        initial.conditions,
-                        overwrite,
-                        clock.now(),
-                    )?;
-                    incarnation(&transaction, &initial.bucket)
-                })
-                .await?;
-            let specs = sources
-                .into_iter()
-                .map(|source| DerivedSourceSpec {
-                    bucket: bucket.clone(),
-                    name: source.name,
-                    generation: source.generation,
-                    conditions: ObjectConditions {
-                        if_generation_match: source.if_generation_match,
-                        ..Default::default()
-                    },
-                    access: source_access.clone(),
-                })
-                .collect();
-            // Compose components must all use the request key, which also encrypts the result.
-            let key = destination
-                .metadata
-                .customer_key_sha256
-                .map(crate::csek::CustomerKey::from_sha256);
-            let sources = catalog.resolve_derived_sources_keyed(specs, key).await?;
-            let class = sources[0].object.storage_class.clone();
-            let mut crc = 0;
-            let mut count = 0_i64;
-            let mut keys = BTreeSet::new();
-            for source in &sources {
-                if source.object.storage_class != class {
-                    return Err(ObjectError::InvalidDerivedArgument(
-                        "Compose sources must use the same storage class".into(),
-                    ));
-                }
-                if delete_sources {
-                    source.object.check_retention(catalog.0.clock.now())?;
-                }
-                crc = combine(
-                    crc,
-                    source.object.crc32c,
-                    usize::try_from(source.object.size).map_err(object_unclassified)?,
-                );
-                count = count
-                    .saturating_add(source.object.component_count.unwrap_or(1))
-                    .min(i32::MAX as i64);
-                keys.insert((source.object.name.clone(), source.object.generation));
-            }
-            destination.storage_class = Some(class);
-            destination.component_count = Some(count);
-            destination.expected = ExpectedHashes {
-                md5: None,
-                crc32c: Some(crc),
-            };
-            let transfer = catalog
-                .begin_derived_ephemeral(
-                    sources.into_iter().map(|source| source.whole()).collect(),
-                    max_bytes,
-                )
-                .await?;
-            let read_access = source_access.clone();
-            let checked_bucket = bucket.clone();
-            let checked_keys = keys.clone();
-            let check_clock = catalog.0.clock.clone();
-            let delete_clock = check_clock.clone();
-            let result = async {
-                catalog
-                    .advance_derived(&transfer.id, transfer.total)
-                    .await?;
-                catalog
-                    .publish_derived_with_validation(
-                        &transfer.id,
-                        destination,
-                        move |connection, _| {
-                            let (_, delete) = objects::authorized_bucket(
-                                connection,
-                                &checked_bucket,
-                                &read_access,
-                            )?;
-                            if incarnation(connection, &checked_bucket)? != expected_incarnation {
-                                return Err(ObjectError::PreconditionFailed);
-                            }
-                            if delete_sources {
-                                if !delete {
-                                    return Err(ObjectError::Forbidden);
-                                }
-                                for (name, generation) in checked_keys {
-                                    let source = Catalog::check_derived_source_in_transaction(
-                                        connection,
-                                        &checked_bucket,
-                                        &name,
-                                        Some(generation),
-                                        ObjectConditions::default(),
-                                        &read_access,
-                                    )?;
-                                    source.check_retention(check_clock.now())?;
-                                }
-                            }
-                            Ok(())
-                        },
-                        move |connection, record| {
-                            if delete_sources {
-                                for (name, generation) in keys {
-                                    // The destination follows normal overwrite/versioning rules, never source deletion.
-                                    if name == record.name {
-                                        continue;
-                                    }
-                                    Catalog::delete_derived_source_in_transaction(
-                                        connection,
-                                        &bucket,
-                                        &name,
-                                        generation,
-                                        ObjectConditions::default(),
-                                        &source_access,
-                                        delete_clock.now(),
-                                    )?;
-                                }
-                            }
-                            Ok(())
-                        },
-                    )
-                    .await
-            }
-            .await;
-            if result.is_err() {
-                match catalog.cancel_derived(&transfer.id).await {
-                    Ok(()) | Err(ObjectError::DerivedTransferNotFound) => {}
-                    Err(error) => crate::diagnostics::emit(
-                        crate::diagnostics::LogLevel::Warn,
-                        "compose_cleanup_deferred",
-                        serde_json::json!({"message":format!("deferred compose cleanup: {error}")}),
-                    ),
-                }
-            }
-            result
+            catalog
+                .compose_detached(destination, sources, disposal, max_bytes)
+                .await
         })
         .await
         .map_err(object_unclassified)?
+    }
+
+    async fn compose_detached(
+        &self,
+        mut destination: DerivedDestination,
+        sources: Vec<ComposeSource>,
+        disposal: SourceDisposal,
+        max_bytes: u64,
+    ) -> Result<ObjectRecord, ObjectError> {
+        if !(1..=32).contains(&sources.len()) {
+            return Err(ObjectError::InvalidDerivedArgument(
+                "Compose requires 1 to 32 sources".into(),
+            ));
+        }
+        let access = source_access(&destination.access);
+        let expected_incarnation = self
+            .check_compose_destination(destination.clone(), access.clone(), disposal)
+            .await?;
+        let specs = sources
+            .into_iter()
+            .map(|source| DerivedSourceSpec {
+                bucket: destination.bucket.clone(),
+                name: source.name,
+                generation: source.generation,
+                conditions: ObjectConditions {
+                    if_generation_match: source.if_generation_match,
+                    ..Default::default()
+                },
+                access: access.clone(),
+            })
+            .collect();
+        // Compose components must all use the request key, which also encrypts the result.
+        let key = destination
+            .metadata
+            .customer_key_sha256
+            .map(crate::csek::CustomerKey::from_sha256);
+        let sources = self.resolve_derived_sources_keyed(specs, key).await?;
+        let keys = combine_sources(&sources, disposal, &*self.0.clock, &mut destination)?;
+        let transfer = self
+            .begin_derived_ephemeral(
+                sources.into_iter().map(|source| source.whole()).collect(),
+                max_bytes,
+            )
+            .await?;
+        let result = self
+            .publish_composed(
+                &transfer,
+                destination,
+                expected_incarnation,
+                access,
+                disposal,
+                keys,
+            )
+            .await;
+        if result.is_err() {
+            match self.cancel_derived(&transfer.id).await {
+                Ok(()) | Err(ObjectError::DerivedTransferNotFound) => {}
+                Err(error) => crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Warn,
+                    "compose_cleanup_deferred",
+                    serde_json::json!({"message":format!("deferred compose cleanup: {error}")}),
+                ),
+            }
+        }
+        result
+    }
+
+    /// Checks destination preconditions before any source is read; returns the bucket
+    /// incarnation that publication must still observe.
+    async fn check_compose_destination(
+        &self,
+        destination: DerivedDestination,
+        read_access: BucketAccess,
+        disposal: SourceDisposal,
+    ) -> Result<String, ObjectError> {
+        let clock = self.0.clock.clone();
+        self.run_object(move |connection| {
+            let transaction = connection.transaction().map_err(object_unclassified)?;
+            let (_, overwrite) =
+                objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
+            let (_, delete) =
+                objects::authorized_bucket(&transaction, &destination.bucket, &read_access)?;
+            if disposal == SourceDisposal::Delete && delete == objects::Overwrite::Forbidden {
+                return Err(ObjectError::Forbidden);
+            }
+            let previous = objects::lookup(&transaction, &destination.bucket, &destination.name)?;
+            objects::check_publication(
+                previous.as_ref(),
+                destination.conditions,
+                overwrite,
+                clock.now(),
+            )?;
+            incarnation(&transaction, &destination.bucket)
+        })
+        .await
+    }
+
+    async fn publish_composed(
+        &self,
+        transfer: &super::derived::DerivedTransfer,
+        destination: DerivedDestination,
+        expected_incarnation: String,
+        access: BucketAccess,
+        disposal: SourceDisposal,
+        keys: SourceKeys,
+    ) -> Result<ObjectRecord, ObjectError> {
+        self.advance_derived(&transfer.id, transfer.total).await?;
+        let bucket = destination.bucket.clone();
+        let checked_keys = keys.clone();
+        let read_access = access.clone();
+        let check_clock: Arc<dyn Clock> = self.0.clock.clone();
+        let delete_clock = check_clock.clone();
+        self.publish_derived_with_validation(
+            &transfer.id,
+            destination,
+            move |connection, _| {
+                validate_composition(
+                    connection,
+                    &bucket,
+                    &expected_incarnation,
+                    &read_access,
+                    disposal,
+                    checked_keys,
+                    &*check_clock,
+                )
+            },
+            move |connection, record| match disposal {
+                SourceDisposal::Keep => Ok(()),
+                SourceDisposal::Delete => {
+                    delete_sources(connection, record, keys, &access, &*delete_clock)
+                }
+            },
+        )
+        .await
     }
 }
 
@@ -255,7 +352,12 @@ mod tests {
         let (catalog, path) = setup().await;
         assert_eq!(
             catalog
-                .compose_object(destination(), vec![source(), source()], true, 11)
+                .compose_object(
+                    destination(),
+                    vec![source(), source()],
+                    SourceDisposal::Delete,
+                    11
+                )
                 .await,
             Err(ObjectError::TooLarge)
         );
@@ -298,7 +400,12 @@ mod tests {
             )
             .unwrap();
         let result = catalog
-            .compose_object(destination(), vec![source(), source()], false, 100)
+            .compose_object(
+                destination(),
+                vec![source(), source()],
+                SourceDisposal::Keep,
+                100,
+            )
             .await
             .unwrap();
         assert_eq!(result.component_count, Some(i32::MAX as i64));

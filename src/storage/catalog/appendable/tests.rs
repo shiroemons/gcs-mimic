@@ -260,7 +260,7 @@ async fn interrupted_finalization_before_publication_stays_appendable() {
         .await
         .unwrap();
     writer.flush().await.unwrap();
-    writer.mark_finalizing(true).await.unwrap();
+    writer.mark_finalizing(Finalizing::Started).await.unwrap();
     let generation = writer.record().generation;
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();

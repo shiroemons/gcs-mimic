@@ -141,7 +141,7 @@ async fn run_live_config(
     >,
 ) -> io::Result<()> {
     catalog
-        .set_change_journal_enabled(true)
+        .enable_change_journal()
         .await
         .map_err(io::Error::other)?;
     let mut cursor = catalog
@@ -995,7 +995,7 @@ async fn reconcile_until(
     baseline: BaselineGate,
 ) -> io::Result<Reconciliation> {
     catalog
-        .set_change_journal_enabled(true)
+        .enable_change_journal()
         .await
         .map_err(io::Error::other)?;
     let fence = catalog

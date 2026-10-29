@@ -203,7 +203,7 @@ async fn live_export_identical_observation_preserves_edits_before_durable_and_ac
     for durable in [false, true] {
         let (_data, tree, catalog, bucket, root) = live_fixture().await;
         let record = publish_origin(&catalog, &bucket, b"same", Origin::Api).await;
-        catalog.set_change_journal_enabled(true).await.unwrap();
+        catalog.enable_change_journal().await.unwrap();
         let fence = catalog.read_changes(None, None, 1).await.unwrap().fence;
         let binding = catalog.sync_state().binding(&bucket).await.unwrap();
         let writeback = root
@@ -715,7 +715,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
             .await
             .unwrap()
             .unwrap();
-        catalog.set_change_journal_enabled(true).await.unwrap();
+        catalog.enable_change_journal().await.unwrap();
         let fence = catalog.read_changes(None, None, 1).await.unwrap().fence;
         let writeback = root
             .writeback(Limits::new(4096, 10).unwrap())

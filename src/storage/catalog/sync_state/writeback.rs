@@ -465,10 +465,17 @@ fn original(connection: &Connection, item: &Pending) -> Result<(), Error> {
     Ok(())
 }
 
-fn parent(root: &File, path: &str, sync: bool) -> Result<Option<File>, Error> {
+/// Whether opening a parent chain also fsyncs each directory on the way.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ParentSync {
+    Sync,
+    Skip,
+}
+
+fn parent(root: &File, path: &str, sync: ParentSync) -> Result<Option<File>, Error> {
     let (parents, _) = path.rsplit_once('/').ok_or_else(stale)?;
     let mut directory = root.try_clone()?;
-    if sync {
+    if sync == ParentSync::Sync {
         directory.sync_all()?;
     }
     for part in parents.split('/') {
@@ -481,14 +488,14 @@ fn parent(root: &File, path: &str, sync: bool) -> Result<Option<File>, Error> {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e.into()),
         };
-        if sync {
+        if sync == ParentSync::Sync {
             directory.sync_all()?;
         }
     }
     Ok(Some(directory))
 }
 fn target(root: &File, path: &str) -> Result<Option<File>, Error> {
-    let Some(directory) = parent(root, path, false)? else {
+    let Some(directory) = parent(root, path, ParentSync::Skip)? else {
         return Ok(None);
     };
     let name = path.rsplit('/').next().ok_or_else(stale)?;
@@ -570,7 +577,7 @@ fn fingerprint(
         }
         _ => return Err(stale()),
     };
-    parent(root, &item.path, true)?;
+    parent(root, &item.path, ParentSync::Sync)?;
     workspace.sync_all()?;
     root.sync_all()?;
     Ok(result)

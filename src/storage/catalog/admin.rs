@@ -677,7 +677,7 @@ impl Admin {
                         condition
                             .map(GenerationCondition::conditions)
                             .unwrap_or_default(),
-                        true,
+                        objects::Overwrite::Allowed,
                         clock.now(),
                     )
                 })();
@@ -705,7 +705,7 @@ impl Admin {
                     &name,
                     generation.map(Generation::get),
                     ObjectConditions::default(),
-                    true,
+                    super::objects::RequestKind::Read,
                     &access,
                 )
                 .map(|(record, _)| record))

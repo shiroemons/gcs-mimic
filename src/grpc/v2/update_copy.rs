@@ -1009,7 +1009,11 @@ impl Storage {
             .compose_object(
                 destination,
                 sources,
-                r.delete_source_objects.unwrap_or(false),
+                if r.delete_source_objects.unwrap_or(false) {
+                    crate::storage::SourceDisposal::Delete
+                } else {
+                    crate::storage::SourceDisposal::Keep
+                },
                 self.max_object_bytes,
             )
             .await

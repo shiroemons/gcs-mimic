@@ -1378,7 +1378,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
             .unwrap();
         assert_eq!(
             Catalog::bucket_settings_in_transaction(&transaction, "bucket").unwrap(),
-            (true, false)
+            (super::catalog::Versioning::Enabled, false)
         );
         assert_eq!(
             Catalog::bucket_settings_in_transaction(&transaction, "missing"),

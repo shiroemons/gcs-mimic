@@ -774,7 +774,7 @@ impl pb::storage_server::Storage for Storage {
                     component_count: None,
                 },
                 sources,
-                false,
+                crate::storage::SourceDisposal::Keep,
                 self.max_object_bytes,
             )
             .await

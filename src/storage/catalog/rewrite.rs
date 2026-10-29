@@ -376,45 +376,50 @@ impl Catalog {
         let owner = Arc::new(Mutex::new(None));
         let callback_owner = owner.clone();
         let catalog = self.clone();
-        self.begin_derived_with_binding(segments, max_bytes, false, move |connection, transfer| {
-            *callback_owner.lock().map_err(object_unclassified)? =
-                Some(catalog.guard_derived_request(&transfer.id));
-            let count: i64 = connection
-                .query_row(
-                    "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
-                    [],
-                    |row| row.get(0),
-                )
-                .map_err(object_unclassified)?;
-            if count >= 128 {
-                return Err(object_unclassified("rewrite session limit reached"));
-            }
-            let request = encode(
-                &start,
-                &incarnation(connection, &start.binding.source_bucket)?,
-                &incarnation(connection, &start.binding.destination_bucket)?,
-            );
-            connection
-                .execute(
-                    "INSERT INTO rewrite_sessions VALUES (?1,?2,NULL,?3,0,?4,?5,NULL,?1)",
-                    params![
-                        transfer.id,
-                        token,
-                        request.to_string(),
-                        transfer.total as i64,
-                        unix_millis(transfer.deadline).map_err(object_unclassified)?
-                    ],
-                )
-                .map_err(object_unclassified)?;
-            let session = connection
-                .query_row(
-                    "SELECT * FROM rewrite_sessions WHERE id=?1",
-                    [&transfer.id],
-                    read,
-                )
-                .map_err(object_unclassified)?;
-            check_source(connection, &session, &start.source_access).map(|_| ())
-        })
+        self.begin_derived_with_binding(
+            segments,
+            max_bytes,
+            super::derived::TransferKind::Continuable,
+            move |connection, transfer| {
+                *callback_owner.lock().map_err(object_unclassified)? =
+                    Some(catalog.guard_derived_request(&transfer.id));
+                let count: i64 = connection
+                    .query_row(
+                        "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(object_unclassified)?;
+                if count >= 128 {
+                    return Err(object_unclassified("rewrite session limit reached"));
+                }
+                let request = encode(
+                    &start,
+                    &incarnation(connection, &start.binding.source_bucket)?,
+                    &incarnation(connection, &start.binding.destination_bucket)?,
+                );
+                connection
+                    .execute(
+                        "INSERT INTO rewrite_sessions VALUES (?1,?2,NULL,?3,0,?4,?5,NULL,?1)",
+                        params![
+                            transfer.id,
+                            token,
+                            request.to_string(),
+                            transfer.total as i64,
+                            unix_millis(transfer.deadline).map_err(object_unclassified)?
+                        ],
+                    )
+                    .map_err(object_unclassified)?;
+                let session = connection
+                    .query_row(
+                        "SELECT * FROM rewrite_sessions WHERE id=?1",
+                        [&transfer.id],
+                        read,
+                    )
+                    .map_err(object_unclassified)?;
+                check_source(connection, &session, &start.source_access).map(|_| ())
+            },
+        )
         .await?;
         self.0.maintenance_wake.notify_one();
         let owner = owner

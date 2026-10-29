@@ -73,7 +73,11 @@ impl Catalog {
                 generation,
                 unix_micros(clock.now()).map_err(object_unavailable)?,
             )?;
-            objects::check_conditions(Some(&record), conditions, true)?;
+            objects::check_conditions(
+                Some(&record),
+                conditions,
+                super::objects::RequestKind::Read,
+            )?;
             Ok(record)
         })
         .await
@@ -125,7 +129,7 @@ impl Catalog {
                                         &name,
                                         Some(generation),
                                         Default::default(),
-                                        false,
+                                        super::objects::RequestKind::Write,
                                         &restore_access,
                                     ) {
                                         Ok(_) => ObjectError::ObjectNotSoftDeleted,

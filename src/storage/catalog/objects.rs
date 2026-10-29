@@ -956,7 +956,7 @@ impl Catalog {
                 &name,
                 generation,
                 conditions,
-                true,
+                RequestKind::Read,
                 &access,
             )
             .map(|(record, _)| record)
@@ -1047,7 +1047,7 @@ impl Catalog {
                 &name,
                 generation,
                 conditions,
-                false,
+                RequestKind::Write,
                 &access,
             )?;
             validate(&record)?;
@@ -1199,7 +1199,7 @@ pub(super) fn open_selected(
         name,
         generation,
         conditions,
-        true,
+        RequestKind::Read,
         access,
     )?;
     // Open under the same execution permit that serializes deletes and overwrites.
@@ -1252,13 +1252,18 @@ pub(super) fn delete_selected(
         name,
         generation,
         conditions,
-        false,
+        RequestKind::Write,
         access,
     )?;
     let (versioning, _) = Catalog::bucket_settings_in_transaction(&transaction, bucket)
         .map_err(object_unavailable)?;
     // Deleting a live version in a versioned bucket only makes it noncurrent.
-    if versioning && generation.is_none() {
+    let retirement = if versioning == Versioning::Enabled && generation.is_none() {
+        Retirement::Noncurrent
+    } else {
+        Retirement::Removed
+    };
+    if retirement == Retirement::Noncurrent {
         record.check_policy_and_holds(clock.now())?;
     } else {
         record.check_retention(clock.now())?;
@@ -1276,7 +1281,7 @@ pub(super) fn delete_selected(
     retire_previous(
         &transaction,
         Some(&(record, id)),
-        versioning && generation.is_none(),
+        retirement,
         unix_micros(clock.now()).map_err(object_unavailable)?,
     )?;
     transaction.commit().map_err(object_unavailable)?;
@@ -1768,7 +1773,7 @@ pub(super) fn authorized_bucket(
     connection: &Connection,
     bucket: &str,
     access: &BucketAccess,
-) -> Result<(String, bool), ObjectError> {
+) -> Result<(String, Overwrite), ObjectError> {
     let (storage_class, project): (String, String) = connection
         .prepare_cached("SELECT storage_class, project FROM buckets WHERE name = ?1")
         .and_then(|mut statement| statement.query_row([bucket], |r| Ok((r.get(0)?, r.get(1)?))))
@@ -1780,7 +1785,12 @@ pub(super) fn authorized_bucket(
             CatalogError::Forbidden => ObjectError::Forbidden,
             error => object_unavailable(error),
         })?;
-    Ok((storage_class, allow_overwrite))
+    let overwrite = if allow_overwrite {
+        Overwrite::Allowed
+    } else {
+        Overwrite::Forbidden
+    };
+    Ok((storage_class, overwrite))
 }
 
 pub(super) fn lookup(
@@ -1801,7 +1811,7 @@ pub(super) fn selected(
     name: &str,
     generation: Option<i64>,
     conditions: ObjectConditions,
-    read: bool,
+    request: RequestKind,
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, String), ObjectError> {
     authorized_bucket(connection, bucket, access)?;
@@ -1817,7 +1827,7 @@ pub(super) fn selected(
         lookup(connection, bucket, name)?
     }
     .ok_or(ObjectError::ObjectNotFound)?;
-    check_conditions(Some(&record), conditions, read)?;
+    check_conditions(Some(&record), conditions, request)?;
     Ok((record, id))
 }
 
@@ -1825,11 +1835,15 @@ pub(super) fn selected(
 pub(super) fn check_publication(
     previous: Option<&(ObjectRecord, String)>,
     conditions: ObjectConditions,
-    allow_overwrite: bool,
+    overwrite: Overwrite,
     now: std::time::SystemTime,
 ) -> Result<(), ObjectError> {
-    check_conditions(previous.map(|(record, _)| record), conditions, false)?;
-    if previous.is_some() && !allow_overwrite {
+    check_conditions(
+        previous.map(|(record, _)| record),
+        conditions,
+        RequestKind::Write,
+    )?;
+    if previous.is_some() && overwrite == Overwrite::Forbidden {
         return Err(ObjectError::OverwriteForbidden);
     }
     // Object retention depends on versioning; publish_in_transaction checks it.
@@ -1881,6 +1895,36 @@ pub(super) fn inherit_metadata(
     }
 }
 
+/// Whether the caller may delete objects, and so replace a live object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Overwrite {
+    Allowed,
+    Forbidden,
+}
+
+/// Whether the bucket keeps replaced live generations as noncurrent versions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Versioning {
+    Enabled,
+    Disabled,
+}
+
+/// What happens to a live generation that is replaced or deleted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Retirement {
+    /// The generation stays readable as a noncurrent version.
+    Noncurrent,
+    /// The generation is soft deleted when the bucket retains deletions, or removed.
+    Removed,
+}
+
+/// Which failure an unmet not-match precondition reports: reads answer 304.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RequestKind {
+    Read,
+    Write,
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum GenerationAssignment {
     Automatic,
@@ -1897,7 +1941,7 @@ pub(super) fn publish_in_transaction<T>(
     micros: i64,
     assignment: GenerationAssignment,
     previous: Option<&(ObjectRecord, String)>,
-    versioning: bool,
+    versioning: Versioning,
     blob_id: &str,
     origin: super::admin::Origin,
     prepare: impl FnOnce(i64) -> Result<(ObjectRecord, T), ObjectError>,
@@ -1928,7 +1972,9 @@ pub(super) fn publish_in_transaction<T>(
         .transpose()?;
     let now = system_time_micros(micros).map_err(object_unavailable)?;
     // A retained live version may become noncurrent, but it cannot be replaced outright.
-    if !versioning && let Some((previous, _)) = previous {
+    if versioning == Versioning::Disabled
+        && let Some((previous, _)) = previous
+    {
         previous.check_object_retention(now)?;
     }
     retention::validate_publication(transaction, &record, now)?;
@@ -1943,7 +1989,11 @@ pub(super) fn publish_in_transaction<T>(
         }
     }
     let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
-    let retired = retire_previous(transaction, previous, versioning, micros)?;
+    let retirement = match versioning {
+        Versioning::Enabled => Retirement::Noncurrent,
+        Versioning::Disabled => Retirement::Removed,
+    };
+    let retired = retire_previous(transaction, previous, retirement, micros)?;
     transaction
         .execute(
             "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1",
@@ -2089,13 +2139,13 @@ impl Catalog {
 pub(super) fn retire_previous(
     connection: &Connection,
     previous: Option<&(ObjectRecord, String)>,
-    retain: bool,
+    retirement: Retirement,
     micros: i64,
 ) -> Result<Option<String>, ObjectError> {
     let Some((record, id)) = previous else {
         return Ok(None);
     };
-    if retain {
+    if retirement == Retirement::Noncurrent {
         connection
             .execute(
                 "UPDATE objects SET time_deleted = ?2 WHERE blob_id = ?1",
@@ -2129,7 +2179,7 @@ pub(super) fn retire_previous(
 pub(super) fn check_conditions(
     record: Option<&ObjectRecord>,
     conditions: ObjectConditions,
-    read: bool,
+    request: RequestKind,
 ) -> Result<(), ObjectError> {
     let generation = record.map_or(0, |record| record.generation);
     let metageneration = record.map(|record| record.metageneration);
@@ -2149,7 +2199,7 @@ pub(super) fn check_conditions(
             .if_metageneration_not_match
             .is_some_and(|value| metageneration.is_none() || Some(value) == metageneration)
     {
-        return Err(if read {
+        return Err(if request == RequestKind::Read {
             ObjectError::NotModified
         } else {
             ObjectError::PreconditionFailed

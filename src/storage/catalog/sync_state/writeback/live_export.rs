@@ -232,7 +232,7 @@ impl Writeback {
                             None => Ok(false),
                         };
                     }
-                    let directory = parent(root,&selected.path,false)?.ok_or_else(stale)?;
+                    let directory = parent(root,&selected.path,ParentSync::Skip)?.ok_or_else(stale)?;
                     let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
                     let retained = entry(workspace,&selected.token.id)?;
                     let already_installed = match staged {

@@ -8,6 +8,13 @@ pub struct Unpublished {
     target: Option<fsutil::FileIdentity>,
 }
 
+/// Whether the prepared body was already installed at the target path.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Installation {
+    Installed,
+    Absent,
+}
+
 fn same_inode(left: fsutil::FileIdentity, right: fsutil::FileIdentity) -> bool {
     left.device == right.device && left.inode == right.inode
 }
@@ -154,7 +161,8 @@ impl Writeback {
                 Ok(())
             })
             .await?;
-            this.finish_without_progress(item, false).await
+            this.finish_without_progress(item, Installation::Absent)
+                .await
         })
         .await
     }
@@ -187,23 +195,28 @@ impl Writeback {
                     return Err(Error::Protected);
                 }
                 file.sync_all()?;
-                parent(root, &selected.path, true)?;
+                parent(root, &selected.path, ParentSync::Sync)?;
                 workspace.sync_all()?;
                 root.sync_all()?;
                 Ok(())
             })
             .await?;
-            this.finish_without_progress(item, true).await
+            this.finish_without_progress(item, Installation::Installed)
+                .await
         })
         .await
     }
 
-    async fn finish_without_progress(&self, item: Pending, installed: bool) -> Result<(), Error> {
+    async fn finish_without_progress(
+        &self,
+        item: Pending,
+        installation: Installation,
+    ) -> Result<(), Error> {
         self.db(move |c| {
             let tx = c.transaction()?;
             let current = checked(&tx, &item.token)?;
             if current.retained_bytes.is_some() { return Err(Error::Protected); }
-            if installed {
+            if installation == Installation::Installed {
                 match original(&tx, &current) {
                     Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => {},
                     Ok(()) => return Err(stale()),
@@ -215,7 +228,7 @@ impl Writeback {
             usage.reserved_bytes = usage.reserved_bytes.checked_sub(u128::from(current.reserved_bytes)).ok_or_else(stale)?;
             usage.recovery = usage.entries != 0;
             save_status(&tx, item.token.root, &usage)?;
-            if installed {
+            if installation == Installation::Installed {
                 tx.execute("UPDATE sync_writeback_ops SET phase=4,revision=revision+1,io_failure=0 WHERE id=?1", [&item.token.id])?;
                 tx.execute("DELETE FROM sync_writeback_ops WHERE phase=4 AND ordinal <= (SELECT coalesce(max(ordinal),0)-65536 FROM sync_writeback_ops) AND ordinal IN (SELECT ordinal FROM sync_writeback_ops WHERE phase=4 ORDER BY ordinal LIMIT 256)", [])?;
             } else {
