@@ -7,7 +7,7 @@ use crate::{
         UploadChunk,
     },
 };
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use rusqlite::{
     Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params, types::Type,
 };
@@ -435,14 +435,16 @@ impl ObjectReader {
         if self.remaining == 0 {
             return Ok(None);
         }
-        let mut buffer = vec![0; self.remaining.min(CHUNK_SIZE as u64) as usize];
-        let length = self.file.read(&mut buffer).await?;
+        let limit = self.remaining.min(CHUNK_SIZE as u64);
+        // Reading into spare capacity skips zero-filling a buffer the read overwrites;
+        // `take` keeps the read within the persisted size even if capacity is larger.
+        let mut buffer = BytesMut::with_capacity(limit as usize);
+        let length = (&mut self.file).take(limit).read_buf(&mut buffer).await?;
         if length == 0 {
             return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
         }
         self.remaining -= length as u64;
-        buffer.truncate(length);
-        Ok(Some(Bytes::from(buffer)))
+        Ok(Some(buffer.freeze()))
     }
 }
 

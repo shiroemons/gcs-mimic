@@ -2059,7 +2059,7 @@ pub(crate) async fn stream_upload(
     let mut sha256 = expected_sha256.map(|_| ring::digest::Context::new(&ring::digest::SHA256));
     while let Some(frame) = body.frame().await {
         let frame = frame.map_err(|error| ObjectError::BodyAborted(error.to_string()))?;
-        let bytes = frame
+        let mut bytes = frame
             .into_data()
             .map_err(|_| ObjectError::BodyAborted("Upload trailers are unsupported".into()))?;
         size = size
@@ -2070,13 +2070,12 @@ pub(crate) async fn stream_upload(
         if let Some(hash) = &mut sha256 {
             hash.update(&bytes);
         }
-        // Copy bounded chunks so queued slices cannot retain arbitrarily large transport frames.
-        for part in bytes.chunks(64 * 1024) {
-            if sender
-                .send(Ok(UploadChunk::Data(Bytes::copy_from_slice(part))))
-                .await
-                .is_err()
-            {
+        // HTTP/1 frames are capped by the 16 KiB connection read buffer, so passing them on
+        // without a copy keeps what the two-slot channel retains bounded; larger frames are
+        // still split into 64 KiB chunks.
+        while !bytes.is_empty() {
+            let part = bytes.split_to(bytes.len().min(64 * 1024));
+            if sender.send(Ok(UploadChunk::Data(part))).await.is_err() {
                 // Preserve the catalog's original failure when it stops accepting the body.
                 return Ok(());
             }

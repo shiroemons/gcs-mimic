@@ -168,7 +168,7 @@ Bucket/probe routes retain a total deadline.
 Uploads share the `max_connections` limit (default 32), with excess connections
 waiting for capacity. There is no separate upload admission cap. Each upload uses
 a two-slot channel with at most 64 KiB
-per copied chunk, and independent size checks before publication. Downloads use one channel
+per chunk, and independent size checks before publication. Downloads use one channel
 slot and a 64 KiB reader. No transaction or blocking worker waits for incoming body data.
 These inspected bounds are not an RSS/cgroup/CPU benchmark; the 1 GiB default cap has not
 been verified by a 1 GiB transfer under the Compose limit.

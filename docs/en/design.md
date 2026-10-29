@@ -75,7 +75,7 @@ Uploads have no separate admission cap: `max_connections` bounds API connections
 and excess connections wait. Header validation and the known Content-Length cap
 check precede upload tracking. Shutdown closes tracking admission and waits for
 the active count to reach zero through notification after publication or cleanup.
-Each upload uses two channel slots with copied chunks of at most 64 KiB, incremental
+Each upload uses two channel slots with chunks of at most 64 KiB, incremental
 MD5/CRC32C and asynchronous short file jobs. Downloads use one channel slot and a 64 KiB
 reader. Neither a database transaction nor a blocking worker is held waiting for body input.
 Catalog admission remains 32 calls with one executing SQLite job. HTTP/1.1 connections stay

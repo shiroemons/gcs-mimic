@@ -306,8 +306,8 @@ current live generations.
 unlimited mode. Content-Length above the cap is rejected before reading; the producer and
 storage writer independently enforce the limit for unknown-length streams.
 
-Uploads have a two-slot Tokio channel with copied chunks of at most 64 KiB; a queued slice
-cannot retain an oversized incoming transport frame. Hyper parsing remains bounded by its
+Uploads have a two-slot Tokio channel with chunks of at most 64 KiB; a queued chunk
+shares an incoming transport frame, which hyper bounds. Hyper parsing remains bounded by its
 16 KiB connection buffer. Downloads use a one-slot http-body-util channel and a 64 KiB reader.
 The disk writer holds no database transaction or blocking worker while waiting for a body.
 Eight upload permits are available, with immediate excess rejection; ordinary catalog
