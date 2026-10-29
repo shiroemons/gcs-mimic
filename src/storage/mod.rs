@@ -7,6 +7,7 @@ mod lock;
 mod object_tests;
 pub use catalog::admin;
 pub use catalog::change_journal;
+pub use catalog::hmac_keys;
 pub use catalog::import_journal;
 pub(crate) use catalog::rewrite;
 pub use catalog::sync_state;

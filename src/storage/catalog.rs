@@ -98,10 +98,13 @@ pub mod import_journal;
 #[path = "sync_state.rs"]
 pub mod sync_state;
 
+#[path = "hmac_keys.rs"]
+pub mod hmac_keys;
+
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 31;
+const CATALOG_SCHEMA_VERSION: i64 = 32;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -390,6 +393,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
     if version >= 31 {
         expected
             .execute_batch(bucket_autoclass::SCHEMA)
+            .map_err(unavailable)?;
+    }
+    if version >= 32 {
+        expected
+            .execute_batch(hmac_keys::SCHEMA)
             .map_err(unavailable)?;
     }
     let inventory =
@@ -715,6 +723,9 @@ impl Catalog {
             }
             if version < 31 {
                 bucket_autoclass::migrate(&mut connection)?;
+            }
+            if version < 32 {
+                hmac_keys::migrate(&mut connection)?;
             }
             // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
             if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {

@@ -29,8 +29,16 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
         DROP TABLE objects_with_versions;").unwrap();
 }
 
+/// Restores the schema 31 layout, which predates project HMAC keys.
+pub fn downgrade_hmac_key_schema(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch("DROP TABLE IF EXISTS hmac_keys;")
+        .unwrap();
+}
+
 /// Remove the version 31 Autoclass column; fixtures built at older versions lack it.
 pub fn downgrade_autoclass_schema(connection: &rusqlite::Connection) {
+    downgrade_hmac_key_schema(connection);
     let present: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('buckets') WHERE name = 'autoclass')",
