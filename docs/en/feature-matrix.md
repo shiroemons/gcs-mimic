@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 222 | 0 | 87 | 1 | 0 | 0 |
 | behavior | 201 | 101 | 0 | 62 | 38 | 0 | 0 |
-| project_requirement | 95 | 34 | 0 | 30 | 31 | 0 | 0 |
+| project_requirement | 95 | 31 | 0 | 33 | 31 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 222 | 38 | 32 | 18 | 0 | 0 |
 | behavior | 102 | 60 | 35 | 4 | 0 | 0 |
-| project_requirement | 34 | 0 | 0 | 0 | 0 | 61 |
+| project_requirement | 31 | 0 | 0 | 0 | 0 | 64 |
 
 ## api_operation
 
@@ -952,13 +952,13 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-001 | Official Java SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-002 | Official .NET SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
-| AUDIT-004 | Official PHP SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
+| AUDIT-004 | Official PHP SDK integration | PARTIAL | P7 | PROJECT | PROJECT | 1 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 13 |
 | DESIGN-083 | Ruby official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 4 |
 | DESIGN-084 | Rails Active Storage workflows | PARTIAL | P2 | PROJECT | PROJECT | 1 |
-| DESIGN-085 | Node official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-086 | Python official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
+| DESIGN-085 | Node official SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 1 |
+| DESIGN-086 | Python official SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 1 |
 | DESIGN-087 | Official Rust SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-088 | Hermetic SDK tests deny unintended egress | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-089 | Optional Google differential conformance | NOT_STARTED | P0 | EXTERNAL | NONE | 0 |

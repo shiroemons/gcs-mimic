@@ -51701,25 +51701,32 @@
       "interface": "SDK compatibility",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
-        "https://github.com/googleapis/nodejs-storage/blob/main/src/storage.ts"
+        "https://registry.npmjs.org/@google-cloud/storage/8.4.0"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Verify apiEndpoint versus emulator-host base-path handling and signing endpoint separately.",
+      "notes": "Pinned @google-cloud/storage 8.4.0 on Node.js 26.13.0; the HTTP permissive scorecard records 22/51 passing workflows. apiEndpoint is an origin; STORAGE_EMULATOR_HOST is cleared because this SDK treats it as the JSON base path. V4 signing uses the configured endpoint. Contract and limitations: sdk-scorecard/README.md. This is a measured partial integration, not complete SDK support.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "REFINED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "NODE-SCORECARD", "description": "Run the 51 shared bucket, object and signing workflows with unchanged SDK requests; every scoped workflow must pass for full HTTP compatibility.", "result": "FAIL", "test_ids": ["scorecard-node"]},
+        {"id": "NODE-EXTENDED", "description": "Verify strict credentials/authorization, TLS, other supported transports and provider differential behavior separately.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["scorecard-node"],
+      "verification": [
+        {"command": "bash sdk-scorecard/run.sh --out sdk-scorecard/results/2026-10-29-3", "result": "FAIL", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/results/2026-10-29-3/gcs-mimic.node.jsonl", "test_ids": ["scorecard-node"]}
+      ],
+      "sdk_evidence": [
+        {"language": "Node.js", "toolchain": "26.13.0", "sdk": "@google-cloud/storage", "version": "8.4.0", "transport": "HTTP JSON/XML; explicit anonymous custom endpoint and offline signing", "command": "bash sdk-scorecard/run.sh --out sdk-scorecard/results/2026-10-29-3", "result": "FAIL", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/results/2026-10-29-3/gcs-mimic.node.jsonl", "test_ids": ["scorecard-node"]}
+      ],
+      "known_deviations": ["29/51 workflows fail, chiefly because ordinary non-resumable upload sends x-goog-gcs-idempotency-token without ifGenerationMatch and is rejected. Later operations in those workflows are not reached. SPEC-SDK-SCORECARD-CLIENTS tracks follow-up; strict/TLS/other transport and real-provider verification remain pending."],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "DESIGN-086",
@@ -51729,25 +51736,32 @@
       "interface": "SDK compatibility",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
-        "https://github.com/googleapis/python-storage/blob/main/google/cloud/storage/_helpers.py"
+        "https://pypi.org/pypi/google-cloud-storage/3.17.1/json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Validate scheme-inclusive emulator endpoint and separate signing behavior for pinned versions.",
+      "notes": "Pinned google-cloud-storage 3.17.1 / cryptography 50.0.2 on Python 3.14.10; the HTTP permissive scorecard records 18/51 passing workflows. Uses a scheme-inclusive emulator origin, explicit AnonymousCredentials, a local-only HTTP session and offline service-account signer. Contract and limitations: sdk-scorecard/README.md. No complete SDK compatibility claim.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "REFINED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "PYTHON-SCORECARD", "description": "Run the 51 shared bucket, object and signing workflows with unchanged SDK requests, including forced resumable writes, paging, conditions and local signing; every scoped workflow must pass for full HTTP compatibility.", "result": "FAIL", "test_ids": ["scorecard-python"]},
+        {"id": "PYTHON-EXTENDED", "description": "Verify strict credentials/authorization, TLS, optional transports and real-provider behavior separately.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["scorecard-python"],
+      "verification": [
+        {"command": "bash sdk-scorecard/run.sh --out sdk-scorecard/results/2026-10-29-3", "result": "FAIL", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/results/2026-10-29-3/gcs-mimic.python.jsonl", "test_ids": ["scorecard-python"]}
+      ],
+      "sdk_evidence": [
+        {"language": "Python", "toolchain": "3.14.10", "sdk": "google-cloud-storage", "version": "3.17.1", "transport": "HTTP JSON/XML; AnonymousCredentials, guarded session and offline signer", "command": "bash sdk-scorecard/run.sh --out sdk-scorecard/results/2026-10-29-3", "result": "FAIL", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/results/2026-10-29-3/gcs-mimic.python.jsonl", "test_ids": ["scorecard-python"]}
+      ],
+      "known_deviations": ["33/51 workflows fail. Uploads send x-upload-content-type, which is rejected; bucket ACL/default ACL save uses unsupported PATCH resource fields; enableObjectRetention=True is rejected by lowercase-only boolean parsing. Later workflow operations may not be reached. SPEC-SDK-SCORECARD-CLIENTS tracks follow-up; strict/TLS/optional transport and real-provider verification remain pending."],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "DESIGN-087",
@@ -55541,25 +55555,33 @@
       "interface": "Client integration",
       "phase": "P7",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/reference/libraries"
+        "https://github.com/googleapis/google-cloud-php-storage/tree/cf14f967fa45113e2a239fe9103bada8d7b92021",
+        "https://packagist.org/packages/google/cloud-storage"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pin google/cloud-storage and PHP. Verify endpoint override, credential fixtures, upload/download, metadata, list pagination, preconditions and signed URLs.",
+      "notes": "Pinned google/cloud-storage 2.6.1 on PHP 8.5.12 / Composer 2.10.3 in the digest-pinned official container; the HTTP permissive scorecard records 21/51 passing workflows. Uses apiEndpoint, explicit AnonymousCredentials, local-only Guzzle transport and offline signer. cURL CONNECT_TO routes loopback through the Docker gateway without URL or Host changes. Contract and limitations: sdk-scorecard/README.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "REFINED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "PHP-SCORECARD", "description": "Run the 51 shared bucket, object and signing workflows with unchanged SDK requests, including paging, conditions, resumable upload and local signing; every scoped workflow must pass for full HTTP compatibility.", "result": "FAIL", "test_ids": ["scorecard-php"]},
+        {"id": "PHP-EXTENDED", "description": "Verify strict credentials/authorization, TLS and real-provider behavior separately; establish a supported endpoint configuration for unchanged V2 URLs.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["scorecard-php"],
+      "verification": [
+        {"command": "bash sdk-scorecard/run.sh --out sdk-scorecard/results/2026-10-29-3", "result": "FAIL", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/results/2026-10-29-3/gcs-mimic.php.jsonl", "test_ids": ["scorecard-php"]}
+      ],
+      "sdk_evidence": [
+        {"language": "PHP", "toolchain": "8.5.12", "sdk": "google/cloud-storage", "version": "2.6.1", "transport": "HTTP JSON/XML; anonymous endpoint, guarded Guzzle/cURL transport and offline signer", "command": "bash sdk-scorecard/run.sh --out sdk-scorecard/results/2026-10-29-3", "result": "FAIL", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/results/2026-10-29-3/gcs-mimic.php.jsonl", "test_ids": ["scorecard-php"]}
+      ],
+      "known_deviations": ["30/51 workflows fail, chiefly because ordinary upload sends x-goog-gcs-idempotency-token without ifGenerationMatch and is rejected. Resumable upload also fails; the SDK error only supplies a resume URI. The V2 signer hardcodes HTTPS, so unchanged V2 URLs cannot run against this HTTP-only scorecard. Later workflow operations may not be reached. SPEC-SDK-SCORECARD-CLIENTS tracks follow-up; strict/TLS/provider verification remains pending."],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "AUDIT-005",

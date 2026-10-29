@@ -2,10 +2,12 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-The scorecard measures how much of the official Go and Ruby Cloud Storage SDK
-surface works unmodified against a local emulator. It runs the same probes,
-inputs and pass criteria against gcs-mimic, fake-gcs-server and
-gcp-storage-emulator, so results are comparable across products and over time.
+The scorecard measures workflows using the official Go, Ruby, Node.js, PHP and
+Python Cloud Storage SDKs against local emulators. Within each SDK, it runs the
+same probes, inputs and pass criteria against gcs-mimic, fake-gcs-server and
+gcp-storage-emulator. Shared case IDs across SDKs do not establish identical
+inputs, assertions or endpoint adaptations. Cross-SDK equivalence is not yet
+verified, so aggregate scores are provisional.
 
 It is a compatibility comparison, not a performance benchmark, and not an
 implementation-status source: `compatibility/features.json` remains the only
@@ -15,13 +17,14 @@ result for that workflow; it does not mean the underlying API method is
 
 ## Scoring
 
-A product that passes every Go and Ruby case scores 100.
+A product that passes every case in all five SDKs scores 100.
 
-- Each SDK contributes 50 points.
-- Within an SDK, every case has equal weight: `50 × passed / total`.
-- Score = Go half + Ruby half, rounded to one decimal.
+- Each SDK contributes 20 points.
+- Within an SDK, every case has equal weight: `20 × passed / total`.
+- Score = sum of the five SDK contributions, rounded to one decimal.
+- Historical two-SDK runs keep their original 50-point weights when rescored.
 
-Ruby has no gRPC transport, so the Go probe has more cases than the Ruby probe.
+Only the Go probe exercises gRPC, so it has more cases than the other probes.
 Equal weighting is a deliberate simplification: an ACL round trip counts as much
 as resumable upload. Read the per-area table in each `summary.md` alongside the
 total.
@@ -47,15 +50,19 @@ scorecard.
 
 ## Areas
 
-| Area | Go | Ruby | Scope |
-| --- | --- | --- | --- |
-| bucket | 20 | 20 | Bucket CRUD/listing, labels, preconditions, versioning, lifecycle, CORS, retention and lock, UBLA, PAP, IAM, soft-delete policy, autoclass, ACL/default ACL, notifications, HMAC keys, service account |
-| object | 27 | 27 | Uploads (single, resumable, metadata, checksums), range reads, PATCH, delete, generation/metageneration conditions, listing (delimiter, paging, offsets, glob), copy, rewrite, compose, move, ACL, holds, object retention, custom time, storage class, gzip transcoding, CSEK, soft delete/restore |
-| signed | 4 | 4 | V4 GET/PUT, V2 GET, V4 POST policy |
-| grpc | 6 | – | `storage.NewGRPCClient`: bucket CRUD, write/read, list, update/delete, MultiRangeDownloader, appendable objects |
+| Area | Go | Ruby | Node.js | PHP | Python | Scope |
+| --- | --- | --- | --- | --- | --- | --- |
+| bucket | 20 | 20 | 20 | 20 | 20 | Bucket CRUD/listing, labels, preconditions, versioning, lifecycle, CORS, retention and lock, UBLA, PAP, IAM, soft-delete policy, autoclass, ACL/default ACL, notifications, HMAC keys, service account |
+| object | 27 | 27 | 27 | 27 | 27 | Uploads (single, resumable, metadata, checksums), range reads, PATCH, delete, generation/metageneration conditions, listing (delimiter, paging, offsets, glob), copy, rewrite, compose, move, ACL, holds, object retention, custom time, storage class, gzip transcoding, CSEK, soft delete/restore |
+| signed | 4 | 4 | 4 | 4 | 4 | V4 GET/PUT, V2 GET, V4 POST policy |
+| grpc | 6 | – | – | – | – | `storage.NewGRPCClient`: bucket CRUD, write/read, list, update/delete, MultiRangeDownloader, appendable objects |
 
 Case IDs are shared between the SDKs. The probes live in
-[`go/main.go`](go/main.go) and [`ruby/probe.rb`](ruby/probe.rb).
+[`go/main.go`](go/main.go), [`ruby/probe.rb`](ruby/probe.rb),
+[`node/probe.mjs`](node/probe.mjs), [`php/probe.php`](php/probe.php) and
+[`python/probe.py`](python/probe.py). The scorer rejects missing files,
+incomplete/duplicate cases, invalid pass values, different SDK inputs or case
+sets across products, and differing shared case IDs across SDKs.
 
 ## Pinned inputs
 
@@ -63,12 +70,25 @@ Case IDs are shared between the SDKs. The probes live in
 | --- | --- |
 | Go SDK | `cloud.google.com/go/storage` v1.70.0 (`go/go.mod`, same graph as `sdk-tests/go`) |
 | Ruby SDK | `google-cloud-storage` 1.62.1 (`ruby/Gemfile.lock`, same graph as `sdk-tests/ruby`) |
+| Node.js SDK | `@google-cloud/storage` 8.4.0 (`node/package-lock.json`); measured on Node.js 26.13.0, requires Node.js 24+ |
+| PHP SDK | `google/cloud-storage` 2.6.1 (`php/composer.lock`); official Composer 2.10.3 / PHP 8.5.12 image, digest pinned in `run.sh` |
+| Python SDK | `google-cloud-storage` 3.17.1, `cryptography` 50.0.2 for offline RSA signing (`python/uv.lock`); Python 3.14.10 |
 | gcs-mimic | Release build of the checked-out source; the commit is recorded in `*.meta.json` |
 | fake-gcs-server | `fsouza/fake-gcs-server:1.56.1` |
 | gcp-storage-emulator | `oittaa/gcp-storage-emulator:v2026.07.19` |
 
 Update the pins in `run.sh` and the module files deliberately; record the
 change in the next results directory rather than rewriting old results.
+The new SDK versions were checked against the official
+[npm](https://www.npmjs.com/package/@google-cloud/storage),
+[Packagist](https://packagist.org/packages/google/cloud-storage) and
+[PyPI](https://pypi.org/project/google-cloud-storage/) registries on 2026-10-29.
+They are maintained by Google and licensed Apache-2.0. `cryptography` is
+maintained by PyCA under Apache-2.0 OR BSD-3-Clause. Exact artifact hashes,
+source revisions and dependency versions are in the lockfiles; package sizes
+and provenance are in `compatibility/dependency-status.json`.
+`cargo xtask dependencies check` includes these three ecosystems and the
+Composer image in the existing daily update detection.
 
 ## Emulator configuration
 
@@ -84,19 +104,51 @@ temporary data store, in its most capable documented configuration:
 
 Signed URLs use the public test key in `fixtures/signing`. Clients are
 anonymous and never contact Google Cloud or the metadata server.
+The PHP container routes loopback connections through `host.docker.internal`
+using cURL `CONNECT_TO`; request URLs, Host headers, advertised upload locations
+and signatures stay unchanged. The PHP and Python HTTP handlers reject requests
+outside the emulator origin; signed HTTP requests cannot follow redirects.
+
+SDK-specific public options are part of the probe contract:
+
+- Node.js uses `apiEndpoint` and clears `STORAGE_EMULATOR_HOST`, which the SDK
+  interprets as a JSON API base path instead of an origin. Its normal
+  non-resumable uploads still send the SDK's idempotency token.
+- Python uses scheme-inclusive `STORAGE_EMULATOR_HOST`, explicit anonymous
+  credentials and a separate offline service-account signer. The 3 MiB upload
+  uses `Blob.open("wb")` to force resumable transfer; the wrong-checksum probe
+  uses an 8 MiB + 1 payload because the public upload method only sends the
+  supplied CRC32C on the resumable path. Its copy-with-metadata workflow uses
+  `Blob.rewrite`, which exposes destination metadata.
+- PHP uses `apiEndpoint` and explicit anonymous credentials. Compose supplies
+  `contentType`, which this SDK requires for extensionless destination names.
+  V4 URLs use the SDK's custom-host option with the bucket path. Its V2 signer
+  hardcodes HTTPS, so the unchanged URL fails the HTTP-only scorecard and is
+  rejected before network access. PHP signed URLs are not rewritten after
+  signing; the existing Go V2 probe does adapt its URL scheme, as described below.
+
+Ordinary SDK headers and query values are preserved. A failure during setup
+(for example, upload rejected before a subsequent range read) fails that
+workflow; it is not proof that its later API operation is broken. New checksum
+rejection cases require a checksum-specific 400 response and an absent object;
+an unrelated rejection does not earn credit. Lifecycle, CORS and other setting
+probes check configuration round trips, not scheduled lifecycle execution or
+browser behavior.
 
 ## Running
 
-Requires Bash, Rust, Go, Ruby 4.0.9 with Bundler, Docker, curl and jq.
+Requires Bash, Rust, Go, Ruby 4.0.9 with Bundler, Node.js 24+ with npm, uv,
+Docker, curl and jq. uv selects Python 3.14.10; PHP and Composer run in Docker.
 
 ```sh
 bash sdk-scorecard/run.sh                       # all products, results/<UTC date>/
 bash sdk-scorecard/run.sh gcs-mimic             # one product
 bash sdk-scorecard/run.sh --out "$TMPDIR/sc"    # scratch run
 bash sdk-scorecard/score.sh sdk-scorecard/results/2026-10-29   # rescore recorded results
+bash sdk-scorecard/test-score.sh               # offline scoring checks
 ```
 
-`SCORECARD_RUN=<substring>` restricts both probes to matching case IDs when
+`SCORECARD_RUN=<substring>` restricts individual probes to matching case IDs when
 debugging a single case against a running emulator:
 
 ```sh
@@ -106,10 +158,36 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
+The [2026-10-29 five-SDK run](results/2026-10-29-3/summary.md) records 783
+case executions: 261 per product. Scores are gcs-mimic **63.9**,
+fake-gcs-server **46.1** and gcp-storage-emulator **40.7**.
+gcs-mimic passes Go 57/57, Ruby 51/51, Node.js 22/51, PHP 21/51 and Python
+18/51. Its new-client failures chiefly begin at ordinary upload: Node.js/PHP
+send an idempotency header without a generation condition, while Python sends
+`x-upload-content-type`. Python bucket ACL resource updates and its capitalized
+object-retention query boolean also fail. The raw results preserve these
+failures; the three integration ledger rows remain `PARTIAL`. Next work should
+reconcile ordinary upload headers and replay guarantees with their official
+contracts before implementing server changes.
+
+The former two-SDK score of 100 and the new score of 63.9 use different SDK
+sets and weights. Go/Ruby still pass all their cases in this run. No server
+behavior was changed to obtain this measurement.
+
+Validation for this change passed: `cargo check --workspace --all-targets
+--locked --offline`, `cargo test -p xtask --locked --offline` (44 tests),
+`cargo clippy -p xtask --all-targets --locked --offline -- -D warnings`,
+`bash sdk-scorecard/test-score.sh`, ShellCheck for all three scorecard shell
+scripts, `cargo xtask compatibility check`, Markdown lint and
+`cargo xtask dependencies check` (all inputs current). The full application
+test suite, strict/TLS SDK profiles and real-cloud differential tests were not
+run for this harness-only change.
+
 Each `results/<date>/` directory keeps the raw evidence:
 
-- `<emulator>.meta.json`: product, version and measurement time;
-- `<emulator>.go.jsonl`, `<emulator>.ruby.jsonl`: one line per case with the
+- `<emulator>.meta.json`: product, version, measurement time, source dirty flag,
+  SDK/runtime versions, PHP image digest and expected case counts;
+- `<emulator>.<sdk>.jsonl` for `go`, `ruby`, `node`, `php`, `python`: one line per case with the
   failure detail;
 - `summary.md`: totals, per-area counts and the case matrix.
 
@@ -118,12 +196,29 @@ every product's denominator. When the probes change, rerun all products and
 start a new results directory. A later run on the same UTC date goes in
 `results/<date>-<n>/` (for example `2026-10-29-2`) so earlier results stay
 unchanged.
+The runner selects a fresh suffix automatically and refuses nonempty output
+directories. Probe process failures retain raw output and stop score production;
+ordinary compatibility failures remain recorded `pass: false` cases.
 
 ## Limitations
 
+- Shared case IDs currently cover different checks in some SDKs. Go's
+  `object.update_metadata` verifies merging and clearing the whole map;
+  Ruby and the three added SDKs verify individual-key deletion. Go's resumable
+  case explicitly compares returned CRC32C as well as size and bytes; the other
+  probes do not make that same explicit assertion.
+- Wrong-checksum rejection is stricter in Node.js, PHP and Python: it requires
+  a checksum-specific 400 and no object. Go and Ruby accept any upload error
+  followed by an absent object, which can credit an unrelated failure.
+- V2 endpoint handling differs: Go changes HTTPS to HTTP after signing because
+  V2 does not sign the scheme; PHP keeps the generated HTTPS URL and fails the
+  HTTP-only origin guard. PHP's failure is a harness/endpoint constraint, not
+  evidence that an emulator rejects a valid V2 request. Normalize this policy
+  before treating aggregate scores as equivalent cross-SDK coverage.
 - Equal case weights do not reflect how often each feature is used.
 - Only permissive, HTTP and default-region behavior is measured. Strict
   authorization, TLS, browser CORS and crash recovery have their own evidence
   under `docs/en/evidence`.
 - A case is pass/fail; partial support inside a case is not credited.
-- Error-message text and exact HTTP headers are not compared.
+- Full error-message text and exact HTTP headers are not compared; the new
+  checksum cases do inspect the error message to classify checksum rejection.

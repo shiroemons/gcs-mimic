@@ -1,0 +1,51 @@
+{"sdk": "python", "id": "bucket.create_get_delete", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.list_prefix_paging", "area": "bucket", "pass": false, "detail": "AssertionError: bucket page exceeds 2"}
+{"sdk": "python", "id": "bucket.update_labels", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.metageneration_precondition", "area": "bucket", "pass": false, "detail": "AssertionError: expected PreconditionFailed, got success"}
+{"sdk": "python", "id": "bucket.versioning_history", "area": "bucket", "pass": false, "detail": "AssertionError: version count"}
+{"sdk": "python", "id": "bucket.lifecycle", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.cors", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.retention_policy", "area": "bucket", "pass": false, "detail": "AssertionError: expected Forbidden, got success"}
+{"sdk": "python", "id": "bucket.retention_lock", "area": "bucket", "pass": false, "detail": "MethodNotImplemented: "}
+{"sdk": "python", "id": "bucket.uniform_bucket_level_access", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.public_access_prevention", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.iam_policy", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.iam_test_permissions", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.soft_delete_policy", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.autoclass", "area": "bucket", "pass": false, "detail": "AssertionError: autoclass not enabled"}
+{"sdk": "python", "id": "bucket.acl", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.default_object_acl", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.notifications", "area": "bucket", "pass": false, "detail": "MethodNotImplemented: "}
+{"sdk": "python", "id": "project.hmac_keys", "area": "bucket", "pass": false, "detail": "MethodNotImplemented: "}
+{"sdk": "python", "id": "project.service_account", "area": "bucket", "pass": false, "detail": "NotFound: "}
+{"sdk": "python", "id": "object.write_read_small", "area": "object", "pass": false, "detail": "NotFound: "}
+{"sdk": "python", "id": "object.resumable_large", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.metadata_on_write", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.checksum_rejected", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.md5_accepted", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.range_reads", "area": "object", "pass": false, "detail": "AssertionError: suffix range"}
+{"sdk": "python", "id": "object.update_metadata", "area": "object", "pass": false, "detail": "AssertionError: {'a': None, 'c': '3'}"}
+{"sdk": "python", "id": "object.delete_not_found", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.does_not_exist_precondition", "area": "object", "pass": false, "detail": "AssertionError: expected PreconditionFailed, got success"}
+{"sdk": "python", "id": "object.generation_match_precondition", "area": "object", "pass": false, "detail": "AssertionError: expected PreconditionFailed, got success"}
+{"sdk": "python", "id": "object.metageneration_match_precondition", "area": "object", "pass": false, "detail": "AssertionError: expected PreconditionFailed, got success"}
+{"sdk": "python", "id": "object.list_prefix_delimiter", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.list_paging", "area": "object", "pass": false, "detail": "AssertionError: object page exceeds 2"}
+{"sdk": "python", "id": "object.list_offsets", "area": "object", "pass": false, "detail": "AssertionError: offset listing"}
+{"sdk": "python", "id": "object.list_match_glob", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.copy_with_metadata", "area": "object", "pass": false, "detail": "AssertionError: copy metadata"}
+{"sdk": "python", "id": "object.rewrite_storage_class", "area": "object", "pass": false, "detail": "AssertionError: storage class differs"}
+{"sdk": "python", "id": "object.compose", "area": "object", "pass": false, "detail": "AssertionError: component count"}
+{"sdk": "python", "id": "object.move", "area": "object", "pass": false, "detail": "MethodNotImplemented: "}
+{"sdk": "python", "id": "object.acl", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.holds", "area": "object", "pass": false, "detail": "AssertionError: expected Forbidden, got success"}
+{"sdk": "python", "id": "object.retention", "area": "object", "pass": false, "detail": "AssertionError: retention not stored"}
+{"sdk": "python", "id": "object.custom_time", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.storage_class_on_write", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.gzip_transcoding", "area": "object", "pass": false, "detail": "AssertionError: decompressed bytes"}
+{"sdk": "python", "id": "object.customer_supplied_key", "area": "object", "pass": false, "detail": "AssertionError: expected GoogleAPICallError, got success"}
+{"sdk": "python", "id": "object.soft_delete_restore", "area": "object", "pass": false, "detail": "AttributeError: 'int' object has no attribute '_post_resource'"}
+{"sdk": "python", "id": "signed.v4_get", "area": "signed", "pass": true}
+{"sdk": "python", "id": "signed.v4_put", "area": "signed", "pass": true}
+{"sdk": "python", "id": "signed.v2_get", "area": "signed", "pass": true}
+{"sdk": "python", "id": "signed.post_policy_v4", "area": "signed", "pass": false, "detail": "AssertionError: status 501: "}

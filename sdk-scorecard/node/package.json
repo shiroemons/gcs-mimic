@@ -1,0 +1,7 @@
+{
+  "name": "gcs-mimic-sdk-scorecard",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "dependencies": { "@google-cloud/storage": "8.4.0" }
+}

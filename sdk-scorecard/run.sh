@@ -1,32 +1,43 @@
 #!/usr/bin/env bash
-# Runs the Go and Ruby SDK scorecard probes against each emulator with the same
+# Runs five official SDK scorecard probes against each emulator with the same
 # inputs and records raw JSONL results, product versions and a scored summary.
 set -euo pipefail
 
 usage() { echo 'Usage: bash sdk-scorecard/run.sh [--out DIR] [EMULATOR...]  (gcs-mimic fake-gcs-server gcp-storage-emulator)'; }
 root=$(cd "$(dirname "$0")/.." && pwd)
 out="$root/sdk-scorecard/results/$(date -u +%F)"
+explicit_out=false
 emulators=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help) usage; exit 0 ;;
-    --out) out=$2; shift 2 ;;
+    --out) out=${2:?--out requires a directory}; explicit_out=true; shift 2 ;;
     gcs-mimic|fake-gcs-server|gcp-storage-emulator) emulators+=("$1"); shift ;;
     *) usage >&2; exit 2 ;;
   esac
 done
 [[ ${#emulators[@]} -gt 0 ]] || emulators=(gcs-mimic fake-gcs-server gcp-storage-emulator)
+[[ -z ${SCORECARD_RUN:-} ]] || { echo 'Use SCORECARD_RUN with an individual probe; scored runs require every case.' >&2; exit 2; }
+if [[ $explicit_out == false ]]; then
+  base=$out
+  suffix=2
+  while [[ -e $out ]]; do out="$base-$suffix"; suffix=$((suffix + 1)); done
+fi
+[[ ! -e $out || -z $(ls -A "$out") ]] || { echo "results directory is not empty: $out" >&2; exit 2; }
 
 # Comparison inputs are pinned so a rerun measures the same products.
 fake_image=fsouza/fake-gcs-server:1.56.1
 gcp_image=oittaa/gcp-storage-emulator:v2026.07.19
+php_image=composer:2.10.3@sha256:2cf275428757e5435a667bfc0d038b14520ca02be2b1b70d44a05c8c19e2de48
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/sdk-scorecard.XXXXXX")
 server_pid=''
 container=''
+probe_container="scorecard-php-$$"
 cleanup() {
   [[ -n $server_pid ]] && kill "$server_pid" 2>/dev/null || true
   [[ -n $container ]] && docker rm -f "$container" >/dev/null 2>&1 || true
+  docker rm -f "$probe_container" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -36,6 +47,24 @@ out=$(cd "$out" && pwd)
 
 (cd "$root/sdk-scorecard/go" && GOTOOLCHAIN=auto go build -o "$work/probe-go" .)
 (cd "$root/sdk-scorecard/ruby" && BUNDLE_FROZEN=true bundle install --quiet)
+(cd "$root/sdk-scorecard/node" && npm ci --ignore-scripts --no-audit --no-fund)
+(cd "$root/sdk-scorecard/python" && uv sync --locked)
+docker run --rm --name "$probe_container" -v "$root/sdk-scorecard/php:/app" "$php_image" \
+  install --no-interaction --no-scripts --prefer-dist
+node --check "$root/sdk-scorecard/node/probe.mjs"
+"$root/sdk-scorecard/python/.venv/bin/python" -m py_compile "$root/sdk-scorecard/python/probe.py"
+docker run --rm --name "$probe_container" -v "$root:/app:ro" "$php_image" php -l /app/sdk-scorecard/php/probe.php
+sdks=$(jq -n --arg go "$(cd "$root/sdk-scorecard/go" && go version)" \
+  --arg ruby "$(cd "$root/sdk-scorecard/ruby" && ruby --version)" --arg node "$(node --version)" \
+  --arg python "$("$root/sdk-scorecard/python/.venv/bin/python" --version)" \
+  --arg php "$(docker run --rm "$php_image" php --version | sed -n '1p')" \
+  --arg node_sdk "$(jq -er '.packages["node_modules/@google-cloud/storage"].version' "$root/sdk-scorecard/node/package-lock.json")" \
+  --arg php_sdk "$(jq -er '.packages[] | select(.name == "google/cloud-storage") | .version | ltrimstr("v")' "$root/sdk-scorecard/php/composer.lock")" \
+  --arg python_sdk "$(uv pip show --python "$root/sdk-scorecard/python/.venv/bin/python" google-cloud-storage | sed -n 's/^Version: //p')" \
+  --arg php_image "$php_image" \
+  '{go: {version: "1.70.0", runtime: $go, cases: 57}, ruby: {version: "1.62.1", runtime: $ruby, cases: 51},
+    node: {version: $node_sdk, runtime: $node, cases: 51}, php: {version: $php_sdk, runtime: $php, image: $php_image, cases: 51},
+    python: {version: $python_sdk, runtime: $python, cases: 51}}')
 port=$(cd "$root/sdk-tests/go" && GOTOOLCHAIN=auto go run ./cmd/free-port | cut -d: -f2)
 grpc_port=$(cd "$root/sdk-tests/go" && GOTOOLCHAIN=auto go run ./cmd/free-port | cut -d: -f2)
 endpoint="http://127.0.0.1:$port"
@@ -83,22 +112,39 @@ stop_emulator() {
   if [[ -n $container ]]; then docker rm -f "$container" >/dev/null; container=''; fi
 }
 
+failed=0
 for emulator in "${emulators[@]}"; do
   echo "== $emulator" >&2
   start_emulator "$emulator"
   jq -n --arg emulator "$emulator" --arg version "$version" --arg date "$(date -u +%FT%TZ)" \
-    '{emulator: $emulator, version: $version, measured_at: $date}' >"$out/$emulator.meta.json"
+    --argjson sdks "$sdks" --arg dirty "$(git -C "$root" status --porcelain --untracked-files=normal)" \
+    '{emulator: $emulator, version: $version, measured_at: $date, source_dirty: ($dirty != ""), sdks: $sdks}' >"$out/$emulator.meta.json"
   status=0
   SCORECARD_ENDPOINT=$endpoint SCORECARD_GRPC_ENDPOINT=$grpc_endpoint \
     SCORECARD_SIGNING_KEY="$root/fixtures/signing/test-only-private.pem" \
     "$work/probe-go" >"$out/$emulator.go.jsonl" || status=$?
-  [[ $status == 0 ]] || echo "Go probe exited with $status for $emulator" >&2
+  if [[ $status != 0 ]]; then echo "Go probe exited with $status for $emulator" >&2; failed=1; fi
   status=0
   (cd "$root/sdk-scorecard/ruby" && SCORECARD_ENDPOINT=$endpoint \
     SCORECARD_SIGNING_KEY="$root/fixtures/signing/test-only-private.pem" \
     bundle exec ruby probe.rb >"$out/$emulator.ruby.jsonl") || status=$?
-  [[ $status == 0 ]] || echo "Ruby probe exited with $status for $emulator" >&2
+  if [[ $status != 0 ]]; then echo "Ruby probe exited with $status for $emulator" >&2; failed=1; fi
+  status=0
+  SCORECARD_ENDPOINT=$endpoint SCORECARD_SIGNING_KEY="$root/fixtures/signing/test-only-private.pem" \
+    node "$root/sdk-scorecard/node/probe.mjs" >"$out/$emulator.node.jsonl" || status=$?
+  if [[ $status != 0 ]]; then echo "Node.js probe exited with $status for $emulator" >&2; failed=1; fi
+  status=0
+  SCORECARD_ENDPOINT=$endpoint SCORECARD_SIGNING_KEY="$root/fixtures/signing/test-only-private.pem" \
+    "$root/sdk-scorecard/python/.venv/bin/python" "$root/sdk-scorecard/python/probe.py" >"$out/$emulator.python.jsonl" || status=$?
+  if [[ $status != 0 ]]; then echo "Python probe exited with $status for $emulator" >&2; failed=1; fi
+  status=0
+  docker run --rm --name "$probe_container" --add-host host.docker.internal:host-gateway -v "$root:/app:ro" \
+    -e SCORECARD_ENDPOINT="$endpoint" -e SCORECARD_DOCKER_GATEWAY=1 \
+    -e SCORECARD_SIGNING_KEY=/app/fixtures/signing/test-only-private.pem \
+    "$php_image" php /app/sdk-scorecard/php/probe.php >"$out/$emulator.php.jsonl" || status=$?
+  if [[ $status != 0 ]]; then echo "PHP probe exited with $status for $emulator" >&2; failed=1; fi
   stop_emulator
 done
 
+[[ $failed == 0 ]] || { echo 'Probe process failed; raw results retained, no score produced.' >&2; exit 1; }
 bash "$root/sdk-scorecard/score.sh" "$out" | tee "$out/summary.md"

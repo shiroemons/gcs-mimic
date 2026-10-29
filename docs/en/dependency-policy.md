@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Status: project policy. The project has compiler pins, Cargo.lock, a bounded HTTP/TLS runtime, digest-pinned Docker inputs, a dated [dependency snapshot](../../compatibility/dependency-status.json), and Rust/Go/Ruby daily detection tooling. The official Go JSON bucket SDK harness has its own pinned module graph and CI lane; Ruby HTTPS verification has a pinned gem graph. Python is not required. Scheduled/remote CI execution is not verified; per-requirement progress is recorded only in the feature ledger.
+Status: project policy. The project has compiler pins, Cargo.lock, a bounded HTTP/TLS runtime, digest-pinned Docker inputs, a dated [dependency snapshot](../../compatibility/dependency-status.json), and Rust/Go/Ruby/Node.js/PHP/Python daily detection tooling. The official Go JSON bucket SDK harness has its own pinned module graph and CI lane; Ruby HTTPS verification has a pinned gem graph. Python is required only for the optional five-SDK scorecard. Scheduled/remote CI execution is not verified; per-requirement progress is recorded only in the feature ledger.
 
 ## User requirement
 
@@ -147,6 +147,16 @@ Official sources checked on 2026-10-23:
 - <https://guides.rubygems.org/rubygems-org-api/>
 
 ## Daily update detection and bounded upgrade work
+
+The optional [SDK scorecard](../../sdk-scorecard/README.md) adds exact npm,
+Composer and PyPI direct pins with committed package-lock.json, composer.lock
+and uv.lock. The existing daily checker reads their actual manifests, verifies
+the declared snapshot and checks stable upstream releases, including new majors;
+PyPI files marked yanked and prereleases do not qualify. Its intentionally small
+Python manifest reader requires the harness's single JSON-compatible dependency
+array of exact `name==X.Y.Z` pins and fails on unsupported syntax. It does not
+silently skip a changed manifest. PHP/Composer use a digest-pinned official
+Composer container, checked alongside the existing container inputs.
 
 Current command: `cargo xtask dependencies check`. Fetch all locked packages first (`cargo fetch --locked`), including foreign-target packages used by offline Cargo metadata. The Rust checker invokes curl for HTTPS with user curl configuration disabled, a 30-second timeout and an 8 MiB response cap; no Python or extra HTTP client dependency is required. It contacts official Rust, Cargo, Go, module proxy, Ruby, RubyGems, GitHub, Debian and Docker metadata. It discovers actual direct registry dependencies through offline Cargo metadata and compares all non-yanked stable releases, including new majors. It checks the declared Go and Ruby SDK scopes, Action pins (including setup-go), Docker index/platform digests, replacement tags, the Rust image's floating stable tag and Debian's current stable codename. Debian stable/trixie aliases have different APT suite contents/digests, so codename freshness is checked separately from selected-tag digest freshness. Network/parse failures exit 2; updates exit 1. Logs are actionable drift records; nothing is published automatically. `.github/workflows/dependency-check.yaml` schedules checks every calendar day at `03:17 UTC` without cooldown, fetching the locked Cargo graph before running the same detector. This includes the TLS and Ruby inputs automatically; scheduled remote execution has not been observed.
 

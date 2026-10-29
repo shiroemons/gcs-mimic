@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 222 | 0 | 87 | 1 | 0 | 0 |
 | behavior | 201 | 101 | 0 | 62 | 38 | 0 | 0 |
-| project_requirement | 95 | 34 | 0 | 30 | 31 | 0 | 0 |
+| project_requirement | 95 | 31 | 0 | 33 | 31 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 222 | 38 | 32 | 18 | 0 | 0 |
 | behavior | 102 | 60 | 35 | 4 | 0 | 0 |
-| project_requirement | 34 | 0 | 0 | 0 | 0 | 61 |
+| project_requirement | 31 | 0 | 0 | 0 | 0 | 64 |
 
 ## api_operation
 
@@ -952,13 +952,13 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-001 | 公式Java SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-002 | 公式.NET SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-003 | 公式C++ SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
-| AUDIT-004 | 公式PHP SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
+| AUDIT-004 | 公式PHP SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 1 |
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 13 |
 | DESIGN-083 | Ruby公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 4 |
 | DESIGN-084 | Rails Active Storageの一連の操作 | PARTIAL | P2 | PROJECT | PROJECT | 1 |
-| DESIGN-085 | Node公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-086 | Python公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
+| DESIGN-085 | Node公式SDKとの統合検証 | PARTIAL | P3 | PROJECT | PROJECT | 1 |
+| DESIGN-086 | Python公式SDKとの統合検証 | PARTIAL | P3 | PROJECT | PROJECT | 1 |
 | DESIGN-087 | Rust公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-088 | SDK試験の意図しない外部通信防止 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-089 | 任意の実GCS差分適合試験 | NOT_STARTED | P0 | EXTERNAL | NONE | 0 |

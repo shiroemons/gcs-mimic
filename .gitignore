@@ -2,3 +2,6 @@
 /dist/
 /data/
 __pycache__/
+/sdk-scorecard/node/node_modules/
+/sdk-scorecard/php/vendor/
+/sdk-scorecard/python/.venv/

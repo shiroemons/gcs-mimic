@@ -181,10 +181,18 @@
       "resolution_constraints": "Already locked transitively with windows-link 0.2.1; direct use only on Windows, with console/threading features limited to tests. No additional package version is introduced."
     }
   ],
-  "lockfiles": ["Cargo.lock", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock"],
+  "lockfiles": ["Cargo.lock", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock", "sdk-scorecard/node/package-lock.json", "sdk-scorecard/php/composer.lock", "sdk-scorecard/python/uv.lock"],
   "docker": {
     "status": "PINNED",
     "digests": [
+      {
+        "repository": "library/composer", "reference": "composer:2.10.3",
+        "tag": "2.10.3", "latest_tag": "latest",
+        "digest": "sha256:2cf275428757e5435a667bfc0d038b14520ca02be2b1b70d44a05c8c19e2de48",
+        "platforms": {},
+        "source_url": "https://hub.docker.com/_/composer",
+        "purpose": "Development-only official Composer 2.10.3 / PHP 8.5.12 runtime for the PHP SDK scorecard. The runner pins this manifest index; daily detection checks replacement tags and digests."
+      },
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie",
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
@@ -257,6 +265,30 @@
     "reason": "Official multiarch manifest indexes from Docker Hub and public GCR; floating selectors, pinned tags and Debian stable codename are checked for replacement. Local amd64 execution uses emulation on an arm64 Docker host; native CI execution is pending."
   },
   "sdk_ecosystems": [
+    {
+      "ecosystem": "npm", "manifest": "sdk-scorecard/node/package.json",
+      "checked_at_utc": "2026-10-29T07:58:33Z",
+      "direct_dependencies": [{"name": "@google-cloud/storage", "current": "8.4.0", "license": "Apache-2.0", "unpacked_bytes": 1688266}],
+      "source_urls": ["https://registry.npmjs.org/@google-cloud/storage", "https://github.com/googleapis/google-cloud-node/tree/main/handwritten/storage"],
+      "resolution_constraints": "Development-only scorecard; exact SDK pin and npm integrity lock. Google-maintained active release, Node >=22. Daily detection checks stable releases including new majors."
+    },
+    {
+      "ecosystem": "pypi", "manifest": "sdk-scorecard/python/pyproject.toml",
+      "checked_at_utc": "2026-10-29T07:58:33Z",
+      "direct_dependencies": [
+        {"name": "google-cloud-storage", "current": "3.17.1", "license": "Apache-2.0", "wheel_bytes": 345706},
+        {"name": "cryptography", "current": "50.0.2", "license": "Apache-2.0 OR BSD-3-Clause", "purpose": "Offline RSA signing using google-auth's supported cryptography backend."}
+      ],
+      "source_urls": ["https://pypi.org/pypi/google-cloud-storage/json", "https://pypi.org/pypi/cryptography/json", "https://github.com/googleapis/python-storage", "https://github.com/pyca/cryptography"],
+      "resolution_constraints": "Development-only scorecard; uv.lock records the complete hash-pinned graph. Both projects actively maintained. Daily detection checks non-yanked stable X.Y.Z releases including new majors."
+    },
+    {
+      "ecosystem": "composer", "manifest": "sdk-scorecard/php/composer.json",
+      "checked_at_utc": "2026-10-29T07:58:33Z",
+      "direct_dependencies": [{"name": "google/cloud-storage", "current": "2.6.1", "license": "Apache-2.0", "source_revision": "cf14f967fa45113e2a239fe9103bada8d7b92021"}],
+      "source_urls": ["https://repo.packagist.org/p2/google/cloud-storage.json", "https://github.com/googleapis/google-cloud-php-storage"],
+      "resolution_constraints": "Development-only scorecard; composer.lock pins the graph. Google-maintained active release, PHP >=8.2. PHP 8.5.12 and Composer 2.10.3 run in the digest-pinned official Composer image."
+    },
     {
       "ecosystem": "ruby",
       "manifest": "sdk-tests/ruby/active_storage/Gemfile",

@@ -1,7 +1,18 @@
 {
-  "as_of": "2026-10-27",
+  "as_of": "2026-10-29",
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
+    {
+      "id": "SPEC-SDK-SCORECARD-CLIENTS",
+      "title": "Ordinary Node.js, PHP and Python SDK requests expose compatibility gaps",
+      "status": "OPEN",
+      "affected_features": ["DESIGN-085", "DESIGN-086", "AUDIT-004"],
+      "source_urls": ["https://registry.npmjs.org/@google-cloud/storage/8.4.0", "https://pypi.org/pypi/google-cloud-storage/3.17.1/json", "https://github.com/googleapis/google-cloud-php-storage/tree/cf14f967fa45113e2a239fe9103bada8d7b92021"],
+      "observed_at": "2026-10-29",
+      "kind": "SCOPE_VERIFICATION",
+      "observed_evidence": "The five-SDK scorecard measures Node.js 22/51, PHP 21/51 and Python 18/51 on gcs-mimic; raw evidence is sdk-scorecard/results/2026-10-29-3/gcs-mimic.<sdk>.jsonl. Node.js and PHP ordinary uploads send x-goog-gcs-idempotency-token without ifGenerationMatch, rejected by the explicit existing replay contract under SPEC-013. Python multipart/resumable uploads send rejected x-upload-content-type; bucket ACL save PATCHes acl/defaultObjectAcl, and enableObjectRetention is encoded as True, rejected by lowercase-only parsing. PHP resumable upload fails with only a resume URI from the SDK. Its V2 signer hardcodes HTTPS and is therefore blocked by the local-origin guard in this HTTP-only comparison. These measured workflow failures do not establish failure of later operations that setup never reaches.",
+      "required_resolution": "Reconcile SDK headers, replay guarantees, upload advisory semantics, boolean parsing and resource ACL updates with official contracts before changing server behavior. Add focused wire tests and rerun the unchanged SDK cases in separate slices. Verify PHP resumable failure independently and establish a supported V2/TLS endpoint configuration. Keep all three integration rows PARTIAL, preserve raw failed evidence and do not remove headers, rewrite signed URLs or promote later unexecuted steps to PASS. Strict/TLS/optional-transport and real-provider checks remain outside this scorecard."
+    },
     {
       "id": "SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALS",
       "title": "Application-supplied local credentials do not fix default Rails OAuth",
