@@ -3,8 +3,9 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Contract and native verification date: **2026-10-29**. The feature ledger remains
-authoritative. The first integrated five-SDK comparison records remaining
-failures; complete-method compatibility is not claimed here.
+authoritative. The final declared comparison passes all 261 gcs-mimic cases;
+historical failures remain preserved and complete-method compatibility is not
+claimed here.
 
 ## Acceptance scope
 
@@ -38,7 +39,7 @@ The integrated source passed the initial unfiltered
 
 | Command | Result |
 | --- | --- |
-| `cargo test --locked --test acl_http --test bucket_http --test object_http --test object_multipart_http --test object_metadata_http` | PASS; 142 tests, no failures or ignored tests |
+| `cargo test --locked --test acl_http --test bucket_http --test object_http --test object_multipart_http --test object_metadata_http` | PASS in the initial integration check; all files are covered again by the final workspace run below |
 | `cargo test --locked --lib object_resource_acl_echo_and_replacement_keep_read_and_write_permissions_separate -- --nocapture` | PASS; one real-HTTP permissions regression |
 | `cargo test --locked --lib upload_replay -- --nocapture` | PASS; six replay/header tests before the additional advisory MIME negative case |
 | `cargo test --locked --lib python_advisory_content_type_rejects_empty_malformed_and_duplicate_values -- --nocapture` | PASS; media/multipart/continuation rejection and preserved initiation fallback |
@@ -74,6 +75,40 @@ slice contracts; its content and table syntax still pass Markdown lint.
 No application container build is needed for the unchanged Dockerfile.
 
 ## Integrated comparison findings
+
+The [final clean-source run](../../../sdk-scorecard/results/2026-10-29-5/summary.md)
+executed all 783 cases from source
+`e7fb3840aef1a4bb78c454e79519f7f72abb209a`. Each product records
+`source_dirty: false`, identical SDK/runtime pins and the same trusted CA.
+Results are:
+
+| Product | Go | Ruby | Node.js | PHP | Python | Score |
+| --- | --- | --- | --- | --- | --- | --- |
+| gcs-mimic | 57/57 | 51/51 | 51/51 | 51/51 | 51/51 | 100 |
+| fake-gcs-server | 24/57 | 24/51 | 25/51 | 25/51 | 19/51 | 44.9 |
+| gcp-storage-emulator | 20/57 | 22/51 | 22/51 | 20/51 | 24/51 | 41.5 |
+
+The runner completed once on that final source, with no case filtering,
+denominator change or weakened checksum/auth/condition/TLS/origin assertions.
+It wrote scratch output outside the repository; the 19 raw result files were
+copied byte-for-byte to the new directory. Offline rescoring matches summary.md.
+[Provenance](../../../sdk-scorecard/results/2026-10-29-5/provenance.json)
+records the full source commit, actual container digests/platforms and profiles;
+[input hashes](../../../sdk-scorecard/results/2026-10-29-5/input-sha256.txt)
+pin the application/SDK lockfiles. Per-product metadata records every SDK and
+runtime version. [Native verification](../../../sdk-scorecard/results/2026-10-29-5/native-verification.log)
+and [runner output](../../../sdk-scorecard/results/2026-10-29-5/runner.log)
+retain the final commands' output, with only local path prefixes normalized and
+an explicit first-line notice. The native log also retains the command's
+aggregate summary after the individual test summaries. SDK deprecation/listener
+warnings remain visible.
+No application container image was built.
+
+The actual invocation was `bash sdk-scorecard/run.sh --out <scratch-output>`;
+the placeholder denotes the temporary output directory and is not a literal
+shell argument. The scorer and canonical-ledger checks run on the copied set.
+
+## Historical comparison and resolved failures
 
 The [first integrated HTTPS run](../../../sdk-scorecard/results/2026-10-29-4/summary.md)
 executed all 783 cases from clean source
@@ -133,12 +168,15 @@ object. This is not provider-exact gzip or error-detail parity.
 
 ## Remaining limits
 
-DESIGN-085, DESIGN-086 and AUDIT-004 remain `PARTIAL`, with their historical
-failed HTTP and integrated HTTPS evidence preserved. The final corrected five-SDK result is pending;
-even all 51 cases passing would establish only this declared permissive,
-default-region comparison scope. The common TLS frontend does not verify each
+DESIGN-085, DESIGN-086 and AUDIT-004 remain `PARTIAL`, with their declared
+51-case scorecard acceptances now PASS and historical failed evidence preserved.
+The result establishes only the permissive/default-region comparison scope.
+The common TLS frontend does not verify each
 emulator's native TLS listener. Strict SDK authorization, other profiles,
 optional transports and real-GCS differential behavior remain pending.
+Node Storage 8.4.0's nondefault-port V4 canonical-host limitation remains
+explicit; permissive signing cases do not establish server-side cryptographic
+verification. Go's six gRPC cases use the existing plaintext local transport.
 
 SPEC-013 remains open for other methods and exact provider cache/error rules.
 Repeated nonfinal whole-object checksum and advisory MIME acceptance are named

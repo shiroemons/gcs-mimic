@@ -952,13 +952,13 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-001 | Official Java SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-002 | Official .NET SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
-| AUDIT-004 | Official PHP SDK integration | PARTIAL | P7 | PROJECT | PROJECT | 1 |
+| AUDIT-004 | Official PHP SDK integration | PARTIAL | P7 | PROJECT | PROJECT | 2 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 13 |
 | DESIGN-083 | Ruby official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 4 |
 | DESIGN-084 | Rails Active Storage workflows | PARTIAL | P2 | PROJECT | PROJECT | 1 |
-| DESIGN-085 | Node official SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 1 |
-| DESIGN-086 | Python official SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 1 |
+| DESIGN-085 | Node official SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 2 |
+| DESIGN-086 | Python official SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 2 |
 | DESIGN-087 | Official Rust SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-088 | Hermetic SDK tests deny unintended egress | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-089 | Optional Google differential conformance | NOT_STARTED | P0 | EXTERNAL | NONE | 0 |

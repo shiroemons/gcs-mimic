@@ -175,6 +175,22 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
+The [final 2026-10-29 shared-HTTPS comparison](results/2026-10-29-5/summary.md)
+executes 783 cases from clean source `e7fb384`: gcs-mimic scores **100**, with
+Go **57/57** and Ruby, Node.js, PHP and Python each **51/51**.
+fake-gcs-server scores **44.9** and gcp-storage-emulator **41.5** using the same
+SDK/runtime pins, CA and case lists. All three metadata files record
+`source_dirty: false`. Raw cases, exact commit/container provenance, lockfile
+hashes and the final native verification log are kept in that result directory.
+The declared Node/PHP/Python scorecard acceptances pass; their broader ledger
+rows remain `PARTIAL` for strict/native-TLS/other-profile/provider scopes.
+See [integration scope and final checks](../docs/en/slices/sdk-scorecard-integration.md).
+
+The [initial integrated HTTPS run](results/2026-10-29-4/summary.md) remains
+immutable historical evidence: gcs-mimic 94.9, fake-gcs-server 44.1 and
+gcp-storage-emulator 40.0. Its failures and subsequent scoped corrections are
+explained in the integration contract.
+
 The historical [2026-10-29 five-SDK HTTP run](results/2026-10-29-3/summary.md) records 783
 case executions: 261 per product. Scores are gcs-mimic **63.9**,
 fake-gcs-server **46.1** and gcp-storage-emulator **40.7**.
@@ -183,16 +199,14 @@ gcs-mimic passes Go 57/57, Ruby 51/51, Node.js 22/51, PHP 21/51 and Python
 send an idempotency header without a generation condition, while Python sends
 `x-upload-content-type`. Python bucket ACL resource updates and its capitalized
 object-retention query boolean also fail. The raw results preserve these
-failures; the three integration ledger rows remain `PARTIAL`. Next work should
-reconcile ordinary upload headers and replay guarantees with their official
-contracts. The integrated server and common HTTPS transport now have scoped
-wire checks; a new full comparison run remains pending and no new score is claimed.
+failures. Those historical gaps are corrected for the final declared comparison
+above; the broader integration rows remain `PARTIAL` for their pending scopes.
 
-The former two-SDK score of 100 and the new score of 63.9 use different SDK
+The former two-SDK score of 100 and the historical HTTP score of 63.9 use different SDK
 sets and weights. Go/Ruby still pass all their cases in this run. No server
 behavior was changed to obtain this measurement.
 
-Validation for this change passed: `cargo check --workspace --all-targets
+Validation for that historical harness-only change passed: `cargo check --workspace --all-targets
 --locked --offline`, `cargo test -p xtask --locked --offline` (44 tests),
 `cargo clippy -p xtask --all-targets --locked --offline -- -D warnings`,
 `bash sdk-scorecard/test-score.sh`, ShellCheck for all three scorecard shell
@@ -208,6 +222,10 @@ Each `results/<date>/` directory keeps the raw evidence:
 - `<emulator>.<sdk>.jsonl` for `go`, `ruby`, `node`, `php`, `python`: one line per case with the
   failure detail;
 - `summary.md`: totals, per-area counts and the case matrix.
+
+The final integration set also contains provenance.json, input-sha256.txt,
+native-verification.log and runner.log. Log path prefixes are normalized with
+a first-line notice; case files and metadata are copied unchanged.
 
 Compare runs only when their case lists match; adding or removing a case changes
 every product's denominator. When the probes change, rerun all products and
