@@ -130,7 +130,9 @@ on nonfinal chunks remains unverified; SDK compatibility does not close that gap
 | Capacity, exact local expiry and caller authorization | `upload_replay_capacity_expiry_and_current_permissions` |
 | Full projection, fields and later ACL/object changes | `upload_replay_full_projection_retains_acl_after_mutation_and_deletion` |
 | ACL permission revocation | `upload_replay_full_projection_rechecks_revoked_acl_permission` |
+| Authentication-mode change and a principal named permissive | `upload_replay_never_crosses_authentication_profiles_after_restart` |
 | Python initiation and repeated PUT MIME | `python_upload_content_type_is_advisory_after_initiation` |
+| Empty, malformed and duplicate advisory MIME; preserved empty initiation fallback | `python_advisory_content_type_rejects_empty_malformed_and_duplicate_values` |
 | PHP repeated/conflicting declarations, restart, bad whole MD5/CRC32C | `php_chunk_hashes_persist_and_validate_the_whole_object` |
 
 Container builds and the full SDK scorecard run belong to integration. Neither

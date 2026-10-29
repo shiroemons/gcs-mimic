@@ -1,5 +1,7 @@
 # JSON object media slice
 
+<!-- markdownlint-configure-file {"MD013": false} -->
+
 Contract checked on **2026-10-21**. This is the integrated slice's acceptance decomposition,
 not evidence that an API is implemented. `compatibility/features.json` remains the sole
 status authority. Candidate rows: JSON-OBJECTS-004/005/007,
@@ -22,7 +24,7 @@ open where real-service fidelity is unverified. Execution evidence and limits ar
 | 6 | Missing Content-Type is accepted as a local convenience and stored as `application/octet-stream`; this does not claim Google's upload-header acceptance (SPEC-011). |
 | 7 | Media includes ETag, identity stored-content-encoding, generation/metageneration, hashes and exact lengths. The rendered subset is tested, while complete production header parity remains unverified (SPEC-012). |
 | 8 | `timeFinalized` equals creation time for finalized-only objects. Local ID/ETag/link encodings and omitted unsupported resource fields remain explicit (SPEC-012). |
-| 9 | Unsupported ETag conditions, If-Range, encryption and custom metadata headers fail 501. Single byte ranges follow the [range contract](json-object-range.md). Media/multipart upload tokens require ifGenerationMatch, including zero; without it they fail 501 before body input. No response replay exists; committed conditioned retries return 412. GET/DELETE accept tokens without deduplication; retries re-execute (SPEC-013). |
+| 9 | Unsupported ETag conditions, If-Range, encryption and custom metadata headers follow their separate contracts. Single byte ranges follow the [range contract](json-object-range.md). Media/multipart tokens use bounded persistent [upload replay](sdk-upload-replay.md), with or without conditions. GET/DELETE accept tokens without replay; retries re-execute (SPEC-013). |
 
 ### Official-source rationale
 
@@ -172,7 +174,7 @@ metadata response disguised as a download; upload requests on the wrong endpoint
 | `Range`, `If-Range` on media get | Single ranges return 206/416 under the [range contract](json-object-range.md); malformed/multiple/repeated ranges use its local 200 fallback. If-Range remains 501. |
 | `If-Match`, `If-None-Match` | Reject 501 until ETag condition semantics exist; query generation conditions remain separate |
 | `Content-Encoding`, custom metadata and encryption semantic headers | Unsupported behavior fails explicitly; no accepted-but-ignored compression, key or metadata request |
-| `X-Goog-Gcs-Idempotency-Token` | Media/multipart uploads require ifGenerationMatch (including zero), otherwise 501 before body input; committed conditioned retries return 412. One nonempty header is required; empty/duplicate values return 400 invalidParameter. No replay exists. Metadata/media GET and DELETE retries execute again; repeated DELETE normally returns 404 after its first 204 (SPEC-013). |
+| `X-Goog-Gcs-Idempotency-Token` | A supplied token must be one nonempty header; empty/duplicate values return 400 invalidParameter. Media/multipart matching retries return the original committed resource through bounded persistent [upload replay](sdk-upload-replay.md), with or without conditions. Metadata/media GET and DELETE retries execute again; repeated DELETE normally returns 404 after its first 204 (SPEC-013). |
 
 Benign transport/client identification headers are not rejected simply for being unknown.
 Authorization handling follows the existing local unauthenticated implementation and must

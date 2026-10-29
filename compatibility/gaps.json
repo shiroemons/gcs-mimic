@@ -11,7 +11,7 @@
       "observed_at": "2026-10-29",
       "kind": "SCOPE_VERIFICATION",
       "observed_evidence": "The five-SDK scorecard measures Node.js 22/51, PHP 21/51 and Python 18/51 on gcs-mimic; raw evidence is sdk-scorecard/results/2026-10-29-3/gcs-mimic.<sdk>.jsonl. Node.js and PHP ordinary uploads send x-goog-gcs-idempotency-token without ifGenerationMatch, rejected by the explicit existing replay contract under SPEC-013. Python multipart/resumable uploads send rejected x-upload-content-type; bucket ACL save PATCHes acl/defaultObjectAcl, and enableObjectRetention is encoded as True, rejected by lowercase-only parsing. PHP resumable upload fails with only a resume URI from the SDK. Its V2 signer hardcodes HTTPS and is therefore blocked by the local-origin guard in this HTTP-only comparison. These measured workflow failures do not establish failure of later operations that setup never reaches.",
-      "required_resolution": "Reconcile SDK headers, replay guarantees, upload advisory semantics, boolean parsing and resource ACL updates with official contracts before changing server behavior. Add focused wire tests and rerun the unchanged SDK cases in separate slices. Verify PHP resumable failure independently and establish a supported V2/TLS endpoint configuration. Keep all three integration rows PARTIAL, preserve raw failed evidence and do not remove headers, rewrite signed URLs or promote later unexecuted steps to PASS. Strict/TLS/optional-transport and real-provider checks remain outside this scorecard."
+      "required_resolution": "Integrated persistent media/multipart replay, repeated advisory MIME, PHP whole-object chunk checksums, atomic resource ACL arrays and the explicit true/false/True/False query spellings now have scoped Rust wire coverage. The PHP failure is traced to repeated whole-object X-Goog-Hash on nonfinal chunks; final complete-object validation remains required. The common HTTPS frontend sends V2 URLs unchanged and real-client CA/SAN/origin tests pass. Contracts: docs/en/slices/sdk-upload-replay.md, docs/en/slices/json-acl.md and docs/en/slices/sdk-scorecard-tls.md. A complete final-source five-SDK comparison is still pending; keep all three integration rows PARTIAL and preserve the historical failed run. Never infer later workflow success from setup repair. Strict authorization, native TLS, other profiles/transports and real-provider parity remain separate pending scopes."
     },
     {
       "id": "SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALS",
@@ -1005,7 +1005,7 @@
     },
     {
       "id": "SPEC-013",
-      "title": "Accepted invocation tokens do not replay responses; media and multipart uploads require generation-match",
+      "title": "Bounded upload replay leaves broader invocation-token and provider cache fidelity pending",
       "status": "OPEN",
       "affected_features": [
         "JSON-OBJECTS-004",
@@ -1020,10 +1020,10 @@
         "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/invoke.go",
         "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/writer.go"
       ],
-      "observed_at": "2026-10-22",
+      "observed_at": "2026-10-29",
       "kind": "LOCAL_DEVIATION",
-      "observed_evidence": "Pinned Go Storage v1.70.0 attaches X-Goog-Gcs-Idempotency-Token to object operations even with RetryNever. GET/DELETE and metadata update retain local acceptance without deduplication; retries re-execute, so repeated DELETE returns 404 after its first 204. Media and multipart uploads now accept one nonempty token only with ifGenerationMatch (including zero); otherwise they return 501 before body input. Retrying a committed conditioned upload returns 412 without another generation. The pinned v1.70.0 resumable Writer also sends a token at initiation: one nonempty token is accepted without ifGenerationMatch because initiation only creates another bounded session and never mutates object state. Retried initiation returns a distinct capability, not a replayed response; stored conditions still apply atomically at finalization. Session writes accept one nonempty chunk token while offsets govern retries. Empty or duplicate tokens return 400 invalidParameter. Shared validation also applies to objects.list and PATCH, without dedicated HTTP tests for those malformed-token cases. No response replay or token-keyed deduplication exists.",
-      "required_resolution": "Keep affected rows PARTIAL and record conditioned acceptance without replay. Implement and verify bounded, time-scoped response replay before claiming production retry-token fidelity; extend malformed-token HTTP coverage to listing and PATCH. Do not strip SDK headers or describe generation conditions as deduplication. See docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md."
+      "observed_evidence": "Media/multipart uploads accept a single nonempty invocation token with or without conditions. Schema 35 commits a bounded completion snapshot with the object; identical retries replay the original resource across concurrency, later overwrite/deletion and restart. Bindings separate authentication profile and principal ID and include request/base/key and bucket incarnation; conflicts cannot mutate state. The local cache keeps 1024 entries for ten minutes, with 64 KiB completions. Authorization, EOF, size and hashes are still checked. Empty/duplicate tokens fail 400. GET/DELETE/update and resumable initiation retain their previous no-replay contract; session offsets govern chunk retries. Contract and focused tests: docs/en/slices/sdk-upload-replay.md.",
+      "required_resolution": "Keep affected broad rows PARTIAL. Exact provider cache lifetime, conflict/error semantics and replay for other methods remain unverified; malformed-token HTTP coverage on list/PATCH is still pending. Preserve current authorization, checksum and atomic-condition checks and do not strip SDK headers. Shared HTTPS frontend coverage does not establish native TLS, strict/other profile integration or real-GCS parity."
     },
     {
       "id": "SPEC-015",

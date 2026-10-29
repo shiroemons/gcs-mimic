@@ -215,9 +215,10 @@ ordinary compatibility failures remain recorded `pass: false` cases.
   Ruby and the three added SDKs verify individual-key deletion. Go's resumable
   case explicitly compares returned CRC32C as well as size and bytes; the other
   probes do not make that same explicit assertion.
-- Wrong-checksum rejection is stricter in Node.js, PHP and Python: it requires
-  a checksum-specific 400 and no object. Go and Ruby accept any upload error
-  followed by an absent object, which can credit an unrelated failure.
+- Historical Go/Ruby checksum probes accepted any upload error followed by an
+  absent object. Current probes in all five SDKs require a checksum-specific 400
+  and no object. Python still uses a larger resumable input for its public
+  supplied-checksum API; byte-for-byte cross-SDK equivalence is unverified.
 - In the historical HTTP run, Go changed HTTPS to HTTP after V2 signing while
   PHP kept HTTPS and failed the origin guard. That failure measured an endpoint
   constraint. Current runs use common HTTPS and send both signed URLs unchanged;

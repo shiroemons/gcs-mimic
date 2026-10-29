@@ -53,7 +53,7 @@ Exact wire and parser test names are listed below.
 | Metadata and restart | `obj_multipart_http_round_trip_metadata_hashes_and_restart`, `obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation`, `obj_multipart_http_query_name_overrides_only_valid_metadata_names` |
 | Content type and custom limits | `obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part`, `obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging`, `obj_multipart_http_media_json_and_custom_metadata_caps` |
 | Checksums and failed overwrite | `obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication`, `obj_multipart_http_malformed_checksum_json_preserves_existing_generation`, `obj_multipart_http_truncated_checksum_part_preserves_existing_generation` |
-| Preconditions and tokens | `json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value`, `obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite`, `obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body`, `obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation`, `obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite`, `obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body` |
+| Preconditions and tokens | `json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions`, `obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite`, `obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body`, `obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation`, `obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite`, `obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body` |
 | Concurrency and deadlines | `obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks`, `obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots` |
 | Official Go Writer | `TestObjectMultipartWriter`; `TestObjectMediaLifecycle` retains the resumable rejection |
 
@@ -124,11 +124,11 @@ untouched. Concurrent create-if-absent uploads must have one winner. Generation
 history and read-style 304 behavior are not added to mutation responses.
 
 Media and multipart uploads accept one nonempty `X-Goog-Gcs-Idempotency-Token`
-only with `ifGenerationMatch`, including zero. Without generation-match the
-request returns 501 before body input; empty or duplicate token headers return
-400 `invalidParameter`. There is no response replay or token deduplication.
-Retrying an already committed request with the same generation condition returns
-412 instead of publishing another generation. This local rule remains SPEC-013.
+with or without generation conditions. Matching successful retries return the
+original resource through the bounded persistent [upload replay contract](sdk-upload-replay.md),
+including conditioned retries. Conflicting requests fail without publication;
+empty or duplicate token headers return 400 `invalidParameter`. SPEC-013 remains
+open for other methods and exact provider retention/error semantics.
 Shared empty/duplicate token validation also reaches objects.list and PATCH;
 dedicated malformed-token HTTP tests for those two routes are not present.
 
@@ -176,7 +176,7 @@ The local error map is:
 | 400 `invalid` | Actual MD5/CRC32C mismatch or unknown third-part checksum keys |
 | 400 `required` | No query name and missing/null metadata name |
 | 413 `uploadTooLarge` | Media cap, either JSON-part cap or conservative known-length cap exceeded |
-| 501 `notImplemented` | Unsupported metadata/output/query/header semantics or upload token without generation-match |
+| 501 `notImplemented` | Unsupported metadata/output/query/header semantics |
 
 Existing missing-bucket
 404, mutation precondition 412, excess-admission/catalog-unavailable 503 and
@@ -197,7 +197,7 @@ storage class and encryption), other server-managed fields and unknown metadata
 fields return 501. The path-bucket override is the explicitly supported exception.
 This does not assert Google's unknown/output-only input handling; SPEC-015 remains
 open. Unsupported query/header semantics retain the existing explicit rejections.
-SDK invocation tokens follow the generation-match rule above. Resumable sessions
+SDK invocation tokens follow the bounded replay rule above. Resumable sessions
 remain 501.
 XML multipart uploads, nested/alternate-root MIME composition, strict credentials,
 IAM permission checks, decompressive transcoding and historical generations are

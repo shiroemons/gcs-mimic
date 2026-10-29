@@ -64,7 +64,10 @@ JSON multipart removes MIME framing in the adapter before shared bounded staging
 and atomic publication. Metadata and optional final checksum JSON each have a 64 KiB
 cap; part header blocks and delimiter suffixes have 8 KiB caps, and preamble/epilogue
 each have a 4 KiB cap. Publication waits for complete framing, checksums and transport
-EOF. Media/multipart invocation tokens require generation-match and are not replayed.
+EOF. Media/multipart invocation tokens use bounded persistent response replay,
+bound separately to the authentication profile and principal; see the
+[SDK upload contract](slices/sdk-upload-replay.md). Other token-bearing methods
+retain their separately documented retry limits.
 The [multipart contract](slices/json-object-multipart.md) records precise accounting,
 advisory ordering and local choices under SPEC-013/SPEC-016.
 

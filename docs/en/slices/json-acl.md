@@ -63,6 +63,11 @@ managed, but they do not grant access (DESIGN-017).
   An update-only caller receives the same 403 for unchanged and changed arrays;
   no comparison exposes the stored ACL. `getIamPolicy` still controls response
   projection independently.
+- The object permission regression uses both PATCH and PUT: reordered identical
+  ACL echoes succeed with update/getIamPolicy, changed ACLs return 403 without
+  metadata changes, and update/setIamPolicy without getIamPolicy replaces the
+  ACL while omitting it from the response. Test:
+  `object_resource_acl_echo_and_replacement_keep_read_and_write_permissions_separate`.
 - ACL arrays and other supplied metadata commit in one catalog transaction,
   with one metageneration increment and journal entry. Object generation and
   generation/metageneration conditions select and constrain that same update.

@@ -4035,10 +4035,10 @@
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "bucket_patch_conditions_and_query_contract",
@@ -4047,7 +4047,7 @@
         "bucket_put_conditioned_race_has_one_winner",
         "bkt_http_query_body_name_and_route_boundaries",
         "bkt_err_001_envelope_content_type_and_catalog_mappings",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
         "obj_http_zero_multichunk_binary_and_size_limits",
         "obj_http_disconnected_overwrite_preserves_the_previous_generation",
         "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -4056,7 +4056,10 @@
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "bkt_http_malformed_conditions_preserve_all_bucket_methods",
-        "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner"
+        "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection"
       ],
       "verification": [
         {
@@ -4256,6 +4259,17 @@
           "test_ids": [
             "bkt_http_malformed_conditions_preserve_all_bucket_methods",
             "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay"
           ]
         }
       ],
@@ -4792,7 +4806,7 @@
         "json::fields::tests::fields_rendered_resource_paths_match_pinned_schemas",
         "json::fields::tests::fields_select_paths_subselectors_wildcards_and_omitted_values",
         "json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
         "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
@@ -4803,14 +4817,14 @@
         "obj_http_concurrent_create_if_absent_has_one_winner",
         "obj_http_disconnected_overwrite_preserves_the_previous_generation",
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
         "obj_http_zero_multichunk_binary_and_size_limits",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
@@ -4820,7 +4834,10 @@
         "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
         "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
-        "pap_migrates_version_twelve_and_persists_configured_state"
+        "pap_migrates_version_twelve_and_persists_configured_state",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart"]},
@@ -5148,6 +5165,17 @@
             "TestObjectMediaLifecycle",
             "TestObjectMultipartWriter",
             "TestReadETagValidators"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
       ],
@@ -6165,7 +6193,7 @@
         "bkt_err_001_envelope_content_type_and_catalog_mappings",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
         "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
         "obj_http_zero_multichunk_binary_and_size_limits",
         "obj_http_disconnected_overwrite_preserves_the_previous_generation",
         "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -6177,7 +6205,8 @@
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
         "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
-        "pap_migrates_version_twelve_and_persists_configured_state"
+        "pap_migrates_version_twelve_and_persists_configured_state",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection"
       ],
       "verification": [
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_insert_patch_put_defaults_and_empty_policy_lock"]},
@@ -6390,6 +6419,15 @@
           "test_ids": [
             "TestBucketLifecycle",
             "TestBucketSettingsRoundTrip"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay"
           ]
         }
       ],
@@ -6763,7 +6801,7 @@
         "bkt_err_001_envelope_content_type_and_catalog_mappings",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
         "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
         "obj_http_zero_multichunk_binary_and_size_limits",
         "obj_http_disconnected_overwrite_preserves_the_previous_generation",
         "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -6779,7 +6817,8 @@
         "json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping",
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
         "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
-        "pap_migrates_version_twelve_and_persists_configured_state"
+        "pap_migrates_version_twelve_and_persists_configured_state",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection"
       ],
       "verification": [
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart"]},
@@ -6939,6 +6978,15 @@
           "artifact": "docs/en/evidence/signed-urls-sdk.txt",
           "test_ids": [
             "TestPartialResponseFields"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay"
           ]
         }
       ],
@@ -7107,7 +7155,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Implemented subset: labels merge/key removal/map clearing, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-patch.md. Final Rust/SDK/reference evidence: docs/en/evidence/bucket-metadata-patch.md; native/Docker guide and final container checks pass. All three delivery conditions close the scoped order-6 capability. Whole method remains PARTIAL because writable fields, ACL/billing/projection semantics and provider edge parity remain pending; no whole-row promotion is justified. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
+      "notes": "Implemented subset: labels merge/key removal/map clearing, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-patch.md. Final Rust/SDK/reference evidence: docs/en/evidence/bucket-metadata-patch.md; native/Docker guide and final container checks pass. All three delivery conditions close the scoped order-6 capability. Whole method remains PARTIAL because writable fields, ACL/billing/projection semantics and provider edge parity remain pending; no whole-row promotion is justified. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Integrated replay, advisory MIME, atomic resource ACL/query boolean and common HTTPS acceptance/evidence: docs/en/slices/sdk-scorecard-integration.md. Full final-source SDK comparison remains pending; preserve PARTIAL status and existing provider/profile limitations.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -7430,7 +7478,7 @@
         "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
         "json::fields::tests::fields_select_paths_subselectors_wildcards_and_omitted_values",
         "json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
         "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
@@ -7441,7 +7489,7 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
@@ -7452,7 +7500,9 @@
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
         "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
         "pap_migrates_version_twelve_and_persists_configured_state",
-        "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
+        "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
@@ -7717,6 +7767,16 @@
             "TestObjectMediaLifecycle",
             "TestObjectMultipartWriter",
             "TestStrictAuthBucketMetadataUpdate"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
       ],
@@ -8553,7 +8613,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "PUT preserves every omitted modeled setting, including labels, class, versioning/default holds, CORS, PAP/UBLA, lifecycle, retention and soft-delete policy. Supplied labels replace the map; explicit null/empty values retain field-specific contracts. Ruby Storage 1.62.1 update blocks and generated Go PUT verify partial updates without erasing unrelated settings. This local choice is not real-GCS evidence: SPEC-BUCKET-PUT. Contract and current checks: docs/en/slices/bucket-metadata-put.md. Historical reference/container/native/Docker evidence: docs/en/evidence/bucket-metadata-put.md; those runs predate omission preservation. Atomic conditions, strict authorization, persistence, fields, CORS and PAP remain supported. Whole method stays PARTIAL for unmodeled fields, ACL/billing/full projection and provider semantics/error/permission parity.",
+      "notes": "PUT preserves every omitted modeled setting, including labels, class, versioning/default holds, CORS, PAP/UBLA, lifecycle, retention and soft-delete policy. Supplied labels replace the map; explicit null/empty values retain field-specific contracts. Ruby Storage 1.62.1 update blocks and generated Go PUT verify partial updates without erasing unrelated settings. This local choice is not real-GCS evidence: SPEC-BUCKET-PUT. Contract and current checks: docs/en/slices/bucket-metadata-put.md. Historical reference/container/native/Docker evidence: docs/en/evidence/bucket-metadata-put.md; those runs predate omission preservation. Atomic conditions, strict authorization, persistence, fields, CORS and PAP remain supported. Whole method stays PARTIAL for unmodeled fields, ACL/billing/full projection and provider semantics/error/permission parity. Integrated replay, advisory MIME, atomic resource ACL/query boolean and common HTTPS acceptance/evidence: docs/en/slices/sdk-scorecard-integration.md. Full final-source SDK comparison remains pending; preserve PARTIAL status and existing provider/profile limitations.",
       "dependencies": [
         "JSON-BUCKETS-008"
       ],
@@ -8875,7 +8935,7 @@
         "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
         "json::fields::tests::fields_select_paths_subselectors_wildcards_and_omitted_values",
         "json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
         "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
@@ -8886,7 +8946,7 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
@@ -8897,7 +8957,9 @@
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
         "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
         "pap_migrates_version_twelve_and_persists_configured_state",
-        "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
+        "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
         {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["bucket_put_omitted_settings_survive_partial_iam_updates","bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_empty_null_and_invalid_inputs","bucket_put_full_resource_round_trip_preserves_unchanged_fields","bucket_put_settings_control_future_object_effects","bucket_put_null_settings_follow_profile_defaults","bucket_put_uses_clock_and_rolls_back_invalid_replacement","retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","auth::tests::pap_mutations_require_update_and_set_iam_permissions"]},
@@ -9154,6 +9216,16 @@
             "TestObjectMediaLifecycle",
             "TestObjectMultipartWriter",
             "TestStrictAuthBucketMetadataReplace"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
       ],
@@ -12946,7 +13018,7 @@
           "test_ids": [
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
             "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
             "generation_selection_nonempty_bucket_and_open_readers_survive_unlink",
             "TestObjectMediaLifecycle"
@@ -13048,7 +13120,7 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation"
           ]
@@ -13066,7 +13138,7 @@
       "test_ids": [
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
         "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
         "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
         "generation_selection_nonempty_bucket_and_open_readers_survive_unlink",
         "TestObjectMediaLifecycle",
@@ -13102,10 +13174,10 @@
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "bucket_patch_conditions_and_query_contract",
@@ -13120,7 +13192,10 @@
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
-        "conditional_delete_and_metadata_patch_have_one_winner"
+        "conditional_delete_and_metadata_patch_have_one_winner",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
         {
@@ -13330,6 +13405,17 @@
             "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
             "conditional_delete_and_metadata_patch_have_one_winner"
           ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -13493,7 +13579,7 @@
           "test_ids": [
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
             "obj_http_encoded_names_and_invalid_names",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "generation_selection_nonempty_bucket_and_open_readers_survive_unlink",
@@ -13865,7 +13951,7 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation"
           ]
@@ -13879,7 +13965,7 @@
         "obj_range_http_strict_authorization_precedes_range_evaluation",
         "obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding",
         "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
         "obj_http_encoded_names_and_invalid_names",
         "obj_http_bad_hashes_and_unsupported_requests_never_publish",
         "generation_selection_nonempty_bucket_and_open_readers_survive_unlink",
@@ -13938,10 +14024,10 @@
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "bucket_patch_conditions_and_query_contract",
@@ -13961,7 +14047,10 @@
         "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
         "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
-        "obj_http_queued_precheck_waits_past_body_inactivity_deadline"
+        "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
         {
@@ -14261,6 +14350,17 @@
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -14509,7 +14609,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Media, bounded multipart and JSON resumable initiation/chunk/status/cancel/expiry/finalization subsets pass with MD5/CRC32C, custom metadata, atomic conditions, persistent Object resources and bounded disk-backed sessions. Strict local grants, capability delegation and transaction-time revocation are verified. Scope: docs/en/slices/json-object-media.md, docs/en/slices/json-object-multipart.md and docs/en/slices/resumable-upload.md; final evidence: docs/en/evidence/resumable-upload.md. Full method fields/common parameters, IAM/ACL, encryption/transcoding, Discovery alias and invocation-token replay remain incomplete; retain all prior media/multipart/IAM evidence. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity.",
+      "notes": "Media, bounded multipart and JSON resumable initiation/chunk/status/cancel/expiry/finalization subsets pass with MD5/CRC32C, custom metadata, atomic conditions, persistent Object resources and bounded disk-backed sessions. Strict local grants, capability delegation and transaction-time revocation are verified. Scope: docs/en/slices/json-object-media.md, docs/en/slices/json-object-multipart.md and docs/en/slices/resumable-upload.md; final evidence: docs/en/evidence/resumable-upload.md. Full method fields/common parameters, IAM/ACL, encryption/transcoding, Discovery alias and invocation-token replay outside media/multipart remains incomplete; retain all prior media/multipart/IAM evidence. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity. Integrated replay, advisory MIME, atomic resource ACL/query boolean and common HTTPS acceptance/evidence: docs/en/slices/sdk-scorecard-integration.md. Full final-source SDK comparison remains pending; preserve PARTIAL status and existing provider/profile limitations.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -14675,13 +14775,13 @@
         },
         {
           "id": "JSON-OBJECTS-007-MULTIPART-PRECONDITIONS-TOKENS",
-          "description": "Four generation/metageneration conditions are rechecked atomically; advisory checks precede body/media as applicable. One nonempty invocation token requires ifGenerationMatch including zero; committed conditioned retry is 412, missing match is 501 before body, empty/duplicate token is 400.",
+          "description": "Four generation/metageneration conditions are rechecked atomically for new invocations; advisory checks precede body/media as applicable. Matching retained media/multipart tokens replay the original committed resource, with or without conditions; empty/duplicate tokens are 400. Local bounds: docs/en/slices/sdk-upload-replay.md.",
           "result": "PASS",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
             "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         },
         {
@@ -14897,13 +14997,13 @@
         },
         {
           "id": "BEHAVIOR-COMMON-011-MULTIPART-PRECONDITIONS-TOKENS",
-          "description": "Four generation/metageneration conditions are rechecked atomically; advisory checks precede body/media as applicable. One nonempty invocation token requires ifGenerationMatch including zero; committed conditioned retry is 412, missing match is 501 before body, empty/duplicate token is 400.",
+          "description": "Four generation/metageneration conditions are rechecked atomically for new invocations; advisory checks precede body/media as applicable. Matching retained media/multipart tokens replay the original committed resource, with or without conditions; empty/duplicate tokens are 400. Local bounds: docs/en/slices/sdk-upload-replay.md.",
           "result": "PASS",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
             "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         },
         {
@@ -14994,7 +15094,7 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-            "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation"
           ]
@@ -15096,10 +15196,10 @@
         "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
         "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
         "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
         "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
         "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
@@ -15156,7 +15256,7 @@
         "bucket_put_conditioned_race_has_one_winner",
         "bkt_http_query_body_name_and_route_boundaries",
         "bkt_err_001_envelope_content_type_and_catalog_mappings",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
         "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
         "obj_http_media_and_multipart_recheck_each_condition_after_streaming",
         "obj_http_media_and_multipart_independent_checksum_vectors_across_chunks",
@@ -15166,7 +15266,10 @@
         "iam::auth_http_media_and_multipart_recheck_revoked_overwrite_grants_after_streaming",
         "iam::auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects",
         "all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_relaxed",
-        "two_create_if_absent_sessions_have_one_finalization_winner"
+        "two_create_if_absent_sessions_have_one_finalization_winner",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection"
       ],
       "verification": [
         {
@@ -15529,6 +15632,17 @@
             "all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_relaxed",
             "two_create_if_absent_sessions_have_one_finalization_winner"
           ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+            "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -15650,13 +15764,13 @@
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. Ordinary object reclamation retains its startup retry; resumable terminal cleanup additionally has explicit due maintenance and a deadline scheduler.",
         "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation.",
-        "SPEC-013/SPEC-016: media/multipart upload tokens require ifGenerationMatch with no replay; resumable initiation accepts one nonempty token without it and creates another bounded session; multipart MIME caps/errors, contentType precedence and checksum-container edge rules remain local choices awaiting direct service evidence.",
+        "SPEC-013/SPEC-016: media/multipart upload tokens use bounded persistent replay with or without generation conditions (docs/en/slices/sdk-upload-replay.md); resumable initiation accepts one nonempty token without it and creates another bounded session; multipart MIME caps/errors, contentType precedence and checksum-container edge rules remain local choices awaiting direct service evidence.",
         "SPEC-RSM-DISCOVERY-PATH/EDGES/AUTH-CONDITIONS: JSON resumable has explicit local edge/error/terminal-retention and permission-recheck choices. XML/signed initiation, gRPC and invocation-token replay are excluded. Selected native resumable process-kill boundaries pass; final hash reread and prepublication error-resolution timing limits are recorded in docs/en/evidence/resumable-upload.md.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
-        "SPEC-013/SPEC-016: multipart query-name advisory conditions precede body input; metadata-only names are checked after bounded metadata before media, then atomically at publication. Upload tokens require generation-match and do not replay responses.",
+        "SPEC-013/SPEC-016: multipart query-name advisory conditions precede body input; metadata-only names are checked after bounded metadata before media, then atomically at publication. Matching retained upload tokens replay committed responses; new invocations still enforce conditions. Exact provider cache/error parity remains pending.",
         "SPEC-010/SPEC-016: Content-MD5 is rejected 501; checksum parser/reasons and multipart conflicting/unknown third-part fields are local rules. Resumable/composite checksum behavior remains absent. Current scope clarification: JSON resumable checksums are delivered in the basic-json-contract declared subset. Multipart X-Goog-Hash and multi-data-request resumable MD5 remain source questions under SPEC-016 / SPEC-RSM-EDGES; composite remains order 11.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
         "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
@@ -16397,7 +16511,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata is bounded to 8 KiB, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain.",
+      "notes": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata is bounded to 8 KiB, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Integrated replay, advisory MIME, atomic resource ACL/query boolean and common HTTPS acceptance/evidence: docs/en/slices/sdk-scorecard-integration.md. Full final-source SDK comparison remains pending; preserve PARTIAL status and existing provider/profile limitations.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -16609,10 +16723,10 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "TestObjectMediaLifecycle",
@@ -16621,7 +16735,9 @@
         "bucket_put_conditions_and_query_contract",
         "bucket_put_conditioned_race_has_one_winner",
         "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
-        "conditional_delete_and_metadata_patch_have_one_winner"
+        "conditional_delete_and_metadata_patch_have_one_winner",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
         {
@@ -16801,6 +16917,16 @@
             "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
             "conditional_delete_and_metadata_patch_have_one_winner",
             "all_conditions_generation_selectors_and_conditioned_races"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
       ],
@@ -17539,7 +17665,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PUT replaces the five supported fixed metadata fields and custom map, clears omitted fields, accepts identical GET resource output fields atomically, preserves generation/blob/checksums and increments metageneration. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain.",
+      "notes": "PUT replaces the five supported fixed metadata fields and custom map, clears omitted fields, accepts identical GET resource output fields atomically, preserves generation/blob/checksums and increments metageneration. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Integrated replay, advisory MIME, atomic resource ACL/query boolean and common HTTPS acceptance/evidence: docs/en/slices/sdk-scorecard-integration.md. Full final-source SDK comparison remains pending; preserve PARTIAL status and existing provider/profile limitations.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -17749,10 +17875,10 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "TestObjectMediaLifecycle",
@@ -17760,7 +17886,9 @@
         "bucket_patch_conditioned_race_has_one_winner",
         "bucket_put_conditions_and_query_contract",
         "bucket_put_conditioned_race_has_one_winner",
-        "obj_http_malformed_conditions_reject_every_object_method_without_mutation"
+        "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
         {
@@ -17930,6 +18058,16 @@
           "test_ids": [
             "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
             "all_conditions_generation_selectors_and_conditioned_races"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
       ],
@@ -26321,7 +26459,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Simple JSON media upload is wired end to end with bounded channels, explicit unsupported semantics and atomic publication. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md.",
+      "notes": "Simple JSON media upload is wired end to end with bounded channels, explicit unsupported semantics and atomic publication. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md. Integrated replay, advisory MIME, atomic resource ACL/query boolean and common HTTPS acceptance/evidence: docs/en/slices/sdk-scorecard-integration.md. Full final-source SDK comparison remains pending; preserve PARTIAL status and existing provider/profile limitations.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -26391,12 +26529,12 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-008-TOKENS",
-          "description": "Media upload accepts one nonempty invocation token only with ifGenerationMatch including zero; retry of a committed conditioned create/overwrite is 412, missing generation-match is 501 before input, and empty/duplicate tokens are 400.",
+          "description": "Media upload accepts one nonempty invocation token with or without conditions; matching committed retries replay the original resource without another generation, and empty/duplicate tokens are 400. Local bounds and authentication binding: docs/en/slices/sdk-upload-replay.md.",
           "result": "PASS",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
             "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+            "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
       ],
@@ -26421,8 +26559,10 @@
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
         "obj_http_trickle_upload_deadline_releases_permits_without_publication",
         "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
         "obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
@@ -26473,12 +26613,22 @@
             "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
           ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
         "SPEC-008/010/011: local mutation/hash rules and missing Content-Type defaults to application/octet-stream.",
-        "No ACL/IAM/auth, encoding/encryption or token replay; metadata upload belongs to the multipart subset. Media/multipart tokens require ifGenerationMatch, otherwise 501 before input (SPEC-013); default 1 GiB cap and inspected bounds are not performance measurements.",
+        "Media/multipart upload replay has bounded persistent local retention and current authorization checks; other accepted invocation-token methods still lack replay (SPEC-013). Full ACL effects, advanced encryption/encoding and provider retry-cache/error parity remain outside this scope. Default 1 GiB cap and inspected bounds are not performance measurements. See docs/en/slices/sdk-upload-replay.md.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
@@ -26507,7 +26657,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Bounded JSON multipart metadata/media with optional final checksum part, exact bytes, early validation, atomic conditions, deadline cleanup, restart and pinned Go Writer. Scoped acceptance is recorded below; production edge fidelity, token replay and permissions remain incomplete. Contract: docs/en/slices/json-object-multipart.md; final evidence: docs/en/evidence/multipart.md.",
+      "notes": "Bounded JSON multipart metadata/media with optional final checksum part, exact bytes, early validation, atomic conditions, deadline cleanup, restart and pinned Go Writer. Scoped acceptance is recorded below; production edge fidelity, replay outside this upload subset and full ACL effects remain incomplete. Contract: docs/en/slices/json-object-multipart.md; final evidence: docs/en/evidence/multipart.md. Integrated replay, advisory MIME, atomic resource ACL/query boolean and common HTTPS acceptance/evidence: docs/en/slices/sdk-scorecard-integration.md. Full final-source SDK comparison remains pending; preserve PARTIAL status and existing provider/profile limitations.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -26565,13 +26715,13 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-009-MULTIPART-PRECONDITIONS-TOKENS",
-          "description": "Four generation/metageneration conditions are rechecked atomically; advisory checks precede body/media as applicable. One nonempty invocation token requires ifGenerationMatch including zero; committed conditioned retry is 412, missing match is 501 before body, empty/duplicate token is 400.",
+          "description": "Four generation/metageneration conditions are rechecked atomically for new invocations; advisory checks precede body/media as applicable. Matching retained media/multipart tokens replay the original committed resource, with or without conditions; empty/duplicate tokens are 400. Local bounds: docs/en/slices/sdk-upload-replay.md.",
           "result": "PASS",
           "test_ids": [
-            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
             "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         },
         {
@@ -26645,10 +26795,10 @@
         "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
         "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
         "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
         "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
         "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
@@ -26656,7 +26806,9 @@
         "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
-        "TestObjectMediaLifecycle"
+        "TestObjectMediaLifecycle",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
         {
@@ -26701,6 +26853,16 @@
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -26740,7 +26902,7 @@
       "known_deviations": [
         "SPEC-016: bounded ordered MIME subset, local cap accounting and malformed/transport error reasons; metadata contentType > media header > application/octet-stream, with null/empty fallback. Header folding/duplicates, non-binary transfer encodings and headers-only parts lacking the additional CRLF are rejected. Direct service edge evidence is absent.",
         "SPEC-016/SPEC-010: third-part CRC32C follows the official example; MD5/empty-object/equal declarations and metadata/header/final checksum conflict and unknown-key rules are local. Content-MD5 remains 501.",
-        "SPEC-013: media/multipart tokens require ifGenerationMatch, including zero; no token replay/deduplication. Missing match returns 501 before body, empty/duplicate tokens return 400, committed conditioned retry returns 412.",
+        "SPEC-013: media/multipart tokens support bounded persistent replay with or without conditions; matching retries return the original resource, empty/duplicate tokens return 400, and conflicting invocations fail without mutation. Exact provider retention/error semantics and replay for other methods remain pending. See docs/en/slices/sdk-upload-replay.md.",
         "SPEC-008/SPEC-015: local mutation/advisory precedence and conservative unsupported/output/unknown metadata 501 rules; query name overrides only string/null metadata name, path bucket overrides string metadata bucket. No IAM/ACL/auth enforcement, advanced metadata, encryption or gzip transcoding.",
         "One live generation and local default 1 GiB media cap (configurable 1 byte..5 TiB). Resumable sessions and XML multipart are separate rows and remain unsupported. Functional carry/deadline/restart checks do not establish CPU/RSS/cgroup benchmarks, every crash boundary or power-loss durability."
       ],
@@ -51465,7 +51627,7 @@
       ],
       "known_deviations": [
         "Single-request multipart and normal nonzero ChunkSize resumable Writer are verified for the scoped metadata/checksum/condition subset. Other transports and unrestricted size/retry guarantees remain unverified; native resource results do not prove constrained-container memory.",
-        "SPEC-013: GET/DELETE/update invocation tokens re-execute without deduplication; media/multipart upload tokens require generation-match and return 412 after committed conditioned retry. Resumable initiation accepts a token without generation-match but does not replay it; session offsets govern chunk retries. Signing, XML beyond the scoped reads, gRPC and full strict IAM/ACL semantics remain unavailable; local strict project/bucket and public grants are verified.",
+        "SPEC-013: GET/DELETE/update invocation tokens re-execute without deduplication; media/multipart tokens use bounded persistent replay with or without generation-match (docs/en/slices/sdk-upload-replay.md). Resumable initiation accepts a token without generation-match but does not replay it; session offsets govern chunk retries. Signing, XML beyond the scoped reads, gRPC and full strict IAM/ACL semantics remain unavailable; local strict project/bucket and public grants are verified.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. Resumable terminal cleanup additionally has explicit due maintenance and a deadline scheduler.",
         "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged."
@@ -51709,7 +51871,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned @google-cloud/storage 8.4.0 on Node.js 26.13.0; the HTTP permissive scorecard records 22/51 passing workflows. apiEndpoint is an origin; STORAGE_EMULATOR_HOST is cleared because this SDK treats it as the JSON base path. V4 signing uses the configured endpoint. Contract and limitations: sdk-scorecard/README.md. This is a measured partial integration, not complete SDK support.",
+      "notes": "Pinned @google-cloud/storage 8.4.0 on Node.js 26.13.0; the historical HTTP permissive scorecard records 22/51 passing workflows. apiEndpoint is an origin; STORAGE_EMULATOR_HOST is cleared because this SDK treats it as the JSON base path. V4 signing uses the configured endpoint. Contract and limitations: sdk-scorecard/README.md. This is a measured partial integration, not complete SDK support. Integrated replay, advisory MIME, atomic resource ACL/query boolean and common HTTPS acceptance/evidence: docs/en/slices/sdk-scorecard-integration.md. Full final-source SDK comparison remains pending; preserve PARTIAL status and existing provider/profile limitations.",
       "dependencies": [],
       "dependency_status": "REFINED",
       "acceptance_status": "DECOMPOSED",
@@ -51724,7 +51886,7 @@
       "sdk_evidence": [
         {"language": "Node.js", "toolchain": "26.13.0", "sdk": "@google-cloud/storage", "version": "8.4.0", "transport": "HTTP JSON/XML; explicit anonymous custom endpoint and offline signing", "command": "bash sdk-scorecard/run.sh --out sdk-scorecard/results/2026-10-29-3", "result": "FAIL", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/results/2026-10-29-3/gcs-mimic.node.jsonl", "test_ids": ["scorecard-node"]}
       ],
-      "known_deviations": ["29/51 workflows fail, chiefly because ordinary non-resumable upload sends x-goog-gcs-idempotency-token without ifGenerationMatch and is rejected. Later operations in those workflows are not reached. SPEC-SDK-SCORECARD-CLIENTS tracks follow-up; strict/TLS/other transport and real-provider verification remain pending."],
+      "known_deviations": ["Historical HTTP run: 29/51 workflows fail, chiefly because ordinary non-resumable upload sends x-goog-gcs-idempotency-token without ifGenerationMatch and is rejected. Later operations in those workflows are not reached. SPEC-SDK-SCORECARD-CLIENTS tracks follow-up; strict/TLS/other transport and real-provider verification remain pending. Integrated replay, advisory MIME, atomic ACL/query booleans and shared HTTPS now have focused native/transport checks; the complete comparison rerun is pending. Parent integration remains PARTIAL; native TLS, strict/other profiles and real-GCS verification remain separate."],
       "implemented_in": null,
       "last_verified": "2026-10-29"
     },
@@ -51744,7 +51906,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned google-cloud-storage 3.17.1 / cryptography 50.0.2 on Python 3.14.10; the HTTP permissive scorecard records 18/51 passing workflows. Uses a scheme-inclusive emulator origin, explicit AnonymousCredentials, a local-only HTTP session and offline service-account signer. Contract and limitations: sdk-scorecard/README.md. No complete SDK compatibility claim.",
+      "notes": "Pinned google-cloud-storage 3.17.1 / cryptography 50.0.2 on Python 3.14.10; the historical HTTP permissive scorecard records 18/51 passing workflows. Uses a scheme-inclusive emulator origin, explicit AnonymousCredentials, a local-only HTTP session and offline service-account signer. Contract and limitations: sdk-scorecard/README.md. No complete SDK compatibility claim. Integrated replay, advisory MIME, atomic resource ACL/query boolean and common HTTPS acceptance/evidence: docs/en/slices/sdk-scorecard-integration.md. Full final-source SDK comparison remains pending; preserve PARTIAL status and existing provider/profile limitations.",
       "dependencies": [],
       "dependency_status": "REFINED",
       "acceptance_status": "DECOMPOSED",
@@ -51759,7 +51921,7 @@
       "sdk_evidence": [
         {"language": "Python", "toolchain": "3.14.10", "sdk": "google-cloud-storage", "version": "3.17.1", "transport": "HTTP JSON/XML; AnonymousCredentials, guarded session and offline signer", "command": "bash sdk-scorecard/run.sh --out sdk-scorecard/results/2026-10-29-3", "result": "FAIL", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/results/2026-10-29-3/gcs-mimic.python.jsonl", "test_ids": ["scorecard-python"]}
       ],
-      "known_deviations": ["33/51 workflows fail. Uploads send x-upload-content-type, which is rejected; bucket ACL/default ACL save uses unsupported PATCH resource fields; enableObjectRetention=True is rejected by lowercase-only boolean parsing. Later workflow operations may not be reached. SPEC-SDK-SCORECARD-CLIENTS tracks follow-up; strict/TLS/optional transport and real-provider verification remain pending."],
+      "known_deviations": ["Historical HTTP run: 33/51 workflows fail. Uploads send x-upload-content-type, which is rejected; bucket ACL/default ACL save uses unsupported PATCH resource fields; enableObjectRetention=True is rejected by lowercase-only boolean parsing. Later workflow operations may not be reached. SPEC-SDK-SCORECARD-CLIENTS tracks follow-up; strict/TLS/optional transport and real-provider verification remain pending. Integrated replay, advisory MIME, atomic ACL/query booleans and shared HTTPS now have focused native/transport checks; the complete comparison rerun is pending. Parent integration remains PARTIAL; native TLS, strict/other profiles and real-GCS verification remain separate."],
       "implemented_in": null,
       "last_verified": "2026-10-29"
     },
@@ -55564,7 +55726,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned google/cloud-storage 2.6.1 on PHP 8.5.12 / Composer 2.10.3 in the digest-pinned official container; the HTTP permissive scorecard records 21/51 passing workflows. Uses apiEndpoint, explicit AnonymousCredentials, local-only Guzzle transport and offline signer. cURL CONNECT_TO routes loopback through the Docker gateway without URL or Host changes. Contract and limitations: sdk-scorecard/README.md.",
+      "notes": "Pinned google/cloud-storage 2.6.1 on PHP 8.5.12 / Composer 2.10.3 in the digest-pinned official container; the historical HTTP permissive scorecard records 21/51 passing workflows. Uses apiEndpoint, explicit AnonymousCredentials, local-only Guzzle transport and offline signer. cURL CONNECT_TO routes loopback through the Docker gateway without URL or Host changes. Contract and limitations: sdk-scorecard/README.md. Integrated replay, advisory MIME, atomic resource ACL/query boolean and common HTTPS acceptance/evidence: docs/en/slices/sdk-scorecard-integration.md. Full final-source SDK comparison remains pending; preserve PARTIAL status and existing provider/profile limitations.",
       "dependencies": [],
       "dependency_status": "REFINED",
       "acceptance_status": "DECOMPOSED",
@@ -55579,7 +55741,7 @@
       "sdk_evidence": [
         {"language": "PHP", "toolchain": "8.5.12", "sdk": "google/cloud-storage", "version": "2.6.1", "transport": "HTTP JSON/XML; anonymous endpoint, guarded Guzzle/cURL transport and offline signer", "command": "bash sdk-scorecard/run.sh --out sdk-scorecard/results/2026-10-29-3", "result": "FAIL", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/results/2026-10-29-3/gcs-mimic.php.jsonl", "test_ids": ["scorecard-php"]}
       ],
-      "known_deviations": ["30/51 workflows fail, chiefly because ordinary upload sends x-goog-gcs-idempotency-token without ifGenerationMatch and is rejected. Resumable upload also fails; the SDK error only supplies a resume URI. The V2 signer hardcodes HTTPS, so unchanged V2 URLs cannot run against this HTTP-only scorecard. Later workflow operations may not be reached. SPEC-SDK-SCORECARD-CLIENTS tracks follow-up; strict/TLS/provider verification remains pending."],
+      "known_deviations": ["Historical HTTP run: 30/51 workflows fail, chiefly because ordinary upload sends x-goog-gcs-idempotency-token without ifGenerationMatch and is rejected. Resumable upload also fails; the SDK error only supplies a resume URI. The V2 signer hardcodes HTTPS, so unchanged V2 URLs cannot run against this HTTP-only scorecard. Later workflow operations may not be reached. SPEC-SDK-SCORECARD-CLIENTS tracks follow-up; strict/TLS/provider verification remains pending. Integrated replay, advisory MIME, atomic ACL/query booleans and shared HTTPS now have focused native/transport checks; the complete comparison rerun is pending. Parent integration remains PARTIAL; native TLS, strict/other profiles and real-GCS verification remain separate."],
       "implemented_in": null,
       "last_verified": "2026-10-29"
     },
