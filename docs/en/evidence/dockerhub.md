@@ -2,9 +2,9 @@
 
 <!-- markdownlint-configure-file {"MD013": {"code_blocks": false}} -->
 
-Scope: `DIST-004`, on 2026-10-28. Status remains PARTIAL: the authorized manual
-backfill of 0.2.1 succeeded, while the tag-triggered release path has not run.
-No release tags or GitHub Releases were created.
+Scope: `DIST-004`, on 2026-10-28 and 2026-10-29. Status remains PARTIAL: the
+authorized manual backfills of 0.2.1 and 0.3.0 succeeded, while the first
+tag-triggered mirror, for 0.3.0, failed before copying anything.
 
 ## Authorized 0.2.1 backfill
 
@@ -29,6 +29,40 @@ Independent checks afterwards:
 - `docker run --rm --pull always --platform linux/amd64|linux/arm64
   docker.io/shiroemons/gcs-mimic:0.2.1 --version` prints `gcs-mimic 0.2.1` for
   both platforms. The local host is macOS ARM64; amd64 runs under emulation.
+
+## 0.3.0 tag release and backfill
+
+On 2026-10-29 the `v0.3.0` tag started
+[run 40794280766](https://github.com/shiroemons/gcs-mimic/actions/runs/40794280766)
+(**Release binaries**). Validation, all native builds, the GitHub Release and
+GHCR publication passed, so the tag-triggered path reached
+`publish-dockerhub / mirror` for the first time. That job failed at
+`docker login`: `REGISTRY_USER` resolved from the environment variable, but
+`REGISTRY_TOKEN` was empty and the log reports
+`Cannot perform an interactive login from a non TTY device`. The caller passed
+no secrets to the reusable workflow, so the environment secret did not reach the
+called job. `binaries.yaml` now passes `secrets: inherit`; the next tag release
+must confirm the fix.
+
+The owner had authorized publishing 0.3.0 to every registry, so a manual run
+from `main` at `7054c5e` completed it:
+[run 40796866383](https://github.com/shiroemons/gcs-mimic/actions/runs/40796866383)
+passed and its log ends with:
+
+```text
+PASS: docker.io/shiroemons/gcs-mimic:0.3.0 at sha256:c6de2cef4ea4aae7a246047f8a1973055faefc13f5a1d109016b026f6590e548; SPDX SBOM, SLSA provenance and anonymous access verified
+```
+
+Independent checks afterwards:
+
+- `docker buildx imagetools inspect` reports
+  `sha256:c6de2cef4ea4aae7a246047f8a1973055faefc13f5a1d109016b026f6590e548` for
+  Docker Hub tags `0.3.0`, `0.3` and `latest`, equal to the GHCR tags.
+- `{{json .SBOM}}` on the Docker Hub tag returns SPDX-2.3 for `linux/amd64` and
+  `linux/arm64`, and the index lists one attestation manifest per platform.
+- `docker run --rm --pull always --platform linux/amd64|linux/arm64
+  docker.io/shiroemons/gcs-mimic:0.3.0 --version` prints `gcs-mimic 0.3.0` for
+  both platforms.
 
 ## Executed offline checks
 

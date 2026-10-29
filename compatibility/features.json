@@ -2338,7 +2338,7 @@
         },
         {
           "id": "DIST-004-PUBLICATION",
-          "description": "Observe an authorized mirror run end to end: equal GHCR and Docker Hub index digests, per-platform SBOM and provenance on Docker Hub, anonymous digest access and alias selection. Manual backfill run 40693113466 published 0.2.1, 0.2 and latest at sha256:d3846b7b42f5dc60a5c50f0bfb5248cb0fe35ebec0361eaf1eaf271ee34c73bb; both platforms report gcs-mimic 0.2.1.",
+          "description": "Observe an authorized mirror run end to end: equal GHCR and Docker Hub index digests, per-platform SBOM and provenance on Docker Hub, anonymous digest access and alias selection. Manual backfill run 40693113466 published 0.2.1, 0.2 and latest at sha256:d3846b7b42f5dc60a5c50f0bfb5248cb0fe35ebec0361eaf1eaf271ee34c73bb; both platforms report gcs-mimic 0.2.1. Manual backfill run 40796866383 published 0.3.0, 0.3 and latest at the GHCR index sha256:c6de2cef4ea4aae7a246047f8a1973055faefc13f5a1d109016b026f6590e548 with per-platform attestation manifests; both platforms report gcs-mimic 0.3.0.",
           "result": "PASS",
           "test_ids": [
             "dockerhub-mirror-publication"
@@ -2346,7 +2346,7 @@
         },
         {
           "id": "DIST-004-TAG-RELEASE",
-          "description": "Observe a version tag release run the Docker Hub job after GHCR publication without manual dispatch.",
+          "description": "Observe a version tag release run the Docker Hub job after GHCR publication without manual dispatch. The v0.3.0 tag run 40794280766 reached the job but logged in with an empty DOCKERHUB_TOKEN because the caller passed no secrets to the reusable workflow; the caller now uses secrets: inherit, which the next tag release must confirm.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -2373,14 +2373,32 @@
           "test_ids": [
             "dockerhub-mirror-publication"
           ]
+        },
+        {
+          "command": "gh run view 40794280766 (Release binaries, v0.3.0): publish-dockerhub / mirror failed at docker login with an empty REGISTRY_TOKEN",
+          "result": "FAIL",
+          "verified_at": "2026-10-29",
+          "artifact": ".github/workflows/binaries.yaml",
+          "test_ids": [
+            "dockerhub-mirror-publication"
+          ]
+        },
+        {
+          "command": "gh workflow run dockerhub.yaml --ref main -f version=0.3.0 (run 40796866383); docker buildx imagetools inspect docker.io/shiroemons/gcs-mimic:0.3.0|0.3|latest; docker run --pull always --platform linux/amd64|linux/arm64 docker.io/shiroemons/gcs-mimic:0.3.0 --version",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/dockerhub.md",
+          "test_ids": [
+            "dockerhub-mirror-publication"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "The tag-triggered release path has not run. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
+        "The tag-triggered release path failed for v0.3.0 because the reusable workflow received no secrets; the secrets: inherit fix is unverified until the next tag release. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-28"
+      "last_verified": "2026-10-29"
     },
     {
       "id": "DIST-001",

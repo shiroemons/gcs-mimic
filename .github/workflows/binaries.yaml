@@ -293,5 +293,9 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/dockerhub.yaml
+    # A called workflow receives no secrets unless the caller passes them, even
+    # from the environment its job selects; the v0.3.0 tag run logged in with an
+    # empty token. This caller has no environment, so it cannot name the token.
+    secrets: inherit
     with:
       version: ${{ needs.validate.outputs.version }}
