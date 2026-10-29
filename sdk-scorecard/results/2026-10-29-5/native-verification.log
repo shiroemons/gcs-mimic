@@ -1,0 +1,2244 @@
+Local path prefixes are replaced with <checkout> and <test-temp>; other output is unchanged.
+Using a 4096 MiB RAM disk for TMPDIR: <test-temp>
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-cd88f6fa55c40d65)
+
+running 643 tests
+test acl::tests::roles_depend_on_the_resource_kind ... ok
+test acl::tests::entities_follow_the_discovery_forms ... ok
+test auth::tests::notable_role_consequences_follow_the_snapshot ... ok
+test acl::tests::project_private_uses_the_rendered_project_number ... ok
+test auth::signature::tests::canonical_headers_match_the_official_published_example ... ok
+test auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding ... ok
+test auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects ... ok
+test auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material ... ok
+test auth::tests::registry_file_read_is_bounded ... ok
+test auth::tests::role_snapshot_is_sorted_unique_storage_permission_data ... ok
+test auth::tests::strict_caller_resolution ... ok
+test auth::signature::tests::signed_time_boundaries_use_the_injected_clock_and_documented_skew ... ok
+test bounded_file::tests::inclusive_limit_reads_only_one_extra_byte ... ok
+test bucket::autoclass::tests::autoclass_bucket_restrictions ... ok
+test bucket::autoclass::tests::autoclass_disable_and_reenable_boundary ... ok
+test bucket::autoclass::tests::autoclass_enable_sets_server_times_and_default_terminal_class ... ok
+test auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound ... ok
+test auth::signature::tests::v2_structure_permissive_credentials_and_injected_expiry ... ok
+test bucket::autoclass::tests::autoclass_json_parsing_validates_fields ... ok
+test auth::tests::evaluation_is_driven_by_snapshot_data ... ok
+test bucket::official_bucket_location_names_and_types ... ok
+test auth::signature::tests::v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers ... ok
+test auth::tests::registry_validation_rejects_invalid_files_without_partial_load ... ok
+test auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed ... ok
+test auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected ... ok
+test auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority ... ok
+test bounded_file::tests::bounded_reads_preserve_fifo_inputs ... ok
+test bucket::lifecycle::tests::lifecycle_date_and_prefix_suffix_boundaries ... ok
+test bucket_init::tests::failed_retention_never_evicts_an_existing_diagnostic ... ok
+test bucket_init::tests::closed_schema_rejects_unknown_unsupported_and_disabled_noops ... ok
+test bucket_init::tests::existing_api_acceptance_and_legacy_profile_remain_separate ... ok
+test bucket_init::tests::initializer_location_normalizes_names_and_defaults ... ok
+test bucket_init::tests::invalid_projects_do_not_hide_independent_native_errors ... ok
+test auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions ... ok
+test bucket_init::tests::malformed_documents_versions_and_shapes_fail_without_parser_leaks ... ok
+test bucket_init::tests::native_settings_project_precedence_and_injected_microseconds ... ok
+test bucket_init::tests::entries_after_the_count_limit_are_not_interpreted ... ok
+test bucket_init::tests::repeated_members_at_every_depth_and_decoded_global_names_are_reported ... ok
+test bucket_init::tests::generalized_detail_groups_preserve_fields_after_rule_and_member_noise ... ok
+test bucket_init::tests::shared_renderer_preserves_complete_sorted_escaped_batches ... ok
+test bucket_init::tests::diagnostic_noise_preserves_other_entries_and_document_failures ... ok
+test bucket_init::tests::oversized_entries_keep_structural_and_duplicate_name_diagnostics ... ok
+test bucket_init::tests::shortened_first_errors_and_root_typo_advice_remain_visible ... ok
+test bucket_init::tests::regular_files_relative_paths_symlinks_and_read_failures ... ok
+test config::tests::advertised_endpoint_precedence_and_validation ... ok
+test config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts ... ok
+test config::tests::authentication_profile_precedence_and_validation ... ok
+test config::tests::bucket_initializer_selectors_follow_precedence_and_reject_empty_paths ... ok
+test config::tests::config_file_diagnostics_keep_the_selected_source_and_field ... ok
+test config::tests::compat_profile_precedence_and_validation ... ok
+test config::tests::cors_fallback_defaults_to_none_with_precedence_in_both_profiles ... ok
+test config::tests::data_directory_precedence_and_validation ... ok
+test config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources ... ok
+test config::tests::default_location_validates_precedence_and_native_profile ... ok
+test config::tests::dual_listener_defaults_precedence_and_validation ... ok
+test config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence ... ok
+test config::tests::grpc_listener_configuration_precedence_and_diagnostics ... ok
+test bucket_init::tests::first_error_summaries_cover_all_entries_with_bounded_ranges ... ok
+test config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades ... ok
+test config::tests::object_limit_precedence_and_bounds ... ok
+test config::tests::public_ip_origins_warn_without_disabling_explicit_domains_or_path_urls ... ok
+test config::tests::log_level_defaults_precedence_alias_and_invalid_values ... ok
+test config::tests::tls_configuration_precedence_and_validation ... ok
+test config::tests::public_origin_merges_bounded_domains_and_preserves_input_precedence ... ok
+test config::tests::bounded_config_reads_preserve_fifo_inputs ... ok
+test config_input::tests::default_seed_is_adopted_only_when_present_and_disjoint ... ok
+test config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence ... ok
+test config::tests::transfer_timeout_precedence_and_bounds ... ok
+test config_input::tests::dual_listener_legacy_advice_names_effective_native_settings ... ok
+test config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls ... ok
+test config_input::tests::legacy_location_advice_uses_effective_native_setting ... ok
+test config_input::tests::native_environment_encoding_follows_effective_precedence ... ok
+test config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty ... ok
+test config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens ... ok
+test config_input::tests::option_prefixes_require_exactly_two_native_or_one_or_two_legacy_hyphens ... ok
+test csek::tests::data_reads_need_the_matching_key_and_metadata_reads_hide_hashes ... ok
+test csek::tests::error_reasons_round_trip_to_xml_codes ... ok
+test csek::tests::parses_valid_key_and_keeps_only_its_fingerprint ... ok
+test csek::tests::rejects_invalid_algorithm_key_and_fingerprint ... ok
+test diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages ... ok
+test diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json ... ok
+test config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded ... ok
+test fsutil::tests::descriptor_xattr_reads_are_bounded_and_read_only ... ok
+test bucket_init::tests::encoded_resource_cannot_expand_past_the_native_body_limit ... ok
+test bucket_init::tests::inclusive_file_entry_and_count_limits_include_original_bytes ... ok
+test fsutil::tests::descriptor_copy_preserves_bytes_offsets_and_exclusive_names ... ok
+test fsutil::tests::metadata_errno_retains_platform_distinctions ... ok
+test fsutil::tests::metadata_lengths_include_exact_cap_and_empty ... ok
+test fsutil::tests::identity_observes_nanosecond_metadata_changes ... ok
+test fsutil::tests::export_directory_walk_rejects_redirects_and_unsafe_components ... ok
+test fsutil::tests::conditional_replace_preserves_displaced_and_conflicting_bytes ... ok
+test fsutil::tests::export_replace_between_directories_retains_displaced_entries ... ok
+test auth::tests::pap_mutations_require_update_and_set_iam_permissions ... ok
+test grpc::tests::grpc_response_drop_releases_stream_count ... ok
+test auth::tests::resource_acl_echo_requires_read_permission_and_changes_require_set_permission ... ok
+test grpc::v1::convert::tests::grpc_v1_output_fields_accept_unchanged_and_reject_changes ... ok
+{"event":"stopping","level":"info"}
+test auth::tests::object_resource_acl_echo_and_replacement_keep_read_and_write_permissions_separate ... ok
+test bucket_init::tests::arbitrary_bytes_never_panic ... ok
+test grpc::v1::tests::list_buckets_without_project_spans_projects_with_paging ... ok
+test bucket_init::tests::arbitrary_json_shapes_and_depths_never_panic ... ok
+test grpc::v1::tests::strict_list_buckets_without_project_only_sees_listable_projects ... ok
+test grpc::tests::grpc_idle_connection_closes_with_goaway ... ok
+test grpc::v2::append::tests::append_creates_flushes_reads_and_finalizes_with_reserved_generation ... ok
+test bucket_init::tests::schema_shaped_inputs_keep_native_and_typed_conversion_consistent ... ok
+test grpc::v2::bidi_read::tests::bidi_handle_rejects_recreated_bucket_owner ... ok
+test grpc::v2::bidi_read::tests::bidi_range_bounds_and_ids ... ok
+test grpc::v2::bidi_read::tests::bidi_shared_error_status ... ok
+{"event":"grpc_drain_timeout","level":"warn","message":"gRPC GOAWAY grace expired with an incomplete handshake or unfinished stream; finish client streams or raise connection_timeout_ms, for example 10000; for SIGTERM also raise shutdown_timeout_ms, for example 20000","shutdown":true}
+test bucket_init::tests::successful_parses_preserve_input_count_names_and_order ... ok
+test grpc::v2::append::tests::append_hides_unflushed_bytes_and_truncates_them_on_takeover ... ok
+{"event":"grpc_keepalive_timeout","level":"warn","cause":"http2 error","message":"gRPC peer did not acknowledge an HTTP/2 keepalive ping; check the client connection or raise connection_timeout_ms, for example 10000"}
+test grpc::tests::grpc_dead_peer_is_detected_by_keepalive ... ok
+{"event":"grpc_drain_timeout","level":"warn","message":"gRPC GOAWAY grace expired with an incomplete handshake or unfinished stream; finish client streams or raise connection_timeout_ms, for example 10000; for SIGTERM also raise shutdown_timeout_ms, for example 20000","shutdown":true}
+test grpc::v2::append::tests::append_strict_requires_create_and_allows_viewer_reads ... ok
+test grpc::v2::append::tests::append_rejects_replacement_and_invalid_messages_without_false_success ... ok
+test grpc::v2::buckets::tests::grpc_buckets_create_autoclass_shares_json_rules ... ok
+test grpc::v2::convert::tests::grpc_record_conversion ... ok
+test grpc::v2::names::tests::grpc_resource_name_parsing ... ok
+test grpc::v2::append::tests::append_takeover_supersedes_the_previous_writer ... ok
+{"event":"grpc_stream_inactivity_timeout","level":"info","message":"gRPC stream remained open without request or response frames for 60 seconds; sending GOAWAY; send periodically or close and reopen the stream"}
+test grpc::v2::buckets::tests::grpc_buckets_create_subset_and_defaults ... ok
+test grpc::v2::object_io::tests::grpc_io_range_and_masks ... ok
+test grpc::v2::buckets::tests::grpc_buckets_crud_conditions_and_masks ... ok
+{"event":"grpc_drain_timeout","level":"warn","message":"gRPC GOAWAY grace expired with an incomplete handshake or unfinished stream; finish client streams or raise connection_timeout_ms, for example 10000; for SIGTERM also raise shutdown_timeout_ms, for example 20000","shutdown":false}
+test grpc::tests::grpc_goaway_has_bounded_grace ... ok
+test grpc::v2::buckets::tests::grpc_buckets_pagination_and_routing ... ok
+{"event":"grpc_drain_timeout","level":"warn","message":"gRPC GOAWAY grace expired with an incomplete handshake or unfinished stream; finish client streams or raise connection_timeout_ms, for example 10000; for SIGTERM also raise shutdown_timeout_ms, for example 20000","shutdown":false}
+test grpc::v2::buckets::tests::grpc_buckets_public_grants_and_billing_metadata ... ok
+test grpc::v2::buckets::tests::grpc_buckets_strict_shared_authorization ... ok
+test grpc::v2::object_io::tests::grpc_io_checksums_conditions_and_generation_preserve_data ... ok
+test grpc::v2::append::tests::append_unfinalized_object_survives_restart ... ok
+test grpc::v2::update_copy::tests::grpc_masks_reject_unsupported_and_accept_defaults ... ok
+test grpc::v2::object_io::tests::grpc_io_cancel_discards_sessions_and_staged_bytes ... ok
+test grpc::tests::grpc_idle_never_cuts_in_flight_streams ... ok
+test grpc::v2::object_io::tests::grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values ... ok
+test grpc::v2::object_io::tests::grpc_io_strict_cancel_requires_create_permission ... ok
+test hashing::tests::checkpoint_resumes_both_digests ... ok
+test hashing::tests::derived_checkpoint_preserves_raw_md5_bytes_and_resumes ... ok
+test hashing::tests::encode_lower_preserves_leading_zeroes ... ok
+test http_conditions::tests::etag_comparison_rejects_invalid_tags_even_after_a_matching_member ... ok
+test http_conditions::tests::etag_comparison_uses_http_lists_and_strong_or_weak_matching ... ok
+test import::codec::tests::arbitrary_times_never_panic ... ok
+test import::codec::tests::escaped_names_round_trip ... ok
+test import::codec::tests::exact_times_offsets_zero_and_negative_epoch ... ok
+test grpc::v2::object_io::tests::grpc_io_write_spec_storage_class ... ok
+test grpc::v2::tests::grpc_auth_metadata_handoff ... ok
+test import::tests::ordinary_xattr_objects_do_not_get_a_detritus_probe ... ok
+test import::tests::unsupported_xattr_inspection_warns_once_per_sidecar_object ... ok
+test import::tests::xattr_snapshot_verifies_bodies_without_mutating_source_attributes ... ok
+test json::acl::tests::bodies_require_entity_and_role_per_operation ... ok
+test json::acl::tests::resources_follow_the_discovery_schemas ... ok
+test json::acl::tests::route_errors_follow_query_and_name_validation ... ok
+test json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths ... ok
+test json::cors::tests::cors_origin_syntax_is_independent_of_listener_and_url_schemes ... ok
+test json::derived_metadata::tests::empty_body_inherits_and_explicit_resource_replaces_metadata_without_source_holds ... ok
+test import::codec::tests::valid_bucket_names_round_trip ... ok
+test json::fields::tests::fields_bound_length_depth_and_selection_count ... ok
+test json::fields::tests::fields_persisted_selection_does_not_depend_on_current_schema ... ok
+test json::fields::tests::fields_reject_malformed_unknown_and_scalar_children ... ok
+test json::fields::tests::fields_rendered_resource_paths_match_pinned_schemas ... ok
+test json::fields::tests::fields_select_paths_subselectors_wildcards_and_omitted_values ... ok
+test json::iam::tests::etag_bytes_accept_protojson_encodings_and_normalize_for_comparison ... ok
+test json::error::tests::backend_causes_are_actionable_and_private_details_stay_private ... ok
+test json::multipart::tests::form_data_boundary_accepts_utf8_forms_and_rejects_other_types_and_parameters ... ok
+test json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters ... ok
+test json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata ... ok
+test json::multipart::tests::multipart_parser_preserves_boundary_prefixes_at_every_chunk_split ... ok
+test json::multipart::tests::multipart_parser_rejects_missing_parts_bad_headers_and_truncation ... ok
+{"event":"grpc_stream_inactivity_timeout","level":"info","message":"gRPC stream remained open without request or response frames for 60 seconds; sending GOAWAY; send periodically or close and reopen the stream"}
+test grpc::v2::update_copy::tests::grpc_iam_config_updates_preserve_other_setting ... ok
+test json::notifications::tests::parses_defaults_normalizes_and_ignores_output_only_fields ... ok
+test json::notifications::tests::rejects_malformed_and_unsupported_values ... ok
+test json::notifications::tests::renders_resources_and_lists ... ok
+test json::notifications::tests::routes_methods_paths_and_queries ... ok
+test json::object_list::tests::empty_soft_deleted_listing_explains_missing_policy_only ... ok
+test json::object_move::tests::move_route_decodes_names_once_and_keeps_conditions_separate ... ok
+test json::object_retention::tests::bucket_object_retention_echo_values ... ok
+test json::object_retention::tests::object_retention_json_parsing_boundaries ... ok
+test json::object_tests::obj_csek_001_encrypted_resource_hides_hashes_without_its_key ... ok
+test json::object_tests::obj_csek_002_metadata_update_accepts_only_echoed_customer_encryption ... ok
+{"event":"object_backend_failure","level":"error","cause":"unrecognized backend failure (private details withheld)"}
+test json::object_tests::obj_error_001_status_reason_envelope_and_private_diagnostics ... ok
+test json::object_tests::obj_headers_001_upload_defaults_hashes_and_multiple_headers ... ok
+test json::object_tests::obj_headers_002_invalid_hashes_and_unsupported_semantics ... ok
+test json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected ... ok
+test json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions ... ok
+test json::object_tests::obj_name_001_exactly_once_decoding_and_utf8_boundaries ... ok
+test json::object_tests::obj_query_001_required_upload_and_unsupported_types ... ok
+test json::object_tests::obj_query_002_duplicates_invalid_scalars_and_method_parameters ... ok
+test json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links ... ok
+test json::object_tests::obj_render_002_media_headers_match_selected_generation_and_hashes ... ok
+test json::object_tests::obj_route_001_media_upload_metadata_download_delete ... ok
+test json::object_tests::obj_route_002_namespace_and_method_boundaries ... ok
+test json::object_tests::obj_signed_int64_and_download_endpoint_regressions ... ok
+test json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload ... ok
+test json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads ... ok
+test json::projects::tests::page_tokens_are_bound_to_the_listing_filters ... ok
+test json::projects::tests::rejects_invalid_methods_and_queries ... ok
+test json::projects::tests::routes_hmac_key_and_service_account_methods ... ok
+test json::projects::tests::service_account_uses_the_reported_project_number ... ok
+test json::projects::tests::update_body_accepts_round_tripped_metadata_and_rejects_invalid_states ... ok
+test json::rewrite::tests::rewrite_route_decodes_once_and_bounds_byte_budgets ... ok
+test json::tests::bkt_body_001_empty_exact_cap_multiframe_and_trailers ... ok
+test json::tests::bkt_body_001_rejects_oversize_and_read_errors ... ok
+test json::tests::bkt_err_001_envelope_content_type_and_catalog_mappings ... ok
+test json::tests::bkt_get_001_and_id_001_bucket_wire_fields ... ok
+test json::tests::bkt_get_002_and_del_002_signed_conditions ... ok
+test json::tests::bkt_id_001_utc_milliseconds_leap_century_and_range ... ok
+test json::tests::bkt_id_002_etag_changes_with_revision_and_incarnation ... ok
+test json::tests::bkt_ins_001_defaults_and_server_owned_values ... ok
+test json::tests::bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields ... ok
+test json::tests::bkt_ins_002_labels_unicode_boundaries_and_count ... ok
+test json::tests::bkt_ins_002_output_only_fields_do_not_override_server_state ... ok
+test json::tests::bkt_ins_002_recognized_unsupported_fields_never_succeed ... ok
+test json::tests::bkt_ins_003_location_and_storage_class_subset ... ok
+test json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping ... ok
+test json::tests::bkt_lst_001_response_omits_empty_items_and_absent_token ... ok
+test json::tests::bkt_lst_002_token_tampering_and_invalid_shapes ... ok
+test json::tests::bkt_lst_002_tokens_round_trip_scope_and_query_cursor ... ok
+test json::tests::bkt_name_001_length_charset_and_dot_boundaries ... ok
+test json::tests::bkt_name_002_ipv4_and_reserved_names ... ok
+test json::tests::bkt_qry_001_duplicate_unknown_and_misplaced_parameters ... ok
+test json::tests::bkt_qry_001_every_common_and_method_unsupported_parameter ... ok
+test json::tests::bkt_qry_002_projection_alt_and_boolean_validation ... ok
+test json::tests::bkt_qry_002_required_project_and_limits ... ok
+test json::tests::bkt_route_001_exact_routes_and_method_variants ... ok
+test json::tests::bkt_route_002_path_decodes_only_after_splitting ... ok
+test json::tests::bkt_route_003_wrong_method_has_allow_header ... ok
+test json::tests::bucket_location_defaults_and_unsupported_placement ... ok
+test json::tests::bucket_query_booleans_keep_supported_and_unsupported_semantics ... ok
+test json::tests::lifecycle_insert_defaults_and_unknown_resource_fields ... ok
+test json::tests::object_and_project_query_booleans_use_the_same_parser ... ok
+test json::tests::query_booleans_accept_only_lowercase_and_python_spellings ... ok
+test grpc::v2::object_io::tests::grpc_io_resumes_durable_offsets_and_queries_completion ... ok
+test match_glob::tests::official_glob_syntax ... ok
+test mime::tests::pinned_go_suffix_case_and_media_types ... ok
+test notification::tests::fields_reject_unknown_duplicate_and_oversized_values ... ok
+test notification::tests::limits_count_all_event_configs_against_every_event_type ... ok
+test notification::tests::stored_configs_round_trip_and_reject_invalid_rows ... ok
+test notification::tests::topics_normalize_relative_and_full_names_and_reject_malformed_names ... ok
+test object::retention::tests::object_retention_transitions_follow_mode_rules ... ok
+test object::retention::tests::retention_mode_names_are_exact ... ok
+test grpc::v2::update_copy::tests::grpc_retention_lock_and_compose_limits ... ok
+test grpc::v2::update_copy::tests::grpc_update_bucket_autoclass_masks ... ok
+{"event":"grpc_drain_timeout","level":"warn","message":"gRPC GOAWAY grace expired with an incomplete handshake or unfinished stream; finish client streams or raise connection_timeout_ms, for example 10000; for SIGTERM also raise shutdown_timeout_ms, for example 20000","shutdown":false}
+test grpc::tests::grpc_silent_open_stream_is_bounded ... ok
+test grpc::v2::object_io::tests::grpc_io_resumable_checksums_survive_reconnect_and_failed_completion ... ok
+test grpc::v2::update_copy::tests::grpc_update_masks ... ok
+test match_glob::tests::arbitrary_patterns_do_not_panic ... ok
+test grpc::v2::update_copy::tests::grpc_rewrite_continuation_and_compose_conditions ... ok
+test json::multipart::tests::multipart_parser_streams_large_media_with_bounded_carry ... ok
+test import::tests::filesystem_import_xattr_revalidation_preserves_source_metadata ... ok
+{"event":"stopping","level":"info"}
+test server::drain_tests::listener_failure_drains_background_work_before_catalog_close ... ok
+test server::gzip::tests::gzip_budget_one_never_hides_corruption_at_member_boundaries ... ok
+test server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer ... ok
+test server::gzip::tests::gzip_budget_resumes_optional_headers_deflate_trailers_and_member_boundaries ... ok
+test server::resumable::tests::catalog_wait_times_out_after_its_budget ... ok
+test server::resumable::tests::each_catalog_wait_starts_a_new_budget ... ok
+test server::resumable::tests::work_outside_catalog_waits_uses_the_request_deadline ... ok
+test server::unsupported::tests::pinned_discovery_routes_are_explicit_and_do_not_shadow_objects ... ok
+test source_tree::tests::root_snapshot_is_shared_with_the_walk ... ok
+test storage::blob_id::tests::canonical_ids_preserve_names_shards_and_leading_zeroes ... ok
+test storage::catalog::admin::bucket_definition_requires_matching_canonical_location_and_type ... ok
+test storage::catalog::admin::import_publication::tests::import_publication_budget_returns_unattempted_elements_for_the_next_cursor ... ok
+test storage::catalog::admin::import_publication::tests::import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix ... ok
+test config_input::tests::arbitrary_legacy_and_native_inputs_never_panic ... ok
+test grpc::tests::grpc_active_stream_survives_past_bound ... ok
+test storage::catalog::admin::import_publication::tests::import_publication_disk_full_rolls_back_records_observations_and_cursor ... ok
+test storage::catalog::admin::import_publication::tests::import_publication_preserves_identity_settings_hold_and_atomic_prefix ... ok
+test storage::catalog::admin::import_publication::tests::import_publication_keeps_independent_successes_and_terminal_failure_after_restart ... ok
+{"event":"catalog_schema_migrated","level":"info","from":17,"message":"migrated catalog schema from version 17 to 35; releases that support only schema 17 can no longer open this data directory","to":35}
+test server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check ... ok
+test server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit ... ok
+test storage::catalog::admin::imported_identity::tests::imported_identity_collision_is_atomic_and_exhaustion_is_safe ... ok
+test storage::catalog::admin::imported_identity::tests::imported_identity_rejects_lossy_precision ... ok
+test server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer ... ok
+test server::copy::tests::copy_rechecks_source_read_grant_before_publication ... ok
+test server::copy::tests::timed_out_publication_admission_never_commits_after_the_response ... ok
+test storage::catalog::admin::import_publication::tests::import_publication_failure_schema_rolls_back_and_reopens_preserved_state ... ok
+test server::copy::tests::shutdown_during_copy_recovers_without_a_destination ... ok
+test storage::catalog::admin::import_publication::tests::import_publication_progress_rejects_foreign_project_records_and_failure_is_bounded ... ok
+test storage::catalog::admin::imported_identity::tests::imported_identity_rejects_modes_that_could_discard_source_identity ... ok
+test storage::catalog::admin::imported_identity::tests::imported_identity_rejects_bad_hashes_without_mutation_or_blob_leaks ... ok
+test storage::catalog::admin::publication::tests::publication_batch_isolates_failed_elements_and_cleans_unused_blobs ... ok
+test storage::catalog::admin::publication::tests::publication_admits_only_one_active_and_one_waiting_batch ... ok
+test server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget ... ok
+test storage::catalog::admin::publication::tests::publication_budget_returns_retryable_handles_and_releases_sql_lane ... ok
+test storage::catalog::admin::publication::tests::publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers ... ok
+test storage::catalog::admin::publication::tests::publication_disk_full_rolls_back_the_batch_and_journal ... ok
+test storage::catalog::admin::imported_identity::tests::imported_identity_preserves_times_hashes_history_and_allocator_after_restart ... ok
+test storage::catalog::admin::publication::tests::publication_equal_hash_keeps_generation_metadata_and_journal ... ok
+test storage::catalog::admin::publication::tests::publication_file_staging_does_not_wait_for_shared_blocking_pool ... ok
+test server::gzip::tests::gzip_decode_bounds_input_and_output_across_members ... ok
+test storage::catalog::admin::publication::tests::publication_batch_keeps_per_element_validation_and_rejects_foreign_handles ... ok
+test storage::catalog::admin::publication::tests::publication_partial_batch_allows_staging_without_a_second_batch ... ok
+test server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement ... ok
+test json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames ... ok
+test storage::catalog::admin::publication::tests::publication_inherits_metadata_patched_after_staging ... ok
+test storage::catalog::admin::publication::tests::publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup ... ok
+test storage::catalog::admin::tests::admin_names_generations_and_permissions_are_validated ... ok
+test storage::catalog::admin::publication::tests::publication_streaming_modes_preserve_patches_and_require_all_hash_fields ... ok
+test storage::catalog::admin::tests::admin_admission_is_independent_of_saturated_api_slots ... ok
+test storage::catalog::admin::tests::admin_corrupt_sqlite_and_stored_values_remain_typed ... ok
+test storage::catalog::admin::publication::tests::publication_file_checksums_caps_staging_visibility_and_discard ... ok
+test storage::catalog::admin::tests::admin_cancelled_body_cleans_staging_before_unlock ... ok
+test storage::catalog::admin::tests::admin_invalid_metadata_cannot_replace_a_readable_generation ... ok
+test storage::catalog::admin::tests::admin_holds_and_disk_full_keep_their_error_types ... ok
+test storage::catalog::admin::publication::tests::publication_shutdown_drains_accepted_batch_through_retired_blob_reclamation ... ok
+test storage::catalog::admin::tests::admin_replace_preserves_conditions_checksums_metadata_and_versions ... ok
+test storage::catalog::admin::tests::admin_cancelled_ensure_drains_the_owned_sql_job_before_unlock ... ok
+test storage::catalog::admin::tests::admin_wait_deadlines_queue_limit_and_closed_state_are_typed ... ok
+test storage::catalog::admin::tests::admin_ensure_batches_preserve_identity_order_and_rollback ... ok
+test storage::catalog::admin::tests::disk_full_during_derived_retirement_preserves_the_same_transfer_and_bytes ... ok
+{"event":"blob_reclaim_deferred","level":"warn","message":"deferred blob reclamation: catalog unavailable: deletion journal references a live blob"}
+test storage::catalog::admin::tests::publication_reclamation_is_paged_and_rejects_live_journal_entries ... ok
+test storage::catalog::admin::tests::disk_full_during_resumable_retirement_preserves_the_same_session_and_bytes ... ok
+test storage::catalog::admin::tests::admin_ensure_full_batch_and_concurrent_creates_are_atomic ... ok
+test storage::catalog::admin::tests::publication_waits_for_reclamation_without_holding_catalog_execution ... ok
+test storage::catalog::admin::publication::tests::publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks ... ok
+test storage::catalog::change_journal::tests::journal_migration_is_atomic_and_inventory_cannot_hide_extra_tables ... ok
+{"event":"upload_cleanup_deferred","level":"warn","message":"invalid upload cleanup failed; maintenance will retry: catalog unavailable: catalog I/O: permission denied"}
+test storage::catalog::appendable::tests::appendable_objects_do_not_survive_bucket_recreation ... ok
+test storage::catalog::admin::tests::shared_reclamation_preserves_cancelled_session_cleanup_markers ... ok
+test storage::catalog::admin::tests::cancelled_reclamation_retains_directory_ownership_until_sql_settles ... ok
+test storage::catalog::appendable::tests::appendable_size_limit_and_reader_bound_by_persisted_size ... ok
+test storage::catalog::admin::tests::admin_shutdown_holds_lock_through_renamed_publication ... ok
+test storage::catalog::appendable::tests::finalization_inherits_default_acl_and_autoclass_class ... ok
+test storage::catalog::change_journal::tests::journal_records_atomic_origins_mutations_and_stable_pages ... ok
+test storage::catalog::change_journal::tests::journal_bucket_iam_compose_and_resumable_share_mutation_transactions ... ok
+test storage::catalog::appendable::tests::appendable_row_left_by_crash_after_publication_is_stale ... ok
+test storage::catalog::change_journal::tests::observation::sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits ... ok
+test storage::catalog::change_journal::tests::observation::sync_observation_every_committed_mutation_wakes_all_waiters ... ok
+test storage::catalog::change_journal::tests::observation::sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors ... ok
+test storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c ... ok
+test storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c ... ok
+test storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components ... ok
+test storage::catalog::change_journal::tests::observation::sync_observation_owner_inventory_recreation_preserves_keyset_and_incarnation ... ok
+{"event":"catalog_schema_migrated","level":"info","from":33,"message":"migrated catalog schema from version 33 to 35; releases that support only schema 33 can no longer open this data directory","to":35}
+test storage::catalog::appendable::tests::interrupted_finalization_before_publication_stays_appendable ... ok
+test storage::catalog::change_journal::tests::observation::sync_observation_owner_pages_share_metadata_budget_and_bounded_lookahead ... ok
+test storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links ... ok
+test storage::catalog::change_journal::tests::observation::sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require_rescan ... ok
+test storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer ... ok
+test storage::catalog::appendable::tests::schema_33_catalog_migrates_to_appendable_objects ... ok
+test storage::catalog::derived::tests::abandoned_handler_guard_waits_for_writer_then_reclaims_transfer ... ok
+test storage::catalog::derived::tests::all_source_conditions_are_checked_before_pinning_and_ranges_are_validated ... ok
+test storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins ... ok
+{"event":"blob_reclaim_deferred","level":"warn","message":"deferred blob reclaim d1b529f6773be1199abd17a1ddb1019e: Operation not permitted (os error 1)"}
+{"event":"blob_reclaim_deferred","level":"warn","message":"deferred blob reclamation: object I/O: permission denied"}
+{"event":"blob_reclaim_deferred","level":"warn","message":"deferred blob reclaim d1b529f6773be1199abd17a1ddb1019e: Operation not permitted (os error 1)"}
+test storage::catalog::derived::tests::callback_reclamation_failure_preserves_success_and_maintenance_retries ... ok
+{"event":"derived_cleanup_deferred","level":"warn","message":"deferred derived cleanup: catalog unavailable: Operation not permitted (os error 1)"}
+test storage::catalog::derived::tests::cleanup_failure_preserves_original_publication_error ... ok
+{"event":"derived_transfer_discarded","level":"warn","message":"discarding invalid derived transfer b399b5721332baaf37c1bd723fad7426: catalog unavailable: invalid derived sources"}
+test storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine ... ok
+test storage::catalog::derived::tests::callback_source_deletion_rolls_back_with_destination_and_checks_holds ... ok
+test storage::catalog::change_journal::tests::observation::sync_observation_commits_before_during_and_after_registration_are_not_lost ... ok
+test storage::catalog::customer_keys::tests::fingerprint_survives_restart_and_keyless_readers_are_refused ... ok
+test storage::catalog::derived::tests::committed_callback_deletion_reclaims_source_blob_without_restart ... ok
+test storage::catalog::derived::tests::destination_race_has_one_winner_and_failed_publication_cleans_staging ... ok
+test storage::catalog::derived::tests::dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer ... ok
+{"event":"catalog_schema_migrated","level":"info","from":29,"message":"migrated catalog schema from version 29 to 35; releases that support only schema 29 can no longer open this data directory","to":35}
+test storage::catalog::derived::tests::incomplete_and_transient_publication_failures_preserve_resumable_progress ... ok
+test storage::catalog::customer_keys::tests::schema_29_catalog_migrates_with_unencrypted_objects ... ok
+{"event":"catalog_schema_migrated","level":"info","from":14,"message":"migrated catalog schema from version 14 to 35; releases that support only schema 14 can no longer open this data directory","to":35}
+test storage::catalog::admin::tests::reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bodies ... ok
+{"event":"derived_transfer_discarded","level":"warn","message":"discarding invalid derived transfer 7c5279474cdf0adadaf2c5b0b07f8f4c: catalog unavailable: No such file or directory (os error 2)"}
+test storage::catalog::derived::tests::corrupt_transfer_is_discarded_without_blocking_catalog_recovery ... ok
+test storage::catalog::derived::tests::request_binding_commits_or_rolls_back_with_transfer_ownership ... ok
+test storage::catalog::derived::tests::injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs ... ok
+test storage::catalog::hmac_keys::tests::generated_access_ids_and_secrets_follow_the_documented_shapes ... ok
+test storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail ... ok
+{"event":"derived_transfer_discarded","level":"warn","message":"discarding invalid derived transfer 1a9494d55968e3f437a47a63f08270ae: catalog unavailable: derived prefix checksum differs from checkpoint"}
+test storage::catalog::change_journal::tests::journal_schema_upgrade_preserves_objects_policies_and_active_sessions ... ok
+test storage::catalog::derived::tests::recovery_rejects_same_length_corrupted_acknowledged_prefix ... ok
+test storage::catalog::import_journal::tests::import_journal_crash_child ... ok
+test storage::catalog::import_journal::tests::import_journal_migration_rolls_back_and_retries_without_seed_changes ... ok
+test storage::catalog::derived::tests::recovery_restores_renamed_uncommitted_output_and_empty_sources ... ok
+test storage::catalog::hmac_keys::tests::concurrent_creation_never_exceeds_the_per_account_limit ... ok
+test storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers ... ok
+
+running 1 test
+test storage::catalog::derived::tests::unknown_transfer_ids_cannot_remove_another_transfers_source ... ok
+test storage::catalog::derived::tests::validation_sees_same_name_source_before_retirement_and_completion_sees_destination ... ok
+test storage::catalog::import_journal::tests::import_journal_progress_hook_rolls_back_with_its_owning_transaction ... ok
+{"event":"catalog_schema_migrated","level":"info","from":31,"message":"migrated catalog schema from version 31 to 35; releases that support only schema 31 can no longer open this data directory","to":35}
+test bucket_init::tests::diagnostics_are_bounded_with_an_exact_omitted_count ... ok
+test storage::catalog::import_journal::tests::import_journal_completion_and_seed_rollback_together ... ok
+test storage::catalog::objects::tests::failed_v1_migration_never_commits_an_unreopenable_v2_catalog ... ok
+
+running 1 test
+test storage::catalog::notifications::tests::notification_limits_are_enforced_inside_the_transaction ... ok
+test storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure ... ok
+test storage::catalog::import_journal::tests::import_journal_revalidation_is_atomic_without_advancing_progress ... ok
+{"event":"catalog_schema_migrated","level":"info","from":9,"message":"migrated catalog schema from version 9 to 35; releases that support only schema 9 can no longer open this data directory","to":35}
+test storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object ... ok
+test storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart ... ok
+test storage::catalog::objects::tests::object_range_reader_seeks_sparse_blob_and_bounds_every_chunk ... ok
+test storage::catalog::hmac_keys::tests::previous_schema_migrates_and_keys_survive_reopen ... ok
+test storage::catalog::notifications::tests::corrupt_notification_rows_are_rejected ... ok
+test storage::catalog::import_journal::tests::import_journal_observation_crashes_preserve_committed_baselines ... ok
+test storage::catalog::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create ... ok
+test storage::catalog::objects::tests::versioning_migration_copies_named_columns_from_permuted_legacy_table ... ok
+test storage::catalog::import_journal::tests::import_journal_binding_pages_prefix_and_reopen_are_bounded ... ok
+test storage::catalog::resumable::tests::failed_session_migration_rolls_back_tables_indexes_and_version ... ok
+test storage::catalog::resumable_maintenance::tests::malformed_session_blob_ids_cannot_select_cleanup_or_recovery_paths ... ok
+test storage::catalog::objects::tests::object_list_skips_noncurrent_rows_with_bounded_sql_work ... ok
+test storage::catalog::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project ... ok
+test storage::catalog::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation ... ok
+test storage::catalog::rewrite_token::tests::continuation_binds_every_supplied_parameter_body_and_path ... ok
+test storage::catalog::rewrite_token::tests::tokens_are_opaque_and_tampering_never_selects_the_original_token ... ok
+test storage::catalog::soft_delete::tests::soft_delete_expiry_reclaims_at_most_one_hundred_rows_and_rolls_back_errors ... ok
+test storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication ... ok
+test storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket ... ok
+test storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work ... ok
+test storage::catalog::policies::cancellation_tests::cancelled_policy_request_still_executes_its_owned_job ... ok
+{"event":"catalog_schema_migrated","level":"info","from":27,"message":"migrated catalog schema from version 27 to 35; releases that support only schema 27 can no longer open this data directory","to":35}
+test storage::catalog::rewrite::tests::rewrite_initial_request_owner_reclaims_undelivered_state ... ok
+test storage::catalog::notifications::tests::notification_schema_migration_preserves_existing_buckets ... ok
+test storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads ... ok
+test storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations ... ok
+test storage::catalog::sync_state::root::tests::sync_root_lock_child ... ok
+{"event":"catalog_schema_migrated","level":"info","from":15,"message":"migrated catalog schema from version 15 to 35; releases that support only schema 15 can no longer open this data directory","to":35}
+test storage::catalog::rewrite::tests::rewrite_committed_completion_does_not_reread_an_expired_token ... ok
+test storage::catalog::rewrite::tests::rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others ... ok
+test storage::catalog::sync_state::findings::tests::sync_findings_reject_foreign_bindings_and_stale_incarnations ... ok
+test storage::catalog::sync_state::root::tests::sync_root_activation_baseline_reopen_and_reinitialize_preserve_data ... ok
+test storage::catalog::sync_state::root::tests::sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved ... ok
+test storage::catalog::sync_state::root::tests::sync_root_replacement_symlinks_and_marker_changes_fail_closed ... ok
+test storage::catalog::sync_state::root::tests::sync_root_exclusive_inode_ownership_blocks_catalogs_and_lock_replacement ... ok
+test storage::catalog::import_journal::tests::import_journal_upgrade_preserves_native_state_and_stopped_snapshot ... ok
+test storage::catalog::sync_state::root::tests::sync_root_cancelled_file_job_keeps_both_ownerships_until_drain ... ok
+test storage::catalog::sync_state::root::tests::sync_root_selected_parent_alias_retarget_stops_owned_jobs ... ok
+test storage::catalog::sync_state::root::tests::sync_root_trailing_separators_and_dots_do_not_follow_symlinks ... ok
+test storage::catalog::sync_state::root::tests::sync_root_sql_failures_never_publish_marker_or_complete_baseline ... ok
+test storage::catalog::sync_state::tests::sync_state_publication_skip_rollback_and_conditional_delete_are_atomic ... ok
+test storage::catalog::sync_state::root::tests::sync_root_interrupted_activation_requires_explicit_missing_marker_recovery ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_abandon_unpublished_copy_preserves_external_bytes_and_releases_reservations ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_abandon_rejects_installed_and_modified_workspace_bodies ... ok
+test storage::catalog::sync_state::tests::sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob ... ok
+{"event":"catalog_schema_migrated","level":"info","from":20,"message":"migrated catalog schema from version 20 to 35; releases that support only schema 20 can no longer open this data directory","to":35}
+test storage::catalog::sync_state::findings::tests::sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback ... ok
+test storage::catalog::sync_state::tests::sync_state_rejects_hash_path_identity_and_hold_conflicts_without_publication ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_export_cross_directory_publication_precedes_state_and_retains_displacement ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_failed_ack_rolls_back_progress_and_fingerprint_then_retries ... ok
+test storage::catalog::sync_state::findings::tests::sync_findings_idempotent_pages_conditional_removal_and_restart ... ok
+test storage::catalog::sync_state::tests::sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_cancelled_job_serializes_separate_handles_until_protected_body_is_recorded ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_other_operation_success_cannot_clear_failed_entry_or_target_validation ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_progress_cannot_skip_pending_work_and_protection_stops_other_operations ... ok
+{"event":"catalog_schema_migrated","level":"info","from":18,"message":"migrated catalog schema from version 18 to 35; releases that support only schema 18 can no longer open this data directory","to":35}
+test storage::catalog::sync_state::root::tests::sync_root_schema_migration_rolls_back_retries_and_preserves_state ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_export_parent_sync_failure_cannot_commit_state ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_rejects_foreign_stale_hold_and_changed_api_winners ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_removal_requires_complete_baseline_and_absent_unchanged_api_winner ... ok
+test storage::catalog::tests::bucket_settings_migration_rolls_back_columns_and_version_after_late_failure ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_sqlite_enospc_keeps_displaced_bytes_and_retry_captures_actual_size ... ok
+test storage::catalog::tests::immutable_uri_preserves_native_windows_paths ... ok
+test storage::catalog::tests::immutable_uri_reads_exact_unicode_and_reserved_filename ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_protected_sparse_body_exceeds_quota_without_cleanup_or_false_ack ... ok
+test storage::catalog::tests::timestamps_use_integer_unix_milliseconds ... ok
+test storage::catalog::timestamp_tests::timestamp_fixture_downgrade_floors_signed_values_and_deletion_times ... ok
+test storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit ... ok
+test storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation ... ok
+test storage::catalog::timestamp_tests::timestamp_migration_scales_extrema_and_rolls_back_after_partial_update ... ok
+test storage::catalog::timestamp_tests::timestamp_migration_rejects_overflow_without_changing_version_or_values ... ok
+test storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation ... ok
+{"event":"catalog_schema_migrated","level":"info","from":16,"message":"migrated catalog schema from version 16 to 35; releases that support only schema 16 can no longer open this data directory","to":35}
+test storage::catalog::sync_state::tests::sync_state_schema_migration_rolls_back_retries_and_preserves_objects ... ok
+test storage::catalog::sync_state::root::tests::sync_root_activation_failure_boundaries_preserve_reservation_and_refuse_partial_marker ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart ... ok
+test storage::catalog::timestamp_tests::timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors ... ok
+test storage::catalog::tests::close_waits_for_cancelled_blocking_work_and_invalidates_clones ... ok
+test storage::catalog::tests::poisoned_catalog_permanently_revokes_readiness ... ok
+test storage::catalog_tests::bucket_list_among_projects_orders_by_name_across_owners ... ok
+test storage::catalog_tests::bucket_patch_uses_clock_and_rolls_back_invalid_merge ... ok
+test storage::catalog_tests::catalog_child_process ... ok
+test storage::catalog_tests::bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries ... ok
+{"event":"catalog_schema_migrated","level":"info","from":32,"message":"migrated catalog schema from version 32 to 35; releases that support only schema 32 can no longer open this data directory","to":35}
+{"event":"catalog_schema_migrated","level":"info","from":30,"message":"migrated catalog schema from version 30 to 35; releases that support only schema 30 can no longer open this data directory","to":35}
+test storage::catalog_tests::bucket_put_uses_clock_and_rolls_back_invalid_replacement ... ok
+test storage::catalog_tests::concurrent_duplicate_creates_have_exactly_one_winner ... ok
+{"event":"catalog_schema_migrated","level":"info","from":19,"message":"migrated catalog schema from version 19 to 35; releases that support only schema 19 can no longer open this data directory","to":35}
+test storage::catalog::sync_state::writeback::tests::writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync ... ok
+test storage::catalog_tests::acl_schema_migration_keeps_buckets_on_the_project_private_default ... ok
+test storage::catalog_tests::autoclass_schema_migration_preserves_buckets_and_persists_configuration ... ok
+test storage::catalog_tests::delete_preconditions_are_atomic_and_preserve_failed_records ... ok
+{"event":"catalog_schema_migrated","level":"info","from":13,"message":"migrated catalog schema from version 13 to 35; releases that support only schema 13 can no longer open this data directory","to":35}
+test storage::catalog::timestamp_tests::timestamp_migration_preserves_resources_etags_permissions_and_sessions ... ok
+test storage::catalog_tests::indexed_listing_orders_filters_pages_and_limits ... ok
+test storage::catalog_tests::directory_lock_lives_until_the_last_handle_drops ... ok
+{"event":"catalog_schema_migrated","level":"info","from":11,"message":"migrated catalog schema from version 11 to 35; releases that support only schema 11 can no longer open this data directory","to":35}
+test storage::catalog_tests::create_get_delete_and_restart_preserve_every_field ... ok
+test storage::catalog_tests::drop_releases_lock_while_a_forked_child_has_not_execed ... ok
+test storage::catalog_tests::recovers_committed_wal_after_process_exit_without_drop ... ok
+test storage::catalog::timestamp_tests::timestamp_writes_floor_microseconds_across_publication_routes ... ok
+test storage::catalog_tests::bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates ... ok
+test storage::catalog_tests::rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters ... ok
+{"event":"catalog_schema_migrated","level":"info","from":4,"message":"migrated catalog schema from version 4 to 35; releases that support only schema 4 can no longer open this data directory","to":35}
+test storage::catalog::sync_state::writeback::tests::writeback_pending_pages_survive_bucket_deletion_recreation_and_restart ... ok
+{"event":"catalog_schema_migrated","level":"info","from":23,"message":"migrated catalog schema from version 23 to 35; releases that support only schema 23 can no longer open this data directory","to":35}
+{"event":"catalog_schema_migrated","level":"info","from":5,"message":"migrated catalog schema from version 5 to 35; releases that support only schema 5 can no longer open this data directory","to":35}
+test storage::catalog_tests::failed_policy_migration_rolls_back_and_restarts_from_version_five ... ok
+test storage::catalog_tests::lifecycle_schema_migration_and_restart ... ok
+{"event":"catalog_schema_migrated","level":"info","from":12,"message":"migrated catalog schema from version 12 to 35; releases that support only schema 12 can no longer open this data directory","to":35}
+{"event":"catalog_schema_migrated","level":"info","from":5,"message":"migrated catalog schema from version 5 to 35; releases that support only schema 5 can no longer open this data directory","to":35}
+test storage::catalog_tests::policy_migration_visits_every_bucket_in_binary_name_order ... ok
+{"event":"catalog_schema_migrated","level":"info","from":26,"message":"migrated catalog schema from version 26 to 35; releases that support only schema 26 can no longer open this data directory","to":35}
+test storage::catalog_tests::sync_bucket_schema_migration_preserves_existing_catalog ... ok
+{"event":"catalog_schema_migrated","level":"info","from":25,"message":"migrated catalog schema from version 25 to 35; releases that support only schema 25 can no longer open this data directory","to":35}
+test storage::catalog_tests::soft_delete_schema_migration_preserves_existing_buckets ... ok
+test storage::catalog_tests::timestamp_version_fourteen_reopen_preserves_timestamps ... ok
+test storage::catalog_tests::pap_migrates_version_twelve_and_persists_configured_state ... ok
+{"event":"catalog_schema_migrated","level":"info","from":24,"message":"migrated catalog schema from version 24 to 35; releases that support only schema 24 can no longer open this data directory","to":35}
+test storage::catalog_tests::retention_schema_migration_preserves_existing_buckets ... ok
+test storage::catalog::sync_state::writeback::tests::writeback_restart_recovers_each_file_and_catalog_boundary_without_false_progress ... ok
+test storage::object_tests::all_four_preconditions_apply_to_reads_uploads_and_deletes ... ok
+test storage::catalog_tests::rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes ... ok
+{"event":"blob_reclaim_deferred","level":"warn","message":"deferred blob reclaim 4605e3e46f83401011f20ebcb01f3f42: Permission denied (os error 13)"}
+{"event":"blob_reclaim_deferred","level":"warn","message":"deferred blob reclamation: object I/O: permission denied"}
+{"event":"blob_reclaim_deferred","level":"warn","message":"deferred blob reclaim 4605e3e46f83401011f20ebcb01f3f42: Permission denied (os error 13)"}
+{"event":"blob_reclaim_deferred","level":"warn","message":"deferred blob reclaim 5fdb432a490a0c6b5e7375a3f803f75e: Permission denied (os error 13)"}
+{"event":"blob_reclaim_deferred","level":"warn","message":"deferred blob reclamation: object I/O: permission denied"}
+test storage::object_tests::concurrent_create_if_absent_has_exactly_one_winner_and_no_orphans ... ok
+test storage::object_tests::empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes ... ok
+test storage::object_tests::generation_selection_nonempty_bucket_and_open_readers_survive_unlink ... ok
+{"event":"catalog_schema_migrated","level":"info","from":5,"message":"migrated catalog schema from version 5 to 35; releases that support only schema 5 can no longer open this data directory","to":35}
+test storage::object_tests::cancelled_upload_keeps_directory_owned_until_close_finishes_cleanup ... ok
+test storage::object_tests::limits_bad_hashes_and_body_errors_leave_no_generation_or_blob ... ok
+{"event":"catalog_schema_migrated","level":"info","from":22,"message":"migrated catalog schema from version 22 to 35; releases that support only schema 22 can no longer open this data directory","to":35}
+test storage::object_tests::committed_mutations_succeed_when_reclaim_is_deferred_to_restart ... ok
+test storage::object_tests::deleted_generations_are_never_reused_after_restart_or_backward_clock ... ok
+{"event":"catalog_schema_migrated","level":"info","from":3,"message":"migrated catalog schema from version 3 to 35; releases that support only schema 3 can no longer open this data directory","to":35}
+test storage::object_tests::move_reuses_blob_and_preserves_failed_source_conditions ... ok
+test storage::catalog_tests::uniform_access_migration_deadline_conditions_and_restart ... ok
+test storage::object_tests::metadata_update_races_with_delete_and_upload_preserve_atomic_identity ... ok
+test storage::object_tests::producer_closure_without_eof_never_publishes_partial_bytes ... ok
+test storage::object_tests::metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog ... ok
+test storage::object_tests::failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed ... ok
+test storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit ... ok
+test storage::object_tests::round_trip_exact_hashes_opaque_names_and_restart ... ok
+test storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards ... ok
+test storage::object_tests::recovery_clears_staging_orphans_and_pending_deletions_preserving_live_objects ... ok
+test storage::object_tests::recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry ... ok
+test storage::object_tests::upload_precheck_rejects_without_waiting_for_body_or_creating_staging ... ok
+test storage::object_tests::unreleased_v2_catalog_is_rejected_without_changing_data ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::busy_session_rejects_competing_writer_while_other_sessions_progress ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_relaxed ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::cancellation_racing_append_respects_writer_and_prevents_later_publication ... ok
+{"event":"catalog_schema_migrated","level":"info","from":6,"message":"migrated catalog schema from version 6 to 35; releases that support only schema 6 can no longer open this data directory","to":35}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail ... ok
+test storage::object_tests::missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::cancellation_racing_finalization_has_one_terminal_winner_and_preserves_live_bytes ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::checksum_and_final_metadata_failures_preserve_the_previous_full_resource ... ok
+{"event":"upload_cleanup_deferred","level":"warn","message":"invalid upload cleanup failed; maintenance will retry: catalog unavailable: catalog I/O: not a directory"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::capability_delegate_uses_initiator_grants_and_rechecks_overwrite_and_revocation ... ok
+test storage::resumable_http_tests::chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::conflicting_final_hash_preserves_error_and_session_invalidation ... ok
+{"event":"catalog_schema_migrated","level":"info","from":1,"message":"migrated catalog schema from version 1 to 35; releases that support only schema 1 can no longer open this data directory","to":35}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_session ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::csek::csek_invalid_keys_are_rejected_before_any_object_is_created ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::completed_retries_reject_new_checksums_without_invalidating_completion ... ok
+test storage::resumable_http_tests::csek::csek_copy_rewrite_and_compose_use_source_and_destination_keys ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::csek::csek_media_upload_requires_its_key_for_data_but_not_metadata ... ok
+test storage::object_tests::recovery_ignores_os_metadata_and_names_other_stray_entries ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::csek::csek_metadata_update_checks_a_supplied_key_before_committing ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::csek::csek_multipart_and_resumable_uploads_bind_the_key ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::csek::csek_xml_put_get_and_head ... ok
+{"event":"upload_cleanup_deferred","level":"warn","message":"invalid upload cleanup failed; maintenance will retry: catalog unavailable: catalog I/O: permission denied"}
+{"event":"resumable_maintenance_retry","level":"warn","message":"resumable maintenance failed; retrying: catalog I/O: permission denied"}
+test storage::object_tests::conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic ... ok
+test storage::object_tests::v1_migration_is_transactional_and_current_schema_reopens_idempotently ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::initiation_checks_strict_create_and_overwrite_permissions_before_staging ... ok
+test storage::object_tests::incompatible_schema_constraints_indexes_and_v1_conflicts_are_read_only ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::initiation_preserves_encoded_names_metadata_and_query_precedence ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::final_metadata_and_completion_snapshot_survive_catalog_restart ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::initiation_returns_opaque_fixed_location_and_status_without_publication ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::interrupted_chunk_releases_writer_and_preserves_only_acknowledged_bytes ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::host_follows_returned_location_and_streams_large_body_in_small_buffers ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::invalid_initiation_and_status_leave_no_session_or_file ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix ... ok
+test storage::resumable_http_tests::final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget ... ok
+{"event":"catalog_schema_migrated","level":"info","from":7,"message":"migrated catalog schema from version 7 to 35; releases that support only schema 7 can no longer open this data directory","to":35}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::obj_http_resumable_failed_overwrites_preserve_metadata_bytes_and_files ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::obj_http_resumable_independent_empty_and_multichunk_checksum_vectors ... ok
+{"event":"upload_cleanup_deferred","level":"warn","message":"cancelled upload cleanup failed; maintenance will retry: catalog I/O: permission denied"}
+{"event":"resumable_maintenance_retry","level":"warn","message":"resumable maintenance failed; retrying: catalog I/O: permission denied"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::object_caps_apply_to_known_unknown_and_streamed_lengths ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":test storage::resumable_http_tests::initiation_session_cap_and_status_prefix_are_bounded ... ok
+"info"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::object_retention::object_retention_resumable_upload_and_strict_permissions ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::object_retention::object_retention_requires_enabled_bucket_and_no_event_hold ... ok
+test storage::catalog_tests::bucket_settings_migrate_supported_catalogs ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::object_retention::object_retention_versioning_soft_delete_and_bucket_policy ... ok
+test storage::catalog_tests::rejects_future_schema_unversioned_data_and_corruption ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::oversized_final_hash_request_retains_body_size_limit ... ok
+test storage::resumable_http_tests::object_retention::object_retention_bucket_enablement_is_create_only_and_persists ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::retention::retention_and_both_holds_are_independent ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::retention::retention_all_mutation_paths_expire_with_injected_clock ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::retention::retention_insert_patch_put_defaults_and_empty_policy_lock ... ok
+{"event":"object_backend_failure","level":"error","cause":"unrecognized backend failure (private details withheld)"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::sdk_initiation_accepts_one_retry_token_without_generation_conditions ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::session_deadline_during_transfer_returns_not_found_without_acknowledging_tail ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::failed_finalization_and_cancel_cleanup_retry_before_session_deadline ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::soft_delete::soft_delete_concurrent_restore_create_if_absent_has_one_winner ... ok
+test storage::resumable_http_tests::retention::retention_configuration_lock_permissions_and_restart ... ok
+{"event":"stopping","level":"info"}
+{"event":"object_backend_failure","level":"error","cause":"unrecognized backend failure (private details withheld)"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::soft_delete::soft_delete_configuration_defaults_boundaries_and_permissions ... ok
+test storage::resumable_http_tests::soft_delete::soft_delete_all_overwrite_paths_and_versioned_deletion ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::soft_delete::soft_delete_filters_paging_expiry_holds_and_bucket_delete ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline ... ok
+{"event":"object_backend_failure","level":"error","cause":"unrecognized backend failure (private details withheld)"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::two_create_if_absent_sessions_have_one_finalization_winner ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix ... ok
+{"event":"catalog_schema_migrated","level":"info","from":28,"message":"migrated catalog schema from version 28 to 35; releases that support only schema 28 can no longer open this data directory","to":35}
+test storage::resumable_http_tests::object_retention::object_retention_schema_migration_and_restart ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::upload_replay::copy_replay_oversized_completion_rolls_back_destination_and_generation ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::upload_replay::python_advisory_content_type_rejects_empty_malformed_and_duplicate_values ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::upload_replay::python_upload_content_type_is_advisory_after_initiation ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::upload_replay::upload_replay_full_projection_rechecks_revoked_acl_permission ... ok
+test storage::resumable_http_tests::soft_delete::soft_delete_restore_conditions_collisions_and_restart ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::upload_replay::upload_replay_full_projection_retains_acl_after_mutation_and_deletion ... ok
+{"event":"object_backend_failure","level":"error","cause":"unrecognized backend failure (private details withheld)"}
+test storage::resumable_lifecycle_tests::cancel_obeys_writer_lease_and_only_one_cancellation_wins ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_lifecycle_tests::cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadline ... ok
+{"event":"upload_cleanup_deferred","level":"warn","message":"cancelled upload cleanup failed; maintenance will retry: catalog I/O: permission denied"}
+{"event":"object_backend_failure","level":"error","cause":"unrecognized backend failure (private details withheld)"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::upload_replay::copy_replay_binds_both_encryption_keys_and_keeps_retained_entries_at_capacity ... ok
+test storage::resumable_lifecycle_tests::completed_session_cannot_be_cancelled_or_have_its_bytes_removed ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::upload_replay::upload_replay_capacity_expiry_and_current_permissions ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::upload_replay::upload_replay_never_crosses_authentication_profiles_after_restart ... ok
+test storage::resumable_lifecycle_tests::cancel_reloads_terminal_state_when_transition_no_longer_matches ... ok
+test storage::resumable_lifecycle_tests::expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it ... ok
+test storage::resumable_lifecycle_tests::anonymous_cancel_removes_staging_and_terminal_errors_follow_original_deadline ... ok
+test storage::resumable_lifecycle_tests::expiry_waits_for_writer_and_retries_after_lease_release ... ok
+{"event":"resumable_maintenance_retry","level":"warn","message":"resumable maintenance failed; retrying: catalog unavailable: catalog operation limit reached"}
+{"event":"stopping","level":"info"}
+test storage::resumable_lifecycle_tests::expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots ... ok
+test storage::resumable_lifecycle_tests::idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup ... ok
+test storage::resumable_lifecycle_tests::recovery_rejects_ambiguous_active_publication_without_deleting_either_copy ... ok
+test storage::resumable_lifecycle_tests::cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slot ... ok
+test storage::resumable_lifecycle_tests::recovery_rejects_symlink_prefix_without_changing_its_target ... ok
+test storage::resumable_lifecycle_tests::restart_restores_rename_before_commit_instead_of_deleting_acknowledged_bytes ... ok
+test storage::resumable_lifecycle_tests::recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs ... ok
+test storage::resumable_lifecycle_tests::writer_lease_is_reacquired_after_drop_and_panic ... ok
+test storage::resumable_lifecycle_tests::scheduler_retries_failed_cleanup_and_clears_its_error_after_repair ... ok
+test storage::resumable_tests::checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired_sessions ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::upload_replay::php_chunk_hashes_persist_and_validate_the_whole_object ... ok
+test storage::resumable_lifecycle_tests::restart_discards_write_before_offset_commit_and_preserves_committed_prefix ... ok
+test storage::resumable_lifecycle_tests::restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_session_expiry ... ok
+{"event":"sync_unsafe_entry","level":"warn","path":"test-bucket/link","remedy":"Replace the symlink or special file with a regular file; for example, copy its intended bytes into a new regular file"}
+test storage::resumable_tests::retained_session_cap_is_atomic_and_rejection_creates_no_file ... ok
+test sync::ingest::tests::ingest_strict_configuration_has_actionable_remedy ... ok
+test storage::resumable_tests::sessions_persist_options_offsets_deadline_and_exclusive_admission ... ok
+{"event":"sync_bucket_missing","level":"warn","path":"deleted-bucket","reason":"The previously synchronized bucket was deleted through the API","remedy":"Remove or move this directory, or recreate the bucket through the API (for example, create the same bucket name in the intended project); then request another rescan"}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":1,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":1}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":1,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_bucket_missing","level":"warn","path":"deleted-bucket","reason":"The previously synchronized bucket was deleted through the API","remedy":"Remove or move this directory, or recreate the bucket through the API (for example, create the same bucket name in the intended project); then request another rescan"}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":1,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":1}
+{"event":"sync_bucket_missing","level":"warn","path":"deleted-bucket","reason":"The previously synchronized bucket was deleted through the API","remedy":"Remove or move this directory, or recreate the bucket through the API (for example, create the same bucket name in the intended project); then request another rescan"}
+{"event":"sync_source_deferred","level":"warn","path":"test-bucket/blocked","reason":"permission denied","remedy":"Restore access to this file and its parents (for example, chmod u+r FILE and chmod u+rx DIRECTORY), free disk space if needed, then request another rescan"}
+test storage::resumable_lifecycle_tests::missing_short_and_nonfile_acknowledged_prefixes_block_readiness ... ok
+{"event":"catalog_schema_migrated","level":"info","from":6,"message":"migrated catalog schema from version 6 to 35; releases that support only schema 6 can no longer open this data directory","to":35}
+test storage::resumable_tests::previous_schema_migrates_and_invalid_session_options_are_rejected_read_only ... ok
+test sync::mapping::tests::arbitrary_paths_never_clean_into_another_name ... ok
+test sync::mapping::tests::literal_names_round_trip_without_normalization ... ok
+test sync::mapping::tests::unsafe_reserved_and_ignored_names_are_explicit ... ok
+test sync::mapping::tests::windows_restrictions_cover_devices_and_special_components ... ok
+test sync::mapping::tests::arbitrary_names_round_trip_or_are_explicitly_rejected ... ok
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_unsafe_entry","level":"warn","path":"test-bucket/link","remedy":"Replace the symlink or special file with a regular file; for example, copy its intended bytes into a new regular file"}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+test sync::ingest::tests::ingest_new_files_use_seed_mime_and_bucket_default_hold ... ok
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":2,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":2,"blocked_buckets":0,"exported":0,"identical":2,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":1,"blocked_buckets":1,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test sync::ingest::tests::ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle ... ok
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test sync::mirror::tests::live_export_identical_observation_preserves_edits_before_durable_and_ack ... ok
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test sync::mirror::tests::live_export_bucket_incarnation_races_keep_other_buckets_progressing ... ok
+test sync::ingest::tests::ingest_defers_partial_and_replacement_saves_then_resumes_activation ... ok
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_external_conflict","level":"warn","bucket":"test-bucket","object":"object","remedy":"Preserve or back up the edited file, then restore its previously exported contents or select a fresh sync_dir; automatic conflict transfer is pending"}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":1,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_unsafe_entry","level":"warn","path":"test-bucket/link","remedy":"Replace the symlink or special file with a regular file; for example, copy its intended bytes into a new regular file"}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Root(Admin(Io(PermissionDenied)))","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":2,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_external_conflict","level":"warn","bucket":"test-bucket","object":"object","remedy":"Preserve or back up the edited file, then restore its previously exported contents or select a fresh sync_dir; automatic conflict transfer is pending"}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":1,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test sync::mirror::tests::live_export_identical_parent_disappearance_cancels_and_keeps_other_buckets_progressing ... ok
+{"event":"sync_ingested","level":"info","ingested":1,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test sync::ingest::tests::ingest_unreadable_file_is_deferred_while_other_files_progress ... ok
+{"event":"sync_reconciled","level":"info","ingested":1,"blocked_buckets":0,"exported":0,"identical":2,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test url::tests::arbitrary_base_normalization_is_idempotent ... ok
+test url::tests::encodes_reserved_and_non_ascii_bytes ... ok
+test url::tests::keeps_slashes_unless_a_segment_is_a_dot_segment ... ok
+test sync::ingest::tests::ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recreated ... ok
+test url::tests::normalizes_base_urls ... ok
+test url::tests::prefixed_public_origins_normalize_idempotently ... ok
+test url::tests::public_origins_normalize_dns_ips_ports_and_root_paths ... ok
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+test url::tests::public_origins_reject_port_zero ... ok
+test url::tests::rejects_invalid_base_urls ... ok
+test url::tests::rejects_invalid_bucket_names ... ok
+test url::tests::rejects_invalid_object_names ... ok
+test url::tests::virtual_host_urls_preserve_final_authority_and_raw_object_path ... ok
+test xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules ... ok
+test xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded ... ok
+test xml::cors::tests::xml_cors_denials_wildcards_and_malformed_headers ... ok
+test xml::cors::tests::xml_cors_matches_default_ports_and_mobile_origins_without_http_allowlist ... ok
+test xml::cors::tests::xml_cors_matches_first_rule_and_never_grants_credentials ... ok
+test xml::cors::tests::xml_cors_subdomain_wildcard_preserves_scheme_port_and_domain_boundary ... ok
+test xml::post::tests::base64_decoder_is_strict_about_padding ... ok
+test xml::post::tests::disposition_reads_quoted_names_and_filenames_case_insensitively ... ok
+test xml::post::tests::form_reader_stops_at_the_file_part_and_bounds_fields ... ok
+test xml::post::tests::plan_maps_documented_fields_and_rejects_unsupported_ones ... ok
+test xml::post::tests::policy_accepts_go_and_ruby_sdk_documents_with_any_utc_offset ... ok
+test xml::post::tests::policy_enforces_eq_starts_with_bucket_and_field_coverage ... ok
+test xml::post::tests::policy_reads_one_content_length_range_and_it_covers_content_length ... ok
+test xml::post::tests::policy_rejects_expiry_at_the_exact_instant_and_malformed_documents ... ok
+test xml::post::tests::verified_policy_uses_the_signed_url_validity_window ... ok
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+test url::tests::normalized_public_origins_are_idempotent ... ok
+test sync::mirror::tests::export_concurrent_api_and_external_changes_never_strand_unpublished_operations ... ok
+test sync::ingest::tests::ingest_external_only_conflicts_equal_hash_and_unsafe_entries ... ok
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":1,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Root(Admin(Io(PermissionDenied)))","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+test sync::ingest::tests::ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations ... ok
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":2,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+test sync::ingest::tests::ingest_shutdown_finishes_the_active_publication_before_restart ... ok
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+test sync::mirror::tests::live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_polling ... ok
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test sync::mirror::tests::live_export_retries_file_and_parent_permissions_without_advancing_the_cursor ... ok
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test storage::catalog::admin::tests::admin_publication_times_out_at_the_public_admission_deadline ... ok
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+test storage::catalog_tests::repeated_concurrent_use_close_and_reopen_preserves_data ... ok
+test sync::ingest::tests::ingest_preserves_metadata_patch_and_api_body_racing_publication ... ok
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+test storage::catalog::change_journal::tests::journal_retention_activation_restart_and_pap_require_rescan ... ok
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_export_retry","level":"error","reason":"write-back: Admin(DiskFull)","remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically","retry_seconds":1}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test sync::mirror::tests::live_export_retries_identical_observation_at_prepare_arm_durable_and_ack ... ok
+{"event":"sync_external_conflict","level":"warn","bucket":"test-bucket","object":"object","remedy":"Preserve or back up the edited file, then restore its previously exported contents or select a fresh sync_dir; automatic conflict transfer is pending"}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":1,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test sync::mirror::tests::live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack ... ok
+
+test result: ok. 643 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.74s
+
+     Running unittests src/main.rs (target/debug/deps/gcs_mimic-75eb4becef1a844d)
+
+running 10 tests
+{test startup::tests::phase_completion_and_signal_errors_are_preserved ... ok
+"event":"stopping","level":"info"}
+test startup::tests::close_failure_preserves_primary_diagnostics_and_unstructured_errors ... ok
+test startup::tests::shutdown_wins_before_starting_the_next_phase ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test startup::tests::catalog_open_failure_preserves_diagnostics_without_repolling ... ok
+test startup::tests::grpc_listener_disabled_by_default_and_bound_after_initialization ... ok
+test startup::tests::shutdown_during_initializer_validation_never_publishes_or_runs_seed ... ok
+{"event":"seeding","level":"info"}
+test startup::tests::shutdown_during_recovery_drains_open_before_unlocking ... ok
+test startup::tests::unfinished_import_blocks_startup_before_policy_seed_and_bind ... ok
+test startup::tests::shutdown_during_policy_configuration_drains_owned_work ... ok
+test startup::tests::startup_failures_close_catalog_even_with_live_handles ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/acl_http.rs (target/debug/deps/acl_http-252dba3503079a80)
+
+running 11 tests
+test bucket_acl_crud_round_trips_and_advances_metageneration ... ok
+test acl_requests_reject_invalid_inputs_without_mutation ... ok
+test default_object_acl_applies_only_to_objects_created_afterwards ... ok
+test uniform_access_and_public_access_prevention_restrict_acls ... ok
+test strict_profile_requires_iam_policy_permissions ... ok
+test resource_acl_policy_failures_roll_back_metadata_and_other_acls ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test metadata_updates_replace_and_clear_acls ... ok
+test resource_acl_validation_and_preconditions_preserve_all_metadata ... ok
+test object_acl_targets_a_generation_and_renders_with_full_projection ... ok
+test resource_acl_generation_selection_and_conditioned_races ... ok
+test acl_entry_limit_is_enforced ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.98s
+
+     Running tests/auth_http.rs (target/debug/deps/auth_http-438a78c9d10fb0c7)
+
+running 117 tests
+test auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden ... ok
+test cors::json_cors_preflight_defaults_never_authenticate_or_grant_access ... ok
+test auth_http_rejected_uploads_do_not_read_or_stage_the_body ... ok
+test auth_http_concurrent_creates_without_delete_have_one_winner ... ok
+test cors::unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback ... ok
+{"event":"cors_unconfigured","level":"warn","bucket":"iam-bucket","message":"XML/public browser request reached a bucket without CORS rules; set GCS_MIMIC_CORS_FALLBACK=allow-all or configure the bucket cors field"}
+test auth_http_permissive_ignores_any_authorization ... ok
+{"event":"stopping","level":"info"}
+test cors::allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json ... ok
+test cors::json_cors_wraps_bucket_object_streaming_errors_and_validators ... ok
+test cors::xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions ... ok
+test auth_http_strict_rejects_anonymous_and_unsupported_credentials ... ok
+{"event":"stopping","level":"info"}
+test iam::iam_default_policy_and_versions ... ok
+{"event":"stopping","level":"info"}
+test auth_http_project_roles_gate_each_route ... ok
+{"event":"stopping","level":"info"}
+test auth_http_startup_rejects_invalid_profiles_and_registries ... ok
+test iam::auth_http_media_and_multipart_recheck_revoked_overwrite_grants_after_streaming ... ok
+{"event":"stopping","level":"info"}
+test iam::iam_bucket_grants_authorize_only_the_target_bucket ... ok
+test iam::iam_bucket_grants_cover_existing_routes ... ok
+test iam::iam_preserves_duplicate_members_and_role_bindings ... ok
+test iam::auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects ... ok
+test iam::iam_principal_and_body_limits ... ok
+{"event":"stopping","level":"info"}
+test iam::iam_recreated_bucket_has_fresh_policy ... ok
+test iam::iam_policy_round_trip_and_unconditional_versions ... ok
+{"event":"stopping","level":"info"}
+test iam::iam_rejects_queries_paths_and_bodies ... ok
+{"event":"stopping","level":"info"}
+test cors::mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently ... ok
+test iam::iam_rejects_unsupported_policy_semantics ... ok
+test iam::iam_requires_effective_get_and_set_permissions ... ok
+{"event":"stopping","level":"info"}
+test iam::iam_stale_and_concurrent_etags ... ok
+test auth_http_admin_full_crud_and_restart_with_same_registry ... ok
+test iam::iam_policy_survives_restart ... ok
+test iam::iam_permissive_policy_and_cas ... ok
+{"event":"catalog_schema_migrated","level":"info","from":5,"message":"migrated catalog schema from version 5 to 35; releases that support only schema 5 can no longer open this data directory","to":35}
+{"event":"stopping","level":"info"}
+test iam::iam_rejects_invalid_policy_shapes ... ok
+test iam::test_permissions_validates_route_queries_and_response_fields ... ok
+test signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit ... ok
+test signing::pap::pap_disabled_uniform_access_noop_matches_python_client ... ok
+test iam::test_permissions_matches_operations_and_policy_changes ... ok
+test signing::overrides::xml_response_overrides_from_cli_reach_the_server ... ok
+test signing::overrides::xml_response_overrides_are_absent_from_error_responses ... ok
+test iam::iam_revocation_races_object_reads ... ok
+{"event":"stopping","level":"info"}
+test signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants ... ok
+{"event":"stopping","level":"info"}
+test signing::post::permissive_profile_ignores_policy_credentials_but_enforces_conditions ... ok
+test signing::post::post_object_framing_errors_and_other_routes_stay_rejected ... ok
+test signing::partial_signing_fields_never_become_anonymous_under_public_grants ... ok
+test signing::pap::pap_invalid_and_unsupported_settings_preserve_resources ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors ... ok
+test signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering ... ok
+test signing::pap::pap_resumable_finalization_rechecks_public_initiator ... ok
+test signing::post::v4_policy_content_length_range_bounds_are_inclusive_and_leave_no_object ... ok
+test signing::post::v4_policy_rejects_tampering_unknown_signers_expiry_and_condition_violations ... ok
+test signing::post::v4_policy_signer_uploads_under_public_access_prevention ... ok
+test iam::iam_migrates_v5_catalog ... ok
+test signing::pap::pap_parent_fixture_inheritance_restart_and_release ... ok
+test signing::post::v4_policy_success_status_201_xml_200_and_redirect ... ok
+test signing::post::v4_policy_upload_targets_a_virtual_host_bucket_root ... ok
+test virtual_host::invalid_public_origin_prevents_catalog_creation_and_ready ... ok
+test signing::post::v4_policy_upload_streams_through_the_shared_write_path_with_signer_permissions ... ok
+{"event":"diagnostics","level":"warn","diagnostics":[{"fix":"public_base_url is an IP address: virtual-host routing is disabled; use path-style URLs or a DNS origin such as http://storage.example.invalid.","key":"--public-base-url","source":"cli"}]}
+test signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure ... ok
+{"event":"stopping","level":"info"}
+test signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body ... ok
+test signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers ... ok
+test signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors ... ok
+{"event":"diagnostics","level":"warn","diagnostics":[{"fix":"public_base_url is an IP address: virtual-host routing is disabled; use path-style URLs or a DNS origin such as http://storage.example.invalid.","key":"--public-base-url","source":"cli"}]}
+test signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions ... ok
+test signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart ... ok
+test virtual_host::public_origin_legacy_accepts_host_syntax_before_namespace_and_bucket_validation ... ok
+test signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates ... ok
+{"event":"stopping","level":"info"}
+test signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names ... ok
+test virtual_host::public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket ... ok
+test virtual_host::public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authority_errors ... ok
+{"event":"diagnostics","level":"warn","diagnostics":[{"fix":"public_base_url is an IP address: virtual-host routing is disabled; use path-style URLs or a DNS origin such as http://storage.example.invalid.","key":"--public-base-url","source":"cli"}]}
+test virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host ... ok
+test virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch ... ok
+test signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource ... ok
+test virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules ... ok
+test virtual_host::public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver ... ok
+test virtual_host::public_origin_ip_legacy_matching_disables_only_derived_virtual_hosts ... ok
+test virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata ... ok
+test virtual_host::public_origin_native_and_unset_legacy_keep_path_style_host_acceptance ... ok
+test virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch ... ok
+test virtual_host::virtual_host_xml_objects_keep_known_google_route_names ... ok
+{"event":"stopping","level":"info"}
+test virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style ... ok
+test xml::anonymous_bucket_and_policy_operations_require_granted_permissions ... ok
+test signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names ... ok
+test xml::uniform_access_settings_fail_closed ... ok
+test xml::public_grants_survive_restart_and_revocation_preserves_etag_checks ... ok
+test virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style ... ok
+test virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants ... ok
+test xml::anonymous_object_mutations_require_each_granted_permission ... ok
+test xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback ... ok
+test xml::xml_delete_checks_permissions_conditions_and_empty_body ... ok
+test xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors ... ok
+test xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated ... ok
+test xml::xml_head_matches_get_headers_and_selected_metadata ... ok
+test xml::uniform_access_metadata_and_predefined_acl_rejections ... ok
+test xml::xml_bucket_paths_reserve_only_api_namespaces ... ok
+test xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads ... ok
+test xml::public_revocation_racing_xml_and_json_reads_denies_subsequent_requests ... ok
+test xml::xml_missing_resources_follow_effective_permission_disclosure ... ok
+test signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants ... ok
+test xml::xml_permissive_reads_ignore_credentials_without_granting_public_policy ... ok
+test xml::xml_unsupported_operations_fail_before_reading_a_body ... ok
+test xml::xml_read_idempotency_tokens_require_one_nonempty_value ... ok
+test xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly ... ok
+test xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access ... ok
+test xml::xml_ranges_generation_and_preconditions_use_one_live_generation ... ok
+test xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials ... ok
+test xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries ... ok
+{"event":"stopping","level":"info"}
+test xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication ... ok
+{"event":"stopping","level":"info"}
+test xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic ... ok
+test xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes ... ok
+test virtual_host::public_origin_ready_reports_normalized_dns_ip_and_unset_values ... ok
+test xml::xml_public_urls_round_trip_raw_encoded_names_without_normalization ... ok
+test virtual_host::public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_routes ... ok
+test xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens ... ok
+test xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots ... ok
+test xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip ... ok
+{"event":"stopping","level":"info"}
+test xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object ... ok
+test xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads ... ok
+test xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation ... ok
+test xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state ... ok
+{"event":"connection_timeout","level":"warn","message":"connection deadline or object body inactivity timeout exceeded"}
+{"event":"stopping","level":"info"}
+{"event":"connection_timeout","level":"warn","message":"connection deadline or object body inactivity timeout exceeded"}
+test xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts ... ok
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+test xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish ... ok
+
+test result: ok. 117 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.22s
+
+     Running tests/basic_contract_http.rs (target/debug/deps/basic_contract_http-7b83365cc3591c8a)
+
+running 12 tests
+{"event":"stopping","level":"info"}
+test basic_contract_multipart_metadata_only_checksums_validate_stored_bytes ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test basic_contract_local_bucket_metageneration_not_match_mutations_use_412_without_side_effects ... ok
+test basic_contract_single_request_resumable_checksums_validate_stored_bytes ... ok
+test basic_contract_bucket_metageneration_match_matrix_preserves_failed_resources ... ok
+test basic_contract_strict_denials_keep_complete_json_envelopes_with_fields_selection ... ok
+test basic_contract_generation_match_zero_rejects_live_reads_and_metadata_mutations ... ok
+test basic_contract_json_errors_keep_complete_envelopes_with_fields_selection ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"{"event":}
+"stopping","level":"info"}
+test basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test basic_contract_local_object_generation_not_match_mutations_use_412_without_side_effects ... ok
+test basic_contract_object_generation_match_matrix_preserves_failed_resources ... ok
+test basic_contract_local_object_metageneration_not_match_mutations_use_412_without_side_effects ... ok
+test basic_contract_object_metageneration_match_matrix_preserves_failed_resources ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/bucket_autoclass_http.rs (target/debug/deps/bucket_autoclass_http-963acf1c43aa827e)
+
+running 3 tests
+test bucket_autoclass_enable_moves_bucket_and_objects_to_standard ... ok
+{"event":"stopping","level":"info"}
+test object_storage_class_on_write_json_xml_and_autoclass ... ok
+test bucket_autoclass_create_get_patch_and_restrictions ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/bucket_http.rs (target/debug/deps/bucket_http-83ca2c4b5258da3c)
+
+running 69 tests
+test bkt_http_failed_recovery_never_reports_ready ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test bkt_http_sorted_scoped_pagination_and_limits ... ok
+{"event":"stopping","level":"info"}
+test bkt_http_crud_metadata_conditions_and_errors ... ok
+test bkt_http_query_body_name_and_route_boundaries ... ok
+{"event":"stopping","level":"info"}
+test bucket_core_missing_and_delete_recreate ... ok
+test bkt_http_malformed_conditions_preserve_all_bucket_methods ... ok
+{"event":"stopping","level":"info"}
+test bkt_http_concurrent_duplicates_restart_and_exclusive_directory ... ok
+{"event":"catalog_schema_migrated","level":"info","from":7,"message":"migrated catalog schema from version 7 to 35; releases that support only schema 7 can no longer open this data directory","to":35}
+test bucket_core_create_get_defaults ... ok
+test bucket_core_native_restart_preserves_source_only_names_without_exposing_them ... ok
+{"event":"stopping","level":"info"}
+test bucket_api_settings_drive_versioning_and_hold_effects ... ok
+test bucket_core_invalid_requests_preserve_state ... ok
+test bucket_core_nonempty_delete_preserves_objects ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test bucket_core_profile_lookup_names_and_json_framing ... ok
+test bucket_cors_concurrent_conditioned_updates_have_one_winner ... ok
+{"event":"stopping","level":"info"}
+test bucket_core_source_input_shape ... ok
+test bucket_core_project_and_names ... ok
+test bucket_core_settings_round_trip ... ok
+test bucket_core_strict_permissions ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"catalog_schema_migrated","level":"info","from":7,"message":"migrated catalog schema from version 7 to 35; releases that support only schema 7 can no longer open this data directory","to":35}
+test bucket_core_strict_protection_settings_never_create_an_unprotected_bucket ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test bucket_list_omitted_project_obeys_profile_and_seed_project ... ok
+test bucket_get_rejects_patch_only_acl_query_parameters ... ok
+test bucket_core_migrates_v7_settings ... ok
+{"event":"stopping","level":"info"}
+test bucket_patch_conditioned_race_has_one_winner ... ok
+{"event":"stopping","level":"info"}
+test bucket_core_restart_settings ... ok
+{"event":"stopping","level":"info"}
+{"event":"connection_timeout","level":"warn","message":"connection deadline or object body inactivity timeout exceeded"}
+test bucket_cors_metadata_round_trip_conditions_replacement_and_restart ... ok
+test bkt_http_conditional_delete_and_metadata_mutation_have_one_winner ... ok
+test bucket_cors_malformed_input_preserves_entire_resource ... ok
+test bucket_patch_conditions_and_query_contract ... ok
+{"event":"stopping","level":"info"}
+test bkt_http_deadline_before_response_returns_backend_error ... ok
+test bucket_patch_full_resource_round_trip_preserves_unchanged_fields ... ok
+test bucket_core_unsupported_settings_preserve_state ... ok
+{"event":"stopping","level":"info"}
+test bucket_patch_empty_null_and_invalid_inputs ... ok
+test bucket_patch_legacy_rendering_and_restart ... ok
+{"event":"stopping","level":"info"}
+test bucket_patch_lifecycle_invalid_input_preserves_state ... ok
+test bucket_profile_name_bound_keeps_created_buckets_reachable ... ok
+test bucket_patch_rejects_get_only_generation_query_parameter ... ok
+test bucket_patch_null_settings_follow_profile_defaults ... ok
+test bucket_patch_location_comparison_is_case_insensitive ... ok
+test bucket_patch_merges_labels_class_and_preserves_resources ... ok
+test bucket_patch_missing_bucket_validates_body_before_lookup ... ok
+test bucket_patch_label_boundaries_and_classes ... ok
+{"event":"stopping","level":"info"}
+test bucket_patch_settings_control_future_object_effects ... ok
+test bucket_lifecycle_rules_round_trip_replace_clear_and_validation ... ok
+{"event":"stopping","level":"info"}
+test bucket_put_conditioned_race_has_one_winner ... ok
+test bucket_patch_strict_permissions_and_policy_preservation ... ok
+test bucket_put_full_resource_round_trip_preserves_unchanged_fields ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test bucket_profile_paging_preserves_names_and_resource_defaults ... ok
+test bucket_put_missing_bucket_validates_body_before_lookup ... ok
+test bucket_put_legacy_rendering_and_restart ... ok
+{"event":"stopping","level":"info"}
+test bucket_put_location_comparison_is_case_insensitive ... ok
+test bucket_put_rejects_get_only_generation_query_parameter ... ok
+test bucket_put_null_settings_follow_profile_defaults ... ok
+test bucket_put_label_boundaries_and_classes ... ok
+test bucket_put_empty_null_and_invalid_inputs ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test default_location_preserves_strict_create_authorization ... ok
+test bucket_put_conditions_and_query_contract ... ok
+test bucket_patch_unsupported_and_output_inputs_preserve_state ... ok
+{"event":"stopping","level":"info"}
+test bucket_put_omitted_settings_survive_partial_iam_updates ... ok
+test bucket_put_strict_permissions_and_policy_preservation ... ok
+test bucket_put_settings_control_future_object_effects ... ok
+test legacy_create_location_accepts_only_fixed_region_and_stores_native_us ... ok
+test bucket_profile_names_support_object_and_xml_routes ... ok
+test bucket_regional_locations_round_trip_and_rejections_preserve_state ... ok
+{"event":"stopping","level":"info"}
+test bucket_soft_delete_defaults_and_invalid_shapes_preserve_policy ... ok
+test unsupported_legacy_profile ... ok
+test bucket_put_replaces_omitted_fields_and_preserves_resources ... ok
+test bucket_put_unsupported_and_output_inputs_preserve_state ... ok
+test bkt_http_list_clamps_to_1000_with_lookahead ... ok
+{"event":"stopping","level":"info"}
+test bucket_cors_large_metadata_lists_page_without_loss ... ok
+
+test result: ok. 69 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.23s
+
+     Running tests/bucket_initialization.rs (target/debug/deps/bucket_initialization-9dfd09354bbf1fad)
+
+running 10 tests
+test default_location_invalid_or_legacy_settings_fail_before_catalog_creation ... ok
+test regional_and_dual_region_initializer_locations_use_shared_defaults ... ok
+test validation_reports_all_entries_before_seed_or_mutation ... ok
+test selected_file_only_is_loaded_and_invalid_paths_fail_without_ready ... ok
+test default_location_applies_to_new_api_and_initializer_buckets_only ... ok
+test strict_initialization_grants_no_api_permissions_and_legacy_preserves_native_metadata ... ok
+test initializer_precedes_seed_and_empty_file_is_applied ... ok
+test initialized_settings_are_independent_and_api_changes_survive_restart ... ok
+test project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated ... ok
+test committed_initialization_survives_later_seed_and_bind_failures ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/compose_validation.rs (target/debug/deps/compose_validation-936e76435130f06e)
+
+running 6 tests
+test compose_body_rejects_recognized_unsupported_and_unknown_semantics ... ok
+test compose_body_accepts_one_and_thirty_two_sources_and_empty_destination ... ok
+test compose_body_rejects_malformed_source_and_destination_shapes ... ok
+test compose_body_preserves_source_order_duplicates_generations_and_metadata ... ok
+test compose_body_rejects_invalid_generation_values ... ok
+test compose_body_checks_final_custom_metadata_size_before_transfer ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fields_http.rs (target/debug/deps/fields_http-02d8deb3552bfc4d)
+
+running 8 tests
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test fields_read_etag_validators_use_the_complete_resource ... ok
+test fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged ... ok
+test fields_invalid_selection_precedes_read_etag_evaluation ... ok
+test fields_bucket_methods_and_policy_preserve_mutations ... ok
+test fields_object_methods_lists_and_zero_byte_metadata ... ok
+test fields_invalid_selectors_and_errors_never_filter_or_mutate ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test fields_invalid_selectors_leave_all_routes_unchanged ... ok
+{"event":"stopping","level":"info"}
+test fields_resumable_final_response_survives_restart_and_replay ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/foundation.rs (target/debug/deps/foundation-47f8d9f2a8945e10)
+
+running 27 tests
+test compose_only_variables_and_missing_subcommand_report_native_migration ... ok
+test config_precedence_validation_and_size_limit ... ok
+test invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures ... ok
+test dual_listener_invalid_settings_fail_before_catalog_or_readiness ... ok
+test healthcheck_rejects_truncated_malformed_and_oversized_responses ... ok
+test native_helper_values_that_look_like_legacy_flags_are_preserved ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test cli_help_errors_and_bind_failure ... ok
+test non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test api_origin_explicit_base_wins_and_conflicts_fail_before_catalog ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test full_server_reclaims_idle_keep_alive_slots_for_waiting_clients ... ok
+test process_shutdown_reports_stopped_and_releases_catalog_for_restart ... ok
+test startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test live_wildcard_and_specific_listeners_are_exclusive ... ok
+test healthcheck_exit_status_tracks_readiness ... ok
+test dual_listener_second_bind_failure_releases_first_socket_and_catalog ... ok
+test unknown_legacy_environment_warns_and_native_server_still_becomes_ready ... ok
+{"event":"stopping","level":"info"}
+test api_origin_ready_and_resumable_locations_use_bound_addresses ... ok
+{"event":"bind_wait","level":"warn","listen":"127.0.0.1:50906","reason":"address_in_use","timeout_ms":65000}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"connection_failed","level":"warn","cause":"message head is too large","message":"connection failed; check client request framing and transport"}
+{"event":"connection_failed","level":"warn","cause":"message head is too large","message":"connection failed; check client request framing and transport"}
+{"event":"connection_failed","level":"warn","cause":"invalid URI","message":"connection failed; check client request framing and transport"}
+{"event":"stopping","level":"info"}
+test rejects_bodies_and_oversized_or_malformed_headers ... ok
+{"event":"stopping","level":"info"}
+test shutdown_stops_accepting_on_original_listener ... ok
+{"event":"stopping","level":"info"}
+test wire_probes_clock_and_unimplemented_routes ... ok
+{"event":"stopping","level":"info"}
+test shutdown_releases_catalog_before_return_with_state_clones_alive ... ok
+{"event":"stopping","level":"info"}
+test dual_listener_shares_state_and_https_primary_resumable_origin ... ok
+{"event":"connection_timeout","level":"warn","message":"request headers were not received before connection_timeout_ms"}
+{"event":"tls_handshake_timeout","level":"warn","message":"TLS handshake deadline exceeded"}
+{"event":"stopping","level":"info"}
+test dual_listener_connection_cap_counts_tls_handshakes_and_shutdown_closes_both ... ok
+{"event":"stopping","level":"info"}
+test keep_alive_serves_sequential_requests_until_idle_timeout ... ok
+{"event":"stopping","level":"info"}
+test connection_limit_deadline_and_shutdown_release_idle_clients ... ok
+test healthcheck_deadline_includes_slow_streaming_responses ... ok
+{"event":"stopping","level":"info"}
+test process_restarts_on_same_port_without_allowing_a_second_live_listener ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.94s
+
+     Running src/grpc/process_tests.rs (target/debug/deps/grpc_foundation-ecaa4d430e5e7775)
+
+running 2 tests
+{"event":"stopping","level":"info"}
+{"event":"grpc_keepalive_timeout","level":"warn","cause":"http2 error","message":"gRPC peer did not acknowledge an HTTP/2 keepalive ping; check the client connection or raise connection_timeout_ms, for example 10000"}
+{"event":"stopping","level":"info"}
+test grpc_idle_admission_and_sigterm_drain ... ok
+{"event":"grpc_drain_timeout","level":"warn","message":"gRPC GOAWAY grace expired with an incomplete handshake or unfinished stream; finish client streams or raise connection_timeout_ms, for example 10000; for SIGTERM also raise shutdown_timeout_ms, for example 20000","shutdown":true}
+test grpc_sigterm_default_deadlines_close_incomplete_handshake ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.59s
+
+     Running tests/healthcheck_defaults.rs (target/debug/deps/healthcheck_defaults-a0b5cbf85f640b70)
+
+running 3 tests
+test healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin ... ok
+test healthcheck_config_failure_explains_candidate_url_and_explicit_override ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test healthcheck_defaults_follow_http_https_both_and_changed_ports ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/import.rs (target/debug/deps/import-31dfa3e303f038f6)
+
+running 15 tests
+test body_stream_bounds_chunks_and_detects_same_size_replacement_and_truncation ... ok
+test overlap_and_walk_fail_closed_without_creating_destination ... ok
+test blocked_bucket_reports_child_corruption_without_emitting_records ... ok
+test normalized_source_names_are_reported_without_inventing_original_names ... ok
+test discovered_counts_and_eligible_records_agree_for_buckets_and_objects ... ok
+test escaped_bucket_aliases_invalid_escapes_suffix_collisions_and_platform_rules_block ... ok
+test sidecar_inspection_is_read_only_and_distinguishes_body_verification ... ok
+test invalid_parent_names_and_attributes_keep_child_diagnostics ... ok
+test corrupt_records_are_all_reported_with_relative_fields_original_values_and_remedies ... ok
+test duplicate_bucket_aliases_never_emit_eligible_child_records ... ok
+test export_fingerprint_tracks_layout_and_skips_but_separates_stat_drift ... ok
+test native_storage_class_and_fixed_metadata_validation_matches_import_eligibility ... ok
+test cli_never_starts_serve_and_requires_explicit_read_only_mode ... ok
+test broken_report_output_joins_the_bounded_worker_without_destination_writes ... ok
+test metadata_and_body_limits_empty_files_os_detritus_and_page_counts_are_explicit ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/import_filesystem.rs (target/debug/deps/import_filesystem-74e10564f83bb142)
+
+running 12 tests
+test filesystem_import_preflight_blocks_unsupported_metadata_without_creating_destination ... ok
+test filesystem_import_cli_creates_catalog_without_starting_server ... ok
+{"event":"stopping","level":"info"}
+test filesystem_import_resume_revalidates_inode_and_ctime_only_drift ... ok
+{"event":"seeding","level":"info"}
+{"event":"seeding","level":"info"}
+test filesystem_import_preserves_source_identity_and_skips_later_seed ... ok
+{"event":"stopping","level":"info"}
+test filesystem_import_generation_urls_conditions_and_strict_permissions ... ok
+test filesystem_import_limits_open_source_files_under_a_low_descriptor_limit ... ok
+test filesystem_import_changed_export_is_terminal_after_source_repair ... ok
+test filesystem_import_rejects_destination_records_outside_its_prefix ... ok
+test filesystem_import_checksum_failure_is_terminal_even_after_source_repair ... ok
+test filesystem_import_foreign_options_refuse_without_poisoning_original_resume ... ok
+test filesystem_import_source_replacement_during_publication_stays_unservable ... ok
+test filesystem_import_interrupt_resume_and_serve_gate ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+
+     Running tests/log_level.rs (target/debug/deps/log_level-c5dd6f93e0243102)
+
+running 3 tests
+test invalid_log_levels_and_legacy_diagnostics_fail_before_catalog ... ok
+test log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings ... ok
+test keep_alive_idle_close_is_quiet_and_a_stalled_next_head_warns ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.35s
+
+     Running tests/notifications_http.rs (target/debug/deps/notifications_http-79050346f0b3656b)
+
+running 4 tests
+test deprecated_object_change_notification_routes_are_not_recreated ... ok
+{"event":"stopping","level":"info"}
+test notification_strict_permissions_follow_bucket_get_and_update ... ok
+test notification_requests_reject_invalid_input_without_mutation ... ok
+{"event":"stopping","level":"info"}
+test notification_configs_round_trip_persist_and_follow_bucket_lifecycle ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/object_compose_http.rs (target/debug/deps/object_compose_http-659382a82bf5c6d3)
+
+running 19 tests
+test compose_method_body_and_selector_boundaries ... ok
+{"event":"derived_cleanup_deferred","level":"warn","message":"deferred derived cleanup: catalog unavailable: injected compose cleanup failure"}
+{"event":"compose_cleanup_deferred","level":"warn","message":"deferred compose cleanup: catalog unavailable: injected compose cleanup failure"}
+test compose_rejects_invalid_or_unsupported_input_without_mutation ... ok
+test compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed ... ok
+{"event":"object_backend_failure","level":"error","cause":"unrecognized backend failure (private details withheld)"}
+test compose_hold_added_after_streaming_preserves_destination_and_sources ... ok
+test compose_destination_condition_is_rechecked_after_streaming ... ok
+test compose_same_name_noncurrent_source_hold_is_rechecked_before_publication ... ok
+test compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions ... ok
+test compose_accepts_noop_hold_and_custom_time_defaults ... ok
+test compose_rechecks_read_and_create_grants_after_streaming ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test compose_concurrent_create_if_absent_has_one_winner ... ok
+test compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination ... ok
+test compose_source_generation_change_never_deletes_the_replacement ... ok
+test compose_strict_requires_both_read_create_and_delete_for_destructive_cases ... ok
+test compose_strict_admin_can_replace_self_source_and_delete_other_sources ... ok
+test compose_source_and_destination_preconditions_preserve_failed_overwrites ... ok
+test compose_incarnation_change_preserves_original_error_and_recovers_after_restart ... ok
+test compose_order_checksums_metadata_fields_and_restart ... ok
+test compose_storage_class_defaults_and_event_holds ... ok
+test compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/object_copy_http.rs (target/debug/deps/object_copy_http-a781d1793e19a9da)
+
+running 14 tests
+test copy_accepts_noop_hold_and_custom_time_defaults ... ok
+test copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation ... ok
+test concurrent_copy_create_if_absent_publishes_exactly_one_generation ... ok
+test strict_cross_bucket_copy_uses_distinct_source_and_destination_grants ... ok
+test strict_copy_requires_source_read_destination_create_and_delete_for_overwrite ... ok
+test copy_preserves_composite_identity_and_inherited_class_until_class_or_location_changes ... ok
+test copy_token_rechecks_source_destination_and_acl_permissions ... ok
+{"event":"stopping","level":"info"}
+test copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it ... ok
+{"event":"stopping","level":"info"}
+test copy_validates_checksums_and_holds_without_inheriting_source_hold ... ok
+test copy_token_rejects_recreated_source_or_destination_buckets ... ok
+test copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets ... ok
+test copy_token_replays_original_response_after_changes_deletion_and_restart ... ok
+test copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes ... ok
+test concurrent_copy_token_retries_publish_one_generation_without_extra_blobs ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/object_effects_support.rs (target/debug/deps/object_effects_support-72cd5452f8eaa40c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/object_hold_http.rs (target/debug/deps/object_hold_http-9e1407f84b500c65)
+
+running 4 tests
+{"event":"stopping","level":"info"}
+test event_hold_permissions_and_invalid_input ... ok
+test held_objects_reject_delete_and_replacement ... ok
+test event_hold_metadata_release_and_restart ... ok
+test default_hold_applies_to_all_upload_modes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/object_holds_customtime_http.rs (target/debug/deps/object_holds_customtime_http-aad268f092fc44d1)
+
+running 6 tests
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test derived_custom_time_format_validation_precedes_unsupported_semantics ... ok
+test custom_time_monotonic_updates_are_atomic ... ok
+test temporary_hold_protects_delete_and_all_replacements ... ok
+test multipart_and_pending_resumable_preserve_hold_custom_time ... ok
+test temporary_hold_set_release_and_restart ... ok
+{"event":"catalog_schema_migrated","level":"info","from":21,"message":"migrated catalog schema from version 21 to 35; releases that support only schema 21 can no longer open this data directory","to":35}
+{"event":"stopping","level":"info"}
+test hold_custom_time_migrate_existing_catalog ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/object_http.rs (target/debug/deps/object_http-bfc8c233eb4a3f95)
+
+running 35 tests
+test obj_http_expect_continue_rejection_skips_the_interim_response ... ok
+test obj_http_early_rejections_survive_body_larger_than_socket_buffers ... ok
+test obj_http_disconnected_overwrite_preserves_the_previous_generation ... ok
+test obj_http_concurrent_create_if_absent_has_one_winner ... ok
+test obj_http_idempotency_token_local_read_delete_rule_and_upload_replay ... ok
+test obj_http_encoded_names_and_invalid_names ... ok
+test obj_http_bad_hashes_and_unsupported_requests_never_publish ... ok
+test obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence ... ok
+test obj_http_precheck_and_method_alt_reject_before_consuming_body ... ok
+{"event":"stopping","level":"info"}
+test obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket ... ok
+test obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body ... ok
+test obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite ... ok
+test obj_http_restart_and_sigkill_mid_upload_clean_staging ... ok
+test obj_http_additional_upload_waits_for_advisory_check ... ok
+test obj_http_sigkill_after_blob_rename_before_commit_and_after_success ... ok
+test obj_http_zero_multichunk_binary_and_size_limits ... ok
+test obj_http_media_read_failure_after_headers_names_its_cause ... ok
+{"event":"stopping","level":"info"}
+test resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot ... ok
+test resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail ... ok
+test resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes ... ok
+test upload_replay::upload_replay_concurrent_requests_publish_one_generation ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test upload_admission::disconnect_cleans_staging_and_shutdown_waits_for_upload_completion ... ok
+test upload_replay::upload_replay_lost_response_and_recreated_bucket_do_not_duplicate_mutations ... ok
+test upload_replay::upload_replay_unconditional_response_survives_overwrite_and_restart ... ok
+{"event":"resumable_maintenance_retry","level":"warn","message":"resumable maintenance failed; retrying: catalog unavailable: catalog operation limit reached"}
+{"event":"resumable_maintenance_retry","level":"warn","message":"resumable maintenance failed; retrying: catalog unavailable: catalog operation limit reached"}
+{"event":"resumable_maintenance_retry","level":"warn","message":"resumable maintenance failed; retrying: catalog unavailable: catalog operation limit reached"}
+{"event":"resumable_maintenance_retry","level":"warn","message":"resumable maintenance failed; retrying: catalog unavailable: catalog operation limit reached"}
+{"event":"resumable_maintenance_retry","level":"warn","message":"resumable maintenance failed; retrying: catalog unavailable: catalog operation limit reached"}
+{"event":"resumable_maintenance_retry","level":"warn","message":"resumable maintenance failed; retrying: catalog unavailable: catalog operation limit reached"}
+test upload_admission::simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working ... ok
+{"event":"stopping","level":"info"}
+test upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission ... ok
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+test obj_http_trickle_upload_deadline_releases_permits_without_publication ... ok
+{"event":"connection_timeout","level":"warn","message":"connection deadline or object body inactivity timeout exceeded"}
+test obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out ... ok
+test resumable_sigkill_after_final_checkpoint_restores_active_staging ... ok
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+test obj_http_completed_body_waits_for_commit_past_inactivity_deadline ... ok
+test obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish ... ok
+test obj_http_queued_precheck_waits_past_body_inactivity_deadline ... ok
+test obj_http_trickle_download_stops_at_absolute_deadline ... ok
+test resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.96s
+
+     Running tests/object_list_http.rs (target/debug/deps/object_list_http-49cdcd5cd203df81)
+
+running 8 tests
+test object_list_invalid_unsupported_and_missing_bucket_errors ... ok
+test object_list_tokens_bind_query_and_reject_corruption ... ok
+{"event":"stopping","level":"info"}
+test match_glob_versions_preserve_each_generation_and_page_boundary ... ok
+{"event":"stopping","level":"info"}
+test match_glob_filters_items_prefixes_and_page_tokens ... ok
+test object_list_resources_defaults_empty_and_restart ... ok
+test object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages ... ok
+test object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors ... ok
+test object_list_default_and_upper_page_limit_are_1000_for_both_projections ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.29s
+
+     Running tests/object_metadata_http.rs (target/debug/deps/object_metadata_http-1b89acc10fe76cf9)
+
+running 5 tests
+{"event":"stopping","level":"info"}
+test metadata_boundaries_encoding_negotiation_and_reupload_defaults ... ok
+{"event":"stopping","level":"info"}
+{"event":"object_transcoding_failed","level":"warn","cause":"unexpected end of file"}
+{"event":"connection_failed","level":"warn","cause":"error from user's Body stream","message":"connection failed; check client request framing and transport"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test invalid_and_unsupported_metadata_never_mutates_objects ... ok
+test all_conditions_generation_selectors_and_conditioned_races ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test conditional_delete_and_metadata_patch_have_one_winner ... ok
+test patch_merges_put_replaces_and_download_reflects_persistent_metadata ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/object_move_http.rs (target/debug/deps/object_move_http-dd0a790229da9aee)
+
+running 7 tests
+test strict_move_requires_source_read_delete_and_destination_create ... ok
+{"event":"object_backend_failure","level":"error","cause":"unrecognized backend failure (private details withheld)"}
+test concurrent_moves_create_if_absent_have_one_winner ... ok
+test move_rolls_back_source_deletion_when_destination_insert_fails ... ok
+{"event":"stopping","level":"info"}
+test move_rejects_missing_same_name_holds_and_unsupported_inputs ... ok
+test move_versioning_deletes_live_source_and_archives_replaced_destination ... ok
+test move_checks_all_conditions_before_mutation ... ok
+test move_preserves_bytes_metadata_blob_and_restart ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/object_multipart_http.rs (target/debug/deps/object_multipart_http-461cc822ba17484a)
+
+running 22 tests
+{"event":"stopping","level":"info"}
+test obj_multipart_http_malformed_checksum_json_preserves_existing_generation ... ok
+test fields_multipart_response_preserves_uploaded_metadata_and_bytes ... ok
+test obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks ... ok
+test obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation ... ok
+test obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging ... ok
+test obj_multipart_http_query_name_overrides_only_valid_metadata_names ... ok
+test obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part ... ok
+test obj_multipart_http_media_json_and_custom_metadata_caps ... ok
+test obj_http_failed_media_and_multipart_overwrites_preserve_full_resource_without_leaks ... ok
+test obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication ... ok
+test obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary ... ok
+test obj_multipart_http_truncated_checksum_part_preserves_existing_generation ... ok
+test obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation ... ok
+test obj_http_media_and_multipart_independent_checksum_vectors_across_chunks ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body ... ok
+test obj_multipart_http_rejects_malformed_framing_and_bounds_final_json ... ok
+test obj_http_malformed_conditions_reject_every_object_method_without_mutation ... ok
+test obj_multipart_http_round_trip_metadata_hashes_and_restart ... ok
+test obj_multipart_http_unconditional_replay_and_python_advisory_mime ... ok
+test obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite ... ok
+test obj_http_media_and_multipart_recheck_each_condition_after_streaming ... ok
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+test obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s
+
+     Running tests/object_range_http.rs (target/debug/deps/object_range_http-a66019a90e382ac3)
+
+running 16 tests
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding ... ok
+{"event":"stopping","level":"info"}
+test etag::json_etag_read_if_match_overrides_if_unmodified_since ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test etag::json_etag_read_authorization_precedes_validators ... ok
+test etag::json_etag_read_selected_generation_zero_byte_and_public_cache ... ok
+test etag::json_etag_read_iam_policy_validators_preserve_fields_and_permissions ... ok
+{"event":"stopping","level":"info"}
+test etag::json_etag_read_unsupported_lists_dates_and_writes ... ok
+{"event":"stopping","level":"info"}
+test etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior ... ok
+test obj_range_http_single_ranges_and_representation_headers ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test obj_range_http_strict_authorization_precedes_range_evaluation ... ok
+test etag::json_etag_read_syntax_and_missing_resources ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test etag::json_etag_read_object_metadata_media_and_range ... ok
+test obj_range_http_unsatisfiable_empty_and_ignored_ranges ... ok
+{"event":"stopping","level":"info"}
+test etag::json_etag_read_buckets_and_metadata_changes_in_both_profiles ... ok
+test etag::json_etag_read_combined_query_conditions_use_one_selected_record ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test etag::json_etag_read_metadata_update_and_overwrite_pin_open_reader ... ok
+test obj_range_http_generation_preconditions_and_overwrite_pin_open_reader ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/object_versioning_http.rs (target/debug/deps/object_versioning_http-87d0ed54b1b750a0)
+
+running 9 tests
+{"event":"stopping","level":"info"}
+test versioned_strict_permissions ... ok
+test versioned_overwrite_and_generation_reads ... ok
+{"event":"stopping","level":"info"}
+test disabled_versioning_preserves_history_and_bucket_nonempty ... ok
+test versioned_delete_and_permanent_generation_delete ... ok
+test versioned_listing_pages_and_query_boundaries ... ok
+test versioned_overwrite_delete_race ... ok
+{"event":"stopping","level":"info"}
+{"event":"blob_reclaim_deferred","level":"warn","message":"deferred blob reclaim 332d37591e1f379993d97fb2db2ce9b5: Operation not permitted (os error 1)"}
+{"event":"blob_reclaim_deferred","level":"warn","message":"deferred blob reclamation: object I/O: permission denied"}
+test versioned_crash_recovery_preserves_referenced_generations ... ok
+{"event":"catalog_schema_migrated","level":"info","from":7,"message":"migrated catalog schema from version 7 to 35; releases that support only schema 7 can no longer open this data directory","to":35}
+{"event":"catalog_schema_migrated","level":"info","from":13,"message":"migrated catalog schema from version 13 to 35; releases that support only schema 13 can no longer open this data directory","to":35}
+test timestamp_migration_preserves_versioned_json_get_and_xml_head ... ok
+{"event":"stopping","level":"info"}
+{"event":"catalog_schema_migrated","level":"info","from":8,"message":"migrated catalog schema from version 8 to 35; releases that support only schema 8 can no longer open this data directory","to":35}
+test versioned_schema_migrations_preserve_objects ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running tests/project_resources_http.rs (target/debug/deps/project_resources_http-6c3ee5d4765ce9ba)
+
+running 5 tests
+test service_account_is_deterministic_per_project ... ok
+test create_accepts_only_form_parameters_identical_to_the_query ... ok
+{"event":"stopping","level{"event":"stopping","level":"info"}
+":"info"}
+test hmac_key_listing_filters_pages_and_limits ... ok
+test strict_profile_authorizes_project_resources ... ok
+test hmac_key_lifecycle_state_rules_etags_and_restart ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/public_origin_cli.rs (target/debug/deps/public_origin_cli-4d582349116dca73)
+
+running 2 tests
+test helpers_read_only_explicit_public_origin_and_keep_base_overrides ... ok
+test helpers_validate_explicit_file_even_when_the_base_is_overridden ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/rewrite_http.rs (target/debug/deps/rewrite_http-0e14f1983decadbf)
+
+running 26 tests
+{"event":"stopping","level":"info"}
+test rewrite_create_if_absent_race_has_one_atomic_winner ... ok
+test rewrite_composite_source_preserves_or_resets_component_count_without_md5 ... ok
+test rewrite_accepts_noop_hold_and_custom_time_defaults ... ok
+test rewrite_all_conditions_preserve_failed_destination_and_retained_source ... ok
+test rewrite_expired_completed_session_never_journals_the_live_blob_on_restart ... ok
+{"event":"stopping","level":"info"}
+test rewrite_continuation_rechecks_strict_grants_and_destination_conditions ... ok
+test rewrite_completion_replay_rejects_recreated_buckets ... ok
+test rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds ... ok
+test rewrite_expired_token_and_restart_cleanup_preserve_live_destination ... ok
+test rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite ... ok
+test rewrite_metadata_checksums_validate_and_identity_is_path_selected ... ok
+{"event":"stopping","level":"info"}
+{"event":"derived_transfer_discarded","level":"warn","message":"discarding invalid derived transfer 21d1b50383014dfb53c437931f9915b4: catalog unavailable: No such file or directory (os error 2)"}
+test rewrite_composite_count_uses_the_bucket_class_selected_at_publication ... ok
+test rewrite_strict_permissions_holds_versioning_and_unsupported_inputs ... ok
+test rewrite_one_call_empty_metadata_fields_and_same_name ... ok
+test rewrite_concurrent_token_retry_has_one_progress_checkpoint ... ok
+test rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail ... ok
+test rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state ... ok
+{"event":"stopping","level":"info"}
+test rewrite_progress_replay_reclaims_state_after_bucket_recreation ... ok
+{"event":"stopping","level":"info"}
+test rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget ... ok
+{"event":"derived_transfer_discarded","level":"warn","message":"discarding invalid derived transfer e959e36f0d050c661913d6e7de9b9286: catalog unavailable: derived prefix is shorter than its checkpoint"}
+test rewrite_progress_retry_restart_and_completion_replay_publish_once ... ok
+test rewrite_source_overwrite_delete_and_metadata_change_fail_closed ... ok
+{"event":"stopping","level":"info"}
+{"event":"derived_transfer_discarded","level":"warn","message":"discarding invalid derived transfer c4eb980eee73e01a8862aac5568a63ea: catalog unavailable: derived prefix checksum differs from checkpoint"}
+test rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget ... ok
+{"event":"stopping","level":"info"}
+test rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success ... ok
+test rewrite_completed_cache_evicts_without_rejecting_new_rewrites ... ok
+{"event":"object_backend_failure","level":"error","cause":"derived transfer limit reached"}
+{"event":"stopping","level":"info"}
+{"event":"object_backend_failure","level":"error","cause":"derived transfer limit reached"}
+test abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.50s
+
+     Running tests/rewrite_token.rs (target/debug/deps/rewrite_token-2bafa9c3fc99b86d)
+
+running 5 tests
+test hashing::tests::encode_lower_preserves_leading_zeroes ... ok
+test rewrite_token::tests::tokens_are_opaque_and_tampering_never_selects_the_original_token ... ok
+test rewrite_token::tests::continuation_binds_every_supplied_parameter_body_and_path ... ok
+test hashing::tests::derived_checkpoint_preserves_raw_md5_bytes_and_resumes ... ok
+test hashing::tests::checkpoint_resumes_both_digests ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sdk_object_wire_http.rs (target/debug/deps/sdk_object_wire_http-ae60fc31214f4159)
+
+running 3 tests
+{"event":"object_transcoding_failed","level":"warn","cause":"unexpected end of file"}
+{"event":"connection_failed","level":"warn","cause":"error from user's Body stream","message":"connection failed; check client request framing and transport"}
+test json_object_head_preserves_selection_conditions_and_authorization ... ok
+{"event":"object_transcoding_failed","level":"warn","cause":"unexpected end of file"}
+{"event":"connection_failed","level":"warn","cause":"error from user's Body stream","message":"connection failed; check client request framing and transport"}
+test json_gzip_negotiation_range_and_conditions_preserve_stored_representation ... ok
+{"event":"object_transcoding_failed","level":"warn","cause":"unexpected end of file"}
+{"event":"connection_failed","level":"warn","cause":"error from user's Body stream","message":"connection failed; check client request framing and transport"}
+{"event":"object_transcoding_failed","level":"warn","cause":"invalid input parameter"}
+{"event":"connection_failed","level":"warn","cause":"error from user's Body stream","message":"connection failed; check client request framing and transport"}
+{"event":"object_transcoding_failed","level":"warn","cause":"invalid input parameter"}
+{"event":"connection_failed","level":"warn","cause":"error from user's Body stream","message":"connection failed; check client request framing and transport"}
+{"event":"object_transcoding_failed","level":"warn","cause":"unexpected end of file"}
+{"event":"connection_failed","level":"warn","cause":"error from user's Body stream","message":"connection failed; check client request framing and transport"}
+{"event":"object_transcoding_failed","level":"warn","cause":"other error"}
+{"event":"connection_failed","level":"warn","cause":"error from user's Body stream","message":"connection failed; check client request framing and transport"}
+test json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/sdk_ruby_defaults_http.rs (target/debug/deps/sdk_ruby_defaults_http-684e385c6721a889)
+
+running 3 tests
+test ruby_default_create_bucket ... ok
+test ruby_default_create_file_content_type ... ok
+test ruby_default_compose ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/seed.rs (target/debug/deps/seed-7b395711cc68eee6)
+
+running 21 tests
+test seed_configuration_precedence_and_validation ... ok
+{"event":"seeding","level":"info"}
+{"event":"seeding","level":"info"{"event":"seeding","level":"info"}
+}
+{"event":"seeding","level":"{"event":"seeding","level":"info"}
+info"}
+{"event":"seeding","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+test explicit_project_and_empty_seed_directory_are_supported ... ok
+test seed_mime_setting_does_not_replace_durable_source_content_type ... ok
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test edited_fixture_replaces_live_generation_and_versioning_keeps_noncurrent ... ok
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+test interrupted_import_retries_without_overwrite_and_releases_lock ... ok
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+test extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart ... ok
+test seed_dir_added_after_disabled_startup_imports_and_removal_disables_again ... ok
+{"event":"seed_blocked","level":"warn","path":"local-bucket/held.txt"}
+test probes_cannot_succeed_while_seed_publication_is_blocked ... ok
+{"event":"seeding","level":"info"}
+{"event":"seed_blocked","level":"warn","path":"local-bucket/meta.txt"}
+{"event":"catalog_schema_migrated","level":"info","from":4,"message":"migrated catalog schema from version 4 to 35; releases that support only schema 4 can no longer open this data directory","to":35}
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test schema_upgrade_is_logged_once_and_newer_schema_explains_recovery ... ok
+test top_level_files_are_skipped_with_a_warning ... ok
+{"event":"seeding","level":"info"}
+test populated_v4_catalog_migrates_and_replays_seed ... ok
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+test default_content_type_is_extension_and_octet_stream_is_opt_in ... ok
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive ... ok
+{"event":"stopping","level":"info"}
+test held_object_is_blocked_while_identical_held_object_is_unchanged ... ok
+test restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects ... ok
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test seeded_http_metadata_bytes_and_strict_administrative_import ... ok
+test symlinks_and_special_files_fail_closed ... ok
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+test default_seed_dir_imports_only_an_existing_disjoint_directory ... ok
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+test sigterm_during_seed_drains_writes_releases_lock_and_retries ... ok
+test fixture_depth_and_entry_count_are_bounded ... ok
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+{"event":"seeding","level":"info"}
+{"event":"stopping","level":"info"}
+test sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.60s
+
+     Running tests/sign_url_cli.rs (target/debug/deps/sign_url_cli-4c6b3b5df8107463)
+
+running 7 tests
+test signing_cli_outputs_a_verified_final_host_url_and_repeated_headers ... ok
+test signing_cli_explicit_config_binds_normalized_final_host ... ok
+test signing_cli_preserves_fifo_private_key_inputs ... ok
+test signing_cli_private_key_limit_is_inclusive ... ok
+test signing_cli_virtual_host_url_binds_final_bucket_host_and_port ... ok
+test signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options ... ok
+test signing_cli_validates_duration_methods_timestamps_and_private_key_inputs ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/signed_browser_http.rs (target/debug/deps/signed_browser_http-aba794f3a40d935c)
+
+running 9 tests
+test invalid_virtual_host_bucket_names_reject_preflight_without_cors ... ok
+{"event":"cors_unconfigured","level":"warn","bucket":"browser-bucket","message":"XML/public browser request reached a bucket without CORS rules; set GCS_MIMIC_CORS_FALLBACK=allow-all or configure the bucket cors field"}
+test signed_cors_selects_the_host_bucket_before_the_path_bucket ... ok
+test signed_encoded_paths_keep_preflight_transfer_and_error_cors ... ok
+{"event":"stopping","level":"info"}
+test signed_invalid_object_names_keep_error_cors_without_bypassing_validation ... ok
+test signed_put_preflight_ignores_signature_and_never_publishes ... ok
+test signed_transfers_expose_bucket_headers_without_granting_credentials ... ok
+test signed_preflight_never_grants_permission_and_pap_preserves_signer_access ... ok
+test signed_rules_change_between_preflight_and_actual_and_survive_restart ... ok
+test signed_failures_keep_cors_and_preserve_object ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/sync_configuration.rs (target/debug/deps/sync_configuration-5187ced04c41eb7a)
+
+running 3 tests
+test sync_overlaps_aliases_empty_and_symlink_roots_are_rejected ... ok
+test sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization ... ok
+test sync_removed_settings_and_guard_without_root_fail_with_diagnostics ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sync_live_export.rs (target/debug/deps/sync_live_export-a0d810c08d2f8ff6)
+
+running 5 tests
+{"event":"{"event":"sync_ingested"sync_ingested","level":","level":"info","ingested":0,"blocked_buckets":0,"exported":0,info",""identical":0,"ingested":0,"conflicting"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0:0,","external_only":0,"ignored":external_only":00,","ignored":0,"unrepresentable":0,"baseline_completeunrepresentable"":false,":0,"baseline_complete":false,"deferred":0}
+deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":1}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":1}
+{"event":"stopping","level":"info"}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":1}
+{"event":"stopping","level":"info"}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":2,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_directories ... ok
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":2,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":true,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":1,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":1}
+test live_export_skips_colon_and_backslash_names_and_keeps_exporting ... ok
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_external_conflict","level":"warn","bucket":"test-bucket","object":"body","remedy":"Preserve or back up the edited file, then restore its previously exported contents or select a fresh sync_dir; automatic conflict transfer is pending"}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":1,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":2,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test live_export_recovers_a_changed_journal_fence_with_paged_reconciliation ... ok
+{"event":"sync_external_conflict","level":"warn","bucket":"test-bucket","object":"delete","remedy":"Preserve or back up the edited file, then restore its previously exported contents or select a fresh sync_dir; automatic conflict transfer is pending"}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":1,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_exported","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+test live_export_creates_replaces_deletes_and_preserves_edited_files ... ok
+{"event":"sync_ingested","level":"info","ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":1,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"sync_reconciled","level":"info","ingested":0,"blocked_buckets":0,"exported":1,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"baseline_complete":false,"deferred":0}
+{"event":"stopping","level":"info"}
+test live_export_sigterm_during_api_writes_restarts_to_the_committed_live_body ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+     Running tests/sync_mapping.rs (target/debug/deps/sync_mapping-90609eed49927338)
+
+running 2 tests
+test non_utf8_paths_are_rejected_without_lossy_conversion ... ok
+test mapping_preserves_the_api_name_byte_limit ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sync_mirror.rs (target/debug/deps/sync_mirror-09f239c0582f5492)
+
+running 7 tests
+test descriptor_directory_pages_are_bounded_and_never_follow_redirects ... ok
+test sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready ... ok
+test marker_preflight_rejects_missing_foreign_malformed_and_allows_exact_reinitialize ... ok
+test runtime_mapping_reports_type_length_and_symlink_conflicts_without_following_them ... ok
+test initial_export_preserves_external_conflicts_and_records_mapping_findings ... ok
+test sigterm_during_initial_export_restarts_without_recovery_stop ... ok
+test initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.01s
+
+     Running tests/tls.rs (target/debug/deps/tls-d1675fdc4d43cec2)
+
+running 9 tests
+{"event":"stopping","level":"info"}
+test signed_private_download_uses_the_https_listener_host_and_port ... ok
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+test tls_invalid_material_never_reaches_readiness_or_creates_data ... ok
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+{"event":"tls_handshake_failed","level":"warn","message":"TLS handshake failed; check client protocol and trust configuration"}
+{"event":"stopping","level":"info"}
+{"event":"tls_handshake_failed","level":"warn","message":"TLS handshake failed; check client protocol and trust configuration"}
+{"event":"tls_handshake_failed","level":"warn","message":"TLS handshake failed; check client protocol and trust configuration"}
+{"event":"tls_handshake_failed","level":"warn","message":"TLS handshake failed; check client protocol and trust configuration"}
+{"event":"tls_handshake_failed","level":"warn","message":"TLS handshake failed; check client protocol and trust configuration"}
+{"event":"tls_handshake_failed","level":"warn","message":"TLS handshake failed; check client protocol and trust configuration"}
+{"event":"stopping","level":"info"}
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate ... ok
+{"event":"stopping","level":"info"}
+{"event":"tls_handshake_failed","level":"warn","message":"TLS handshake failed; check client protocol and trust configuration"}
+{"event":"tls_handshake_failed","level":"warn","message":"TLS handshake failed; check client protocol and trust configuration"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test virtual_host_https_requires_a_matching_supplied_certificate ... ok
+{"event":"stopping","level":"info"}
+{"event":"tls_handshake_failed","level":"warn","message":"TLS handshake failed; check client protocol and trust configuration"}
+{"event":"stopping","level":"info"}
+test tls_rejects_untrusted_wrong_host_expired_and_plaintext ... ok
+{"event":"stopping","level":"info"}
+test tls_trust_versions_streaming_urls_and_restart ... ok
+{"event":"tls_handshake_timeout","level":"warn","message":"TLS handshake deadline exceeded"}
+{"event":"stopping","level":"info"}
+{"event":"stopping","level":"info"}
+test tls_handshake_admission_timeout_shutdown_and_strict_permissions ... ok
+{"event":"connection_timeout","level":"warn","message":"connection deadline or object body inactivity timeout exceeded"}
+test tls_healthcheck_deadline_includes_stalled_handshake ... ok
+{"event":"object_request_timeout","level":"warn","message":"object request deadline exceeded"}
+{"event":"stopping","level":"info"}
+test tls_streaming_progress_and_upload_deadlines_preserve_existing_object ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.10s
+
+     Running tests/unsupported_http.rs (target/debug/deps/unsupported_http-a1d66ff9d4c35746)
+
+running 1 test
+test unsupported_google_routes_and_inputs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/url_cli.rs (target/debug/deps/url_cli-fdc63c09347b597f)
+
+running 7 tests
+test ignores_config_file_environment_and_data_directory ... ok
+test prints_usage_for_help ... ok
+test prints_virtual_host_url_with_dotted_bucket_and_explicit_port ... ok
+test prints_one_encoded_url_for_options_in_any_order ... ok
+test rejects_missing_duplicate_unknown_and_unpaired_options ... ok
+test rejects_invalid_inputs_without_stdout ... ok
+test rejects_reserved_api_collisions_without_stdout ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests examples/onboarding-state-benchmark.rs (target/debug/examples/onboarding_state_benchmark-9e9e97f43d7d71ed)
+
+running 3 tests
+test tests::benchmark_rejects_reused_overwrite_generation - should panic ... ok
+test tests::benchmark_rejects_unframed_response - should panic ... ok
+test tests::benchmark_checks_lengths_percentiles_and_hashes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/main.rs (target/debug/deps/grpc_codegen-bd2f3b553013ff58)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/xtask-5a8d91c084b57601)
+
+running 31 tests
+test dependencies::tests::github_token_is_sent_only_to_the_api_host ... ok
+test dependencies::tests::public_gcr_registry_does_not_request_or_send_authentication ... ok
+test dependencies::tests::metadata_and_proxy_headers_fail_closed ... ok
+test container::tests::malformed_and_prerelease_versions_cannot_publish ... ok
+test dependencies::tests::gcr_oci_index_and_lowercase_digest_headers_are_preserved ... ok
+test container::tests::aliases_never_move_backwards_and_zero_major_is_not_an_alias ... ok
+test dependencies::tests::ruby_and_gem_latest_versions_include_new_majors ... ok
+test dependencies::tests::docker_hub_registry_default_preserves_token_authentication ... ok
+test dependencies::tests::ruby_lock_pins_include_all_native_platform_variants ... ok
+test dependencies::tests::go_new_major_paths_are_checked_until_missing ... ok
+test dependencies::tests::go_versions_exclude_prereleases_and_retractions ... ok
+test dependencies::tests::ruby_manifest_requires_exact_registry_pins ... ok
+test dependencies::tests::ruby_scopes_include_active_storage_without_arbitrary_paths ... ok
+test dependencies::tests::go_missing_majors_and_proxy_failures_are_distinct ... ok
+test dependencies::tests::direct_resolution_excludes_older_transitive_packages_with_the_same_name ... ok
+test dependencies::tests::go_pseudo_versions_pin_untagged_modules_until_a_stable_release ... ok
+test dependencies::tests::scorecard_pins_come_from_actual_manifests ... ok
+test dependencies::tests::go_manifest_direct_requirements_and_exact_toolchain ... ok
+test dependencies::tests::stable_major_selection_and_registry_paths ... ok
+test dependencies::tests::unknown_or_malformed_registry_is_rejected_before_network_access ... ok
+test dependencies::tests::scorecard_release_selection_excludes_prereleases_and_unavailable_files ... ok
+test release::tests::binary_version_must_match_exactly ... ok
+test release::tests::native_notice_requirements_follow_the_target_runtime ... ok
+test release::tests::notices_cover_registry_packages_and_reject_sources_outside_the_workspace ... ok
+test release::tests::missing_notices_and_escaping_license_files_fail_closed ... ok
+test release::tests::invalid_target_and_existing_output_are_rejected_without_mutation ... ok
+test tests::schema_enumerations_match_validator ... ok
+test release::tests::reviewed_crc32c_sources_are_retained_and_new_versions_require_review ... ok
+test release::tests::all_root_notices_and_explicit_license_file_are_retained ... ok
+test release::tests::notice_only_output_needs_neither_git_nor_an_executable ... ok
+test release::tests::grpc_rust_crates_without_license_text_receive_the_reviewed_upstream_text ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running unittests src/main.rs (target/debug/deps/xtask-f4ed7eb3dd71a840)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compatibility.rs (target/debug/deps/compatibility-ff443f5030a4d7e3)
+
+running 11 tests
+test unknown_cyclic_and_incomplete_dependencies_fail ... ok
+test partial_and_simulated_work_remain_explicit ... ok
+test invalid_identity_enums_counts_and_provenance_fail ... ok
+test rendering_is_order_independent_and_escapes_markup ... ok
+test evidence_artifacts_cannot_escape_repository ... ok
+test coverage_dimensions_remain_separate ... ok
+test completed_claims_require_linked_passing_evidence ... ok
+test baseline_and_completed_evidence_validate ... ok
+test cli_usage_and_errors_have_correct_exit_status ... ok
+test malformed_oversized_and_mismatched_inputs_fail ... ok
+test render_check_detects_stale_views_without_mutating ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+
+     Running tests/dependencies.rs (target/debug/deps/dependencies-698f3eef562d65b2)
+
+running 2 tests
+test go_sdk_scope_and_lockfile_are_declared ... ok
+test fetch_failure_is_never_reported_as_current ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+Summary: 51 result summaries, 1262 passed, 0 failed, 0 ignored
