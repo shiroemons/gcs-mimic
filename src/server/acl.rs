@@ -324,8 +324,13 @@ async fn add_objects(
 /// fields. An identical echo changes nothing, so it is accepted; any other value stays in the
 /// body and the metadata parser keeps rejecting it, because replacing ACLs through resource
 /// metadata is not implemented. The comparison is a separate read before the metadata update.
+///
+/// Only callers who may read the ACL get the comparison. Otherwise accepting an identical echo
+/// and rejecting any other value would let an update-only caller probe the stored entries, so
+/// the field stays and is rejected whatever the stored ACL is.
 pub(super) async fn strip_echoed_acls(
     state: &State,
+    caller: Option<Caller<'_>>,
     bytes: Vec<u8>,
     fields: &[(&str, AclTarget)],
     access: &crate::bucket::BucketAccess,
@@ -338,6 +343,9 @@ pub(super) async fn strip_echoed_acls(
         let Some(echoed) = body.get(*field).and_then(entry_pairs) else {
             continue;
         };
+        if !may_read(state, caller, target.kind(), target.bucket()).await? {
+            continue;
+        }
         // Missing resources, uniform access and denials keep the field for the usual errors.
         let current = match state
             .catalog

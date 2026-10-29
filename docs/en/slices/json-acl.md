@@ -52,7 +52,9 @@ managed, but they do not grant access (DESIGN-017).
 - PATCH/PUT bodies may echo the current `acl`/`defaultObjectAcl` (same
   entity/role set in any order) after a full-projection read; the echo is
   removed and changes nothing. Any other value keeps the existing 400
-  `badRequest` unsupported response.
+  `badRequest` unsupported response. Only a caller with the matching
+  `getIamPolicy` permission gets this comparison; for others the field is
+  rejected whatever the stored ACL is, so echoing guesses cannot reveal it.
 - With uniform bucket-level access enabled every ACL method returns 400 `invalid`
   and full projection omits `acl`/`defaultObjectAcl` (bucket `owner` remains).
   Stored entries survive and reappear when uniform access is disabled.

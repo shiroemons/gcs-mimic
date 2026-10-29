@@ -622,4 +622,38 @@ fn strict_profile_requires_iam_policy_permissions() {
     )
     .json();
     assert_eq!(object["acl"].as_array().unwrap().len(), 3);
+
+    // An update-only caller must not learn the stored ACL by echoing guesses: an identical
+    // echo is rejected like any other value instead of being stripped.
+    server
+        .request(
+            "PUT",
+            &format!("{BUCKET}/iam"),
+            ADMIN,
+            json!({"bindings": [{"role": "roles/storage.objectUser", "members": ["user:viewer@example.test"]}]})
+                .to_string()
+                .as_bytes(),
+        )
+        .json();
+    let mut echoed = json!({"contentType": "text/plain", "acl": object["acl"].clone()});
+    for method in ["PATCH", "PUT"] {
+        server
+            .request(
+                method,
+                &format!("{BUCKET}/o/object"),
+                viewer,
+                echoed.to_string().as_bytes(),
+            )
+            .error(400, "badRequest");
+    }
+    echoed.as_object_mut().unwrap().remove("acl");
+    let updated = server
+        .request(
+            "PATCH",
+            &format!("{BUCKET}/o/object"),
+            viewer,
+            echoed.to_string().as_bytes(),
+        )
+        .json();
+    assert_eq!(updated["contentType"], "text/plain");
 }

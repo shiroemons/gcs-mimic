@@ -1329,7 +1329,8 @@ async fn object_response(
                 name: name.clone(),
                 generation: params.generation,
             };
-            let bytes = acl::strip_echoed_acls(state, bytes, &[("acl", target)], &access).await?;
+            let bytes =
+                acl::strip_echoed_acls(state, caller, bytes, &[("acl", target)], &access).await?;
             let mut update = json::parse_object_metadata(&bytes, replace)?;
             retention_access::authorize_update(
                 state,
@@ -2104,7 +2105,7 @@ async fn bucket_response(
                     crate::acl::AclTarget::DefaultObject(bucket.clone()),
                 ),
             ];
-            let bytes = acl::strip_echoed_acls(state, bytes, &echoed, &access).await?;
+            let bytes = acl::strip_echoed_acls(state, caller, bytes, &echoed, &access).await?;
             let update = if replace {
                 json::parse_bucket_replacement(&bytes, profile)?
             } else {
