@@ -55,8 +55,10 @@ pub(crate) fn cors(
         let value = values.next()?;
         values.next().is_none().then_some(value)?.to_str().ok()
     };
-    let Some(origin) = crate::json::cors::origin(headers).and_then(|value| value.to_str().ok())
-    else {
+    let Some(origin_value) = crate::json::cors::origin(headers) else {
+        return result;
+    };
+    let Ok(origin) = origin_value.to_str() else {
         return result;
     };
     let requested_method = if preflight {
@@ -106,19 +108,21 @@ pub(crate) fn cors(
         } else {
             Vec::new()
         };
-        result.insert(
-            "access-control-allow-methods",
-            HeaderValue::from_str(&rule.method.join(", ")).unwrap(),
-        );
-        if !requested_headers.is_empty() {
-            result.insert(
-                "access-control-allow-headers",
-                HeaderValue::from_str(&requested_headers.join(", ")).unwrap(),
-            );
+        // `validate_cors` admits only method tokens, `*` and header names, and every stored rule
+        // passes it on update and on catalog load, so these joined lists are valid header values.
+        // Omitting a header is still safer than panicking if that invariant is ever broken.
+        if let Ok(methods) = HeaderValue::from_str(&rule.method.join(", ")) {
+            result.insert("access-control-allow-methods", methods);
+        }
+        // Each requested name already parsed as a `HeaderName`.
+        if !requested_headers.is_empty()
+            && let Ok(names) = HeaderValue::from_str(&requested_headers.join(", "))
+        {
+            result.insert("access-control-allow-headers", names);
         }
         result.insert(
             "access-control-max-age",
-            HeaderValue::from_str(&rule.max_age_seconds.unwrap_or(3600).to_string()).unwrap(),
+            HeaderValue::from(rule.max_age_seconds.unwrap_or(3600)),
         );
         result.insert(
             "vary",
@@ -127,18 +131,14 @@ pub(crate) fn cors(
             ),
         );
     } else {
-        if !rule.response_header.is_empty() {
-            result.insert(
-                "access-control-expose-headers",
-                HeaderValue::from_str(&rule.response_header.join(", ")).unwrap(),
-            );
+        if !rule.response_header.is_empty()
+            && let Ok(names) = HeaderValue::from_str(&rule.response_header.join(", "))
+        {
+            result.insert("access-control-expose-headers", names);
         }
         result.insert("vary", HeaderValue::from_static("Origin"));
     }
-    result.insert(
-        "access-control-allow-origin",
-        HeaderValue::from_str(origin).unwrap(),
-    );
+    result.insert("access-control-allow-origin", origin_value.clone());
     result
 }
 
@@ -149,17 +149,17 @@ fn allow_all(headers: &HeaderMap, preflight: bool, requested_headers: Option<&st
     let mut result = HeaderMap::new();
     if preflight {
         if headers.contains_key("access-control-request-headers") {
-            let Some(value) = requested_headers.filter(|value| {
-                value
-                    .split(',')
-                    .all(|name| HeaderName::from_bytes(name.trim().as_bytes()).is_ok())
-            }) else {
+            let Some(value) = requested_headers
+                .filter(|value| {
+                    value
+                        .split(',')
+                        .all(|name| HeaderName::from_bytes(name.trim().as_bytes()).is_ok())
+                })
+                .and_then(|value| HeaderValue::from_str(value).ok())
+            else {
                 return result;
             };
-            result.insert(
-                "access-control-allow-headers",
-                HeaderValue::from_str(value).unwrap(),
-            );
+            result.insert("access-control-allow-headers", value);
         }
         result.insert(
             "access-control-allow-methods",
