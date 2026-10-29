@@ -25,6 +25,17 @@ if [[ $explicit_out == false ]]; then
 fi
 [[ ! -e $out || -z $(ls -A "$out") ]] || { echo "results directory is not empty: $out" >&2; exit 2; }
 
+# Record the input tree before output files and SDK setup can change it.
+source_dirty=$(git -C "$root" status --porcelain --untracked-files=normal)
+go_sdk=$(awk '$1 == "cloud.google.com/go/storage" {print $2}' "$root/sdk-scorecard/go/go.mod")
+[[ $go_sdk =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo 'expected exactly one stable cloud.google.com/go/storage version in sdk-scorecard/go/go.mod' >&2; exit 1;
+}
+ruby_sdk=$(sed -n 's/^    google-cloud-storage (\(.*\))$/\1/p' "$root/sdk-scorecard/ruby/Gemfile.lock")
+[[ $ruby_sdk =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo 'expected exactly one stable google-cloud-storage version in sdk-scorecard/ruby/Gemfile.lock' >&2; exit 1;
+}
+
 # Comparison inputs are pinned so a rerun measures the same products.
 fake_image=fsouza/fake-gcs-server:1.56.1
 gcp_image=oittaa/gcp-storage-emulator:v2026.07.19
@@ -64,11 +75,12 @@ sdks=$(jq -n --arg go "$(cd "$root/sdk-scorecard/go" && go version)" \
   --arg ruby "$(cd "$root/sdk-scorecard/ruby" && ruby --version)" --arg node "$(node --version)" \
   --arg python "$("$root/sdk-scorecard/python/.venv/bin/python" --version)" \
   --arg php "$(docker run --rm "$php_image" php --version | sed -n '1p')" \
+  --arg go_sdk "${go_sdk#v}" --arg ruby_sdk "$ruby_sdk" \
   --arg node_sdk "$(jq -er '.packages["node_modules/@google-cloud/storage"].version' "$root/sdk-scorecard/node/package-lock.json")" \
   --arg php_sdk "$(jq -er '.packages[] | select(.name == "google/cloud-storage") | .version | ltrimstr("v")' "$root/sdk-scorecard/php/composer.lock")" \
   --arg python_sdk "$(uv pip show --python "$root/sdk-scorecard/python/.venv/bin/python" google-cloud-storage | sed -n 's/^Version: //p')" \
   --arg php_image "$php_image" \
-  '{go: {version: "1.70.0", runtime: $go, cases: 57}, ruby: {version: "1.62.1", runtime: $ruby, cases: 51},
+  '{go: {version: $go_sdk, runtime: $go, cases: 57}, ruby: {version: $ruby_sdk, runtime: $ruby, cases: 51},
     node: {version: $node_sdk, runtime: $node, cases: 51}, php: {version: $php_sdk, runtime: $php, image: $php_image, cases: 51},
     python: {version: $python_sdk, runtime: $python, cases: 51}}')
 port=$(cd "$root/sdk-tests/go" && GOTOOLCHAIN=auto go run ./cmd/free-port | cut -d: -f2)
@@ -130,7 +142,7 @@ for emulator in "${emulators[@]}"; do
   start_emulator "$emulator"
   jq -n --arg emulator "$emulator" --arg version "$version" --arg date "$(date -u +%FT%TZ)" \
     --arg ca_sha256 "$(openssl x509 -in "$ca" -outform DER | openssl dgst -sha256 | awk '{print $NF}')" \
-    --argjson sdks "$sdks" --arg dirty "$(git -C "$root" status --porcelain --untracked-files=normal)" \
+    --argjson sdks "$sdks" --arg dirty "$source_dirty" \
     '{emulator: $emulator, version: $version, measured_at: $date, source_dirty: ($dirty != ""), sdks: $sdks,
       transport: {scheme: "https", frontend: "go-stdlib", ca_sha256: $ca_sha256}}' >"$out/$emulator.meta.json"
   status=0
