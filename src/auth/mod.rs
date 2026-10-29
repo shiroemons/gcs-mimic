@@ -36,6 +36,8 @@ pub const OBJECTS_RESTORE: &str = "storage.objects.restore";
 pub const BUCKETS_ENABLE_OBJECT_RETENTION: &str = "storage.buckets.enableObjectRetention";
 pub const OBJECTS_SET_RETENTION: &str = "storage.objects.setRetention";
 pub const OBJECTS_OVERRIDE_UNLOCKED_RETENTION: &str = "storage.objects.overrideUnlockedRetention";
+pub const OBJECTS_GET_IAM: &str = "storage.objects.getIamPolicy";
+pub const OBJECTS_SET_IAM: &str = "storage.objects.setIamPolicy";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Permission {
@@ -54,6 +56,8 @@ pub enum Permission {
     ObjectsRestore,
     ObjectsSetRetention,
     ObjectsOverrideUnlockedRetention,
+    ObjectsGetIam,
+    ObjectsSetIam,
 }
 
 impl Permission {
@@ -74,6 +78,8 @@ impl Permission {
             Self::ObjectsRestore => OBJECTS_RESTORE,
             Self::ObjectsSetRetention => OBJECTS_SET_RETENTION,
             Self::ObjectsOverrideUnlockedRetention => OBJECTS_OVERRIDE_UNLOCKED_RETENTION,
+            Self::ObjectsGetIam => OBJECTS_GET_IAM,
+            Self::ObjectsSetIam => OBJECTS_SET_IAM,
         }
     }
 }
@@ -97,6 +103,8 @@ impl TryFrom<&str> for Permission {
             Self::ObjectsRestore,
             Self::ObjectsSetRetention,
             Self::ObjectsOverrideUnlockedRetention,
+            Self::ObjectsGetIam,
+            Self::ObjectsSetIam,
         ]
         .into_iter()
         .find(|permission| permission.as_str() == value)

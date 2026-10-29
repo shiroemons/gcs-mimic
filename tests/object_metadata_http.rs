@@ -413,11 +413,13 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
             .json();
         assert_eq!(
             after,
-            replies
-                .iter()
-                .find(|reply| reply.status == 200)
-                .unwrap()
-                .json()
+            common::without_acl(
+                replies
+                    .iter()
+                    .find(|reply| reply.status == 200)
+                    .unwrap()
+                    .json()
+            )
         );
         replies
             .iter()

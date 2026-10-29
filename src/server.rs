@@ -57,6 +57,7 @@ pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 #[cfg(test)]
 tokio::task_local! { static FORCE_LISTENER_ERROR: bool; }
 
+mod acl;
 #[path = "server/copy.rs"]
 mod copy;
 #[path = "server/notifications.rs"]
@@ -728,6 +729,18 @@ async fn respond_routed(
             .map_err(JsonError::from)
     };
     if selected.is_none()
+        && let Some(parsed) =
+            json::acl::route_acl(request.method(), request.uri(), config.compat_profile)
+    {
+        let result = match authenticate().and_then(|caller| parsed.map(|op| (op, caller))) {
+            Ok((operation, caller)) => acl::respond(request, operation, caller, state)
+                .await
+                .map_err(|error| anonymous_error(error, caller)),
+            Err(error) => Err(error),
+        };
+        return boxed(result.unwrap_or_else(JsonError::into_response));
+    }
+    if selected.is_none()
         && let Some(route) = unsupported::route(request.method(), request.uri())
     {
         return boxed(
@@ -1034,6 +1047,7 @@ async fn object_response(
     // live, so a concurrent create cannot be overwritten.
     let access = authorize_bucket(state, caller, permission, bucket).await?;
     let query = json::parse_query(request.uri().query().unwrap_or_default())?;
+    let acl_full = acl::full_projection(request.method(), request.uri().query());
     if query.contains_key("predefinedAcl") || query.contains_key("destinationPredefinedAcl") {
         let record = state
             .catalog
@@ -1310,6 +1324,12 @@ async fn object_response(
             let key = json::request_key(request.headers())?;
             // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let target = crate::acl::AclTarget::Object {
+                bucket: bucket.clone(),
+                name: name.clone(),
+                generation: params.generation,
+            };
+            let bytes = acl::strip_echoed_acls(state, bytes, &[("acl", target)], &access).await?;
             let mut update = json::parse_object_metadata(&bytes, replace)?;
             retention_access::authorize_update(
                 state,
@@ -1642,10 +1662,15 @@ async fn object_response(
             // Metadata needs no key; a supplied key must match and then reveals hashes.
             crate::csek::check_metadata(record.customer_key_sha256, key)
                 .map_err(ObjectError::CustomerEncryption)?;
+            let mut resource =
+                json::object_resource_keyed(&record, &state.api_base_url, params.projection, key)?;
+            if params.projection == json::Projection::Full {
+                acl::add_full_projection(state, caller, &mut resource).await?;
+            }
             return Ok(boxed(read_metadata_response(
                 request.headers(),
                 &json::object_etag(&record),
-                json::object_resource_keyed(&record, &state.api_base_url, params.projection, key)?,
+                resource,
                 &fields,
                 params.conditions.if_generation_not_match == Some(record.generation)
                     || params.conditions.if_metageneration_not_match == Some(record.metageneration),
@@ -1665,6 +1690,9 @@ async fn object_response(
             return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
         }
     };
+    if acl_full {
+        acl::add_full_projection(state, caller, &mut value).await?;
+    }
     fields.apply(&mut value);
     Ok(boxed(
         Response::builder()
@@ -2017,6 +2045,7 @@ async fn bucket_response(
     };
     let replace = matches!(operation, BucketRequest::Update { .. });
     let acl_query = request.uri().query().map(str::to_owned);
+    let acl_full = acl::full_projection(request.method(), request.uri().query());
     let mut value = match operation {
         BucketRequest::LockRetentionPolicy {
             bucket,
@@ -2068,6 +2097,14 @@ async fn bucket_response(
         }
         BucketRequest::Patch { bucket, params } | BucketRequest::Update { bucket, params } => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let echoed = [
+                ("acl", crate::acl::AclTarget::Bucket(bucket.clone())),
+                (
+                    "defaultObjectAcl",
+                    crate::acl::AclTarget::DefaultObject(bucket.clone()),
+                ),
+            ];
+            let bytes = acl::strip_echoed_acls(state, bytes, &echoed, &access).await?;
             let update = if replace {
                 json::parse_bucket_replacement(&bytes, profile)?
             } else {
@@ -2188,15 +2225,19 @@ async fn bucket_response(
             {
                 return Ok(empty_response(StatusCode::NOT_MODIFIED));
             }
+            let mut resource = json::bucket_resource_with_profile(
+                &record,
+                &state.api_base_url,
+                params.projection,
+                profile,
+            )?;
+            if params.projection == json::Projection::Full {
+                acl::add_full_projection(state, caller, &mut resource).await?;
+            }
             return read_metadata_response(
                 request.headers(),
                 &json::bucket_etag(&record),
-                json::bucket_resource_with_profile(
-                    &record,
-                    &state.api_base_url,
-                    params.projection,
-                    profile,
-                )?,
+                resource,
                 &fields,
                 query_not_modified,
             );
@@ -2250,6 +2291,9 @@ async fn bucket_response(
             });
         }
     };
+    if acl_full {
+        acl::add_full_projection(state, caller, &mut value).await?;
+    }
     fields.apply(&mut value);
     Ok(Response::builder()
         .header("content-type", "application/json; charset=UTF-8")

@@ -8,6 +8,16 @@ use std::{
 pub(super) mod input_fixtures;
 pub type TestDir = input_fixtures::TestDir;
 
+/// PUT defaults to `projection=full`; remove ACL fields before comparing with noAcl reads.
+#[allow(dead_code)]
+pub fn without_acl(mut value: serde_json::Value) -> serde_json::Value {
+    let resource = value.as_object_mut().unwrap();
+    for field in ["acl", "defaultObjectAcl", "owner"] {
+        resource.remove(field);
+    }
+    value
+}
+
 #[allow(dead_code)]
 pub fn http_config() -> gcs_mimic::config::Config {
     gcs_mimic::config::Config {

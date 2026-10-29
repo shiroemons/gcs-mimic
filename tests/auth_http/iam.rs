@@ -88,7 +88,7 @@ fn test_permissions_validates_route_queries_and_response_fields() {
     server
         .get(
             "",
-            &format!("{path}?permissions=storage.objects.getIamPolicy"),
+            &format!("{path}?permissions=storage.managedFolders.getIamPolicy"),
         )
         .error(400, "badRequest");
     let query = "permissions=storage.objects.get&permissions=storage.objects.create&permissions=storage.objects.get";
@@ -276,7 +276,7 @@ fn iam_migrates_v5_catalog() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        32
+        33
     );
     drop(connection);
     let server = Server::strict(&data, &config.0.join("identities.json"));

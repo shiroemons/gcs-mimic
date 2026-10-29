@@ -279,7 +279,7 @@ fn object_condition_matrix(condition: &str, field: &str, not_match: bool) {
                     .get(&format!("/storage/v1/b/test-bucket/o/{name}?alt=media"))
                     .error(404);
             } else {
-                let result = reply.json();
+                let result = common::without_acl(reply.json());
                 let after = server.snapshot(&name);
                 assert_eq!(after.0, result, "{method} {condition}");
                 if matches!(method, "media" | "multipart") {
@@ -400,7 +400,7 @@ fn bucket_condition_matrix(not_match: bool) {
                 assert!(reply.body.is_empty());
                 server.get(&path).error(404);
             } else {
-                let after = reply.json();
+                let after = common::without_acl(reply.json());
                 assert_eq!(server.get(&path).json(), after);
                 assert_eq!(after["metageneration"], (current + 1).to_string());
                 assert_eq!(after["storageClass"], "COLDLINE");

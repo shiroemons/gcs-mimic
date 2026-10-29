@@ -221,12 +221,14 @@ fn custom_time_monotonic_updates_are_atomic() {
             br#"{"temporaryHold":true}"#,
         )
         .error(403, "forbidden");
-    let same = update(
-        &server,
-        "PUT",
-        json!({"customTime":"2026-10-20T02:02:03.123456789+01:00"}),
-    )
-    .json();
+    let same = object_effects_support::common::without_acl(
+        update(
+            &server,
+            "PUT",
+            json!({"customTime":"2026-10-20T02:02:03.123456789+01:00"}),
+        )
+        .json(),
+    );
     assert_eq!(same["generation"], first["generation"]);
     update(&server, "PUT", json!({})).error(400, "invalidArgument");
     assert_eq!(server.get("held").json(), same);

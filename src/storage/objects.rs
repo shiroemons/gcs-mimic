@@ -1669,6 +1669,7 @@ pub(super) fn publish_in_transaction<T>(
             retention_mode, retain_until,
             record.customer_key_sha256.as_ref().map(|sha256| &sha256[..])],
     ).map_err(object_unavailable)?;
+    super::acl::inherit_default_object_acl(transaction, &record.bucket, &record.name, generation)?;
     super::change_journal::object(
         transaction,
         origin,

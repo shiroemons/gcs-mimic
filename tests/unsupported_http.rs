@@ -11,6 +11,24 @@ fn unsupported_google_routes_and_inputs() {
     let inventory: Value =
         serde_json::from_str(include_str!("../compatibility/upstream/json-methods.json")).unwrap();
     let implemented = [
+        "storage.bucketAccessControls.delete",
+        "storage.bucketAccessControls.get",
+        "storage.bucketAccessControls.insert",
+        "storage.bucketAccessControls.list",
+        "storage.bucketAccessControls.patch",
+        "storage.bucketAccessControls.update",
+        "storage.defaultObjectAccessControls.delete",
+        "storage.defaultObjectAccessControls.get",
+        "storage.defaultObjectAccessControls.insert",
+        "storage.defaultObjectAccessControls.list",
+        "storage.defaultObjectAccessControls.patch",
+        "storage.defaultObjectAccessControls.update",
+        "storage.objectAccessControls.delete",
+        "storage.objectAccessControls.get",
+        "storage.objectAccessControls.insert",
+        "storage.objectAccessControls.list",
+        "storage.objectAccessControls.patch",
+        "storage.objectAccessControls.update",
         "storage.buckets.delete",
         "storage.buckets.get",
         "storage.buckets.getIamPolicy",
@@ -106,7 +124,7 @@ fn unsupported_google_routes_and_inputs() {
     strict
         .request(
             "GET",
-            "/storage/v1/b/missing/acl",
+            "/storage/v1/b/missing/managedFolders",
             "Authorization: Bearer unknown\r\n",
             b"",
         )
@@ -114,7 +132,7 @@ fn unsupported_google_routes_and_inputs() {
     strict
         .request(
             "GET",
-            "/storage/v1/b/missing/acl",
+            "/storage/v1/b/missing/managedFolders",
             "Authorization: Bearer admin\r\n",
             b"",
         )

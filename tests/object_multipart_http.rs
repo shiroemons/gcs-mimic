@@ -568,6 +568,8 @@ fn obj_multipart_http_round_trip_metadata_hashes_and_restart() {
     ] {
         assert_eq!(object[key], metadata[key], "{key}");
     }
+    assert_eq!(object["acl"].as_array().unwrap().len(), 3);
+    let object = common::without_acl(object);
     assert_eq!(server.get("dir%2Ffile").json(), object);
     server.stop();
     let server = Server::start(&dir, 1_000_000, 30_000);

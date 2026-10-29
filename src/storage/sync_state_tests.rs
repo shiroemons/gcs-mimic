@@ -516,7 +516,7 @@ async fn sync_state_schema_migration_rolls_back_retries_and_preserves_objects() 
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        32
+        33
     );
     assert!(super::super::validate_schema_version(17, 16).is_err());
     connection

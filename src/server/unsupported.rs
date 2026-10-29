@@ -2,15 +2,6 @@ use hyper::{Method, Uri};
 
 // Storage v1 Discovery revision 20261020; keep explicit methods so object names remain opaque.
 const ROUTES: &[(&str, &str)] = &[
-    ("GET|POST", "b/{bucket}/acl"),
-    ("GET|DELETE|PATCH|PUT", "b/{bucket}/acl/{entity}"),
-    ("GET|POST", "b/{bucket}/defaultObjectAcl"),
-    (
-        "GET|DELETE|PATCH|PUT",
-        "b/{bucket}/defaultObjectAcl/{entity}",
-    ),
-    ("GET|POST", "b/{bucket}/o/{object}/acl"),
-    ("GET|DELETE|PATCH|PUT", "b/{bucket}/o/{object}/acl/{entity}"),
     ("POST", "b/{bucket}/restore"),
     ("POST", "b/{bucket}/relocate"),
     ("GET", "b/{bucket}/storageLayout"),
@@ -83,6 +74,24 @@ mod tests {
         ))
         .unwrap();
         let implemented = [
+            "storage.bucketAccessControls.delete",
+            "storage.bucketAccessControls.get",
+            "storage.bucketAccessControls.insert",
+            "storage.bucketAccessControls.list",
+            "storage.bucketAccessControls.patch",
+            "storage.bucketAccessControls.update",
+            "storage.defaultObjectAccessControls.delete",
+            "storage.defaultObjectAccessControls.get",
+            "storage.defaultObjectAccessControls.insert",
+            "storage.defaultObjectAccessControls.list",
+            "storage.defaultObjectAccessControls.patch",
+            "storage.defaultObjectAccessControls.update",
+            "storage.objectAccessControls.delete",
+            "storage.objectAccessControls.get",
+            "storage.objectAccessControls.insert",
+            "storage.objectAccessControls.list",
+            "storage.objectAccessControls.patch",
+            "storage.objectAccessControls.update",
             "storage.buckets.delete",
             "storage.buckets.get",
             "storage.buckets.getIamPolicy",
@@ -143,7 +152,7 @@ mod tests {
         assert!(
             route(
                 &Method::GET,
-                &"/storage/v1/b/b/o/a%2Fb/acl".parse().unwrap()
+                &"/storage/v1/b/b/o/a%2Fb/iam".parse().unwrap()
             )
             .is_some()
         );

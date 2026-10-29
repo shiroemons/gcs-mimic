@@ -146,6 +146,9 @@ fn copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes() {
             b"",
         )
         .json();
+    // The copy receives the destination bucket's default object ACL.
+    assert_eq!(copied["acl"][0]["bucket"], "destination-bucket");
+    let copied = object_effects_support::common::without_acl(copied);
     assert_eq!(copied["md5Hash"], original["md5Hash"]);
     assert_eq!(media(&server, "destination-bucket", "cross"), payload);
     let before = server.get("source").json();

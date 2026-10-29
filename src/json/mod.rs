@@ -8,6 +8,7 @@
 //! [`JsonError`] maps catalog failures and produces JSON HTTP error responses.
 //! The supported subset and deviations are recorded in `docs/en/slices/json-bucket-crud.md`.
 
+pub mod acl;
 mod body;
 mod buckets;
 pub mod compose;

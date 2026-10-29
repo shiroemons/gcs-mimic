@@ -129,6 +129,15 @@ fn raw(address: &str, request: &str) -> Reply {
 
 const PROFILES: [&str; 2] = ["native", "legacy-emulator"];
 
+/// PUT defaults to `projection=full`, so compare it with noAcl reads after removing ACL fields.
+fn without_acl(mut value: Value) -> Value {
+    let resource = value.as_object_mut().unwrap();
+    for field in ["acl", "defaultObjectAcl", "owner"] {
+        resource.remove(field);
+    }
+    value
+}
+
 #[test]
 fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
     let rules = json!({"rule":[
@@ -211,7 +220,7 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
         let cleared = server.request("PUT", path, r#"{"lifecycle":null}"#);
         assert_eq!(cleared.status, 200, "{}", cleared.body);
         assert!(cleared.json().get("lifecycle").is_none());
-        let before = cleared.json();
+        let before = without_acl(cleared.json());
         for condition in [
             json!({}),
             json!({"age":-1}),
@@ -324,8 +333,11 @@ fn unsupported_legacy_profile() {
         let dir = TestDir::new();
         let server = Server::start_options(&dir, &["--compat-profile", profile]);
         server
-            .request("GET", "/storage/v1/b/missing/acl", "")
+            .request("GET", "/storage/v1/b/missing/managedFolders", "")
             .error(400, "badRequest");
+        server
+            .request("GET", "/storage/v1/b/missing/acl", "")
+            .error(404, "notFound");
         server
             .request(
                 "POST",
@@ -411,7 +423,8 @@ fn bucket_put_replaces_omitted_fields_and_preserves_resources() {
         assert_settings(&merged, profile, true, true);
         let replaced = server.request("PUT", path, r#"{"labels":{"replace":"only"}}"#);
         assert_eq!(replaced.status, 200, "{}", replaced.body);
-        let value = replaced.json();
+        assert_eq!(replaced.json()["owner"]["entity"], "project-owners-42");
+        let value = without_acl(replaced.json());
         assert_eq!(value["labels"], json!({"replace":"only"}));
         assert_eq!(value["storageClass"], "ARCHIVE");
         assert_settings(&value, profile, true, true);
@@ -618,7 +631,7 @@ fn bucket_put_null_settings_follow_profile_defaults() {
             r#"{"versioning":{"enabled":null}}"#,
             r#"{"defaultEventBasedHold":null}"#,
         ] {
-            let before = server.request("PUT", path, r#"{"labels":{"keep":"yes"},"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).json();
+            let before = without_acl(server.request("PUT", path, r#"{"labels":{"keep":"yes"},"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).json());
             let reply = server.request("PUT", path, body);
             if profile == "native" {
                 reply.error(400, "invalidArgument");
@@ -743,14 +756,28 @@ fn bucket_metadata_round_trip(method: &str) {
         assert_eq!(server.insert("patch-round-trip", "project").status, 200);
         let path = "/storage/v1/b/patch-round-trip";
         assert_eq!(server.request(method, path, r#"{"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).status, 200);
+        // A full-projection read sent back unchanged echoes the current ACLs, which is accepted.
+        let full = format!("{path}?projection=full");
         for label in ["first", "second"] {
-            let before = server.request("GET", path, "").json();
+            let before = server.request("GET", &full, "").json();
+            assert_eq!(before["acl"].as_array().unwrap().len(), 3);
             let mut body = before.clone();
             body["labels"] = json!({"roundtrip":label});
-            let reply = server.request(method, path, &body.to_string());
+            let reply = server.request(method, &full, &body.to_string());
             assert_eq!(reply.status, 200, "{profile}: {}", reply.body);
             let after = reply.json();
             assert_eq!(after["labels"], body["labels"]);
+            for field in ["acl", "defaultObjectAcl"] {
+                let entities = |value: &Value| {
+                    value[field]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|entry| (entry["entity"].clone(), entry["role"].clone()))
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(entities(&after), entities(&before));
+            }
             let revision = before["metageneration"]
                 .as_str()
                 .unwrap()
@@ -760,12 +787,20 @@ fn bucket_metadata_round_trip(method: &str) {
             assert_ne!(after["etag"], before["etag"]);
             let mut unchanged_before = before;
             let mut unchanged_after = after.clone();
-            for field in ["labels", "metageneration", "updated", "etag"] {
+            // ACL entry etags carry the bucket metageneration.
+            for field in [
+                "labels",
+                "metageneration",
+                "updated",
+                "etag",
+                "acl",
+                "defaultObjectAcl",
+            ] {
                 unchanged_before.as_object_mut().unwrap().remove(field);
                 unchanged_after.as_object_mut().unwrap().remove(field);
             }
             assert_eq!(unchanged_after, unchanged_before);
-            assert_eq!(server.request("GET", path, "").json(), after);
+            assert_eq!(server.request("GET", &full, "").json(), after);
         }
     }
 }
@@ -1356,7 +1391,7 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
         );
         let reply = server.request("PUT", path, r#"{"versioning":{"enabled":true,"future":1}}"#);
         assert_eq!(reply.status, 200, "{}", reply.body);
-        let after = reply.json();
+        let after = without_acl(reply.json());
         assert_settings(&after, profile, true, true);
         assert_eq!(server.request("GET", path, "").json(), after);
         for body in [
@@ -1412,7 +1447,10 @@ fn bucket_soft_delete_defaults_and_invalid_shapes_preserve_policy() {
                     server.request(method, path, &json!({"softDeletePolicy":value}).to_string());
                 assert_eq!(updated.status, 200, "{}", updated.body);
                 assert_eq!(updated.json()["softDeletePolicy"], policy);
-                assert_eq!(server.request("GET", path, "").json(), updated.json());
+                assert_eq!(
+                    server.request("GET", path, "").json(),
+                    without_acl(updated.json())
+                );
             }
             for value in [
                 json!([]),
@@ -1510,7 +1548,10 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
         assert_eq!(reply.json()["projectNumber"], before["projectNumber"]);
         assert_eq!(reply.json()["timeCreated"], before["timeCreated"]);
         assert_eq!(reply.json()["labels"], json!({"works":"yes"}));
-        assert_eq!(server.request("GET", path, "").json(), reply.json());
+        assert_eq!(
+            server.request("GET", path, "").json(),
+            without_acl(reply.json())
+        );
     }
 }
 
@@ -1639,7 +1680,7 @@ fn bucket_metadata_conditions(method: &str) {
         );
         assert_eq!(first.status, 200);
         assert_eq!(first.json()["metageneration"], "2");
-        assert!(first.json().get("acl").is_none());
+        assert_eq!(first.json()["acl"].as_array().unwrap().len(), 3);
         assert_eq!(
             server
                 .request(
@@ -1687,7 +1728,7 @@ fn bucket_metadata_race(method: &'static str) {
                 reply.error(412, "conditionNotMet");
             }
         }
-        let value = winner.unwrap();
+        let value = without_acl(winner.unwrap());
         assert_eq!(value["metageneration"], "2");
         assert_eq!(
             server.request("GET", "/storage/v1/b/patch-race", "").json(),
@@ -1786,12 +1827,15 @@ fn bucket_metadata_permissions(method: &str) {
             r#"{"labels":{"access":"granted"}}"#,
         );
         assert_eq!(reply.status, 200, "{}", reply.body);
+        // The bucket-granted storage.admin role includes getIamPolicy, so ACLs are rendered.
+        assert_eq!(reply.json()["acl"].as_array().unwrap().len(), 3);
         assert_eq!(
             server.authorized("admin", "GET", &policy_path, "").json(),
             policy
         );
+        let full = format!("{path}?projection=full");
         assert_eq!(
-            server.authorized("admin", "GET", path, "").json(),
+            server.authorized("admin", "GET", &full, "").json(),
             reply.json()
         );
         server.authorized("admin", "PUT", &policy_path, r#"{"bindings":[]}"#);
@@ -1799,7 +1843,7 @@ fn bucket_metadata_permissions(method: &str) {
             .authorized("granted", method, path, "{}")
             .error(403, "forbidden");
         assert_eq!(
-            server.authorized("admin", "GET", path, "").json(),
+            server.authorized("admin", "GET", &full, "").json(),
             reply.json()
         );
     }
@@ -1932,7 +1976,7 @@ fn bucket_metadata_legacy_restart(method: &str) {
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert!(reply.headers.contains("content-type: application/json\r\n"));
     assert!(reply.body.ends_with('\n'));
-    let value = reply.json();
+    let value = without_acl(reply.json());
     assert_eq!(value["labels"], json!({"team":"storage"}));
     assert_eq!(value["storageClass"], "COLDLINE");
     assert_eq!(value["metageneration"], "2");
@@ -2458,7 +2502,9 @@ fn bucket_core_create_get_defaults() {
         for query in ["", "?projection=full", "?projection=noAcl"] {
             let get = server.request("GET", &format!("/storage/v1/b/core-bucket{query}"), "");
             assert_eq!(get.status, 200);
-            assert_eq!(get.json(), resource);
+            let value = get.json();
+            assert_eq!(value.get("acl").is_some(), query == "?projection=full");
+            assert_eq!(without_acl(value), resource);
         }
     }
 }
@@ -2999,7 +3045,7 @@ fn bucket_core_migrates_v7_settings() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            32
+            33
         );
     }
 }
@@ -3321,19 +3367,19 @@ fn bkt_http_crud_metadata_conditions_and_errors() {
             200
         );
     }
-    assert_eq!(
-        server
-            .request("GET", &format!("{path}?projection=full"), "")
-            .json(),
-        bucket
-    );
+    let full = server
+        .request("GET", &format!("{path}?projection=full"), "")
+        .json();
+    assert_eq!(full["owner"], json!({"entity": "project-owners-42"}));
+    assert_eq!(full["defaultObjectAcl"].as_array().unwrap().len(), 3);
+    assert_eq!(without_acl(full), bucket);
     let full_list = server
         .request("GET", "/storage/v1/b?project=00042&projection=full", "")
         .json();
-    assert_eq!(full_list["items"][0], bucket);
     for field in ["acl", "defaultObjectAcl", "owner"] {
-        assert!(full_list["items"][0].get(field).is_none());
+        assert!(full_list["items"][0].get(field).is_some(), "{field}");
     }
+    assert_eq!(without_acl(full_list["items"][0].clone()), bucket);
     for query in [
         "ifMetagenerationMatch=0",
         "ifMetagenerationMatch=-1",
@@ -3475,7 +3521,7 @@ fn bkt_http_conditional_delete_and_metadata_mutation_have_one_winner() {
                             server
                                 .request("GET", "/storage/v1/b/conditional", "")
                                 .json(),
-                            update.json()
+                            without_acl(update.json())
                         );
                         assert_eq!(
                             server

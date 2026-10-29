@@ -386,8 +386,9 @@ mod tests {
         let catalog = Catalog::open(&dir.0).await.unwrap();
         catalog.close().await.unwrap();
         let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+        super::super::test_support::downgrade_hmac_key_schema(&connection);
         connection
-            .execute_batch("DROP TABLE hmac_keys; PRAGMA user_version = 31;")
+            .execute_batch("PRAGMA user_version = 31;")
             .unwrap();
         drop(connection);
         let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -410,7 +411,7 @@ mod tests {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            32
+            33
         );
     }
 
