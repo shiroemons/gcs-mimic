@@ -31,6 +31,8 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -p "$out"
+# The Ruby probe runs from its own directory, so a relative --out must be resolved first.
+out=$(cd "$out" && pwd)
 
 (cd "$root/sdk-scorecard/go" && GOTOOLCHAIN=auto go build -o "$work/probe-go" .)
 (cd "$root/sdk-scorecard/ruby" && BUNDLE_FROZEN=true bundle install --quiet)
