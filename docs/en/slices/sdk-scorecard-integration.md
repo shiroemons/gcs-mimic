@@ -21,12 +21,13 @@ failures; complete-method compatibility is not claimed here.
 | JSON-OBJECTS-005, DESIGN-085/086, AUDIT-004 | JSON object metadata HEAD selects the same generation, conditions and permissions as GET, with no response body; media HEAD and collection HEAD remain unsupported | `json_object_head_preserves_selection_conditions_and_authorization` |
 | JSON-OBJECTS-009, BEHAVIOR-OBJECT-028 | Node's empty move options serialize as `{}`; accept only that empty JSON object or no body, and reject meaningful body fields before mutation | `move_rejects_missing_same_name_holds_and_unsupported_inputs` |
 | JSON-OBJECTS-002, BEHAVIOR-OBJECT-034 | Python's null optional source generation selects the live source; its nested null retentionExpirationTime changes no retention semantics; malformed generations, null source conditions and nonnull nested expiration remain rejected | `compose_body_rejects_invalid_generation_values`, `object_retention_json_parsing_boundaries` |
+| JSON-OBJECTS-005, AUDIT-004 | JSON media expands gzip when negotiation requires it, skips Range, retains stored-representation headers/ETag and conditions, and aborts invalid or oversized expansion; gzip acceptance and no-transform return stored bytes | `json_gzip_negotiation_range_and_conditions_preserve_stored_representation`, `json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof` |
 
 The official sources, checked content digests, SDK revisions and exact local
 limits are in the linked contracts and committed lockfiles. Source documents
 and registries were fetched explicitly; no Google Cloud data operation was run.
 The complete dependency checker reported all inputs CURRENT, including Rust
-1.99.1 and the existing SDK/container pins. No dependency was added.
+1.99.1, the existing SDK/container pins and the follow-up flate2 addition below.
 
 ## Native and transport verification
 
@@ -83,6 +84,35 @@ at the top level, not inside retention, and the official move contract specifies
 no request body. Accepting these SDK defaults does not establish real-provider
 acceptance. Nonempty move semantics and caller-supplied nested expiration remain
 rejected. The original malformed/null-condition tests remain covered separately.
+
+## JSON media gzip expansion
+
+The [official transcoding contract](https://docs.cloud.google.com/storage/docs/transcoding),
+checked on 2026-10-29, selects expansion for gzip-encoded objects unless the
+request accepts gzip or the object specifies Cache-Control no-transform.
+The existing Accept-Encoding quality validation remains in force. Expansion
+ignores Range and removes Content-Encoding, Content-Length and Accept-Ranges;
+the stored-length/encoding/hash headers and ETag still describe stored bytes.
+The hashes are not checksums of the expanded representation. Conditions and
+authorization run before decoding. XML expansion and JSON media HEAD remain
+unsupported.
+
+The added flate2 1.1.10 dependency uses only its pure-Rust backend. Its latest
+stable status, license, source digest, package size and maintenance are recorded
+in the dependency snapshot. There is no added container or runtime service.
+The existing bounded blocking pool performs at most one 64 KiB compressed-input
+and 64 KiB expanded-output step per response at a time. A single-frame channel
+provides backpressure outside the blocking worker. Cancellation stops new steps;
+one already-running bounded step may finish. Header filename/comment/extra data
+remain bounded by the library's format limits.
+
+Malformed DEFLATE, truncated headers/body/trailer, bad CRC32/ISIZE, trailing
+non-gzip bytes and expansion beyond max_object_bytes abort the streamed response.
+The local implementation can send HTTP 200 headers before discovering invalid
+stored gzip; an aborted chunked body is an error, never a complete empty object.
+The expansion cap is an explicit local resource limit. Concatenated and empty
+gzip members are supported without collecting the full compressed or expanded
+object. This is not provider-exact gzip or error-detail parity.
 
 ## Remaining limits
 

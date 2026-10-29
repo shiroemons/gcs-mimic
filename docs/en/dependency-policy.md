@@ -227,6 +227,16 @@ Release gates require a successful check against the currently verified stable c
 
 ## Dependency status evidence
 
+The 2026-10-29 SDK integration adds flate2 1.1.10 with default features disabled
+and only rust_backend enabled for bounded JSON media gzip expansion. The official
+Cargo index verifies non-yanked latest stable status and Rust 1.67.0 minimum;
+the 80,244-byte crate is MIT OR Apache-2.0 and its rust-lang repository remains
+active. Cargo.lock additionally resolves adler2 2.0.1, crc32fast 1.5.3,
+miniz_oxide 0.9.1 and simd-adler32 0.3.10. No native zlib build is added.
+The existing daily checker automatically includes the new direct edge and
+reported all inputs CURRENT. Exact provenance and the decoding resource limits
+are in the [integration contract](slices/sdk-scorecard-integration.md).
+
 The original rusqlite update adopted 0.41.0 with defaults disabled and only
 `bundled`, resolving libsqlite3-sys 0.39.0 and SQLite 3.54.0. No application API
 or catalog schema change is required. The registry and distributed crate declare

@@ -50,6 +50,21 @@ impl Server {
         catalog_milliseconds: u64,
         request_milliseconds: u64,
     ) -> Self {
+        Self::start_with_limits(
+            dir,
+            strict,
+            catalog_milliseconds,
+            request_milliseconds,
+            gcs_mimic::config::Config::default().max_object_bytes,
+        )
+    }
+    pub fn start_with_limits(
+        dir: &common::TestDir,
+        strict: bool,
+        catalog_milliseconds: u64,
+        request_milliseconds: u64,
+        max_object_bytes: u64,
+    ) -> Self {
         let mut command = common::server_command();
         command
             .args([
@@ -65,7 +80,9 @@ impl Server {
             .arg("--catalog-wait-timeout-ms")
             .arg(catalog_milliseconds.to_string())
             .arg("--object-request-timeout-ms")
-            .arg(request_milliseconds.to_string());
+            .arg(request_milliseconds.to_string())
+            .arg("--max-object-bytes")
+            .arg(max_object_bytes.to_string());
         if strict {
             let identities = dir.0.join("identities.json");
             std::fs::write(&identities, serde_json::json!({"identities":[

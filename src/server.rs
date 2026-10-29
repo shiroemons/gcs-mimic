@@ -60,6 +60,7 @@ tokio::task_local! { static FORCE_LISTENER_ERROR: bool; }
 mod acl;
 #[path = "server/copy.rs"]
 mod copy;
+mod gzip;
 #[path = "server/notifications.rs"]
 mod notifications;
 #[path = "server/project_resources.rs"]
@@ -1628,7 +1629,7 @@ async fn object_response(
                             })?,
                     );
                 }
-                json::validate_object_media_encoding(request.headers(), &record)?;
+                let transcode = json::object_media_transcoding(request.headers(), &record)?;
                 if read_etag_not_modified(request.headers(), &json::object_etag(&record))?
                     || params.conditions.if_generation_not_match == Some(record.generation)
                     || params.conditions.if_metageneration_not_match == Some(record.metageneration)
@@ -1637,6 +1638,19 @@ async fn object_response(
                         &headers["etag"],
                         &headers["cache-control"],
                     )));
+                }
+                if transcode {
+                    for name in ["content-encoding", "content-length", "accept-ranges"] {
+                        headers.remove(name);
+                    }
+                    let mut response = Response::new(gzip::body(
+                        reader,
+                        record.size,
+                        config.max_object_bytes,
+                        activity,
+                    ));
+                    *response.headers_mut() = headers;
+                    return Ok(response);
                 }
                 let range = match json::object_media_range(request.headers(), record.size) {
                     Ok(range) => range,

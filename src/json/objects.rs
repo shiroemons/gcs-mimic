@@ -780,11 +780,11 @@ pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonErro
     Ok(headers)
 }
 
-/// Reject downloads requiring unsupported gzip expansion, honoring explicit quality overrides.
-pub fn validate_object_media_encoding(
+/// Select gzip expansion while honoring explicit quality overrides and no-transform.
+pub(crate) fn object_media_transcoding(
     headers: &HeaderMap,
     object: &ObjectRecord,
-) -> Result<(), JsonError> {
+) -> Result<bool, JsonError> {
     if !object
         .content_encoding
         .as_deref()
@@ -795,7 +795,7 @@ pub fn validate_object_media_encoding(
                 .any(|directive| directive.trim().eq_ignore_ascii_case("no-transform"))
         })
     {
-        return Ok(());
+        return Ok(false);
     }
     let mut gzip = None;
     let mut wildcard = None;
@@ -847,12 +847,20 @@ pub fn validate_object_media_encoding(
             }
         }
     }
-    if gzip.or(wildcard).unwrap_or(false) {
-        Ok(())
-    } else {
+    Ok(!gzip.or(wildcard).unwrap_or(false))
+}
+
+/// XML expansion remains outside the JSON media transcoding scope.
+pub fn validate_object_media_encoding(
+    headers: &HeaderMap,
+    object: &ObjectRecord,
+) -> Result<(), JsonError> {
+    if object_media_transcoding(headers, object)? {
         Err(JsonError::unsupported_object(
             "decompressive transcoding; accept gzip or set no-transform",
         ))
+    } else {
+        Ok(())
     }
 }
 

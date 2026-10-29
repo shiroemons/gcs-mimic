@@ -62,7 +62,9 @@ pub use objects::{
     validate_keyed_object_headers, validate_object_get_headers, validate_object_media_encoding,
     validate_object_name,
 };
-pub(crate) use objects::{base64, decode_hash, object_etag, validate_read_condition_headers};
+pub(crate) use objects::{
+    base64, decode_hash, object_etag, object_media_transcoding, validate_read_condition_headers,
+};
 pub use page_token::{
     decode_all_projects_page_token, decode_page_token, encode_all_projects_page_token,
     encode_page_token,
