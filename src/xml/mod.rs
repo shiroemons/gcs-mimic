@@ -573,19 +573,30 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
     Ok(())
 }
 
-pub(crate) fn media_headers(
-    record: &ObjectRecord,
-    publicly_readable: bool,
-) -> Result<HeaderMap, Error> {
-    let mut headers = json::object_media_headers(record)?;
-    let cache = record
-        .cache_control
-        .as_deref()
-        .unwrap_or(if publicly_readable {
-            "public, max-age=3600"
+/// The default `Cache-Control` scope for an object without its own `cacheControl`: shared caches
+/// may keep publicly readable objects, while every other object stays private.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CacheScope {
+    Public,
+    Private,
+}
+
+impl CacheScope {
+    pub(crate) fn for_public_read(publicly_readable: bool) -> Self {
+        if publicly_readable {
+            Self::Public
         } else {
-            "private, max-age=0"
-        });
+            Self::Private
+        }
+    }
+}
+
+pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<HeaderMap, Error> {
+    let mut headers = json::object_media_headers(record)?;
+    let cache = record.cache_control.as_deref().unwrap_or(match scope {
+        CacheScope::Public => "public, max-age=3600",
+        CacheScope::Private => "private, max-age=0",
+    });
     // MD5 ETags apply only to objects without customer-supplied encryption.
     let etag = if record.component_count.is_some() || record.customer_key_sha256.is_some() {
         json::object_etag(record)

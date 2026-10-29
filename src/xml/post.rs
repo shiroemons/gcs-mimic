@@ -736,7 +736,7 @@ pub(crate) async fn respond(
             .map_err(|error| storage_error(error, caller))?
         }
     };
-    let mut media = super::media_headers(&record, false)?;
+    let mut media = super::media_headers(&record, super::CacheScope::Private)?;
     let etag = media["etag"].to_str().unwrap_or_default().to_owned();
     let (status, body, content_type) = match success {
         Success::Redirect(_) => (StatusCode::SEE_OTHER, String::new(), None),

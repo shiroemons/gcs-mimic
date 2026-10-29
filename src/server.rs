@@ -1969,7 +1969,10 @@ async fn xml_response(
             .map(|(record, reader)| (record, reader, true))
     }
     .map_err(|error| anonymous_error(error.into(), caller))?;
-    let mut headers = xml::media_headers(&record, reader.publicly_readable)?;
+    let mut headers = xml::media_headers(
+        &record,
+        xml::CacheScope::for_public_read(reader.publicly_readable),
+    )?;
     json::insert_response_headers(&record, &mut headers);
     if !reveal {
         headers.remove("x-goog-hash");

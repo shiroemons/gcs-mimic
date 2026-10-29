@@ -343,7 +343,7 @@ pub(crate) async fn respond(
         }
     }
     .map_err(|error| storage_error(error, caller))?;
-    let mut headers = super::media_headers(&record, false)?;
+    let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
     let mut response = boxed(Response::new(Full::new(Bytes::new())));
     json::insert_response_headers(&record, response.headers_mut());
     for name in [
