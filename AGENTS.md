@@ -55,8 +55,9 @@ gcs-mimic is an independent Google Cloud Storage emulator written in Rust. It ta
 - On request paths use `prepare_cached` with static SQL, not `prepare` or `format!`-built statements. Re-preparing per request wastes CPU, and built SQL invites injection.
 - Run blocking I/O and CPU-heavy work only through the bounded blocking pools, never directly on async worker threads. Blocking an async worker stalls every connection it serves.
 - Stream object bodies with bounded buffers. Unbounded buffering makes memory grow with request size.
+- Flush a `tokio::fs::File` before `sync_all()` or `sync_data()`. tokio finishes the last write in the background and the sync calls do not report its error, so a failed tail write would publish a short file as durable.
 
-Run `cargo xtask lint` before pushing. Fixing violations lowers counts: run `cargo xtask lint --update-baseline` and commit the baseline. Raising a count requires `--update-baseline --allow-increase` and an explicit justification in review. `cargo xtask lint --strict` ignores the baseline and becomes the gate once every recorded violation is fixed. Details are in `docs/en/development.md`.
+Run `cargo xtask lint` before pushing. Fixing violations lowers counts: run `cargo xtask lint --update-baseline` and commit the baseline. Raising a count requires `--update-baseline --allow-increase` and an explicit justification in review. A legitimate text-rule hit, such as DDL built only from static fragments, takes `// xtask-lint: allow(text::<rule>) -- <reason>` on its line or the line above; the tool rejects unknown rules, reasons under 10 characters and suppressions that suppress nothing. Clippy lints use `#[expect(<lint>, reason = "...")]` instead. `cargo xtask lint --strict` ignores the baseline, also lists what blocks denying the Clippy lints in `[workspace.lints]`, and becomes the gate once both are empty. Details are in `docs/en/development.md`.
 
 ## Access and URLs
 

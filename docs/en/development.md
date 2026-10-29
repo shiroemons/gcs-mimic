@@ -229,8 +229,11 @@ It counts violations per rule and file and compares them with
   must be justified in review. The same command regenerates the whole baseline,
   for example after merging branches that both changed it.
 - `cargo xtask lint --strict` ignores the baseline and allows no violations,
-  except one definition of the shared `unavailable` helper. It replaces the
-  ratchet once the baseline is empty.
+  except one definition of the shared `unavailable` helper. It also reports
+  what blocks the final deny switch (below). It replaces the ratchet once both
+  lists are empty.
+- Every mode prints how many findings reasoned suppressions silenced, per
+  rule, and fails on any invalid or stale suppression.
 
 The check covers only server production code: files under `src/` except
 `src/grpc/generated/`, the `src/grpc/codegen/` build tool, `*_tests.rs`,
@@ -254,11 +257,90 @@ is not counted.
 | `text::allow_too_many_arguments` | `#[allow]` or `#[expect]` of `clippy::too_many_arguments`. |
 | `text::uncached_prepare` | rusqlite `.prepare(` calls instead of `prepare_cached`. |
 | `text::format_sql` | `format!` whose literal starts with an SQL statement. |
+| `text::sync_without_flush` | `.sync_all().await` or `.sync_data().await` after an awaited write in the same function with no `.flush().await` or `.shutdown().await` in between. |
 
 The text rules ignore comments and string contents. They are heuristics:
 for example, `text::format_sql` does not see SQL assembled through other
 helpers, and a `Result<_, String>` hidden behind another alias is not counted.
-Review still applies the written rules where the tool cannot.
+`text::sync_without_flush` follows source order without tracking which value
+was written, so it misses a write and a sync in different functions and
+reports a socket write followed by a file sync. Review still applies the
+written rules where the tool cannot.
+
+#### Reasoned suppressions
+
+A text-rule hit that the rule's intent does not cover, such as a schema
+migration whose DDL is built only from static fragments, can be suppressed
+with a line comment:
+
+```rust
+// xtask-lint: allow(text::format_sql) -- table names come from a fixed list
+let statement = format!("CREATE TABLE {table} (id INTEGER PRIMARY KEY)");
+let sql = format!("SELECT {COLUMNS} FROM objects"); // xtask-lint: allow(text::format_sql) -- static column list
+```
+
+- A comment after code covers its own line; a comment on its own line covers
+  the next line with code. Several rules may be listed, separated by commas.
+- The reason after ` -- ` is mandatory and at least 10 characters long.
+- Only `text::` rules are accepted; an unknown name is an error. Clippy and
+  rustc lints use `#[expect(<lint>, reason = "...")]`, which the compiler
+  already checks.
+- A listed rule that reports nothing on the covered line is a stale
+  suppression and fails the check, like an unfulfilled `#[expect]`. Remove the
+  comment when the code no longer needs it.
+- Doc comments and string contents never suppress anything.
+
+#### `#[expect]` for restriction lints
+
+`clippy::unwrap_used` and `clippy::expect_used` are allowed by default, and
+the plain `cargo clippy --workspace --all-targets -- -D warnings` run does not
+enable them. An `#[expect(clippy::expect_used, reason = "...")]` is still
+checked there: the attribute sets the lint's level inside the item, so Clippy
+runs the lint in that scope. A matching call fulfills the expectation; without
+one, `unfulfilled_lint_expectations` fails the `-D warnings` run. This was
+verified on Rust 1.99.1 with a scratch crate. `cargo check` and `cargo build`
+do not run Clippy lints, so they report neither case. The ratchet's `-W` run
+does not count a call covered by a fulfilled `#[expect]`.
+
+#### Final deny switch
+
+The counted Clippy and rustc lints move into `[workspace.lints]` once nothing
+in the workspace triggers them. `[workspace.lints]` reaches every target of
+every member (the server's tests and examples, xtask and the gRPC code
+generator), not only the production code that the ratchet counts. Therefore
+`cargo xtask lint --strict` runs a second Clippy pass,
+`cargo clippy --workspace --all-targets` with the same `-W` lints, and reports
+each finding that the production pass did not see as blocking the switch. It
+ends with the lints that are ready to deny.
+
+`clippy.toml`'s `allow-unwrap-in-tests`, `allow-expect-in-tests` and
+`allow-panic-in-tests` cover `#[test]` functions and `#[cfg(test)]` modules.
+They do not cover helper functions of integration tests, such as
+`tests/common/` or a test file's non-`#[test]` functions, so those helpers
+need a fix or a reasoned
+`#![expect(clippy::unwrap_used, reason = "...")]` on the test module. The
+existing reasonless `#![allow(clippy::unwrap_used, clippy::expect_used)]` in
+`cfg(test)` modules duplicate the `clippy.toml` allowances; deleting them also
+clears their `clippy::allow_attributes_without_reason` findings.
+
+The switch can be made one lint at a time:
+
+1. Run `cargo xtask lint --strict`. Pick a lint from
+   `lints ready to deny in [workspace.lints]`, or clear its production
+   violations and switch blockers first.
+2. Add it to `Cargo.toml`: `unwrap_used = "deny"` (without the `clippy::`
+   prefix) under `[workspace.lints.clippy]`, or `unreachable_pub = "deny"`
+   under `[workspace.lints.rust]`.
+3. Remove it from `CLIPPY_LINTS` in `xtask/src/lint.rs`, because the regular
+   `-D warnings` run now enforces it, and run
+   `cargo xtask lint --update-baseline` so the baseline holds no entry for it.
+4. Run `just check`.
+
+When `cargo xtask lint --strict` passes, every counted Clippy lint has moved and
+the text rules are at zero. Then replace `cargo xtask lint` with
+`cargo xtask lint --strict` in `scripts/check.sh`, which `just check` and
+Foundation CI run, delete `xtask/lint-baseline.json`, and remove the ratchet
+and `--update-baseline` modes from xtask.
 
 ## Direct verification commands
 
