@@ -115,7 +115,9 @@ Each `results/<date>/` directory keeps the raw evidence:
 
 Compare runs only when their case lists match; adding or removing a case changes
 every product's denominator. When the probes change, rerun all products and
-start a new results directory.
+start a new results directory. A later run on the same UTC date goes in
+`results/<date>-<n>/` (for example `2026-10-29-2`) so earlier results stay
+unchanged.
 
 ## Limitations
 

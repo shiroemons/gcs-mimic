@@ -1,0 +1,134 @@
+# SDK scorecard
+
+<!-- markdownlint-configure-file {"MD013": false} -->
+
+| Emulator | Version | Go | Ruby | Score (/100) |
+| --- | --- | --- | --- | --- |
+| fake-gcs-server | `fsouza/fake-gcs-server:1.56.1` | 24/57 | 24/51 | 44.6 |
+| gcp-storage-emulator | `oittaa/gcp-storage-emulator:v2026.07.19` | 20/57 | 22/51 | 39.1 |
+| gcs-mimic | `gcs-mimic 0.3.0 (cc17ca1)` | 57/57 | 51/51 | 100 |
+
+## Passed cases by area
+
+| SDK | Area | fake-gcs-server | gcp-storage-emulator | gcs-mimic |
+| --- | --- | --- | --- | --- |
+| go | bucket | 5/20 | 7/20 | 20/20 |
+| go | object | 16/27 | 10/27 | 27/27 |
+| go | signed | 3/4 | 3/4 | 4/4 |
+| go | grpc | 0/6 | 0/6 | 6/6 |
+| ruby | bucket | 5/20 | 8/20 | 20/20 |
+| ruby | object | 15/27 | 11/27 | 27/27 |
+| ruby | signed | 4/4 | 3/4 | 4/4 |
+
+## Case results
+
+| SDK | Case | fake-gcs-server | gcp-storage-emulator | gcs-mimic |
+| --- | --- | --- | --- | --- |
+| go | `bucket.create_get_delete` | ✅ | ✅ | ✅ |
+| go | `bucket.list_prefix_paging` | ✅ | ❌ | ✅ |
+| go | `bucket.update_labels` | ❌ | ❌ | ✅ |
+| go | `bucket.metageneration_precondition` | ❌ | ❌ | ✅ |
+| go | `bucket.versioning_history` | ✅ | ❌ | ✅ |
+| go | `bucket.lifecycle` | ❌ | ✅ | ✅ |
+| go | `bucket.cors` | ❌ | ✅ | ✅ |
+| go | `bucket.retention_policy` | ❌ | ❌ | ✅ |
+| go | `bucket.retention_lock` | ❌ | ❌ | ✅ |
+| go | `bucket.uniform_bucket_level_access` | ❌ | ✅ | ✅ |
+| go | `bucket.public_access_prevention` | ❌ | ✅ | ✅ |
+| go | `bucket.iam_policy` | ❌ | ✅ | ✅ |
+| go | `bucket.iam_test_permissions` | ❌ | ✅ | ✅ |
+| go | `bucket.soft_delete_policy` | ❌ | ❌ | ✅ |
+| go | `bucket.autoclass` | ❌ | ❌ | ✅ |
+| go | `bucket.acl` | ✅ | ❌ | ✅ |
+| go | `bucket.default_object_acl` | ❌ | ❌ | ✅ |
+| go | `bucket.notifications` | ✅ | ❌ | ✅ |
+| go | `project.hmac_keys` | ❌ | ❌ | ✅ |
+| go | `project.service_account` | ❌ | ❌ | ✅ |
+| go | `object.write_read_small` | ✅ | ✅ | ✅ |
+| go | `object.resumable_large` | ✅ | ❌ | ✅ |
+| go | `object.metadata_on_write` | ✅ | ✅ | ✅ |
+| go | `object.checksum_rejected` | ✅ | ✅ | ✅ |
+| go | `object.md5_accepted` | ✅ | ✅ | ✅ |
+| go | `object.range_reads` | ✅ | ❌ | ✅ |
+| go | `object.update_metadata` | ❌ | ❌ | ✅ |
+| go | `object.delete_not_found` | ✅ | ✅ | ✅ |
+| go | `object.does_not_exist_precondition` | ✅ | ❌ | ✅ |
+| go | `object.generation_match_precondition` | ❌ | ❌ | ✅ |
+| go | `object.metageneration_match_precondition` | ❌ | ❌ | ✅ |
+| go | `object.list_prefix_delimiter` | ✅ | ✅ | ✅ |
+| go | `object.list_paging` | ✅ | ❌ | ✅ |
+| go | `object.list_offsets` | ✅ | ❌ | ✅ |
+| go | `object.list_match_glob` | ❌ | ✅ | ✅ |
+| go | `object.copy_with_metadata` | ✅ | ❌ | ✅ |
+| go | `object.rewrite_storage_class` | ❌ | ❌ | ✅ |
+| go | `object.compose` | ❌ | ❌ | ✅ |
+| go | `object.move` | ❌ | ❌ | ✅ |
+| go | `object.acl` | ✅ | ❌ | ✅ |
+| go | `object.holds` | ❌ | ❌ | ✅ |
+| go | `object.retention` | ❌ | ❌ | ✅ |
+| go | `object.custom_time` | ✅ | ✅ | ✅ |
+| go | `object.storage_class_on_write` | ✅ | ✅ | ✅ |
+| go | `object.gzip_transcoding` | ✅ | ❌ | ✅ |
+| go | `object.customer_supplied_key` | ❌ | ❌ | ✅ |
+| go | `object.soft_delete_restore` | ❌ | ✅ | ✅ |
+| go | `signed.v4_get` | ✅ | ✅ | ✅ |
+| go | `signed.v4_put` | ✅ | ✅ | ✅ |
+| go | `signed.v2_get` | ✅ | ✅ | ✅ |
+| go | `signed.post_policy_v4` | ❌ | ❌ | ✅ |
+| go | `grpc.bucket_create_get_delete` | ❌ | ❌ | ✅ |
+| go | `grpc.write_read` | ❌ | ❌ | ✅ |
+| go | `grpc.list` | ❌ | ❌ | ✅ |
+| go | `grpc.update_delete` | ❌ | ❌ | ✅ |
+| go | `grpc.multi_range_downloader` | ❌ | ❌ | ✅ |
+| go | `grpc.appendable_object` | ❌ | ❌ | ✅ |
+| ruby | `bucket.create_get_delete` | ✅ | ✅ | ✅ |
+| ruby | `bucket.list_prefix_paging` | ✅ | ❌ | ✅ |
+| ruby | `bucket.update_labels` | ❌ | ❌ | ✅ |
+| ruby | `bucket.metageneration_precondition` | ❌ | ❌ | ✅ |
+| ruby | `bucket.versioning_history` | ✅ | ❌ | ✅ |
+| ruby | `bucket.lifecycle` | ❌ | ✅ | ✅ |
+| ruby | `bucket.cors` | ❌ | ✅ | ✅ |
+| ruby | `bucket.retention_policy` | ❌ | ❌ | ✅ |
+| ruby | `bucket.retention_lock` | ❌ | ❌ | ✅ |
+| ruby | `bucket.uniform_bucket_level_access` | ❌ | ✅ | ✅ |
+| ruby | `bucket.public_access_prevention` | ❌ | ✅ | ✅ |
+| ruby | `bucket.iam_policy` | ❌ | ✅ | ✅ |
+| ruby | `bucket.iam_test_permissions` | ❌ | ✅ | ✅ |
+| ruby | `bucket.soft_delete_policy` | ❌ | ✅ | ✅ |
+| ruby | `bucket.autoclass` | ❌ | ❌ | ✅ |
+| ruby | `bucket.acl` | ✅ | ❌ | ✅ |
+| ruby | `bucket.default_object_acl` | ❌ | ❌ | ✅ |
+| ruby | `bucket.notifications` | ✅ | ❌ | ✅ |
+| ruby | `project.hmac_keys` | ❌ | ❌ | ✅ |
+| ruby | `project.service_account` | ❌ | ❌ | ✅ |
+| ruby | `object.write_read_small` | ✅ | ✅ | ✅ |
+| ruby | `object.resumable_large` | ✅ | ✅ | ✅ |
+| ruby | `object.metadata_on_write` | ❌ | ✅ | ✅ |
+| ruby | `object.checksum_rejected` | ✅ | ✅ | ✅ |
+| ruby | `object.md5_accepted` | ✅ | ✅ | ✅ |
+| ruby | `object.range_reads` | ✅ | ❌ | ✅ |
+| ruby | `object.update_metadata` | ❌ | ❌ | ✅ |
+| ruby | `object.delete_not_found` | ✅ | ✅ | ✅ |
+| ruby | `object.does_not_exist_precondition` | ✅ | ❌ | ✅ |
+| ruby | `object.generation_match_precondition` | ❌ | ❌ | ✅ |
+| ruby | `object.metageneration_match_precondition` | ❌ | ❌ | ✅ |
+| ruby | `object.list_prefix_delimiter` | ✅ | ✅ | ✅ |
+| ruby | `object.list_paging` | ✅ | ❌ | ✅ |
+| ruby | `object.list_offsets` | ✅ | ❌ | ✅ |
+| ruby | `object.list_match_glob` | ❌ | ✅ | ✅ |
+| ruby | `object.copy_with_metadata` | ✅ | ❌ | ✅ |
+| ruby | `object.rewrite_storage_class` | ❌ | ❌ | ✅ |
+| ruby | `object.compose` | ❌ | ❌ | ✅ |
+| ruby | `object.move` | ❌ | ❌ | ✅ |
+| ruby | `object.acl` | ✅ | ❌ | ✅ |
+| ruby | `object.holds` | ❌ | ❌ | ✅ |
+| ruby | `object.retention` | ❌ | ❌ | ✅ |
+| ruby | `object.custom_time` | ✅ | ✅ | ✅ |
+| ruby | `object.storage_class_on_write` | ✅ | ✅ | ✅ |
+| ruby | `object.gzip_transcoding` | ✅ | ❌ | ✅ |
+| ruby | `object.customer_supplied_key` | ❌ | ❌ | ✅ |
+| ruby | `object.soft_delete_restore` | ❌ | ✅ | ✅ |
+| ruby | `signed.v4_get` | ✅ | ✅ | ✅ |
+| ruby | `signed.v4_put` | ✅ | ✅ | ✅ |
+| ruby | `signed.v2_get` | ✅ | ✅ | ✅ |
+| ruby | `signed.post_policy_v4` | ✅ | ❌ | ✅ |
