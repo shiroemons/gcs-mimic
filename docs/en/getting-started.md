@@ -1511,7 +1511,10 @@ the pinned predefined `roles/storage.*` snapshot on JSON bucket/object and XML r
 User and service-account members match registry IDs exactly. Conditions,
 custom/basic roles and group/domain/federated/deleted principals are
 unsupported (501); malformed members or unknown roles return 400. Object IAM,
-`testIamPermissions`, ACLs, HMAC, XML listing and UBLA transitions are unavailable.
+`testIamPermissions`, ACLs, HMAC signatures, XML listing and UBLA transitions are unavailable.
+JSON HMAC key management checks `storage.hmacKeys.*` in the path project
+(`roles/storage.hmacKeyAdmin`; `roles/storage.admin` does not include it); see the
+[HMAC key contract](slices/project-hmac-keys.md).
 PAP suppresses public grants without removing stored bindings, while explicit
 signer grants still work. `allUsers` includes anonymous and registered callers;
 `allAuthenticatedUsers` requires a registered identity. An invalid token never

@@ -14,7 +14,7 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 246 | 0 | 63 | 1 | 0 | 0 |
+| api_operation | 310 | 240 | 0 | 69 | 1 | 0 | 0 |
 | behavior | 201 | 107 | 0 | 56 | 38 | 0 | 0 |
 | project_requirement | 95 | 34 | 0 | 30 | 31 | 0 | 0 |
 
@@ -35,7 +35,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 246 | 33 | 31 | 0 | 0 | 0 |
+| api_operation | 240 | 38 | 32 | 0 | 0 | 0 |
 | behavior | 108 | 55 | 35 | 3 | 0 | 0 |
 | project_requirement | 34 | 0 | 0 | 0 | 0 | 61 |
 
@@ -195,17 +195,17 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-PROJECTS-HMACKEYS-001 | projects.hmacKeys.create | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-PROJECTS-HMACKEYS-002 | projects.hmacKeys.delete | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-PROJECTS-HMACKEYS-003 | projects.hmacKeys.get | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-PROJECTS-HMACKEYS-004 | projects.hmacKeys.list | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-PROJECTS-HMACKEYS-005 | projects.hmacKeys.update | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| JSON-PROJECTS-HMACKEYS-001 | projects.hmacKeys.create | PARTIAL | P3 | EXACT | EXACT | 2 |
+| JSON-PROJECTS-HMACKEYS-002 | projects.hmacKeys.delete | PARTIAL | P3 | EXACT | EXACT | 2 |
+| JSON-PROJECTS-HMACKEYS-003 | projects.hmacKeys.get | PARTIAL | P3 | EXACT | EXACT | 2 |
+| JSON-PROJECTS-HMACKEYS-004 | projects.hmacKeys.list | PARTIAL | P3 | EXACT | EXACT | 2 |
+| JSON-PROJECTS-HMACKEYS-005 | projects.hmacKeys.update | PARTIAL | P3 | EXACT | EXACT | 2 |
 
 ### JSON API / projects.serviceAccount
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-PROJECTS-SERVICEACCOUNT-001 | projects.serviceAccount.get | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| JSON-PROJECTS-SERVICEACCOUNT-001 | projects.serviceAccount.get | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 
 ### JSON API / rapidCaches
 

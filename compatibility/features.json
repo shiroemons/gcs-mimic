@@ -17108,26 +17108,160 @@
       "interface": "storage.projects.hmacKeys.create",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys/create",
+        "https://docs.cloud.google.com/storage/docs/authentication/hmackeys",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: projectId. Query parameters: serviceAccountEmail, userProject.",
+      "notes": "Creates an ACTIVE key for the path project and serviceAccountEmail and returns storage#hmacKey with the 40-character base64 secret (only here) and metadata with a 61-character GOOG1E access ID, id, selfLink, timestamps and etag. At most ten non-DELETED keys per service account, enforced atomically. Keys persist in catalog schema 32. Strict mode requires storage.hmacKeys.create. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "HMAC-CREATE",
+          "description": "Required serviceAccountEmail, empty body or identical form parameters only, storage#hmacKey response shape, ACTIVE state, access ID and secret formats, id/selfLink/timestamps/etag.",
+          "result": "PASS",
+          "test_ids": [
+            "create_accepts_only_form_parameters_identical_to_the_query",
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "generated_access_ids_and_secrets_follow_the_documented_shapes",
+            "routes_hmac_key_and_service_account_methods",
+            "rejects_invalid_methods_and_queries",
+            "hmac_key_listing_filters_pages_and_limits"
+          ]
+        },
+        {
+          "id": "HMAC-LIMIT",
+          "description": "Ten non-DELETED keys per service account, atomic under concurrent creation; deletion frees a slot.",
+          "result": "PASS",
+          "test_ids": [
+            "hmac_key_listing_filters_pages_and_limits",
+            "concurrent_creation_never_exceeds_the_per_account_limit"
+          ]
+        },
+        {
+          "id": "HMAC-PERSIST",
+          "description": "Schema 31-to-32 migration and restart persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "previous_schema_migrates_and_keys_survive_reopen",
+            "hmac_key_lifecycle_state_rules_etags_and_restart"
+          ]
+        },
+        {
+          "id": "HMAC-AUTH",
+          "description": "Strict storage.hmacKeys.create in the path project; storage.admin and storage.viewer are denied; 401 before validation.",
+          "result": "PASS",
+          "test_ids": [
+            "strict_profile_authorizes_project_resources",
+            "ruby-project-hmac-keys-strict-denied"
+          ]
+        },
+        {
+          "id": "HMAC-SDK",
+          "description": "Pinned Go CreateHMACKey and Ruby create_hmac_key.",
+          "result": "PASS",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        },
+        {
+          "id": "HMAC-CREATE-PENDING",
+          "description": "Provider status/reason for the key limit, service account existence checks, requester billing and restrictAuthTypes.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "create_accepts_only_form_parameters_identical_to_the_query",
+        "hmac_key_lifecycle_state_rules_etags_and_restart",
+        "generated_access_ids_and_secrets_follow_the_documented_shapes",
+        "routes_hmac_key_and_service_account_methods",
+        "rejects_invalid_methods_and_queries",
+        "hmac_key_listing_filters_pages_and_limits",
+        "concurrent_creation_never_exceeds_the_per_account_limit",
+        "previous_schema_migrates_and_keys_survive_reopen",
+        "strict_profile_authorizes_project_resources",
+        "ruby-project-hmac-keys-strict-denied",
+        "TestHMACKeysAndServiceAccount",
+        "ruby-project-hmac-keys"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "create_accepts_only_form_parameters_identical_to_the_query",
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "generated_access_ids_and_secrets_follow_the_documented_shapes",
+            "routes_hmac_key_and_service_account_methods",
+            "rejects_invalid_methods_and_queries",
+            "hmac_key_listing_filters_pages_and_limits",
+            "concurrent_creation_never_exceeds_the_per_account_limit",
+            "previous_schema_migrates_and_keys_survive_reopen",
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys",
+            "ruby-project-hmac-keys-strict-denied"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "HTTP JSON; CreateHMACKey",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; create_hmac_key in permissive (success) and strict (storage.admin denied) profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "ruby-project-hmac-keys",
+            "ruby-project-hmac-keys-strict-denied"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Any syntactically valid serviceAccountEmail is accepted; no IAM directory verifies that the account exists. The key-limit status (400 badRequest) is a local choice the sources do not specify. userProject is rejected as unsupported. Keys cannot sign requests yet (DESIGN-031, EXT-XML-028..031)."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "POST",
       "path": "projects/{projectId}/hmacKeys",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -17154,26 +17288,125 @@
       "interface": "storage.projects.hmacKeys.delete",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys/delete",
+        "https://docs.cloud.google.com/storage/docs/authentication/hmackeys",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: accessId, projectId. Query parameters: userProject.",
+      "notes": "Deleting an INACTIVE key returns 204, marks it DELETED (still readable and listed with showDeletedKeys), advances its etag and erases the stored secret in one transaction. ACTIVE and already DELETED keys are rejected with 400 badRequest without mutation; unknown keys or keys of another project return 404. Strict mode requires storage.hmacKeys.delete. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "HMAC-DELETE",
+          "description": "INACTIVE to DELETED with 204, secret erasure and etag advance; ACTIVE/DELETED rejection without mutation; 404 for unknown or foreign keys; empty body and fields handling.",
+          "result": "PASS",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "routes_hmac_key_and_service_account_methods",
+            "hmac_key_listing_filters_pages_and_limits"
+          ]
+        },
+        {
+          "id": "HMAC-AUTH",
+          "description": "Strict storage.hmacKeys.delete in the path project; authorization does not bypass the ACTIVE rule.",
+          "result": "PASS",
+          "test_ids": [
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "id": "HMAC-SDK",
+          "description": "Pinned Go HMACKeyHandle.Delete and Ruby HmacKey#delete! including ACTIVE rejection.",
+          "result": "PASS",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        },
+        {
+          "id": "HMAC-DELETE-PENDING",
+          "description": "Provider status/reason and message for deleting ACTIVE or DELETED keys, and requester billing.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "hmac_key_lifecycle_state_rules_etags_and_restart",
+        "routes_hmac_key_and_service_account_methods",
+        "hmac_key_listing_filters_pages_and_limits",
+        "strict_profile_authorizes_project_resources",
+        "TestHMACKeysAndServiceAccount",
+        "ruby-project-hmac-keys"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "routes_hmac_key_and_service_account_methods",
+            "hmac_key_listing_filters_pages_and_limits",
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "HTTP JSON; HMACKeyHandle.Delete",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; HmacKey#delete! (delete then get)",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "ruby-project-hmac-keys"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "The sources do not specify the status for deleting an ACTIVE or already DELETED key; gcs-mimic returns 400 badRequest with an actionable message. userProject is rejected as unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "DELETE",
       "path": "projects/{projectId}/hmacKeys/{accessId}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -17200,26 +17433,124 @@
       "interface": "storage.projects.hmacKeys.get",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys/get",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: accessId, projectId. Query parameters: userProject.",
+      "notes": "Returns storage#hmacKeyMetadata without the secret for a key in the path project, including DELETED keys; unknown keys or keys of another project return 404 notFound. fields is validated against HmacKeyMetadata. Strict mode requires storage.hmacKeys.get. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "HMAC-GET",
+          "description": "Metadata-only response equal to the created metadata, DELETED keys readable, 404 for unknown or foreign keys, fields selection, restart persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "routes_hmac_key_and_service_account_methods",
+            "rejects_invalid_methods_and_queries"
+          ]
+        },
+        {
+          "id": "HMAC-AUTH",
+          "description": "Strict storage.hmacKeys.get in the path project; storage.viewer allowed, storage.admin denied.",
+          "result": "PASS",
+          "test_ids": [
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "id": "HMAC-SDK",
+          "description": "Pinned Go HMACKeyHandle.Get and Ruby HmacKey reload after delete.",
+          "result": "PASS",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        },
+        {
+          "id": "HMAC-GET-PENDING",
+          "description": "Provider 404 message bytes and requester billing.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "hmac_key_lifecycle_state_rules_etags_and_restart",
+        "routes_hmac_key_and_service_account_methods",
+        "rejects_invalid_methods_and_queries",
+        "strict_profile_authorizes_project_resources",
+        "TestHMACKeysAndServiceAccount",
+        "ruby-project-hmac-keys"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "routes_hmac_key_and_service_account_methods",
+            "rejects_invalid_methods_and_queries",
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "HTTP JSON; HMACKeyHandle.Get",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; HmacKey#reload! and delete! follow-up get",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "ruby-project-hmac-keys"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "userProject is rejected as unsupported; the 404 message text is local."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "GET",
       "path": "projects/{projectId}/hmacKeys/{accessId}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -17246,26 +17577,130 @@
       "interface": "storage.projects.hmacKeys.list",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys/list",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: projectId. Query parameters: maxResults, pageToken, serviceAccountEmail, showDeletedKeys, userProject.",
+      "notes": "Returns storage#hmacKeysMetadata (metadata only) for the path project ordered by access ID. serviceAccountEmail filters exactly; DELETED keys appear only with showDeletedKeys=true. maxResults is a uint32 capped at 1000 (0 or omitted uses 1000); nextPageToken appears only when keys remain and is bound to the project and both filters. Strict mode requires storage.hmacKeys.list. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "HMAC-LIST",
+          "description": "Project scoping, serviceAccountEmail filter, showDeletedKeys, maxResults bounds, keyset paging, token binding/corruption rejection and query validation.",
+          "result": "PASS",
+          "test_ids": [
+            "hmac_key_listing_filters_pages_and_limits",
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "page_tokens_are_bound_to_the_listing_filters",
+            "routes_hmac_key_and_service_account_methods",
+            "rejects_invalid_methods_and_queries"
+          ]
+        },
+        {
+          "id": "HMAC-AUTH",
+          "description": "Strict storage.hmacKeys.list in the path project; storage.viewer allowed, storage.admin denied.",
+          "result": "PASS",
+          "test_ids": [
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "id": "HMAC-SDK",
+          "description": "Pinned Go ListHMACKeys with ForHMACKeyServiceAccountEmail/ShowDeletedHMACKeys and Ruby hmac_keys with both filters.",
+          "result": "PASS",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        },
+        {
+          "id": "HMAC-LIST-PENDING",
+          "description": "Provider default page size and ordering, and requester billing.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "hmac_key_listing_filters_pages_and_limits",
+        "hmac_key_lifecycle_state_rules_etags_and_restart",
+        "page_tokens_are_bound_to_the_listing_filters",
+        "routes_hmac_key_and_service_account_methods",
+        "rejects_invalid_methods_and_queries",
+        "strict_profile_authorizes_project_resources",
+        "TestHMACKeysAndServiceAccount",
+        "ruby-project-hmac-keys"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_listing_filters_pages_and_limits",
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "page_tokens_are_bound_to_the_listing_filters",
+            "routes_hmac_key_and_service_account_methods",
+            "rejects_invalid_methods_and_queries",
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "HTTP JSON; ListHMACKeys with ForHMACKeyServiceAccountEmail and ShowDeletedHMACKeys",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; hmac_keys(service_account_email:, show_deleted_keys:)",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "ruby-project-hmac-keys"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "The sources document no default page size or ordering; gcs-mimic uses 1000 and access-ID order. userProject is rejected as unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "GET",
       "path": "projects/{projectId}/hmacKeys",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -17304,26 +17739,134 @@
       "interface": "storage.projects.hmacKeys.update",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/hmacKeys/update",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: accessId, projectId. Query parameters: userProject.",
+      "notes": "PUT changes only state, to ACTIVE or INACTIVE (required); DELETED is rejected with guidance to use delete. A body etag must match the current etag (412 conditionNotMet otherwise), checked atomically with the mutation. Output-only and unrecognized fields are ignored so whole-resource round trips work. Updates advance the etag and updated time; DELETED keys cannot be updated. Strict mode requires storage.hmacKeys.update. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "HMAC-UPDATE",
+          "description": "State transitions, required state, DELETED rejection, etag precondition without mutation, etag/updated advance, whole-resource round trip, body validation.",
+          "result": "PASS",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "update_body_accepts_round_tripped_metadata_and_rejects_invalid_states",
+            "routes_hmac_key_and_service_account_methods"
+          ]
+        },
+        {
+          "id": "HMAC-CONCURRENCY",
+          "description": "Concurrent conditional updates with one etag admit exactly one writer.",
+          "result": "PASS",
+          "test_ids": [
+            "concurrent_creation_never_exceeds_the_per_account_limit"
+          ]
+        },
+        {
+          "id": "HMAC-AUTH",
+          "description": "Strict storage.hmacKeys.update in the path project; storage.viewer and storage.admin denied.",
+          "result": "PASS",
+          "test_ids": [
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "id": "HMAC-SDK",
+          "description": "Pinned Go HMACKeyHandle.Update with and without a matching etag, and Ruby HmacKey#inactive! whole-resource PUT.",
+          "result": "PASS",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        },
+        {
+          "id": "HMAC-UPDATE-PENDING",
+          "description": "Provider status/reason for updating DELETED keys, treatment of a missing state, and requester billing.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "hmac_key_lifecycle_state_rules_etags_and_restart",
+        "update_body_accepts_round_tripped_metadata_and_rejects_invalid_states",
+        "routes_hmac_key_and_service_account_methods",
+        "concurrent_creation_never_exceeds_the_per_account_limit",
+        "strict_profile_authorizes_project_resources",
+        "TestHMACKeysAndServiceAccount",
+        "ruby-project-hmac-keys"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "hmac_key_lifecycle_state_rules_etags_and_restart",
+            "update_body_accepts_round_tripped_metadata_and_rejects_invalid_states",
+            "routes_hmac_key_and_service_account_methods",
+            "concurrent_creation_never_exceeds_the_per_account_limit",
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-hmac-keys"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "HTTP JSON; HMACKeyHandle.Update with HMACKeyAttrsToUpdate{State, Etag}",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; HmacKey#inactive! sends the whole metadata with its etag",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "ruby-project-hmac-keys"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "The sources do not specify the status for updating a DELETED key or omitting state; gcs-mimic returns 400 badRequest and 400 required. The etag is an opaque local per-key revision. userProject is rejected as unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "PUT",
       "path": "projects/{projectId}/hmacKeys/{accessId}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -17350,26 +17893,127 @@
       "interface": "storage.projects.serviceAccount.get",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/serviceAccount",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/projects/serviceAccount/get",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: projectId. Query parameters: userProject.",
+      "notes": "Returns storage#serviceAccount with email_address service-PROJECT_NUMBER@gs-project-accounts.iam.gserviceaccount.com. The project number follows the bucket resource's projectNumber rule: a numeric project identifier is its own number and a named local project reports 0. Strict mode treats any local role grant in the path project as resourcemanager.projects.get. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "SA-GET",
+          "description": "Response shape, deterministic service agent address for numeric and named projects, query/fields validation and 405 for other methods.",
+          "result": "PASS",
+          "test_ids": [
+            "service_account_is_deterministic_per_project",
+            "service_account_uses_the_reported_project_number",
+            "routes_hmac_key_and_service_account_methods",
+            "rejects_invalid_methods_and_queries"
+          ]
+        },
+        {
+          "id": "SA-AUTH",
+          "description": "Strict project visibility from any local grant in the path project; other projects 403 and anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "id": "SA-SDK",
+          "description": "Pinned Go Client.ServiceAccount and Ruby Project#service_account_email in permissive and strict runs.",
+          "result": "PASS",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-service-account"
+          ]
+        },
+        {
+          "id": "SA-PENDING",
+          "description": "Real project numbers for named projects, resourcemanager.projects.get role expansion and requester billing.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "service_account_is_deterministic_per_project",
+        "service_account_uses_the_reported_project_number",
+        "routes_hmac_key_and_service_account_methods",
+        "rejects_invalid_methods_and_queries",
+        "strict_profile_authorizes_project_resources",
+        "TestHMACKeysAndServiceAccount",
+        "ruby-project-service-account"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "service_account_is_deterministic_per_project",
+            "service_account_uses_the_reported_project_number",
+            "routes_hmac_key_and_service_account_methods",
+            "rejects_invalid_methods_and_queries",
+            "strict_profile_authorizes_project_resources"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount",
+            "ruby-project-service-account"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "HTTP JSON; Client.ServiceAccount",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "TestHMACKeysAndServiceAccount"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; Project#service_account_email in permissive and strict profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/project-hmac-keys.md",
+          "test_ids": [
+            "ruby-project-service-account"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Local projects have no Google project number: named projects map to 0, so they share service-0@gs-project-accounts.iam.gserviceaccount.com. resourcemanager.projects.get is approximated by any local role grant in the project. userProject is rejected as unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "GET",
       "path": "projects/{projectId}/serviceAccount",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
