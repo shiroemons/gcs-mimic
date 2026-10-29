@@ -429,25 +429,7 @@ impl Registry {
                 return Err(error(format!("duplicate id: {id}")));
             }
             if let Some(keys) = entry.get("public_keys") {
-                let keys = keys
-                    .as_array()
-                    .filter(|keys| (1..=8).contains(&keys.len()))
-                    .ok_or_else(|| {
-                        error(
-                            "public_keys must be an array of 1..=8 inline public PEM strings"
-                                .into(),
-                        )
-                    })?;
-                let keys =
-                    keys.iter()
-                        .map(|key| {
-                            signature::PublicKey::parse(key.as_str().ok_or_else(|| {
-                                error("public_keys entries must be strings".into())
-                            })?)
-                            .map_err(|invalid| error(invalid.to_string()))
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                signing_keys.insert(id.to_owned(), keys);
+                signing_keys.insert(id.to_owned(), parse_public_keys(keys, index)?);
             }
             let token_values = entry
                 .get("tokens")
@@ -529,6 +511,31 @@ fn parse_pap_projects(value: Option<&Value>) -> Result<Vec<String>, RegistryErro
         public_access_prevention_projects.push(project.to_owned());
     }
     Ok(public_access_prevention_projects)
+}
+
+fn parse_public_keys(
+    keys: &Value,
+    index: usize,
+) -> Result<Vec<signature::PublicKey>, RegistryError> {
+    let error = |reason: String| RegistryError::Invalid {
+        entry: Some(index),
+        reason,
+    };
+    let keys = keys
+        .as_array()
+        .filter(|keys| (1..=8).contains(&keys.len()))
+        .ok_or_else(|| {
+            error("public_keys must be an array of 1..=8 inline public PEM strings".into())
+        })?;
+    keys.iter()
+        .map(|key| {
+            signature::PublicKey::parse(
+                key.as_str()
+                    .ok_or_else(|| error("public_keys entries must be strings".into()))?,
+            )
+            .map_err(|invalid| error(invalid.to_string()))
+        })
+        .collect()
 }
 
 /// Expands an identity's `project_roles` into the permissions granted per project.
