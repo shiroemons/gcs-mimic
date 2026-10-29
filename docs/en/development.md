@@ -207,6 +207,59 @@ Cargo's [lint manifest reference](https://doc.rust-lang.org/cargo/reference/mani
 and the [Rust lint-level reference](https://doc.rust-lang.org/rustc/lints/levels.html)
 describe inheritance and local overrides.
 
+The workspace lints also deny `clippy::dbg_macro`, `clippy::todo` and
+`clippy::unimplemented`, so debugging leftovers and placeholders fail the
+`-D warnings` run.
+
+### Lint ratchet
+
+`cargo xtask lint` enforces the Rust implementation guardrails in
+[AGENTS.md](../../AGENTS.md#rust-implementation-guardrails). `scripts/check.sh`
+runs it after workspace Clippy, so `just check` and Foundation CI run it too.
+It counts violations per rule and file and compares them with
+`xtask/lint-baseline.json`:
+
+- A count above the baseline fails and lists every occurrence of that rule in
+  that file.
+- A count below the baseline also fails, as a stale baseline. Run
+  `cargo xtask lint --update-baseline` and commit the lower counts, so a fix
+  cannot be silently undone later.
+- `--update-baseline` refuses to raise any count. Raising one requires
+  `cargo xtask lint --update-baseline --allow-increase`, and the baseline diff
+  must be justified in review. The same command regenerates the whole baseline,
+  for example after merging branches that both changed it.
+- `cargo xtask lint --strict` ignores the baseline and allows no violations,
+  except one definition of the shared `unavailable` helper. It replaces the
+  ratchet once the baseline is empty.
+
+The check covers only server production code: files under `src/` except
+`src/grpc/generated/`, the `src/grpc/codegen/` build tool, `*_tests.rs`,
+`tests.rs` and `test_support.rs`. Clippy runs on the `gcs-mimic` library and
+binary only (`--lib --bins`), so `cfg(test)` code is not compiled; the text
+rules skip each item marked `#[cfg(test)]` or `#[cfg(all(test, ...))]`.
+Clippy runs for the host target only, so code behind other targets' `cfg`
+is not counted.
+
+| Rule | Counts |
+| --- | --- |
+| `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic` | Panics reachable from requests. |
+| `clippy::too_many_lines` | Functions over 120 lines (`clippy.toml`). |
+| `clippy::fn_params_excessive_bools` | Functions with any `bool` parameter (`max-fn-params-bools = 0`). |
+| `clippy::needless_pass_by_value`, `clippy::redundant_clone` | Avoidable copies. |
+| `clippy::allow_attributes_without_reason` | `#[allow]` without a `reason`. |
+| `unreachable_pub` | `pub` items that are not reachable from the crate root. |
+| `text::path_attribute` | `#[path]` module attributes. |
+| `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`. |
+| `text::unavailable_helper` | Definitions of `fn unavailable`, counted across all files. |
+| `text::allow_too_many_arguments` | `#[allow]` or `#[expect]` of `clippy::too_many_arguments`. |
+| `text::uncached_prepare` | rusqlite `.prepare(` calls instead of `prepare_cached`. |
+| `text::format_sql` | `format!` whose literal starts with an SQL statement. |
+
+The text rules ignore comments and string contents. They are heuristics:
+for example, `text::format_sql` does not see SQL assembled through other
+helpers, and a `Result<_, String>` hidden behind another alias is not counted.
+Review still applies the written rules where the tool cannot.
+
 ## Direct verification commands
 
 Native archive preparation and the release CI matrix are documented in the
@@ -226,6 +279,7 @@ cargo +1.99.1 xtask compatibility check
 cargo +1.99.1 test --workspace --locked --offline
 cargo +1.99.1 fmt --all --check
 cargo +1.99.1 clippy --workspace --all-targets --locked --offline -- -D warnings
+cargo +1.99.1 xtask lint
 bash scripts/smoke-containers.sh
 bash scripts/sdk-go.sh
 ```

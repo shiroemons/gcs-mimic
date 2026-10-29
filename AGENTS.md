@@ -39,6 +39,25 @@ gcs-mimic is an independent Google Cloud Storage emulator written in Rust. It ta
 - Inject a clock and explicit maintenance scheduler for expiration, lifecycle, retention and propagation scenarios. Avoid polling loops when no work is due.
 - Keep standard immutable-object semantics separate from Rapid appendable-object state machines.
 
+## Rust implementation guardrails
+
+`cargo xtask lint` (run by `just check` and CI) enforces most of these rules as a ratchet over `xtask/lint-baseline.json`: existing violations are recorded per rule and file, a new one fails the check, and a fixed one fails it until the baseline is lowered. Each rule below states why.
+
+- Do not use `unwrap()` in production code, and use `expect()` only for an invariant the surrounding code proves, under `#[expect(clippy::expect_used, reason = "...")]`. A panic reachable from a request turns bad input into a dropped connection or a crashed task.
+- Isolate panics per connection and background task; a panic must never stop the listener or the server. One faulty request must not deny service to every other client.
+- Recover from poisoned locks or fail visibly through health checks and errors; never leave the catalog permanently unusable. A poisoned mutex otherwise turns one panic into a silent permanent outage.
+- Return typed error enums that keep the underlying error as `source()`, and add no new `Result<_, String>` signatures. Stringified errors lose the cause chain needed to classify and debug failures.
+- Map storage errors through one shared helper or `From` conversion, not a per-module copy of `fn unavailable`. Duplicated helpers drift apart in status codes and messages.
+- Keep functions within the Clippy line threshold in `clippy.toml` (120 lines); group request context in a struct instead of long parameter lists, and add no new `#[allow(clippy::too_many_arguments)]`. Giant handlers and hidden parameter lists are where the review found untestable, inconsistent behavior.
+- Make the module tree mirror the file tree; do not add `#[path]` attributes. Diverging trees make code hard to find and module privacy hard to reason about.
+- Default to `pub(crate)` and expose only what binaries and integration tests use. Every `pub` item is API surface that blocks refactoring.
+- Use a two-variant enum instead of a `bool` parameter. A literal `true` or `false` at the call site hides its meaning.
+- On request paths use `prepare_cached` with static SQL, not `prepare` or `format!`-built statements. Re-preparing per request wastes CPU, and built SQL invites injection.
+- Run blocking I/O and CPU-heavy work only through the bounded blocking pools, never directly on async worker threads. Blocking an async worker stalls every connection it serves.
+- Stream object bodies with bounded buffers. Unbounded buffering makes memory grow with request size.
+
+Run `cargo xtask lint` before pushing. Fixing violations lowers counts: run `cargo xtask lint --update-baseline` and commit the baseline. Raising a count requires `--update-baseline --allow-increase` and an explicit justification in review. `cargo xtask lint --strict` ignores the baseline and becomes the gate once every recorded violation is fixed. Details are in `docs/en/development.md`.
+
 ## Access and URLs
 
 - Public URL construction never changes IAM or ACL permissions. `allAuthenticatedUsers` is not anonymous public access.
