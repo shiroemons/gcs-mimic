@@ -34,7 +34,6 @@ pub(super) fn migrate_failure(connection: &mut Connection) -> Result<(), Catalog
 }
 
 #[cfg(test)]
-#[path = "import_journal_tests.rs"]
 mod tests;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

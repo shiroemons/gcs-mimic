@@ -16,11 +16,9 @@ use std::{
 use tokio::sync::{Notify, Semaphore};
 
 #[cfg(test)]
-#[path = "timestamp_tests.rs"]
 mod timestamp_tests;
 
 #[cfg(test)]
-#[path = "test_support.rs"]
 pub(super) mod test_support;
 
 #[cfg(test)]
@@ -36,11 +34,8 @@ pub(super) async fn replace_resumable_cleanup_obstacle(catalog: &Catalog, stage:
         .unwrap();
 }
 
-#[path = "resumable.rs"]
 pub(crate) mod resumable;
-#[path = "resumable_transfer.rs"]
 mod resumable_transfer;
-#[path = "upload_replay.rs"]
 mod upload_replay;
 pub use resumable::ResumableError;
 #[cfg(test)]
@@ -49,37 +44,25 @@ pub(crate) use resumable::{ResumableOptions, SessionState};
 pub(crate) use resumable_transfer::ResumableChunk;
 pub(crate) use upload_replay::CopyReplay;
 
-#[path = "resumable_maintenance.rs"]
 mod resumable_maintenance;
 
-#[path = "resumable_recovery.rs"]
 mod resumable_recovery;
 
-#[path = "compose.rs"]
 mod compose;
-#[path = "compose_crc32c.rs"]
 mod compose_crc32c;
-#[path = "rewrite.rs"]
 pub(crate) mod rewrite;
-#[path = "rewrite_token.rs"]
 mod rewrite_token;
 
-#[path = "customer_keys.rs"]
 mod customer_keys;
 
-#[path = "appendable.rs"]
 mod appendable;
 pub(crate) use appendable::{AppendError, AppendWriter};
 
-#[path = "object_move.rs"]
 mod object_move;
-#[path = "objects.rs"]
 mod objects;
-#[path = "soft_delete.rs"]
 mod soft_delete;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
 
-#[path = "derived.rs"]
 mod derived;
 #[cfg(test)]
 pub(crate) use derived::DerivedTransfer;
@@ -87,29 +70,20 @@ pub(crate) use derived::{
     DerivedDestination, DerivedRequestGuard, DerivedSource, DerivedSourceSpec,
 };
 
-#[path = "admin.rs"]
 pub mod admin;
-#[path = "bucket_autoclass.rs"]
 pub(crate) mod bucket_autoclass;
-#[path = "notifications.rs"]
 mod notifications;
-#[path = "policies.rs"]
 mod policies;
 use policies::{check_access, insert_policy};
 
-#[path = "change_journal.rs"]
 pub mod change_journal;
 
-#[path = "import_journal.rs"]
 pub mod import_journal;
 
-#[path = "sync_state.rs"]
 pub mod sync_state;
 
-#[path = "hmac_keys.rs"]
 pub mod hmac_keys;
 
-#[path = "acl.rs"]
 pub(crate) mod acl;
 
 const MAX_IN_FLIGHT: usize = 32;

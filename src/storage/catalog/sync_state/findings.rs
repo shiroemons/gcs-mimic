@@ -162,5 +162,4 @@ impl RootLease {
 }
 
 #[cfg(all(test, unix))]
-#[path = "sync_findings_tests.rs"]
 mod tests;

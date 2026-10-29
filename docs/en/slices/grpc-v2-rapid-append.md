@@ -33,7 +33,7 @@ Scope: BEHAVIOR-RAPID-002, BEHAVIOR-RAPID-003, BEHAVIOR-RAPID-004 and BEHAVIOR-R
 
 ## Design
 
-Standard immutable objects and the Rapid state machine are separate. `src/storage/appendable.rs` owns appendable state; `src/grpc/v2/append.rs` is the protocol adapter. Shared files change only at their entry points: BidiWriteObject routes appendable first messages to the adapter, and GetObject, ReadObject, BidiReadObject and DeleteObject fall back to the appendable store when the catalog has no matching object.
+Standard immutable objects and the Rapid state machine are separate. `src/storage/catalog/appendable.rs` owns appendable state; `src/grpc/v2/append.rs` is the protocol adapter. Shared files change only at their entry points: BidiWriteObject routes appendable first messages to the adapter, and GetObject, ReadObject, BidiReadObject and DeleteObject fall back to the appendable store when the catalog has no matching object.
 
 - State: catalog schema 34 adds `appendable_objects`, one row per object name: generation, bucket incarnation, opaque blob ID, the shared resumable-options encoding of the written metadata, persisted size and CRC32C, creation/update times, the current write handle and a `finalizing` flag. Bytes live in `<data-dir>/appendable/<blob-id>`, never in a path derived from the object name.
 - Durability boundary: the row's size. Data is written as it arrives; `flush` fsyncs the file, then commits size and CRC32C in a short transaction that also checks the write handle and the bucket incarnation. Bytes beyond the row's size were never acknowledged; readers ignore them and the next takeover truncates them.

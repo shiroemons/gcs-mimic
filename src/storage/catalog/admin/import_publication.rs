@@ -55,5 +55,4 @@ impl Admin {
 }
 
 #[cfg(test)]
-#[path = "import_publication_tests.rs"]
 mod tests;

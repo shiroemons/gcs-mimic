@@ -21,7 +21,6 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::{fs::File, io, sync::Arc};
 
-#[path = "sync_live_export.rs"]
 mod live_export;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) use live_export::inject_failure as inject_live_export_failure;
@@ -265,7 +264,6 @@ pub struct Writeback {
     workspace: Arc<File>,
 }
 
-#[path = "sync_unpublished.rs"]
 mod unpublished;
 pub use unpublished::Unpublished;
 impl RootLease {
@@ -1084,5 +1082,4 @@ async fn owned<T: Send + 'static>(
 }
 
 #[cfg(all(test, unix))]
-#[path = "sync_writeback_tests.rs"]
 mod tests;

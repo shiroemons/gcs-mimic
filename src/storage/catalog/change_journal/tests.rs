@@ -8,7 +8,6 @@ use crate::{
 };
 use bytes::Bytes;
 
-#[path = "sync_observation_tests.rs"]
 mod observation;
 
 fn bucket(name: &str) -> BucketDefinition {

@@ -32,15 +32,12 @@ pub const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const MAX_BUCKETS: usize = 1000;
 pub const MAX_PAGE: usize = 256;
 
-#[path = "imported_identity.rs"]
 pub mod imported_identity;
 pub use imported_identity::ImportedIdentity;
 
-#[path = "import_publication.rs"]
 mod import_publication;
 
 #[cfg(test)]
-#[path = "admin_tests.rs"]
 mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -212,7 +209,6 @@ pub enum PublishMode {
     InheritAndSkipIfSameHash,
 }
 
-#[path = "publication.rs"]
 mod publication;
 pub(super) use publication::FileWorkers;
 pub use publication::{

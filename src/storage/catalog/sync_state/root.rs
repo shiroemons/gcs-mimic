@@ -513,5 +513,4 @@ impl SyncState {
 }
 
 #[cfg(all(test, unix))]
-#[path = "sync_root_tests.rs"]
 mod tests;

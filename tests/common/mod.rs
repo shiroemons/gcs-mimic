@@ -38,7 +38,7 @@ pub fn load_http_config(
 }
 
 #[allow(dead_code)]
-#[path = "../../src/storage/test_support.rs"]
+#[path = "../../src/storage/catalog/test_support.rs"]
 pub mod timestamp_support;
 
 #[allow(dead_code)]

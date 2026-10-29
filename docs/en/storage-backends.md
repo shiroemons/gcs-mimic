@@ -53,7 +53,7 @@ synchronous FULL, a 2 MiB configured cache, mmap disabled and bounded admission
 with one execution permit. Indexed queries and recovery pages avoid loading the
 whole catalog. Schema v6 includes seed initialization and bucket IAM policy state.
 
-`src/storage/objects.rs` streams into opaque files, publishes immutable blobs,
+`src/storage/catalog/objects.rs` streams into opaque files, publishes immutable blobs,
 then checks conditions and changes references in a short SQL transaction.
 SQLite is embedded and needs no separately managed database server. Current
 application serialization means WAL's general reader/writer concurrency is not
@@ -202,7 +202,7 @@ The comparison versions are identified in the [detailed comparison](feature-comp
 
 | Source | Material |
 | --- | --- |
-| gcs-mimic | `src/storage/catalog.rs`, `src/storage/objects.rs`, existing recovery evidence |
+| gcs-mimic | `src/storage/catalog.rs`, `src/storage/catalog/objects.rs`, existing recovery evidence |
 | fake-gcs-server | `internal/backend/fs.go`, `memory.go`, `metadata_file.go`, `metadata_xattr.go`, `writefile_unix.go` |
 | gcp-storage-emulator | `src/gcp_storage_emulator/storage.py`, `settings.py` |
 | SQLite official documentation | WAL, atomic commit, online backup, incremental BLOB I/O, limits, internal versus external BLOBs |

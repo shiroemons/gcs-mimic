@@ -36,19 +36,14 @@ CREATE UNIQUE INDEX sync_objects_path ON sync_objects(path);
 PRAGMA user_version = 17;";
 
 #[cfg(test)]
-#[path = "sync_state_tests.rs"]
 mod tests;
 
-#[path = "sync_root.rs"]
 pub mod root;
 
-#[path = "sync_writeback.rs"]
 pub mod writeback;
 
-#[path = "sync_findings.rs"]
 pub mod findings;
 
-#[path = "sync_buckets.rs"]
 pub(crate) mod buckets;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

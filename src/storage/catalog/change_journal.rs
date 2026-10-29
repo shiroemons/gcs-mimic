@@ -352,5 +352,4 @@ impl Catalog {
 }
 
 #[cfg(test)]
-#[path = "change_journal_tests.rs"]
 mod tests;

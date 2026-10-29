@@ -1001,5 +1001,4 @@ impl Catalog {
 }
 
 #[cfg(test)]
-#[path = "appendable_tests.rs"]
 mod tests;

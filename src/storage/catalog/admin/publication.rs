@@ -11,7 +11,6 @@ use std::{
 use tokio::sync::oneshot;
 
 #[cfg(test)]
-#[path = "publication_tests.rs"]
 mod tests;
 
 #[cfg(test)]

@@ -1,13 +1,8 @@
 use super::catalog::replace_resumable_cleanup_obstacle;
-#[path = "csek_http_tests.rs"]
 mod csek;
-#[path = "object_retention_http_tests.rs"]
 mod object_retention;
-#[path = "retention_http_tests.rs"]
 mod retention;
-#[path = "soft_delete_http_tests.rs"]
 mod soft_delete;
-#[path = "upload_replay_http_tests.rs"]
 mod upload_replay;
 use crate as gcs_mimic;
 use crate::test_support::TestDir;

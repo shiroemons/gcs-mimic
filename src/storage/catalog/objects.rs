@@ -21,7 +21,6 @@ use tokio::{
     sync::{OwnedSemaphorePermit, mpsc, oneshot},
 };
 
-#[path = "object_retention.rs"]
 pub(super) mod retention;
 
 const CHUNK_SIZE: usize = 64 * 1024;
