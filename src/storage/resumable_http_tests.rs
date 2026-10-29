@@ -50,6 +50,63 @@ struct Reply {
     body: Vec<u8>,
 }
 struct TestClock(Mutex<SystemTime>);
+
+#[tokio::test]
+async fn conflicting_final_hash_receives_large_body_before_rejection() {
+    let size = 8 * 1024 * 1024 + 1;
+    let h = Harness::start(size, false, None).await;
+    let init = h
+        .initiate(
+            "name=conflict",
+            "Content-Type: application/json\r\n",
+            br#"{"crc32c":"AAAAAA=="}"#,
+        )
+        .await;
+    let path = h.path(&init);
+    let mut stream = TcpStream::connect(&h.address).await.unwrap();
+    stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {size}\r\nContent-Range: bytes 0-{}/{size}\r\nX-Goog-Hash: crc32c=AQIDBA==\r\n\r\n", size - 1).as_bytes()).await.unwrap();
+    stream.write_all(&vec![b'a'; size as usize]).await.unwrap();
+    let reply = Harness::read_response(stream).await;
+    reply.error(400, "invalidParameter");
+    assert!(
+        reply.json()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("CRC32C")
+    );
+    h.request("GET", "/storage/v1/b/bucket/o/conflict", "", b"")
+        .await
+        .error(404, "notFound");
+    h.request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
+        .await
+        .error(410, "gone");
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn rejected_final_hash_discard_retains_body_size_limit() {
+    let h = Harness::start(1000, false, None).await;
+    let init = h
+        .initiate(
+            "name=conflict",
+            "Content-Type: application/json\r\n",
+            br#"{"crc32c":"AAAAAA=="}"#,
+        )
+        .await;
+    let path = h.path(&init);
+    let mut stream = TcpStream::connect(&h.address).await.unwrap();
+    stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nContent-Range: bytes 0-999/1000\r\nX-Goog-Hash: crc32c=AQIDBA==\r\n\r\n3e9\r\n").as_bytes()).await.unwrap();
+    stream.write_all(&vec![b'a'; 1001]).await.unwrap();
+    stream.write_all(b"\r\n0\r\n\r\n").await.unwrap();
+    Harness::read_response(stream)
+        .await
+        .error(413, "uploadTooLarge");
+    h.request("GET", "/storage/v1/b/bucket/o/conflict", "", b"")
+        .await
+        .error(404, "notFound");
+    h.stop().await;
+}
+
 impl Clock for TestClock {
     fn now(&self) -> SystemTime {
         *self.0.lock().unwrap()

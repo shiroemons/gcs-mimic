@@ -17,10 +17,10 @@ pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError>
     let fields = value
         .as_object()
         .ok_or_else(|| invalid("retention must be an object or null"))?;
-    if let Some(key) = fields
-        .keys()
-        .find(|key| !matches!(key.as_str(), "mode" | "retainUntilTime"))
-    {
+    if let Some(key) = fields.keys().find(|key| {
+        !matches!(key.as_str(), "mode" | "retainUntilTime")
+            && !(key.as_str() == "retentionExpirationTime" && fields[*key].is_null())
+    }) {
         return Err(invalid(&format!(
             "retention.{key} is not a retention field"
         )));
@@ -104,6 +104,10 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.mode, RetentionMode::Locked);
         assert_eq!(
+            parse(&json!({"mode":"Locked","retainUntilTime":"2030-01-02T03:04:05.123456789+09:00","retentionExpirationTime":null})).unwrap(),
+            Some(parsed)
+        );
+        assert_eq!(
             render(&parsed).unwrap(),
             json!({"mode":"Locked","retainUntilTime":"2030-01-01T18:04:05.123Z"})
         );
@@ -122,6 +126,7 @@ mod tests {
             json!({"mode":"Unlocked","retainUntilTime":"tomorrow"}),
             json!({"mode":"Unlocked","retainUntilTime":1}),
             json!({"mode":"Unlocked","retainUntilTime":"2030-01-01T00:00:00Z","extra":1}),
+            json!({"mode":"Unlocked","retainUntilTime":"2030-01-01T00:00:00Z","retentionExpirationTime":"2020-01-01T00:00:00Z"}),
         ] {
             assert_eq!(
                 parse(&invalid).unwrap_err().reason,

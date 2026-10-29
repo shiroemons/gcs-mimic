@@ -149,7 +149,10 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
             }
             Ok(ComposeSource {
                 name: name.to_owned(),
-                generation: integer(source.get("generation"), "generation")?,
+                generation: integer(
+                    source.get("generation").filter(|value| !value.is_null()),
+                    "generation",
+                )?,
                 if_generation_match: integer(
                     conditions.and_then(|conditions| conditions.get("ifGenerationMatch")),
                     "ifGenerationMatch",

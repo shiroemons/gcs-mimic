@@ -133,6 +133,7 @@ pub fn route_object_with_profile(
         method == Method::POST
     } else {
         method == Method::GET
+            || (method == Method::HEAD && object.is_some() && !download)
             || (!download
                 && object.is_some()
                 && matches!(*method, Method::DELETE | Method::PATCH | Method::PUT))
@@ -148,7 +149,7 @@ pub fn route_object_with_profile(
         } else if download || object.is_none() {
             "GET"
         } else {
-            "GET, DELETE, PATCH, PUT"
+            "GET, HEAD, DELETE, PATCH, PUT"
         });
         return Some(Err(error));
     }
@@ -233,7 +234,7 @@ fn parse_object_query(
     let method_keys: &[&str] = if method == Method::POST {
         query.remove("predefinedAcl");
         &["contentEncoding", "kmsKeyName"]
-    } else if method == Method::GET {
+    } else if matches!(*method, Method::GET | Method::HEAD) {
         &["restoreToken"]
     } else if method == Method::PATCH || method == Method::PUT {
         &["predefinedAcl"]
@@ -356,7 +357,7 @@ fn parse_object_query(
             },
         });
     }
-    if method == Method::GET {
+    if matches!(*method, Method::GET | Method::HEAD) {
         let soft_deleted = boolean(&mut query, "softDeleted")?;
         if soft_deleted && (generation.is_none() || media) {
             return Err(JsonError::invalid_argument(

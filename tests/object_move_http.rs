@@ -150,9 +150,19 @@ fn move_rejects_missing_same_name_holds_and_unsupported_inputs() {
         mv(&server, "source", "target", query).error(400, "badRequest");
     }
     server
-        .request("POST", &path("source", "target", ""), ADMIN, b"{}")
+        .request(
+            "POST",
+            &path("source", "target", ""),
+            ADMIN,
+            br#"{"unsupported":true}"#,
+        )
         .error(400, "invalidArgument");
     assert_eq!(server.get("source").json()["name"], "source");
+    server
+        .request("POST", &path("source", "target", ""), ADMIN, b"{}")
+        .json();
+    server.get("source").error(404, "notFound");
+    assert_eq!(server.get("target").json()["size"], "6");
 }
 
 #[test]

@@ -95,7 +95,6 @@ fn compose_body_rejects_malformed_source_and_destination_shapes() {
 fn compose_body_rejects_invalid_generation_values() {
     for invalid in [
         json!(-1),
-        json!(null),
         json!(false),
         json!(1.5),
         json!("+1"),
@@ -117,6 +116,9 @@ fn compose_body_rejects_invalid_generation_values() {
             );
         }
     }
+    let source = parse(json!({"sourceObjects":[{"name":"source","generation":null}]})).unwrap();
+    assert_eq!(source.sources[0].generation, None);
+    assert!(parse(json!({"sourceObjects":[{"name":"source","objectPreconditions":{"ifGenerationMatch":null}}]})).is_err());
 }
 
 #[test]

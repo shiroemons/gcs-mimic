@@ -13,7 +13,7 @@ use crate::{
     storage::{ResumableChunk, SessionState},
 };
 use bytes::Bytes;
-use http_body_util::Full;
+use http_body_util::{BodyExt, Full};
 use hyper::{Request, Response, StatusCode, body::Incoming};
 use tokio::sync::{mpsc, watch};
 
@@ -255,6 +255,24 @@ pub(super) async fn session_response(
         Err(error) => {
             if finalize {
                 state.catalog.invalidate_resumable_session(&lease).await?;
+            }
+            drop(lease);
+            if finalize && error.header_location == Some("x-goog-hash") {
+                // Finish receiving a rejected final checksum so TLS proxies can deliver its 400.
+                let mut body = request.into_body();
+                let mut received = 0_u64;
+                while let Some(frame) = body.frame().await {
+                    let frame = frame.map_err(|_| {
+                        JsonError::invalid_parameter("Could not read rejected upload body")
+                    })?;
+                    if let Ok(data) = frame.into_data() {
+                        received = received
+                            .checked_add(data.len() as u64)
+                            .filter(|size| *size <= config.max_object_bytes)
+                            .ok_or(ObjectError::TooLarge)?;
+                        activity.send_modify(|progress| progress.awaiting_catalog = false);
+                    }
+                }
             }
             return Err(error);
         }

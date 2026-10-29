@@ -1073,6 +1073,7 @@ async fn object_response(
             | ObjectRequest::Update { .. }
             | ObjectRequest::Copy(_)
             | ObjectRequest::Restore { .. }
+            | ObjectRequest::Move(_)
     ) && (request.headers().contains_key("transfer-encoding")
         || request
             .headers()
@@ -1111,6 +1112,16 @@ async fn object_response(
         }
         ObjectRequest::Move(params) => {
             json::validate_object_get_headers(request.headers(), false)?;
+            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            // The Node SDK serializes empty options as {}, without move semantics.
+            if !bytes.is_empty()
+                && serde_json::from_slice::<serde_json::Value>(&bytes).ok()
+                    != Some(serde_json::json!({}))
+            {
+                return Err(JsonError::invalid_argument(
+                    "Move requires an empty body or an empty JSON object",
+                ));
+            }
             let source_read =
                 authorize_bucket(state, caller, auth::OBJECTS_GET, &params.bucket).await?;
             let source_delete =

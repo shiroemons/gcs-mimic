@@ -392,7 +392,8 @@ foreach ([['v4_get', 'v4', 'GET'], ['v4_put', 'v4', 'PUT'], ['v2_get', 'v2', 'GE
         if ($method === 'GET') upload($b, 'signed.txt', 'signed');
         $file = $b->object('signed.txt');
         $url = $file->signedUrl(new DateTimeImmutable('+5 minutes'), ['version' => $version, 'method' => $method,
-            'credentialsFetcher' => $signer, 'bucketBoundHostname' => "$origin/{$b->name()}"]);
+            'credentialsFetcher' => $signer, 'bucketBoundHostname' => "$origin/{$b->name()}",
+            'scheme' => parse_url($origin, PHP_URL_SCHEME)]);
         $response = $http->request($method, $url, ['body' => $method === 'PUT' ? 'uploaded' : '']);
         check($response->getStatusCode() === 200, 'signed status');
         if ($method === 'GET') check((string)$response->getBody() === 'signed', 'signed bytes');

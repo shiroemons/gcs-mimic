@@ -559,7 +559,7 @@ def restore():
     generation = blob.generation
     blob.delete()
     check(names(b.list_blobs(soft_deleted=True)) == ["sd.txt"], "soft-deleted listing")
-    b.restore_blob("sd.txt", generation)
+    b.restore_blob("sd.txt", generation=generation)
     check(read(b.blob("sd.txt")) == b"restore me", "restored bytes")
 
 

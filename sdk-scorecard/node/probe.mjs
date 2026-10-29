@@ -322,7 +322,7 @@ probe('object.soft_delete_restore', async () => {
   const generation = (await metadata(file)).generation;
   await file.delete();
   assert.deepEqual(names(await list(b, {softDeleted: true})), ['sd.txt']);
-  await b.file('sd.txt', {generation}).restore();
+  await b.file('sd.txt').restore({generation});
   await equalBytes(b.file('sd.txt'), 'restore me');
 });
 for (const [id, version, action] of [['v4_get', 'v4', 'read'], ['v4_put', 'v4', 'write'], ['v2_get', 'v2', 'read']]) {
