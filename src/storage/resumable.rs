@@ -424,6 +424,7 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
     Ok(ResumableOptions {
         content_type: v["content_type"].as_str().ok_or_else(invalid)?.into(),
         metadata: ObjectMetadataUpdate {
+            acl: None,
             replace: if v["version"] == 2 {
                 v["metadata"]["replace"].as_bool().ok_or_else(invalid)?
             } else {

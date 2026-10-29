@@ -971,6 +971,23 @@ impl Catalog {
                 &access,
             )?;
             validate(&record)?;
+            if let Some(entries) = &update.acl {
+                super::acl::replace_resource_acl(
+                    &transaction,
+                    &crate::acl::AclTarget::Object {
+                        bucket: bucket.clone(),
+                        name: name.clone(),
+                        generation: Some(record.generation),
+                    },
+                    entries,
+                    &access,
+                ).map_err(|error| match error {
+                    CatalogError::Forbidden => ObjectError::Forbidden,
+                    CatalogError::PublicAccessPrevention => ObjectError::PublicAccessPrevention,
+                    CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
+                    error => object_unavailable(error),
+                })?;
+            }
             let previous_retention = record.retention;
             let override_unlocked = update.override_unlocked_retention;
             update.apply(&mut record)?;

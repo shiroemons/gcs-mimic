@@ -156,6 +156,14 @@ pub struct AclBody {
     pub role: Option<String>,
 }
 
+pub(crate) fn parse_entries(value: &Value, kind: AclKind) -> Result<Vec<AclEntry>, JsonError> {
+    let entries: Vec<AclEntry> = serde_json::from_value(value.clone()).map_err(|_| {
+        JsonError::invalid_argument("ACL must be an array of objects with entity and role strings")
+    })?;
+    crate::acl::validate_entries(kind, &entries).map_err(JsonError::invalid_argument)?;
+    Ok(entries)
+}
+
 /// Validate an insert, patch or update body against the path entity and resource kind.
 ///
 /// Output-only resource fields and unknown fields are ignored, as JSON API resources do.

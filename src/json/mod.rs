@@ -52,6 +52,7 @@ pub use iam::{parse_policy, policy_resource, test_permissions_query};
 pub use multipart::{Multipart, form_data_boundary, multipart_boundary, multipart_metadata};
 pub use object_copy::ObjectCopyParams;
 pub use object_list::{ObjectListParams, object_list};
+pub(crate) use object_metadata::parse_object_metadata_mutation;
 pub(crate) use object_metadata::validate_fixed_metadata;
 pub use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
 pub use object_move::ObjectMoveParams;

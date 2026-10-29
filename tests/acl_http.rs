@@ -491,7 +491,7 @@ fn uniform_access_and_public_access_prevention_restrict_acls() {
 }
 
 #[test]
-fn metadata_updates_accept_only_echoed_acls() {
+fn metadata_updates_replace_and_clear_acls() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
     server.bucket();
@@ -508,32 +508,327 @@ fn metadata_updates_accept_only_echoed_acls() {
     let mut body = full.clone();
     body["acl"].as_array_mut().unwrap().reverse();
     send(&server, "PATCH", &object, body).json();
-    let full = call(&server, "GET", &format!("{object}?projection=full")).json();
-    let before = call(&server, "GET", &object).json();
-    for acl in [
-        json!([{"entity": "allUsers", "role": "READER"}]),
-        json!([]),
-        json!("private"),
-    ] {
-        let mut changed = full.clone();
-        changed["acl"] = acl;
-        for method in ["PATCH", "PUT"] {
-            send(&server, method, &object, changed.clone()).error(400, "badRequest");
-        }
-    }
-    assert_eq!(call(&server, "GET", &object).json(), before);
-
     let bucket = call(&server, "GET", &format!("{BUCKET}?projection=full")).json();
     let mut body = bucket.clone();
     body["labels"] = json!({"echo": "yes"});
     let updated = send(&server, "PUT", BUCKET, body).json();
     assert_eq!(updated["labels"], json!({"echo": "yes"}));
-    let mut changed = bucket.clone();
-    changed["defaultObjectAcl"][0]["role"] = json!("READER");
-    send(&server, "PATCH", BUCKET, changed).error(400, "badRequest");
+    for method in ["PATCH", "PUT"] {
+        let before = metageneration(&call(&server, "GET", BUCKET).json());
+        let acl = json!([{"entity":"allAuthenticatedUsers","role":"READER"}]);
+        let default_acl = json!([{"entity":"domain-example.com","role":"OWNER"}]);
+        let updated = send(
+            &server,
+            method,
+            &format!("{BUCKET}?projection=full"),
+            json!({
+                "acl": acl, "defaultObjectAcl": default_acl, "labels":{"changed":"yes"}
+            }),
+        )
+        .json();
+        assert_eq!(updated["acl"][0]["entity"], "allAuthenticatedUsers");
+        assert_eq!(
+            updated["defaultObjectAcl"][0]["entity"],
+            "domain-example.com"
+        );
+        assert_eq!(
+            updated["labels"],
+            if method == "PATCH" {
+                json!({"changed":"yes", "echo":"yes"})
+            } else {
+                json!({"changed":"yes"})
+            }
+        );
+        assert_eq!(metageneration(&updated), before + 1);
+        server.put("inherited", b"x").json();
+        assert_eq!(
+            entries(&call(&server, "GET", &format!("{BUCKET}/o/inherited/acl")).json()),
+            pairs(&[("domain-example.com", "OWNER")])
+        );
+        assert_eq!(
+            entries(&call(&server, "GET", &format!("{object}/acl")).json()).len(),
+            3
+        );
+        let before = metageneration(&call(&server, "GET", &object).json());
+        let updated = send(
+            &server,
+            method,
+            &format!("{object}?projection=full"),
+            json!({
+                "acl": acl, "contentType":"application/json", "metadata":{"key":"value"}
+            }),
+        )
+        .json();
+        assert_eq!(updated["acl"].as_array().unwrap().len(), 1);
+        assert_eq!(updated["contentType"], "application/json");
+        assert_eq!(metageneration(&updated), before + 1);
+        // An omitted ACL stays unchanged even when PUT resets ordinary content metadata.
+        let omitted = send(&server, "PUT", &object, json!({})).json();
+        assert_eq!(omitted["acl"][0]["entity"], "allAuthenticatedUsers");
+        assert!(omitted.get("metadata").is_none());
+        let cleared = send(
+            &server,
+            method,
+            &format!("{object}?projection=full"),
+            json!({"acl":[]}),
+        )
+        .json();
+        assert_eq!(cleared["acl"], json!([]));
+        send(
+            &server,
+            method,
+            BUCKET,
+            json!({"acl":[],"defaultObjectAcl":[]}),
+        )
+        .json();
+        for scope in ["acl", "defaultObjectAcl"] {
+            assert!(entries(&call(&server, "GET", &format!("{BUCKET}/{scope}")).json()).is_empty());
+        }
+        server.put("empty-default", b"x").json();
+        assert!(
+            entries(&call(&server, "GET", &format!("{BUCKET}/o/empty-default/acl")).json())
+                .is_empty()
+        );
+        // Existing objects keep their own stored ACL when the default changes.
+        assert_eq!(
+            entries(&call(&server, "GET", &format!("{BUCKET}/o/inherited/acl")).json()),
+            pairs(&[("domain-example.com", "OWNER")])
+        );
+        send(&server, "PATCH", &object, json!({"acl": PROJECT_PRIVATE.iter().map(|(entity, role)| json!({"entity":entity,"role":role})).collect::<Vec<_>>()})).json();
+    }
+}
+
+#[test]
+fn resource_acl_validation_and_preconditions_preserve_all_metadata() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, false);
+    server.bucket();
+    server.put("object", b"x").json();
+    for (path, field) in [
+        (BUCKET.to_owned(), "acl"),
+        (BUCKET.to_owned(), "defaultObjectAcl"),
+        (format!("{BUCKET}/o/object"), "acl"),
+    ] {
+        let full = format!("{path}?projection=full");
+        let before = call(&server, "GET", &full).json();
+        for invalid in [
+            json!(null),
+            json!("private"),
+            json!([{}]),
+            json!([{"entity":"bad","role":"READER"}]),
+            json!([{"entity":"allUsers","role":"reader"}]),
+            json!([{"entity":"allUsers","role":"READER"},{"entity":"allUsers","role":"OWNER"}]),
+            json!(
+                (0..101)
+                    .map(|i| json!({"entity":format!("user-{i}@example.com"),"role":"READER"}))
+                    .collect::<Vec<_>>()
+            ),
+        ] {
+            let mut body = if path.ends_with("/object") {
+                json!({"contentType":"text/plain"})
+            } else {
+                json!({"labels":{"changed":"yes"}})
+            };
+            body[field] = invalid;
+            for method in ["PATCH", "PUT"] {
+                send(&server, method, &path, body.clone()).error(400, "invalidArgument");
+                assert_eq!(call(&server, "GET", &full).json(), before);
+            }
+        }
+        let mut body = if path.ends_with("/object") {
+            json!({"contentType":"text/plain"})
+        } else {
+            json!({"labels":{"changed":"yes"}})
+        };
+        body[field] = json!([]);
+        for condition in ["ifMetagenerationMatch=999", "ifMetagenerationNotMatch=1"] {
+            send(
+                &server,
+                "PATCH",
+                &format!("{path}?{condition}"),
+                body.clone(),
+            )
+            .error(412, "conditionNotMet");
+            assert_eq!(call(&server, "GET", &full).json(), before);
+        }
+    }
+}
+
+#[test]
+fn resource_acl_policy_failures_roll_back_metadata_and_other_acls() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, false);
+    server.bucket();
+    server.put("object", b"x").json();
+    let before = call(&server, "GET", &format!("{BUCKET}?projection=full")).json();
+    for policy in [
+        json!({"uniformBucketLevelAccess":{"enabled":true}}),
+        json!({"publicAccessPrevention":"enforced"}),
+    ] {
+        let status = if policy.get("publicAccessPrevention").is_some() {
+            412
+        } else {
+            400
+        };
+        let reason = if status == 412 {
+            "conditionNotMet"
+        } else {
+            "invalidArgument"
+        };
+        send(&server, "PATCH", BUCKET, json!({"iamConfiguration":policy, "acl":[],
+            "defaultObjectAcl":[{"entity":"allUsers","role":"READER"}], "labels":{"changed":"yes"}
+        })).error(status, reason);
+        assert_eq!(
+            call(&server, "GET", &format!("{BUCKET}?projection=full")).json(),
+            before
+        );
+    }
+    for policy in [
+        json!({"publicAccessPrevention":"enforced"}),
+        json!({"uniformBucketLevelAccess":{"enabled":true}}),
+    ] {
+        send(&server, "PATCH", BUCKET, json!({"iamConfiguration":policy})).json();
+        for (path, field) in [
+            (BUCKET.to_owned(), "acl"),
+            (BUCKET.to_owned(), "defaultObjectAcl"),
+            (format!("{BUCKET}/o/object"), "acl"),
+        ] {
+            let full = format!("{path}?projection=full");
+            let before = call(&server, "GET", &full).json();
+            let mut body = if path.ends_with("/object") {
+                json!({"contentType":"text/plain"})
+            } else {
+                json!({"labels":{"changed":"yes"}})
+            };
+            body[field] = json!([{"entity":"allUsers","role":"READER"}]);
+            let (status, reason) = if policy.get("publicAccessPrevention").is_some() {
+                (412, "conditionNotMet")
+            } else {
+                (400, "invalidArgument")
+            };
+            send(&server, "PATCH", &path, body).error(status, reason);
+            assert_eq!(call(&server, "GET", &full).json(), before);
+        }
+    }
+}
+
+#[test]
+fn resource_acl_generation_selection_and_conditioned_races() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, false);
+    server.bucket();
+    send(
+        &server,
+        "PATCH",
+        BUCKET,
+        json!({"versioning":{"enabled":true}}),
+    )
+    .json();
+    let old = server.put("object", b"old").json();
+    let live = server.put("object", b"new").json();
+    let object = format!("{BUCKET}/o/object");
+    let old_path = format!(
+        "{object}?generation={}",
+        old["generation"].as_str().unwrap()
+    );
+    send(
+        &server,
+        "PATCH",
+        &old_path,
+        json!({"acl":[], "contentType":"text/plain"}),
+    )
+    .json();
+    assert!(
+        entries(
+            &call(
+                &server,
+                "GET",
+                &format!(
+                    "{object}/acl?generation={}",
+                    old["generation"].as_str().unwrap()
+                )
+            )
+            .json()
+        )
+        .is_empty()
+    );
+    let full = format!("{object}?projection=full");
+    let before = call(&server, "GET", &full).json();
+    send(
+        &server,
+        "PATCH",
+        &format!(
+            "{object}?ifGenerationMatch={}",
+            old["generation"].as_str().unwrap()
+        ),
+        json!({"acl":[],"contentType":"text/plain"}),
+    )
+    .error(412, "conditionNotMet");
+    assert_eq!(call(&server, "GET", &full).json(), before);
+    assert_eq!(before["generation"], live["generation"]);
+    for path in [BUCKET.to_owned(), object.clone()] {
+        let full = format!("{path}?projection=full");
+        let revision = metageneration(&call(&server, "GET", &full).json());
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let mut threads = Vec::new();
+        for name in ["first", "second"] {
+            let barrier = barrier.clone();
+            let address = server.address.clone();
+            let path = format!("{path}?ifMetagenerationMatch={revision}");
+            let mut body = if path.contains("/o/") {
+                json!({"metadata":{"winner":name}})
+            } else {
+                json!({"labels":{"winner":name}})
+            };
+            body["acl"] = json!([{"entity":format!("user-{name}@example.com"),"role":"READER"}]);
+            threads.push(std::thread::spawn(move || {
+                barrier.wait();
+                object_effects_support::request(
+                    &address,
+                    "PATCH",
+                    &path,
+                    ADMIN,
+                    body.to_string().as_bytes(),
+                )
+            }));
+        }
+        let mut statuses = Vec::new();
+        for thread in threads {
+            statuses.push(thread.join().unwrap().status);
+        }
+        statuses.sort();
+        assert_eq!(statuses, [200, 412]);
+        let updated = call(&server, "GET", &full).json();
+        let winner = if path.contains("/o/") {
+            &updated["metadata"]["winner"]
+        } else {
+            &updated["labels"]["winner"]
+        };
+        assert_eq!(
+            updated["acl"][0]["entity"],
+            format!("user-{}@example.com", winner.as_str().unwrap())
+        );
+        assert_eq!(metageneration(&updated), revision + 1);
+    }
+    server.stop();
+    let server = Server::start(&dir, false);
+    assert!(
+        entries(
+            &call(
+                &server,
+                "GET",
+                &format!(
+                    "{object}/acl?generation={}",
+                    old["generation"].as_str().unwrap()
+                )
+            )
+            .json()
+        )
+        .is_empty()
+    );
     assert_eq!(
-        entries(&call(&server, "GET", &format!("{BUCKET}/defaultObjectAcl")).json()),
-        pairs(PROJECT_PRIVATE)
+        entries(&call(&server, "GET", &format!("{object}/acl")).json()).len(),
+        1
     );
 }
 
@@ -623,8 +918,7 @@ fn strict_profile_requires_iam_policy_permissions() {
     .json();
     assert_eq!(object["acl"].as_array().unwrap().len(), 3);
 
-    // An update-only caller must not learn the stored ACL by echoing guesses: an identical
-    // echo is rejected like any other value instead of being stripped.
+    // An update-only caller gets the same denial for an echo and a changed ACL.
     server
         .request(
             "PUT",
@@ -644,7 +938,7 @@ fn strict_profile_requires_iam_policy_permissions() {
                 viewer,
                 echoed.to_string().as_bytes(),
             )
-            .error(400, "badRequest");
+            .error(403, "forbidden");
     }
     echoed.as_object_mut().unwrap().remove("acl");
     let updated = server

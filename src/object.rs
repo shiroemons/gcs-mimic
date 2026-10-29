@@ -128,6 +128,7 @@ pub(crate) fn custom_time_key(value: &str) -> Result<(i64, u32), ObjectError> {
 /// Content fields reset on PUT; holds only change when explicitly supplied.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ObjectMetadataUpdate {
+    pub acl: Option<Vec<crate::acl::AclEntry>>,
     pub replace: bool,
     pub content_type: Option<Option<String>>,
     pub content_encoding: Option<Option<String>>,
@@ -308,6 +309,7 @@ pub enum ObjectError {
     BucketNotFound,
     ObjectNotFound,
     PreconditionFailed,
+    PublicAccessPrevention,
     /// Publication would replace a live object, but the caller may not delete it.
     OverwriteForbidden,
     ActiveHold,
@@ -343,6 +345,9 @@ impl fmt::Display for ObjectError {
             Self::BucketNotFound => formatter.write_str("bucket not found"),
             Self::ObjectNotFound => formatter.write_str("object not found"),
             Self::PreconditionFailed => formatter.write_str("precondition failed"),
+            Self::PublicAccessPrevention => {
+                formatter.write_str("public access prevention is enforced")
+            }
             Self::OverwriteForbidden => formatter.write_str("overwrite forbidden"),
             Self::ActiveHold => formatter.write_str("object under active hold"),
             Self::RetentionPolicyNotMet => {

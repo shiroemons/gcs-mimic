@@ -62,6 +62,21 @@ pub struct AclEntry {
     pub role: String,
 }
 
+pub(crate) fn validate_entries(kind: AclKind, entries: &[AclEntry]) -> Result<(), String> {
+    if entries.len() > MAX_ENTRIES {
+        return Err(format!("An ACL can hold at most {MAX_ENTRIES} entries"));
+    }
+    let mut entities = std::collections::BTreeSet::new();
+    for entry in entries {
+        Entity::parse(&entry.entity)?;
+        validate_role(kind, &entry.role)?;
+        if !entities.insert(&entry.entity) {
+            return Err(format!("Duplicate ACL entity {:?}", entry.entity));
+        }
+    }
+    Ok(())
+}
+
 /// Entity kinds from the pinned Discovery `entity` description.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Entity<'a> {

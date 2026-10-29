@@ -49,12 +49,27 @@ managed, but they do not grant access (DESIGN-017).
   compose/move/restore responses. Strict callers without
   `storage.buckets.getIamPolicy` or `storage.objects.getIamPolicy` receive the
   resource without ACL fields.
-- PATCH/PUT bodies may echo the current `acl`/`defaultObjectAcl` (same
-  entity/role set in any order) after a full-projection read; the echo is
-  removed and changes nothing. Any other value keeps the existing 400
-  `badRequest` unsupported response. Only a caller with the matching
-  `getIamPolicy` permission gets this comparison; for others the field is
-  rejected whatever the stored ACL is, so echoing guesses cannot reveal it.
+- Bucket PATCH/PUT `acl` and `defaultObjectAcl`, and object PATCH/PUT `acl`,
+  replace the entire supplied array. An empty array clears the ACL; omission
+  preserves it for both methods. Output-only fields on entries are ignored.
+  Null, non-array input, invalid entities/roles, duplicate entities and arrays
+  over 100 entries fail without mutation. Bucket roles include `WRITER`;
+  default object and object roles do not.
+- Resource ACL replacement requires both the metadata `update` permission and
+  the resource's `setIamPolicy` permission. As an existing local accommodation,
+  a caller without `setIamPolicy` but with `getIamPolicy` can echo the current
+  entity/role set in any order; the comparison and metadata update share the
+  transaction, and the ACL stays unchanged. Changed arrays still require `setIamPolicy`.
+  An update-only caller receives the same 403 for unchanged and changed arrays;
+  no comparison exposes the stored ACL. `getIamPolicy` still controls response
+  projection independently.
+- ACL arrays and other supplied metadata commit in one catalog transaction,
+  with one metageneration increment and journal entry. Object generation and
+  generation/metageneration conditions select and constrain that same update.
+  Invalid metadata, permissions, preconditions, UBLA or PAP roll back all changes.
+  A combined bucket policy/ACL update checks its resulting UBLA/PAP settings.
+  PUT retains its existing metadata-map/content replacement behavior; ACL
+  omission does not reset stored entries.
 - With uniform bucket-level access enabled every ACL method returns 400 `invalid`
   and full projection omits `acl`/`defaultObjectAcl` (bucket `owner` remains).
   Stored entries survive and reappear when uniform access is disabled.
@@ -75,6 +90,11 @@ managed, but they do not grant access (DESIGN-017).
   and [ObjectAccessControls](https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls)
 - [Uniform bucket-level access](https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access)
 - [Public access prevention](https://docs.cloud.google.com/storage/docs/public-access-prevention)
+- [Bucket PATCH](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch),
+  [Object PATCH](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch)
+  and [JSON PATCH semantics](https://docs.cloud.google.com/storage/docs/json_api#patch)
+  (checked 2026-10-29): arrays replace, metadata update and ACL set permissions
+  are both required, and ACL read permission governs the response.
 - Pinned Discovery schemas and methods in `compatibility/upstream/json-schemas.json`
   and `compatibility/upstream/json-methods.json` (revision `20261020`).
 
@@ -84,8 +104,10 @@ messages for uniform access, missing entities and the entry limit, the project
 number `0` for non-numeric local project IDs, accepting any syntactically valid
 email without account lookup and keeping entity case as sent, omitting
 `id`/`selfLink` from default object entries, omitting ACL fields instead of
-failing when a strict caller lacks ACL read permission, and the non-atomic echo
-comparison before a metadata update.
+failing when a strict caller lacks ACL read permission, rejecting duplicate
+entities, and null ACL rejection. Resource ACL replacements use 400
+`invalidArgument` under UBLA (legacy bucket profile: `invalid`); dedicated ACL
+routes retain 400 `invalid`. Exact mixed-error precedence is unverified.
 
 ## Limitations
 
@@ -95,7 +117,7 @@ comparison before a metadata update.
   modeled.
 - `predefinedAcl`, `predefinedDefaultObjectAcl` and `destinationPredefinedAcl`
   keep their existing responses (DESIGN-019); `acl` in insert/copy/rewrite
-  bodies and ACL replacement through metadata PATCH/PUT are unsupported.
+  bodies remain unsupported.
 - Resumable-upload completion and rewrite responses do not render ACL fields;
   restore and move do not offer `copySourceAcl` and use the default object ACL.
 - `userProject` keeps the shared unsupported response.

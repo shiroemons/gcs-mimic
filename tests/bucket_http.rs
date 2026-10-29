@@ -1394,20 +1394,14 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
         let after = without_acl(reply.json());
         assert_settings(&after, profile, true, true);
         assert_eq!(server.request("GET", path, "").json(), after);
-        for body in [
-            json!({"acl":[{"entity":"allUsers","role":"READER"}]}),
-            json!({"defaultObjectAcl":[]}),
-            json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"matchesPattern":".*"}}]}}),
-        ] {
-            server
-                .request("PUT", path, &body.to_string())
-                .error(400, "badRequest");
-            assert_eq!(server.request("GET", path, "").json(), after);
-            assert_eq!(
-                server.request("GET", &format!("{path}/iam"), "").json(),
-                policy
-            );
-        }
+        server
+            .request("PUT", path, r#"{"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"matchesPattern":".*"}}]}}"#)
+            .error(400, "badRequest");
+        assert_eq!(server.request("GET", path, "").json(), after);
+        assert_eq!(
+            server.request("GET", &format!("{path}/iam"), "").json(),
+            policy
+        );
     }
 }
 
@@ -1489,10 +1483,8 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
         let path = "/storage/v1/b/patch-input";
         // Autoclass is supported on PATCH/PUT; bucket_autoclass_http covers its errors.
         for field in [
-            "acl",
             "billing",
             "customPlacementConfig",
-            "defaultObjectAcl",
             "encryption",
             "hierarchicalNamespace",
             "ipFilter",
@@ -1503,9 +1495,6 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
             "website",
         ] {
             for value in [Value::Null, json!({}), json!([]), json!(false)] {
-                if method == "PUT" && field == "acl" && value == json!([]) {
-                    continue;
-                }
                 server
                     .request(
                         method,
@@ -1513,6 +1502,30 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
                         &json!({field:value,"labels":{"lost":"no"}}).to_string(),
                     )
                     .error(400, "badRequest");
+                assert_eq!(server.request("GET", path, "").json(), before);
+            }
+        }
+        for field in ["acl", "defaultObjectAcl"] {
+            for value in [
+                Value::Null,
+                json!({}),
+                json!(false),
+                json!([{"entity":"allUsers","role":"INVALID"}]),
+            ] {
+                server
+                    .request(
+                        method,
+                        path,
+                        &json!({field:value,"labels":{"lost":"no"}}).to_string(),
+                    )
+                    .error(
+                        400,
+                        if profile == "native" {
+                            "invalidArgument"
+                        } else {
+                            "invalid"
+                        },
+                    );
                 assert_eq!(server.request("GET", path, "").json(), before);
             }
         }

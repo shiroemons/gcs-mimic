@@ -127,6 +127,8 @@ pub struct BucketRecord {
 
 #[derive(Clone, Debug, Default)]
 pub struct BucketMetadataUpdate {
+    pub acl: Option<Vec<crate::acl::AclEntry>>,
+    pub default_object_acl: Option<Vec<crate::acl::AclEntry>>,
     pub cors: Option<Vec<CorsRule>>,
     pub lifecycle: Option<Vec<serde_json::Value>>,
     pub retention_period: Option<Option<u64>>,

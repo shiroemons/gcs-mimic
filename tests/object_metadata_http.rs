@@ -601,7 +601,6 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
                 .error(400, reason);
         }
         for field in [
-            "acl",
             "predefinedAcl",
             "contexts",
             "storageClass",
@@ -623,6 +622,9 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
                 .update(method, "", json!({field:null}))
                 .error(400, "badRequest");
         }
+        server
+            .update(method, "", json!({"acl":null}))
+            .error(400, "invalidArgument");
         for query in ["predefinedAcl=private", "userProject=test"] {
             server
                 .update(method, &format!("?{query}"), json!({}))
