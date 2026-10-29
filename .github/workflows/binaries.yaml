@@ -39,7 +39,8 @@ jobs:
           fi
           if [[ "$REF_TYPE" == tag ]]; then
             test "$REF_NAME" = "v$version"
-            test -s "docs/en/releases/$version.md"
+            # Fail on a broken notes link before the platform builds start.
+            bash scripts/release-notes.sh "docs/en/releases/$version.md" "$REF_NAME" > /dev/null
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: cargo xtask dependencies check
@@ -253,7 +254,10 @@ jobs:
           assets=(dist/*.tar.gz dist/*.zip dist/SHA256SUMS)
           test "${#assets[@]}" = 9
           printf '%s\n' "${assets[@]}" | tee release-assets
-          test -s "docs/en/releases/$VERSION.md"
+          # A dry run from a branch links to its commit; branch names may contain a slash.
+          ref=$RELEASE_TAG
+          if [[ "$GITHUB_REF_TYPE" != tag ]]; then ref=$GITHUB_SHA; fi
+          bash scripts/release-notes.sh "docs/en/releases/$VERSION.md" "$ref" > release-notes.md
       - name: Publish verified tag
         if: github.event_name == 'push'
         shell: bash
@@ -277,7 +281,7 @@ jobs:
           done <<< "$releases"
           mapfile -t assets < release-assets
           gh release create "$RELEASE_TAG" "${assets[@]}" \
-            --verify-tag --title "$RELEASE_TAG" --notes-file "docs/en/releases/$VERSION.md"
+            --verify-tag --title "$RELEASE_TAG" --notes-file release-notes.md
   publish-container:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [validate, publish]

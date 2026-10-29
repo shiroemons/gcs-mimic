@@ -132,6 +132,9 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
 2. Write `docs/en/releases/X.Y.Z.md` with final changes, compatibility impact,
    tested platforms and known limitations. Confirm the first-release roadmap
    requirements manually; the existence of a notes file does not prove them.
+   Use ordinary repository-relative links: `scripts/release-notes.sh` rewrites
+   them to the tagged files for the Release body, and the workflow fails on a
+   link whose target does not exist.
 3. Run `just check-dependencies` and `just pre-push` on the final source. Commit
    the reviewed version, lockfile and notes, then push through the agreed process.
 4. Run **Release binaries** using GitHub Actions' manual dispatch on that commit.
