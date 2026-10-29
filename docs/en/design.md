@@ -177,8 +177,11 @@ New/empty version 0 catalogs are initialized transactionally; future versions,
 nonempty unversioned catalogs, failed quick_check or incompatible versioned DDL
 (columns, constraints, collations and indexes) prevent readiness. Version, emptiness
 and existing-schema checks precede any persistent journal-mode change, so rejected
-foreign catalogs retain their bytes and mode. A poisoned connection permanently
-revokes readiness and subsequent catalog operations return unavailable.
+foreign catalogs retain their bytes and mode. An operation that panics fails only
+its own request: any open transaction is rolled back and the connection stays in
+service. If that rollback cannot be confirmed, the connection is poisoned, which
+permanently revokes readiness; subsequent catalog operations return unavailable
+until a later call confirms the rollback.
 
 Each operation has immediate bounded admission (32 calls), then awaits one execution
 permit before scheduling one blocking job. The runtime's configured blocking pool

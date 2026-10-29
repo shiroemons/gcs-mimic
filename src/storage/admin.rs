@@ -428,17 +428,12 @@ impl Catalog {
         let inner = self.0.clone();
         tokio::task::spawn_blocking(move || {
             let (_admission, _execution) = (admission, execution);
-            let result = match inner.resources.lock() {
-                Ok(mut resources) => match resources.as_mut() {
-                    Some(resources) => super::change_journal::notify_on_write(
-                        &mut resources.connection,
-                        &inner.change_wake,
-                        operation,
-                    )
-                    .map_err(AdminError::from),
-                    None => Err(AdminError::Closed),
-                },
-                Err(error) => Err(AdminError::Corrupt(error.to_string())),
+            let result = match inner.with_connection(operation) {
+                Ok(result) => result.map_err(AdminError::from),
+                Err(super::ConnectionUnavailable::Closed) => Err(AdminError::Closed),
+                Err(super::ConnectionUnavailable::Failed(reason)) => {
+                    Err(AdminError::Backend(reason))
+                }
             };
             drop(inner);
             result

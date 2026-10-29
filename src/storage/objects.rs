@@ -497,21 +497,18 @@ impl Catalog {
         let inner = self.0.clone();
         tokio::task::spawn_blocking(move || {
             let _execution = execution;
-            let mut resources = inner
-                .resources
-                .lock()
-                .map_err(|error| object_unavailable(error.to_string()))?;
-            let resources = resources
-                .as_mut()
-                .ok_or_else(|| object_unavailable("catalog is closed"))?;
-            super::change_journal::notify_on_write(
-                &mut resources.connection,
-                &inner.change_wake,
-                operation,
-            )
+            match inner.with_connection(operation) {
+                Ok(result) => result,
+                Err(super::ConnectionUnavailable::Closed) => {
+                    Err(object_unavailable("catalog is closed"))
+                }
+                Err(super::ConnectionUnavailable::Failed(reason)) => {
+                    Err(object_unavailable(reason))
+                }
+            }
         })
         .await
-        .map_err(object_unavailable)?
+        .map_err(|error| ObjectError::from(super::join_unavailable(error)))?
     }
 
     pub(super) async fn run_object<T: Send + 'static>(

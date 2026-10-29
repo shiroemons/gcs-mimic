@@ -471,12 +471,97 @@ struct Inner {
     maintenance_wake: Arc<Notify>,
     maintenance_error: Mutex<Option<String>>,
     maintenance_started: AtomicBool,
+    #[cfg(test)]
+    fail_rollback: AtomicBool,
 }
 
 struct Resources {
     // Drop the connection before releasing directory ownership, including on cancelled calls.
     connection: Connection,
     lock: lock::DirectoryLock,
+}
+
+/// Why an operation could not run on the shared catalog connection.
+enum ConnectionUnavailable {
+    Closed,
+    Failed(String),
+}
+
+impl Inner {
+    /// Runs one operation on the shared connection. A panicking operation fails
+    /// only its own request: its transaction is rolled back and the connection
+    /// stays usable. Only when the rollback cannot be confirmed does the mutex
+    /// stay poisoned, so later calls fail closed and `is_healthy` turns false.
+    fn with_connection<T, E>(
+        &self,
+        operation: impl FnOnce(&mut Connection) -> Result<T, E>,
+    ) -> Result<Result<T, E>, ConnectionUnavailable> {
+        let mut resources = match self.resources.lock() {
+            Ok(resources) => resources,
+            Err(poisoned) => {
+                let resources = poisoned.into_inner();
+                if let Some(resources) = resources.as_ref() {
+                    self.end_abandoned_transaction(&resources.connection)
+                        .map_err(ConnectionUnavailable::Failed)?;
+                }
+                self.resources.clear_poison();
+                resources
+            }
+        };
+        let Some(resources) = resources.as_mut() else {
+            return Err(ConnectionUnavailable::Closed);
+        };
+        let connection = &mut resources.connection;
+        // The connection is checked after an unwind before anyone reuses it, so
+        // observing it mid-operation is harmless.
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            change_journal::notify_on_write(connection, &self.change_wake, operation)
+        }));
+        match outcome {
+            Ok(result) => Ok(result),
+            Err(payload) => {
+                if self.end_abandoned_transaction(connection).is_err() {
+                    // Unwinding with the guard held poisons the mutex on purpose.
+                    std::panic::resume_unwind(payload);
+                }
+                Err(ConnectionUnavailable::Failed(
+                    "catalog operation panicked; its changes were rolled back".into(),
+                ))
+            }
+        }
+    }
+
+    /// rusqlite rolls a `Transaction` back when it drops, including during a
+    /// panic, but a raw `BEGIN` or a failed drop-time rollback can leave one open.
+    fn end_abandoned_transaction(&self, connection: &Connection) -> Result<(), String> {
+        #[cfg(test)]
+        if self
+            .fail_rollback
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err("injected rollback failure".into());
+        }
+        if !connection.is_autocommit() {
+            connection.execute_batch("ROLLBACK").map_err(|error| {
+                format!("catalog transaction could not be rolled back: {error}")
+            })?;
+        }
+        if connection.is_autocommit() {
+            Ok(())
+        } else {
+            Err("catalog connection is still inside a transaction".into())
+        }
+    }
+}
+
+/// A blocking catalog task fails as a whole only by panicking or when the
+/// runtime shuts down; either way the request gets a retryable error.
+fn join_unavailable(error: tokio::task::JoinError) -> CatalogError {
+    if error.is_panic() {
+        CatalogError::Unavailable("catalog operation panicked".into())
+    } else {
+        CatalogError::Unavailable("catalog operation was cancelled".into())
+    }
 }
 
 #[derive(Default)]
@@ -810,6 +895,8 @@ impl Catalog {
                 maintenance_wake: Arc::new(Notify::new()),
                 maintenance_error: Mutex::new(None),
                 maintenance_started: AtomicBool::new(false),
+                #[cfg(test)]
+                fail_rollback: AtomicBool::new(false),
             })))
         })
         .await
@@ -957,23 +1044,19 @@ impl Catalog {
         let inner = self.0.clone();
         tokio::task::spawn_blocking(move || {
             let (_admission, _execution) = (admission, execution);
-            let result = match inner.resources.lock() {
-                Ok(mut resources) => match resources.as_mut() {
-                    Some(resources) => change_journal::notify_on_write(
-                        &mut resources.connection,
-                        &inner.change_wake,
-                        operation,
-                    ),
-                    None => Err(CatalogError::Unavailable("catalog is closed".into())),
-                },
-                Err(error) => Err(unavailable(error.to_string())),
+            let result = match inner.with_connection(operation) {
+                Ok(result) => result,
+                Err(ConnectionUnavailable::Closed) => {
+                    Err(CatalogError::Unavailable("catalog is closed".into()))
+                }
+                Err(ConnectionUnavailable::Failed(reason)) => Err(unavailable(reason)),
             };
             // Release ownership before Tokio publishes completion to an immediate reopen.
             drop(inner);
             result
         })
         .await
-        .map_err(unavailable)?
+        .map_err(join_unavailable)?
     }
 
     pub(crate) async fn insert_bucket(
@@ -1963,8 +2046,35 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Opens a raw transaction that rusqlite will not roll back on unwind, then panics.
+    async fn panic_inside_transaction(catalog: &Catalog) -> CatalogError {
+        catalog
+            .run::<()>(|connection| {
+                connection
+                    .execute_batch("BEGIN IMMEDIATE; CREATE TABLE panic_probe (x INTEGER);")
+                    .unwrap();
+                panic!("injected catalog panic")
+            })
+            .await
+            .unwrap_err()
+    }
+
+    async fn probe_exists(catalog: &Catalog) -> Result<bool, CatalogError> {
+        catalog
+            .run(|connection| {
+                connection
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = 'panic_probe')",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(unavailable)
+            })
+            .await
+    }
+
     #[tokio::test]
-    async fn poisoned_catalog_permanently_revokes_readiness() {
+    async fn panicked_operation_rolls_back_and_keeps_the_catalog_ready() {
         use crate::{clock::SystemClock, server::State};
         use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -1980,18 +2090,30 @@ mod tests {
             auth: Default::default(),
         };
         assert!(state.is_ready());
-        assert!(
-            catalog
-                .run::<()>(|_| panic!("injected catalog panic"))
-                .await
-                .is_err()
-        );
+        assert!(matches!(
+            panic_inside_transaction(&catalog).await,
+            CatalogError::Unavailable(_)
+        ));
+        assert!(state.is_ready());
+        assert!(!probe_exists(&catalog).await.unwrap());
+        assert!(catalog.get_bucket("abc").await.unwrap().is_none());
+
+        // When the rollback cannot be confirmed the catalog fails closed and
+        // readiness is revoked for good, even after a later call recovers.
+        catalog.0.fail_rollback.store(true, Ordering::Release);
+        assert!(matches!(
+            panic_inside_transaction(&catalog).await,
+            CatalogError::Unavailable(_)
+        ));
         assert!(!state.is_ready());
         assert!(!state.ready.load(Ordering::Acquire));
         assert!(matches!(
             catalog.get_bucket("abc").await,
             Err(CatalogError::Unavailable(_))
         ));
+        catalog.0.fail_rollback.store(false, Ordering::Release);
+        assert!(!probe_exists(&catalog).await.unwrap());
+        assert!(catalog.is_healthy());
         assert!(!state.is_ready());
         catalog.close().await.unwrap();
         Catalog::open(&dir).await.unwrap().close().await.unwrap();
