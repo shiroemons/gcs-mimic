@@ -297,7 +297,11 @@ impl RootLease {
                     let directory = fsutil::directory_at(
                         root,
                         mapping::WORKSPACE.as_ref(),
-                        expected.is_none(),
+                        if expected.is_none() {
+                            fsutil::DirectoryOpen::CreateIfMissing
+                        } else {
+                            fsutil::DirectoryOpen::Existing
+                        },
                     )?;
                     let identity = fsutil::stat_identity(&directory)?;
                     if identity.device != fsutil::stat_identity(root)?.device
@@ -455,7 +459,11 @@ fn parent(root: &File, path: &str, sync: bool) -> Result<Option<File>, Error> {
         directory.sync_all()?;
     }
     for part in parents.split('/') {
-        directory = match fsutil::directory_at(&directory, part.as_ref(), false) {
+        directory = match fsutil::directory_at(
+            &directory,
+            part.as_ref(),
+            fsutil::DirectoryOpen::Existing,
+        ) {
             Ok(directory) => directory,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e.into()),
@@ -485,8 +493,12 @@ fn entry(workspace: &File, id: &str) -> Result<Option<File>, Error> {
     }
 }
 fn verify_workspace(root: &File, workspace: &File) -> Result<(), Error> {
-    let selected = fsutil::directory_at(root, mapping::WORKSPACE.as_ref(), false)
-        .map_err(|_| Error::WorkspaceChanged)?;
+    let selected = fsutil::directory_at(
+        root,
+        mapping::WORKSPACE.as_ref(),
+        fsutil::DirectoryOpen::Existing,
+    )
+    .map_err(|_| Error::WorkspaceChanged)?;
     let selected = fsutil::stat_identity(&selected)?;
     let owned = fsutil::stat_identity(workspace)?;
     if selected.device != owned.device

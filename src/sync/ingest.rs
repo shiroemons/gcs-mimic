@@ -85,7 +85,9 @@ impl Scan {
                 continue;
             }
             let relative = path.join(&name);
-            if let Ok(child) = fsutil::directory_at(&directory, &name, false) {
+            if let Ok(child) =
+                fsutil::directory_at(&directory, &name, fsutil::DirectoryOpen::Existing)
+            {
                 drop(child);
                 if self.stack.len() >= 128 {
                     return Err(AdminError::Invalid(
@@ -177,13 +179,17 @@ async fn forget_missing_directories(
             after = name.clone();
             let selected = name.clone();
             let absent = root
-                .file_job(
-                    move |root| match fsutil::directory_at(root, selected.as_ref(), false) {
+                .file_job(move |root| {
+                    match fsutil::directory_at(
+                        root,
+                        selected.as_ref(),
+                        fsutil::DirectoryOpen::Existing,
+                    ) {
                         Ok(_) => Ok(false),
                         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
                         Err(_) => Ok(false),
-                    },
-                )
+                    }
+                })
                 .await
                 .map_err(io::Error::other)?;
             if absent {

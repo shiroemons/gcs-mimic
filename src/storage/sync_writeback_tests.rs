@@ -93,7 +93,11 @@ async fn writeback_abandon_unpublished_copy_preserves_external_bytes_and_release
     assert!(
         writeback
             .file_job(armed.token, move |root, workspace| {
-                let parent = fsutil::directory_path_at(root, "test-bucket".as_ref(), false)?;
+                let parent = fsutil::directory_path_at(
+                    root,
+                    "test-bucket".as_ref(),
+                    fsutil::DirectoryOpen::Existing,
+                )?;
                 fsutil::durable_replace_between(
                     workspace,
                     entry.as_ref(),
@@ -147,7 +151,11 @@ async fn writeback_abandon_rejects_installed_and_modified_workspace_bodies() {
     let entry = armed.workspace_entry.name().to_owned();
     writeback
         .file_job(armed.token, move |root, workspace| {
-            let parent = fsutil::directory_path_at(root, "test-bucket".as_ref(), true)?;
+            let parent = fsutil::directory_path_at(
+                root,
+                "test-bucket".as_ref(),
+                fsutil::DirectoryOpen::CreateIfMissing,
+            )?;
             fsutil::durable_replace_between(
                 workspace,
                 entry.as_ref(),
@@ -299,7 +307,11 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
                     _ => AdminError::Io(std::io::ErrorKind::Unsupported),
                 },
             )?;
-            let parent = fsutil::directory_path_at(root, "test-bucket/nested".as_ref(), true)?;
+            let parent = fsutil::directory_path_at(
+                root,
+                "test-bucket/nested".as_ref(),
+                fsutil::DirectoryOpen::CreateIfMissing,
+            )?;
             fsutil::durable_replace_between(
                 workspace,
                 entry.as_ref(),
@@ -367,7 +379,11 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
                     _ => AdminError::Io(std::io::ErrorKind::Unsupported),
                 },
             )?;
-            let parent = fsutil::directory_path_at(root, "test-bucket/nested".as_ref(), false)?;
+            let parent = fsutil::directory_path_at(
+                root,
+                "test-bucket/nested".as_ref(),
+                fsutil::DirectoryOpen::Existing,
+            )?;
             let expected =
                 fsutil::stat_identity(&fsutil::open_regular_at(&parent, "body".as_ref())?)
                     .map_err(|e| match e {
@@ -438,7 +454,11 @@ async fn writeback_export_parent_sync_failure_cannot_commit_state() {
         let result: Result<(), Error> = writeback
             .file_job(armed.token.clone(), move |root, workspace| {
                 fsutil::clone_or_copy_into(&source, workspace, entry.as_ref()).unwrap();
-                let parent = fsutil::directory_path_at(root, "test-bucket".as_ref(), true)?;
+                let parent = fsutil::directory_path_at(
+                    root,
+                    "test-bucket".as_ref(),
+                    fsutil::DirectoryOpen::CreateIfMissing,
+                )?;
                 let identity =
                     fsutil::stat_identity(if fail_source { workspace } else { &parent }).unwrap();
                 *fsutil::FAIL_REPLACE_SYNC.lock().unwrap() =

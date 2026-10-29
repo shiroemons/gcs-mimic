@@ -228,13 +228,24 @@ pub fn create_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result
     }
 }
 
+/// Whether a directory helper may create a missing directory or must find an existing one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DirectoryOpen {
+    Existing,
+    CreateIfMissing,
+}
+
 /// Opens a single directory component, creating it only when explicitly requested.
-pub fn directory_at(directory: &File, name: &std::ffi::OsStr, create: bool) -> io::Result<File> {
+pub fn directory_at(
+    directory: &File,
+    name: &std::ffi::OsStr,
+    open: DirectoryOpen,
+) -> io::Result<File> {
     #[cfg(unix)]
     {
         use std::os::fd::{AsRawFd, FromRawFd};
         let name = component(name)?;
-        if create {
+        if open == DirectoryOpen::CreateIfMissing {
             // SAFETY: name is one validated component under the live directory descriptor.
             let result = unsafe { libc::mkdirat(directory.as_raw_fd(), name.as_ptr(), 0o700) };
             if result != 0 {
@@ -260,7 +271,7 @@ pub fn directory_at(directory: &File, name: &std::ffi::OsStr, create: bool) -> i
     }
     #[cfg(not(unix))]
     {
-        let _ = (directory, name, create);
+        let _ = (directory, name, open);
         Err(io::ErrorKind::Unsupported.into())
     }
 }
@@ -269,7 +280,7 @@ pub fn directory_at(directory: &File, name: &std::ffi::OsStr, create: bool) -> i
 pub fn directory_path_at(
     directory: &File,
     path: &std::path::Path,
-    create: bool,
+    open: DirectoryOpen,
 ) -> io::Result<File> {
     let text = path.to_str().ok_or(io::ErrorKind::InvalidInput)?;
     if text.is_empty() || text.split('/').any(|part| matches!(part, "" | "." | "..")) {
@@ -278,8 +289,8 @@ pub fn directory_path_at(
     let mut current = directory.try_clone()?;
     for part in text.split('/') {
         validate_name(part.as_ref())?;
-        let next = directory_at(&current, part.as_ref(), create)?;
-        if create {
+        let next = directory_at(&current, part.as_ref(), open)?;
+        if open == DirectoryOpen::CreateIfMissing {
             next.sync_all()?;
             current.sync_all()?;
         }
@@ -1081,7 +1092,12 @@ mod tests {
     fn export_directory_walk_rejects_redirects_and_unsafe_components() {
         let directory = super::test_support::SourceDir::new();
         let root = open_directory_nofollow(&directory.0).unwrap();
-        let nested = directory_path_at(&root, "bucket/nested".as_ref(), true).unwrap();
+        let nested = directory_path_at(
+            &root,
+            "bucket/nested".as_ref(),
+            DirectoryOpen::CreateIfMissing,
+        )
+        .unwrap();
         assert_eq!(
             stat_identity(&nested).unwrap(),
             stat_identity(&open_directory_nofollow(&directory.0.join("bucket/nested")).unwrap())
@@ -1101,7 +1117,7 @@ mod tests {
             "regular/child",
         ] {
             assert!(
-                directory_path_at(&root, path.as_ref(), true).is_err(),
+                directory_path_at(&root, path.as_ref(), DirectoryOpen::CreateIfMissing).is_err(),
                 "{path}"
             );
         }
@@ -1114,8 +1130,14 @@ mod tests {
     fn export_replace_between_directories_retains_displaced_entries() {
         let directory = super::test_support::SourceDir::new();
         let root = open_directory_nofollow(&directory.0).unwrap();
-        let workspace = directory_path_at(&root, "work".as_ref(), true).unwrap();
-        let target = directory_path_at(&root, "bucket/nested".as_ref(), true).unwrap();
+        let workspace =
+            directory_path_at(&root, "work".as_ref(), DirectoryOpen::CreateIfMissing).unwrap();
+        let target = directory_path_at(
+            &root,
+            "bucket/nested".as_ref(),
+            DirectoryOpen::CreateIfMissing,
+        )
+        .unwrap();
         std::fs::write(directory.0.join("work/body"), b"first").unwrap();
         assert_eq!(
             durable_replace_between(&workspace, "body".as_ref(), &target, "body".as_ref(), None)

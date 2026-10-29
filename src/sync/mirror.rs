@@ -563,7 +563,7 @@ pub(super) fn parent(root: &File, path: &Path, create: bool) -> Result<File, Par
             return Err(ParentError::Finding(Reason::HostRestriction));
         }
         let exact = exact_entry(&directory, component)?;
-        match fsutil::directory_at(&directory, component, false) {
+        match fsutil::directory_at(&directory, component, fsutil::DirectoryOpen::Existing) {
             Ok(next) => {
                 if !exact {
                     return Err(ParentError::Finding(Reason::Collision));
@@ -571,7 +571,11 @@ pub(super) fn parent(root: &File, path: &Path, create: bool) -> Result<File, Par
                 directory = next;
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound && create => {
-                let next = fsutil::directory_at(&directory, component, true)?;
+                let next = fsutil::directory_at(
+                    &directory,
+                    component,
+                    fsutil::DirectoryOpen::CreateIfMissing,
+                )?;
                 next.sync_all()?;
                 directory.sync_all()?;
                 directory = next;
@@ -631,7 +635,9 @@ fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, Ad
         Ok(_) => return Ok(Target::Finding(Reason::Collision)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Target::Absent),
         Err(error) if !structural_entry_error(&error) => return Err(error.into()),
-        Err(_) if fsutil::directory_at(&directory, name, false).is_ok() => {
+        Err(_)
+            if fsutil::directory_at(&directory, name, fsutil::DirectoryOpen::Existing).is_ok() =>
+        {
             return Ok(Target::Finding(Reason::Collision));
         }
         Err(_) => return Ok(Target::Finding(Reason::UnsafeEntry)),
@@ -1110,9 +1116,12 @@ fn external_files(
                 continue;
             }
             let path = relative.join(name);
-            if let Ok(child) = fsutil::directory_at(directory, name, false) {
+            if let Ok(child) =
+                fsutil::directory_at(directory, name, fsutil::DirectoryOpen::Existing)
+            {
                 let child_counts = external_files(&child, &path, admin, runtime, depth + 1)?;
-                let checked = fsutil::directory_at(directory, name, false)?;
+                let checked =
+                    fsutil::directory_at(directory, name, fsutil::DirectoryOpen::Existing)?;
                 if !same_inode(&child, &checked)? {
                     return Err(AdminError::Precondition);
                 }
