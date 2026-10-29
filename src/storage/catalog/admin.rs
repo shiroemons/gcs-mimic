@@ -25,7 +25,7 @@ use crate::{
     },
 };
 use rusqlite::{Connection, TransactionBehavior, params_from_iter};
-use std::{any::Any, fmt, io, num::NonZeroI64, sync::Arc, time::Duration};
+use std::{fmt, io, num::NonZeroI64, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -265,8 +265,8 @@ impl AdminError {
 impl From<CatalogError> for AdminError {
     fn from(error: CatalogError) -> Self {
         match error {
-            CatalogError::Io(kind) => Self::from_kind(kind),
-            CatalogError::Corrupt(reason) => Self::Corrupt(reason),
+            CatalogError::Io(cause) => Self::from_kind(cause.kind()),
+            CatalogError::Corrupt(cause) => Self::Corrupt(cause.to_string()),
             CatalogError::PreconditionFailed => Self::Precondition,
             CatalogError::NotFound => Self::NotFound,
             CatalogError::Forbidden => Self::Forbidden,
@@ -282,8 +282,8 @@ impl From<CatalogError> for AdminError {
 impl From<ObjectError> for AdminError {
     fn from(error: ObjectError) -> Self {
         match error {
-            ObjectError::Io(kind) => Self::from_kind(kind),
-            ObjectError::Corrupt(reason) => Self::Corrupt(reason),
+            ObjectError::Io(cause) => Self::from_kind(cause.kind()),
+            ObjectError::Corrupt(cause) => Self::Corrupt(cause.to_string()),
             ObjectError::InvalidFixedMetadata(reason)
             | ObjectError::UnsupportedMetadata(reason) => Self::Invalid(reason),
             ObjectError::PreconditionFailed => Self::Precondition,
@@ -298,49 +298,6 @@ impl From<ObjectError> for AdminError {
             ObjectError::BodyAborted(reason) => Self::BodyAborted(reason),
             error => Self::Backend(error.to_string()),
         }
-    }
-}
-
-pub(super) fn io_kind(error: &dyn Any) -> Option<io::ErrorKind> {
-    if let Some(error) = error.downcast_ref::<io::Error>() {
-        return Some(error.kind());
-    }
-    if let Some(CatalogError::Io(kind)) = error.downcast_ref::<CatalogError>() {
-        return Some(*kind);
-    }
-    if let Some(ObjectError::Io(kind)) = error.downcast_ref::<ObjectError>() {
-        return Some(*kind);
-    }
-    if let Some(rusqlite::Error::SqliteFailure(error, _)) = error.downcast_ref::<rusqlite::Error>()
-        && error.code == rusqlite::ErrorCode::DiskFull
-    {
-        return Some(io::ErrorKind::StorageFull);
-    }
-    None
-}
-
-pub(super) fn corrupt_reason(error: &dyn Any) -> Option<String> {
-    if let Some(CatalogError::Corrupt(reason)) = error.downcast_ref::<CatalogError>() {
-        return Some(reason.clone());
-    }
-    if let Some(ObjectError::Corrupt(reason)) = error.downcast_ref::<ObjectError>() {
-        return Some(reason.clone());
-    }
-    let error = error.downcast_ref::<rusqlite::Error>()?;
-    match error {
-        rusqlite::Error::SqliteFailure(failure, _)
-            if matches!(
-                failure.code,
-                rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase
-            ) =>
-        {
-            Some(error.to_string())
-        }
-        error @ (rusqlite::Error::FromSqlConversionFailure(..)
-        | rusqlite::Error::IntegralValueOutOfRange(..)
-        | rusqlite::Error::InvalidColumnType(..)
-        | rusqlite::Error::Utf8Error(..)) => Some(error.to_string()),
-        _ => None,
     }
 }
 

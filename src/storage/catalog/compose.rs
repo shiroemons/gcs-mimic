@@ -6,9 +6,7 @@ use crate::{
 use rusqlite::Connection;
 use std::collections::BTreeSet;
 
-fn unavailable(error: impl std::fmt::Display) -> ObjectError {
-    ObjectError::Unavailable(error.to_string())
-}
+use crate::storage::failure::object_unclassified;
 
 fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectError> {
     connection
@@ -17,7 +15,7 @@ fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectEr
             [bucket],
             |row| row.get(0),
         )
-        .map_err(unavailable)
+        .map_err(object_unclassified)
 }
 
 impl Catalog {
@@ -46,7 +44,7 @@ impl Catalog {
             let clock = catalog.0.clock.clone();
             let expected_incarnation = catalog
                 .run_object(move |connection| {
-                    let transaction = connection.transaction().map_err(unavailable)?;
+                    let transaction = connection.transaction().map_err(object_unclassified)?;
                     let (_, overwrite) =
                         objects::authorized_bucket(&transaction, &initial.bucket, &initial.access)?;
                     let (_, delete) =
@@ -99,7 +97,7 @@ impl Catalog {
                 crc = combine(
                     crc,
                     source.object.crc32c,
-                    usize::try_from(source.object.size).map_err(unavailable)?,
+                    usize::try_from(source.object.size).map_err(object_unclassified)?,
                 );
                 count = count
                     .saturating_add(source.object.component_count.unwrap_or(1))
@@ -195,7 +193,7 @@ impl Catalog {
             result
         })
         .await
-        .map_err(unavailable)?
+        .map_err(object_unclassified)?
     }
 }
 

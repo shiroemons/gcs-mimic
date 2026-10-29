@@ -1,5 +1,6 @@
 //! Transport-independent bucket state shared by the catalog and protocol adapters.
 
+use crate::storage::failure::{BackendCause, IoCause};
 use std::{
     collections::BTreeMap,
     fmt,
@@ -318,14 +319,14 @@ pub enum CatalogError {
     RetentionPolicyNotSet,
     InvalidMetadata(String),
     UnsupportedMetadata(String),
-    Io(std::io::ErrorKind),
-    Corrupt(String),
+    Io(IoCause),
+    Corrupt(BackendCause),
     /// A later release migrated the catalog; migrations are one-way.
     NewerSchema {
         version: i64,
         supported: i64,
     },
-    Unavailable(String),
+    Unavailable(BackendCause),
 }
 
 impl fmt::Display for CatalogError {
@@ -359,7 +360,15 @@ impl fmt::Display for CatalogError {
     }
 }
 
-impl std::error::Error for CatalogError {}
+impl std::error::Error for CatalogError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(cause) => cause.source(),
+            Self::Corrupt(cause) | Self::Unavailable(cause) => cause.source(),
+            _ => None,
+        }
+    }
+}
 
 /// The adapter's bucket authorization, re-validated by the catalog inside the same transaction
 /// that reads or mutates the bucket.

@@ -1154,7 +1154,7 @@ async fn bkt_err_001_envelope_content_type_and_catalog_mappings() {
             "conditionNotMet",
         ),
         (
-            CatalogError::Unavailable("secret database path".to_owned()),
+            CatalogError::Unavailable("secret database path".into()),
             StatusCode::SERVICE_UNAVAILABLE,
             "backendError",
         ),

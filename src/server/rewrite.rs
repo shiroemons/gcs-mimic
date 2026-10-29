@@ -103,8 +103,8 @@ pub(super) async fn respond(
     ))
     .await;
     activity.send_modify(|progress| progress.awaiting_catalog = false);
-    let (value, mut owner) = result
-        .map_err(|failure| JsonError::from(ObjectError::Unavailable(failure.to_string())))??;
+    let (value, mut owner) =
+        result.map_err(|failure| JsonError::from(ObjectError::backend(failure)))??;
     let mut response = Response::new(Full::new(Bytes::from(value.to_string())));
     response.headers_mut().insert(
         "content-type",
@@ -251,7 +251,7 @@ async fn execute(
     let progress = catalog
         .continue_rewrite(&token, source_access, destination_access, move |record| {
             json::object_resource_keyed(record, &base, json::Projection::NoAcl, keys.destination)
-                .map_err(|e| ObjectError::Unavailable(e.to_string()))
+                .map_err(ObjectError::backend)
         })
         .await
         .map_err(error)?;

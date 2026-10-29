@@ -1,5 +1,6 @@
 //! Transport-independent object state shared by the catalog and protocol adapters.
 
+use crate::storage::failure::{BackendCause, IoCause};
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 
 pub mod retention;
@@ -333,9 +334,9 @@ pub enum ObjectError {
     CustomerEncryption(crate::csek::CsekError),
     /// The request body ended early or failed while streaming.
     BodyAborted(String),
-    Io(std::io::ErrorKind),
-    Corrupt(String),
-    Unavailable(String),
+    Io(IoCause),
+    Corrupt(BackendCause),
+    Unavailable(BackendCause),
 }
 
 impl fmt::Display for ObjectError {
@@ -383,9 +384,22 @@ impl fmt::Display for ObjectError {
     }
 }
 
-impl std::error::Error for ObjectError {}
+impl std::error::Error for ObjectError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(cause) => cause.source(),
+            Self::Corrupt(cause) | Self::Unavailable(cause) => cause.source(),
+            _ => None,
+        }
+    }
+}
 
 impl ObjectError {
+    /// Wraps an adapter-side failure as unavailable, keeping it as the source.
+    pub(crate) fn backend(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::Unavailable(BackendCause::from_error(error))
+    }
+
     pub(crate) fn is_backend_failure(&self) -> bool {
         matches!(self, Self::Unavailable(_) | Self::Io(_) | Self::Corrupt(_))
     }
@@ -396,7 +410,7 @@ impl From<crate::bucket::CatalogError> for ObjectError {
         match error {
             crate::bucket::CatalogError::Io(kind) => Self::Io(kind),
             crate::bucket::CatalogError::Corrupt(reason) => Self::Corrupt(reason),
-            error => Self::Unavailable(error.to_string()),
+            error => Self::Unavailable(BackendCause::from_error(error)),
         }
     }
 }

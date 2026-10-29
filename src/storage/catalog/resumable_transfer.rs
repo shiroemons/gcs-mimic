@@ -25,9 +25,7 @@ pub(crate) struct ResumableChunk {
     pub catalog_wait: watch::Sender<bool>,
 }
 
-fn unavailable(error: impl std::fmt::Display) -> ObjectError {
-    ObjectError::Unavailable(error.to_string())
-}
+use crate::storage::failure::object_unclassified;
 
 async fn receive_chunk(
     lease: &SessionLease,
@@ -40,15 +38,15 @@ async fn receive_chunk(
         .write(true)
         .open(lease.staging_path())
         .await
-        .map_err(unavailable)?;
+        .map_err(object_unclassified)?;
     let durable = lease.session.offset;
-    if file.metadata().await.map_err(unavailable)?.len() < durable {
-        return Err(unavailable("Acknowledged upload prefix is missing"));
+    if file.metadata().await.map_err(object_unclassified)?.len() < durable {
+        return Err(object_unclassified("Acknowledged upload prefix is missing"));
     }
-    file.set_len(durable).await.map_err(unavailable)?;
+    file.set_len(durable).await.map_err(object_unclassified)?;
     file.seek(io::SeekFrom::Start(durable))
         .await
-        .map_err(unavailable)?;
+        .map_err(object_unclassified)?;
     let transfer = async {
         let mut received = 0_u64;
         loop {
@@ -69,7 +67,7 @@ async fn receive_chunk(
                         .saturating_sub(chunk.start + received)
                         .min(bytes.len() as u64) as usize;
                     if discard < bytes.len() {
-                        file.write_all(&bytes[discard..]).await.map_err(unavailable)?;
+                        file.write_all(&bytes[discard..]).await.map_err(object_unclassified)?;
                     }
                     received = next;
                 }
@@ -83,13 +81,13 @@ async fn receive_chunk(
             }
         }
         // sync_all drops the error of tokio's background tail write; flush reports it.
-        file.flush().await.map_err(unavailable)?;
-        file.sync_all().await.map_err(unavailable)
+        file.flush().await.map_err(object_unclassified)?;
+        file.sync_all().await.map_err(object_unclassified)
     }
     .await;
     if let Err(error) = transfer {
-        file.set_len(durable).await.map_err(unavailable)?;
-        file.sync_all().await.map_err(unavailable)?;
+        file.set_len(durable).await.map_err(object_unclassified)?;
+        file.sync_all().await.map_err(object_unclassified)?;
         return Err(error);
     }
     Ok(file)
@@ -125,7 +123,7 @@ impl Catalog {
             catalog.resolve_resumable_finalization(&lease, result).await
         })
         .await
-        .map_err(unavailable)?
+        .map_err(object_unclassified)?
     }
 
     async fn resolve_resumable_finalization(
@@ -147,7 +145,7 @@ impl Catalog {
                         read_session,
                     )
                     .optional()
-                    .map_err(unavailable)
+                    .map_err(object_unclassified)
             })
             .await?;
         if let Some(session) = committed
@@ -161,7 +159,7 @@ impl Catalog {
             let offset = lease.session.offset;
             self.run_upload(move |connection| {
                 super::resumable_recovery::recover_prefix(connection, &data_dir, &blob_id, offset)
-                    .map_err(unavailable)
+                    .map_err(object_unclassified)
             })
             .await?;
         } else {
@@ -177,12 +175,12 @@ impl Catalog {
         let id = lease.session.id.clone();
         let blob_id = lease.session.blob_id.clone();
         let changed = self.run_upload(move |connection| {
-            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
-            let changed = transaction.execute("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE'", [id]).map_err(unavailable)?;
+            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(object_unclassified)?;
+            let changed = transaction.execute("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE'", [id]).map_err(object_unclassified)?;
             if changed == 1 {
-                transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [&blob_id]).map_err(unavailable)?;
+                transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [&blob_id]).map_err(object_unclassified)?;
             }
-            transaction.commit().map_err(unavailable)?;
+            transaction.commit().map_err(object_unclassified)?;
             Ok(changed)
         }).await?;
         if changed == 1 {
@@ -193,7 +191,7 @@ impl Catalog {
                     super::resumable_maintenance::clean_session_files(
                         connection, &data_dir, &blob_id,
                     )
-                    .map_err(unavailable)
+                    .map_err(object_unclassified)
                 })
                 .await;
             if let Err(error) = cleanup {
@@ -223,12 +221,12 @@ impl Catalog {
     ) -> Result<Value, ResumableError> {
         file.seek(io::SeekFrom::Start(0))
             .await
-            .map_err(unavailable)?;
+            .map_err(object_unclassified)?;
         let mut hasher = Hasher::default();
         let mut length = 0_u64;
         let mut buffer = [0; 64 * 1024];
         loop {
-            let n = file.read(&mut buffer).await.map_err(unavailable)?;
+            let n = file.read(&mut buffer).await.map_err(object_unclassified)?;
             if n == 0 {
                 break;
             }
@@ -246,14 +244,14 @@ impl Catalog {
                 ObjectError::BodyAborted("Final length does not match total".into()).into(),
             );
         }
-        file.sync_all().await.map_err(unavailable)?;
+        file.sync_all().await.map_err(object_unclassified)?;
         drop(file);
         let source = lease.staging_path();
         let destination = objects::blob_path(&self.0.data_dir, &lease.session.blob_id)?;
         tokio::task::spawn_blocking(move || objects::publish_blob(&source, &destination))
             .await
-            .map_err(unavailable)?
-            .map_err(unavailable)?;
+            .map_err(object_unclassified)?
+            .map_err(object_unclassified)?;
         let session = lease.session.clone();
         let clock = self.0.clock.clone();
         catalog_wait.send_replace(true);
@@ -261,14 +259,14 @@ impl Catalog {
             move |connection: &mut rusqlite::Connection| -> Result<Value, ResumableError> {
                 let transaction = connection
                     .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(unavailable)?;
+                    .map_err(object_unclassified)?;
                 let stored = transaction
                     .query_row(
                         "SELECT * FROM resumable_sessions WHERE id = ?1",
                         [&session.id],
                         read_session,
                     )
-                    .map_err(unavailable)?;
+                    .map_err(object_unclassified)?;
                 if clock.now() >= stored.deadline {
                     return Err(ResumableError::NotFound);
                 }
@@ -282,7 +280,7 @@ impl Catalog {
                         |r| r.get(0),
                     )
                     .optional()
-                    .map_err(unavailable)?;
+                    .map_err(object_unclassified)?;
                 if incarnation.as_deref() != Some(&session.incarnation) {
                     return Err(ObjectError::Forbidden.into());
                 }
@@ -294,10 +292,10 @@ impl Catalog {
                     options.metadata.storage_class.clone(),
                     storage_class,
                 )
-                .map_err(unavailable)?;
+                .map_err(object_unclassified)?;
                 let (versioning, default_hold) =
                     Catalog::bucket_settings_in_transaction(&transaction, &session.bucket)
-                        .map_err(unavailable)?;
+                        .map_err(object_unclassified)?;
                 let previous = lookup(&transaction, &session.bucket, &session.name)?;
                 check_publication(
                     previous.as_ref(),
@@ -307,9 +305,9 @@ impl Catalog {
                 )?;
                 let now = clock.now();
                 now.duration_since(std::time::UNIX_EPOCH)
-                    .map_err(unavailable)?;
-                let micros = unix_micros(now).map_err(unavailable)?;
-                let time = system_time_micros(micros).map_err(unavailable)?;
+                    .map_err(object_unclassified)?;
+                let micros = unix_micros(now).map_err(object_unclassified)?;
+                let time = system_time_micros(micros).map_err(object_unclassified)?;
                 let (_, _retired, resource) = objects::publish_in_transaction(
                     &transaction,
                     micros,
@@ -348,15 +346,15 @@ impl Catalog {
                             customer_key_sha256: None,
                         };
                         options.metadata.apply(&mut record)?;
-                        let period: Option<i64> = transaction.query_row("SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1", [&record.bucket], |row| row.get(0)).map_err(unavailable)?;
+                        let period: Option<i64> = transaction.query_row("SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1", [&record.bucket], |row| row.get(0)).map_err(object_unclassified)?;
                         record.retention_expiration_time = period
                             .map(|period| time + std::time::Duration::from_secs(period as u64));
                         let resource = render(&record)?;
                         Ok((record, resource))
                     },
                 )?;
-                transaction.execute("UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'",params![resource.to_string(),session.id]).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
+                transaction.execute("UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'",params![resource.to_string(),session.id]).map_err(object_unclassified)?;
+                transaction.commit().map_err(object_unclassified)?;
                 Ok(resource)
             };
         let result = self

@@ -1,4 +1,5 @@
 use crate::bucket::CatalogError;
+use crate::storage::failure::BackendCause;
 use std::{
     fs::{self, File, OpenOptions, TryLockError},
     io,
@@ -44,23 +45,41 @@ pub(super) fn acquire_directory(path: &Path) -> io::Result<DirectoryLock> {
     Ok(DirectoryLock(vec![file]))
 }
 
+/// Keeps `error` as the source of a message that already describes it.
+fn lock_failure(message: String, error: io::Error) -> CatalogError {
+    CatalogError::Unavailable(BackendCause::with_source(message, error))
+}
+
+fn in_use(data_dir: &Path) -> CatalogError {
+    CatalogError::Unavailable(
+        format!("data directory {} is already in use", data_dir.display()).into(),
+    )
+}
+
 pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
     fs::create_dir_all(data_dir).map_err(|e| {
-        CatalogError::Unavailable(format!("create data directory {}: {e}", data_dir.display()))
+        lock_failure(
+            format!("create data directory {}: {e}", data_dir.display()),
+            e,
+        )
     })?;
     // A directory inode lock also survives replacement of catalog.lock on Unix.
     #[cfg(unix)]
-    let mut directory =
-        acquire_directory(&data_dir.canonicalize().map_err(|error| {
-            CatalogError::Unavailable(format!("resolve data directory: {error}"))
-        })?)
-        .map_err(|error| {
-            CatalogError::Unavailable(if error.kind() == io::ErrorKind::WouldBlock {
-                format!("data directory {} is already in use", data_dir.display())
-            } else {
-                format!("lock data directory {}: {error}", data_dir.display())
-            })
-        })?;
+    let mut directory = acquire_directory(
+        &data_dir
+            .canonicalize()
+            .map_err(|error| lock_failure(format!("resolve data directory: {error}"), error))?,
+    )
+    .map_err(|error| {
+        if error.kind() == io::ErrorKind::WouldBlock {
+            in_use(data_dir)
+        } else {
+            lock_failure(
+                format!("lock data directory {}: {error}", data_dir.display()),
+                error,
+            )
+        }
+    })?;
     #[cfg(not(unix))]
     let mut directory = DirectoryLock(Vec::new());
     let file = OpenOptions::new()
@@ -69,14 +88,13 @@ pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
         .create(true)
         .truncate(false)
         .open(data_dir.join("catalog.lock"))
-        .map_err(|e| CatalogError::Unavailable(format!("open data directory lock: {e}")))?;
-    file.try_lock().map_err(|e| {
-        CatalogError::Unavailable(match e {
-            TryLockError::WouldBlock => {
-                format!("data directory {} is already in use", data_dir.display())
-            }
-            TryLockError::Error(e) => format!("lock data directory {}: {e}", data_dir.display()),
-        })
+        .map_err(|e| lock_failure(format!("open data directory lock: {e}"), e))?;
+    file.try_lock().map_err(|e| match e {
+        TryLockError::WouldBlock => in_use(data_dir),
+        TryLockError::Error(e) => lock_failure(
+            format!("lock data directory {}: {e}", data_dir.display()),
+            e,
+        ),
     })?;
     // Keep the file in place: unlinking it would let another process lock a different inode.
     directory.0.push(file);

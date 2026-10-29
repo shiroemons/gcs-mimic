@@ -291,7 +291,7 @@ impl From<ObjectError> for JsonError {
             ),
             ObjectError::InvalidFixedMetadata(reason) => Self::invalid_argument(reason),
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
-            ObjectError::Unavailable(message) => Self::backend(&message),
+            ObjectError::Unavailable(cause) => Self::backend(cause.message()),
             ObjectError::Io(kind) => Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "backendError",

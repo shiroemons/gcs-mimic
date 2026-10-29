@@ -365,21 +365,13 @@ async fn truncate_staging(path: &std::path::Path, offset: u64) -> Result<(), Jso
         .write(true)
         .open(path)
         .await
-        .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
-    if file
-        .metadata()
-        .await
-        .map_err(|e| ObjectError::Unavailable(e.to_string()))?
-        .len()
-        < offset
-    {
+        .map_err(ObjectError::backend)?;
+    if file.metadata().await.map_err(ObjectError::backend)?.len() < offset {
         return Err(
             ObjectError::Unavailable("Acknowledged upload prefix is missing".into()).into(),
         );
     }
-    file.set_len(offset)
-        .await
-        .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
+    file.set_len(offset).await.map_err(ObjectError::backend)?;
     Ok(())
 }
 
@@ -408,7 +400,7 @@ fn completion_renderer(
         .map(crate::csek::CustomerKey::from_sha256);
     Ok(move |record: &ObjectRecord| {
         let mut value = json::object_resource_keyed(record, &base, projection, key)
-            .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
+            .map_err(ObjectError::backend)?;
         if let Some(fields) = &fields {
             fields.apply(&mut value);
         }

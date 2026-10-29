@@ -126,7 +126,7 @@ pub(crate) fn object_storage_class(
         .flatten()
         .map(|value| serde_json::from_str::<Autoclass>(&value))
         .transpose()
-        .map_err(|error| CatalogError::Corrupt(format!("bucket autoclass: {error}")))?;
+        .map_err(|error| CatalogError::Corrupt(format!("bucket autoclass: {error}").into()))?;
     Ok(autoclass::object_storage_class(
         config.as_ref(),
         requested,

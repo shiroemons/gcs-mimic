@@ -17,7 +17,9 @@ ALTER TABLE objects ADD COLUMN retain_until_time INTEGER CHECK((retain_until_tim
 PRAGMA user_version = 29;";
 
 pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let unavailable = |error: rusqlite::Error| CatalogError::Unavailable(error.to_string());
+    let unavailable = |error: rusqlite::Error| {
+        CatalogError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
+    };
     let transaction = connection.transaction().map_err(unavailable)?;
     transaction.execute_batch(SCHEMA).map_err(unavailable)?;
     transaction.commit().map_err(unavailable)

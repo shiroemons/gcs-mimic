@@ -47,20 +47,18 @@ CREATE TABLE derived_inputs (
 ) WITHOUT ROWID;
 PRAGMA user_version = 10;";
 
-fn unavailable(error: impl std::fmt::Display) -> ObjectError {
-    ObjectError::Unavailable(error.to_string())
-}
+use crate::storage::failure::object_unclassified;
 
 fn random_id() -> Result<String, ObjectError> {
     super::super::blob_id::BlobId::generate()
         .map(|id| id.to_hex())
-        .map_err(unavailable)
+        .map_err(object_unclassified)
 }
 
 fn stage_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
     super::super::blob_id::BlobId::parse(id)
         .map(|id| id.staging_path(data_dir))
-        .ok_or_else(|| unavailable("invalid opaque blob ID"))
+        .ok_or_else(|| object_unclassified("invalid opaque blob ID"))
 }
 
 /// A metadata snapshot and independent link to immutable bytes, including after source deletion.
@@ -206,8 +204,8 @@ struct Input {
 
 fn inputs(connection: &Connection, id: &str) -> Result<Vec<Input>, ObjectError> {
     connection.prepare("SELECT blob_id, start, length, size FROM derived_inputs WHERE transfer_id = ?1 ORDER BY position LIMIT 33")
-        .map_err(unavailable)?.query_map([id], |row| Ok(Input { id: row.get(0)?, start: row.get::<_, i64>(1)? as u64, length: row.get::<_, i64>(2)? as u64, size: row.get::<_, i64>(3)? as u64 }))
-        .map_err(unavailable)?.collect::<rusqlite::Result<_>>().map_err(unavailable)
+        .map_err(object_unclassified)?.query_map([id], |row| Ok(Input { id: row.get(0)?, start: row.get::<_, i64>(1)? as u64, length: row.get::<_, i64>(2)? as u64, size: row.get::<_, i64>(3)? as u64 }))
+        .map_err(object_unclassified)?.collect::<rusqlite::Result<_>>().map_err(object_unclassified)
 }
 
 fn transfer(
@@ -222,19 +220,19 @@ fn transfer(
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
         )
         .optional()
-        .map_err(unavailable)?
+        .map_err(object_unclassified)?
         .ok_or(ObjectError::DerivedTransferNotFound)?;
     if now >= deadline {
         return Err(ObjectError::DerivedTransferExpired);
     }
-    let hasher = Hasher::from_md5_state(&state, crc, offset as u64).map_err(unavailable)?;
+    let hasher = Hasher::from_md5_state(&state, crc, offset as u64).map_err(object_unclassified)?;
     Ok((
         DerivedTransfer {
             id: id.into(),
             total: total as u64,
             offset: offset as u64,
-            created: system_time_millis(created).map_err(unavailable)?,
-            deadline: system_time_millis(deadline).map_err(unavailable)?,
+            created: system_time_millis(created).map_err(object_unclassified)?,
+            deadline: system_time_millis(deadline).map_err(object_unclassified)?,
         },
         hasher,
     ))
@@ -294,18 +292,18 @@ impl Catalog {
         object.check_retention(now)?;
         connection
             .execute("DELETE FROM objects WHERE blob_id = ?1", [&id])
-            .map_err(unavailable)?;
+            .map_err(object_unclassified)?;
         connection
             .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [&id])
-            .map_err(unavailable)?;
-        connection.execute("INSERT INTO derived_deletions SELECT ?1, id FROM derived_transfers WHERE publishing = 1", [&id]).map_err(unavailable)?;
+            .map_err(object_unclassified)?;
+        connection.execute("INSERT INTO derived_deletions SELECT ?1, id FROM derived_transfers WHERE publishing = 1", [&id]).map_err(object_unclassified)?;
         super::change_journal::object(
             connection,
             super::change_journal::origin(access),
             super::change_journal::ChangeKind::Delete,
             &object,
         )
-        .map_err(unavailable)?;
+        .map_err(object_unclassified)?;
         Ok(())
     }
 
@@ -350,7 +348,7 @@ impl Catalog {
         }
         let data_dir = self.0.data_dir.clone();
         self.run_object(move |connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
+            let transaction = connection.transaction().map_err(object_unclassified)?;
             sources
                 .into_iter()
                 .map(|source| {
@@ -367,7 +365,7 @@ impl Catalog {
                     let id = random_id()?;
                     let path = stage_path(&data_dir, &id)?;
                     fs::hard_link(objects::blob_path(&data_dir, &original)?, &path)
-                        .map_err(unavailable)?;
+                        .map_err(object_unclassified)?;
                     Ok(DerivedSource {
                         object,
                         path: Some(path),
@@ -439,14 +437,14 @@ impl Catalog {
         })?;
         let permit = self.admit_object_upload()?;
         let data_dir = self.0.data_dir.clone();
-        let created = unix_millis(self.0.clock.now()).map_err(unavailable)?;
+        let created = unix_millis(self.0.clock.now()).map_err(object_unclassified)?;
         let deadline = created
             .checked_add(if ephemeral {
                 EPHEMERAL_LIFETIME_MILLIS
             } else {
                 LIFETIME_MILLIS
             })
-            .ok_or_else(|| unavailable("derived deadline overflow"))?;
+            .ok_or_else(|| object_unclassified("derived deadline overflow"))?;
         let id = random_id()?;
         let writer = self.derived_guard(&id)?;
         let mut owner = ephemeral.then(|| self.guard_derived_request(&id));
@@ -459,9 +457,9 @@ impl Catalog {
                         [ephemeral],
                         |row| row.get(0),
                     )
-                    .map_err(unavailable)?;
+                    .map_err(object_unclassified)?;
                 if count >= MAX_TRANSFERS_PER_KIND as i64 {
-                    return Err(unavailable("derived transfer limit reached"));
+                    return Err(object_unclassified("derived transfer limit reached"));
                 }
                 let path = stage_path(&data_dir, &id)?;
                 fs::OpenOptions::new()
@@ -469,14 +467,14 @@ impl Catalog {
                     .write(true)
                     .open(&path)
                     .and_then(|file| file.sync_all())
-                    .map_err(unavailable)?;
+                    .map_err(object_unclassified)?;
                 let mut preserve = false;
                 let result = (|| {
                     #[cfg(unix)]
-                    objects::sync_dir(&data_dir.join("staging")).map_err(unavailable)?;
+                    objects::sync_dir(&data_dir.join("staging")).map_err(object_unclassified)?;
                     let transaction = connection
                         .transaction_with_behavior(TransactionBehavior::Immediate)
-                        .map_err(unavailable)?;
+                        .map_err(object_unclassified)?;
                     transaction
                     .execute(
                         "INSERT INTO derived_transfers VALUES (?1, ?2, 0, ?3, 0, ?4, ?5, ?6, 0)",
@@ -487,7 +485,7 @@ impl Catalog {
                             ephemeral, created, deadline
                         ],
                     )
-                    .map_err(unavailable)?;
+                    .map_err(object_unclassified)?;
                     for (position, segment) in segments.iter().enumerate() {
                         transaction
                             .execute(
@@ -501,14 +499,14 @@ impl Catalog {
                                     segment.source.object.size as i64
                                 ],
                             )
-                            .map_err(unavailable)?;
+                            .map_err(object_unclassified)?;
                     }
                     let transfer = DerivedTransfer {
                         id: id.clone(),
                         total,
                         offset: 0,
-                        created: system_time_millis(created).map_err(unavailable)?,
-                        deadline: system_time_millis(deadline).map_err(unavailable)?,
+                        created: system_time_millis(created).map_err(object_unclassified)?,
+                        deadline: system_time_millis(deadline).map_err(object_unclassified)?,
                     };
                     bind(&transaction, &transfer)?;
                     if let Err(error) = transaction.commit() {
@@ -520,10 +518,10 @@ impl Catalog {
                                 [&id],
                                 |row| row.get(0),
                             )
-                            .map_err(unavailable)?;
+                            .map_err(object_unclassified)?;
                         if !committed {
                             preserve = false;
-                            return Err(unavailable(error));
+                            return Err(object_unclassified(error));
                         }
                     }
                     Ok(transfer)
@@ -542,7 +540,7 @@ impl Catalog {
                             }
                             return Err(error);
                         }
-                        objects::unlink(&path).map_err(unavailable)?;
+                        objects::unlink(&path).map_err(object_unclassified)?;
                         Err(error)
                     }
                 }
@@ -559,7 +557,7 @@ impl Catalog {
 
     fn derived_guard(&self, id: &str) -> Result<WriterGuard, ObjectError> {
         let id = format!("derived:{id}");
-        let mut writers = self.0.session_writers.lock().map_err(unavailable)?;
+        let mut writers = self.0.session_writers.lock().map_err(object_unclassified)?;
         if !writers.insert(id.clone()) {
             return Err(ObjectError::DerivedTransferBusy);
         }
@@ -571,7 +569,7 @@ impl Catalog {
 
     pub(crate) async fn get_derived(&self, id: &str) -> Result<DerivedTransfer, ObjectError> {
         let id = id.to_owned();
-        let now = unix_millis(self.0.clock.now()).map_err(unavailable)?;
+        let now = unix_millis(self.0.clock.now()).map_err(object_unclassified)?;
         self.run_object(move |connection| transfer(connection, &id, now).map(|value| value.0))
             .await
     }
@@ -592,45 +590,45 @@ impl Catalog {
             let (_permit, _guard) = (permit, guard);
             let query = id.clone();
             let data_dir = catalog.0.data_dir.clone();
-            let now = unix_millis(catalog.0.clock.now()).map_err(unavailable)?;
+            let now = unix_millis(catalog.0.clock.now()).map_err(object_unclassified)?;
             let (mut progress, mut hasher, sources) = catalog.run_upload(move |connection| {
                 let (progress, hasher) = transfer(connection, &query, now)?;
                 restore_stage(&data_dir, &query)?;
                 Ok((progress, hasher, inputs(connection, &query)?))
             }).await?;
             let path = stage_path(&catalog.0.data_dir, &id)?;
-            let mut output = tokio::fs::OpenOptions::new().write(true).open(path).await.map_err(unavailable)?;
-            output.set_len(progress.offset).await.map_err(unavailable)?;
-            output.seek(io::SeekFrom::Start(progress.offset)).await.map_err(unavailable)?;
+            let mut output = tokio::fs::OpenOptions::new().write(true).open(path).await.map_err(object_unclassified)?;
+            output.set_len(progress.offset).await.map_err(object_unclassified)?;
+            output.seek(io::SeekFrom::Start(progress.offset)).await.map_err(object_unclassified)?;
             let target = progress.offset.saturating_add(budget).min(progress.total);
             let mut skip = progress.offset;
             let mut buffer = [0_u8; BUFFER_SIZE];
             for source in sources {
                 if skip >= source.length { skip -= source.length; continue; }
                 if progress.offset == target { break; }
-                let mut input = tokio::fs::File::open(stage_path(&catalog.0.data_dir, &source.id)?).await.map_err(unavailable)?;
-                input.seek(io::SeekFrom::Start(source.start + skip)).await.map_err(unavailable)?;
+                let mut input = tokio::fs::File::open(stage_path(&catalog.0.data_dir, &source.id)?).await.map_err(object_unclassified)?;
+                input.seek(io::SeekFrom::Start(source.start + skip)).await.map_err(object_unclassified)?;
                 let mut remaining = (source.length - skip).min(target - progress.offset);
                 skip = 0;
                 while remaining > 0 {
-                    if catalog.0.admission.is_closed() { return Err(unavailable("catalog is closing")); }
+                    if catalog.0.admission.is_closed() { return Err(object_unclassified("catalog is closing")); }
                     let length = remaining.min(BUFFER_SIZE as u64) as usize;
-                    input.read_exact(&mut buffer[..length]).await.map_err(unavailable)?;
-                    output.write_all(&buffer[..length]).await.map_err(unavailable)?;
+                    input.read_exact(&mut buffer[..length]).await.map_err(object_unclassified)?;
+                    output.write_all(&buffer[..length]).await.map_err(object_unclassified)?;
                     hasher.update(&buffer[..length]);
                     progress.offset += length as u64;
                     remaining -= length as u64;
                 }
             }
             // sync_all drops the error of tokio's background tail write; flush reports it.
-            output.flush().await.map_err(unavailable)?;
-            output.sync_all().await.map_err(unavailable)?;
+            output.flush().await.map_err(object_unclassified)?;
+            output.sync_all().await.map_err(object_unclassified)?;
             catalog.run_upload(move |connection| {
                 let (md5_state, crc) = hasher.md5_state();
-                connection.execute("UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4 WHERE id = ?1", params![id, progress.offset as i64, md5_state.as_slice(), crc]).map_err(unavailable)?;
+                connection.execute("UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4 WHERE id = ?1", params![id, progress.offset as i64, md5_state.as_slice(), crc]).map_err(object_unclassified)?;
                 Ok(progress)
             }).await
-        }).await.map_err(unavailable)?
+        }).await.map_err(object_unclassified)?
     }
 
     /// The callback joins protocol-specific completion state to the same destination commit.
@@ -691,10 +689,12 @@ impl Catalog {
         let execution = match admission_deadline {
             Some(deadline) => tokio::time::timeout_at(deadline, execution)
                 .await
-                .map_err(|_| unavailable("derived publication catalog admission timed out"))?,
+                .map_err(|_| {
+                    object_unclassified("derived publication catalog admission timed out")
+                })?,
             None => execution.await,
         }
-        .map_err(unavailable)?;
+        .map_err(object_unclassified)?;
         let catalog = self.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
@@ -703,31 +703,31 @@ impl Catalog {
             let data_dir = catalog.0.data_dir.clone();
             let clock = catalog.0.clock.clone();
             let result = catalog.run_upload_admitted(execution, move |connection| {
-                let (progress, hasher) = transfer(connection, &query, unix_millis(clock.now()).map_err(unavailable)?)?;
+                let (progress, hasher) = transfer(connection, &query, unix_millis(clock.now()).map_err(object_unclassified)?)?;
                 let sources = inputs(connection, &query)?;
                 if progress.offset != progress.total { return Err(ObjectError::DerivedTransferIncomplete); }
                 let Hashes { md5, crc32c } = hasher.finish();
                 restore_stage(&data_dir, &query)?;
                 let stage = stage_path(&data_dir, &query)?;
-                objects::publish_blob(&stage, &objects::blob_path(&data_dir, &query)?).map_err(unavailable)?;
-                let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
+                objects::publish_blob(&stage, &objects::blob_path(&data_dir, &query)?).map_err(object_unclassified)?;
+                let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(object_unclassified)?;
                 let (default_class, allow_overwrite) = objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
-                let micros = unix_micros(clock.now()).map_err(unavailable)?;
+                let micros = unix_micros(clock.now()).map_err(object_unclassified)?;
                 let cached = replay.as_ref().map(|replay| replay.cached(&transaction, micros)).transpose()?.flatten();
                 let record = if let Some(record) = cached {
-                    transaction.execute("INSERT INTO pending_blob_deletions(blob_id) VALUES (?1)", [&query]).map_err(unavailable)?;
+                    transaction.execute("INSERT INTO pending_blob_deletions(blob_id) VALUES (?1)", [&query]).map_err(object_unclassified)?;
                     record
                 } else {
                 if replay.is_some() { super::upload_replay::capacity(&transaction, micros)?; }
                 // Autoclass ignores rewrite/copy/compose class requests and stores STANDARD.
-                let storage_class = super::bucket_autoclass::object_storage_class(&transaction, &destination.bucket, destination.storage_class.clone(), default_class).map_err(unavailable)?;
-                let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(&transaction, &destination.bucket).map_err(unavailable)?;
+                let storage_class = super::bucket_autoclass::object_storage_class(&transaction, &destination.bucket, destination.storage_class.clone(), default_class).map_err(object_unclassified)?;
+                let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(&transaction, &destination.bucket).map_err(object_unclassified)?;
                 let previous = objects::lookup(&transaction, &destination.bucket, &destination.name)?;
                 objects::check_publication(previous.as_ref(), destination.conditions, allow_overwrite, clock.now())?;
                 if destination.expected.md5.is_some_and(|hash| hash != md5) || destination.expected.crc32c.is_some_and(|hash| hash != crc32c) { return Err(ObjectError::ChecksumMismatch); }
                 let now = clock.now();
-                now.duration_since(std::time::UNIX_EPOCH).map_err(unavailable)?;
-                let time = system_time_micros(micros).map_err(unavailable)?;
+                now.duration_since(std::time::UNIX_EPOCH).map_err(object_unclassified)?;
+                let time = system_time_micros(micros).map_err(object_unclassified)?;
                 let (record, _retired, ()) = objects::publish_in_transaction(&transaction, micros, objects::GenerationAssignment::Automatic, previous.as_ref(), versioning, &query, super::change_journal::origin(&destination.access), |generation| {
                 crate::bucket::validate_storage_class(&storage_class).map_err(|error| ObjectError::UnsupportedMetadata(error.to_string()))?;
                 let mut record = ObjectRecord {
@@ -740,7 +740,7 @@ impl Catalog {
                     temporary_hold: false, custom_time: None, retention_expiration_time: None, retention: None, customer_key_sha256: None,
                 };
                 destination.metadata.apply(&mut record)?;
-                transaction.execute("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query]).map_err(unavailable)?;
+                transaction.execute("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query]).map_err(object_unclassified)?;
                 prepare(&transaction, &mut record)?;
                 Ok((record, ()))
                 })?;
@@ -748,9 +748,9 @@ impl Catalog {
                 if let Some(replay) = &replay { replay.store(&transaction, micros, &record)?; }
                 record
                 };
-                transaction.execute("DELETE FROM derived_inputs WHERE transfer_id = ?1", [&query]).map_err(unavailable)?;
-                transaction.execute("DELETE FROM derived_transfers WHERE id = ?1", [&query]).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
+                transaction.execute("DELETE FROM derived_inputs WHERE transfer_id = ?1", [&query]).map_err(object_unclassified)?;
+                transaction.execute("DELETE FROM derived_transfers WHERE id = ?1", [&query]).map_err(object_unclassified)?;
+                transaction.commit().map_err(object_unclassified)?;
                 for source in sources {
                     if let Err(error) = objects::unlink(&stage_path(&data_dir, &source.id)?) {
                         crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred derived source cleanup: {error}")}));
@@ -768,7 +768,7 @@ impl Catalog {
                 crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred derived cleanup: {error}")}));
             }
             result
-        }).await.map_err(unavailable)?
+        }).await.map_err(object_unclassified)?
     }
 
     async fn cleanup_derived(&self, id: &str) -> Result<(), ObjectError> {
@@ -798,8 +798,8 @@ impl Catalog {
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
         let mut failure = self.reclaim_pending().await.err();
         let due = self.run_object(move |connection| {
-            connection.prepare("SELECT id FROM derived_transfers WHERE deadline <= ?1 ORDER BY id LIMIT 128").map_err(unavailable)?
-                .query_map([now], |row| row.get::<_, String>(0)).map_err(unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
+            connection.prepare("SELECT id FROM derived_transfers WHERE deadline <= ?1 ORDER BY id LIMIT 128").map_err(object_unclassified)?
+                .query_map([now], |row| row.get::<_, String>(0)).map_err(object_unclassified)?.collect::<rusqlite::Result<Vec<_>>>().map_err(object_unclassified)
         }).await.map_err(super::unavailable)?;
         for id in due {
             let _guard = match self.derived_guard(&id) {
@@ -853,15 +853,15 @@ fn reclaim_derived_deletions(
     data_dir: &Path,
     transfer_id: Option<&str>,
 ) -> Result<(), ObjectError> {
-    let ids = connection.prepare("SELECT blob_id FROM derived_deletions WHERE (?1 IS NULL OR transfer_id = ?1) ORDER BY blob_id LIMIT 128").map_err(unavailable)?
-        .query_map([transfer_id], |row| row.get::<_, String>(0)).map_err(unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)?;
+    let ids = connection.prepare("SELECT blob_id FROM derived_deletions WHERE (?1 IS NULL OR transfer_id = ?1) ORDER BY blob_id LIMIT 128").map_err(object_unclassified)?
+        .query_map([transfer_id], |row| row.get::<_, String>(0)).map_err(object_unclassified)?.collect::<rusqlite::Result<Vec<_>>>().map_err(object_unclassified)?;
     let mut failure = None;
     for id in ids {
         match objects::reclaim(connection, data_dir, &id) {
             Ok(()) => {
                 connection
                     .execute("DELETE FROM derived_deletions WHERE blob_id = ?1", [id])
-                    .map_err(unavailable)?;
+                    .map_err(object_unclassified)?;
             }
             Err(error) => failure = Some(error),
         }
@@ -876,21 +876,21 @@ fn cleanup_record(connection: &Connection, data_dir: &Path, id: &str) -> Result<
             [id],
             |row| row.get(0),
         )
-        .map_err(unavailable)?;
+        .map_err(object_unclassified)?;
     if !exists {
         return Err(ObjectError::DerivedTransferNotFound);
     }
     for source in inputs(connection, id)? {
-        objects::unlink(&stage_path(data_dir, &source.id)?).map_err(unavailable)?;
+        objects::unlink(&stage_path(data_dir, &source.id)?).map_err(object_unclassified)?;
     }
-    objects::unlink(&stage_path(data_dir, id)?).map_err(unavailable)?;
+    objects::unlink(&stage_path(data_dir, id)?).map_err(object_unclassified)?;
     let referenced: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
             [id],
             |row| row.get(0),
         )
-        .map_err(unavailable)?;
+        .map_err(object_unclassified)?;
     if !referenced {
         objects::reclaim(connection, data_dir, id)?;
     }
@@ -898,20 +898,22 @@ fn cleanup_record(connection: &Connection, data_dir: &Path, id: &str) -> Result<
 }
 
 fn discard_record(connection: &Connection, id: &str) -> Result<(), ObjectError> {
-    let transaction = connection.unchecked_transaction().map_err(unavailable)?;
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(object_unclassified)?;
     transaction
         .execute("DELETE FROM derived_inputs WHERE transfer_id = ?1", [id])
-        .map_err(unavailable)?;
+        .map_err(object_unclassified)?;
     transaction
         .execute("DELETE FROM derived_transfers WHERE id = ?1", [id])
-        .map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
+        .map_err(object_unclassified)?;
+    transaction.commit().map_err(object_unclassified)
 }
 
 fn restore_stage(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
     let stage = stage_path(data_dir, id)?;
-    if !stage.try_exists().map_err(unavailable)? {
-        fs::rename(objects::blob_path(data_dir, id)?, &stage).map_err(unavailable)?;
+    if !stage.try_exists().map_err(object_unclassified)? {
+        fs::rename(objects::blob_path(data_dir, id)?, &stage).map_err(object_unclassified)?;
     }
     Ok(stage)
 }
@@ -926,21 +928,21 @@ pub(super) fn recover(
         "SELECT EXISTS(SELECT 1 FROM derived_transfers GROUP BY ephemeral HAVING count(*) > ?1)",
         [MAX_TRANSFERS_PER_KIND as i64],
         |row| row.get(0),
-    ).map_err(unavailable)?;
+    ).map_err(object_unclassified)?;
     if over_limit {
-        return Err(unavailable("too many derived transfers"));
+        return Err(object_unclassified("too many derived transfers"));
     }
     let ids = connection
         .prepare("SELECT id FROM derived_transfers ORDER BY id LIMIT ?1")
-        .map_err(unavailable)?
+        .map_err(object_unclassified)?
         .query_map([(2 * MAX_TRANSFERS_PER_KIND + 1) as i64], |row| {
             row.get::<_, String>(0)
         })
-        .map_err(unavailable)?
+        .map_err(object_unclassified)?
         .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(unavailable)?;
+        .map_err(object_unclassified)?;
     if ids.len() > 2 * MAX_TRANSFERS_PER_KIND {
-        return Err(unavailable("too many derived transfers"));
+        return Err(object_unclassified("too many derived transfers"));
     }
     for id in ids {
         let (ephemeral, deadline): (bool, i64) = connection
@@ -949,7 +951,7 @@ pub(super) fn recover(
                 [&id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
-            .map_err(unavailable)?;
+            .map_err(object_unclassified)?;
         if ephemeral || deadline <= now {
             discard_record(connection, &id)?;
             continue;
@@ -961,19 +963,23 @@ pub(super) fn recover(
                 || sources.len() > 32
                 || sources.iter().map(|source| source.length).sum::<u64>() != progress.total
             {
-                return Err(unavailable("invalid derived sources"));
+                return Err(object_unclassified("invalid derived sources"));
             }
             let stage = restore_stage(data_dir, &id)?;
             let mut output = fs::OpenOptions::new()
                 .write(true)
                 .read(true)
                 .open(stage)
-                .map_err(unavailable)?;
-            if output.metadata().map_err(unavailable)?.len() < progress.offset {
-                return Err(unavailable("derived prefix is shorter than its checkpoint"));
+                .map_err(object_unclassified)?;
+            if output.metadata().map_err(object_unclassified)?.len() < progress.offset {
+                return Err(object_unclassified(
+                    "derived prefix is shorter than its checkpoint",
+                ));
             }
-            output.set_len(progress.offset).map_err(unavailable)?;
-            output.sync_all().map_err(unavailable)?;
+            output
+                .set_len(progress.offset)
+                .map_err(object_unclassified)?;
+            output.sync_all().map_err(object_unclassified)?;
             // A same-length corrupted prefix must not inherit the acknowledged hash state.
             let mut hasher = Hasher::default();
             let mut remaining = progress.offset;
@@ -981,20 +987,20 @@ pub(super) fn recover(
             while remaining > 0 {
                 let length = remaining.min(BUFFER_SIZE as u64) as usize;
                 std::io::Read::read_exact(&mut output, &mut buffer[..length])
-                    .map_err(unavailable)?;
+                    .map_err(object_unclassified)?;
                 hasher.update(&buffer[..length]);
                 remaining -= length as u64;
             }
             if hasher.finish() != saved_hash.finish() {
-                return Err(unavailable(
+                return Err(object_unclassified(
                     "derived prefix checksum differs from checkpoint",
                 ));
             }
             for source in sources {
-                let metadata =
-                    fs::symlink_metadata(stage_path(data_dir, &source.id)?).map_err(unavailable)?;
+                let metadata = fs::symlink_metadata(stage_path(data_dir, &source.id)?)
+                    .map_err(object_unclassified)?;
                 if !metadata.is_file() || metadata.len() != source.size {
-                    return Err(unavailable("invalid pinned derived source"));
+                    return Err(object_unclassified("invalid pinned derived source"));
                 }
             }
             Ok::<_, ObjectError>(())
@@ -1492,7 +1498,7 @@ mod tests {
                         ephemeral,
                     )
                     .await,
-                Err(unavailable("derived transfer limit reached"))
+                Err(object_unclassified("derived transfer limit reached"))
             );
         }
         assert_eq!(
@@ -1513,7 +1519,7 @@ mod tests {
             catalog
                 .begin_derived(vec![source(&catalog, "source").await.whole()], 5)
                 .await,
-            Err(unavailable("derived transfer limit reached"))
+            Err(object_unclassified("derived transfer limit reached"))
         );
         let ephemeral = catalog
             .begin_derived_ephemeral(vec![source(&catalog, "source").await.whole()], 5)
@@ -1644,9 +1650,9 @@ mod tests {
             .unwrap();
         assert!(matches!(
             catalog
-                .publish_derived(&transfer.id, destination("copy"), |_, _| Err(unavailable(
-                    "retryable callback failure"
-                )))
+                .publish_derived(&transfer.id, destination("copy"), |_, _| Err(
+                    object_unclassified("retryable callback failure")
+                ))
                 .await,
             Err(ObjectError::Unavailable(_))
         ));
@@ -1674,7 +1680,7 @@ mod tests {
                     assert_eq!(inputs(connection, &transfer.id)?.len(), 1);
                     connection
                         .execute("UPDATE startup_seed SET complete = 1", [])
-                        .map_err(unavailable)?;
+                        .map_err(object_unclassified)?;
                     Err(ObjectError::PreconditionFailed)
                 },
             )
@@ -1697,7 +1703,7 @@ mod tests {
                     assert_eq!(inputs(connection, &transfer.id)?.len(), 1);
                     connection
                         .execute("UPDATE startup_seed SET complete = 1", [])
-                        .map_err(unavailable)?;
+                        .map_err(object_unclassified)?;
                     Ok(())
                 },
             )
@@ -1946,8 +1952,8 @@ mod tests {
                     &BucketAccess::Permissive,
                     std::time::SystemTime::now(),
                 )?;
-                fs::remove_file(&failed_blob).map_err(unavailable)?;
-                fs::create_dir(&failed_blob).map_err(unavailable)?;
+                fs::remove_file(&failed_blob).map_err(object_unclassified)?;
+                fs::create_dir(&failed_blob).map_err(object_unclassified)?;
                 Ok(())
             })
             .await
@@ -1962,7 +1968,7 @@ mod tests {
                     .query_row("SELECT count(*) FROM derived_deletions", [], |row| {
                         row.get::<_, i64>(0)
                     })
-                    .map_err(unavailable)
+                    .map_err(object_unclassified)
             })
             .await
             .unwrap();

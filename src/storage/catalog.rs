@@ -5,6 +5,7 @@ use crate::bucket::{
     cors_from_value, cors_value, valid_label, validate_cors, validate_storage_class,
 };
 use crate::clock::{Clock, SystemClock};
+use crate::storage::failure::unavailable;
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, TransactionBehavior, params, types::Type,
 };
@@ -500,6 +501,12 @@ impl std::error::Error for ConnectionUnavailable {
     }
 }
 
+impl crate::storage::failure::StorageCause for ConnectionUnavailable {
+    fn into_cause(self) -> crate::storage::failure::BackendCause {
+        crate::storage::failure::BackendCause::from_error(self)
+    }
+}
+
 /// Why a transaction abandoned by a panic could not be confirmed as rolled back.
 #[derive(Debug)]
 enum RollbackError {
@@ -701,7 +708,7 @@ impl Catalog {
             if check != "ok" {
                 return Err(CatalogError::Unavailable(format!(
                     "catalog quick_check failed: {check}"
-                )));
+                ).into()));
             }
             if version == 0 {
                 let tables: i64 = connection
@@ -1435,9 +1442,9 @@ impl Catalog {
         limit: usize,
     ) -> Result<BucketListPage, CatalogError> {
         if limit > MAX_LIST_LIMIT {
-            return Err(CatalogError::Unavailable(format!(
-                "list limit exceeds {MAX_LIST_LIMIT}"
-            )));
+            return Err(CatalogError::Unavailable(
+                format!("list limit exceeds {MAX_LIST_LIMIT}").into(),
+            ));
         }
         if projects.as_ref().is_some_and(Vec::is_empty) {
             return Ok(BucketListPage {
@@ -1687,16 +1694,6 @@ fn insert_bucket_in_transaction(
         )
         .map_err(unavailable)?;
     Ok(())
-}
-
-fn unavailable(error: impl std::fmt::Display + std::any::Any) -> CatalogError {
-    if let Some(reason) = admin::corrupt_reason(&error) {
-        return CatalogError::Corrupt(reason);
-    }
-    match admin::io_kind(&error) {
-        Some(kind) => CatalogError::Io(kind),
-        None => CatalogError::Unavailable(error.to_string()),
-    }
 }
 
 fn unix_millis(time: SystemTime) -> Result<i64, CatalogError> {

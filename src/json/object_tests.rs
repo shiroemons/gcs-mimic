@@ -805,7 +805,7 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
             "The provided encryption key is incorrect.",
         ),
         (
-            ObjectError::Unavailable("data/catalog.sqlite3".to_owned()),
+            ObjectError::Unavailable("data/catalog.sqlite3".into()),
             503,
             "backendError",
             "Object storage is unavailable: internal storage failure (private backend details withheld)",

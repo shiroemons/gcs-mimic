@@ -1183,7 +1183,7 @@ async fn finalize_session(
                     "http://localhost",
                     crate::json::Projection::NoAcl,
                 )
-                .map_err(|error| ObjectError::Unavailable(error.to_string()))
+                .map_err(ObjectError::backend)
             },
         )
         .await
@@ -1207,7 +1207,7 @@ async fn disk_full_during_resumable_retirement_preserves_the_same_session_and_by
         finalize_session(&catalog, &session.id, b"hello")
             .await
             .unwrap_err(),
-        super::super::ResumableError::Object(ObjectError::Io(io::ErrorKind::StorageFull))
+        super::super::ResumableError::Object(ObjectError::Io(io::ErrorKind::StorageFull.into()))
     );
     let retained = catalog
         .resumable_session(&session.id, bucket.as_str())
@@ -1289,7 +1289,7 @@ async fn disk_full_during_derived_retirement_preserves_the_same_transfer_and_byt
             .publish_derived(&transfer.id, destination(), |_, _| Ok(()))
             .await
             .unwrap_err(),
-        ObjectError::Io(io::ErrorKind::StorageFull)
+        ObjectError::Io(io::ErrorKind::StorageFull.into())
     );
     assert_eq!(catalog.get_derived(&transfer.id).await.unwrap().offset, 9);
     assert_eq!(

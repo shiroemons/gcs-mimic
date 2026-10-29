@@ -16,7 +16,7 @@ impl ObjectMetadataRequest {
         base: &str,
     ) -> Result<(), ObjectError> {
         let resource = super::object_resource(record, base, super::Projection::Full)
-            .map_err(|error| ObjectError::Unavailable(error.to_string()))?;
+            .map_err(ObjectError::backend)?;
         for (key, value) in unchanged {
             let same_integer = matches!(key.as_str(), "generation" | "metageneration" | "size")
                 && value.as_u64().is_some_and(|number| {

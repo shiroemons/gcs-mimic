@@ -299,7 +299,9 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
     }
     let options = serde_json::from_str(&options)
         .map_err(object_unavailable)
-        .and_then(|value| decode_options(&value).map_err(ObjectError::Corrupt))?;
+        .and_then(|value| {
+            decode_options(&value).map_err(|reason| ObjectError::Corrupt(reason.into()))
+        })?;
     Ok(Lookup::Live(Box::new(Row {
         generation,
         blob_id,

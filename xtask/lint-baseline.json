@@ -48,7 +48,7 @@
       "src/storage/catalog/resumable.rs": 1
     },
     "text::unavailable_helper": {
-      "(all files)": 5
+      "(all files)": 1
     },
     "text::uncached_prepare": {
       "src/storage/catalog.rs": 2,

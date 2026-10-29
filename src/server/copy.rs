@@ -139,7 +139,7 @@ pub(super) async fn execute(
                             [&destination.bucket],
                             |row| row.get(0),
                         )
-                        .map_err(|error| ObjectError::Unavailable(error.to_string()))?;
+                        .map_err(ObjectError::backend)?;
                     destination.component_count = json::derived_component_count(
                         &source_record,
                         &destination.storage_class,

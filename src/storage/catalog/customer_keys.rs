@@ -19,15 +19,15 @@ use rusqlite::Connection;
 pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN customer_key_sha256 BLOB CHECK(customer_key_sha256 IS NULL OR length(customer_key_sha256) = 32); PRAGMA user_version = 30;";
 
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection
-        .transaction()
-        .map_err(|error| CatalogError::Unavailable(error.to_string()))?;
-    transaction
-        .execute_batch(SCHEMA)
-        .map_err(|error| CatalogError::Unavailable(error.to_string()))?;
-    transaction
-        .commit()
-        .map_err(|error| CatalogError::Unavailable(error.to_string()))
+    let transaction = connection.transaction().map_err(|error| {
+        CatalogError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
+    })?;
+    transaction.execute_batch(SCHEMA).map_err(|error| {
+        CatalogError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
+    })?;
+    transaction.commit().map_err(|error| {
+        CatalogError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
+    })
 }
 
 pub(super) fn decode(value: Option<Vec<u8>>) -> rusqlite::Result<Option<[u8; 32]>> {

@@ -339,7 +339,7 @@ pub(super) fn recover(
                 reclaim(connection, data_dir, &id).map_err(|error| {
                     let reason = match error {
                         ObjectError::Unavailable(reason) => reason,
-                        error => error.to_string(),
+                        error => error.to_string().into(),
                     };
                     object_unavailable(format!("deletion journal blob {id}: {reason}"))
                 })?;
@@ -1287,7 +1287,7 @@ async fn write_body(
             .ok_or_else(|| ObjectError::BodyAborted("missing body EOF".into()))?
             .map_err(|error| {
                 if error.kind() == io::ErrorKind::StorageFull {
-                    ObjectError::Io(error.kind())
+                    ObjectError::Io(error.into())
                 } else {
                     ObjectError::BodyAborted(error.to_string())
                 }
@@ -1341,15 +1341,7 @@ async fn write_body(
     ))
 }
 
-pub(super) fn object_unavailable(error: impl std::fmt::Display + std::any::Any) -> ObjectError {
-    if let Some(reason) = super::admin::corrupt_reason(&error) {
-        return ObjectError::Corrupt(reason);
-    }
-    match super::admin::io_kind(&error) {
-        Some(kind) => ObjectError::Io(kind),
-        None => ObjectError::Unavailable(error.to_string()),
-    }
-}
+pub(super) use crate::storage::failure::object_unavailable;
 
 fn prefix_end(prefix: &str) -> Option<Vec<u8>> {
     let mut end = prefix.as_bytes().to_vec();

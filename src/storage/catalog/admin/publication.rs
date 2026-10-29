@@ -2,7 +2,7 @@
 
 use super::objects::object_unavailable as objects_error;
 use super::*;
-use crate::{fsutil, hashing::Hasher};
+use crate::{fsutil, hashing::Hasher, storage::failure::BackendCause};
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
@@ -705,10 +705,10 @@ fn commit_batch(
 
 fn objects_error_admin(error: AdminError) -> ObjectError {
     match error {
-        AdminError::DiskFull => ObjectError::Io(io::ErrorKind::StorageFull),
-        AdminError::Io(kind) => ObjectError::Io(kind),
-        AdminError::Corrupt(reason) => ObjectError::Corrupt(reason),
-        error => ObjectError::Unavailable(error.to_string()),
+        AdminError::DiskFull => ObjectError::Io(io::ErrorKind::StorageFull.into()),
+        AdminError::Io(kind) => ObjectError::Io(kind.into()),
+        AdminError::Corrupt(reason) => ObjectError::Corrupt(reason.into()),
+        error => ObjectError::Unavailable(BackendCause::from_error(error)),
     }
 }
 
