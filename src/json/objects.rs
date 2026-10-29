@@ -443,9 +443,7 @@ pub fn parse_object_upload_headers(
 ) -> Result<(String, ExpectedHashes), JsonError> {
     unsupported_headers(headers, &[crate::csek::DESTINATION_PREFIX])?;
     validate_read_condition_headers(headers, false)?;
-    if let Some(mime) = super::resumable::single(headers, "x-upload-content-type")?
-        && !mime.is_empty()
-    {
+    if let Some(mime) = super::resumable::single(headers, "x-upload-content-type")? {
         crate::object::validate_fixed_metadata("contentType", mime)?;
         let mut advisory = HeaderMap::new();
         advisory.insert(

@@ -216,6 +216,53 @@ async fn upload_replay_full_projection_rechecks_revoked_acl_permission() {
 }
 
 #[tokio::test]
+async fn python_advisory_content_type_rejects_empty_malformed_and_duplicate_values() {
+    let h = Harness::start(1000, false, None).await;
+    for headers in [
+        "X-Upload-Content-Type: \r\n",
+        "X-Upload-Content-Type: not-a-mime\r\n",
+        "X-Upload-Content-Type: text/plain\r\nX-Upload-Content-Type: text/plain\r\n",
+    ] {
+        for upload_type in ["media", "multipart"] {
+            h.request(
+                "POST",
+                &format!("/upload/storage/v1/b/bucket/o?uploadType={upload_type}&name=advisory"),
+                &format!("{headers}Content-Type: multipart/related; boundary=unused\r\n"),
+                b"invalid body",
+            )
+            .await
+            .error(400, "invalidParameter");
+        }
+        // Invalid chunk headers terminate a session, so each rejection needs a fresh one.
+        let init = h
+            .initiate("name=advisory", "X-Upload-Content-Type: \r\n", b"")
+            .await;
+        assert_eq!(init.status, 200);
+        h.request("PUT", &h.path(&init), headers, b"abc")
+            .await
+            .error(400, "invalidParameter");
+        h.request("GET", "/storage/v1/b/bucket/o/advisory", "", b"")
+            .await
+            .error(404, "notFound");
+    }
+    // Initiation retains the existing Ruby-compatible empty-header fallback.
+    let init = h
+        .initiate("name=advisory", "X-Upload-Content-Type: \r\n", b"")
+        .await;
+    assert_eq!(init.status, 200);
+    let reply = h.request("PUT", &h.path(&init), "", b"abc").await;
+    assert_eq!(reply.status, 200);
+    assert_eq!(reply.json()["contentType"], "application/octet-stream");
+    assert_eq!(
+        h.request("GET", "/storage/v1/b/bucket/o/advisory?alt=media", "", b"")
+            .await
+            .body,
+        b"abc"
+    );
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn python_upload_content_type_is_advisory_after_initiation() {
     let h = Harness::start(1000, false, None).await;
     let init = h.initiate("name=python", "Content-Type: application/json\r\nX-Upload-Content-Type: text/advisory\r\nX-Upload-Content-Length: 3\r\n", br#"{"contentType":"text/metadata"}"#).await;
