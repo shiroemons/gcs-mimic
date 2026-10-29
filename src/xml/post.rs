@@ -6,7 +6,10 @@
 
 use super::{Error, ObjectPath, put::storage_error};
 use crate::{
-    auth::{self, signature::Failure},
+    auth::{
+        self,
+        signature::{self, Failure, MAX_EXPIRES},
+    },
     config::Config,
     json::{self, JsonError},
     object::{
@@ -239,11 +242,15 @@ fn unconditioned(field: &str) -> bool {
 
 /// Check every condition against the submitted form and require a condition for every
 /// field. Returns the inclusive content-length-range, if any.
+///
+/// `signed_at` is the x-goog-date of a verified signature. It is absent in the permissive
+/// profile, which ignores policy credentials.
 fn check_policy(
     encoded: &str,
     fields: &BTreeMap<String, String>,
     bucket: &str,
     now: SystemTime,
+    signed_at: Option<SystemTime>,
 ) -> Result<Option<(u64, u64)>, Error> {
     let document = decode_base64(encoded)
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
@@ -268,6 +275,26 @@ fn check_policy(
         })?;
     if now >= expires {
         return Err(policy_error("Invalid according to Policy: Policy expired."));
+    }
+    // Without these bounds a leaked signature could authorize uploads indefinitely, so a
+    // verified policy gets the same validity window as a V4 signed URL.
+    if let Some(active) = signed_at {
+        if now
+            .checked_add(Duration::from_secs(900))
+            .is_none_or(|now| now < active)
+        {
+            return Err(policy_error(
+                "Invalid according to Policy: Policy not yet valid.",
+            ));
+        }
+        if active
+            .checked_add(Duration::from_secs(MAX_EXPIRES))
+            .is_none_or(|limit| expires > limit)
+        {
+            return Err(policy_error(
+                "The policy expiration must be no more than 7 days after x-goog-date.",
+            ));
+        }
     }
     let conditions = document
         .get("conditions")
@@ -605,7 +632,13 @@ pub(crate) async fn respond(
     };
     let range = fields
         .get("policy")
-        .map(|policy| check_policy(policy, fields, &bucket, state.clock.now()))
+        .map(|policy| {
+            let signed_at = caller
+                .is_some()
+                .then(|| signature::parse_timestamp(&fields["x-goog-date"]).ok())
+                .flatten();
+            check_policy(policy, fields, &bucket, state.clock.now(), signed_at)
+        })
         .transpose()?
         .flatten();
     let access = authorize_bucket(state, caller, auth::OBJECTS_CREATE, &bucket)
@@ -827,7 +860,7 @@ mod tests {
         ] {
             let encoded = policy(expiration, sdk_conditions());
             assert_eq!(
-                check_policy(&encoded, &sdk_fields(), "b", at(NOW)).unwrap(),
+                check_policy(&encoded, &sdk_fields(), "b", at(NOW), None).unwrap(),
                 None,
                 "{expiration}"
             );
@@ -835,16 +868,40 @@ mod tests {
     }
 
     #[test]
+    fn verified_policy_uses_the_signed_url_validity_window() {
+        let seven_days = "2026-11-05T00:00:00Z";
+        let encoded = policy(seven_days, sdk_conditions());
+        let fields = sdk_fields();
+        check_policy(&encoded, &fields, "b", at(NOW), Some(at(NOW))).unwrap();
+        check_policy(&encoded, &fields, "b", at(NOW - 900), Some(at(NOW))).unwrap();
+        // The permissive profile ignores credentials, so only the policy expiration applies.
+        let beyond = policy("2026-11-05T00:00:01Z", sdk_conditions());
+        check_policy(&beyond, &fields, "b", at(NOW), None).unwrap();
+        for (encoded, now, expected) in [
+            (&beyond, NOW, "no more than 7 days"),
+            (&encoded, NOW - 901, "Policy not yet valid"),
+        ] {
+            let (status, code, message) =
+                details(check_policy(encoded, &fields, "b", at(now), Some(at(NOW))).unwrap_err());
+            assert_eq!(
+                (status, code),
+                (StatusCode::BAD_REQUEST, "InvalidPolicyDocument")
+            );
+            assert!(message.contains(expected), "{message}");
+        }
+    }
+
+    #[test]
     fn policy_rejects_expiry_at_the_exact_instant_and_malformed_documents() {
         let encoded = policy("2026-10-29T00:00:00Z", sdk_conditions());
         let (status, code, message) =
-            details(check_policy(&encoded, &sdk_fields(), "b", at(NOW)).unwrap_err());
+            details(check_policy(&encoded, &sdk_fields(), "b", at(NOW), None).unwrap_err());
         assert_eq!(
             (status, code),
             (StatusCode::BAD_REQUEST, "InvalidPolicyDocument")
         );
         assert!(message.contains("Policy expired"), "{message}");
-        check_policy(&encoded, &sdk_fields(), "b", at(NOW - 1)).unwrap();
+        check_policy(&encoded, &sdk_fields(), "b", at(NOW - 1), None).unwrap();
         for encoded in [
             "not base64".to_owned(),
             base64(b"[]"),
@@ -856,7 +913,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                check_policy(&encoded, &sdk_fields(), "b", at(NOW))
+                check_policy(&encoded, &sdk_fields(), "b", at(NOW), None)
                     .unwrap_err()
                     .code,
                 "InvalidPolicyDocument",
@@ -878,7 +935,14 @@ mod tests {
             "image/"
         ]));
         conditions.push(serde_json::json!(["eq", "$x-goog-meta-owner", "alice"]));
-        check_policy(&policy(expiration, conditions.clone()), &form, "b", at(NOW)).unwrap();
+        check_policy(
+            &policy(expiration, conditions.clone()),
+            &form,
+            "b",
+            at(NOW),
+            None,
+        )
+        .unwrap();
         let cases: Vec<(Vec<serde_json::Value>, &str, &str)> = vec![
             // A different bucket target fails the bucket condition.
             (conditions.clone(), "other", "Policy condition failed"),
@@ -934,8 +998,14 @@ mod tests {
             ),
         ];
         for (conditions, bucket, expected) in cases {
-            let error =
-                check_policy(&policy(expiration, conditions), &form, bucket, at(NOW)).unwrap_err();
+            let error = check_policy(
+                &policy(expiration, conditions),
+                &form,
+                bucket,
+                at(NOW),
+                None,
+            )
+            .unwrap_err();
             assert_eq!(error.code, "InvalidPolicyDocument");
             assert!(error.message.contains(expected), "{}", error.message);
         }
@@ -949,7 +1019,14 @@ mod tests {
         let mut conditions = sdk_conditions();
         conditions.push(serde_json::json!(["content-length-range", 1, 10]));
         assert_eq!(
-            check_policy(&policy(expiration, conditions.clone()), &form, "b", at(NOW)).unwrap(),
+            check_policy(
+                &policy(expiration, conditions.clone()),
+                &form,
+                "b",
+                at(NOW),
+                None
+            )
+            .unwrap(),
             Some((1, 10))
         );
         for range in [
@@ -960,7 +1037,7 @@ mod tests {
         ] {
             let conditions = [conditions.clone(), vec![range.clone()]].concat();
             assert_eq!(
-                check_policy(&policy(expiration, conditions), &form, "b", at(NOW))
+                check_policy(&policy(expiration, conditions), &form, "b", at(NOW), None)
                     .unwrap_err()
                     .code,
                 "InvalidPolicyDocument",

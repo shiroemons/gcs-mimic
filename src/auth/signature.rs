@@ -20,7 +20,7 @@ pub const PARAMETERS: &[&str] = &[
     "X-Goog-Signature",
 ];
 const ALGORITHM: &str = "GOOG4-RSA-SHA256";
-const MAX_EXPIRES: u64 = 604800;
+pub(crate) const MAX_EXPIRES: u64 = 604800;
 pub const V2_PARAMETERS: &[&str] = &["GoogleAccessId", "Expires", "Signature"];
 
 mod v2;
@@ -482,7 +482,8 @@ pub fn parse_timestamp(raw: &str) -> Result<SystemTime, String> {
     Ok(time)
 }
 
-fn timestamp(now: SystemTime) -> Result<String, String> {
+/// Format a time as the `YYYYMMDDTHHMMSSZ` value of X-Goog-Date and x-goog-date.
+pub fn timestamp(now: SystemTime) -> Result<String, String> {
     let date = json::timestamp(now).map_err(|_| "timestamp out of range")?;
     Ok(format!(
         "{}{}{}T{}{}{}Z",

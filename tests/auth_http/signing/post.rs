@@ -1,8 +1,15 @@
 use super::*;
-use gcs_mimic::auth::signature::sign_policy;
+use gcs_mimic::auth::signature::{sign_policy, timestamp};
+use std::{
+    sync::LazyLock,
+    time::{Duration, SystemTime},
+};
 
-const DATE: &str = "20261029T000000Z";
-const FUTURE: &str = "2099-01-01T00:00:00Z";
+// Strict mode bounds a verified policy by x-goog-date, like a signed URL, so the forms are
+// signed at the real current time. One value per run keeps the credential scope consistent.
+static DATE: LazyLock<String> = LazyLock::new(|| timestamp(SystemTime::now()).unwrap());
+static FUTURE: LazyLock<String> =
+    LazyLock::new(|| timestamp(SystemTime::now() + Duration::from_secs(3600)).unwrap());
 const BOUNDARY: &str = "form-boundary";
 
 fn base64(bytes: &[u8]) -> String {
@@ -39,7 +46,7 @@ fn policy_form(
     let mut all = vec![
         json!({"bucket": "iam-bucket"}),
         json!({"key": key}),
-        json!({"x-goog-date": DATE}),
+        json!({"x-goog-date": *DATE}),
         json!({"x-goog-credential": credential(signer)}),
         json!({"x-goog-algorithm": "GOOG4-RSA-SHA256"}),
     ];
@@ -53,7 +60,7 @@ fn policy_form(
     let signature = sign_policy(&policy, PRIVATE).unwrap();
     let mut fields: Vec<(String, String)> = vec![
         ("key".into(), key.into()),
-        ("x-goog-date".into(), DATE.into()),
+        ("x-goog-date".into(), DATE.clone()),
         ("x-goog-credential".into(), credential(signer)),
         ("x-goog-algorithm".into(), "GOOG4-RSA-SHA256".into()),
     ];
@@ -108,7 +115,7 @@ fn v4_policy_upload_streams_through_the_shared_write_path_with_signer_permission
     let fields = policy_form(
         "creator@example.invalid",
         "uploads/${filename}",
-        FUTURE,
+        &FUTURE,
         &[
             ("Content-Type", "text/plain"),
             ("x-goog-meta-owner", "alice"),
@@ -147,7 +154,7 @@ fn v4_policy_upload_streams_through_the_shared_write_path_with_signer_permission
         b"posted bytes"
     );
     // A signer without create permission is denied before any object is written.
-    let viewer = policy_form("viewer@example.invalid", "viewer.txt", FUTURE, &[], &[]);
+    let viewer = policy_form("viewer@example.invalid", "viewer.txt", &FUTURE, &[], &[]);
     error(
         &post(&server, "/iam-bucket", &viewer, b"x"),
         403,
@@ -173,7 +180,7 @@ fn v4_policy_success_status_201_xml_200_and_redirect() {
         &policy_form(
             "admin@example.invalid",
             "created & <named>.txt",
-            FUTURE,
+            &FUTURE,
             &[("success_action_status", "201")],
             &[],
         ),
@@ -209,7 +216,7 @@ fn v4_policy_success_status_201_xml_200_and_redirect() {
         &policy_form(
             "admin@example.invalid",
             "ok.txt",
-            FUTURE,
+            &FUTURE,
             &[("success_action_status", "200")],
             &[],
         ),
@@ -222,7 +229,7 @@ fn v4_policy_success_status_201_xml_200_and_redirect() {
         &policy_form(
             "admin@example.invalid",
             "redirect.txt",
-            FUTURE,
+            &FUTURE,
             &[(
                 "success_action_redirect",
                 "https://app.example.invalid/done?x=1",
@@ -245,7 +252,7 @@ fn v4_policy_success_status_201_xml_200_and_redirect() {
 #[test]
 fn v4_policy_rejects_tampering_unknown_signers_expiry_and_condition_violations() {
     let (_config, _data, server) = fixture();
-    let valid = policy_form("admin@example.invalid", "rejected.txt", FUTURE, &[], &[]);
+    let valid = policy_form("admin@example.invalid", "rejected.txt", &FUTURE, &[], &[]);
     let replace = |name: &str, value: &str| -> Vec<(String, String)> {
         valid
             .iter()
@@ -262,7 +269,7 @@ fn v4_policy_rejects_tampering_unknown_signers_expiry_and_condition_violations()
             .collect()
     };
     // A policy signed for another key cannot be reused: its signature no longer matches.
-    let other = policy_form("admin@example.invalid", "other.txt", FUTURE, &[], &[]);
+    let other = policy_form("admin@example.invalid", "other.txt", &FUTURE, &[], &[]);
     let other_policy = other.iter().find(|(k, _)| k == "policy").unwrap().1.clone();
     for (fields, status, code) in [
         (
@@ -286,7 +293,7 @@ fn v4_policy_rejects_tampering_unknown_signers_expiry_and_condition_violations()
             "InvalidArgument",
         ),
         (
-            replace("x-goog-date", "20261030T000000Z"),
+            replace("x-goog-date", "20200101T000000Z"),
             400,
             "InvalidArgument",
         ),
@@ -315,7 +322,7 @@ fn v4_policy_rejects_tampering_unknown_signers_expiry_and_condition_violations()
             policy_form(
                 "admin@example.invalid",
                 "rejected.txt",
-                FUTURE,
+                &FUTURE,
                 &[],
                 &[json!(["starts-with", "$Content-Type", "image/"])],
             ),
@@ -355,7 +362,7 @@ fn v4_policy_content_length_range_bounds_are_inclusive_and_leave_no_object() {
         let fields = policy_form(
             "admin@example.invalid",
             key,
-            FUTURE,
+            &FUTURE,
             &[],
             &[json!(["content-length-range", 3, 5])],
         );
@@ -379,7 +386,7 @@ fn v4_policy_content_length_range_bounds_are_inclusive_and_leave_no_object() {
 #[test]
 fn post_object_framing_errors_and_other_routes_stay_rejected() {
     let (_config, _data, server) = fixture();
-    let fields = policy_form("admin@example.invalid", "framed.txt", FUTURE, &[], &[]);
+    let fields = policy_form("admin@example.invalid", "framed.txt", &FUTURE, &[], &[]);
     // The file must be the last field; a trailing field aborts the upload.
     let trailing = body(
         &fields,
@@ -435,7 +442,7 @@ fn v4_policy_signer_uploads_under_public_access_prevention() {
             br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
         )
         .ok();
-    let fields = policy_form("creator@example.invalid", "pap.txt", FUTURE, &[], &[]);
+    let fields = policy_form("creator@example.invalid", "pap.txt", &FUTURE, &[], &[]);
     assert_eq!(post(&server, "/iam-bucket", &fields, b"pap").status, 204);
     assert_eq!(server.get(ADMIN, "/iam-bucket/pap.txt").ok().body, b"pap");
 }
@@ -462,7 +469,7 @@ fn v4_policy_upload_targets_a_virtual_host_bucket_root() {
         ],
     );
     server.create_bucket(ADMIN, "project-a", "iam-bucket").ok();
-    let fields = policy_form("admin@example.invalid", "virtual.txt", FUTURE, &[], &[]);
+    let fields = policy_form("admin@example.invalid", "virtual.txt", &FUTURE, &[], &[]);
     let form = body(&fields, "post.txt", b"virtual", "");
     let mut request = format!(
         "POST / HTTP/1.1\r\nHost: iam-bucket.localhost\r\nContent-Length: {}\r\nContent-Type: multipart/form-data; boundary={BOUNDARY}\r\n\r\n",
@@ -482,7 +489,7 @@ fn permissive_profile_ignores_policy_credentials_but_enforces_conditions() {
     let data = TestDir::new();
     let (server, _) = Server::start(&data, &[]);
     server.create_bucket("", "project-a", "iam-bucket").ok();
-    let mut fields = policy_form("anyone@example.invalid", "open.txt", FUTURE, &[], &[]);
+    let mut fields = policy_form("anyone@example.invalid", "open.txt", &FUTURE, &[], &[]);
     fields.last_mut().unwrap().1 = "00".into();
     assert_eq!(post(&server, "/iam-bucket", &fields, b"open").status, 204);
     assert_eq!(server.get("", "/iam-bucket/open.txt").ok().body, b"open");
@@ -498,7 +505,7 @@ fn permissive_profile_ignores_policy_credentials_but_enforces_conditions() {
         400,
         "InvalidPolicyDocument",
     );
-    let mut changed = policy_form("anyone@example.invalid", "a.txt", FUTURE, &[], &[]);
+    let mut changed = policy_form("anyone@example.invalid", "a.txt", &FUTURE, &[], &[]);
     changed[0].1 = "b.txt".into();
     error(
         &post(&server, "/iam-bucket", &changed, b"x"),

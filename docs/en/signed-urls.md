@@ -329,7 +329,10 @@ substitution. Violations, expiry and malformed documents return 400
 In strict mode the registered signer's RSA public key verifies the signature
 (403 `SignatureDoesNotMatch` or `InvalidAccessKeyId`), and the signer's IAM
 permissions authorize the write: create for new objects, delete as well for
-overwrites. Valid signer uploads work under public access prevention. A form
+overwrites. A verified policy also gets the signed URL validity window: it is
+rejected more than 15 minutes before `x-goog-date`, and its `expiration` may be
+at most 7 days after `x-goog-date` (400 `InvalidPolicyDocument`). Valid signer
+uploads work under public access prevention. A form
 without `policy` is anonymous and needs a public create grant. The permissive
 profile ignores policy credentials as it does for signed URLs, but still
 enforces the policy conditions and expiration.
