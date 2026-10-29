@@ -9,6 +9,7 @@ use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
+    ops::Range,
     path::Path,
     process::{Command, Stdio},
 };
@@ -40,6 +41,33 @@ const UNAVAILABLE_HELPER: &str = "text::unavailable_helper";
 const ALLOW_TOO_MANY_ARGUMENTS: &str = "text::allow_too_many_arguments";
 const UNCACHED_PREPARE: &str = "text::uncached_prepare";
 const FORMAT_SQL: &str = "text::format_sql";
+const SYNC_WITHOUT_FLUSH: &str = "text::sync_without_flush";
+
+/// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
+/// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
+pub const TEXT_RULES: [&str; 7] = [
+    PATH_ATTRIBUTE,
+    STRING_ERROR_RESULT,
+    UNAVAILABLE_HELPER,
+    ALLOW_TOO_MANY_ARGUMENTS,
+    UNCACHED_PREPARE,
+    FORMAT_SQL,
+    SYNC_WITHOUT_FLUSH,
+];
+
+const SUPPRESSION_MARKER: &str = "xtask-lint:";
+const SUPPRESSION_SYNTAX: &str = "// xtask-lint: allow(<text rule>[, <text rule>]) -- <reason>";
+/// Short enough for a real justification, long enough to reject `ok` or `legacy`.
+pub const MIN_REASON_CHARS: usize = 10;
+
+/// tokio's async writes; a `write(` without arguments is a lock guard, not I/O.
+const ASYNC_WRITES: [&str; 5] = [
+    "write_all",
+    "write",
+    "write_buf",
+    "write_all_buf",
+    "write_vectored",
+];
 
 const SQL_KEYWORDS: [&str; 10] = [
     "SELECT", "INSERT", "UPDATE", "DELETE", "REPLACE", "WITH", "CREATE", "DROP", "ALTER", "PRAGMA",
@@ -89,6 +117,59 @@ impl Finding {
     }
 }
 
+/// A suppression comment that fails the check whatever the baseline says.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Problem {
+    pub file: String,
+    pub line: usize,
+    pub message: String,
+}
+
+/// Text-rule results for one or more files.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Scan {
+    pub findings: Vec<Finding>,
+    /// Findings silenced by a reasoned suppression; reported so review sees them.
+    pub suppressed: Vec<Finding>,
+    /// Malformed, unknown, unreasoned or stale suppressions.
+    pub problems: Vec<Problem>,
+}
+
+impl Scan {
+    fn extend(&mut self, other: Self) {
+        self.findings.extend(other.findings);
+        self.suppressed.extend(other.suppressed);
+        self.problems.extend(other.problems);
+    }
+}
+
+/// Which code a Clippy pass compiles and which reported files it keeps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// The server's library and binaries: the files the ratchet counts.
+    Production,
+    /// Every workspace target: what `[workspace.lints]` would reach after the deny switch.
+    Workspace,
+}
+
+impl Scope {
+    fn cargo_args(self) -> &'static [&'static str] {
+        match self {
+            // `--lib --bins` leaves `cfg(test)` code uncompiled, so test helpers never count.
+            // xtask and the gRPC code generator are build tooling.
+            Self::Production => &["--package", "gcs-mimic", "--lib", "--bins"],
+            Self::Workspace => &["--workspace", "--all-targets"],
+        }
+    }
+
+    fn includes(self, path: &str) -> bool {
+        match self {
+            Self::Production => production_file(path),
+            Self::Workspace => path.ends_with(".rs") && !path.starts_with(".."),
+        }
+    }
+}
+
 /// Counts that differ from the reference: `(rule, file, reference, current)`.
 pub type Changes = Vec<(String, String, u64, u64)>;
 
@@ -125,15 +206,52 @@ pub fn run(root: &Path, mode: Mode) -> Result<bool> {
             ));
         }
     };
-    let mut findings = clippy(root)?;
-    findings.extend(scan_tree(root)?);
+    let mut findings = clippy(root, Scope::Production)?;
+    let scan = scan_tree(root)?;
+    findings.extend(scan.findings);
     findings.sort();
     let current = count(&findings);
+    let suppressions = suppression_summary(&scan.suppressed);
+    // Suppression mistakes fail every mode: a stale or unreasoned one must not be recorded.
+    for problem in &scan.problems {
+        eprintln!(
+            "error: {}:{}: {}",
+            problem.file, problem.line, problem.message
+        );
+    }
+    if !scan.problems.is_empty() {
+        eprintln!("Suppressions use `{SUPPRESSION_SYNTAX}`; see docs/en/development.md.");
+        return Ok(false);
+    }
     match mode {
         Mode::Strict => {
             let failures = strict_failures(&current);
             report(&failures, &findings, "strict lint violation");
-            Ok(failures.is_empty())
+            let blockers = switch_blockers(&findings, &clippy(root, Scope::Workspace)?);
+            for ((rule, file), lines) in &blockers {
+                eprintln!(
+                    "error: blocks the Cargo.toml deny switch: {rule} in {file}: {}",
+                    lines.len()
+                );
+                for line in lines {
+                    eprintln!("  {file}:{line}");
+                }
+            }
+            let ready = ready_lints(&current, &blockers);
+            println!(
+                "lint strict: {} production violations, {} findings outside production code; {suppressions}",
+                failures.iter().map(|(_, _, _, n)| n).sum::<u64>(),
+                blockers.values().map(Vec::len).sum::<usize>(),
+            );
+            println!(
+                "lints ready to deny in [workspace.lints]: {}",
+                if ready.is_empty() {
+                    "none".to_owned()
+                } else {
+                    ready.join(", ")
+                }
+            );
+            Ok(failures.is_empty() && blockers.is_empty())
         }
         Mode::Ratchet => {
             let comparison = compare(&baseline, &current);
@@ -154,9 +272,11 @@ pub fn run(root: &Path, mode: Mode) -> Result<bool> {
             let passed = comparison == Comparison::default();
             if passed {
                 println!(
-                    "lint ratchet: {} recorded violations, none new",
+                    "lint ratchet: {} recorded violations, none new; {suppressions}",
                     total(&current)
                 );
+            } else {
+                eprintln!("lint ratchet failed; {suppressions}");
             }
             Ok(passed)
         }
@@ -175,7 +295,7 @@ pub fn run(root: &Path, mode: Mode) -> Result<bool> {
             }
             fs::write(&path, render_baseline(&current)?).map_err(|e| format!("{BASELINE}: {e}"))?;
             println!(
-                "wrote {BASELINE}: {} violations ({} lowered, {} raised)",
+                "wrote {BASELINE}: {} violations ({} lowered, {} raised); {suppressions}",
                 total(&current),
                 comparison.decreased.len(),
                 comparison.increased.len()
@@ -183,6 +303,54 @@ pub fn run(root: &Path, mode: Mode) -> Result<bool> {
             Ok(true)
         }
     }
+}
+
+/// `N reasoned suppressions (rule: n, ..)`, so reviewers see accepted exceptions next to counts.
+pub fn suppression_summary(suppressed: &[Finding]) -> String {
+    let mut by_rule = BTreeMap::<&str, usize>::new();
+    for finding in suppressed {
+        *by_rule.entry(&finding.rule).or_default() += 1;
+    }
+    let detail = by_rule
+        .iter()
+        .map(|(rule, n)| format!("{rule}: {n}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match suppressed.len() {
+        0 => "0 reasoned suppressions".to_owned(),
+        n => format!("{n} reasoned suppressions ({detail})"),
+    }
+}
+
+/// Lines per `(rule, file)` found by the workspace pass but not by the production pass:
+/// test targets, `cfg(test)` items, xtask and the code generator. Each would fail the build
+/// once the lint is denied in `[workspace.lints]`.
+pub fn switch_blockers(
+    production: &[Finding],
+    workspace: &[Finding],
+) -> BTreeMap<(String, String), Vec<usize>> {
+    let known: BTreeSet<&Finding> = production.iter().collect();
+    let mut blockers = BTreeMap::<(String, String), Vec<usize>>::new();
+    for finding in workspace.iter().filter(|f| !known.contains(f)) {
+        blockers
+            .entry((finding.rule.clone(), finding.file.clone()))
+            .or_default()
+            .push(finding.line);
+    }
+    blockers
+}
+
+/// Counted Clippy and rustc lints with no finding anywhere: denying them in
+/// `[workspace.lints]` would not break any target.
+pub fn ready_lints(
+    production: &Counts,
+    blockers: &BTreeMap<(String, String), Vec<usize>>,
+) -> Vec<&'static str> {
+    CLIPPY_LINTS
+        .into_iter()
+        .filter(|lint| !production.contains_key(*lint))
+        .filter(|lint| !blockers.keys().any(|(rule, _)| rule == lint))
+        .collect()
 }
 
 fn total(counts: &Counts) -> u64 {
@@ -201,22 +369,14 @@ fn report(changes: &Changes, findings: &[Finding], heading: &str) {
     }
 }
 
-fn clippy(root: &Path) -> Result<Vec<Finding>> {
+fn clippy(root: &Path, scope: Scope) -> Result<Vec<Finding>> {
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut command = Command::new(cargo);
-    // Only the server's library and binary: `--lib --bins` leaves `cfg(test)` code uncompiled,
-    // so test helpers never count. xtask and the gRPC code generator are build tooling.
-    command.current_dir(root).args([
-        "clippy",
-        "--package",
-        "gcs-mimic",
-        "--lib",
-        "--bins",
-        "--locked",
-        "--offline",
-        "--message-format=json",
-        "--",
-    ]);
+    command
+        .current_dir(root)
+        .arg("clippy")
+        .args(scope.cargo_args())
+        .args(["--locked", "--offline", "--message-format=json", "--"]);
     for lint in CLIPPY_LINTS {
         command.args(["-W", lint]);
     }
@@ -238,12 +398,12 @@ fn clippy(root: &Path) -> Result<Vec<Finding>> {
             output.status
         ));
     }
-    Ok(clippy_findings(&stdout))
+    Ok(clippy_findings(&stdout, scope))
 }
 
-/// Extracts curated lint findings on production files from a `--message-format=json` stream.
-/// The library and binary targets can report the same span, so findings are de-duplicated.
-pub fn clippy_findings(stream: &str) -> Vec<Finding> {
+/// Extracts curated lint findings on the scope's files from a `--message-format=json` stream.
+/// Several targets can report the same span, so findings are de-duplicated.
+pub fn clippy_findings(stream: &str, scope: Scope) -> Vec<Finding> {
     let mut seen = BTreeSet::new();
     let mut findings = Vec::new();
     for line in stream.lines() {
@@ -266,10 +426,15 @@ pub fn clippy_findings(stream: &str) -> Vec<Finding> {
         else {
             continue;
         };
-        let file = normalize(span["file_name"].as_str().unwrap_or_default());
+        let raw = span["file_name"].as_str().unwrap_or_default();
+        // rustc names workspace files relative to the root and dependency sources absolutely.
+        if raw.starts_with(['/', '\\']) || raw.contains(':') {
+            continue;
+        }
+        let file = normalize(raw);
         let line = span["line_start"].as_u64().unwrap_or_default();
         let column = span["column_start"].as_u64().unwrap_or_default();
-        if !production_file(&file) || !seen.insert((code.to_owned(), file.clone(), line, column)) {
+        if !scope.includes(&file) || !seen.insert((code.to_owned(), file.clone(), line, column)) {
             continue;
         }
         findings.push(Finding::new(
@@ -309,7 +474,7 @@ pub fn production_file(path: &str) -> bool {
         && name != "test_support.rs"
 }
 
-fn scan_tree(root: &Path) -> Result<Vec<Finding>> {
+fn scan_tree(root: &Path) -> Result<Scan> {
     let mut files = Vec::new();
     let mut pending = vec![root.join("src")];
     while let Some(directory) = pending.pop() {
@@ -332,18 +497,154 @@ fn scan_tree(root: &Path) -> Result<Vec<Finding>> {
         }
     }
     files.sort();
-    let mut findings = Vec::new();
+    let mut scan = Scan::default();
     for (relative, path) in files {
         let text = fs::read_to_string(&path).map_err(|e| format!("{relative}: {e}"))?;
-        findings.extend(scan_source(&relative, &text));
+        scan.extend(scan_source(&relative, &text));
     }
-    Ok(findings)
+    Ok(scan)
 }
 
-/// Applies the text rules to one production file, skipping `#[cfg(test)]` items.
-pub fn scan_source(file: &str, text: &str) -> Vec<Finding> {
-    let masked = mask(text);
-    let tests = test_lines(&masked);
+/// Applies the text rules to one production file, skipping `#[cfg(test)]` items, then
+/// applies its suppression comments.
+pub fn scan_source(file: &str, text: &str) -> Scan {
+    let (masked, comments) = mask_with_comments(text);
+    let findings = text_findings(file, text, &masked);
+    let mut suppressions = Vec::new();
+    let mut problems = Vec::new();
+    for comment in comments {
+        match parse_suppression(&text[comment.clone()]) {
+            None => {}
+            Some(Err(message)) => problems.push(Problem {
+                file: file.to_owned(),
+                line: line_index(text, comment.start) + 1,
+                message,
+            }),
+            Some(Ok(rules)) => suppressions.push(Suppression {
+                comment: line_index(text, comment.start),
+                target: suppression_target(&masked, comment.start),
+                used: vec![false; rules.len()],
+                rules,
+            }),
+        }
+    }
+    let mut scan = Scan {
+        problems,
+        ..Scan::default()
+    };
+    for finding in findings {
+        let matched = suppressions.iter_mut().find_map(|s| {
+            let index = s.rules.iter().position(|rule| *rule == finding.rule)?;
+            (s.target == Some(finding.line - 1)).then_some((s, index))
+        });
+        if let Some((suppression, index)) = matched {
+            suppression.used[index] = true;
+            scan.suppressed.push(finding);
+        } else {
+            scan.findings.push(finding);
+        }
+    }
+    for suppression in &suppressions {
+        for (rule, used) in suppression.rules.iter().zip(&suppression.used) {
+            if !used {
+                // Like an unfulfilled `#[expect]`: a fix or a moved line must drop the comment.
+                scan.problems.push(Problem {
+                    file: file.to_owned(),
+                    line: suppression.comment + 1,
+                    message: format!(
+                        "stale suppression: `{rule}` reports nothing on the line it covers"
+                    ),
+                });
+            }
+        }
+    }
+    scan.problems.sort();
+    scan
+}
+
+/// A parsed `// xtask-lint: allow(..) -- reason` comment.
+struct Suppression {
+    /// Zero-based line of the comment.
+    comment: usize,
+    /// Zero-based line it covers: its own line after code, else the next line with code.
+    target: Option<usize>,
+    rules: Vec<String>,
+    used: Vec<bool>,
+}
+
+fn line_index(text: &str, offset: usize) -> usize {
+    text[..offset].matches('\n').count()
+}
+
+/// The zero-based line a suppression comment starting at `offset` covers.
+fn suppression_target(masked: &str, offset: usize) -> Option<usize> {
+    let line = line_index(masked, offset);
+    let line_start = masked[..offset].rfind('\n').map_or(0, |n| n + 1);
+    if !masked[line_start..offset].trim().is_empty() {
+        return Some(line);
+    }
+    masked
+        .lines()
+        .enumerate()
+        .skip(line + 1)
+        .find(|(_, code)| !code.trim().is_empty())
+        .map(|(index, _)| index)
+}
+
+/// Parses one line comment (including its `//`). `None` when it is not a suppression;
+/// otherwise the suppressed rules or why the comment is rejected.
+pub fn parse_suppression(comment: &str) -> Option<std::result::Result<Vec<String>, String>> {
+    let body = comment.strip_prefix("//")?;
+    // Doc comments document; they never suppress.
+    if body.starts_with('/') || body.starts_with('!') {
+        return None;
+    }
+    let rest = body.trim_start().strip_prefix(SUPPRESSION_MARKER)?;
+    let malformed = || {
+        Err(format!(
+            "malformed suppression; expected `{SUPPRESSION_SYNTAX}`"
+        ))
+    };
+    let Some(rest) = rest.trim_start().strip_prefix("allow(") else {
+        return Some(malformed());
+    };
+    let Some((list, after)) = rest.split_once(')') else {
+        return Some(malformed());
+    };
+    let rules: Vec<String> = list.split(',').map(|r| r.trim().to_owned()).collect();
+    if rules.iter().any(String::is_empty) {
+        return Some(malformed());
+    }
+    for rule in &rules {
+        if CLIPPY_LINTS.contains(&rule.as_str()) || rule.starts_with("clippy::") {
+            return Some(Err(format!(
+                "`{rule}` cannot be suppressed by a comment; use `#[expect({rule}, reason = \"...\")]`"
+            )));
+        }
+        if !TEXT_RULES.contains(&rule.as_str()) {
+            return Some(Err(format!(
+                "unknown rule `{rule}`; suppressible rules: {}",
+                TEXT_RULES.join(", ")
+            )));
+        }
+    }
+    let after = after.trim();
+    let reason = match after.strip_prefix("--") {
+        Some(reason) => reason.trim(),
+        None if after.is_empty() => "",
+        None => return Some(malformed()),
+    };
+    if reason.chars().count() < MIN_REASON_CHARS {
+        return Some(Err(format!(
+            "suppression needs a reason of at least {MIN_REASON_CHARS} characters after ` -- `"
+        )));
+    }
+    Some(Ok(rules))
+}
+
+/// Raw text-rule findings in production code, before suppressions.
+fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
+    let tests = test_lines(masked);
     let line_of = |offset: usize| masked[..offset].matches('\n').count();
     let mut findings = Vec::new();
     for (index, line) in masked.lines().enumerate() {
@@ -370,8 +671,8 @@ pub fn scan_source(file: &str, text: &str) -> Vec<Finding> {
             findings.push(Finding::new(rule, file, line + 1));
         }
     };
-    for offset in words(&masked, "fn") {
-        if let Some((name, returns)) = signature(&masked, offset) {
+    for offset in words(masked, "fn") {
+        if let Some((name, returns)) = signature(masked, offset) {
             if name == "unavailable" {
                 add(UNAVAILABLE_HELPER, offset);
             }
@@ -380,17 +681,94 @@ pub fn scan_source(file: &str, text: &str) -> Vec<Finding> {
             }
         }
     }
-    for offset in words(&masked, "type") {
-        if alias(&masked, offset).is_some_and(string_error_result) {
+    for offset in words(masked, "type") {
+        if alias(masked, offset).is_some_and(string_error_result) {
             add(STRING_ERROR_RESULT, offset);
         }
     }
-    for offset in words(&masked, "format") {
-        if format_sql(text, &masked, offset) {
+    for offset in words(masked, "format") {
+        if format_sql(text, masked, offset) {
             add(FORMAT_SQL, offset);
         }
     }
+    for offset in unflushed_syncs(masked) {
+        add(SYNC_WITHOUT_FLUSH, offset);
+    }
     findings
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FileEvent {
+    /// A function item starts: write state never carries across functions.
+    Function,
+    Write,
+    Flush,
+    Sync,
+}
+
+/// Offsets of `.sync_all().await` / `.sync_data().await` that follow an awaited tokio write
+/// in the same function with no `.flush().await` (or `.shutdown().await`) in between.
+///
+/// tokio's `File` completes its last write in the background; `sync_all` and `sync_data`
+/// wait for it but keep its error to themselves and report only the fsync result, while
+/// `flush` returns it. A failed tail write would otherwise publish a short file as durable.
+/// Calls without `.await` are `std::fs::File`, whose writes already returned their errors.
+/// The heuristic follows source order and does not track receivers, so a write to another
+/// stream followed by a file sync is also reported.
+fn unflushed_syncs(masked: &str) -> Vec<usize> {
+    let bytes = masked.as_bytes();
+    let mut events = Vec::new();
+    for offset in words(masked, "fn") {
+        if signature(masked, offset).is_some() {
+            events.push((offset, FileEvent::Function));
+        }
+    }
+    for (dot, _) in masked.match_indices('.') {
+        let start = dot + 1;
+        let mut end = start;
+        while bytes.get(end).copied().is_some_and(ident) {
+            end += 1;
+        }
+        let method = &masked[start..end];
+        let event = if ASYNC_WRITES.contains(&method) {
+            FileEvent::Write
+        } else if matches!(method, "flush" | "shutdown") {
+            FileEvent::Flush
+        } else if matches!(method, "sync_all" | "sync_data") {
+            FileEvent::Sync
+        } else {
+            continue;
+        };
+        let open = skip_space(bytes, end);
+        if bytes.get(open) != Some(&b'(') {
+            continue;
+        }
+        let empty = bytes.get(skip_space(bytes, open + 1)) == Some(&b')');
+        // `lock.write().await` takes a tokio `RwLock` guard; real writes pass a buffer.
+        if event == FileEvent::Write && empty {
+            continue;
+        }
+        let Some(close) = close_group(bytes, open) else {
+            continue;
+        };
+        if !masked[skip_space(bytes, close)..].starts_with(".await") {
+            continue;
+        }
+        events.push((dot, event));
+    }
+    events.sort_unstable_by_key(|(offset, _)| *offset);
+    let mut written = false;
+    let mut offsets = Vec::new();
+    for (offset, event) in events {
+        match event {
+            FileEvent::Function | FileEvent::Flush => written = false,
+            FileEvent::Write => written = true,
+            // The background error stays pending after a sync, so a later sync is no better.
+            FileEvent::Sync if written => offsets.push(offset),
+            FileEvent::Sync => {}
+        }
+    }
+    offsets
 }
 
 fn ident(byte: u8) -> bool {
@@ -571,8 +949,15 @@ fn format_sql(text: &str, masked: &str, offset: usize) -> bool {
 /// Replaces comments and the contents of string and character literals with spaces, keeping
 /// every byte offset and newline, so text rules never match inside them.
 pub fn mask(text: &str) -> String {
+    mask_with_comments(text).0
+}
+
+/// [`mask`], plus the byte ranges of line comments (from `//` to the line end), which carry
+/// suppressions and must be read before masking hides them.
+fn mask_with_comments(text: &str) -> (String, Vec<Range<usize>>) {
     let bytes = text.as_bytes();
     let mut out = bytes.to_vec();
+    let mut comments = Vec::new();
     let blank = |out: &mut [u8], from: usize, to: usize| {
         for byte in &mut out[from..to] {
             if *byte != b'\n' {
@@ -586,6 +971,7 @@ pub fn mask(text: &str) -> String {
             b'/' if bytes.get(i + 1) == Some(&b'/') => {
                 let end = text[i..].find('\n').map_or(bytes.len(), |n| i + n);
                 blank(&mut out, i, end);
+                comments.push(i..end);
                 i = end;
             }
             b'/' if bytes.get(i + 1) == Some(&b'*') => {
@@ -660,7 +1046,7 @@ pub fn mask(text: &str) -> String {
             _ => i += 1,
         }
     }
-    String::from_utf8_lossy(&out).into_owned()
+    (String::from_utf8_lossy(&out).into_owned(), comments)
 }
 
 /// Whether an attribute compiles its item only under test: `cfg(test)` or `cfg(all(.., test, ..))`.
@@ -801,6 +1187,7 @@ mod tests {
 
     fn rules(file: &str, text: &str) -> Vec<(String, usize)> {
         scan_source(file, text)
+            .findings
             .into_iter()
             .map(|f| (f.rule, f.line))
             .collect()
@@ -973,7 +1360,7 @@ let v = format!(\"select failed: {e}\");
         ]
         .join("\n");
         assert_eq!(
-            clippy_findings(&stream),
+            clippy_findings(&stream, Scope::Production),
             [
                 Finding::new("clippy::unwrap_used", "src/server.rs", 10),
                 Finding::new("clippy::unwrap_used", "src/url.rs", 3),
@@ -1011,12 +1398,12 @@ let v = format!(\"select failed: {e}\");
 
     #[test]
     fn the_shared_helper_is_counted_tree_wide_and_strict_allows_one() {
-        let one = scan_source("src/a.rs", "fn unavailable() {}");
+        let one = scan_source("src/a.rs", "fn unavailable() {}").findings;
         let mut two = one.clone();
-        two.extend(scan_source("src/b.rs", "fn unavailable() {}"));
+        two.extend(scan_source("src/b.rs", "fn unavailable() {}").findings);
         assert_eq!(count(&one), counts(&[(UNAVAILABLE_HELPER, ALL_FILES, 1)]));
         // Moving the helper to another file is not growth.
-        let moved = count(&scan_source("src/c.rs", "fn unavailable() {}"));
+        let moved = count(&scan_source("src/c.rs", "fn unavailable() {}").findings);
         assert_eq!(compare(&count(&one), &moved), Comparison::default());
         assert!(strict_failures(&count(&one)).is_empty());
         assert_eq!(
@@ -1075,5 +1462,266 @@ let v = format!(\"select failed: {e}\");
         ] {
             assert_eq!(mode(&args(bad)), None);
         }
+    }
+
+    fn lines_of(rule: &str, text: &str) -> Vec<usize> {
+        rules("src/a.rs", text)
+            .into_iter()
+            .filter(|(r, _)| r == rule)
+            .map(|(_, line)| line)
+            .collect()
+    }
+
+    #[test]
+    fn syncing_a_written_tokio_file_without_flush_is_reported() {
+        let text = "\
+async fn unflushed(mut file: tokio::fs::File) -> io::Result<()> {
+    file.write_all(b\"x\").await?;
+    file.sync_all().await
+}
+async fn flushed(mut file: tokio::fs::File) -> io::Result<()> {
+    file.write_all(b\"x\").await?;
+    file.flush().await?;
+    file.sync_all().await
+}
+async fn written_after_flush(mut file: tokio::fs::File) -> io::Result<()> {
+    file.write_all(b\"x\").await?;
+    file.flush().await?;
+    file
+        .write_buf(&mut chunk)
+        .await?;
+    file.sync_data()
+        .await
+}
+async fn shut_down(mut file: tokio::fs::File) -> io::Result<()> {
+    file.write(&buf).await?;
+    file.shutdown().await?;
+    file.sync_all().await
+}
+async fn read_only(mut file: tokio::fs::File) -> io::Result<()> {
+    file.read(&mut buf).await?;
+    file.sync_all().await
+}
+fn std_file(mut file: std::fs::File) -> io::Result<()> {
+    file.write_all(b\"x\")?;
+    file.sync_all()
+}
+async fn lock_guard(state: &tokio::sync::RwLock<u8>, file: tokio::fs::File) -> io::Result<()> {
+    let _guard = state.write().await;
+    let _open = OpenOptions::new().write(true).open(path).await?;
+    file.sync_all().await
+}
+async fn in_task(mut output: tokio::fs::File) {
+    tokio::spawn(async move {
+        output.write_all(&buffer[..n]).await?;
+        // output.flush().await
+        output.sync_all().await
+    });
+}
+async fn next_function_starts_clean(file: tokio::fs::File) -> io::Result<()> {
+    file.sync_all().await
+}
+#[cfg(test)]
+async fn test_helper(mut file: tokio::fs::File) {
+    file.write_all(b\"x\").await.unwrap();
+    file.sync_all().await.unwrap();
+}
+";
+        assert_eq!(lines_of(SYNC_WITHOUT_FLUSH, text), [3, 16, 41]);
+    }
+
+    #[test]
+    fn reasoned_suppressions_silence_findings_and_are_counted() {
+        let text = "\
+let a = format!(\"SELECT {C} FROM t\"); // xtask-lint: allow(text::format_sql) -- static column list
+// xtask-lint: allow(text::format_sql) -- schema migration builds DDL
+// from a fixed table of names.
+let b = format!(\"CREATE TABLE {name} (a)\");
+// xtask-lint: allow(text::uncached_prepare, text::format_sql) -- one-off startup migration
+let c = conn.prepare(&format!(\"DELETE FROM {t} WHERE a = 1\"));
+let d = format!(\"SELECT {C} FROM t\");
+";
+        let scan = scan_source("src/a.rs", text);
+        assert_eq!(scan.problems, []);
+        assert_eq!(
+            scan.findings,
+            [Finding::new(FORMAT_SQL, "src/a.rs", 7)],
+            "only the unsuppressed statement counts"
+        );
+        assert_eq!(
+            scan.suppressed
+                .iter()
+                .map(|f| (f.rule.as_str(), f.line))
+                .collect::<Vec<_>>(),
+            [
+                (UNCACHED_PREPARE, 6),
+                (FORMAT_SQL, 1),
+                (FORMAT_SQL, 4),
+                (FORMAT_SQL, 6)
+            ]
+        );
+        assert_eq!(
+            suppression_summary(&scan.suppressed),
+            "4 reasoned suppressions (text::format_sql: 3, text::uncached_prepare: 1)"
+        );
+        assert_eq!(suppression_summary(&[]), "0 reasoned suppressions");
+    }
+
+    #[test]
+    fn invalid_and_stale_suppressions_are_errors() {
+        let problems = |text: &str| -> Vec<(usize, String)> {
+            scan_source("src/a.rs", text)
+                .problems
+                .into_iter()
+                .map(|p| (p.line, p.message))
+                .collect()
+        };
+        let sql = "let q = format!(\"SELECT a FROM t\");";
+        let single = |comment: &str| {
+            let found = problems(&format!("{comment}\n{sql}\n"));
+            assert_eq!(found.len(), 1, "{comment}: {found:?}");
+            found[0].1.clone()
+        };
+        assert!(single("// xtask-lint: allow(text::format_sql)").contains("reason of at least 10"));
+        assert!(single("// xtask-lint: allow(text::format_sql) --").contains("reason"));
+        assert!(single("// xtask-lint: allow(text::format_sql) -- legacy").contains("reason"));
+        assert!(
+            single("// xtask-lint: allow(text::nope) -- a long enough reason")
+                .contains("unknown rule `text::nope`")
+        );
+        assert!(
+            single("// xtask-lint: allow(clippy::unwrap_used) -- a long enough reason")
+                .contains("#[expect(clippy::unwrap_used")
+        );
+        assert!(
+            single("// xtask-lint: allow(unreachable_pub) -- a long enough reason")
+                .contains("#[expect(")
+        );
+        for malformed in [
+            "// xtask-lint: text::format_sql -- a long enough reason",
+            "// xtask-lint: allow(text::format_sql -- a long enough reason",
+            "// xtask-lint: allow() -- a long enough reason",
+            "// xtask-lint: allow(text::format_sql) because it is a long reason",
+        ] {
+            assert!(single(malformed).contains("malformed"), "{malformed}");
+        }
+        // A rejected suppression suppresses nothing.
+        assert_eq!(
+            scan_source(
+                "src/a.rs",
+                &format!("// xtask-lint: allow(text::format_sql)\n{sql}\n")
+            )
+            .findings
+            .len(),
+            1
+        );
+        // Stale: nothing to suppress, a different rule, or only one of two rules used.
+        assert_eq!(
+            problems("let a = 1; // xtask-lint: allow(text::format_sql) -- static column list\n"),
+            [(
+                1,
+                "stale suppression: `text::format_sql` reports nothing on the line it covers"
+                    .to_owned()
+            )]
+        );
+        assert_eq!(
+            problems(&format!(
+                "// xtask-lint: allow(text::uncached_prepare, text::format_sql) -- static column list\n{sql}\n"
+            ))
+            .len(),
+            1
+        );
+        // A suppression covers one line, not the rest of the function.
+        assert_eq!(
+            problems(&format!(
+                "// xtask-lint: allow(text::format_sql) -- static column list\nlet x = 1;\n{sql}\n"
+            ))
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn suppression_text_in_doc_comments_and_strings_is_ignored() {
+        let text = "\
+/// // xtask-lint: allow(text::format_sql)
+//! xtask-lint: allow(nothing)
+let s = \"// xtask-lint: allow(text::nope)\";
+// an ordinary comment mentioning xtask-lint: allow(text::format_sql)
+";
+        let scan = scan_source("src/a.rs", text);
+        assert_eq!(scan.problems, []);
+        assert_eq!(parse_suppression("// ordinary"), None);
+        assert_eq!(
+            parse_suppression("//xtask-lint: allow( text::format_sql ) --   ten chars!  "),
+            Some(Ok(vec![FORMAT_SQL.to_owned()]))
+        );
+    }
+
+    #[test]
+    fn workspace_scope_keeps_every_repository_file() {
+        let message = |file: &str| {
+            serde_json::json!({
+                "reason": "compiler-message",
+                "message": {"code": {"code": "clippy::unwrap_used"}, "level": "warning", "spans": [
+                    {"file_name": file, "line_start": 1, "column_start": 1, "is_primary": true}
+                ]}
+            })
+            .to_string()
+        };
+        let stream = [
+            "src/server.rs",
+            "tests/common/mod.rs",
+            "xtask/src/main.rs",
+            "/registry/src/lib.rs",
+            "C:\\registry\\src\\lib.rs",
+            "../outside/lib.rs",
+        ]
+        .map(message)
+        .join("\n");
+        assert_eq!(
+            clippy_findings(&stream, Scope::Workspace)
+                .into_iter()
+                .map(|f| f.file)
+                .collect::<Vec<_>>(),
+            ["src/server.rs", "tests/common/mod.rs", "xtask/src/main.rs"]
+        );
+        assert_eq!(clippy_findings(&stream, Scope::Production).len(), 1);
+    }
+
+    #[test]
+    fn switch_blockers_exclude_production_findings_and_gate_ready_lints() {
+        let production = [
+            Finding::new("clippy::expect_used", "src/a.rs", 3),
+            Finding::new(FORMAT_SQL, "src/a.rs", 9),
+        ];
+        let workspace = [
+            Finding::new("clippy::expect_used", "src/a.rs", 3),
+            Finding::new("clippy::too_many_lines", "src/a.rs", 40),
+            Finding::new("clippy::too_many_lines", "tests/x.rs", 1),
+            Finding::new("clippy::too_many_lines", "tests/x.rs", 90),
+        ];
+        let blockers = switch_blockers(&production, &workspace);
+        assert_eq!(
+            blockers.into_iter().collect::<Vec<_>>(),
+            [
+                (
+                    ("clippy::too_many_lines".to_owned(), "src/a.rs".to_owned()),
+                    vec![40]
+                ),
+                (
+                    ("clippy::too_many_lines".to_owned(), "tests/x.rs".to_owned()),
+                    vec![1, 90]
+                )
+            ]
+        );
+        let ready = ready_lints(
+            &count(&production),
+            &switch_blockers(&production, &workspace),
+        );
+        assert!(!ready.contains(&"clippy::expect_used"));
+        assert!(!ready.contains(&"clippy::too_many_lines"));
+        assert!(ready.contains(&"clippy::unwrap_used"));
+        assert_eq!(ready.len(), CLIPPY_LINTS.len() - 2);
     }
 }
