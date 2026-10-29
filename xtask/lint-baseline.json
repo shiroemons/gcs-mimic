@@ -116,9 +116,6 @@
       "src/storage/catalog/sync_state/writeback.rs": 2,
       "src/storage/catalog/sync_state/writeback/live_export.rs": 1
     },
-    "text::path_attribute": {
-      "src/server.rs": 6
-    },
     "text::string_error_result": {
       "src/config.rs": 1,
       "src/main.rs": 3,

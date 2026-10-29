@@ -82,18 +82,12 @@ fn report_connection_task_failure(error: &tokio::task::JoinError) {
 }
 
 mod acl;
-#[path = "server/copy.rs"]
 mod copy;
 mod gzip;
-#[path = "server/notifications.rs"]
 mod notifications;
-#[path = "server/project_resources.rs"]
 mod project_resources;
-#[path = "server/resumable.rs"]
 mod resumable;
-#[path = "server/retention_access.rs"]
 mod retention_access;
-#[path = "server/rewrite.rs"]
 mod rewrite;
 mod unsupported;
 
@@ -479,7 +473,6 @@ async fn drain_connections(connections: &mut JoinSet<()>, deadline: Duration) ->
 }
 
 #[cfg(test)]
-#[path = "server/drain_tests.rs"]
 mod drain_tests;
 
 async fn serve_connection(
