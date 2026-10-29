@@ -175,7 +175,7 @@ pub(super) async fn multipart(
         .await?;
     }
     let content_type = multipart
-        .headers(false)
+        .headers(json::PartKind::Media)
         .await?
         .unwrap_or_else(|| "application/octet-stream".into());
     let (sender, body) = mpsc::channel(2);

@@ -47,7 +47,7 @@ pub fn derived_metadata(
             ExpectedHashes::default(),
         ));
     }
-    let mut parsed = super::parse_object_metadata(bytes, true)?;
+    let mut parsed = super::parse_object_metadata(bytes, super::WriteMode::Replace)?;
     parsed.update.validate().map_err(JsonError::from)?;
     if parsed.update.temporary_hold == Some(true) {
         return Err(JsonError::unsupported_object(

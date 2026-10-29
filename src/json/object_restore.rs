@@ -87,7 +87,7 @@ pub(super) fn route(
                 "Match and NotMatch conditions are mutually exclusive; supply one condition per generation kind",
             ));
         }
-        finish(query)?;
+        finish(&query)?;
         Ok(ObjectRequest::Restore {
             bucket,
             name,

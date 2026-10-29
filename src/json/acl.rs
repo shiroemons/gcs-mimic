@@ -141,7 +141,7 @@ fn parse_route(
             }
         }
     };
-    finish(query)?;
+    finish(&query)?;
     Ok(AclRequest {
         target,
         operation,

@@ -1,5 +1,5 @@
 use super::{
-    JsonError, Projection,
+    JsonError, Projection, WriteMode,
     buckets::{encode_segment, timestamp, validate_bucket_name_for_profile},
     query::{Decoding, boolean, decode, finish, parse_query, projection},
 };
@@ -10,6 +10,14 @@ use crate::{
 use hyper::{HeaderMap, Method, StatusCode, Uri, header::HeaderValue};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+
+/// Whether an object update asks to override an Unlocked retention configuration
+/// (`overrideUnlockedRetention=true`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RetentionOverride {
+    Requested,
+    NotRequested,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ObjectInsertParams {
@@ -47,8 +55,8 @@ pub enum ObjectRequest {
         bucket: String,
         name: String,
         params: ObjectGetParams,
-        replace: bool,
-        override_unlocked_retention: bool,
+        mode: WriteMode,
+        retention_override: RetentionOverride,
     },
     Insert {
         bucket: String,
@@ -198,6 +206,8 @@ pub fn validate_object_name(name: &str) -> Result<(), JsonError> {
     Ok(())
 }
 
+/// Parse an object request's query. `name` is `None` exactly for uploads: the router accepts
+/// only POST on the upload endpoint, which names the object in the query or metadata.
 fn parse_object_query(
     method: &Method,
     bucket: String,
@@ -205,12 +215,51 @@ fn parse_object_query(
     raw: &str,
 ) -> Result<ObjectRequest, JsonError> {
     let mut query = parse_query(raw)?;
+    let content_encoding = take_common_parameters(method, &mut query)?;
+    let media = match query.remove("alt").as_deref() {
+        None | Some("json") => false,
+        Some("media") if method == Method::GET => true,
+        Some("media") => return Err(JsonError::invalid_parameter("alt=media requires GET")),
+        Some(_) => {
+            return Err(JsonError::new(
+                StatusCode::BAD_REQUEST,
+                "invalidAltValue",
+                "alt must be json or media",
+            ));
+        }
+    };
+    let conditions = ObjectConditions {
+        if_generation_match: integer(&mut query, "ifGenerationMatch")?,
+        if_generation_not_match: integer(&mut query, "ifGenerationNotMatch")?,
+        if_metageneration_match: integer(&mut query, "ifMetagenerationMatch")?,
+        if_metageneration_not_match: integer(&mut query, "ifMetagenerationNotMatch")?,
+    };
+    match name {
+        None => parse_upload_query(bucket, query, conditions, content_encoding),
+        Some(name) => {
+            let target = QueryTarget {
+                bucket,
+                name,
+                conditions,
+                media,
+            };
+            parse_named_object_query(method, target, query)
+        }
+    }
+}
+
+/// Removes the options every object method shares and rejects the unsupported ones. Returns
+/// the `contentEncoding` of a resumable upload, which the session records.
+fn take_common_parameters(
+    method: &Method,
+    query: &mut BTreeMap<String, String>,
+) -> Result<Option<String>, JsonError> {
     if method == Method::DELETE {
         query.remove("fields");
     } else if query.contains_key("fields") && query.get("alt").is_some_and(|v| v == "media") {
         return Err(JsonError::unsupported_object("fields with alt=media"));
     } else {
-        super::Fields::take(&mut query, "Object")?;
+        super::Fields::take(query, "Object")?;
     }
     for key in [
         "key",
@@ -246,108 +295,123 @@ fn parse_object_query(
             return Err(JsonError::unsupported_object(key));
         }
     }
-    if boolean(&mut query, "prettyPrint")? {
+    if boolean(query, "prettyPrint")? {
         return Err(JsonError::unsupported_object("prettyPrint"));
     }
-    let media = match query.remove("alt").as_deref() {
-        None | Some("json") => false,
-        Some("media") if method == Method::GET => true,
-        Some("media") => return Err(JsonError::invalid_parameter("alt=media requires GET")),
-        Some(_) => {
-            return Err(JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "invalidAltValue",
-                "alt must be json or media",
-            ));
-        }
-    };
-    let conditions = ObjectConditions {
-        if_generation_match: integer(&mut query, "ifGenerationMatch")?,
-        if_generation_not_match: integer(&mut query, "ifGenerationNotMatch")?,
-        if_metageneration_match: integer(&mut query, "ifMetagenerationMatch")?,
-        if_metageneration_not_match: integer(&mut query, "ifMetagenerationNotMatch")?,
-    };
-    if method == Method::POST {
-        let multipart = match query.remove("uploadType").as_deref() {
-            Some("media") => false,
-            Some("multipart") => true,
-            Some("resumable") => true,
-            None => {
-                return Err(JsonError::new(
-                    StatusCode::BAD_REQUEST,
-                    "required",
-                    "Missing required uploadType",
-                ));
-            }
-            Some(_) => {
-                return Err(JsonError::invalid_parameter(
-                    "uploadType must be media, multipart or resumable",
-                ));
-            }
-        };
-        let name = query.remove("name");
-        if let Some(name) = &name {
-            validate_object_name(name)?;
-        }
-        if !multipart && name.is_none() {
+    Ok(content_encoding)
+}
+
+fn parse_upload_query(
+    bucket: String,
+    mut query: BTreeMap<String, String>,
+    conditions: ObjectConditions,
+    content_encoding: Option<String>,
+) -> Result<ObjectRequest, JsonError> {
+    let missing_name =
+        || JsonError::new(StatusCode::BAD_REQUEST, "required", "Missing required name");
+    let (multipart, resumable) = match query.remove("uploadType").as_deref() {
+        Some("media") => (false, false),
+        Some("multipart") => (true, false),
+        Some("resumable") => (true, true),
+        None => {
             return Err(JsonError::new(
                 StatusCode::BAD_REQUEST,
                 "required",
-                "Missing required name",
+                "Missing required uploadType",
             ));
         }
-        let projection = projection(&mut query)?;
-        finish(query)?;
-        let params = ObjectInsertParams {
-            conditions,
-            projection,
-        };
-        if resumable {
-            if conditions.if_generation_match.is_some_and(|n| n < 0)
-                || conditions.if_generation_not_match.is_some_and(|n| n < 0)
-                || conditions.if_metageneration_match.is_some_and(|n| n <= 0)
-                || conditions
-                    .if_metageneration_not_match
-                    .is_some_and(|n| n <= 0)
-            {
-                return Err(JsonError::invalid_parameter("Invalid upload precondition"));
-            }
-            return Ok(ObjectRequest::Resumable {
-                bucket,
-                name,
-                params,
-                content_encoding,
-            });
+        Some(_) => {
+            return Err(JsonError::invalid_parameter(
+                "uploadType must be media, multipart or resumable",
+            ));
         }
-        if multipart {
-            return Ok(ObjectRequest::Multipart {
-                bucket,
-                name,
-                params,
-            });
+    };
+    let name = query.remove("name");
+    if let Some(name) = &name {
+        validate_object_name(name)?;
+    }
+    if !multipart && name.is_none() {
+        return Err(missing_name());
+    }
+    let projection = projection(&mut query)?;
+    finish(&query)?;
+    let params = ObjectInsertParams {
+        conditions,
+        projection,
+    };
+    if resumable {
+        if conditions.if_generation_match.is_some_and(|n| n < 0)
+            || conditions.if_generation_not_match.is_some_and(|n| n < 0)
+            || conditions.if_metageneration_match.is_some_and(|n| n <= 0)
+            || conditions
+                .if_metageneration_not_match
+                .is_some_and(|n| n <= 0)
+        {
+            return Err(JsonError::invalid_parameter("Invalid upload precondition"));
         }
-        let name = name.expect("media upload requires a query name");
-        return Ok(ObjectRequest::Insert {
+        return Ok(ObjectRequest::Resumable {
+            bucket,
+            name,
+            params,
+            content_encoding,
+        });
+    }
+    if multipart {
+        return Ok(ObjectRequest::Multipart {
             bucket,
             name,
             params,
         });
     }
+    let name = name.ok_or_else(missing_name)?;
+    Ok(ObjectRequest::Insert {
+        bucket,
+        name,
+        params,
+    })
+}
+
+/// The object a non-upload request names, with the options already parsed from its query.
+struct QueryTarget {
+    bucket: String,
+    name: String,
+    conditions: ObjectConditions,
+    media: bool,
+}
+
+fn parse_named_object_query(
+    method: &Method,
+    target: QueryTarget,
+    mut query: BTreeMap<String, String>,
+) -> Result<ObjectRequest, JsonError> {
+    let QueryTarget {
+        bucket,
+        name,
+        conditions,
+        media,
+    } = target;
     let generation = integer(&mut query, "generation")?;
-    let name = name.expect("non-upload routes have an object segment");
     if method == Method::PATCH || method == Method::PUT {
         let projection = if method == Method::PUT && !query.contains_key("projection") {
             Projection::Full
         } else {
             projection(&mut query)?
         };
-        let override_unlocked_retention = boolean(&mut query, "overrideUnlockedRetention")?;
-        finish(query)?;
+        let retention_override = if boolean(&mut query, "overrideUnlockedRetention")? {
+            RetentionOverride::Requested
+        } else {
+            RetentionOverride::NotRequested
+        };
+        finish(&query)?;
         return Ok(ObjectRequest::Update {
             bucket,
             name,
-            override_unlocked_retention,
-            replace: method == Method::PUT,
+            retention_override,
+            mode: if method == Method::PUT {
+                WriteMode::Replace
+            } else {
+                WriteMode::Patch
+            },
             params: ObjectGetParams {
                 generation,
                 conditions,
@@ -365,8 +429,8 @@ fn parse_object_query(
             ));
         }
         let projection = projection(&mut query)?;
-        finish(query)?;
-        Ok(ObjectRequest::Get {
+        finish(&query)?;
+        return Ok(ObjectRequest::Get {
             bucket,
             name,
             params: ObjectGetParams {
@@ -376,16 +440,15 @@ fn parse_object_query(
                 media,
                 soft_deleted,
             },
-        })
-    } else {
-        finish(query)?;
-        Ok(ObjectRequest::Delete {
-            bucket,
-            name,
-            generation,
-            conditions,
-        })
+        });
     }
+    finish(&query)?;
+    Ok(ObjectRequest::Delete {
+        bucket,
+        name,
+        generation,
+        conditions,
+    })
 }
 
 pub(super) fn integer(
@@ -443,7 +506,7 @@ pub fn parse_object_upload_headers(
     _conditions: ObjectConditions,
 ) -> Result<(String, ExpectedHashes), JsonError> {
     unsupported_headers(headers, &[crate::csek::DESTINATION_PREFIX])?;
-    validate_read_condition_headers(headers, false)?;
+    validate_read_condition_headers(headers, EtagConditions::Unsupported)?;
     if let Some(mime) = super::resumable::single(headers, "x-upload-content-type")? {
         crate::object::validate_fixed_metadata("contentType", mime)?;
         let mut advisory = HeaderMap::new();
@@ -546,12 +609,19 @@ pub fn validate_keyed_object_headers(
     Ok(())
 }
 
+/// Whether a route evaluates `If-Match` and `If-None-Match` against an ETag it serves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EtagConditions {
+    Supported,
+    Unsupported,
+}
+
 /// Keep unsupported conditional headers explicit on routes without validators.
 pub(crate) fn validate_read_condition_headers(
     headers: &HeaderMap,
-    etags_supported: bool,
+    etags: EtagConditions,
 ) -> Result<(), JsonError> {
-    if etags_supported {
+    if etags == EtagConditions::Supported {
         for name in ["if-range", "if-modified-since", "if-unmodified-since"] {
             if (name == "if-modified-since" && headers.contains_key("if-none-match"))
                 || (name == "if-unmodified-since" && headers.contains_key("if-match"))
@@ -564,7 +634,7 @@ pub(crate) fn validate_read_condition_headers(
         }
     }
     for name in ["if-match", "if-none-match"] {
-        if headers.contains_key(name) && !etags_supported {
+        if headers.contains_key(name) && etags == EtagConditions::Unsupported {
             return Err(JsonError::unsupported_object(name));
         }
     }
@@ -817,7 +887,8 @@ pub(crate) fn object_media_transcoding(
             .filter(|value| !value.is_empty())
         {
             let mut parts = entry.split(';');
-            let encoding = parts.next().expect("split has one part").trim();
+            // `split` always yields at least one item, so the default is never used.
+            let encoding = parts.next().unwrap_or_default().trim();
             let mut allowed = true;
             if let Some(parameter) = parts.next() {
                 let (name, quality) = parameter.trim().split_once('=').ok_or_else(|| {

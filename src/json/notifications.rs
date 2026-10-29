@@ -101,7 +101,7 @@ pub fn route(
         };
         let fields = Fields::take(&mut query, schema)?;
         query::common(&mut query)?;
-        query::finish(query)?;
+        query::finish(&query)?;
         Ok((request, fields))
     })())
 }

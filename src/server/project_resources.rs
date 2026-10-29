@@ -104,7 +104,7 @@ pub(super) async fn respond(
                     limit: params.max_results as usize,
                 })
                 .await?;
-            json::hmac_key_list(&page.items, &params, page.has_more, base_url)?
+            json::hmac_key_list(&page, &params, base_url)?
         }
         ProjectRequest::UpdateHmacKey { project, access_id } => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;

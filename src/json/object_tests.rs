@@ -863,14 +863,14 @@ fn obj_csek_002_metadata_update_accepts_only_echoed_customer_encryption() {
     object.customer_key_sha256 = Some(crate::csek::key_sha256(&[9; 32]));
     let echoed = object_resource(&object, "http://localhost", Projection::NoAcl).unwrap();
     let body = json!({"customerEncryption": echoed["customerEncryption"]}).to_string();
-    let request = parse_object_metadata(body.as_bytes(), false).unwrap();
+    let request = parse_object_metadata(body.as_bytes(), WriteMode::Patch).unwrap();
     assert!(
         ObjectMetadataRequest::validate_unchanged(&request.unchanged, &object, "http://localhost")
             .is_ok()
     );
     let changed =
         json!({"customerEncryption": {"encryptionAlgorithm": "AES256", "keySha256": "AAAA"}});
-    let request = parse_object_metadata(changed.to_string().as_bytes(), false).unwrap();
+    let request = parse_object_metadata(changed.to_string().as_bytes(), WriteMode::Patch).unwrap();
     assert!(
         ObjectMetadataRequest::validate_unchanged(&request.unchanged, &object, "http://localhost")
             .is_err()

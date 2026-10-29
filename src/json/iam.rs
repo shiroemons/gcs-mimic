@@ -93,7 +93,7 @@ pub fn test_permissions_query(raw: Option<&str>) -> Result<(Vec<String>, Fields)
     }
     let fields = Fields::take(&mut query, "TestIamPermissionsResponse")?;
     query::common(&mut query)?;
-    query::finish(query)?;
+    query::finish(&query)?;
     Ok((permissions, fields))
 }
 

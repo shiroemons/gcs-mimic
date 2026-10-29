@@ -6,13 +6,13 @@
 use super::buckets::{encode_segment, timestamp};
 use super::query::{Decoding, common, decode, finish, parse_query, validate_project};
 use super::{Fields, JsonError};
-use crate::storage::hmac_keys::{HmacKeyError, HmacKeyRecord, HmacKeyState};
+use crate::storage::hmac_keys::{HmacKeyError, HmacKeyPage, HmacKeyRecord, HmacKeyState};
 use hyper::{Method, StatusCode, Uri};
 use serde_json::{Value, json};
 
 /// The documented list has no default page size; this bound keeps one page small and matches
 /// the bucket listing cap.
-pub const HMAC_KEY_PAGE_CAP: u32 = 1000;
+const HMAC_KEY_PAGE_CAP: u32 = 1000;
 const MAX_EMAIL_BYTES: usize = 254;
 const MAX_TOKEN_BYTES: usize = 4096;
 
@@ -195,7 +195,7 @@ fn parse(
         (Kind::ServiceAccount, _, _) => ProjectRequest::GetServiceAccount { project },
         (Kind::HmacKey, _, None) => unreachable!("item routes carry an access ID"),
     };
-    finish(query)?;
+    finish(&query)?;
     Ok((request, fields))
 }
 
@@ -301,11 +301,11 @@ pub fn hmac_key_resource(
 }
 
 pub fn hmac_key_list(
-    items: &[HmacKeyRecord],
+    page: &HmacKeyPage,
     params: &HmacKeyListParams,
-    has_more: bool,
     base_url: &str,
 ) -> Result<Value, JsonError> {
+    let items = &page.items;
     let mut value = json!({
         "kind": "storage#hmacKeysMetadata",
         "items": items
@@ -313,7 +313,9 @@ pub fn hmac_key_list(
             .map(|record| hmac_key_metadata(record, base_url))
             .collect::<Result<Vec<_>, _>>()?,
     });
-    if has_more && let Some(last) = items.last() {
+    if page.has_more
+        && let Some(last) = items.last()
+    {
         value["nextPageToken"] = encode_list_token(params, &last.access_id).into();
     }
     Ok(value)

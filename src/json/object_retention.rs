@@ -82,8 +82,10 @@ pub(super) fn parse_bucket(value: Option<&Value>) -> Result<Option<bool>, JsonEr
     }
 }
 
-pub(super) fn render_bucket(enabled: bool) -> Option<Value> {
-    enabled.then(|| json!({"mode": "Enabled"}))
+pub(super) fn render_bucket(bucket: &crate::bucket::BucketRecord) -> Option<Value> {
+    bucket
+        .object_retention_enabled
+        .then(|| json!({"mode": "Enabled"}))
 }
 
 /// Returned as `retentionExpirationTime`: the later of bucket-policy and object retention.

@@ -83,24 +83,21 @@ fn decode_bucket_cursor(
 }
 
 fn object_scope(query: &ObjectListQuery, projection: super::Projection) -> String {
-    let mut payload = serde_json::json!([
-        query.bucket,
-        query.prefix,
-        query.delimiter,
-        query.start_offset,
-        query.end_offset,
-        query.include_trailing_delimiter,
-        projection == super::Projection::Full,
-        query.versions,
-        query.soft_deleted
-    ]);
+    let mut payload = vec![
+        serde_json::json!(query.bucket),
+        serde_json::json!(query.prefix),
+        serde_json::json!(query.delimiter),
+        serde_json::json!(query.start_offset),
+        serde_json::json!(query.end_offset),
+        serde_json::json!(query.include_trailing_delimiter),
+        serde_json::json!(projection == super::Projection::Full),
+        serde_json::json!(query.versions),
+        serde_json::json!(query.soft_deleted),
+    ];
     if let Some(glob) = &query.match_glob {
-        payload
-            .as_array_mut()
-            .expect("scope array")
-            .push(glob.pattern().into());
+        payload.push(glob.pattern().into());
     }
-    let payload = payload.to_string();
+    let payload = serde_json::Value::Array(payload).to_string();
     format!("{:016x}", checksum(payload.as_bytes()))
 }
 

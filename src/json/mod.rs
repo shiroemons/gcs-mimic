@@ -36,7 +36,8 @@ pub(crate) mod rewrite;
 
 pub use body::read_body;
 pub(crate) use buckets::{
-    bucket_etag, reject_predefined_acl, timestamp, validate_bucket_name_for_profile,
+    PredefinedAclTarget, UniformAccess, bucket_etag, reject_predefined_acl, timestamp,
+    validate_bucket_name_for_profile,
 };
 pub use buckets::{
     bucket_list, bucket_list_with_profile, bucket_resource, bucket_resource_with_profile,
@@ -49,21 +50,24 @@ pub use error::JsonError;
 pub use fields::Fields;
 pub(crate) use iam::policy_etag;
 pub use iam::{parse_policy, policy_resource, test_permissions_query};
-pub use multipart::{Multipart, form_data_boundary, multipart_boundary, multipart_metadata};
+pub use multipart::{
+    Multipart, PartKind, form_data_boundary, multipart_boundary, multipart_metadata,
+};
 pub use object_copy::ObjectCopyParams;
 pub use object_list::{ObjectListParams, object_list};
 pub(crate) use object_metadata::parse_object_metadata_mutation;
 pub(crate) use object_metadata::validate_fixed_metadata;
-pub use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
+pub use object_metadata::{ObjectMetadataRequest, WriteMode, parse_object_metadata};
 pub use object_move::ObjectMoveParams;
-pub use objects::{
-    ObjectGetParams, ObjectInsertParams, ObjectRead, ObjectRequest, object_media_headers,
-    object_media_range, object_resource, parse_object_upload_headers, route_object,
-    route_object_with_profile, validate_keyed_object_headers, validate_object_get_headers,
-    validate_object_media_encoding, validate_object_name,
-};
 pub(crate) use objects::{
-    base64, decode_hash, object_etag, object_media_transcoding, validate_read_condition_headers,
+    EtagConditions, base64, decode_hash, object_etag, object_media_transcoding,
+    validate_read_condition_headers,
+};
+pub use objects::{
+    ObjectGetParams, ObjectInsertParams, ObjectRead, ObjectRequest, RetentionOverride,
+    object_media_headers, object_media_range, object_resource, parse_object_upload_headers,
+    route_object, route_object_with_profile, validate_keyed_object_headers,
+    validate_object_get_headers, validate_object_media_encoding, validate_object_name,
 };
 pub use page_token::{
     decode_all_projects_page_token, decode_page_token, encode_all_projects_page_token,

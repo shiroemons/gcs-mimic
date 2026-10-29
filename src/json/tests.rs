@@ -385,9 +385,13 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             .is_ok()
         );
         assert_eq!(
-            reject_predefined_acl(Some(&format!("{parameter}=private")), false, false)
-                .unwrap_err()
-                .reason,
+            reject_predefined_acl(
+                Some(&format!("{parameter}=private")),
+                UniformAccess::Disabled,
+                PredefinedAclTarget::Bucket,
+            )
+            .unwrap_err()
+            .reason,
             JsonError::unsupported(parameter).reason
         );
     }

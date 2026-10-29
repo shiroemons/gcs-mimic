@@ -65,9 +65,10 @@ pub fn insert_response_headers(object: &ObjectRecord, headers: &mut HeaderMap) {
             "x-goog-encryption-algorithm",
             HeaderValue::from_static(crate::csek::ALGORITHM),
         );
-        headers.insert(
-            "x-goog-encryption-key-sha256",
-            HeaderValue::from_str(&super::base64(&sha256)).expect("base64 is a valid header"),
-        );
+        // Base64 always forms a valid header value; omitting the header is safer than
+        // panicking if that ever changes.
+        if let Ok(value) = HeaderValue::from_str(&super::base64(&sha256)) {
+            headers.insert("x-goog-encryption-key-sha256", value);
+        }
     }
 }

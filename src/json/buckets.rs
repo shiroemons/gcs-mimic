@@ -1,4 +1,4 @@
-use super::{JsonError, Projection, query::validate_project};
+use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CorsRule, UNIFORM_ACCESS_LOCK_PERIOD, bucket_location,
     cors_from_value, cors_value, valid_label, validate_storage_class,
@@ -88,14 +88,8 @@ pub fn parse_insert(
     parse_insert_with_profile(bytes, project, now, CompatProfile::Native, "US")
 }
 
-pub fn parse_insert_with_profile(
-    bytes: &[u8],
-    project: &str,
-    now: SystemTime,
-    profile: CompatProfile,
-    default_location: &str,
-) -> Result<BucketRecord, JsonError> {
-    validate_project(project)?;
+/// fake-gcs-server reads only the first JSON value of an insert body and ignores the rest.
+fn parse_insert_json(bytes: &[u8], profile: CompatProfile) -> Result<Value, JsonError> {
     let parsed = if profile == CompatProfile::LegacyEmulator {
         serde_json::Deserializer::from_slice(bytes)
             .into_iter::<Value>()
@@ -104,16 +98,19 @@ pub fn parse_insert_with_profile(
     } else {
         serde_json::from_slice(bytes)
     };
-    let value: Value = parsed.map_err(|_| {
+    parsed.map_err(|_| {
         JsonError::new(
             StatusCode::BAD_REQUEST,
             "parseError",
             "Invalid JSON bucket resource",
         )
-    })?;
-    let body = value
-        .as_object()
-        .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
+    })
+}
+
+fn reject_unsupported_insert_fields(
+    body: &serde_json::Map<String, Value>,
+    profile: CompatProfile,
+) -> Result<(), JsonError> {
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
             if profile == CompatProfile::Native
@@ -127,27 +124,120 @@ pub fn parse_insert_with_profile(
             return Err(JsonError::unsupported(field));
         }
     }
-    let string = |field, default: Option<&str>| -> Result<String, JsonError> {
-        match body.get(field) {
-            Some(value) => value
+    Ok(())
+}
+
+/// A string field of an insert body; `default` makes the field optional.
+fn insert_string(
+    body: &serde_json::Map<String, Value>,
+    field: &str,
+    default: Option<&str>,
+) -> Result<String, JsonError> {
+    match body.get(field) {
+        Some(value) => value
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| JsonError::invalid_argument(format!("{field} must be a string"))),
+        None => default.map(str::to_owned).ok_or_else(|| {
+            JsonError::new(
+                StatusCode::BAD_REQUEST,
+                "required",
+                format!("Missing required {field}"),
+            )
+        }),
+    }
+}
+
+/// A boolean field of an insert body; an absent field, or a legacy null, is false.
+fn insert_bool(
+    value: Option<&Value>,
+    field: &str,
+    profile: CompatProfile,
+) -> Result<bool, JsonError> {
+    match value {
+        None => Ok(false),
+        Some(Value::Null) if profile == CompatProfile::LegacyEmulator => Ok(false),
+        Some(value) => value
+            .as_bool()
+            .ok_or_else(|| JsonError::invalid_argument(format!("{field} must be a boolean"))),
+    }
+}
+
+fn insert_location(
+    body: &serde_json::Map<String, Value>,
+    profile: CompatProfile,
+    default_location: &str,
+) -> Result<String, JsonError> {
+    if profile == CompatProfile::LegacyEmulator {
+        if body.get("location").is_some_and(|value| {
+            !value
                 .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| JsonError::invalid_argument(format!("{field} must be a string"))),
-            None => default.map(str::to_owned).ok_or_else(|| {
-                JsonError::new(
-                    StatusCode::BAD_REQUEST,
-                    "required",
-                    format!("Missing required {field}"),
-                )
-            }),
+                .is_some_and(|location| location.eq_ignore_ascii_case(LEGACY_LOCATION))
+        }) {
+            return Err(JsonError::unsupported("location"));
         }
+        return Ok("US".into());
+    }
+    if body
+        .get("location")
+        .is_none_or(|value| value.is_null() || value == "")
+    {
+        return Ok(default_location.to_owned());
+    }
+    insert_string(body, "location", Some(default_location))
+}
+
+/// The legacy profile ignores labels on insert.
+fn insert_labels(
+    body: &serde_json::Map<String, Value>,
+    profile: CompatProfile,
+) -> Result<BTreeMap<String, String>, JsonError> {
+    let mut labels = BTreeMap::new();
+    let Some(value) = body
+        .get("labels")
+        .filter(|_| profile == CompatProfile::Native)
+    else {
+        return Ok(labels);
     };
+    let object = value
+        .as_object()
+        .ok_or_else(|| JsonError::invalid_argument("labels must be a string map"))?;
+    if object.len() > 64 {
+        return Err(JsonError::invalid_argument(
+            "A bucket can have at most 64 labels",
+        ));
+    }
+    for (key, value) in object {
+        let value = value
+            .as_str()
+            .ok_or_else(|| JsonError::invalid_argument("Label values must be strings"))?;
+        if !valid_label(key, true) || !valid_label(value, false) {
+            return Err(JsonError::invalid_argument("Invalid bucket label"));
+        }
+        labels.insert(key.clone(), value.to_owned());
+    }
+    Ok(labels)
+}
+
+pub fn parse_insert_with_profile(
+    bytes: &[u8],
+    project: &str,
+    now: SystemTime,
+    profile: CompatProfile,
+    default_location: &str,
+) -> Result<BucketRecord, JsonError> {
+    validate_project(project)?;
+    let value = parse_insert_json(bytes, profile)?;
+    let body = value
+        .as_object()
+        .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
+    reject_unsupported_insert_fields(body, profile)?;
     let name = if profile == CompatProfile::LegacyEmulator
         && body.get("name").is_none_or(Value::is_null)
     {
         String::new()
     } else {
-        string("name", None)?
+        insert_string(body, "name", None)?
     };
     validate_bucket_name_for_profile(&name, profile).map_err(|_| {
         JsonError::invalid_argument(if profile == CompatProfile::Native {
@@ -156,15 +246,6 @@ pub fn parse_insert_with_profile(
             "invalid bucket name"
         })
     })?;
-    let boolean = |value: Option<&Value>, field| -> Result<bool, JsonError> {
-        match value {
-            None => Ok(false),
-            Some(Value::Null) if profile == CompatProfile::LegacyEmulator => Ok(false),
-            Some(value) => value
-                .as_bool()
-                .ok_or_else(|| JsonError::invalid_argument(format!("{field} must be a boolean"))),
-        }
-    };
     let versioning_enabled = match body.get("versioning") {
         None => false,
         Some(Value::Null) if profile == CompatProfile::LegacyEmulator => false,
@@ -172,33 +253,20 @@ pub fn parse_insert_with_profile(
             let versioning = value
                 .as_object()
                 .ok_or_else(|| JsonError::invalid_argument("versioning must be an object"))?;
-            boolean(versioning.get("enabled"), "versioning.enabled")?
+            insert_bool(versioning.get("enabled"), "versioning.enabled", profile)?
         }
     };
-    let default_event_based_hold =
-        boolean(body.get("defaultEventBasedHold"), "defaultEventBasedHold")?;
-    let location = if profile == CompatProfile::LegacyEmulator {
-        if body.get("location").is_some_and(|value| {
-            !value
-                .as_str()
-                .is_some_and(|location| location.eq_ignore_ascii_case(LEGACY_LOCATION))
-        }) {
-            return Err(JsonError::unsupported("location"));
-        }
-        "US".into()
-    } else if body
-        .get("location")
-        .is_none_or(|value| value.is_null() || value == "")
-    {
-        default_location.to_owned()
-    } else {
-        string("location", Some(default_location))?
-    };
+    let default_event_based_hold = insert_bool(
+        body.get("defaultEventBasedHold"),
+        "defaultEventBasedHold",
+        profile,
+    )?;
+    let location = insert_location(body, profile, default_location)?;
     let (location, location_type) = bucket_location(&location)?;
     let storage_class = if profile == CompatProfile::LegacyEmulator {
         "STANDARD".into()
     } else {
-        string("storageClass", Some("STANDARD"))?
+        insert_string(body, "storageClass", Some("STANDARD"))?
     };
     validate_storage_class(&storage_class)?;
     // Ruby sends disabled Autoclass even when no option was supplied; that stays unconfigured.
@@ -209,29 +277,7 @@ pub fn parse_insert_with_profile(
         .map(|update| crate::bucket::autoclass::apply(None, &update, now))
         .transpose()?
         .and_then(|(config, _)| config);
-    let mut labels = BTreeMap::new();
-    if let Some(value) = body
-        .get("labels")
-        .filter(|_| profile == CompatProfile::Native)
-    {
-        let object = value
-            .as_object()
-            .ok_or_else(|| JsonError::invalid_argument("labels must be a string map"))?;
-        if object.len() > 64 {
-            return Err(JsonError::invalid_argument(
-                "A bucket can have at most 64 labels",
-            ));
-        }
-        for (key, value) in object {
-            let value = value
-                .as_str()
-                .ok_or_else(|| JsonError::invalid_argument("Label values must be strings"))?;
-            if !valid_label(key, true) || !valid_label(value, false) {
-                return Err(JsonError::invalid_argument("Invalid bucket label"));
-            }
-            labels.insert(key.clone(), value.to_owned());
-        }
-    }
+    let labels = insert_labels(body, profile)?;
     timestamp(now)?;
     Ok(BucketRecord {
         soft_delete_policy: parse_soft_delete_retention(body.get("softDeletePolicy"))?.map(
@@ -294,21 +340,72 @@ pub fn parse_bucket_patch(
     bytes: &[u8],
     profile: CompatProfile,
 ) -> Result<BucketMetadataUpdate, JsonError> {
-    parse_bucket_update(bytes, profile, false)
+    parse_bucket_update(bytes, profile, WriteMode::Patch)
 }
 
 pub fn parse_bucket_replacement(
     bytes: &[u8],
     profile: CompatProfile,
 ) -> Result<BucketMetadataUpdate, JsonError> {
-    parse_bucket_update(bytes, profile, true)
+    parse_bucket_update(bytes, profile, WriteMode::Replace)
+}
+
+/// Labels of a bucket update, where `None` clears every label. A patch removes a label with a
+/// null value; a replacement requires string values and is limited to 64 labels.
+fn update_labels(
+    value: &Value,
+    mode: WriteMode,
+) -> Result<Option<BTreeMap<String, Option<String>>>, JsonError> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let replace = mode == WriteMode::Replace;
+    let labels = value
+        .as_object()
+        .ok_or_else(|| JsonError::invalid_argument("labels must be an object or null"))?;
+    if replace && labels.len() > 64 {
+        return Err(JsonError::invalid_argument(
+            "A bucket can have at most 64 labels",
+        ));
+    }
+    labels
+        .iter()
+        .map(|(key, value)| {
+            let value = if value.is_null() && !replace {
+                None
+            } else {
+                Some(
+                    value
+                        .as_str()
+                        .ok_or_else(|| {
+                            JsonError::invalid_argument(if replace {
+                                "Label values must be strings"
+                            } else {
+                                "Label values must be strings or null"
+                            })
+                        })?
+                        .to_owned(),
+                )
+            };
+            if !valid_label(key, true)
+                || value
+                    .as_deref()
+                    .is_some_and(|value| !valid_label(value, false))
+            {
+                return Err(JsonError::invalid_argument("Invalid bucket label"));
+            }
+            Ok((key.clone(), value))
+        })
+        .collect::<Result<_, JsonError>>()
+        .map(Some)
 }
 
 fn parse_bucket_update(
     bytes: &[u8],
     profile: CompatProfile,
-    replace: bool,
+    mode: WriteMode,
 ) -> Result<BucketMetadataUpdate, JsonError> {
+    let replace = mode == WriteMode::Replace;
     let value: Value = serde_json::from_slice(bytes).map_err(|_| {
         JsonError::new(
             StatusCode::BAD_REQUEST,
@@ -356,49 +453,7 @@ fn parse_bucket_update(
     }
     let labels = body
         .get("labels")
-        .map(|value| {
-            if value.is_null() {
-                return Ok(None);
-            }
-            let labels = value
-                .as_object()
-                .ok_or_else(|| JsonError::invalid_argument("labels must be an object or null"))?;
-            if replace && labels.len() > 64 {
-                return Err(JsonError::invalid_argument(
-                    "A bucket can have at most 64 labels",
-                ));
-            }
-            labels
-                .iter()
-                .map(|(key, value)| {
-                    let value = if value.is_null() && !replace {
-                        None
-                    } else {
-                        Some(
-                            value
-                                .as_str()
-                                .ok_or_else(|| {
-                                    JsonError::invalid_argument(if replace {
-                                        "Label values must be strings"
-                                    } else {
-                                        "Label values must be strings or null"
-                                    })
-                                })?
-                                .to_owned(),
-                        )
-                    };
-                    if !valid_label(key, true)
-                        || value
-                            .as_deref()
-                            .is_some_and(|value| !valid_label(value, false))
-                    {
-                        return Err(JsonError::invalid_argument("Invalid bucket label"));
-                    }
-                    Ok((key.clone(), value))
-                })
-                .collect::<Result<_, JsonError>>()
-                .map(Some)
-        })
+        .map(|value| update_labels(value, mode))
         .transpose()?;
     let versioning_enabled = body
         .get("versioning")
@@ -568,10 +623,35 @@ fn parse_cors(value: Option<&Value>) -> Result<Option<Vec<CorsRule>>, JsonError>
         .transpose()
 }
 
+/// Whether uniform bucket-level access governs the bucket a request targets.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum UniformAccess {
+    Enabled,
+    Disabled,
+}
+
+impl UniformAccess {
+    /// Enabled once the bucket records a lock time, or when the request itself enables it.
+    pub(crate) fn of(locked_time: Option<SystemTime>, requested: Option<bool>) -> Self {
+        if locked_time.is_some() || requested == Some(true) {
+            Self::Enabled
+        } else {
+            Self::Disabled
+        }
+    }
+}
+
+/// The resource a predefined ACL query parameter would apply to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PredefinedAclTarget {
+    Bucket,
+    Object,
+}
+
 pub(crate) fn reject_predefined_acl(
     query: Option<&str>,
-    enabled: bool,
-    object: bool,
+    uniform_access: UniformAccess,
+    target: PredefinedAclTarget,
 ) -> Result<(), JsonError> {
     let query = super::parse_query(query.unwrap_or_default())?;
     for key in [
@@ -580,14 +660,16 @@ pub(crate) fn reject_predefined_acl(
         "destinationPredefinedAcl",
     ] {
         if query.contains_key(key) {
-            return Err(if enabled {
-                JsonError::invalid_argument(format!(
+            return Err(match (uniform_access, target) {
+                (UniformAccess::Enabled, _) => JsonError::invalid_argument(format!(
                     "{key} cannot be used with uniform bucket-level access; remove {key} (for example, omit {key}=publicRead) and use bucket IAM permissions"
-                ))
-            } else if object {
-                JsonError::unsupported_object(key)
-            } else {
-                JsonError::unsupported(key)
+                )),
+                (UniformAccess::Disabled, PredefinedAclTarget::Object) => {
+                    JsonError::unsupported_object(key)
+                }
+                (UniformAccess::Disabled, PredefinedAclTarget::Bucket) => {
+                    JsonError::unsupported(key)
+                }
             });
         }
     }
@@ -658,9 +740,7 @@ pub fn bucket_resource_with_profile(
     if let Some(policy) = &bucket.retention_policy {
         value["retentionPolicy"] = json!({"retentionPeriod":policy.retention_period.to_string(), "effectiveTime":timestamp(policy.effective_time)?, "isLocked":policy.is_locked});
     }
-    if let Some(object_retention) =
-        super::object_retention::render_bucket(bucket.object_retention_enabled)
-    {
+    if let Some(object_retention) = super::object_retention::render_bucket(bucket) {
         value["objectRetention"] = object_retention;
     }
     if let Some(policy) = &bucket.soft_delete_policy {
@@ -737,8 +817,10 @@ pub(super) fn encode_segment(segment: &str) -> String {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
             encoded.push(char::from(byte));
         } else {
-            use std::fmt::Write;
-            write!(encoded, "%{byte:02X}").expect("writing to String cannot fail");
+            const HEX: &[u8; 16] = b"0123456789ABCDEF";
+            encoded.push('%');
+            encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+            encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
         }
     }
     encoded

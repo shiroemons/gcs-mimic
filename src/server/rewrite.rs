@@ -48,11 +48,11 @@ pub(super) async fn respond(
             .ok_or(CatalogError::NotFound)?;
         json::reject_predefined_acl(
             request.uri().query(),
-            record.uniform_bucket_level_access_locked_time.is_some(),
-            true,
+            json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
+            json::PredefinedAclTarget::Object,
         )?;
     }
-    json::validate_read_condition_headers(request.headers(), false)?;
+    json::validate_read_condition_headers(request.headers(), json::EtagConditions::Unsupported)?;
     json::validate_keyed_object_headers(
         request.headers(),
         json::ObjectRead::Metadata,

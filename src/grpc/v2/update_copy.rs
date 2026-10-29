@@ -913,7 +913,8 @@ impl Storage {
             c.if_generation_match = Some(c.if_generation_match.unwrap_or(current.generation));
         }
         let parsed =
-            json::parse_object_metadata(body.to_string().as_bytes(), false).map_err(error)?;
+            json::parse_object_metadata(body.to_string().as_bytes(), json::WriteMode::Patch)
+                .map_err(error)?;
         parsed.update.validate().map_err(error)?;
         let record = self
             .state
@@ -979,7 +980,8 @@ impl Storage {
             })
             .collect::<Result<Vec<_>, Status>>()?;
         let parsed =
-            json::parse_object_metadata(body.to_string().as_bytes(), true).map_err(error)?;
+            json::parse_object_metadata(body.to_string().as_bytes(), json::WriteMode::Replace)
+                .map_err(error)?;
         if !parsed.unchanged.is_empty() || o.temporary_hold || o.custom_time.is_some() {
             return Err(unsupported(
                 "ComposeObject metadata; omit storage_class, temporary_hold and custom_time",

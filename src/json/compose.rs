@@ -1,5 +1,5 @@
 use crate::{
-    json::{JsonError, parse_object_metadata, validate_object_name},
+    json::{JsonError, WriteMode, parse_object_metadata, validate_object_name},
     object::{ComposeSource, ObjectMetadataUpdate},
 };
 use hyper::StatusCode;
@@ -75,7 +75,7 @@ pub(crate) fn route(
             if_metageneration_match: condition("ifMetagenerationMatch")?,
             ..Default::default()
         };
-        crate::json::query::finish(query)?;
+        crate::json::query::finish(&query)?;
         Ok(crate::json::ObjectRequest::Compose {
             bucket,
             name,
@@ -132,34 +132,49 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
         .ok_or_else(|| JsonError::invalid_argument("sourceObjects must contain 1 to 32 objects"))?;
     let sources = sources
         .iter()
-        .map(|value| {
-            let source = object(value, "Source object")?;
-            known_fields(source, &["name", "generation", "objectPreconditions"])?;
-            let name = source
-                .get("name")
-                .and_then(Value::as_str)
-                .ok_or_else(|| JsonError::invalid_argument("Source name must be a string"))?;
-            validate_object_name(name)?;
-            let conditions = source
-                .get("objectPreconditions")
-                .map(|value| object(value, "Source preconditions"))
-                .transpose()?;
-            if let Some(conditions) = conditions {
-                known_fields(conditions, &["ifGenerationMatch"])?;
-            }
-            Ok(ComposeSource {
-                name: name.to_owned(),
-                generation: integer(
-                    source.get("generation").filter(|value| !value.is_null()),
-                    "generation",
-                )?,
-                if_generation_match: integer(
-                    conditions.and_then(|conditions| conditions.get("ifGenerationMatch")),
-                    "ifGenerationMatch",
-                )?,
-            })
-        })
+        .map(parse_source)
         .collect::<Result<_, JsonError>>()?;
+    Ok(ComposeRequest {
+        sources,
+        destination: destination_metadata(body, bucket, name)?,
+        delete_sources,
+    })
+}
+
+fn parse_source(value: &Value) -> Result<ComposeSource, JsonError> {
+    let source = object(value, "Source object")?;
+    known_fields(source, &["name", "generation", "objectPreconditions"])?;
+    let name = source
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| JsonError::invalid_argument("Source name must be a string"))?;
+    validate_object_name(name)?;
+    let conditions = source
+        .get("objectPreconditions")
+        .map(|value| object(value, "Source preconditions"))
+        .transpose()?;
+    if let Some(conditions) = conditions {
+        known_fields(conditions, &["ifGenerationMatch"])?;
+    }
+    Ok(ComposeSource {
+        name: name.to_owned(),
+        generation: integer(
+            source.get("generation").filter(|value| !value.is_null()),
+            "generation",
+        )?,
+        if_generation_match: integer(
+            conditions.and_then(|conditions| conditions.get("ifGenerationMatch")),
+            "ifGenerationMatch",
+        )?,
+    })
+}
+
+/// The destination resource's metadata. Its bucket, name and kind must match the request.
+fn destination_metadata(
+    body: &Map<String, Value>,
+    bucket: &str,
+    name: &str,
+) -> Result<ObjectMetadataUpdate, JsonError> {
     let mut destination = body
         .get("destination")
         .filter(|value| !value.is_null())
@@ -182,8 +197,10 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
     // The JSON composite-object guide explicitly ignores supplied destination hashes.
     destination.remove("md5Hash");
     destination.remove("crc32c");
-    let metadata =
-        parse_object_metadata(&Value::Object(destination).to_string().into_bytes(), true)?;
+    let metadata = parse_object_metadata(
+        &Value::Object(destination).to_string().into_bytes(),
+        WriteMode::Replace,
+    )?;
     metadata.update.validate().map_err(JsonError::from)?;
     if metadata.update.temporary_hold == Some(true) {
         return Err(JsonError::unsupported_object("temporaryHold on compose"));
@@ -217,11 +234,7 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
     {
         return Err(JsonError::invalid_argument("Custom metadata exceeds 8 KiB"));
     }
-    Ok(ComposeRequest {
-        sources,
-        destination: metadata.update,
-        delete_sources,
-    })
+    Ok(metadata.update)
 }
 
 fn object<'a>(value: &'a Value, label: &str) -> Result<&'a Map<String, Value>, JsonError> {

@@ -116,7 +116,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
             &token, &query, projection,
         )?);
     }
-    finish(params)?;
+    finish(&params)?;
     Ok(ObjectListParams {
         query,
         projection,

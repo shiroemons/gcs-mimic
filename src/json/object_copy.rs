@@ -90,7 +90,7 @@ pub(super) fn route(
         };
         let source_conditions = conditions("Source")?;
         let conditions = conditions("")?;
-        finish(query)?;
+        finish(&query)?;
         Ok(ObjectRequest::Copy(ObjectCopyParams {
             source_bucket,
             source_name,

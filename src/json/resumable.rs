@@ -41,7 +41,7 @@ pub(crate) fn session_route(
         if query.remove("uploadType").is_some_and(|v| v != "resumable") {
             return Err(JsonError::invalid_parameter("Invalid uploadType"));
         }
-        super::query::finish(query)?;
+        super::query::finish(&query)?;
         Ok((bucket, id))
     })())
 }
@@ -110,20 +110,31 @@ pub(crate) fn headers(
     Ok((mime, hashes, total))
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Initiation combines existing metadata and upload contracts"
-)]
+/// What a resumable upload's initiation request declares outside its metadata body: the URL
+/// name and parameters, the upload headers and the caller's access.
+pub(crate) struct Initiation {
+    pub(crate) name: Option<String>,
+    pub(crate) mime: String,
+    pub(crate) expected: ExpectedHashes,
+    pub(crate) params: ObjectInsertParams,
+    pub(crate) access: BucketAccess,
+    pub(crate) origin: Option<String>,
+    pub(crate) encoding: Option<String>,
+}
+
 pub(crate) fn options(
     bytes: &[u8],
-    name: Option<String>,
-    mime: String,
-    expected: ExpectedHashes,
-    params: ObjectInsertParams,
-    access: BucketAccess,
-    origin: Option<String>,
-    encoding: Option<String>,
+    initiation: Initiation,
 ) -> Result<(String, ResumableOptions), JsonError> {
+    let Initiation {
+        name,
+        mime,
+        expected,
+        params,
+        access,
+        origin,
+        encoding,
+    } = initiation;
     let bytes = if bytes.is_empty() {
         b"{}".as_slice()
     } else {
@@ -137,11 +148,10 @@ pub(crate) fn options(
             "Invalid metadata JSON",
         )
     })?;
-    if value.get("bucket").is_some_and(|v| v.is_null()) {
-        value
-            .as_object_mut()
-            .expect("object field")
-            .remove("bucket");
+    if let Some(object) = value.as_object_mut()
+        && object.get("bucket").is_some_and(serde_json::Value::is_null)
+    {
+        object.remove("bucket");
     }
     let bytes = value.to_string().into_bytes();
     let (name, mut metadata, expected) = multipart_metadata(&bytes, name, expected)?;
@@ -160,7 +170,7 @@ pub(crate) fn options(
             serde_json::json!({"contentEncoding":encoding})
                 .to_string()
                 .as_bytes(),
-            false,
+            super::WriteMode::Patch,
         )?
         .update
         .content_encoding;
@@ -297,7 +307,7 @@ pub(crate) fn final_options(
             serde_json::json!({"metadata":custom})
                 .to_string()
                 .as_bytes(),
-            false,
+            super::WriteMode::Patch,
         )?
         .update;
         let incoming = update.metadata.flatten().unwrap_or_default();

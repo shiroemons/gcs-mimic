@@ -60,9 +60,16 @@ pub(super) async fn initiate(
             "Metadata requires application/json",
         ));
     }
-    let (name, mut options) = resumable::options(
-        &bytes, name, mime, expected, params, access, origin, encoding,
-    )?;
+    let initiation = resumable::Initiation {
+        name,
+        mime,
+        expected,
+        params,
+        access,
+        origin,
+        encoding,
+    };
+    let (name, mut options) = resumable::options(&bytes, initiation)?;
     super::retention_access::authorize_upload(state, &options.access, bucket, &options.metadata)
         .await?;
     options.response_fields = response_fields;

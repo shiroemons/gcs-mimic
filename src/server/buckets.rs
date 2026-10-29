@@ -9,7 +9,7 @@ use crate::{
     auth::{self, Caller},
     bucket::{BucketAccess, CatalogError},
     config::CompatProfile,
-    json::{self, BucketRequest, JsonError},
+    json::{self, BucketRequest, JsonError, WriteMode},
 };
 use http_body_util::Full;
 use hyper::{
@@ -24,13 +24,6 @@ struct BucketCtx<'a> {
     state: &'a State,
     caller: Option<Caller<'a>>,
     profile: CompatProfile,
-}
-
-/// Whether a bucket write merges into or replaces the stored metadata.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum BucketWrite {
-    Patch,
-    Replace,
 }
 
 pub(super) async fn respond<'a>(
@@ -59,10 +52,10 @@ pub(super) async fn respond<'a>(
             permissions,
         } => test_iam_permissions(ctx, &bucket, permissions).await?,
         BucketRequest::Patch { bucket, params } => {
-            write(request, ctx, &access, &bucket, params, BucketWrite::Patch).await?
+            write(request, ctx, &access, &bucket, params, WriteMode::Patch).await?
         }
         BucketRequest::Update { bucket, params } => {
-            write(request, ctx, &access, &bucket, params, BucketWrite::Replace).await?
+            write(request, ctx, &access, &bucket, params, WriteMode::Replace).await?
         }
         BucketRequest::GetIam { bucket } => {
             return get_iam(&request, ctx, &access, &bucket, &fields).await;
@@ -131,13 +124,11 @@ fn validate_request(
     request: &Request<Incoming>,
     operation: &BucketRequest,
 ) -> Result<(), JsonError> {
-    json::validate_read_condition_headers(
-        request.headers(),
-        matches!(
-            operation,
-            BucketRequest::Get { .. } | BucketRequest::GetIam { .. }
-        ),
-    )?;
+    let etags = match operation {
+        BucketRequest::Get { .. } | BucketRequest::GetIam { .. } => json::EtagConditions::Supported,
+        _ => json::EtagConditions::Unsupported,
+    };
+    json::validate_read_condition_headers(request.headers(), etags)?;
     if !matches!(
         operation,
         BucketRequest::Insert(_)
@@ -237,14 +228,14 @@ async fn write(
     access: &BucketAccess,
     bucket: &str,
     params: json::GetParams,
-    mode: BucketWrite,
+    mode: WriteMode,
 ) -> Result<Value, JsonError> {
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
     let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
     let update = match mode {
-        BucketWrite::Replace => json::parse_bucket_replacement(&bytes, profile)?,
-        BucketWrite::Patch => json::parse_bucket_patch(&bytes, profile)?,
+        WriteMode::Replace => json::parse_bucket_replacement(&bytes, profile)?,
+        WriteMode::Patch => json::parse_bucket_patch(&bytes, profile)?,
     };
     let record = state
         .catalog
@@ -253,13 +244,15 @@ async fn write(
         .ok_or(CatalogError::NotFound)?;
     json::reject_predefined_acl(
         acl_query.as_deref(),
-        record.uniform_bucket_level_access_locked_time.is_some()
-            || update.uniform_bucket_level_access_enabled == Some(true),
-        false,
+        json::UniformAccess::of(
+            record.uniform_bucket_level_access_locked_time,
+            update.uniform_bucket_level_access_enabled,
+        ),
+        json::PredefinedAclTarget::Bucket,
     )?;
     let conditions = params.conditions;
     let record = match mode {
-        BucketWrite::Replace => {
+        WriteMode::Replace => {
             state
                 .catalog
                 .replace_bucket(
@@ -271,7 +264,7 @@ async fn write(
                 )
                 .await
         }
-        BucketWrite::Patch => {
+        WriteMode::Patch => {
             state
                 .catalog
                 .patch_bucket(
@@ -349,8 +342,8 @@ async fn insert(
     let name = record.name.clone();
     json::reject_predefined_acl(
         acl_query.as_deref(),
-        record.uniform_bucket_level_access_locked_time.is_some(),
-        false,
+        json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
+        json::PredefinedAclTarget::Bucket,
     )?;
     let record = state
         .catalog

@@ -108,15 +108,15 @@ pub(super) async fn respond(
             bucket,
             name,
             params,
-            replace,
-            override_unlocked_retention,
+            mode,
+            retention_override,
         } => {
             let target = UpdateTarget {
                 bucket,
                 name,
                 params,
-                replace,
-                override_unlocked_retention,
+                mode,
+                retention_override,
             };
             update(request, ctx, &access, target).await?.into()
         }
@@ -195,14 +195,18 @@ async fn reject_predefined_acl(
         .ok_or(CatalogError::NotFound)?;
     json::reject_predefined_acl(
         uri.query(),
-        record.uniform_bucket_level_access_locked_time.is_some(),
-        true,
+        json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
+        json::PredefinedAclTarget::Object,
     )
 }
 
 /// Header and body checks that precede every operation's own validation.
 fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<(), JsonError> {
-    json::validate_read_condition_headers(headers, matches!(operation, ObjectRequest::Get { .. }))?;
+    let etags = match operation {
+        ObjectRequest::Get { .. } => json::EtagConditions::Supported,
+        _ => json::EtagConditions::Unsupported,
+    };
+    json::validate_read_condition_headers(headers, etags)?;
     let accepts_body = matches!(
         operation,
         ObjectRequest::Insert { .. }
@@ -380,8 +384,8 @@ struct UpdateTarget {
     bucket: String,
     name: String,
     params: json::ObjectGetParams,
-    replace: bool,
-    override_unlocked_retention: bool,
+    mode: json::WriteMode,
+    retention_override: json::RetentionOverride,
 }
 
 async fn update(
@@ -394,8 +398,8 @@ async fn update(
         bucket,
         name,
         params,
-        replace,
-        override_unlocked_retention,
+        mode,
+        retention_override,
     } = target;
     json::validate_keyed_object_headers(
         request.headers(),
@@ -405,13 +409,13 @@ async fn update(
     let key = json::request_key(request.headers())?;
     // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
     let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-    let mut update = json::parse_object_metadata_mutation(&bytes, replace)?;
+    let mut update = json::parse_object_metadata_mutation(&bytes, mode)?;
     retention_access::authorize_update(
         ctx.state,
         access,
         &bucket,
         &mut update.update,
-        override_unlocked_retention,
+        retention_override,
     )
     .await?;
     let base = ctx.state.api_base_url.clone();

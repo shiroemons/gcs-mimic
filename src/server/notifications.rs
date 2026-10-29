@@ -21,7 +21,7 @@ pub(super) async fn respond(
         NotificationRequest::List { .. } | NotificationRequest::Get { .. } => auth::BUCKETS_GET,
     };
     let access = authorize_bucket(state, caller, permission, operation.bucket()).await?;
-    json::validate_read_condition_headers(request.headers(), false)?;
+    json::validate_read_condition_headers(request.headers(), json::EtagConditions::Unsupported)?;
     if !matches!(operation, NotificationRequest::Insert { .. })
         && (request.headers().contains_key("transfer-encoding")
             || request

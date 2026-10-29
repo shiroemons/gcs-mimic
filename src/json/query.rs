@@ -81,6 +81,85 @@ pub fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, JsonErr
     route_with_profile(method, uri, CompatProfile::Native, "local-project")
 }
 
+/// `POST /storage/v1/b/BUCKET/lockRetentionPolicy`; `segment` is the raw bucket segment.
+fn parse_lock_retention_policy(
+    method: &Method,
+    segment: &str,
+    uri: &Uri,
+    profile: CompatProfile,
+) -> Result<BucketRequest, JsonError> {
+    if *method != Method::POST {
+        return Err(JsonError::new(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "methodNotAllowed",
+            "Use POST to lock a retention policy",
+        ));
+    }
+    let bucket = decode(segment, Decoding::Path)?;
+    validate_bucket_name_for_profile(&bucket, profile)?;
+    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    super::Fields::take(&mut query, "Bucket")?;
+    common(&mut query)?;
+    let metageneration = query
+        .remove("ifMetagenerationMatch")
+        .ok_or_else(|| {
+            JsonError::new(
+                StatusCode::BAD_REQUEST,
+                "required",
+                "ifMetagenerationMatch is required; read the bucket metageneration first",
+            )
+        })?
+        .parse::<i64>()
+        .map_err(|_| JsonError::invalid_parameter("ifMetagenerationMatch must be an integer"))?;
+    finish(&query)?;
+    Ok(BucketRequest::LockRetentionPolicy {
+        bucket,
+        metageneration,
+    })
+}
+
+/// `GET` or `PUT /storage/v1/b/BUCKET/iam`; `segment` is the raw bucket segment.
+fn parse_iam(
+    method: &Method,
+    segment: &str,
+    uri: &Uri,
+    profile: CompatProfile,
+) -> Result<BucketRequest, JsonError> {
+    let bucket = decode(segment, Decoding::Path)?;
+    if segment.len() > 222 * 3 {
+        return Err(JsonError::invalid_parameter("Invalid bucket name"));
+    }
+    if profile == CompatProfile::Native {
+        validate_bucket_name_for_profile(&bucket, profile)?;
+    }
+    if !matches!(*method, Method::GET | Method::PUT) {
+        let mut error = JsonError::new(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "methodNotAllowed",
+            "HTTP method is not supported for this IAM endpoint",
+        );
+        error.allow = Some("GET, PUT");
+        return Err(error);
+    }
+    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    super::Fields::take(&mut query, "Policy")?;
+    common(&mut query)?;
+    if *method == Method::GET {
+        if let Some(version) = query.remove("optionsRequestedPolicyVersion")
+            && !matches!(version.as_str(), "1" | "3")
+        {
+            return Err(JsonError::invalid_parameter(
+                "optionsRequestedPolicyVersion must be 1 or 3",
+            ));
+        }
+        finish(&query)?;
+        Ok(BucketRequest::GetIam { bucket })
+    } else {
+        finish(&query)?;
+        Ok(BucketRequest::SetIam { bucket })
+    }
+}
+
 pub fn route_with_profile(
     method: &Method,
     uri: &Uri,
@@ -95,38 +174,7 @@ pub fn route_with_profile(
         && !segment.is_empty()
         && !segment.contains('/')
     {
-        return Some((|| {
-            if *method != Method::POST {
-                return Err(JsonError::new(
-                    StatusCode::METHOD_NOT_ALLOWED,
-                    "methodNotAllowed",
-                    "Use POST to lock a retention policy",
-                ));
-            }
-            let bucket = decode(segment, Decoding::Path)?;
-            validate_bucket_name_for_profile(&bucket, profile)?;
-            let mut query = parse_query(uri.query().unwrap_or_default())?;
-            super::Fields::take(&mut query, "Bucket")?;
-            common(&mut query)?;
-            let metageneration = query
-                .remove("ifMetagenerationMatch")
-                .ok_or_else(|| {
-                    JsonError::new(
-                        StatusCode::BAD_REQUEST,
-                        "required",
-                        "ifMetagenerationMatch is required; read the bucket metageneration first",
-                    )
-                })?
-                .parse::<i64>()
-                .map_err(|_| {
-                    JsonError::invalid_parameter("ifMetagenerationMatch must be an integer")
-                })?;
-            finish(query)?;
-            Ok(BucketRequest::LockRetentionPolicy {
-                bucket,
-                metageneration,
-            })
-        })());
+        return Some(parse_lock_retention_policy(method, segment, uri, profile));
     }
     if let Some(result) = super::iam::route_test_permissions(method, uri, profile) {
         return Some(result);
@@ -138,41 +186,7 @@ pub fn route_with_profile(
         && !segment.is_empty()
         && !segment.contains('/')
     {
-        return Some((|| {
-            let bucket = decode(segment, Decoding::Path)?;
-            if segment.len() > 222 * 3 {
-                return Err(JsonError::invalid_parameter("Invalid bucket name"));
-            }
-            if profile == CompatProfile::Native {
-                validate_bucket_name_for_profile(&bucket, profile)?;
-            }
-            if !matches!(*method, Method::GET | Method::PUT) {
-                let mut error = JsonError::new(
-                    StatusCode::METHOD_NOT_ALLOWED,
-                    "methodNotAllowed",
-                    "HTTP method is not supported for this IAM endpoint",
-                );
-                error.allow = Some("GET, PUT");
-                return Err(error);
-            }
-            let mut query = parse_query(uri.query().unwrap_or_default())?;
-            super::Fields::take(&mut query, "Policy")?;
-            common(&mut query)?;
-            if *method == Method::GET {
-                if let Some(version) = query.remove("optionsRequestedPolicyVersion")
-                    && !matches!(version.as_str(), "1" | "3")
-                {
-                    return Err(JsonError::invalid_parameter(
-                        "optionsRequestedPolicyVersion must be 1 or 3",
-                    ));
-                }
-                finish(query)?;
-                Ok(BucketRequest::GetIam { bucket })
-            } else {
-                finish(query)?;
-                Ok(BucketRequest::SetIam { bucket })
-            }
-        })());
+        return Some(parse_iam(method, segment, uri, profile));
     }
     let bucket = if uri.path() == COLLECTION {
         None
@@ -257,7 +271,7 @@ fn parse(
             let projection = projection(&mut query)?;
             query.remove("predefinedAcl");
             query.remove("predefinedDefaultObjectAcl");
-            finish(query)?;
+            finish(&query)?;
             Ok(BucketRequest::Insert(InsertParams {
                 project,
                 projection,
@@ -304,7 +318,7 @@ fn parse(
                 .filter(|token| !token.is_empty())
                 .map(|token| decode_page_token(&token, &project, &prefix))
                 .transpose()?;
-            finish(query)?;
+            finish(&query)?;
             Ok(BucketRequest::List(ListParams {
                 project,
                 projection,
@@ -326,7 +340,7 @@ fn parse(
                 query.insert("projection".into(), "full".into());
             }
             let projection = projection(&mut query)?;
-            finish(query)?;
+            finish(&query)?;
             let params = GetParams {
                 conditions,
                 projection,
@@ -341,7 +355,7 @@ fn parse(
         }
         (&Method::DELETE, Some(bucket)) => {
             let conditions = conditions(&mut query)?;
-            finish(query)?;
+            finish(&query)?;
             Ok(BucketRequest::Delete { bucket, conditions })
         }
         _ => unreachable!("route validates supported methods"),
@@ -481,7 +495,7 @@ fn conditions(query: &mut BTreeMap<String, String>) -> Result<Conditions, JsonEr
     })
 }
 
-pub(super) fn finish(query: BTreeMap<String, String>) -> Result<(), JsonError> {
+pub(super) fn finish(query: &BTreeMap<String, String>) -> Result<(), JsonError> {
     match query.first_key_value() {
         Some((key, _)) => Err(JsonError::invalid_parameter(format!(
             "Unknown query parameter for this method: {key}"

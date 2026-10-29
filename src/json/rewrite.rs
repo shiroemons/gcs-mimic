@@ -21,13 +21,13 @@ pub(crate) struct RewriteRequest {
 }
 
 impl RewriteRequest {
-    pub fn number(&self, key: &str) -> Option<i64> {
+    pub(crate) fn number(&self, key: &str) -> Option<i64> {
         self.parameters
             .get(key)
             .and_then(Value::as_str)
             .and_then(|value| value.parse().ok())
     }
-    pub fn conditions(&self, side: RewriteSide) -> ObjectConditions {
+    pub(crate) fn conditions(&self, side: RewriteSide) -> ObjectConditions {
         let keys = if side == RewriteSide::Source {
             [
                 "ifSourceGenerationMatch",
@@ -146,7 +146,7 @@ pub(crate) fn route(
                 parameters.insert(key.into(), number.to_string());
             }
         }
-        query::finish(remaining)?;
+        query::finish(&remaining)?;
         Ok(RewriteRequest {
             path,
             token,

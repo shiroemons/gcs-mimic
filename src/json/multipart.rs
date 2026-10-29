@@ -144,6 +144,21 @@ fn boundary(params: &[(String, String)]) -> Result<String, JsonError> {
     Ok(boundary.clone())
 }
 
+/// Which part of a multipart upload a header block introduces. The metadata part must be
+/// `application/json`; the media part may declare any valid content type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PartKind {
+    Metadata,
+    Media,
+}
+
+/// How a header line may end: a delimiter line may also end the body.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LineEnd {
+    Crlf,
+    CrlfOrEof,
+}
+
 pub struct Multipart<B> {
     body: B,
     pending: Bytes,
@@ -180,7 +195,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         Ok(())
     }
 
-    async fn line(&mut self, cap: usize, allow_eof: bool) -> Result<Vec<u8>, JsonError> {
+    async fn line(&mut self, cap: usize, end: LineEnd) -> Result<Vec<u8>, JsonError> {
         let mut scanned = 0;
         loop {
             if let Some(end) = self.buffer[scanned..].windows(2).position(|v| v == b"\r\n") {
@@ -199,7 +214,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 return Err(invalid());
             }
             if self.eof {
-                return if allow_eof {
+                return if end == LineEnd::CrlfOrEof {
                     Ok(self.buffer.split().to_vec())
                 } else {
                     Err(invalid())
@@ -212,7 +227,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
 
     async fn delimiter(&mut self) -> Result<(), JsonError> {
         self.buffer.advance(self.delimiter.len());
-        let line = self.line(HEADER_CAP, true).await?;
+        let line = self.line(HEADER_CAP, LineEnd::CrlfOrEof).await?;
         let tail = if let Some(tail) = line.strip_prefix(b"--") {
             self.closed = true;
             tail
@@ -258,7 +273,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         self.closed
     }
 
-    pub async fn headers(&mut self, metadata: bool) -> Result<Option<String>, JsonError> {
+    pub async fn headers(&mut self, part: PartKind) -> Result<Option<String>, JsonError> {
         let headers = self.part_headers().await?;
         let value = headers
             .get("content-type")
@@ -269,7 +284,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                     .map_err(|_| invalid())
             })
             .transpose()?;
-        if metadata {
+        if part == PartKind::Metadata {
             let (mime, params) = content_type(value.as_deref().ok_or_else(invalid)?)?;
             if mime != "application/json"
                 || params
@@ -292,7 +307,9 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         let mut headers = HeaderMap::new();
         let mut size = 0;
         loop {
-            let line = self.line(HEADER_CAP.saturating_sub(size), false).await?;
+            let line = self
+                .line(HEADER_CAP.saturating_sub(size), LineEnd::Crlf)
+                .await?;
             size += line.len() + 2;
             if size > HEADER_CAP {
                 return Err(invalid());
@@ -345,7 +362,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
 
     pub async fn metadata(&mut self) -> Result<Vec<u8>, JsonError> {
         self.start().await?;
-        self.headers(true).await?;
+        self.headers(PartKind::Metadata).await?;
         let mut bytes = Vec::new();
         while let Some(chunk) = self.next_chunk().await? {
             if chunk.len() > JSON_CAP - bytes.len() {
@@ -389,7 +406,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         if self.closed {
             return Ok(expected);
         }
-        self.headers(true).await?;
+        self.headers(PartKind::Metadata).await?;
         let mut bytes = Vec::new();
         while let Some(chunk) = self.next_chunk().await? {
             if chunk.len() > JSON_CAP - bytes.len() {
@@ -431,7 +448,7 @@ pub fn multipart_metadata(
     let ObjectMetadataRequest {
         mut update,
         mut unchanged,
-    } = parse_object_metadata(bytes, false)?;
+    } = parse_object_metadata(bytes, super::WriteMode::Patch)?;
     update.content_type = update
         .content_type
         .filter(|value| value.as_ref().is_some_and(|value| !value.is_empty()));
@@ -537,7 +554,7 @@ mod tests {
     ) -> Result<(Vec<u8>, Vec<u8>), JsonError> {
         let mut parser = Multipart::new(body, "boundary");
         let metadata = parser.metadata().await?;
-        parser.headers(false).await?;
+        parser.headers(PartKind::Media).await?;
         let mut media = Vec::new();
         while let Some(chunk) = parser.next_chunk().await? {
             media.extend_from_slice(&chunk);
@@ -615,7 +632,7 @@ mod tests {
         });
         let mut parser = Multipart::new(receiver, "boundary");
         assert_eq!(parser.metadata().await.unwrap(), b"{}");
-        parser.headers(false).await.unwrap();
+        parser.headers(PartKind::Media).await.unwrap();
         let mut size = 0;
         while let Some(chunk) = parser.next_chunk().await.unwrap() {
             assert!(chunk.len() <= HEADER_CAP);

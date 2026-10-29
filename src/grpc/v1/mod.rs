@@ -209,7 +209,11 @@ fn metadata(mut object: pb::Object, write: MetadataWrite) -> Result<ObjectMetada
     }
     Ok(json::parse_object_metadata(
         &serde_json::to_vec(&body).map_err(|_| Status::internal("Cannot encode metadata"))?,
-        replace,
+        if replace {
+            json::WriteMode::Replace
+        } else {
+            json::WriteMode::Patch
+        },
     )
     .map_err(from_json)?
     .update)

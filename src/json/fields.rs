@@ -8,6 +8,10 @@ const MAX_COUNT: usize = 256;
 
 // Validate against the same pinned Discovery schema as the compatibility inventory,
 // including optional fields absent from a particular rendered resource.
+#[expect(
+    clippy::expect_used,
+    reason = "the schemas are compiled in with include_str!, and the field tests parse them"
+)]
 static SCHEMAS: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!(
         "../../compatibility/upstream/json-schemas.json"
