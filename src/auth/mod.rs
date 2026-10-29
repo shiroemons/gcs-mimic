@@ -841,6 +841,163 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[tokio::test]
+    async fn object_resource_acl_echo_and_replacement_keep_read_and_write_permissions_separate() {
+        use crate::{
+            object::UploadChunk,
+            server::{State, serve},
+            storage::Catalog,
+            test_support::TestDir,
+        };
+        use std::sync::{Arc, atomic::AtomicBool};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        async fn request(
+            address: std::net::SocketAddr,
+            method: &str,
+            body: Value,
+            token: &str,
+        ) -> (u16, Value) {
+            let body = body.to_string();
+            let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+            stream.write_all(format!("{method} /storage/v1/b/acl-permissions/o/object?projection=full HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            let mut bytes = Vec::new();
+            stream.read_to_end(&mut bytes).await.unwrap();
+            let response = std::str::from_utf8(&bytes).unwrap();
+            let (head, body) = response.split_once("\r\n\r\n").unwrap();
+            (
+                head.split_whitespace().nth(1).unwrap().parse().unwrap(),
+                serde_json::from_str(body).unwrap(),
+            )
+        }
+
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        catalog
+            .insert_bucket(
+                crate::json::parse_insert(
+                    br#"{"name":"acl-permissions"}"#,
+                    "project",
+                    std::time::UNIX_EPOCH,
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (sender, body) = tokio::sync::mpsc::channel(2);
+        sender
+            .send(Ok(UploadChunk::Data(bytes::Bytes::from_static(
+                b"original",
+            ))))
+            .await
+            .unwrap();
+        sender.send(Ok(UploadChunk::End)).await.unwrap();
+        drop(sender);
+        catalog
+            .put_object(
+                "acl-permissions",
+                "object",
+                "text/plain".into(),
+                Default::default(),
+                Default::default(),
+                100,
+                body,
+            )
+            .await
+            .unwrap();
+        let mut registry = Registry::parse(br#"{"identities":[{"id":"reader","tokens":["reader"]},{"id":"writer","tokens":["writer"]}]}"#).unwrap();
+        registry.identities[0].permissions.insert(
+            "project".into(),
+            BTreeSet::from([OBJECTS_UPDATE, OBJECTS_GET_IAM]),
+        );
+        registry.identities[1].permissions.insert(
+            "project".into(),
+            BTreeSet::from([OBJECTS_UPDATE, OBJECTS_SET_IAM]),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let state = Arc::new(State {
+            ready: AtomicBool::new(true),
+            clock: Arc::new(crate::clock::SystemClock),
+            catalog: catalog.clone(),
+            api_base_url: format!("http://{address}"),
+            default_location: "US".into(),
+            auth: Auth::strict(registry),
+        });
+        let (stop, stopped) = tokio::sync::oneshot::channel();
+        let running = tokio::spawn(serve(
+            listener,
+            crate::config::Config {
+                scheme: crate::config::Scheme::Http,
+                ..Default::default()
+            },
+            state,
+            async {
+                stopped.await.unwrap();
+                Ok(())
+            },
+        ));
+        for method in ["PATCH", "PUT"] {
+            let before = catalog
+                .get_object("acl-permissions", "object", None, Default::default())
+                .await
+                .unwrap();
+            let mut acl = crate::acl::project_private("project");
+            acl.reverse();
+            let (status, response) = request(
+                address,
+                method,
+                serde_json::json!({"acl":acl,"contentType":"text/plain"}),
+                "reader",
+            )
+            .await;
+            assert_eq!(status, 200, "{response}");
+            assert_eq!(
+                response["metageneration"],
+                (before.metageneration + 1).to_string()
+            );
+            assert_eq!(response["acl"].as_array().unwrap().len(), 3);
+            let unchanged = catalog
+                .get_object("acl-permissions", "object", None, Default::default())
+                .await
+                .unwrap();
+            let (status, response) = request(address, method, serde_json::json!({"acl":[{"entity":"allUsers","role":"READER"}],"contentType":"text/rejected"}), "reader").await;
+            assert_eq!(status, 403, "{response}");
+            assert_eq!(
+                catalog
+                    .get_object("acl-permissions", "object", None, Default::default())
+                    .await
+                    .unwrap(),
+                unchanged
+            );
+        }
+        let replacement = serde_json::json!({"acl":[{"entity":"user-new@example.test","role":"OWNER"}],"contentType":"text/replaced"});
+        for method in ["PATCH", "PUT"] {
+            let (status, response) = request(address, method, replacement.clone(), "writer").await;
+            assert_eq!(status, 200, "{response}");
+            assert_eq!(response["contentType"], "text/replaced");
+            assert!(response.get("acl").is_none());
+            let acl = catalog
+                .read_acl(
+                    crate::acl::AclTarget::Object {
+                        bucket: "acl-permissions".into(),
+                        name: "object".into(),
+                        generation: None,
+                    },
+                    None,
+                    None,
+                    &crate::bucket::BucketAccess::Permissive,
+                )
+                .await
+                .unwrap();
+            assert_eq!(acl.entries.len(), 1);
+            assert_eq!(acl.entries[0].entity, "user-new@example.test");
+        }
+        stop.send(()).unwrap();
+        running.await.unwrap().unwrap();
+        catalog.close().await.unwrap();
+    }
+
     #[test]
     fn role_snapshot_is_sorted_unique_storage_permission_data() {
         let names: Vec<_> = roles::PREDEFINED_ROLES
