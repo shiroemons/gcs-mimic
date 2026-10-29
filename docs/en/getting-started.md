@@ -31,8 +31,8 @@ bucket `allUsers` / `allAuthenticatedUsers` grants support public and private re
 V4 RSA query signatures, bounded XML PUT, opt-in virtual hosts, response overrides
 and public access prevention are implemented in the
 [signed private transfer journey](signed-urls.md).
-If-Range, transcoding, object IAM, testIamPermissions,
-conditional policies, ACLs, XML listing and UBLA transitions remain unavailable.
+If-Range, transcoding outside JSON media GET, object IAM, testIamPermissions,
+conditional policies, ACL enforcement, XML listing and UBLA transitions remain unavailable.
 JSON defaults and bucket-configured XML-read
 CORS are available; see the browser journey below. HTTPS is the default listener mode;
 HTTP examples explicitly select HTTP. TLS 1.2/1.3 uses built-in or supplied PEM files and
@@ -869,8 +869,11 @@ PATCH preserves omitted fields and merges custom keys; null removes a key or fie
 PUT replaces the supported writable fields, clearing omitted cache/language/encoding/
 disposition values and custom keys. Both increment metageneration while preserving
 generation, checksums and bytes; a stale precondition returns 412 without mutation.
-Custom metadata is bounded to 8 KiB. ACL/IAM, advanced fields, partial response masks,
-token replay and gzip transcoding remain unsupported. Stored cache directives round-trip
+Custom metadata is bounded to 8 KiB. Supplied `acl` arrays replace the stored ACL as
+described in the [ACL contract](slices/json-acl.md); IAM, advanced fields and partial
+response masks remain unsupported. JSON media downloads expand gzip-encoded objects for
+clients that do not accept gzip, and upload tokens replay as described in the [SDK integration](slices/sdk-scorecard-integration.md)
+and [upload replay](slices/sdk-upload-replay.md) contracts. Stored cache directives round-trip
 in metadata; nonpublic JSON media responses use `Cache-Control: no-cache`.
 
 ## Browser CORS and mobile application origins

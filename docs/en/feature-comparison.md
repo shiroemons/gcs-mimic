@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Comparison baseline: **2026-10-23** (filesystem follow-up: **2026-10-24**; sync directory follow-up: **2026-10-28**): gcs-mimic's pre-release development source (the first image is `0.1.1`)
+Comparison baseline: **2026-10-23** (filesystem follow-up: **2026-10-24**; sync directory follow-up: **2026-10-28**): gcs-mimic, with its column updated for `0.5.0`,
 compared with fake-gcs-server `v1.56.1` and gcp-storage-emulator `v2026.07.19`.
 Planned features are not counted.
 
@@ -68,7 +68,7 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | Multi-call rewrite with continuation tokens | ✅ | ❌ Immediate completion only | ❌ Immediate completion only |
 | Object compose (`objects.compose`) | ✅ Scoped ordered 1..32 pinned sources, nested component/CRC32C metadata without MD5, atomic conditions and source hard deletion | ✅ | ✅ |
 | Retained object version history | ✅ Persistent generations, selected reads/deletes and version paging | 🚧 Memory backend only | ❌ Versioning metadata is not history |
-| Soft delete / restore | ❌ | ❌ | 🚧 Local deleted-object listing and restore |
+| Object soft delete / restore (excludes bucket and bulk restore) | ✅ Policy retention, immutable `hardDeleteTime` and persistent generations; [scope](slices/sdk-soft-delete-restore.md); [SDK scorecard](../../sdk-scorecard/results/2026-10-29-5/summary.md) passes in all five SDKs | ❌ [SDK scorecard](../../sdk-scorecard/results/2026-10-29-5/summary.md) fails in all five SDKs | ✅ [SDK scorecard](../../sdk-scorecard/results/2026-10-29-5/summary.md) passes in all five SDKs; policy retention and `hardDeleteTime` in [storage](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/storage.py), source review |
 | Single generation/metageneration mutation Match conditions, including failed-resource preservation | ✅ Object media/multipart/PATCH/PUT/delete and bucket PATCH/PUT/delete; zero create-if-absent and live-object rejection | 🚧 Upload generation conditions only; [upload](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go), [object](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/object.go) and [bucket](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/bucket.go), source review only | ❌ Conditions unused in [object](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py) and [bucket](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/buckets.py) handlers, source review only |
 | MD5/CRC32C calculation (media/multipart; resumable CRC32C and single-data-request MD5) | ✅ Exact full-byte resource encodings in the declared subset | Source review only: MD5/CRC32C calculation in [upload handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go); exact scoped behavior not executed | Source review only: MD5/CRC32C calculation in [object handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py); exact scoped behavior not executed |
 | Supplied MD5/CRC32C rejection with failed-overwrite preservation in documented JSON containers | ✅ Media X-Goog-Hash, multipart metadata/final CRC32C, resumable CRC32C and single-data-request MD5; no Content-MD5 claim | 🚧 Metadata checks before publication; media/final X-Goog-Hash absent in [upload handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go), source review only | 🚧 Metadata checks precede create but mismatch raises 409 Conflict; media/final X-Goog-Hash absent in [object handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py), source review only |
@@ -127,7 +127,8 @@ The scoped checkmarks above use recorded execution evidence:
 [multipart](evidence/multipart.md),
 [range](evidence/object-range.md) and
 [final integrated regressions](evidence/resumable-upload.md).
-Advanced fields, IAM/ACL, response replay, soft delete, transcoding and provider
+Advanced fields, ACL enforcement, response replay outside media/multipart/copy,
+bucket and bulk restore, transcoding outside JSON media GET and provider
 wire-edge gaps remain recorded in the ledger. Copy has scoped
 [local verification](evidence/object-copy.md). The
 [compose verification](evidence/object-compose.md) records native and
@@ -162,7 +163,7 @@ Their implementations were inspected; full upstream test suites were not execute
 | TLS listener | ✅ HTTPS-only (default) with built-in development certificate or supplied pair; explicit HTTP-only, TLS 1.2/1.3 and bounded handshake; [verified scope](evidence/local-tls.md) | ✅ HTTPS (default), HTTP or both; supplied pair or Go test certificate; [pinned implementation](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/main.go#L27-L76), source review | ❌ HTTP only; source review |
 | Default CORS for JSON API requests | ✅ | ✅ Global middleware | ❌ |
 | Enforce bucket-configured XML GET/HEAD/PUT CORS | ✅ | ❌ | ❌ |
-| ACL operations | 🚧 Bucket, default object and object ACL CRUD, default ACL inheritance and UBLA rejection; no enforcement; [contract](slices/json-acl.md) | 🚧 Metadata operations; no enforcement | 🚧 Metadata/list operations; no enforcement |
+| ACL operations | 🚧 Bucket, default object and object ACL CRUD, atomic replacement through bucket/object PATCH and PUT, default ACL inheritance and UBLA rejection; no enforcement; [contract](slices/json-acl.md) | 🚧 Metadata operations; no enforcement | 🚧 Metadata/list operations; no enforcement |
 | Project HMAC keys and service agent | 🚧 Persistent key lifecycle with one-time secrets; keys do not sign requests; [contract](slices/project-hmac-keys.md) | ❌ SDK scorecard | ❌ SDK scorecard |
 | Bucket notification configurations | 🚧 Stored and listed; nothing is published to Pub/Sub; [contract](slices/bucket-notifications.md) | ✅ SDK scorecard round trip | ❌ SDK scorecard |
 | Signed V4 POST policy form uploads | ✅ RSA signature, conditions and expiry; [scope](signed-urls.md#signed-post-policy-form-uploads) | ◐ SDK scorecard: Ruby passes, Go fails | ❌ SDK scorecard |

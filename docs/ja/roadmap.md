@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
-2026-10-29に、`0.4.1`のコード・テスト・記録済みの証跡と照合しました。
+2026-10-29に、`0.5.0`のコード・テスト・記録済みの証跡と照合しました。
 fake-gcs-serverで使っていた用途の不足を、使える単位の`0.x`として公開します。
 固定した参照版の全機能と追加機能を検証した段階を`1.0.0`とします。
 以下は着手順の目安で、公開日を約束するものではありません。
@@ -12,7 +12,7 @@ fake-gcs-serverで使っていた用途の不足を、使える単位の`0.x`と
 
 ## 現在使えること
 
-[公開済みの0.4.1](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.4.1)では、
+[0.5.0](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.5.0)では、
 ネイティブ版とLinux AMD64・ARM64イメージを提供しています。
 イメージはGHCRとDocker Hubから取得できます。HTTPでの導入、既定のHTTPS、
 HTTP/HTTPS同時待受、公開ホストのルーティング、locationの既定値、ログレベルを設定できます。
@@ -22,9 +22,13 @@ HTTP/HTTPS同時待受、公開ホストのルーティング、locationの既�
 世代履歴、hold、バケット・オブジェクトのretention、soft delete・restoreも、宣言した範囲で実装しています。
 V2/V4 RSA署名転送とV4署名POST policyにも対応しています。
 JSON ACL、通知設定、HMACキー管理、Autoclass設定もありますが、後述の効果には制約があります。
+バケット・オブジェクトのPATCH・PUTでは、ACLをほかのメタデータと同じトランザクションで置き換えます。
+media・multipart・コピーの呼び出しトークンは、上限付きのローカル保持期間内で元の応答を再送します。
+JSONのmedia GETは、gzipで保存したオブジェクトを展開して返します。
 Storage v2 gRPCは再開可能アップロード、追記、範囲読込に対応しています。
 旧Storage v1も参照版の12個のRPCに対応していますが、入力・応答には制限があります。
-詳細は[0.4.0の機能範囲と制限](../en/releases/0.4.0.md)を参照してください。
+詳細は[0.5.0のリリースノート](../en/releases/0.5.0.md)と
+[0.4.0の機能範囲と制限](../en/releases/0.4.0.md)を参照してください。
 
 バケット初期設定は未作成分だけを作り、APIの変更を保持します。
 seedは毎回の起動時に適用し、拡張子からMIMEを決めます。
@@ -34,7 +38,10 @@ seedは毎回の起動時に適用し、拡張子からMIMEを決めます。
 移行コマンドは、対応するライブ状態のスナップショットとメタデータ・元の識別情報を変換します。
 [コンテナの使い方](container-usage.md)と[移行ガイド](fake-gcs-server-migration.md)に条件があります。
 
-Go・Ruby SDKとブラウザーの検証は、宣言した範囲が対象です。
+SDKとブラウザーの検証は、宣言した範囲が対象です。
+[5つのSDKのスコアカード](../../sdk-scorecard/README.md)では、permissiveなHTTPSの条件で
+Go・Ruby・Node.js・PHP・Pythonの全ケースが通ります。範囲と残りの条件は
+[SDK統合](../en/slices/sdk-scorecard-integration.md)に記録しています。
 Rails Active Storageには[アプリ側で認証情報を渡す手順](../en/slices/sdk-local-auth-softdelete-notes.md)があります。
 通常の`storage.yml`による認証は外部OAuthを試み、オフラインのシナリオでは失敗します。
 API全体の完全互換を意味しません。範囲と制約は
@@ -112,7 +119,7 @@ SQLiteは維持でき、監視後にサイズだけ更新する実装では不�
 `1.0.0`は固定参照版の全機能、移行、指定した追加機能を検証してから公開します。
 Google API全体への対応とは分けます。[バージョン方針](release-policy.md)に判定条件があります。
 
-初回`0.x`は公開済みで、現在の公開版は`0.4.1`です。
+初回`0.x`は公開済みで、現在のリリースの基準は`0.5.0`です。
 初回の対象は、宣言済みのJSON・公開/非公開転送・URL・永続化・seed・Go/Ruby・
 CORS・HTTPSでした。Rails、lifecycle、gRPC、完全互換の完成は前提にしていません。
 環境別CI、依存更新、リリースノート、ライセンス同梱、checksum、公開イメージ取得の検証は、各公開で必要です。

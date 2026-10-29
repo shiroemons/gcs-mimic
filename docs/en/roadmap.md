@@ -4,14 +4,14 @@
 
 [日本語](../ja/roadmap.md)
 
-Updated **2026-10-29** against the `0.4.1` source, tests and recorded evidence.
+Updated **2026-10-29** against the `0.5.0` source, tests and recorded evidence.
 Continue closing the gaps in existing fake-gcs-server workflows through useful
 `0.x` increments; reserve **1.0.0** for verified reference compatibility plus
 the named extensions. The order below selects work, not release dates.
 
 ## Available today
 
-The [published 0.4.1 release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.4.1)
+The [0.5.0 release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.5.0)
 provides native archives and Linux AMD64/ARM64 images on GHCR and Docker Hub.
 The HTTP quick start, HTTPS default, simultaneous HTTP/HTTPS listeners,
 public-host routing, default bucket location and log-level controls are available.
@@ -22,10 +22,14 @@ Scoped workflows include multiple buckets, per-bucket CORS/IAM, streaming
 transfers, rewrite/compose/move, version history, holds, bucket/object retention,
 soft delete/restore, V2/V4 RSA signed transfers and V4 signed POST policies.
 JSON ACL resources, notification configurations, HMAC key management and
-Autoclass settings also exist, with the effect limitations below.
+Autoclass settings also exist, with the effect limitations below. Bucket and
+object PATCH/PUT replace ACLs atomically with other metadata.
+Media, multipart and copy invocation tokens replay the original response
+within bounded local retention, and JSON media GET expands gzip-encoded objects.
 Storage v2 gRPC includes resumable and appendable writes and ranged reads;
 legacy Storage v1 serves the twelve inventoried reference RPCs with field limits.
-See the [0.4.0 feature scope and limits](releases/0.4.0.md).
+See the [0.5.0 release notes](releases/0.5.0.md) and the
+[0.4.0 feature scope and limits](releases/0.4.0.md).
 
 Bucket initialization creates missing buckets and preserves API changes.
 Seed files are applied on every startup and use extension-derived MIME types.
@@ -37,8 +41,10 @@ and source identities.
 See [container usage](container-usage.md) and the
 [migration guide](fake-gcs-server-migration.md).
 
-SDK and browser evidence covers declared subsets; the five-client comparison
-is tracked in [SDK integration](slices/sdk-scorecard-integration.md).
+SDK and browser evidence covers declared subsets. The
+[five-SDK scorecard](../../sdk-scorecard/README.md) passes every Go, Ruby,
+Node.js, PHP and Python case in its permissive HTTPS profile; scope and
+remaining profiles are tracked in [SDK integration](slices/sdk-scorecard-integration.md).
 Rails Active Storage
 has a [working application credential recipe](slices/sdk-local-auth-softdelete-notes.md),
 but default `storage.yml` authentication still attempts external OAuth and fails
@@ -133,7 +139,7 @@ the specified extensions. Full Google API coverage is separate. See the
 
 ## First useful release
 
-The first useful `0.x` release has shipped; `0.4.1` is the current published
+The first useful `0.x` release has shipped; `0.5.0` is the current release
 baseline. The original gate covered scoped JSON, public/private access and URL
 workflows, persistent storage, fixtures, Go/Ruby, CORS and local HTTPS.
 Rails, lifecycle, gRPC and full parity were not prerequisites for that first release.

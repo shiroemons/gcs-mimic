@@ -9,7 +9,7 @@
 [English](../en/feature-comparison.md) ·
 [実装状態の原本](../../compatibility/features.json)
 
-比較対象は、公開前の開発中のgcs-mimic（初回のイメージは`0.1.1`）、fake-gcs-server`v1.56.1`、
+比較対象は、gcs-mimic（gcs-mimicの列は`0.5.0`に更新）、fake-gcs-server`v1.56.1`、
 gcp-storage-emulator`v2026.07.19`です。基本比較は2026-10-23、
 ファイル操作の追加調査は2026-10-24、同期ディレクトリの追加調査は2026-10-28時点です。
 
@@ -29,11 +29,13 @@ gcp-storage-emulator`v2026.07.19`です。基本比較は2026-10-23、
 | 継続トークンを使うrewrite | ✅ | ❌ | ❌ |
 | 複数オブジェクトのcompose | ✅ | ✅ | ✅ |
 | オブジェクトの世代履歴 | ✅ 永続化 | ◐ メモリのみ | ❌ |
-| soft delete・復元 | ❌ | ❌ | ◐ 独自の削除・復元 |
+| オブジェクトのsoft delete・復元（バケット・一括は除く） | ✅ | ❌ | ✅ |
 
 コピーとrewriteはファイル本体の比較で、ACLや所有者の完全な再現を含みません。
 Rangeは開始・終了・末尾からの取得が対象で、If-Rangeや透過的な展開は除きます。
 composeはgcs-mimicの宣言済みローカル範囲で、1〜32個の世代を固定した入力を扱います。
+soft delete・復元は[SDKスコアカード](../../sdk-scorecard/results/2026-10-29-5/summary.md)の
+5つのSDKでの実行結果に基づきます。
 
 | メタデータの操作 | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
 | --- | --- | --- | --- |
