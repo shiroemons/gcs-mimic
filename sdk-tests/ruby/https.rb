@@ -158,7 +158,6 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
         "bucket ACL" => -> { bucket.acl.reload! },
         "default object ACL" => -> { bucket.default_acl.reload! },
         "object ACL" => -> { bucket.file("missing", skip_lookup: true).acl.reload! },
-        "notifications" => -> { bucket.notifications },
         "HMAC keys" => -> { storage.hmac_keys.to_a },
         "serviceAccount" => -> { storage.service_account_email }
       }.each do |name, call|
@@ -181,6 +180,20 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     ensure
       api.request_options.retries = 0
     end
+    # The SDK sends the relative topic name; gcs-mimic stores the full name and never publishes.
+    notification = bucket.create_notification "projects/local-project/topics/uploads",
+                                              event_types: [:finalize, :delete], prefix: "logs/",
+                                              custom_attrs: { "team" => "storage" }, payload: :none
+    listed = bucket.notification notification.id
+    unless listed.topic == "//pubsub.googleapis.com/projects/local-project/topics/uploads" &&
+           listed.event_types == %w[OBJECT_FINALIZE OBJECT_DELETE] && listed.prefix == "logs/" &&
+           listed.custom_attrs == { "team" => "storage" } && listed.payload == "NONE"
+      raise "notification read-back mismatch: #{listed.gapi.to_h}"
+    end
+    raise "notification not listed" unless bucket.notifications.map(&:id) == [notification.id]
+    notification.delete
+    raise "notification still listed" unless bucket.notifications.empty?
+    puts "ruby-bucket-notifications passed"
     uniform_bucket = nil
     begin
       uniform_bucket = storage.create_bucket("sdk-ruby-ubla-#{SecureRandom.hex(8)}") do |item|

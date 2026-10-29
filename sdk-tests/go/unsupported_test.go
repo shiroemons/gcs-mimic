@@ -41,7 +41,6 @@ func TestUnsupportedFailsFast(t *testing.T) {
 		{"BucketACL", func(ctx context.Context) error { _, err := bucket.ACL().List(ctx); return err }},
 		{"DefaultObjectACL", func(ctx context.Context) error { _, err := bucket.DefaultObjectACL().List(ctx); return err }},
 		{"ObjectACL", func(ctx context.Context) error { _, err := bucket.Object("missing").ACL().List(ctx); return err }},
-		{"Notifications", func(ctx context.Context) error { _, err := bucket.Notifications(ctx); return err }},
 		{"HMACKeys", func(ctx context.Context) error {
 			_, err := client.ListHMACKeys(ctx, "local-project").Next()
 			return err
