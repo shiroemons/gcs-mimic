@@ -5,6 +5,7 @@
 //! for a bucket created without `predefinedAcl` and its default object ACL.
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// The documented per-resource ACL entry limit.
 pub const MAX_ENTRIES: usize = 100;
@@ -62,16 +63,45 @@ pub struct AclEntry {
     pub role: String,
 }
 
-pub(crate) fn validate_entries(kind: AclKind, entries: &[AclEntry]) -> Result<(), String> {
+/// A rejected ACL entry or entry list. `Display` is the client-visible JSON error message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AclError {
+    TooManyEntries,
+    DuplicateEntity(String),
+    InvalidEntity(String),
+    InvalidRole { kind: AclKind, role: String },
+}
+
+impl fmt::Display for AclError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooManyEntries => write!(f, "An ACL can hold at most {MAX_ENTRIES} entries"),
+            Self::DuplicateEntity(entity) => write!(f, "Duplicate ACL entity {entity:?}"),
+            Self::InvalidEntity(entity) => write!(
+                f,
+                "Invalid ACL entity {entity:?}; use user-EMAIL, group-EMAIL, domain-DOMAIN, project-owners-PROJECT, allUsers or allAuthenticatedUsers (for example, user-liz@example.com)"
+            ),
+            Self::InvalidRole { kind, role } => write!(
+                f,
+                "Invalid ACL role {role:?}; use one of {} (for example, READER)",
+                kind.roles().join(", ")
+            ),
+        }
+    }
+}
+
+impl std::error::Error for AclError {}
+
+pub(crate) fn validate_entries(kind: AclKind, entries: &[AclEntry]) -> Result<(), AclError> {
     if entries.len() > MAX_ENTRIES {
-        return Err(format!("An ACL can hold at most {MAX_ENTRIES} entries"));
+        return Err(AclError::TooManyEntries);
     }
     let mut entities = std::collections::BTreeSet::new();
     for entry in entries {
         Entity::parse(&entry.entity)?;
         validate_role(kind, &entry.role)?;
         if !entities.insert(&entry.entity) {
-            return Err(format!("Duplicate ACL entity {:?}", entry.entity));
+            return Err(AclError::DuplicateEntity(entry.entity.clone()));
         }
     }
     Ok(())
@@ -91,12 +121,8 @@ pub enum Entity<'a> {
 }
 
 impl<'a> Entity<'a> {
-    pub fn parse(entity: &'a str) -> Result<Self, String> {
-        let invalid = || {
-            format!(
-                "Invalid ACL entity {entity:?}; use user-EMAIL, group-EMAIL, domain-DOMAIN, project-owners-PROJECT, allUsers or allAuthenticatedUsers (for example, user-liz@example.com)"
-            )
-        };
+    pub fn parse(entity: &'a str) -> Result<Self, AclError> {
+        let invalid = || AclError::InvalidEntity(entity.to_owned());
         let email = |value: &str| {
             value.split_once('@').is_some_and(|(local, domain)| {
                 !local.is_empty()
@@ -168,14 +194,14 @@ fn valid_domain(domain: &str) -> bool {
         })
 }
 
-pub fn validate_role(kind: AclKind, role: &str) -> Result<(), String> {
+pub fn validate_role(kind: AclKind, role: &str) -> Result<(), AclError> {
     if kind.roles().contains(&role) {
         return Ok(());
     }
-    Err(format!(
-        "Invalid ACL role {role:?}; use one of {} (for example, READER)",
-        kind.roles().join(", ")
-    ))
+    Err(AclError::InvalidRole {
+        kind,
+        role: role.to_owned(),
+    })
 }
 
 /// The project number rendered by bucket resources: numeric project IDs are used verbatim and

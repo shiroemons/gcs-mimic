@@ -247,7 +247,8 @@ pub(super) fn replace_resource_acl(
             "Cannot use legacy ACLs while uniform bucket-level access is enabled; omit acl/defaultObjectAcl or disable uniform access".into(),
         ));
     }
-    crate::acl::validate_entries(target.kind(), entries).map_err(CatalogError::InvalidMetadata)?;
+    crate::acl::validate_entries(target.kind(), entries)
+        .map_err(|error| CatalogError::InvalidMetadata(error.to_string()))?;
     if entries
         .iter()
         .any(|entry| Entity::parse(&entry.entity).is_ok_and(Entity::is_public))

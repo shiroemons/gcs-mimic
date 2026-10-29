@@ -160,7 +160,8 @@ pub(crate) fn parse_entries(value: &Value, kind: AclKind) -> Result<Vec<AclEntry
     let entries: Vec<AclEntry> = serde_json::from_value(value.clone()).map_err(|_| {
         JsonError::invalid_argument("ACL must be an array of objects with entity and role strings")
     })?;
-    crate::acl::validate_entries(kind, &entries).map_err(JsonError::invalid_argument)?;
+    crate::acl::validate_entries(kind, &entries)
+        .map_err(|error| JsonError::invalid_argument(error.to_string()))?;
     Ok(entries)
 }
 
@@ -215,12 +216,13 @@ pub fn parse_acl_body(
         }
         _ => unreachable!("only mutations carry a body"),
     };
-    Entity::parse(&entity).map_err(JsonError::invalid_argument)?;
+    Entity::parse(&entity).map_err(|error| JsonError::invalid_argument(error.to_string()))?;
     if role.is_none() && !matches!(operation, AclOperation::Patch(_)) {
         return Err(required("role"));
     }
     if let Some(role) = &role {
-        validate_role(kind, role).map_err(JsonError::invalid_argument)?;
+        validate_role(kind, role)
+            .map_err(|error| JsonError::invalid_argument(error.to_string()))?;
     }
     Ok(AclBody { entity, role })
 }
