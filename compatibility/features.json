@@ -17121,7 +17121,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Creates an ACTIVE key for the path project and serviceAccountEmail and returns storage#hmacKey with the 40-character base64 secret (only here) and metadata with a 61-character GOOG1E access ID, id, selfLink, timestamps and etag. At most ten non-DELETED keys per service account, enforced atomically. Keys persist in catalog schema 32. Strict mode requires storage.hmacKeys.create. Contract: docs/en/slices/project-hmac-keys.md.",
+      "notes": "Creates an ACTIVE key for the path project and serviceAccountEmail and returns storage#hmacKey with the 40-character base64 secret (only here) and metadata with a 61-character GOOG1E access ID, id, selfLink, timestamps and etag. At most ten non-DELETED keys per project and service account, enforced atomically. Keys persist in catalog schema 32. Strict mode requires storage.hmacKeys.create. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -17141,7 +17141,7 @@
         },
         {
           "id": "HMAC-LIMIT",
-          "description": "Ten non-DELETED keys per service account, atomic under concurrent creation; deletion frees a slot.",
+          "description": "Ten non-DELETED keys per project and service account, atomic under concurrent creation; deletion frees a slot. Counting per project keeps one project from exhausting another project's quota.",
           "result": "PASS",
           "test_ids": [
             "hmac_key_listing_filters_pages_and_limits",

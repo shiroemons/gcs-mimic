@@ -9,9 +9,10 @@ existence, requester billing and HMAC signature use are outside this slice.
 ## Acceptance contract
 
 - HMAC-CREATE: `POST /storage/v1/projects/{projectId}/hmacKeys` requires
-  `serviceAccountEmail`, takes no body (or the identical form parameters) and returns `storage#hmacKey` with the
-  secret and the metadata. The access ID is 61 characters (`GOOG1E` plus 55
-  base32 characters) and the secret is a 40-character base64 string. A new key
+  `serviceAccountEmail`, takes no body (or the identical form parameters) and
+  returns `storage#hmacKey` with the secret and the metadata. The access ID is
+  61 characters (`GOOG1E` plus 55 base32 characters) and the secret is a
+  40-character base64 string. A new key
   is ACTIVE; `id` is `{projectId}/{accessId}`; `selfLink` uses the advertised
   API base URL; `timeCreated` equals `updated`.
 - HMAC-SECRET-ONCE: get, list and update return metadata only; the secret is
@@ -36,10 +37,10 @@ existence, requester billing and HMAC signature use are outside this slice.
   the etag and erases the stored secret in the same transaction. Deleting an
   ACTIVE key returns 400 badRequest; deleting or updating a DELETED key returns
   400 badRequest. Rejected requests leave the key unchanged.
-- HMAC-LIMIT: at most ten keys that are not DELETED exist per service account
-  email. The eleventh creation returns 400 badRequest; deleting a key frees a
-  slot. The count and insert run in one immediate transaction, so concurrent
-  creations cannot exceed the limit.
+- HMAC-LIMIT: at most ten keys that are not DELETED exist per project and
+  service account email. The eleventh creation returns 400 badRequest;
+  deleting a key frees a slot. The count and insert run in one immediate
+  transaction, so concurrent creations cannot exceed the limit.
 - HMAC-CONCURRENCY: concurrent conditional updates that carry the same etag
   admit exactly one writer; the others receive 412.
 - HMAC-PERSIST: catalog schema 32 adds the `hmac_keys` table; keys, states and

@@ -20,10 +20,12 @@ pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE hmac_keys (
     revision INTEGER NOT NULL CHECK(revision > 0)
 ) WITHOUT ROWID;
 CREATE INDEX hmac_keys_project ON hmac_keys(project, access_id);
-CREATE INDEX hmac_keys_service_account ON hmac_keys(service_account_email, state);
+CREATE INDEX hmac_keys_service_account ON hmac_keys(project, service_account_email, state);
 PRAGMA user_version = 32;";
 
-/// Cloud Storage allows at most this many non-deleted keys per service account.
+/// Cloud Storage allows at most this many non-deleted keys per service account. The local
+/// catalog counts them per project as well: the emulator does not know which project owns
+/// a service account, so a global count would let one project exhaust another's quota.
 pub const MAX_KEYS_PER_SERVICE_ACCOUNT: i64 = 10;
 
 /// Service-account access IDs are 61 characters: the `GOOG1E` prefix and 55 characters.
@@ -205,8 +207,8 @@ impl Catalog {
                 .map_err(unavailable)?;
             let live: i64 = transaction
                 .query_row(
-                    "SELECT count(*) FROM hmac_keys WHERE service_account_email = ?1 AND state != 'DELETED'",
-                    [&email],
+                    "SELECT count(*) FROM hmac_keys WHERE project = ?1 AND service_account_email = ?2 AND state != 'DELETED'",
+                    [&project, &email],
                     |row| row.get(0),
                 )
                 .map_err(unavailable)?;
@@ -434,6 +436,11 @@ mod tests {
             }
         }
         assert_eq!((created, limited), (10, 6));
+        // Another project's keys for the same account do not consume this project's quota.
+        catalog
+            .create_hmac_key("other-project", "sa@example.invalid")
+            .await
+            .unwrap();
         // Concurrent conditional updates with the same etag admit exactly one writer.
         let page = catalog
             .list_hmac_keys(HmacKeyListQuery {
