@@ -28,7 +28,7 @@ Storage v1 [Discovery](https://www.googleapis.com/discovery/v1/apis/storage/v1/r
 
 ## Pinned unsupported routes
 
-These 68 method/path combinations are rejected. Variables occupy one nonempty raw path segment, including percent-encoded slashes. Metadata-only objects.insert is included; media/multipart/resumable upload routes remain implemented. Atomic objects.move is now covered by the [move slice](sdk-object-move.md); retention locking by the [retention slice](sdk-retention-policy.md).
+These 46 method/path combinations are rejected. Variables occupy one nonempty raw path segment, including percent-encoded slashes. Metadata-only objects.insert is included; media/multipart/resumable upload routes remain implemented. Atomic objects.move is now covered by the [move slice](sdk-object-move.md); retention locking by the [retention slice](sdk-retention-policy.md).
 
 | Method | Path |
 | --- | --- |
@@ -39,21 +39,9 @@ These 68 method/path combinations are rejected. Variables occupy one nonempty ra
 | `POST` | `/storage/v1/b/{bucket}/anywhereCaches/{anywhereCacheId}/pause` |
 | `POST` | `/storage/v1/b/{bucket}/anywhereCaches/{anywhereCacheId}/resume` |
 | `PATCH` | `/storage/v1/b/{bucket}/anywhereCaches/{anywhereCacheId}` |
-| `DELETE` | `/storage/v1/b/{bucket}/acl/{entity}` |
-| `GET` | `/storage/v1/b/{bucket}/acl/{entity}` |
-| `POST` | `/storage/v1/b/{bucket}/acl` |
-| `GET` | `/storage/v1/b/{bucket}/acl` |
-| `PATCH` | `/storage/v1/b/{bucket}/acl/{entity}` |
-| `PUT` | `/storage/v1/b/{bucket}/acl/{entity}` |
 | `GET` | `/storage/v1/b/{bucket}/storageLayout` |
 | `POST` | `/storage/v1/b/{bucket}/relocate` |
 | `POST` | `/storage/v1/b/{bucket}/restore` |
-| `DELETE` | `/storage/v1/b/{bucket}/defaultObjectAcl/{entity}` |
-| `GET` | `/storage/v1/b/{bucket}/defaultObjectAcl/{entity}` |
-| `POST` | `/storage/v1/b/{bucket}/defaultObjectAcl` |
-| `GET` | `/storage/v1/b/{bucket}/defaultObjectAcl` |
-| `PATCH` | `/storage/v1/b/{bucket}/defaultObjectAcl/{entity}` |
-| `PUT` | `/storage/v1/b/{bucket}/defaultObjectAcl/{entity}` |
 | `DELETE` | `/storage/v1/b/{bucket}/folders/{folder}` |
 | `POST` | `/storage/v1/b/{bucket}/folders/{folder}/deleteRecursive` |
 | `GET` | `/storage/v1/b/{bucket}/folders/{folder}` |
@@ -68,12 +56,6 @@ These 68 method/path combinations are rejected. Variables occupy one nonempty ra
 | `PUT` | `/storage/v1/b/{bucket}/managedFolders/{managedFolder}/iam` |
 | `GET` | `/storage/v1/b/{bucket}/managedFolders/{managedFolder}/iam/testPermissions` |
 | `PATCH` | `/storage/v1/b/{bucket}/managedFolders/{managedFolder}` |
-| `DELETE` | `/storage/v1/b/{bucket}/o/{object}/acl/{entity}` |
-| `GET` | `/storage/v1/b/{bucket}/o/{object}/acl/{entity}` |
-| `POST` | `/storage/v1/b/{bucket}/o/{object}/acl` |
-| `GET` | `/storage/v1/b/{bucket}/o/{object}/acl` |
-| `PATCH` | `/storage/v1/b/{bucket}/o/{object}/acl/{entity}` |
-| `PUT` | `/storage/v1/b/{bucket}/o/{object}/acl/{entity}` |
 | `POST` | `/storage/v1/b/{bucket}/o/bulkRestore` |
 | `GET` | `/storage/v1/b/{bucket}/o/{object}/iam` |
 | `POST` | `/storage/v1/b/{bucket}/o` |

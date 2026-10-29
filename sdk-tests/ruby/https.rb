@@ -153,10 +153,7 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
       # Use the SDK's default retry count for unsupported calls, independent of the transfer suite.
       api.request_options.retries = 3
       {
-        "includeFoldersAsPrefixes" => -> { bucket.files(delimiter: "/", include_folders_as_prefixes: true) },
-        "bucket ACL" => -> { bucket.acl.reload! },
-        "default object ACL" => -> { bucket.default_acl.reload! },
-        "object ACL" => -> { bucket.file("missing", skip_lookup: true).acl.reload! }
+        "includeFoldersAsPrefixes" => -> { bucket.files(delimiter: "/", include_folders_as_prefixes: true) }
       }.each do |name, call|
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         begin
@@ -191,6 +188,25 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     notification.delete
     raise "notification still listed" unless bucket.notifications.empty?
     puts "ruby-bucket-notifications passed"
+    # ACL entries are stored and returned; they do not yet grant or deny access.
+    bucket.acl.add_reader "allAuthenticatedUsers"
+    bucket.acl.reload!
+    raise "bucket ACL readers #{bucket.acl.readers}" unless bucket.acl.readers.include?("allAuthenticatedUsers")
+    bucket.default_acl.add_reader "allAuthenticatedUsers"
+    bucket.default_acl.reload!
+    raise "default ACL readers #{bucket.default_acl.readers}" unless bucket.default_acl.readers.include?("allAuthenticatedUsers")
+    acl_file = bucket.create_file(StringIO.new("x"), "acl.txt")
+    raise "default ACL not inherited #{acl_file.acl.readers}" unless acl_file.acl.readers.include?("allAuthenticatedUsers")
+    acl_file.acl.add_reader "allUsers"
+    acl_file.acl.reload!
+    raise "object ACL readers #{acl_file.acl.readers}" unless acl_file.acl.readers.include?("allUsers")
+    acl_file.acl.delete "allUsers"
+    acl_file.acl.reload!
+    raise "object ACL entry not deleted" if acl_file.acl.readers.include?("allUsers")
+    acl_file.delete
+    bucket.default_acl.delete "allAuthenticatedUsers"
+    bucket.acl.delete "allAuthenticatedUsers"
+    puts "ruby-json-acl passed"
     autoclass_bucket = nil
     begin
       autoclass_bucket = storage.create_bucket("sdk-ruby-autoclass-#{SecureRandom.hex(8)}", autoclass_enabled: true)

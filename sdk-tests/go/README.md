@@ -430,7 +430,7 @@ Run just this suite with both isolated profiles:
 GCS_MIMIC_GO_TEST_RUN='TestPublicReads|TestXMLReads' bash scripts/sdk-go.sh
 ```
 
-Object IAM, `testIamPermissions`, conditional policies, ACLs, XML writes/listing,
+Object IAM, `testIamPermissions`, conditional policies, ACL enforcement, XML writes/listing,
 virtual-host routing, gRPC, signing and resumable transfers remain outside this
 harness's scope.
 A clean skip or `-run XXX` is compilation evidence only;

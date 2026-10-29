@@ -38,9 +38,6 @@ func TestUnsupportedFailsFast(t *testing.T) {
 			_, err := bucket.Objects(ctx, &storage.Query{Delimiter: "/", IncludeFoldersAsPrefixes: true}).Next()
 			return err
 		}},
-		{"BucketACL", func(ctx context.Context) error { _, err := bucket.ACL().List(ctx); return err }},
-		{"DefaultObjectACL", func(ctx context.Context) error { _, err := bucket.DefaultObjectACL().List(ctx); return err }},
-		{"ObjectACL", func(ctx context.Context) error { _, err := bucket.Object("missing").ACL().List(ctx); return err }},
 		{"CopySourceACL", func(ctx context.Context) error {
 			_, err := bucket.Object("missing").Generation(1).Restore(ctx, &storage.RestoreOptions{CopySourceACL: true})
 			return err
