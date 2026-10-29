@@ -53,14 +53,8 @@ pub(super) fn route(
                 return Err(JsonError::unsupported_object(key));
             }
         }
-        match query.remove("prettyPrint").as_deref() {
-            None | Some("false") => {}
-            Some("true") => return Err(JsonError::unsupported_object("prettyPrint")),
-            Some(_) => {
-                return Err(JsonError::invalid_parameter(
-                    "prettyPrint must be true or false",
-                ));
-            }
+        if super::query::boolean(&mut query, "prettyPrint")? {
+            return Err(JsonError::unsupported_object("prettyPrint"));
         }
         if let Some(alt) = query.remove("alt")
             && alt != "json"

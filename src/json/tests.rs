@@ -19,6 +19,154 @@ fn request(method: Method, path: &str) -> Result<BucketRequest, JsonError> {
     route(&method, &path.parse::<Uri>().unwrap()).expect("bucket route")
 }
 
+#[test]
+fn query_booleans_accept_only_lowercase_and_python_spellings() {
+    for (wire, expected) in [
+        ("true", true),
+        ("True", true),
+        ("false", false),
+        ("False", false),
+    ] {
+        let mut query = parse_query(&format!("flag={wire}")).unwrap();
+        assert_eq!(super::query::boolean(&mut query, "flag").unwrap(), expected);
+        assert!(query.is_empty());
+    }
+    for wire in [
+        "", "yes", "no", "0", "1", "TRUE", "FALSE", "TrUe", "true%20",
+    ] {
+        let mut query = parse_query(&format!("flag={wire}")).unwrap();
+        assert_eq!(
+            super::query::boolean(&mut query, "flag")
+                .unwrap_err()
+                .reason,
+            "invalidParameter"
+        );
+    }
+}
+
+#[test]
+fn bucket_query_booleans_keep_supported_and_unsupported_semantics() {
+    for (method, path, supported) in [
+        (
+            Method::POST,
+            "/storage/v1/b?project=p&enableObjectRetention=",
+            true,
+        ),
+        (Method::GET, "/storage/v1/b?project=p&softDeleted=", false),
+        (
+            Method::GET,
+            "/storage/v1/b?project=p&returnPartialSuccess=",
+            false,
+        ),
+        (Method::GET, "/storage/v1/b?project=p&prettyPrint=", false),
+        (Method::GET, "/storage/v1/b/abc?softDeleted=", false),
+    ] {
+        for (canonical, python) in [("true", "True"), ("false", "False")] {
+            let parsed = request(method.clone(), &format!("{path}{python}"));
+            assert_eq!(
+                parsed,
+                request(method.clone(), &format!("{path}{canonical}"))
+            );
+            if canonical == "true" && !supported {
+                assert_eq!(parsed.unwrap_err().reason, "badRequest");
+            } else {
+                parsed.unwrap();
+            }
+        }
+        assert_eq!(
+            request(method, &format!("{path}yes")).unwrap_err().reason,
+            "invalidParameter"
+        );
+    }
+}
+
+#[test]
+fn object_and_project_query_booleans_use_the_same_parser() {
+    for (method, path, supported) in [
+        (Method::GET, "/storage/v1/b/abc/o?versions=", true),
+        (Method::GET, "/storage/v1/b/abc/o?softDeleted=", true),
+        (
+            Method::GET,
+            "/storage/v1/b/abc/o?includeTrailingDelimiter=",
+            true,
+        ),
+        (
+            Method::GET,
+            "/storage/v1/b/abc/o?includeFoldersAsPrefixes=",
+            false,
+        ),
+        (Method::GET, "/storage/v1/b/abc/o?prettyPrint=", false),
+        (
+            Method::GET,
+            "/storage/v1/b/abc/o/file?generation=1&softDeleted=",
+            true,
+        ),
+        (
+            Method::PATCH,
+            "/storage/v1/b/abc/o/file?overrideUnlockedRetention=",
+            true,
+        ),
+        (
+            Method::PUT,
+            "/storage/v1/b/abc/o/file?overrideUnlockedRetention=",
+            true,
+        ),
+        (Method::GET, "/storage/v1/b/abc/o/file?prettyPrint=", false),
+        (
+            Method::POST,
+            "/storage/v1/b/abc/o/file/restore?generation=1&copySourceAcl=",
+            false,
+        ),
+        (
+            Method::POST,
+            "/storage/v1/b/abc/o/file/restore?generation=1&prettyPrint=",
+            false,
+        ),
+        (
+            Method::POST,
+            "/storage/v1/b/abc/o/file/copyTo/b/abc/o/copy?prettyPrint=",
+            false,
+        ),
+        (
+            Method::POST,
+            "/storage/v1/b/abc/o/file/moveTo/o/moved?prettyPrint=",
+            false,
+        ),
+        (
+            Method::POST,
+            "/storage/v1/b/abc/o/file/compose?prettyPrint=",
+            false,
+        ),
+    ] {
+        let parse =
+            |wire: &str| route_object(&method, &format!("{path}{wire}").parse().unwrap()).unwrap();
+        for (canonical, python) in [("true", "True"), ("false", "False")] {
+            let parsed = parse(python);
+            assert_eq!(parsed, parse(canonical), "{path}");
+            if canonical == "true" && !supported {
+                assert_eq!(parsed.unwrap_err().reason, "badRequest");
+            } else {
+                parsed.unwrap();
+            }
+        }
+        assert_eq!(parse("1").unwrap_err().reason, "invalidParameter");
+    }
+    for (canonical, python) in [("true", "True"), ("false", "False")] {
+        let parse = |wire| {
+            route_project(
+                &Method::GET,
+                &format!("/storage/v1/projects/p/hmacKeys?showDeletedKeys={wire}")
+                    .parse()
+                    .unwrap(),
+            )
+            .unwrap()
+            .unwrap()
+            .0
+        };
+        assert_eq!(parse(canonical), parse(python));
+    }
+}
+
 pub(super) fn record() -> BucketRecord {
     parse_insert(br#"{"name":"test-bucket"}"#, "test-project", UNIX_EPOCH).unwrap()
 }

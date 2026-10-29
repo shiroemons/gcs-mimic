@@ -247,15 +247,7 @@ fn parse(
     common(&mut query)?;
     match (method, bucket) {
         (&Method::POST, None) => {
-            let enable_object_retention = match query.remove("enableObjectRetention").as_deref() {
-                None | Some("false") => false,
-                Some("true") => true,
-                Some(_) => {
-                    return Err(JsonError::invalid_parameter(
-                        "enableObjectRetention must be true or false",
-                    ));
-                }
-            };
+            let enable_object_retention = boolean(&mut query, "enableObjectRetention")?;
             if profile == CompatProfile::LegacyEmulator {
                 query
                     .entry("project".into())
@@ -449,13 +441,21 @@ pub(super) fn projection(query: &mut BTreeMap<String, String>) -> Result<Project
     }
 }
 
-fn false_only(query: &mut BTreeMap<String, String>, key: &str) -> Result<(), JsonError> {
+pub(super) fn boolean(query: &mut BTreeMap<String, String>, key: &str) -> Result<bool, JsonError> {
     match query.remove(key).as_deref() {
-        None | Some("false") => Ok(()),
-        Some("true") => Err(JsonError::unsupported(key)),
+        None | Some("false" | "False") => Ok(false),
+        Some("true" | "True") => Ok(true),
         Some(_) => Err(JsonError::invalid_parameter(format!(
             "{key} must be true or false"
         ))),
+    }
+}
+
+fn false_only(query: &mut BTreeMap<String, String>, key: &str) -> Result<(), JsonError> {
+    if boolean(query, key)? {
+        Err(JsonError::unsupported(key))
+    } else {
+        Ok(())
     }
 }
 
