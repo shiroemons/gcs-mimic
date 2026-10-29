@@ -44,13 +44,7 @@ pub fn parse_object_metadata(
     let body = value
         .as_object()
         .ok_or_else(|| JsonError::invalid_argument("Object resource must be a JSON object"))?;
-    for field in [
-        "acl",
-        "predefinedAcl",
-        "contexts",
-        "kmsKeyName",
-        "customerEncryption",
-    ] {
+    for field in ["acl", "predefinedAcl", "contexts", "kmsKeyName"] {
         if body.contains_key(field) {
             return Err(JsonError::unsupported_object(field));
         }
@@ -84,6 +78,7 @@ pub fn parse_object_metadata(
                 | "hardDeleteTime"
                 | "retentionExpirationTime"
                 | "restoreToken"
+                | "customerEncryption"
         ) {
             unchanged.insert(key.clone(), body[key].clone());
             continue;
@@ -179,6 +174,7 @@ pub fn parse_object_metadata(
                 .map(super::object_retention::parse)
                 .transpose()?,
             override_unlocked_retention: false,
+            customer_key_sha256: None,
         },
     })
 }

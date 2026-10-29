@@ -544,6 +544,7 @@ impl Storage {
                 source_conditions: sc,
                 source_metageneration: source.object.metageneration,
                 source_access: read.clone(),
+                source_key_sha256: None,
                 budget,
             };
             let (token, guard) = self

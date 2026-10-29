@@ -64,6 +64,8 @@ pub(crate) struct RewriteStart {
     pub source_conditions: ObjectConditions,
     pub source_metageneration: i64,
     pub source_access: BucketAccess,
+    /// Verified when the session starts; every continuation must repeat the same source key.
+    pub source_key_sha256: Option<[u8; 32]>,
     pub budget: u64,
 }
 
@@ -78,6 +80,7 @@ pub(crate) struct RewriteSession {
     source_metageneration: i64,
     source_incarnation: String,
     destination_incarnation: String,
+    pub source_key_sha256: Option<[u8; 32]>,
     budget: u64,
     pub offset: u64,
     pub total: u64,
@@ -120,7 +123,7 @@ fn encode(start: &RewriteStart, source: &str, destination: &str) -> Value {
         "generation":binding.source_generation,"metageneration":start.source_metageneration,
         "parameters":binding.parameters,"body":binding.metadata,"source_incarnation":source,"destination_incarnation":destination,
         "options":resumable::encode_options(&options),"class":start.destination.storage_class,"components":start.destination.component_count,
-        "source_conditions":[conditions.if_generation_match,conditions.if_generation_not_match,conditions.if_metageneration_match,conditions.if_metageneration_not_match],"budget":start.budget})
+        "source_conditions":[conditions.if_generation_match,conditions.if_generation_not_match,conditions.if_metageneration_match,conditions.if_metageneration_not_match],"budget":start.budget,"source_key_sha256":start.source_key_sha256.map(|v| v.to_vec())})
 }
 
 fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
@@ -185,6 +188,12 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
             source_metageneration: integer(&request["metageneration"])?,
             source_incarnation: string(&request["source_incarnation"])?,
             destination_incarnation: string(&request["destination_incarnation"])?,
+            source_key_sha256: serde_json::from_value::<Option<Vec<u8>>>(
+                request["source_key_sha256"].clone(),
+            )
+            .map_err(|e| e.to_string())?
+            .map(|v| v.try_into().map_err(|_| "invalid rewrite source key"))
+            .transpose()?,
             budget: request["budget"]
                 .as_u64()
                 .filter(|n| *n > 0)
@@ -728,6 +737,7 @@ mod tests {
             source_conditions: ObjectConditions::default(),
             source_metageneration: source.object.metageneration,
             source_access: BucketAccess::Permissive,
+            source_key_sha256: None,
             budget: 1048576,
         };
         catalog

@@ -77,7 +77,12 @@ impl Catalog {
                     access: source_access.clone(),
                 })
                 .collect();
-            let sources = catalog.resolve_derived_sources(specs).await?;
+            // Compose components must all use the request key, which also encrypts the result.
+            let key = destination
+                .metadata
+                .customer_key_sha256
+                .map(crate::csek::CustomerKey::from_sha256);
+            let sources = catalog.resolve_derived_sources_keyed(specs, key).await?;
             let class = sources[0].object.storage_class.clone();
             let mut crc = 0;
             let mut count = 0_i64;

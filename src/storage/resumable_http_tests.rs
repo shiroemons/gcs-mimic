@@ -1,4 +1,6 @@
 use super::catalog::replace_resumable_cleanup_obstacle;
+#[path = "csek_http_tests.rs"]
+mod csek;
 #[path = "object_retention_http_tests.rs"]
 mod object_retention;
 #[path = "retention_http_tests.rs"]

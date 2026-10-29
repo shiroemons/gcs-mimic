@@ -61,6 +61,8 @@ pub(crate) mod rewrite;
 #[path = "rewrite_token.rs"]
 mod rewrite_token;
 
+#[path = "customer_keys.rs"]
+mod customer_keys;
 #[path = "object_move.rs"]
 mod object_move;
 #[path = "objects.rs"]
@@ -97,7 +99,7 @@ pub mod sync_state;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 29;
+const CATALOG_SCHEMA_VERSION: i64 = 30;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -376,6 +378,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
     if version >= 29 {
         expected
             .execute_batch(objects::retention::SCHEMA)
+            .map_err(unavailable)?;
+    }
+    if version >= 30 {
+        expected
+            .execute_batch(customer_keys::SCHEMA)
             .map_err(unavailable)?;
     }
     let inventory =
@@ -695,6 +702,9 @@ impl Catalog {
             }
             if version < 29 {
                 objects::retention::migrate(&mut connection)?;
+            }
+            if version < 30 {
+                customer_keys::migrate(&mut connection)?;
             }
             // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
             if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {

@@ -254,11 +254,29 @@ fn xml_put_individual_and_combined_hash_headers_accept_matching_bytes() {
 fn xml_put_unsupported_inputs_fail_before_continue_and_preserve_state() {
     let (_config, data, server) = fixture();
     let before = snapshot(&server, &data);
+    // Incomplete customer-supplied keys fail with their documented XML codes.
+    for (header, code) in [
+        (
+            "x-goog-encryption-key: secret",
+            "CustomerEncryptionAlgorithmIsInvalid",
+        ),
+        (
+            "x-goog-encryption-key-sha256: value",
+            "CustomerEncryptionAlgorithmIsInvalid",
+        ),
+        (
+            "x-goog-encryption-algorithm: AES256",
+            "CustomerEncryptionKeyFormatIsInvalid",
+        ),
+    ] {
+        let request = format!(
+            "PUT {OBJECT} HTTP/1.1\r\nHost: local\r\nContent-Length: 999999\r\nExpect: 100-continue\r\n{ADMIN}{header}\r\n\r\n"
+        );
+        xml_error(&server.raw(request.as_bytes()), 400, code);
+        assert_eq!(snapshot(&server, &data), before, "{header}");
+    }
     for header in [
         "x-goog-acl: public-read",
-        "x-goog-encryption-key: secret",
-        "x-goog-encryption-key-sha256: value",
-        "x-goog-encryption-algorithm: AES256",
         "x-goog-encryption-kms-key-name: key",
         "x-goog-storage-class: STANDARD",
         "x-goog-user-project: billing",

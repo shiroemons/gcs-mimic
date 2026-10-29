@@ -142,7 +142,8 @@ impl From<JsonError> for Error {
             StatusCode::RANGE_NOT_SATISFIABLE => "InvalidRange",
             StatusCode::REQUEST_TIMEOUT => "uploadBrokenConnection",
             StatusCode::SERVICE_UNAVAILABLE => "ServiceUnavailable",
-            _ => "InvalidArgument",
+            _ => crate::csek::CsekError::from_reason(error.reason)
+                .map_or("InvalidArgument", crate::csek::CsekError::xml_code),
         };
         // shortcut: auth wording and error precedence are local choices until cloud differential evidence exists.
         Self::new(status, code, error.message)
@@ -500,7 +501,9 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
     // http_client.go:1551-1587 uses them on idempotent reads, which need no token replay.
     for key in headers.keys() {
         let key = key.as_str();
+        // Customer-supplied key headers are parsed by the GET/HEAD and DELETE callers.
         if (key.starts_with("x-goog-")
+            && !crate::csek::is_key_header(key, crate::csek::DESTINATION_PREFIX)
             && !matches!(
                 key,
                 "x-goog-if-generation-match"
@@ -579,7 +582,8 @@ pub(crate) fn media_headers(
         } else {
             "private, max-age=0"
         });
-    let etag = if record.component_count.is_some() {
+    // MD5 ETags apply only to objects without customer-supplied encryption.
+    let etag = if record.component_count.is_some() || record.customer_key_sha256.is_some() {
         json::object_etag(record)
     } else {
         format!(

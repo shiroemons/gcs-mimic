@@ -346,7 +346,7 @@ pub(super) fn encode_options(o: &ResumableOptions) -> Value {
             json!({"identity": identity.as_ref().map(Identity::upload_snapshot), "permission": permission.as_str(), "project": project})
         }
     };
-    json!({"version":2,"content_type":o.content_type,"metadata":{"replace":m.replace,"eventBasedHold":m.event_based_hold,"temporaryHold":m.temporary_hold,"customTime":m.custom_time.as_ref().map(|v|json!({"value":v})),"contentType":m.content_type.as_ref().map(|v|json!({"value":v})),"contentEncoding":m.content_encoding.as_ref().map(|v|json!({"value":v})),"contentDisposition":m.content_disposition.as_ref().map(|v|json!({"value":v})),"contentLanguage":m.content_language.as_ref().map(|v|json!({"value":v})),"cacheControl":m.cache_control.as_ref().map(|v|json!({"value":v})),"metadata":m.metadata.as_ref().map(|v|json!({"value":v})),"retention":super::objects::retention::session_value(m.retention.as_ref())},"md5":o.expected.md5.map(|v| v.to_vec()),"crc32c":o.expected.crc32c,"conditions":[o.conditions.if_generation_match,o.conditions.if_generation_not_match,o.conditions.if_metageneration_match,o.conditions.if_metageneration_not_match],"access":access,"origin":o.origin,"full":o.projection_full,"response_fields":o.response_fields})
+    json!({"version":2,"content_type":o.content_type,"metadata":{"replace":m.replace,"eventBasedHold":m.event_based_hold,"temporaryHold":m.temporary_hold,"customTime":m.custom_time.as_ref().map(|v|json!({"value":v})),"contentType":m.content_type.as_ref().map(|v|json!({"value":v})),"contentEncoding":m.content_encoding.as_ref().map(|v|json!({"value":v})),"contentDisposition":m.content_disposition.as_ref().map(|v|json!({"value":v})),"contentLanguage":m.content_language.as_ref().map(|v|json!({"value":v})),"cacheControl":m.cache_control.as_ref().map(|v|json!({"value":v})),"metadata":m.metadata.as_ref().map(|v|json!({"value":v})),"retention":super::objects::retention::session_value(m.retention.as_ref()),"customerKeySha256":m.customer_key_sha256.map(|v| v.to_vec())},"md5":o.expected.md5.map(|v| v.to_vec()),"crc32c":o.expected.crc32c,"conditions":[o.conditions.if_generation_match,o.conditions.if_generation_not_match,o.conditions.if_metageneration_match,o.conditions.if_metageneration_not_match],"access":access,"origin":o.origin,"full":o.projection_full,"response_fields":o.response_fields})
 }
 
 pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
@@ -437,6 +437,12 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
                 .map_err(|_| invalid())?,
             retention: super::objects::retention::from_session(&v["metadata"]["retention"])?,
             override_unlocked_retention: false,
+            customer_key_sha256: serde_json::from_value::<Option<Vec<u8>>>(
+                v["metadata"]["customerKeySha256"].clone(),
+            )
+            .map_err(|_| invalid())?
+            .map(|v| v.try_into().map_err(|_| invalid()))
+            .transpose()?,
         },
         expected: ExpectedHashes {
             md5: md5

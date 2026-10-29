@@ -37,6 +37,7 @@ pub(super) async fn initiate(
         json::parse_query(request.uri().query().unwrap_or_default())?.remove("fields");
     let (mime, expected, total) =
         resumable::headers(request.headers(), params, config.max_object_bytes)?;
+    let key = json::request_key(request.headers())?;
     let origin = resumable::single(request.headers(), "origin")?.map(str::to_owned);
     let metadata_type = resumable::single(request.headers(), "content-type")?.map(str::to_owned);
     let json_type = metadata_type.as_ref().is_some_and(|v| {
@@ -75,6 +76,8 @@ pub(super) async fn initiate(
     super::retention_access::authorize_upload(state, &options.access, bucket, &options.metadata)
         .await?;
     options.response_fields = response_fields;
+    // The session binds the key fingerprint; later chunks cannot change it.
+    options.metadata.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
     let session = await_upload_catalog(
         state
             .catalog
@@ -187,6 +190,11 @@ pub(super) async fn session_response(
     )
     .await?;
     let session = &lease.session;
+    // Chunks may repeat the initiation key (as SDKs do) but never introduce or replace one;
+    // a mismatch rejects only this request and leaves the session usable.
+    if let Some(key) = json::request_key(&headers)? {
+        crate::csek::check_data(session.options.metadata.customer_key_sha256, Some(key))?;
+    }
     let (start, length, total, status) = match range {
         Some(Range::Status(total)) => {
             if length != Some(0) || headers.contains_key("transfer-encoding") {
@@ -320,10 +328,17 @@ pub(super) async fn session_response(
     } else {
         json::Projection::NoAcl
     };
+    // The completion response is cached for retries; the uploader supplied the key at initiation.
+    let key = lease
+        .session
+        .options
+        .metadata
+        .customer_key_sha256
+        .map(crate::csek::CustomerKey::from_sha256);
     let upload = state
         .catalog
         .write_resumable_session(lease, chunk, body, permit, move |record| {
-            let mut value = json::object_resource(record, &base, projection)
+            let mut value = json::object_resource_keyed(record, &base, projection, key)
                 .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
             if let Some(fields) = &fields {
                 fields.apply(&mut value);

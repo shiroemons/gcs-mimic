@@ -51,7 +51,15 @@ pub(super) async fn respond(
         )?;
     }
     json::validate_read_condition_headers(request.headers(), false)?;
-    json::validate_object_get_headers(request.headers(), false)?;
+    json::validate_keyed_object_headers(
+        request.headers(),
+        false,
+        &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
+    )?;
+    let keys = Keys {
+        destination: json::request_key(request.headers())?,
+        source: json::source_key(request.headers())?,
+    };
     for name in [
         "x-goog-hash",
         "content-md5",
@@ -81,6 +89,7 @@ pub(super) async fn respond(
     let result = tokio::spawn(execute(
         operation,
         body,
+        keys,
         source_access,
         destination_access,
         state.catalog.clone(),
@@ -104,9 +113,22 @@ pub(super) async fn respond(
     Ok(response)
 }
 
+/// Customer-supplied keys: `source` decrypts the source, `destination` encrypts the result.
+/// A rewrite to a new destination key on the same object rotates its key.
+#[derive(Clone, Copy)]
+struct Keys {
+    destination: Option<crate::csek::CustomerKey>,
+    source: Option<crate::csek::CustomerKey>,
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The detached rewrite owns its request, keys and access context"
+)]
 async fn execute(
     operation: RewriteRequest,
     body: Option<Value>,
+    keys: Keys,
     source_access: BucketAccess,
     destination_access: BucketAccess,
     catalog: Catalog,
@@ -128,18 +150,27 @@ async fn execute(
         ) {
             return Err(error(RewriteError::Invalid));
         }
+        // Each call must carry the keys the session started with.
+        crate::csek::check_data(session.source_key_sha256, keys.source)?;
+        crate::csek::check_data(
+            session.destination.metadata.customer_key_sha256,
+            keys.destination,
+        )?;
         token.clone()
     } else {
         let source = catalog
-            .resolve_derived_source(
+            .resolve_derived_source_keyed(
                 &operation.path[0],
                 &operation.path[1],
                 operation.number("sourceGeneration"),
                 operation.conditions(true),
                 &source_access,
+                keys.source,
             )
             .await?;
-        let destination = destination(&source.object, &operation, &body)?;
+        let mut destination = destination(&source.object, &operation, &body)?;
+        destination.metadata.customer_key_sha256 =
+            keys.destination.map(crate::csek::CustomerKey::sha256);
         catalog
             .check_upload(
                 &operation.path[2],
@@ -195,6 +226,7 @@ async fn execute(
             source_conditions: operation.conditions(true),
             source_metageneration: source.object.metageneration,
             source_access: source_access.clone(),
+            source_key_sha256: keys.source.map(crate::csek::CustomerKey::sha256),
             budget,
         };
         let (token, guard) = catalog
@@ -206,7 +238,7 @@ async fn execute(
     };
     let progress = catalog
         .continue_rewrite(&token, source_access, destination_access, move |record| {
-            json::object_resource(record, &base, json::Projection::NoAcl)
+            json::object_resource_keyed(record, &base, json::Projection::NoAcl, keys.destination)
                 .map_err(|e| ObjectError::Unavailable(e.to_string()))
         })
         .await

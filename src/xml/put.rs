@@ -51,6 +51,7 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
         let name = key.as_str();
         if (name.starts_with("x-goog-")
             && !name.starts_with("x-goog-meta-")
+            && !crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)
             && !(signed && name == "x-goog-content-sha256")
             && !matches!(
                 name,
@@ -183,7 +184,10 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
         }
         expected.md5 = Some(content_md5);
     }
-    let mut metadata = ObjectMetadataUpdate::default();
+    let mut metadata = ObjectMetadataUpdate {
+        customer_key_sha256: json::request_key(headers)?.map(crate::csek::CustomerKey::sha256),
+        ..Default::default()
+    };
     for (name, field) in [
         ("cache-control", &mut metadata.cache_control),
         ("content-disposition", &mut metadata.content_disposition),
@@ -332,6 +336,7 @@ pub(crate) async fn respond(
     .map_err(|error| storage_error(error, caller))?;
     let mut headers = super::media_headers(&record, false)?;
     let mut response = boxed(Response::new(Full::new(Bytes::new())));
+    json::insert_response_headers(&record, response.headers_mut());
     for name in [
         "etag",
         "x-goog-generation",

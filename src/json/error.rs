@@ -240,6 +240,7 @@ impl From<ObjectError> for JsonError {
                 "Derived transfer is already in use",
             ),
             ObjectError::UnsupportedMetadata(field) => Self::unsupported_object(&field),
+            ObjectError::CustomerEncryption(error) => error.into(),
             ObjectError::NotModified => {
                 Self::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
             }

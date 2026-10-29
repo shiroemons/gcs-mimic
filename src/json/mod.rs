@@ -12,6 +12,7 @@ mod body;
 mod buckets;
 pub mod compose;
 pub(crate) mod cors;
+mod csek;
 mod derived_metadata;
 mod error;
 mod fields;
@@ -40,6 +41,7 @@ pub use buckets::{
     parse_bucket_patch, parse_bucket_replacement, parse_insert, parse_insert_with_profile,
     validate_bucket_name,
 };
+pub use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
 pub use derived_metadata::{derived_component_count, derived_metadata};
 pub use error::JsonError;
 pub use fields::Fields;
@@ -54,9 +56,10 @@ pub use object_move::ObjectMoveParams;
 pub use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, object_media_headers, object_media_range,
     object_resource, parse_object_upload_headers, route_object, route_object_with_profile,
-    validate_object_get_headers, validate_object_media_encoding, validate_object_name,
+    validate_keyed_object_headers, validate_object_get_headers, validate_object_media_encoding,
+    validate_object_name,
 };
-pub(crate) use objects::{decode_hash, object_etag, validate_read_condition_headers};
+pub(crate) use objects::{base64, decode_hash, object_etag, validate_read_condition_headers};
 pub use page_token::{
     decode_all_projects_page_token, decode_page_token, encode_all_projects_page_token,
     encode_page_token,

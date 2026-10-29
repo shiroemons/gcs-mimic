@@ -125,7 +125,6 @@ fn mask_object(
                 | "update_storage_class_time"
                 | "contexts"
                 | "owner"
-                | "customer_encryption"
         )
     }) {
         return Err(unsupported(

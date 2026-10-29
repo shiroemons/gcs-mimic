@@ -30,7 +30,7 @@ pub(super) const OBJECT_COLUMNS: &str = "bucket, name, generation, metageneratio
     content_encoding, content_disposition, content_language, cache_control, metadata,
     time_deleted, event_based_hold, component_count, temporary_hold, custom_time,
     time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket), soft_delete_time, hard_delete_time,
-    retention_mode, retain_until_time";
+    retention_mode, retain_until_time, customer_key_sha256";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectListCursor {
@@ -771,6 +771,7 @@ impl Catalog {
                                     custom_time: None,
                                     retention_expiration_time: None,
                                     retention: None,
+                                    customer_key_sha256: None,
                                 };
                                 metadata.apply(&mut record)?;
                                 inherit_metadata(mode, previous.as_ref(), &mut record);
@@ -887,6 +888,7 @@ impl Catalog {
 
     /// The bucket's project is verified in the same call that resolves the generation and
     /// opens its blob, so the returned reader never belongs to an unauthorized bucket.
+    /// Callers without a customer-supplied key cannot open objects encrypted with one.
     pub(crate) async fn open_object_authorized(
         &self,
         bucket: &str,
@@ -895,16 +897,8 @@ impl Catalog {
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-        let bucket = bucket.to_owned();
-        let name = name.to_owned();
-        let data_dir = self.0.data_dir.clone();
-        let access = access.clone();
-        self.run_object(move |connection| {
-            open_selected(
-                connection, &data_dir, &bucket, &name, generation, conditions, &access,
-            )
-        })
-        .await
+        self.open_object_keyed(bucket, name, generation, conditions, access, None)
+            .await
     }
 
     #[cfg(test)]
@@ -1658,14 +1652,15 @@ pub(super) fn publish_in_transaction<T>(
         )
         .map_err(object_unavailable)?;
     transaction.execute(
-        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time,retention_mode,retain_until_time) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21,?22,?23)",
+        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time,retention_mode,retain_until_time,customer_key_sha256) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21,?22,?23,?24)",
         params![record.bucket, record.name, generation, record.metageneration,
             record.content_type, i64::try_from(record.size).map_err(object_unavailable)?,
             &record.md5[..], record.crc32c, record.storage_class, unix_micros(record.time_created).map_err(object_unavailable)?, blob_id,
             record.content_encoding, record.content_disposition, record.content_language,
             record.cache_control, metadata, record.event_based_hold, record.component_count,
             unix_micros(record.updated).map_err(object_unavailable)?, record.temporary_hold, record.custom_time,
-            retention_mode, retain_until],
+            retention_mode, retain_until,
+            record.customer_key_sha256.as_ref().map(|sha256| &sha256[..])],
     ).map_err(object_unavailable)?;
     super::change_journal::object(
         transaction,
@@ -1908,6 +1903,7 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, Stri
                 .map(system_time_micros)
                 .transpose()?,
             retention: retention::read(row, 25)?,
+            customer_key_sha256: super::customer_keys::decode(row.get(27)?)?,
         },
         row.get(11)?,
     ))
@@ -2050,6 +2046,9 @@ mod tests {
             .execute_batch(super::super::SOFT_DELETE_SCHEMA)
             .unwrap();
         connection.execute_batch(retention::SCHEMA).unwrap();
+        connection
+            .execute_batch(super::super::customer_keys::SCHEMA)
+            .unwrap();
         let counter = AtomicUsize::new(0);
         // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
         // SAFETY: This live connection invokes the callback synchronously with the live counter.
@@ -2117,6 +2116,9 @@ mod tests {
             .execute_batch(super::super::SOFT_DELETE_SCHEMA)
             .unwrap();
         connection.execute_batch(retention::SCHEMA).unwrap();
+        connection
+            .execute_batch(super::super::customer_keys::SCHEMA)
+            .unwrap();
         connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
             INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,time_deleted)
             SELECT 'bucket', CASE WHEN n <= 10000 THEN 'a/history' ELSE printf('y/%05d',n) END, n,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,printf('%032x',n),1 FROM entries;

@@ -130,7 +130,10 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, Status> {
         content_language: record.content_language.clone().unwrap_or_default(),
         cache_control: record.cache_control.clone().unwrap_or_default(),
         metadata: record.metadata.clone().into_iter().collect(),
-        crc32c: Some(record.crc32c),
+        crc32c: record
+            .customer_key_sha256
+            .is_none()
+            .then_some(record.crc32c),
         md5_hash: resource["md5Hash"].as_str().unwrap_or_default().to_owned(),
         component_count: record.component_count.unwrap_or_default() as i32,
         time_created: Some(record.time_created.into()),

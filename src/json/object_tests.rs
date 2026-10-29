@@ -35,6 +35,7 @@ pub(super) fn record() -> ObjectRecord {
         custom_time: None,
         retention_expiration_time: None,
         retention: None,
+        customer_key_sha256: None,
     }
 }
 
@@ -563,9 +564,50 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
             "{value}"
         );
     }
+    // Upload routes parse customer-supplied keys themselves; incomplete keys are rejected there.
+    for (name, value, reason) in [
+        (
+            "x-goog-encryption-key",
+            "value",
+            "customerEncryptionAlgorithmIsInvalid",
+        ),
+        (
+            "x-goog-encryption-algorithm",
+            "AES256",
+            "customerEncryptionKeyFormatIsInvalid",
+        ),
+        (
+            "x-goog-encryption-algorithm",
+            "AES128",
+            "customerEncryptionAlgorithmIsInvalid",
+        ),
+    ] {
+        let mut headers = HeaderMap::new();
+        headers.insert(name, HeaderValue::from_static(value));
+        assert!(parse_object_upload_headers(&headers, Default::default()).is_ok());
+        let error = super::request_key(&headers).unwrap_err();
+        assert_eq!(
+            (error.status, error.reason),
+            (StatusCode::BAD_REQUEST, reason),
+            "{name}"
+        );
+    }
+    // Source keys and customer-managed (KMS) key names are not upload key headers.
+    for name in [
+        "x-goog-copy-source-encryption-algorithm",
+        "x-goog-encryption-kms-key-name",
+    ] {
+        let mut headers = HeaderMap::new();
+        headers.insert(name, HeaderValue::from_static("AES256"));
+        assert_eq!(
+            parse_object_upload_headers(&headers, Default::default())
+                .unwrap_err()
+                .reason,
+            "badRequest",
+            "{name}"
+        );
+    }
     for (name, value) in [
-        ("x-goog-encryption-key", "value"),
-        ("x-goog-encryption-algorithm", "AES256"),
         ("content-encoding", "gzip"),
         ("content-md5", "x"),
         ("content-range", "bytes 0-1/2"),
@@ -748,6 +790,18 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
             "The upload request body did not complete",
         ),
         (
+            ObjectError::CustomerEncryption(crate::csek::CsekError::ResourceIsEncrypted),
+            400,
+            "resourceIsEncryptedWithCustomerEncryptionKey",
+            "The resource is encrypted with a customer-supplied encryption key, but the request did not provide one.",
+        ),
+        (
+            ObjectError::CustomerEncryption(crate::csek::CsekError::KeyIncorrect),
+            400,
+            "customerEncryptionKeyIsIncorrect",
+            "The provided encryption key is incorrect.",
+        ),
+        (
             ObjectError::Unavailable("data/catalog.sqlite3".to_owned()),
             503,
             "backendError",
@@ -767,4 +821,55 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
             "application/json; charset=UTF-8"
         );
     }
+}
+
+#[test]
+fn obj_csek_001_encrypted_resource_hides_hashes_without_its_key() {
+    let mut object = record();
+    let sha256 = crate::csek::key_sha256(&[9; 32]);
+    object.customer_key_sha256 = Some(sha256);
+    let value = object_resource(&object, "http://localhost", Projection::NoAcl).unwrap();
+    assert_eq!(
+        value["customerEncryption"],
+        json!({"encryptionAlgorithm": "AES256", "keySha256": base64(&sha256)})
+    );
+    assert!(value.get("md5Hash").is_none() && value.get("crc32c").is_none());
+    // The validator must not expose the plaintext MD5 either.
+    assert!(
+        !value["etag"]
+            .as_str()
+            .unwrap()
+            .contains(&base64(&object.md5))
+    );
+    let key = crate::csek::CustomerKey::from_sha256(sha256);
+    let keyed =
+        object_resource_keyed(&object, "http://localhost", Projection::NoAcl, Some(key)).unwrap();
+    assert_eq!(keyed["md5Hash"], base64(&object.md5));
+    assert_eq!(keyed["crc32c"], base64(&object.crc32c.to_be_bytes()));
+    let other = crate::csek::CustomerKey::from_sha256([0; 32]);
+    let wrong =
+        object_resource_keyed(&object, "http://localhost", Projection::NoAcl, Some(other)).unwrap();
+    assert!(wrong.get("md5Hash").is_none());
+    let plain = object_resource(&record(), "http://localhost", Projection::NoAcl).unwrap();
+    assert!(plain.get("customerEncryption").is_none() && plain.get("md5Hash").is_some());
+}
+
+#[test]
+fn obj_csek_002_metadata_update_accepts_only_echoed_customer_encryption() {
+    let mut object = record();
+    object.customer_key_sha256 = Some(crate::csek::key_sha256(&[9; 32]));
+    let echoed = object_resource(&object, "http://localhost", Projection::NoAcl).unwrap();
+    let body = json!({"customerEncryption": echoed["customerEncryption"]}).to_string();
+    let request = parse_object_metadata(body.as_bytes(), false).unwrap();
+    assert!(
+        ObjectMetadataRequest::validate_unchanged(&request.unchanged, &object, "http://localhost")
+            .is_ok()
+    );
+    let changed =
+        json!({"customerEncryption": {"encryptionAlgorithm": "AES256", "keySha256": "AAAA"}});
+    let request = parse_object_metadata(changed.to_string().as_bytes(), false).unwrap();
+    assert!(
+        ObjectMetadataRequest::validate_unchanged(&request.unchanged, &object, "http://localhost")
+            .is_err()
+    );
 }

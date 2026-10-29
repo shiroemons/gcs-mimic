@@ -372,9 +372,22 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
             b"",
         )
         .error(405, "methodNotAllowed");
+    // Incomplete customer-supplied keys fail with their documented reason before mutation.
     for header in [
         "X-Goog-Encryption-Key: key\r\n",
         "X-Goog-Copy-Source-Encryption-Key: key\r\n",
+    ] {
+        server
+            .request(
+                "POST",
+                &path("source", "test-bucket", "target", ""),
+                header,
+                b"",
+            )
+            .error(400, "customerEncryptionAlgorithmIsInvalid");
+    }
+    for header in [
+        "X-Goog-Encryption-Kms-Key-Name: key\r\n",
         "If-Match: value\r\n",
         "Range: bytes=0-1\r\n",
     ] {

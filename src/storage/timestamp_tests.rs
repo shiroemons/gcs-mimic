@@ -158,6 +158,9 @@ fn timestamp_fixture_downgrade_floors_signed_values_and_deletion_times() {
     connection
         .execute_batch(super::objects::retention::SCHEMA)
         .unwrap();
+    connection
+        .execute_batch(super::customer_keys::SCHEMA)
+        .unwrap();
     super::test_support::downgrade_timestamp_precision(&connection);
     assert_eq!(
         timestamp_rows(&connection),

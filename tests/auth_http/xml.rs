@@ -750,10 +750,25 @@ fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
             "InvalidAuthentication",
         );
     }
+    // Incomplete customer-supplied keys fail with their documented XML codes.
+    for (header, code) in [
+        (
+            "x-goog-encryption-key: key",
+            "CustomerEncryptionAlgorithmIsInvalid",
+        ),
+        (
+            "x-goog-encryption-key-sha256: hash",
+            "CustomerEncryptionAlgorithmIsInvalid",
+        ),
+        (
+            "x-goog-encryption-algorithm: AES256",
+            "CustomerEncryptionKeyFormatIsInvalid",
+        ),
+    ] {
+        xml_error(&server.get(&format!("{header}\r\n"), OBJECT), 400, code);
+    }
     for header in [
-        "x-goog-encryption-key: key",
-        "x-goog-encryption-key-sha256: hash",
-        "x-goog-encryption-algorithm: AES256",
+        "x-goog-encryption-kms-key-name: key",
         "x-goog-user-project: p",
         "If-Match: *",
         "If-None-Match: *",

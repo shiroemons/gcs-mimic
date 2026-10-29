@@ -95,14 +95,24 @@ pub fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status> {
         delete_time: record.time_deleted.map(Into::into),
         soft_delete_time: record.soft_delete_time.map(Into::into),
         hard_delete_time: record.hard_delete_time.map(Into::into),
-        checksums: Some(pb::ObjectChecksums {
-            crc32c: Some(record.crc32c),
-            md5_hash: if record.component_count.is_some() {
-                Vec::new()
-            } else {
-                record.md5.to_vec()
-            },
-        }),
+        // gRPC requests cannot supply a customer key here, so encrypted objects hide their hashes.
+        checksums: record
+            .customer_key_sha256
+            .is_none()
+            .then(|| pb::ObjectChecksums {
+                crc32c: Some(record.crc32c),
+                md5_hash: if record.component_count.is_some() {
+                    Vec::new()
+                } else {
+                    record.md5.to_vec()
+                },
+            }),
+        customer_encryption: record
+            .customer_key_sha256
+            .map(|sha256| pb::CustomerEncryption {
+                encryption_algorithm: crate::csek::ALGORITHM.into(),
+                key_sha256_bytes: sha256.to_vec(),
+            }),
         component_count: record.component_count.unwrap_or_default() as i32,
         temporary_hold: record.temporary_hold,
         event_based_hold: Some(record.event_based_hold),
@@ -233,6 +243,7 @@ mod tests {
             custom_time: Some("2026-10-20T01:02:03.123456789Z".into()),
             retention_expiration_time: None,
             retention: None,
+            customer_key_sha256: None,
         };
         let value = json::object_resource(&record, "http://localhost", Projection::NoAcl).unwrap();
         let proto = object(&record).unwrap();
@@ -253,6 +264,19 @@ mod tests {
         .unwrap();
         assert_eq!(composite.component_count, i32::MAX);
         assert!(composite.checksums.unwrap().md5_hash.is_empty());
+        let encrypted = object(&ObjectRecord {
+            customer_key_sha256: Some([7; 32]),
+            ..record.clone()
+        })
+        .unwrap();
+        assert!(encrypted.checksums.is_none());
+        assert_eq!(
+            encrypted.customer_encryption,
+            Some(pb::CustomerEncryption {
+                encryption_algorithm: "AES256".into(),
+                key_sha256_bytes: vec![7; 32],
+            })
+        );
         assert_eq!(
             object(&ObjectRecord {
                 custom_time: Some("corrupt".into()),

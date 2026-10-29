@@ -429,7 +429,8 @@ pub(super) fn integer(
         .transpose()
 }
 
-fn unsupported_headers(headers: &HeaderMap) -> Result<(), JsonError> {
+/// `keys` lists the customer-supplied key header prefixes the caller parses itself.
+fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), JsonError> {
     let mut tokens = headers.get_all("x-goog-gcs-idempotency-token").iter();
     if let Some(token) = tokens.next()
         && (token.as_bytes().trim_ascii().is_empty() || tokens.next().is_some())
@@ -440,8 +441,14 @@ fn unsupported_headers(headers: &HeaderMap) -> Result<(), JsonError> {
     }
     for key in headers.keys() {
         let name = key.as_str();
-        if name.starts_with("x-goog-encryption-")
-            || name.starts_with("x-goog-copy-source-encryption-")
+        if keys
+            .iter()
+            .any(|prefix| crate::csek::is_key_header(name, prefix))
+        {
+            continue;
+        }
+        if name.starts_with(crate::csek::DESTINATION_PREFIX)
+            || name.starts_with(crate::csek::SOURCE_PREFIX)
             || name.starts_with("x-goog-meta-")
             || matches!(name, "x-goog-user-project" | "x-http-method-override")
         {
@@ -451,12 +458,13 @@ fn unsupported_headers(headers: &HeaderMap) -> Result<(), JsonError> {
     Ok(())
 }
 
-/// Parse upload metadata without consuming or collecting the body.
+/// Parse upload metadata without consuming or collecting the body. Callers read the
+/// destination customer-supplied key separately with [`super::request_key`].
 pub fn parse_object_upload_headers(
     headers: &HeaderMap,
     conditions: ObjectConditions,
 ) -> Result<(String, ExpectedHashes), JsonError> {
-    unsupported_headers(headers)?;
+    unsupported_headers(headers, &[crate::csek::DESTINATION_PREFIX])?;
     validate_read_condition_headers(headers, false)?;
     // shortcut: tokens rely on generation checks; add response replay for strict retry fidelity.
     if headers.contains_key("x-goog-gcs-idempotency-token")
@@ -535,7 +543,16 @@ pub fn parse_object_upload_headers(
 /// Reject unsupported encryption and range-validator headers explicitly.
 // shortcut: GET/DELETE tokens do not deduplicate retries; add replay storage for strict retry fidelity.
 pub fn validate_object_get_headers(headers: &HeaderMap, media: bool) -> Result<(), JsonError> {
-    unsupported_headers(headers)?;
+    validate_keyed_object_headers(headers, media, &[])
+}
+
+/// As [`validate_object_get_headers`], leaving the listed key header prefixes to the caller.
+pub fn validate_keyed_object_headers(
+    headers: &HeaderMap,
+    media: bool,
+    keys: &[&str],
+) -> Result<(), JsonError> {
+    unsupported_headers(headers, keys)?;
     if media && headers.contains_key("if-range") {
         return Err(JsonError::unsupported_object("If-Range"));
     }
@@ -708,6 +725,7 @@ pub fn object_resource(
     if let Some(time) = object.hard_delete_time {
         value["hardDeleteTime"] = json!(timestamp(time)?);
     }
+    super::csek::render(object, &mut value);
     Ok(value)
 }
 
@@ -863,6 +881,10 @@ pub(crate) fn object_etag(object: &ObjectRecord) -> String {
     if object.component_count.is_some() {
         return format!("\"c-{}-{}\"", object.generation, object.metageneration);
     }
+    // A keyless metadata read must not learn the plaintext MD5 through the validator.
+    if object.customer_key_sha256.is_some() {
+        return format!("\"e-{}-{}\"", object.generation, object.metageneration);
+    }
     format!(
         "\"o-{}-{}-{}\"",
         base64(&object.md5),
@@ -871,7 +893,7 @@ pub(crate) fn object_etag(object: &ObjectRecord) -> String {
     )
 }
 
-pub(super) fn base64(bytes: &[u8]) -> String {
+pub(crate) fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {

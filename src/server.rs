@@ -1103,7 +1103,13 @@ async fn object_response(
             json::object_resource(&record, &state.api_base_url, params.projection)?
         }
         ObjectRequest::Copy(params) => {
-            json::validate_object_get_headers(request.headers(), false)?;
+            json::validate_keyed_object_headers(
+                request.headers(),
+                false,
+                &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
+            )?;
+            let destination_key = json::request_key(request.headers())?;
+            let source_key = json::source_key(request.headers())?;
             for name in [
                 "content-md5",
                 "x-goog-hash",
@@ -1121,17 +1127,19 @@ async fn object_response(
                 authorize_bucket(state, caller, auth::OBJECTS_GET, &params.source_bucket).await?;
             let source = state
                 .catalog
-                .resolve_derived_source(
+                .resolve_derived_source_keyed(
                     &params.source_bucket,
                     &params.source_name,
                     params.source_generation,
                     params.source_conditions,
                     &source_access,
+                    source_key,
                 )
                 .await?;
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let (metadata, storage_class, expected) =
+            let (mut metadata, storage_class, expected) =
                 json::derived_metadata(&bytes, &source.object)?;
+            metadata.customer_key_sha256 = destination_key.map(crate::csek::CustomerKey::sha256);
             let source_location = if source.object.component_count.is_some() {
                 Some(
                     state
@@ -1168,14 +1176,19 @@ async fn object_response(
                 None,
             )
             .await?;
-            json::object_resource(&record, &state.api_base_url, projection)?
+            json::object_resource_keyed(&record, &state.api_base_url, projection, destination_key)?
         }
         ObjectRequest::Compose {
             bucket,
             name,
             conditions,
         } => {
-            json::validate_object_get_headers(request.headers(), false)?;
+            json::validate_keyed_object_headers(
+                request.headers(),
+                false,
+                &[crate::csek::DESTINATION_PREFIX],
+            )?;
+            let key = json::request_key(request.headers())?;
             for header in [
                 "if-range",
                 "if-modified-since",
@@ -1189,7 +1202,8 @@ async fn object_response(
                 }
             }
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let body = json::compose::parse_compose(&bytes, &bucket, &name)?;
+            let mut body = json::compose::parse_compose(&bytes, &bucket, &name)?;
+            body.destination.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
             activity.send_modify(|progress| progress.awaiting_catalog = true);
             let record = state
                 .catalog
@@ -1210,7 +1224,7 @@ async fn object_response(
                     max_bytes,
                 )
                 .await?;
-            json::object_resource(&record, &state.api_base_url, json::Projection::NoAcl)?
+            json::object_resource_keyed(&record, &state.api_base_url, json::Projection::NoAcl, key)?
         }
         ObjectRequest::Resumable {
             bucket,
@@ -1275,7 +1289,12 @@ async fn object_response(
             replace,
             override_unlocked_retention,
         } => {
-            json::validate_object_get_headers(request.headers(), false)?;
+            json::validate_keyed_object_headers(
+                request.headers(),
+                false,
+                &[crate::csek::DESTINATION_PREFIX],
+            )?;
+            let key = json::request_key(request.headers())?;
             // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
             let mut update = json::parse_object_metadata(&bytes, replace)?;
@@ -1297,6 +1316,9 @@ async fn object_response(
                     params.conditions,
                     update.update,
                     move |record| {
+                        // A wrong key fails before the metadata change commits.
+                        crate::csek::check_metadata(record.customer_key_sha256, key)
+                            .map_err(ObjectError::CustomerEncryption)?;
                         json::ObjectMetadataRequest::validate_unchanged(
                             &update.unchanged,
                             record,
@@ -1306,7 +1328,7 @@ async fn object_response(
                     &access,
                 )
                 .await?;
-            json::object_resource(&record, &state.api_base_url, params.projection)?
+            json::object_resource_keyed(&record, &state.api_base_url, params.projection, key)?
         }
         ObjectRequest::Multipart {
             bucket,
@@ -1315,6 +1337,7 @@ async fn object_response(
         } => {
             let (_, expected) =
                 json::parse_object_upload_headers(request.headers(), params.conditions)?;
+            let key = json::request_key(request.headers())?;
             let boundary = json::multipart_boundary(request.headers())?;
             // The parser's JSON, header, delimiter-padding and discard caps total less than 256 KiB.
             if request
@@ -1351,8 +1374,9 @@ async fn object_response(
             let mut multipart = json::Multipart::new(body, &boundary);
             let bytes = multipart.metadata().await?;
             let name_known = name.is_some();
-            let (name, metadata, expected) = json::multipart_metadata(&bytes, name, expected)?;
+            let (name, mut metadata, expected) = json::multipart_metadata(&bytes, name, expected)?;
             retention_access::authorize_upload(state, &access, &bucket, &metadata).await?;
+            metadata.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
             if !name_known {
                 await_upload_catalog(
                     state
@@ -1420,7 +1444,7 @@ async fn object_response(
                     }, catalog_timeout, deadline, activity).await?
                 }
             };
-            json::object_resource(&record, &state.api_base_url, params.projection)?
+            json::object_resource_keyed(&record, &state.api_base_url, params.projection, key)?
         }
         ObjectRequest::Insert {
             bucket,
@@ -1429,6 +1453,7 @@ async fn object_response(
         } => {
             let (content_type, expected) =
                 json::parse_object_upload_headers(request.headers(), params.conditions)?;
+            let key = json::request_key(request.headers())?;
             if request
                 .headers()
                 .get("content-length")
@@ -1458,7 +1483,10 @@ async fn object_response(
                 max_bytes,
                 body,
                 permit,
-                Default::default(),
+                crate::object::ObjectMetadataUpdate {
+                    customer_key_sha256: key.map(crate::csek::CustomerKey::sha256),
+                    ..Default::default()
+                },
                 access,
             );
             tokio::pin!(upload);
@@ -1478,7 +1506,7 @@ async fn object_response(
                     }, catalog_timeout, deadline, activity).await?
                 }
             };
-            json::object_resource(&record, &state.api_base_url, params.projection)?
+            json::object_resource_keyed(&record, &state.api_base_url, params.projection, key)?
         }
         ObjectRequest::Get {
             bucket,
@@ -1498,12 +1526,18 @@ async fn object_response(
                 params.conditions
             };
             if params.media {
-                json::validate_object_get_headers(request.headers(), true)?;
+                json::validate_keyed_object_headers(
+                    request.headers(),
+                    true,
+                    &[crate::csek::DESTINATION_PREFIX],
+                )?;
+                let key = json::request_key(request.headers())?;
                 let (record, mut reader) = state
                     .catalog
-                    .open_object_authorized(&bucket, &name, params.generation, conditions, &access)
+                    .open_object_keyed(&bucket, &name, params.generation, conditions, &access, key)
                     .await?;
                 let mut headers = json::object_media_headers(&record)?;
+                json::insert_response_headers(&record, &mut headers);
                 if reader.publicly_readable {
                     headers.insert(
                         "cache-control",
@@ -1567,7 +1601,12 @@ async fn object_response(
                 *response.headers_mut() = headers;
                 return Ok(response);
             }
-            json::validate_object_get_headers(request.headers(), false)?;
+            json::validate_keyed_object_headers(
+                request.headers(),
+                false,
+                &[crate::csek::DESTINATION_PREFIX],
+            )?;
+            let key = json::request_key(request.headers())?;
             let record = if params.soft_deleted {
                 state
                     .catalog
@@ -1587,10 +1626,13 @@ async fn object_response(
                     .get_object_authorized(&bucket, &name, params.generation, conditions, &access)
                     .await?
             };
+            // Metadata needs no key; a supplied key must match and then reveals hashes.
+            crate::csek::check_metadata(record.customer_key_sha256, key)
+                .map_err(ObjectError::CustomerEncryption)?;
             return Ok(boxed(read_metadata_response(
                 request.headers(),
                 &json::object_etag(&record),
-                json::object_resource(&record, &state.api_base_url, params.projection)?,
+                json::object_resource_keyed(&record, &state.api_base_url, params.projection, key)?,
                 &fields,
                 params.conditions.if_generation_not_match == Some(record.generation)
                     || params.conditions.if_metageneration_not_match == Some(record.metageneration),
@@ -1675,6 +1717,13 @@ async fn xml_response(
     .await
     .map_err(|error| anonymous_error(error, caller))?;
     xml::headers(request.headers(), &mut operation)?;
+    if delete
+        && let Some(name) =
+            crate::csek::has_headers(request.headers(), crate::csek::DESTINATION_PREFIX)
+    {
+        return Err(xml::Error::unsupported(&name));
+    }
+    let key = json::request_key(request.headers())?;
     if delete {
         state
             .catalog
@@ -1689,21 +1738,42 @@ async fn xml_response(
             .map_err(|error| anonymous_error(error.into(), caller))?;
         return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
     }
-    let (record, mut reader) = state
-        .catalog
-        .open_object_authorized(
-            &operation.bucket,
-            &operation.name,
-            operation.generation,
-            operation.conditions,
-            &access,
-        )
-        .await
-        .map_err(|error| anonymous_error(error.into(), caller))?;
+    let head = request.method() == Method::HEAD;
+    // HEAD returns only metadata, which an encrypted object exposes without its key.
+    let (record, mut reader, reveal) = if head {
+        state
+            .catalog
+            .open_object_metadata_keyed(
+                &operation.bucket,
+                &operation.name,
+                operation.generation,
+                operation.conditions,
+                &access,
+                key,
+            )
+            .await
+    } else {
+        state
+            .catalog
+            .open_object_keyed(
+                &operation.bucket,
+                &operation.name,
+                operation.generation,
+                operation.conditions,
+                &access,
+                key,
+            )
+            .await
+            .map(|(record, reader)| (record, reader, true))
+    }
+    .map_err(|error| anonymous_error(error.into(), caller))?;
     let mut headers = xml::media_headers(&record, reader.publicly_readable)?;
+    json::insert_response_headers(&record, &mut headers);
+    if !reveal {
+        headers.remove("x-goog-hash");
+    }
     headers.extend(operation.response_overrides);
     json::validate_object_media_encoding(request.headers(), &record)?;
-    let head = request.method() == Method::HEAD;
     let range = match json::object_media_range(request.headers(), record.size) {
         Ok(range) => range,
         Err(_) if head => {

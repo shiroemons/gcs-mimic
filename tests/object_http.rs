@@ -365,7 +365,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     for (header, read_status, read_reason) in [
         ("If-Match: opaque\r\n", 400, "invalidParameter"),
         ("If-None-Match: *\r\n", 304, "notModified"),
-        ("X-Goog-Encryption-Key: key\r\n", 400, "badRequest"),
+        ("X-Goog-Encryption-Kms-Key-Name: key\r\n", 400, "badRequest"),
         ("X-Goog-Meta-Example: value\r\n", 400, "badRequest"),
     ] {
         server
@@ -405,14 +405,26 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             b"",
         )
         .error(412, "conditionNotMet");
+    // An incomplete customer-supplied key fails validation before any object lookup or upload;
+    // DELETE does not take keys and rejects them as unsupported.
+    let key = "X-Goog-Encryption-Key: key\r\n";
     server
-        .request(
-            "GET",
-            "/storage/v1/b/test-bucket/o/missing?alt=media",
-            "X-Goog-Encryption-Key: key\r\n",
-            b"",
-        )
+        .upload("name=existing", key, b"new")
+        .error(400, "customerEncryptionAlgorithmIsInvalid");
+    server
+        .request("DELETE", "/storage/v1/b/test-bucket/o/existing", key, b"")
         .error(400, "badRequest");
+    for name in ["existing", "missing"] {
+        server
+            .request(
+                "GET",
+                &format!("/storage/v1/b/test-bucket/o/{name}?alt=media"),
+                key,
+                b"",
+            )
+            .error(400, "customerEncryptionAlgorithmIsInvalid");
+    }
+    assert_eq!(server.get("existing").json()["generation"], generation);
     let partial = server.request(
         "GET",
         "/storage/v1/b/test-bucket/o/existing?alt=media",

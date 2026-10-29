@@ -42,6 +42,8 @@ pub struct ObjectRecord {
     /// Bucket retention policy expiration only; object retention is kept in `retention`.
     pub retention_expiration_time: Option<SystemTime>,
     pub retention: Option<retention::ObjectRetention>,
+    /// SHA-256 of the customer-supplied AES256 key; the key itself is never stored.
+    pub customer_key_sha256: Option<[u8; 32]>,
 }
 
 impl ObjectRecord {
@@ -139,6 +141,8 @@ pub struct ObjectMetadataUpdate {
     /// `Some(None)` removes the configuration; transitions are checked by the catalog.
     pub retention: Option<Option<retention::ObjectRetention>>,
     pub override_unlocked_retention: bool,
+    /// Set only by data writes that carry a customer-supplied key; metadata patches keep it.
+    pub customer_key_sha256: Option<[u8; 32]>,
 }
 
 impl ObjectMetadataUpdate {
@@ -192,6 +196,9 @@ impl ObjectMetadataUpdate {
         }
         if let Some(retention) = self.retention {
             record.retention = retention;
+        }
+        if let Some(sha256) = self.customer_key_sha256 {
+            record.customer_key_sha256 = Some(sha256);
         }
         if self.replace {
             record.content_type.clear();
@@ -304,6 +311,8 @@ pub enum ObjectError {
     DerivedTransferBusy,
     DerivedTransferIncomplete,
     UnsupportedMetadata(String),
+    /// A customer-supplied key is invalid, missing or does not match the object.
+    CustomerEncryption(crate::csek::CsekError),
     /// The request body ended early or failed while streaming.
     BodyAborted(String),
     Io(std::io::ErrorKind),
@@ -344,6 +353,7 @@ impl fmt::Display for ObjectError {
             Self::UnsupportedMetadata(field) => {
                 write!(formatter, "unsupported metadata change: {field}")
             }
+            Self::CustomerEncryption(error) => error.fmt(formatter),
             Self::BodyAborted(reason) => write!(formatter, "request body aborted: {reason}"),
             Self::Io(kind) => write!(formatter, "object I/O: {kind}"),
             Self::Corrupt(reason) => write!(formatter, "object storage corrupt: {reason}"),

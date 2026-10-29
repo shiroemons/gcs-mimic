@@ -5,6 +5,7 @@ pub mod bucket_init;
 pub mod clock;
 pub mod config;
 pub mod config_input;
+pub mod csek;
 pub mod diagnostics;
 // Linux/macOS descriptor xattr ABIs are isolated behind safe bounded wrappers.
 #[allow(unsafe_code)]

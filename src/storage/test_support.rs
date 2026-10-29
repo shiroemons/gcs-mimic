@@ -39,8 +39,16 @@ pub fn downgrade_soft_delete_schema(connection: &rusqlite::Connection) {
 
 /// Restores the schema 28 layout; retain_until_time's CHECK names retention_mode, so it goes first.
 pub fn downgrade_object_retention_schema(connection: &rusqlite::Connection) {
+    downgrade_customer_key_schema(connection);
     connection
         .execute_batch("ALTER TABLE objects DROP COLUMN retain_until_time; ALTER TABLE objects DROP COLUMN retention_mode; ALTER TABLE buckets DROP COLUMN object_retention_enabled;")
+        .unwrap();
+}
+
+/// Restores the schema 29 layout, which predates customer-supplied key fingerprints.
+pub fn downgrade_customer_key_schema(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch("ALTER TABLE objects DROP COLUMN customer_key_sha256;")
         .unwrap();
 }
 

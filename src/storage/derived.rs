@@ -334,6 +334,15 @@ impl Catalog {
         &self,
         sources: Vec<DerivedSourceSpec>,
     ) -> Result<Vec<DerivedSource>, ObjectError> {
+        self.resolve_derived_sources_keyed(sources, None).await
+    }
+
+    /// Every source must be readable with `key` (compose requires one shared key).
+    pub(crate) async fn resolve_derived_sources_keyed(
+        &self,
+        sources: Vec<DerivedSourceSpec>,
+        key: Option<crate::csek::CustomerKey>,
+    ) -> Result<Vec<DerivedSource>, ObjectError> {
         if sources.is_empty() || sources.len() > 32 {
             return Err(ObjectError::InvalidDerivedArgument(
                 "derived request requires 1 to 32 sources".into(),
@@ -354,6 +363,7 @@ impl Catalog {
                         false,
                         &source.access,
                     )?;
+                    super::customer_keys::check(&object, key)?;
                     let id = random_id()?;
                     let path = stage_path(&data_dir, &id)?;
                     fs::hard_link(objects::blob_path(&data_dir, &original)?, &path)
@@ -705,7 +715,7 @@ impl Catalog {
                     content_encoding: None, content_disposition: None, content_language: None,
                     cache_control: None, metadata: Default::default(), time_created: time, updated: time,
                     time_deleted: None, soft_delete_time: None, hard_delete_time: None, event_based_hold: default_hold,
-                    temporary_hold: false, custom_time: None, retention_expiration_time: None, retention: None,
+                    temporary_hold: false, custom_time: None, retention_expiration_time: None, retention: None, customer_key_sha256: None,
                 };
                 destination.metadata.apply(&mut record)?;
                 transaction.execute("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query]).map_err(unavailable)?;
