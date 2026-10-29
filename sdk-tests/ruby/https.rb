@@ -156,9 +156,7 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
         "includeFoldersAsPrefixes" => -> { bucket.files(delimiter: "/", include_folders_as_prefixes: true) },
         "bucket ACL" => -> { bucket.acl.reload! },
         "default object ACL" => -> { bucket.default_acl.reload! },
-        "object ACL" => -> { bucket.file("missing", skip_lookup: true).acl.reload! },
-        "HMAC keys" => -> { storage.hmac_keys.to_a },
-        "serviceAccount" => -> { storage.service_account_email }
+        "object ACL" => -> { bucket.file("missing", skip_lookup: true).acl.reload! }
       }.each do |name, call|
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         begin
@@ -206,6 +204,42 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
       puts "ruby-bucket-autoclass passed"
     ensure
       autoclass_bucket&.delete
+    end
+    service_account = storage.service_account_email
+    unless service_account.end_with?("@gs-project-accounts.iam.gserviceaccount.com")
+      raise "service account mismatch: #{service_account}"
+    end
+    puts "ruby-project-service-account passed"
+    hmac_email = "sdk-ruby-#{SecureRandom.hex(8)}@local-project.iam.gserviceaccount.com"
+    if ENV.key?("GCS_MIMIC_TOKEN")
+      # roles/storage.admin does not include storage.hmacKeys.*; strict mode must enforce that.
+      begin
+        storage.create_hmac_key hmac_email
+        raise "strict HMAC key creation unexpectedly succeeded"
+      rescue Google::Cloud::PermissionDeniedError
+      end
+      puts "ruby-project-hmac-keys-strict-denied passed"
+    else
+      hmac_key = storage.create_hmac_key hmac_email
+      raise "HMAC secret mismatch" unless hmac_key.secret.to_s.length == 40
+      raise "HMAC access ID mismatch" unless hmac_key.access_id.to_s.length == 61 && hmac_key.active?
+      listed = storage.hmac_keys(service_account_email: hmac_email).all.map(&:access_id)
+      raise "HMAC key listing mismatch: #{listed}" unless listed == [hmac_key.access_id]
+      begin
+        hmac_key.delete!
+        raise "deleting an ACTIVE HMAC key unexpectedly succeeded"
+      rescue Google::Cloud::InvalidArgumentError
+      end
+      hmac_key.reload!
+      raise "rejected delete changed the key" unless hmac_key.active?
+      hmac_key.inactive!
+      raise "HMAC key not inactive" unless hmac_key.inactive?
+      hmac_key.delete!
+      raise "HMAC key not deleted" unless hmac_key.deleted?
+      raise "deleted key listed by default" unless storage.hmac_keys(service_account_email: hmac_email).all.to_a.empty?
+      deleted = storage.hmac_keys(service_account_email: hmac_email, show_deleted_keys: true).all.map(&:access_id)
+      raise "showDeletedKeys mismatch: #{deleted}" unless deleted == [hmac_key.access_id]
+      puts "ruby-project-hmac-keys passed"
     end
     uniform_bucket = nil
     begin

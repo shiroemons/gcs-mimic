@@ -41,11 +41,6 @@ func TestUnsupportedFailsFast(t *testing.T) {
 		{"BucketACL", func(ctx context.Context) error { _, err := bucket.ACL().List(ctx); return err }},
 		{"DefaultObjectACL", func(ctx context.Context) error { _, err := bucket.DefaultObjectACL().List(ctx); return err }},
 		{"ObjectACL", func(ctx context.Context) error { _, err := bucket.Object("missing").ACL().List(ctx); return err }},
-		{"HMACKeys", func(ctx context.Context) error {
-			_, err := client.ListHMACKeys(ctx, "local-project").Next()
-			return err
-		}},
-		{"ServiceAccount", func(ctx context.Context) error { _, err := client.ServiceAccount(ctx, "local-project"); return err }},
 		{"CopySourceACL", func(ctx context.Context) error {
 			_, err := bucket.Object("missing").Generation(1).Restore(ctx, &storage.RestoreOptions{CopySourceACL: true})
 			return err
