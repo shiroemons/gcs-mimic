@@ -435,7 +435,10 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
             identity: if a["identity"].is_null() {
                 None
             } else {
-                Some(Identity::from_upload_snapshot(&a["identity"])?)
+                Some(
+                    Identity::from_upload_snapshot(&a["identity"])
+                        .map_err(|error| error.to_string())?,
+                )
             },
             permission: crate::auth::Permission::ObjectsCreate,
             project: serde_json::from_value(a["project"].clone()).map_err(|_| invalid())?,

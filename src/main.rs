@@ -420,7 +420,8 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, Strin
     let now = options
         .get("--timestamp")
         .map(|s| gcs_mimic::auth::signature::parse_timestamp(s))
-        .transpose()?
+        .transpose()
+        .map_err(|error| error.to_string())?
         .unwrap_or_else(|| SystemClock.now());
     let key =
         gcs_mimic::bounded_file::read(std::path::Path::new(required("--private-key")?), 16_384)
@@ -441,6 +442,7 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, Strin
         now,
         headers,
     )
+    .map_err(|error| error.to_string())
 }
 
 fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {

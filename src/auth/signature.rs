@@ -1,12 +1,12 @@
 //! Bounded, local V2/V4 RSA query verification and V4 signing. No Google IAM calls.
 
 use super::{Auth, Caller};
-use crate::{clock::Clock, hashing::encode_lower, json};
+use crate::{clock::Clock, hashing::encode_lower, json, url::push_percent_encoded};
 use hyper::{HeaderMap, Method, Uri};
 use ring::{digest, rand::SystemRandom, signature};
 use std::{
     collections::BTreeMap,
-    fmt::Write,
+    fmt,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio_rustls::rustls::pki_types::{PrivateKeyDer, SubjectPublicKeyInfoDer, pem::PemObject};
@@ -37,6 +37,69 @@ pub enum Failure {
     NotYetValid,
 }
 
+/// A `public_keys` entry that is not a supported RSA SubjectPublicKeyInfo PEM.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InvalidPublicKey;
+
+impl fmt::Display for InvalidPublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("public_keys must contain only RSA SubjectPublicKeyInfo PEM (2048..8192 bits)")
+    }
+}
+
+impl std::error::Error for InvalidPublicKey {}
+
+/// Why a timestamp could not be parsed or a URL or policy could not be signed. `Display` is the
+/// operator-facing message printed by the `url sign` command.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SigningError {
+    InvalidTimestamp,
+    TimestampOutOfRange,
+    InvalidUrl,
+    UnsupportedRequest,
+    ReservedHeader,
+    InvalidHost,
+    InvalidQuery(String),
+    ExistingSigningParameters,
+    InvalidRequest,
+    PrivateKeyTooLarge,
+    UnsupportedPrivateKey,
+    InvalidPrivateKey(String),
+    SigningFailed,
+}
+
+impl fmt::Display for SigningError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidTimestamp => {
+                f.write_str("timestamp must be a valid YYYYMMDDTHHMMSSZ UTC date")
+            }
+            Self::TimestampOutOfRange => f.write_str("timestamp out of range"),
+            Self::InvalidUrl => f.write_str("invalid signing URL"),
+            Self::UnsupportedRequest => f.write_str(
+                "signing requires an HTTP(S) URL, GET/HEAD/PUT, a signer ID and 1..604800 seconds",
+            ),
+            Self::ReservedHeader => {
+                f.write_str("host and authorization cannot be supplied as signing headers")
+            }
+            Self::InvalidHost => f.write_str("invalid host"),
+            Self::InvalidQuery(message) => f.write_str(message),
+            Self::ExistingSigningParameters => {
+                f.write_str("URL already contains signing parameters")
+            }
+            Self::InvalidRequest => f.write_str("invalid signing request"),
+            Self::PrivateKeyTooLarge => f.write_str("private key exceeds 16 KiB"),
+            Self::UnsupportedPrivateKey => {
+                f.write_str("private key must be RSA PKCS#8 or PKCS#1 PEM")
+            }
+            Self::InvalidPrivateKey(reason) => write!(f, "invalid RSA private key: {reason}"),
+            Self::SigningFailed => f.write_str("RSA signing failed"),
+        }
+    }
+}
+
+impl std::error::Error for SigningError {}
+
 #[derive(Debug)]
 pub(super) struct PublicKey {
     n: Vec<u8>,
@@ -44,11 +107,8 @@ pub(super) struct PublicKey {
 }
 
 impl PublicKey {
-    pub(super) fn parse(pem: &str) -> Result<Self, String> {
-        let invalid = || {
-            "public_keys must contain only RSA SubjectPublicKeyInfo PEM (2048..8192 bits)"
-                .to_owned()
-        };
+    pub(super) fn parse(pem: &str) -> Result<Self, InvalidPublicKey> {
+        let invalid = || InvalidPublicKey;
         if pem.len() > 4096
             || !pem.trim().starts_with("-----BEGIN PUBLIC KEY-----")
             || !pem.trim().ends_with("-----END PUBLIC KEY-----")
@@ -334,7 +394,10 @@ fn canonical_request(
         {
             return Err(Failure::Mismatch);
         }
-        writeln!(canonical_headers, "{name}:{}", values.join(",")).unwrap();
+        canonical_headers.push_str(name);
+        canonical_headers.push(':');
+        canonical_headers.push_str(&values.join(","));
+        canonical_headers.push('\n');
     }
     let path = canonical_path(uri.path())?;
     payload_hash(headers)?;
@@ -389,7 +452,7 @@ fn canonical_path(raw: &str) -> Result<String, Failure> {
         } else if byte == b'/' || unreserved(byte) {
             result.push(byte as char);
         } else {
-            write!(result, "%{byte:02X}").unwrap();
+            push_percent_encoded(&mut result, byte);
         }
     }
     Ok(result)
@@ -406,7 +469,7 @@ pub fn encode_query_component(raw: &str) -> String {
         if unreserved(byte) {
             result.push(byte as char);
         } else {
-            write!(result, "%{byte:02X}").unwrap();
+            push_percent_encoded(&mut result, byte);
         }
     }
     result
@@ -449,8 +512,8 @@ fn unhex(raw: &str) -> Result<Vec<u8>, Failure> {
 }
 
 /// Parse an exact UTC basic timestamp, validating the Gregorian date by round trip.
-pub fn parse_timestamp(raw: &str) -> Result<SystemTime, String> {
-    let invalid = || "timestamp must be a valid YYYYMMDDTHHMMSSZ UTC date".to_owned();
+pub fn parse_timestamp(raw: &str) -> Result<SystemTime, SigningError> {
+    let invalid = || SigningError::InvalidTimestamp;
     if raw.len() != 16
         || raw.as_bytes()[8] != b'T'
         || raw.as_bytes()[15] != b'Z'
@@ -483,8 +546,8 @@ pub fn parse_timestamp(raw: &str) -> Result<SystemTime, String> {
 }
 
 /// Format a time as the `YYYYMMDDTHHMMSSZ` value of X-Goog-Date and x-goog-date.
-pub fn timestamp(now: SystemTime) -> Result<String, String> {
-    let date = json::timestamp(now).map_err(|_| "timestamp out of range")?;
+pub fn timestamp(now: SystemTime) -> Result<String, SigningError> {
+    let date = json::timestamp(now).map_err(|_| SigningError::TimestampOutOfRange)?;
     Ok(format!(
         "{}{}{}T{}{}{}Z",
         &date[..4],
@@ -505,10 +568,14 @@ pub fn sign_url(
     expires: u64,
     now: SystemTime,
     mut headers: HeaderMap,
-) -> Result<String, String> {
-    let mut uri: Uri = url.parse().map_err(|_| "invalid signing URL")?;
-    if !matches!(uri.scheme_str(), Some("http" | "https"))
-        || uri.authority().is_none_or(|a| a.as_str().contains('@'))
+) -> Result<String, SigningError> {
+    let mut uri: Uri = url.parse().map_err(|_| SigningError::InvalidUrl)?;
+    let (Some(scheme), Some(mut authority)) = (uri.scheme().cloned(), uri.authority().cloned())
+    else {
+        return Err(SigningError::UnsupportedRequest);
+    };
+    if !matches!(scheme.as_str(), "http" | "https")
+        || authority.as_str().contains('@')
         || url.contains('#')
         || !matches!(*method, Method::GET | Method::HEAD | Method::PUT)
         || !super::visible_ascii(signer, 254)
@@ -516,50 +583,40 @@ pub fn sign_url(
         || !(1..=MAX_EXPIRES).contains(&expires)
         || private_key.len() > 16384
     {
-        return Err(
-            "signing requires an HTTP(S) URL, GET/HEAD/PUT, a signer ID and 1..604800 seconds"
-                .into(),
-        );
+        return Err(SigningError::UnsupportedRequest);
     }
     if headers.contains_key("host") || headers.contains_key("authorization") {
-        return Err("host and authorization cannot be supplied as signing headers".into());
+        return Err(SigningError::ReservedHeader);
     }
-    let default_port = if uri.scheme_str() == Some("http") {
-        80
-    } else {
-        443
-    };
-    if uri.authority().unwrap().port_u16() == Some(default_port) {
+    let default_port = if scheme.as_str() == "http" { 80 } else { 443 };
+    if authority.port_u16() == Some(default_port) {
         // Browsers omit default ports in Host; normalize before signing the final URL.
-        let authority = uri
-            .authority()
-            .unwrap()
+        authority = authority
             .as_str()
             .rsplit_once(':')
-            .unwrap()
-            .0
+            .map_or(authority.as_str(), |(host, _)| host)
             .parse()
-            .map_err(|_| "invalid host")?;
+            .map_err(|_| SigningError::InvalidHost)?;
         let mut parts = uri.into_parts();
-        parts.authority = Some(authority);
-        uri = Uri::from_parts(parts).map_err(|_| "invalid signing URL")?;
+        parts.authority = Some(authority.clone());
+        uri = Uri::from_parts(parts).map_err(|_| SigningError::InvalidUrl)?;
     }
     headers.insert(
         "host",
-        uri.authority()
-            .unwrap()
+        authority
             .as_str()
             .parse()
-            .map_err(|_| "invalid host")?,
+            .map_err(|_| SigningError::InvalidHost)?,
     );
     let date = timestamp(now)?;
     let scope = format!("{}/auto/storage/goog4_request", &date[..8]);
-    let mut query = json::parse_query(uri.query().unwrap_or_default()).map_err(|e| e.message)?;
+    let mut query = json::parse_query(uri.query().unwrap_or_default())
+        .map_err(|e| SigningError::InvalidQuery(e.message))?;
     if query
         .keys()
         .any(|k| PARAMETERS.iter().any(|p| k.eq_ignore_ascii_case(p)))
     {
-        return Err("URL already contains signing parameters".into());
+        return Err(SigningError::ExistingSigningParameters);
     }
     let mut names: Vec<_> = headers.keys().map(|h| h.as_str()).collect();
     names.sort();
@@ -574,13 +631,11 @@ pub fn sign_url(
         query.insert(k.into(), v);
     }
     let canonical = canonical_request(method, &uri, &headers, &query, &signed)
-        .map_err(|_| "invalid signing request")?;
+        .map_err(|_| SigningError::InvalidRequest)?;
     let message = string_to_sign(&date, &scope, &canonical);
     let bytes = rsa_sign(private_key, &message)?;
     Ok(format!(
-        "{}://{}{}?{}&X-Goog-Signature={}",
-        uri.scheme_str().unwrap(),
-        uri.authority().unwrap(),
+        "{scheme}://{authority}{}?{}&X-Goog-Signature={}",
         uri.path(),
         canonical_query(&query),
         encode_lower(&bytes)
@@ -588,22 +643,22 @@ pub fn sign_url(
 }
 
 /// Sign a base64 V4 POST policy document the way the official SDKs do, returning hex.
-pub fn sign_policy(policy: &str, private_key: &[u8]) -> Result<String, String> {
+pub fn sign_policy(policy: &str, private_key: &[u8]) -> Result<String, SigningError> {
     if private_key.len() > 16384 {
-        return Err("private key exceeds 16 KiB".into());
+        return Err(SigningError::PrivateKeyTooLarge);
     }
     rsa_sign(private_key, policy).map(|bytes| encode_lower(&bytes))
 }
 
-fn rsa_sign(private_key: &[u8], message: &str) -> Result<Vec<u8>, String> {
+fn rsa_sign(private_key: &[u8], message: &str) -> Result<Vec<u8>, SigningError> {
     let key = PrivateKeyDer::from_pem_slice(private_key)
-        .map_err(|_| "private key must be RSA PKCS#8 or PKCS#1 PEM")?;
+        .map_err(|_| SigningError::UnsupportedPrivateKey)?;
     let key = match key {
         PrivateKeyDer::Pkcs8(key) => signature::RsaKeyPair::from_pkcs8(key.secret_pkcs8_der()),
         PrivateKeyDer::Pkcs1(key) => signature::RsaKeyPair::from_der(key.secret_pkcs1_der()),
-        _ => return Err("private key must be RSA PKCS#8 or PKCS#1 PEM".into()),
+        _ => return Err(SigningError::UnsupportedPrivateKey),
     }
-    .map_err(|e| format!("invalid RSA private key: {e}"))?;
+    .map_err(|e| SigningError::InvalidPrivateKey(e.to_string()))?;
     let mut bytes = vec![0; key.public().modulus_len()];
     key.sign(
         &signature::RSA_PKCS1_SHA256,
@@ -611,6 +666,6 @@ fn rsa_sign(private_key: &[u8], message: &str) -> Result<Vec<u8>, String> {
         message.as_bytes(),
         &mut bytes,
     )
-    .map_err(|_| "RSA signing failed")?;
+    .map_err(|_| SigningError::SigningFailed)?;
     Ok(bytes)
 }

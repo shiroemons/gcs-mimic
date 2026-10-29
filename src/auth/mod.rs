@@ -201,8 +201,8 @@ impl Identity {
         }).collect::<BTreeMap<_, _>>()})
     }
 
-    pub(crate) fn from_upload_snapshot(value: &Value) -> Result<Self, String> {
-        let invalid = || "invalid upload identity snapshot".to_owned();
+    pub(crate) fn from_upload_snapshot(value: &Value) -> Result<Self, InvalidUploadSnapshot> {
+        let invalid = || InvalidUploadSnapshot;
         let id = value["id"]
             .as_str()
             .filter(|id| !id.is_empty() && id.len() <= MAX_ID_BYTES)
@@ -297,6 +297,56 @@ impl<'a> Caller<'a> {
     }
 }
 
+/// A persisted resumable-upload identity snapshot that no longer decodes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct InvalidUploadSnapshot;
+
+impl fmt::Display for InvalidUploadSnapshot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid upload identity snapshot")
+    }
+}
+
+impl std::error::Error for InvalidUploadSnapshot {}
+
+/// Why the strict-mode identity file could not be loaded. `Display` names the file and, for an
+/// invalid entry, its index; token values are never included.
+#[derive(Debug)]
+pub enum RegistryError {
+    TooLarge,
+    Io(std::io::Error),
+    Invalid {
+        entry: Option<usize>,
+        reason: String,
+    },
+}
+
+impl fmt::Display for RegistryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooLarge => f.write_str("identity_file exceeds 64 KiB"),
+            Self::Io(error) => write!(f, "identity_file: {error}"),
+            Self::Invalid {
+                entry: None,
+                reason,
+            } => write!(f, "identity_file: {reason}"),
+            Self::Invalid {
+                entry: Some(index),
+                reason,
+            } => write!(f, "identity_file: identities[{index}]: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for RegistryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::TooLarge | Self::Invalid { .. } => None,
+        }
+    }
+}
+
 /// Local principal registry loaded from the strict-mode identity file.
 #[derive(Debug)]
 pub struct Registry {
@@ -307,17 +357,20 @@ pub struct Registry {
 }
 
 impl Registry {
-    pub fn load(path: &Path) -> Result<Self, String> {
+    pub fn load(path: &Path) -> Result<Self, RegistryError> {
         let bytes =
             crate::bounded_file::read(path, MAX_REGISTRY_BYTES).map_err(|error| match error {
-                crate::bounded_file::ReadError::Limit => "identity_file exceeds 64 KiB".into(),
-                crate::bounded_file::ReadError::Io(error) => format!("identity_file: {error}"),
+                crate::bounded_file::ReadError::Limit => RegistryError::TooLarge,
+                crate::bounded_file::ReadError::Io(error) => RegistryError::Io(error),
             })?;
         Self::parse(&bytes)
     }
 
-    pub fn parse(bytes: &[u8]) -> Result<Self, String> {
-        let error = |message: String| format!("identity_file: {message}");
+    pub fn parse(bytes: &[u8]) -> Result<Self, RegistryError> {
+        let error = |reason: String| RegistryError::Invalid {
+            entry: None,
+            reason,
+        };
         let value: Value = serde_json::from_slice(bytes).map_err(|e| error(e.to_string()))?;
         let top = value
             .as_object()
@@ -366,7 +419,10 @@ impl Registry {
         let mut tokens = HashMap::new();
         let mut signing_keys = HashMap::new();
         for (index, entry) in entries.iter().enumerate() {
-            let error = |message: String| format!("identity_file: identities[{index}]: {message}");
+            let error = |reason: String| RegistryError::Invalid {
+                entry: Some(index),
+                reason,
+            };
             let entry = entry
                 .as_object()
                 .ok_or_else(|| error("must be a JSON object".into()))?;
@@ -407,7 +463,7 @@ impl Registry {
                             signature::PublicKey::parse(key.as_str().ok_or_else(|| {
                                 error("public_keys entries must be strings".into())
                             })?)
-                            .map_err(error)
+                            .map_err(|invalid| error(invalid.to_string()))
                         })
                         .collect::<Result<Vec<_>, _>>()?;
                 signing_keys.insert(id.to_owned(), keys);
@@ -641,6 +697,7 @@ mod tests {
             assert!(
                 Registry::parse(value.to_string().as_bytes())
                     .unwrap_err()
+                    .to_string()
                     .contains("public_access_prevention_projects")
             );
         }
@@ -1306,7 +1363,9 @@ mod tests {
                 valid(r#"{"id":"a","tokens":["t"],"project_roles":{"":["roles/storage.admin"]}}"#),
             ),
         ] {
-            let error = Registry::parse(document.as_bytes()).unwrap_err();
+            let error = Registry::parse(document.as_bytes())
+                .unwrap_err()
+                .to_string();
             assert!(error.starts_with("identity_file"), "{case}: {error}");
             assert!(
                 !error.contains("\"t\""),
@@ -1328,13 +1387,14 @@ mod tests {
         document.push(' ');
         std::fs::write(&path, &document).unwrap();
         assert_eq!(
-            Registry::load(&path).unwrap_err(),
+            Registry::load(&path).unwrap_err().to_string(),
             "identity_file exceeds 64 KiB"
         );
         std::fs::remove_file(&path).unwrap();
         assert!(
             Registry::load(&path)
                 .unwrap_err()
+                .to_string()
                 .starts_with("identity_file: ")
         );
     }

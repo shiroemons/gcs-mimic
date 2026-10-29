@@ -663,6 +663,7 @@ fn registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material() {
         assert!(
             Registry::parse(&serde_json::to_vec(&value).unwrap())
                 .unwrap_err()
+                .to_string()
                 .contains("public_keys")
         );
     }
