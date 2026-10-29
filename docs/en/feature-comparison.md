@@ -157,7 +157,7 @@ Their implementations were inspected; full upstream test suites were not execute
 | Capability | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
 | --- | --- | --- | --- |
 | Path-style object GET/HEAD/PUT (bytes only; excludes listing) | ✅ | ✅ Public-host routing | 🚧 GET/PUT; no HEAD |
-| gRPC Storage v2 with the official Go client over plaintext h2c: bucket CRUD/updates/IAM, object write/read/list/update/delete/restore, resumable start/query/cancel, ranged and bidirectional reads, rewrite/compose/move (standard buckets; excludes Rapid append) | ✅ Shared JSON/XML state and strict authorization; [SDK coverage](../../sdk-tests/go/README.md), [cross-protocol evidence](slices/cross-protocol-objects.md) | ❌ Storage v1 only; source review | ❌ |
+| gRPC Storage v2 with the official Go client over plaintext h2c: bucket CRUD/updates/IAM, object write/read/list/update/delete/restore, resumable start/query/cancel, ranged and bidirectional reads, rewrite/compose/move, appendable objects with Writer.Append, takeover and finalization (standard buckets; zonal Rapid buckets are not modeled) | ✅ Shared JSON/XML state and strict authorization; [SDK coverage](../../sdk-tests/go/README.md), [cross-protocol evidence](slices/cross-protocol-objects.md) | ❌ Storage v1 only; source review | ❌ |
 | gRPC legacy Storage v1: the pinned reference's twelve RPCs (bucket insert/get/update/list/delete, object insert/get/update/patch/compose/list/delete), including multi-message InsertObject and project-free ListBuckets | ✅ Documented field subset; [legacy contract](slices/grpc-v1-legacy.md) | 🚧 InsertObject keeps only the first message's data; [pinned server](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/grpc/server.go), source review | ❌ |
 | TLS listener | ✅ HTTPS-only (default) with built-in development certificate or supplied pair; explicit HTTP-only, TLS 1.2/1.3 and bounded handshake; [verified scope](evidence/local-tls.md) | ✅ HTTPS (default), HTTP or both; supplied pair or Go test certificate; [pinned implementation](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/main.go#L27-L76), source review | ❌ HTTP only; source review |
 | Default CORS for JSON API requests | ✅ | ✅ Global middleware | ❌ |
@@ -178,8 +178,10 @@ The optional plaintext `grpc_listen` serves the scoped Storage v2 subset in the
 first gRPC row: bucket CRUD, updates, IAM and retention locking; object reads,
 writes, listing, deletion and restore; resumable uploads with status queries and
 cancellation, rewrite, compose, move and bidirectional ranged reads on standard
-buckets. Rapid append (zonal appendable objects) and unsupported fields return
-actionable `UNIMPLEMENTED`. The same endpoint serves the reference emulator's
+buckets. Appendable objects support creation, flush, reads while appending,
+takeover and finalization over gRPC in any bucket; see the
+[Rapid append contract](slices/grpc-v2-rapid-append.md) for limits. Unsupported
+fields return actionable `UNIMPLEMENTED`. The same endpoint serves the reference emulator's
 twelve legacy Storage v1 RPCs for migration, including multi-message uploads and
 project-free bucket listing, with shared strict permissions and documented field
 limits; the reference keeps only the first upload message's data. JSON, XML and

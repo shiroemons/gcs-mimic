@@ -12,7 +12,7 @@ CancelResumableWrite は、JSON の session URI への DELETE と同じカタロ
 
 本文の送受信は上限付きで、本文全体を集約しません。既存の 4 MiB メッセージ制限、64 KiB の本文チャンク、max_object_bytes を使い、新しい設定は追加しません。単発書き込みは resumable session の保存枠を使いません。
 
-未対応は、単発書き込みの途中の flush/state_lookup、ネストした read_mask、gRPC の soft-deleted 取得・一覧、暗号化・ACL、Rapid append などです。受け付けて無視せず UNIMPLEMENTED を返します。メタデータはローカル上限 8 KiB、明示的な resumable session は共有処理の保存上限 128 件・7 日間に従います。プロバイダーと完全に一致するエラー順序や、同じ upload_id の複数ストリームの競合は未検証です。
+未対応は、単発書き込みの途中の flush/state_lookup、ネストした read_mask、gRPC の soft-deleted 取得・一覧、暗号化・ACL などです。appendable オブジェクトは [Rapid append の契約](grpc-v2-rapid-append.md) で扱います。受け付けて無視せず UNIMPLEMENTED を返します。メタデータはローカル上限 8 KiB、明示的な resumable session は共有処理の保存上限 128 件・7 日間に従います。プロバイダーと完全に一致するエラー順序や、同じ upload_id の複数ストリームの競合は未検証です。
 
 upload_id を使うストリームでは、非最終メッセージの object_checksums は UNIMPLEMENTED で拒否します。StartResumableWrite または finish_write=true で指定してください。最初のメッセージでの指定は上流の契約では有効ですが、共有セッションの既存インターフェースでは変更した checksum を永続化できず、切断後に検証を抜けるためです。拒否してもオフセットは進みません。StartResumableWrite の checksum は切断・再起動後も検証され、不一致ではオブジェクトを作成せずセッションを無効化します。
 

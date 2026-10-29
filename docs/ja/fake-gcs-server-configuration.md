@@ -17,8 +17,9 @@ gRPCは既定で無効です。`--grpc-listen 127.0.0.1:4444`、環境変数
 優先順位はCLI、環境変数、設定ファイルの順です。Go SDKでは
 `STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`を指定します。
 Storage v2のバケットCRUD・更新・IAM・保持ロック、オブジェクト入出力・一覧・削除・復元、
-resumable（CancelResumableWriteによる取消を含む）・rewrite・compose・move・双方向範囲読み取りに部分対応しています。
-Rapid append、未対応フィールドと未知のRPCは、修正案付きErrorInfoを含む
+resumable（CancelResumableWriteによる取消を含む）・rewrite・compose・move・双方向範囲読み取り・
+appendableオブジェクト（[Rapid appendの契約](grpc-v2-rapid-append.md)）に部分対応しています。
+未対応フィールドと未知のRPCは、修正案付きErrorInfoを含む
 再試行されない`UNIMPLEMENTED`を返します。同じエンドポイントで、比較対象の旧Storage v1の12 RPC（プロジェクト省略のバケット一覧を含む）も提供します。
 [契約と制限](grpc-v2-foundation.md)を参照してください。
 

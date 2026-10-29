@@ -2,15 +2,19 @@
 
 `grpc_foundation_test.go` uses `STORAGE_EMULATOR_HOST_GRPC` and ordinary
 `storage.NewGRPCClient(ctx)` to verify immediate non-retryable UNIMPLEMENTED for
-Rapid Writer through Close and unknown service/method ErrorInfo. Strict
+an appendable Writer that would replace a live object, through Close, and
+unknown service/method ErrorInfo. Strict
 authentication checks call CancelResumableWrite with an absent upload_id.
 `scripts/sdk-go.sh` starts separate plaintext h2c listeners for permissive
 and strict profiles; HTTP/HTTPS ports remain separate. Wire tests directly pin
 grpc-go v1.85.0 and protobuf v1.36.12 in the existing module graph. Storage v2
 supports scoped bucket CRUD/updates/IAM/retention locking, object metadata/media/
 listing/deletion/restore, streaming and resumable writes, rewrite/compose/move and
-bidirectional ranged reads and CancelResumableWrite. Rapid append and unsupported
-fields retain UNIMPLEMENTED; see the
+bidirectional ranged reads and CancelResumableWrite. `grpc_appendable_test.go`
+covers `Writer.Append`, reads while appending, takeover, `FinalizeOnClose` and
+single-writer handoff; see the
+[Rapid append contract](../../docs/en/slices/grpc-v2-rapid-append.md).
+Unsupported fields retain UNIMPLEMENTED; see the
 [foundation contract](../../docs/en/slices/grpc-v2-foundation.md).
 
 `grpc_v1_test.go` uses the already pinned

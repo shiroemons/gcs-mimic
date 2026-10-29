@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 222 | 0 | 87 | 1 | 0 | 0 |
-| behavior | 201 | 105 | 0 | 58 | 38 | 0 | 0 |
+| behavior | 201 | 101 | 0 | 62 | 38 | 0 | 0 |
 | project_requirement | 95 | 34 | 0 | 30 | 31 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 222 | 38 | 32 | 18 | 0 | 0 |
-| behavior | 106 | 56 | 35 | 4 | 0 | 0 |
+| behavior | 102 | 60 | 35 | 4 | 0 | 0 |
 | project_requirement | 34 | 0 | 0 | 0 | 0 | 61 |
 
 ## api_operation
@@ -484,7 +484,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | RPC-STORAGE-016 | BidiReadObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-017 | UpdateObject | PARTIAL | P6 | EXACT | LOCAL_SIMULATION | 1 |
 | RPC-STORAGE-018 | WriteObject | PARTIAL | P6 | EXACT | EXACT | 1 |
-| RPC-STORAGE-019 | BidiWriteObject | PARTIAL | P6 | EXACT | EXACT | 1 |
+| RPC-STORAGE-019 | BidiWriteObject | PARTIAL | P6 | EXACT | EXACT | 2 |
 | RPC-STORAGE-020 | ListObjects | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-021 | RewriteObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-022 | StartResumableWrite | PARTIAL | P6 | EXACT | EXACT | 1 |
@@ -743,10 +743,10 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | BEHAVIOR-RAPID-001 | RAPIDのゾーン構成と制約 | NOT_STARTED | P6 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-RAPID-002 | 追記可能オブジェクト作成 | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| BEHAVIOR-RAPID-003 | 追記の単一writer制御 | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| BEHAVIOR-RAPID-004 | 追記flush・確定 | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| BEHAVIOR-RAPID-005 | 追記中の読み取り | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| BEHAVIOR-RAPID-002 | 追記可能オブジェクト作成 | PARTIAL | P6 | EXACT | EXACT | 1 |
+| BEHAVIOR-RAPID-003 | 追記の単一writer制御 | PARTIAL | P6 | EXACT | EXACT | 1 |
+| BEHAVIOR-RAPID-004 | 追記flush・確定 | PARTIAL | P6 | EXACT | EXACT | 1 |
+| BEHAVIOR-RAPID-005 | 追記中の読み取り | PARTIAL | P6 | EXACT | EXACT | 1 |
 
 ### RPC
 

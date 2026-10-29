@@ -6,8 +6,9 @@ This document records the foundation-only delivery and its original rejection
 tests. Current Storage v2 operation subsets are described in the
 [bucket](grpc-v2-buckets.md), [object I/O](grpc-v2-object-io.md),
 [update/copy](grpc-v2-update-copy.md) and [bidi read](grpc-v2-bidi-read.md)
-contracts; CancelResumableWrite is now part of the object I/O contract. Rapid
-append and unsupported fields remain UNIMPLEMENTED; the legacy Storage v1 migration profile is described in [its contract](grpc-v1-legacy.md).
+contracts; CancelResumableWrite is now part of the object I/O contract and
+appendable objects are described in the [Rapid append contract](grpc-v2-rapid-append.md).
+Unsupported fields remain UNIMPLEMENTED; the legacy Storage v1 migration profile is described in [its contract](grpc-v1-legacy.md).
 The all-RPC rejection statements below describe the original foundation snapshot.
 
 Scope: BEHAVIOR-RPC-005 and the unsupported gRPC portion of DESIGN-082. RPC-STORAGE-001–024 retain their existing status: this slice supplies an entry point, not their implementation. At delivery, Storage v1, Rapid append, CancelResumableWrite and every operation's business logic remained unsupported. The strict-authentication and wire-status Go checks that originally used CancelResumableWrite as the unsupported probe now follow its object I/O behavior; see [object I/O](grpc-v2-object-io.md).

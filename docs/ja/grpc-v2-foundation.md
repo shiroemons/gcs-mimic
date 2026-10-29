@@ -6,7 +6,7 @@
 現在のStorage v2の部分対応は、[バケット](grpc-v2-buckets.md)、
 [オブジェクト入出力](grpc-v2-object-io.md)、[更新・派生操作](grpc-v2-update-copy.md)、
 [双方向範囲読み取り](grpc-v2-bidi-read.md)の契約を参照してください。
-CancelResumableWriteはオブジェクト入出力の契約に含まれます。Rapid appendと未対応フィールドはUNIMPLEMENTEDのままです。
+CancelResumableWriteはオブジェクト入出力の契約に含まれます。appendableオブジェクトは[Rapid appendの契約](grpc-v2-rapid-append.md)を参照してください。未対応フィールドはUNIMPLEMENTEDのままです。
 Storage v1の移行プロファイルは[その契約](grpc-v1-legacy.md)を参照してください。
 
 [英語の契約と検証](../en/slices/grpc-v2-foundation.md)が正本です。
@@ -57,7 +57,7 @@ GoのMultiRangeDownloaderが次の範囲を待つ正当な使い方を許しつ�
 
 protoと生成コードはコミット済みなので、通常ビルドにprotocは不要です。
 resource nameの解析と、共有記録からのBucket/Object変換はRustの単体テストで確認します。
-各RPCの実処理とStorage v1は後続のスライスで実装しました。Rapid appendは未対応です。
+各RPCの実処理、Storage v1とRapid appendは後続のスライスで実装しました。
 ベンチマーク、コンテナ、ガイドの通し実行と実クラウド試験は行いません。
 
 2026-10-27の接続管理の追加検証では、RustのgRPC単体8件、実プロセス2件、

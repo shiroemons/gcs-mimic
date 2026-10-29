@@ -20906,19 +20906,21 @@
         {"id": "bidi-generation-auth", "description": "Handle reconnect after overwrite, missing object/generation, four preconditions, shared strict authorization and rejection of handles after bucket ownership changes.", "result": "PASS", "test_ids": ["TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "bidi_handle_rejects_recreated_bucket_owner"]},
         {"id": "bidi-many-ranges", "description": "Ordinary Go Add/Wait completes 600 ranges larger than a chunk using bounded input backpressure; the 100-range limit applies per message and invalid oversized messages are not retried.", "result": "PASS", "test_ids": ["TestGRPCBidiReadManyRanges", "TestGRPCBidiReadWire"]},
         {"id": "bidi-shared-status", "description": "Reuse status::from_json for backend UNAVAILABLE and unsupported JSON 501 with ErrorInfo-bearing UNIMPLEMENTED.", "result": "PASS", "test_ids": ["bidi_shared_error_status"]},
-        {"id": "bidi-remaining-fields", "description": "Redirects, encryption, nondefault read masks, preconditions combined with read handles, complete outstanding-range error details and provider parity remain pending.", "result": "PENDING", "test_ids": []}
+        {"id": "bidi-unfinalized", "description": "Without a finalized object, the stream selects an unfinalized appendable generation, returns metadata without MD5 and reads its persisted prefix; see docs/en/slices/grpc-v2-rapid-append.md.", "result": "PASS", "test_ids": ["TestGRPCAppendable"]},
+        {"id": "bidi-remaining-fields", "description": "Redirects, encryption, nondefault read masks, preconditions combined with read handles, complete outstanding-range error details, provider parity and reads that follow later appends remain pending.", "result": "PENDING", "test_ids": []}
       ],
-      "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status"],
+      "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status", "TestGRPCAppendable"],
       "verification": [
+        {"command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCAppendable|TestGRPCFoundation|TestGRPCBidiRead|^TestGRPCObjectIO' bash scripts/sdk-go.sh", "result": "PASS", "verified_at": "2026-10-29", "artifact": "docs/en/slices/grpc-v2-rapid-append.md", "test_ids": ["TestGRPCAppendable", "TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]},
         {"command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]},
         {"command": "cargo test --locked --offline --lib grpc::v2::bidi_read::tests", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status"]},
         {"command": "RUST_TEST_THREADS=8 just check", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status"]},
         {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
       ],
       "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; ordinary NewMultiRangeDownloader with WithGRPCBidiReads, 600 Add calls, Wait, Close and bounded backpressure", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}],
-      "known_deviations": ["Process-local FIFO retains 64 read handles; eviction/restart requires reopening without a handle. Messages accept at most 100 ranges with non-retryable INVALID_ARGUMENT above that limit; input pauses at 100 queued descriptors (at most 199 after a batch), with one 64 KiB I/O at a time and two queued responses. Go v1.70.0 resends all pending ranges in one message after interruption, so reconnects with more than 100 pending ranges violate the proto and fail without retry; ordinary multi-message Add/Wait uses backpressure. Redirects, encryption, nondefault masks and handle/precondition combinations return UNIMPLEMENTED. Error details identify the invalid range but do not enumerate all outstanding ranges. Provider-exact errors and restart-persistent handles are not claimed."],
+      "known_deviations": ["Process-local FIFO retains 64 read handles; eviction/restart requires reopening without a handle. Messages accept at most 100 ranges with non-retryable INVALID_ARGUMENT above that limit; input pauses at 100 queued descriptors (at most 199 after a batch), with one 64 KiB I/O at a time and two queued responses. Go v1.70.0 resends all pending ranges in one message after interruption, so reconnects with more than 100 pending ranges violate the proto and fail without retry; ordinary multi-message Add/Wait uses backpressure. Redirects, encryption, nondefault masks and handle/precondition combinations return UNIMPLEMENTED. Error details identify the invalid range but do not enumerate all outstanding ranges. Provider-exact errors and restart-persistent handles are not claimed.", "Unfinalized appendable objects are read as a snapshot bounded by the size persisted when the stream or handle opened."],
       "implemented_in": null,
-      "last_verified": "2026-10-28"
+      "last_verified": "2026-10-29"
     },
     {
       "id": "RPC-STORAGE-017",
@@ -21129,11 +21131,24 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Non-final flush/state_lookup without upload_id, unsupported write resource fields, post-finish messages and concurrent streams sharing an upload ID remain unsupported or unverified. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Appendable writes (WriteObjectSpec.appendable and AppendObjectSpec with flush, state_lookup, write handles and finish_write) are routed to the separate Rapid state machine: docs/en/slices/grpc-v2-rapid-append.md. Non-final flush/state_lookup without upload_id on non-appendable writes, unsupported write resource fields, post-finish messages and concurrent streams sharing an upload ID remain unsupported or unverified. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "appendable_writes",
+          "description": "Appendable BidiWriteObject streams create, flush, report persisted_size/persisted_data_checksums/write_handle, take over and finalize appendable objects; unsupported appendable fields are rejected explicitly. See BEHAVIOR-RAPID-002 to BEHAVIOR-RAPID-004.",
+          "result": "PASS",
+          "test_ids": [
+            "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+            "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+            "append_takeover_supersedes_the_previous_writer",
+            "append_rejects_replacement_and_invalid_messages_without_false_success",
+            "TestGRPCAppendable",
+            "TestGRPCAppendableSingleWriter"
+          ]
+        },
         {
           "id": "supported_object_io",
           "description": "Default Go Writer writes 5 bytes and 5 MiB; strict authorization, JSON interoperability and resumable bidi offsets/checksums use shared bounded publication. Persisted StartResumableWrite checksums survive reconnect/reopen; mismatch prevents publication and invalidates the session, while unsupported non-final upload_id checksums are rejected without advancing the offset.",
@@ -21162,9 +21177,37 @@
         "TestGRPCObjectIO",
         "TestGRPCObjectIOStrict",
         "TestGRPCObjectIOWire",
-        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion",
+        "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+        "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+        "append_takeover_supersedes_the_previous_writer",
+        "append_rejects_replacement_and_invalid_messages_without_false_success",
+        "TestGRPCAppendable",
+        "TestGRPCAppendableSingleWriter"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib grpc::v2::append",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+            "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+            "append_takeover_supersedes_the_previous_writer",
+            "append_rejects_replacement_and_invalid_messages_without_false_success"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCAppendable|TestGRPCFoundation|TestGRPCBidiRead|^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "TestGRPCAppendable",
+            "TestGRPCAppendableSingleWriter"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::object_io",
           "result": "PASS",
@@ -21205,13 +21248,32 @@
             "TestGRPCObjectIOStrict",
             "TestGRPCObjectIOWire"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; Writer.Append, NewWriterFromAppendableObject and FinalizeOnClose",
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCAppendable|TestGRPCFoundation|TestGRPCBidiRead|^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "TestGRPCAppendable",
+            "TestGRPCAppendableSingleWriter",
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOStrict",
+            "TestGRPCObjectIOWire"
+          ]
         }
       ],
       "known_deviations": [
-        "Non-final flush/state_lookup without upload_id, unsupported write resource fields, post-finish messages and concurrent streams sharing an upload ID remain unsupported or unverified. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true."
+        "Non-final flush/state_lookup without upload_id, unsupported write resource fields, post-finish messages and concurrent streams sharing an upload ID remain unsupported or unverified. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
+        "Appendable writes follow the Rapid limitations recorded in BEHAVIOR-RAPID-002 to BEHAVIOR-RAPID-005."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-28"
+      "last_verified": "2026-10-29"
     },
     {
       "id": "RPC-STORAGE-020",
@@ -30781,17 +30843,26 @@
         "https://docs.cloud.google.com/storage/docs/rapid/rapid-bucket",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "SPEC_BASED",
-      "notes": "Model allowed bucket/storage configurations and limitations without hardware performance promises.",
+      "notes": "Model allowed bucket/storage configurations and limitations without hardware performance promises. Local policy (docs/en/slices/grpc-v2-rapid-append.md): zonal Rapid buckets cannot be created locally and SDK probes use Writer.Append on ordinary buckets, so appendable objects are accepted in any bucket and the zonal-bucket restrictions are not enforced.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "zonal_bucket_model",
+          "description": "Zonal Rapid buckets (zone location, RAPID storage class, hierarchical namespace and uniform bucket-level access required) and rejection of incompatible features (versioning, soft delete, holds, retention locks, composite objects, resumable uploads, rewrites, object ACLs, CSEK, HMAC, XML multipart uploads).",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
       "test_ids": [],
       "verification": [],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Appendable objects are accepted in any bucket; zonal Rapid buckets cannot be created and their restrictions are not enforced."
+      ],
       "implemented_in": null,
       "last_verified": null
     },
@@ -30803,26 +30874,91 @@
       "interface": "cross-cutting behavior",
       "phase": "P6",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/rapid/use-objects-in-zonal-buckets",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "SPEC_BASED",
-      "notes": "WriteObjectSpec.appendable and early namespace visibility distinct from ordinary uploads.",
+      "notes": "WriteObjectSpec.appendable and early namespace visibility distinct from ordinary uploads. BidiWriteObject with WriteObjectSpec.appendable=true creates an unfinalized generation reserved from the shared allocator (metageneration 1) in a separate appendable store; storage.objects.create, generation preconditions and the first acknowledgement's unfinalized resource are supported. Contract: docs/en/slices/grpc-v2-rapid-append.md; googleapis 933dd1be8180a22bca2dc473b53d4f4297ee3b0c.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "appendable_create",
+          "description": "Go Writer.Append creates an unfinalized generation visible to gRPC GetObject/ReadObject/BidiReadObject with no MD5 and no finalize_time; the first flush acknowledgement returns the resource with its generation; if_generation_match=0 against an existing name fails; replacement of an existing object, object_size, early object_checksums and CSEK are rejected explicitly; strict mode requires storage.objects.create.",
+          "result": "PASS",
+          "test_ids": [
+            "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+            "append_rejects_replacement_and_invalid_messages_without_false_success",
+            "append_strict_requires_create_and_allows_viewer_reads",
+            "TestGRPCAppendable",
+            "TestGRPCFoundationFailsFast"
+          ]
+        },
+        {
+          "id": "namespace_visibility",
+          "description": "Early namespace visibility through JSON, XML and ListObjects, appendable generations replacing an existing object, and zonal-bucket restrictions remain pending.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+        "append_rejects_replacement_and_invalid_messages_without_false_success",
+        "append_strict_requires_create_and_allows_viewer_reads",
+        "TestGRPCAppendable",
+        "TestGRPCFoundationFailsFast"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --lib grpc::v2::append",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+            "append_rejects_replacement_and_invalid_messages_without_false_success",
+            "append_strict_requires_create_and_allows_viewer_reads"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCAppendable|TestGRPCFoundation|TestGRPCBidiRead|^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "TestGRPCAppendable",
+            "TestGRPCFoundationFailsFast"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; Writer.Append; JSON fixtures",
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCAppendable|TestGRPCFoundation|TestGRPCBidiRead|^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "TestGRPCAppendable",
+            "TestGRPCFoundationFailsFast"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Unfinalized objects are visible only through gRPC GetObject, ReadObject, BidiReadObject and DeleteObject; JSON, XML and ListObjects see them after finalization. Creating an appendable generation over an existing object returns UNIMPLEMENTED. Appendable objects are accepted in any bucket."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "BEHAVIOR-RAPID-003",
@@ -30832,26 +30968,91 @@
       "interface": "cross-cutting behavior",
       "phase": "P6",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/rapid/rapid-bucket",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "SPEC_BASED",
-      "notes": "New writer takes over; previously active writer cannot keep appending.",
+      "notes": "New writer takes over; previously active writer cannot keep appending. AppendObjectSpec with the current generation reopens at the persisted size, answers the opening message immediately and issues a new write handle; metageneration conditions apply without a handle, a stale handle is rejected and unflushed bytes of the previous writer are truncated. Contract: docs/en/slices/grpc-v2-rapid-append.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "takeover",
+          "description": "Go NewWriterFromAppendableObject reports the persisted offset; the superseded writer's next write or flush returns FAILED_PRECONDITION; its stale handle cannot take the object back; a matching handle resumes; metageneration conditions, unknown generations, finalized generations and strict storage.objects.create are enforced.",
+          "result": "PASS",
+          "test_ids": [
+            "append_takeover_supersedes_the_previous_writer",
+            "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+            "append_strict_requires_create_and_allows_viewer_reads",
+            "TestGRPCAppendable",
+            "TestGRPCAppendableSingleWriter"
+          ]
+        },
+        {
+          "id": "immediate_notification",
+          "description": "Ending the superseded writer's stream as soon as another writer takes over remains pending; it fails at its next write or flush.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "append_takeover_supersedes_the_previous_writer",
+        "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+        "append_strict_requires_create_and_allows_viewer_reads",
+        "TestGRPCAppendable",
+        "TestGRPCAppendableSingleWriter"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --lib grpc::v2::append",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "append_takeover_supersedes_the_previous_writer",
+            "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+            "append_strict_requires_create_and_allows_viewer_reads"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCAppendable|TestGRPCFoundation|TestGRPCBidiRead|^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "TestGRPCAppendable",
+            "TestGRPCAppendableSingleWriter"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; NewWriterFromAppendableObject",
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCAppendable|TestGRPCFoundation|TestGRPCBidiRead|^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "TestGRPCAppendable",
+            "TestGRPCAppendableSingleWriter"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "A superseded writer learns of the takeover at its next write or flush instead of immediately. routing_token is accepted without effect because the emulator never redirects."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "BEHAVIOR-RAPID-004",
@@ -30861,26 +31062,123 @@
       "interface": "cross-cutting behavior",
       "phase": "P6",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
-      "source_evidence": "SPEC_BASED",
-      "notes": "BidiWriteObject state_lookup/flush/finish_write, durable offset and finalized behavior.",
+      "source_checked_at": "2026-10-29",
+      "source_evidence": "PROTO_CONFIRMED",
+      "notes": "BidiWriteObject state_lookup/flush/finish_write, durable offset and finalized behavior. flush fsyncs and then commits size and CRC32C (the durability boundary); flush/state_lookup and a clean close report persisted_size, persisted_data_checksums and write_handle; finish_write verifies an optional CRC32C and publishes the persisted bytes through shared bounded publication with the reserved generation. A finalizing flag plus startup recovery resolves interrupted finalization. Contract: docs/en/slices/grpc-v2-rapid-append.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "flush_and_finalize",
+          "description": "Unflushed bytes are invisible and truncated by the next writer; overlapping resends are skipped and gaps return OUT_OF_RANGE; per-chunk and final CRC32C mismatches are rejected and keep the object appendable; MD5 at finalization returns INVALID_ARGUMENT; Go FinalizeOnClose publishes the same generation, visible to JSON; finalized generations reject takeover; the size limit applies.",
+          "result": "PASS",
+          "test_ids": [
+            "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+            "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+            "append_rejects_replacement_and_invalid_messages_without_false_success",
+            "appendable_size_limit_and_reader_bound_by_persisted_size",
+            "finalization_inherits_default_acl_and_autoclass_class",
+            "TestGRPCAppendable"
+          ]
+        },
+        {
+          "id": "durability_recovery",
+          "description": "Unfinalized objects survive restart; a crash after the publication commit retires the row at startup before a delete could resurrect it; a crash before it makes the object appendable again; orphan data files and rows of deleted buckets are removed; schema 33 catalogs migrate.",
+          "result": "PASS",
+          "test_ids": [
+            "schema_33_catalog_migrates_to_appendable_objects",
+            "append_unfinalized_object_survives_restart",
+            "appendable_row_left_by_crash_after_publication_is_stale",
+            "interrupted_finalization_before_publication_stays_appendable",
+            "appendable_objects_do_not_survive_bucket_recreation"
+          ]
+        },
+        {
+          "id": "finalized_fields",
+          "description": "Omitting MD5 from finalized appendable objects and reporting finalize_time remain pending.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+        "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+        "append_rejects_replacement_and_invalid_messages_without_false_success",
+        "append_unfinalized_object_survives_restart",
+        "appendable_size_limit_and_reader_bound_by_persisted_size",
+        "appendable_row_left_by_crash_after_publication_is_stale",
+        "interrupted_finalization_before_publication_stays_appendable",
+        "appendable_objects_do_not_survive_bucket_recreation",
+        "finalization_inherits_default_acl_and_autoclass_class",
+        "schema_33_catalog_migrates_to_appendable_objects",
+        "TestGRPCAppendable"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --lib grpc::v2::append",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+            "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+            "append_rejects_replacement_and_invalid_messages_without_false_success",
+            "append_unfinalized_object_survives_restart"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib appendable",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "appendable_size_limit_and_reader_bound_by_persisted_size",
+            "appendable_row_left_by_crash_after_publication_is_stale",
+            "interrupted_finalization_before_publication_stays_appendable",
+            "appendable_objects_do_not_survive_bucket_recreation",
+            "finalization_inherits_default_acl_and_autoclass_class",
+            "schema_33_catalog_migrates_to_appendable_objects"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCAppendable|TestGRPCFoundation|TestGRPCBidiRead|^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "TestGRPCAppendable"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; Writer.Append, FinalizeOnClose; JSON reads after finalization",
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCAppendable|TestGRPCFoundation|TestGRPCBidiRead|^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "TestGRPCAppendable"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Finalized appendable objects carry an MD5 hash because shared publication computes it, and finalize_time is not reported."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "BEHAVIOR-RAPID-005",
@@ -30890,26 +31188,98 @@
       "interface": "cross-cutting behavior",
       "phase": "P6",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/rapid/rapid-bucket",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "SPEC_BASED",
-      "notes": "Size updates and persisted-data visibility with explicit appendable semantics.",
+      "notes": "Size updates and persisted-data visibility with explicit appendable semantics. gRPC GetObject, ReadObject and BidiReadObject fall back to the unfinalized generation when no finalized object matches; reads stop at the persisted size with CRC32C of the persisted bytes. Contract: docs/en/slices/grpc-v2-rapid-append.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "read_persisted_prefix",
+          "description": "Go ReadObject and MultiRangeDownloader read the flushed bytes of an unfinalized object; size grows after each flush; unflushed bytes stay invisible; generation selection and read conditions apply; viewers can read in strict mode; the scorecard grpc.appendable_object probe passes.",
+          "result": "PASS",
+          "test_ids": [
+            "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+            "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+            "append_strict_requires_create_and_allows_viewer_reads",
+            "appendable_size_limit_and_reader_bound_by_persisted_size",
+            "TestGRPCAppendable"
+          ]
+        },
+        {
+          "id": "tail_reads",
+          "description": "BidiReadObject streams and read handles that follow later appends, and JSON/XML/ListObjects visibility of unfinalized objects, remain pending.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+        "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+        "append_strict_requires_create_and_allows_viewer_reads",
+        "appendable_size_limit_and_reader_bound_by_persisted_size",
+        "TestGRPCAppendable"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --lib grpc::v2::append",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+            "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
+            "append_strict_requires_create_and_allows_viewer_reads"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib appendable",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "appendable_size_limit_and_reader_bound_by_persisted_size"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCAppendable|TestGRPCFoundation|TestGRPCBidiRead|^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "TestGRPCAppendable"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; NewReader (ReadObject) and NewMultiRangeDownloader (BidiReadObject) on an unfinalized object",
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCAppendable|TestGRPCFoundation|TestGRPCBidiRead|^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "TestGRPCAppendable"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "BidiReadObject reads a snapshot bounded by the size persisted when the stream or read handle opened; reopen to observe later appends. Unfinalized objects are not visible to JSON, XML or ListObjects."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "BEHAVIOR-RPC-001",
