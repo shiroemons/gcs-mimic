@@ -453,6 +453,7 @@ async fn object_retention_mode_transitions_and_injected_clock_expiry() {
     assert_eq!(removed.status, 200);
     assert!(removed.json().get("retention").is_none());
     assert_eq!(delete(&h, "locked/o/removable").await.status, 204);
+    h.stop().await;
 }
 
 #[tokio::test]
@@ -587,6 +588,7 @@ async fn object_retention_requires_enabled_bucket_and_no_event_hold() {
         .await;
     assert_eq!(copied.status, 200, "{}", copied.json());
     assert!(copied.json().get("retention").is_none());
+    h.stop().await;
 }
 
 #[tokio::test]
@@ -683,6 +685,7 @@ async fn object_retention_versioning_soft_delete_and_bucket_policy() {
     h.request("DELETE", "/storage/v1/b/versioned", ADMIN, b"")
         .await
         .error(409, "conflict");
+    h.stop().await;
 }
 
 #[tokio::test]
@@ -815,4 +818,5 @@ async fn object_retention_resumable_upload_and_strict_permissions() {
         .status,
         200
     );
+    h.stop().await;
 }
