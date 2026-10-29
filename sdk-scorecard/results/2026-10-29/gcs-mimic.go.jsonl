@@ -1,0 +1,57 @@
+{"sdk":"go","id":"bucket.create_get_delete","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.list_prefix_paging","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.update_labels","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.metageneration_precondition","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.versioning_history","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.lifecycle","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.cors","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.retention_policy","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.retention_lock","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.uniform_bucket_level_access","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.public_access_prevention","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.iam_policy","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.iam_test_permissions","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.soft_delete_policy","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.autoclass","area":"bucket","pass":false,"detail":"googleapi: Error 400: gcs-mimic does not support bucket API setting autoclass; omit this setting (for example, create a bucket with only name)., badRequest"}
+{"sdk":"go","id":"bucket.acl","area":"bucket","pass":false,"detail":"googleapi: Error 400: gcs-mimic does not support Google JSON API route b/{bucket}/acl/{entity}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)., badRequest"}
+{"sdk":"go","id":"bucket.default_object_acl","area":"bucket","pass":false,"detail":"googleapi: Error 400: gcs-mimic does not support Google JSON API route b/{bucket}/defaultObjectAcl/{entity}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)., badRequest"}
+{"sdk":"go","id":"bucket.notifications","area":"bucket","pass":false,"detail":"googleapi: Error 400: gcs-mimic does not support Google JSON API route b/{bucket}/notificationConfigs; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)., badRequest"}
+{"sdk":"go","id":"project.hmac_keys","area":"bucket","pass":false,"detail":"googleapi: Error 400: gcs-mimic does not support Google JSON API route projects/{projectId}/hmacKeys; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)., badRequest"}
+{"sdk":"go","id":"project.service_account","area":"bucket","pass":false,"detail":"googleapi: Error 400: gcs-mimic does not support Google JSON API route projects/{projectId}/serviceAccount; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)., badRequest"}
+{"sdk":"go","id":"object.write_read_small","area":"object","pass":true}
+{"sdk":"go","id":"object.resumable_large","area":"object","pass":true}
+{"sdk":"go","id":"object.metadata_on_write","area":"object","pass":true}
+{"sdk":"go","id":"object.checksum_rejected","area":"object","pass":true}
+{"sdk":"go","id":"object.md5_accepted","area":"object","pass":true}
+{"sdk":"go","id":"object.range_reads","area":"object","pass":true}
+{"sdk":"go","id":"object.update_metadata","area":"object","pass":true}
+{"sdk":"go","id":"object.delete_not_found","area":"object","pass":true}
+{"sdk":"go","id":"object.does_not_exist_precondition","area":"object","pass":true}
+{"sdk":"go","id":"object.generation_match_precondition","area":"object","pass":true}
+{"sdk":"go","id":"object.metageneration_match_precondition","area":"object","pass":true}
+{"sdk":"go","id":"object.list_prefix_delimiter","area":"object","pass":true}
+{"sdk":"go","id":"object.list_paging","area":"object","pass":true}
+{"sdk":"go","id":"object.list_offsets","area":"object","pass":true}
+{"sdk":"go","id":"object.list_match_glob","area":"object","pass":true}
+{"sdk":"go","id":"object.copy_with_metadata","area":"object","pass":true}
+{"sdk":"go","id":"object.rewrite_storage_class","area":"object","pass":true}
+{"sdk":"go","id":"object.compose","area":"object","pass":true}
+{"sdk":"go","id":"object.move","area":"object","pass":true}
+{"sdk":"go","id":"object.acl","area":"object","pass":false,"detail":"googleapi: Error 400: gcs-mimic does not support Google JSON API route b/{bucket}/o/{object}/acl/{entity}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)., badRequest"}
+{"sdk":"go","id":"object.holds","area":"object","pass":true}
+{"sdk":"go","id":"object.retention","area":"object","pass":false,"detail":"googleapi: Error 400: gcs-mimic does not support bucket API setting enableObjectRetention; omit this setting (for example, create a bucket with only name)., badRequest"}
+{"sdk":"go","id":"object.custom_time","area":"object","pass":true}
+{"sdk":"go","id":"object.storage_class_on_write","area":"object","pass":false,"detail":"googleapi: Error 400: gcs-mimic does not support object API setting storageClass; omit this option or header (for example, use projection=noAcl)., badRequest"}
+{"sdk":"go","id":"object.gzip_transcoding","area":"object","pass":true}
+{"sdk":"go","id":"object.customer_supplied_key","area":"object","pass":false,"detail":"googleapi: Error 400: gcs-mimic does not support object API setting x-goog-encryption-algorithm; omit this option or header (for example, use projection=noAcl)., badRequest"}
+{"sdk":"go","id":"object.soft_delete_restore","area":"object","pass":true}
+{"sdk":"go","id":"signed.v4_get","area":"signed","pass":true}
+{"sdk":"go","id":"signed.v4_put","area":"signed","pass":true}
+{"sdk":"go","id":"signed.v2_get","area":"signed","pass":true}
+{"sdk":"go","id":"signed.post_policy_v4","area":"signed","pass":false,"detail":"status 400 err \u003cnil\u003e body \u003c?xml version=\"1.0\" encoding=\"UTF-8\"?\u003e\u003cError\u003e\u003cCode\u003eInvalidArgument\u003c/Code\u003e\u003cMessage\u003egcs-mimic does not support XML API POST route; use GET, HEAD, PUT or DELETE on /BUCKET/OBJECT; omit this option or use..."}
+{"sdk":"go","id":"grpc.bucket_create_get_delete","area":"grpc","pass":true}
+{"sdk":"go","id":"grpc.write_read","area":"grpc","pass":true}
+{"sdk":"go","id":"grpc.list","area":"grpc","pass":true}
+{"sdk":"go","id":"grpc.update_delete","area":"grpc","pass":true}
+{"sdk":"go","id":"grpc.multi_range_downloader","area":"grpc","pass":true}
+{"sdk":"go","id":"grpc.appendable_object","area":"grpc","pass":false,"detail":"rpc error: code = Unimplemented desc = gcs-mimic does not support gRPC Rapid append; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."}

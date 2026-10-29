@@ -1,0 +1,51 @@
+{"sdk":"ruby","id":"bucket.create_get_delete","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.list_prefix_paging","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.update_labels","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.metageneration_precondition","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.versioning_history","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.lifecycle","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.cors","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.retention_policy","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.retention_lock","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.uniform_bucket_level_access","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.public_access_prevention","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.iam_policy","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.iam_test_permissions","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.soft_delete_policy","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.autoclass","area":"bucket","pass":false,"detail":"Google::Cloud::InvalidArgumentError: badRequest: gcs-mimic does not support bucket API setting autoclass; omit this setting (for example, create a bucket with only name)."}
+{"sdk":"ruby","id":"bucket.acl","area":"bucket","pass":false,"detail":"Google::Cloud::InvalidArgumentError: badRequest: gcs-mimic does not support Google JSON API route b/{bucket}/acl; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."}
+{"sdk":"ruby","id":"bucket.default_object_acl","area":"bucket","pass":false,"detail":"Google::Cloud::InvalidArgumentError: badRequest: gcs-mimic does not support Google JSON API route b/{bucket}/defaultObjectAcl; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."}
+{"sdk":"ruby","id":"bucket.notifications","area":"bucket","pass":false,"detail":"Google::Cloud::InvalidArgumentError: badRequest: gcs-mimic does not support Google JSON API route b/{bucket}/notificationConfigs; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."}
+{"sdk":"ruby","id":"project.hmac_keys","area":"bucket","pass":false,"detail":"Google::Cloud::InvalidArgumentError: badRequest: gcs-mimic does not support Google JSON API route projects/{projectId}/hmacKeys; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."}
+{"sdk":"ruby","id":"project.service_account","area":"bucket","pass":false,"detail":"Google::Apis::ClientError: badRequest: gcs-mimic does not support Google JSON API route projects/{projectId}/serviceAccount; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."}
+{"sdk":"ruby","id":"object.write_read_small","area":"object","pass":true}
+{"sdk":"ruby","id":"object.resumable_large","area":"object","pass":true}
+{"sdk":"ruby","id":"object.metadata_on_write","area":"object","pass":true}
+{"sdk":"ruby","id":"object.checksum_rejected","area":"object","pass":true}
+{"sdk":"ruby","id":"object.md5_accepted","area":"object","pass":true}
+{"sdk":"ruby","id":"object.range_reads","area":"object","pass":true}
+{"sdk":"ruby","id":"object.update_metadata","area":"object","pass":true}
+{"sdk":"ruby","id":"object.delete_not_found","area":"object","pass":true}
+{"sdk":"ruby","id":"object.does_not_exist_precondition","area":"object","pass":true}
+{"sdk":"ruby","id":"object.generation_match_precondition","area":"object","pass":true}
+{"sdk":"ruby","id":"object.metageneration_match_precondition","area":"object","pass":true}
+{"sdk":"ruby","id":"object.list_prefix_delimiter","area":"object","pass":true}
+{"sdk":"ruby","id":"object.list_paging","area":"object","pass":true}
+{"sdk":"ruby","id":"object.list_offsets","area":"object","pass":true}
+{"sdk":"ruby","id":"object.list_match_glob","area":"object","pass":true}
+{"sdk":"ruby","id":"object.copy_with_metadata","area":"object","pass":true}
+{"sdk":"ruby","id":"object.rewrite_storage_class","area":"object","pass":true}
+{"sdk":"ruby","id":"object.compose","area":"object","pass":true}
+{"sdk":"ruby","id":"object.move","area":"object","pass":true}
+{"sdk":"ruby","id":"object.acl","area":"object","pass":false,"detail":"Google::Cloud::InvalidArgumentError: badRequest: gcs-mimic does not support Google JSON API route b/{bucket}/o/{object}/acl; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."}
+{"sdk":"ruby","id":"object.holds","area":"object","pass":true}
+{"sdk":"ruby","id":"object.retention","area":"object","pass":false,"detail":"Google::Cloud::InvalidArgumentError: badRequest: gcs-mimic does not support bucket API setting enableObjectRetention; omit this setting (for example, create a bucket with only name)."}
+{"sdk":"ruby","id":"object.custom_time","area":"object","pass":true}
+{"sdk":"ruby","id":"object.storage_class_on_write","area":"object","pass":false,"detail":"Google::Cloud::InvalidArgumentError: badRequest: gcs-mimic does not support object API setting storageClass; omit this option or header (for example, use projection=noAcl)."}
+{"sdk":"ruby","id":"object.gzip_transcoding","area":"object","pass":true}
+{"sdk":"ruby","id":"object.customer_supplied_key","area":"object","pass":false,"detail":"Google::Cloud::InvalidArgumentError: badRequest: gcs-mimic does not support object API setting x-goog-encryption-algorithm; omit this option or header (for example, use projection=noAcl)."}
+{"sdk":"ruby","id":"object.soft_delete_restore","area":"object","pass":true}
+{"sdk":"ruby","id":"signed.v4_get","area":"signed","pass":true}
+{"sdk":"ruby","id":"signed.v4_put","area":"signed","pass":true}
+{"sdk":"ruby","id":"signed.v2_get","area":"signed","pass":true}
+{"sdk":"ruby","id":"signed.post_policy_v4","area":"signed","pass":false,"detail":"ProbeFailure: status 400 body <?xml version=\"1.0\" encoding=\"UTF-8\"?><Error><Code>InvalidArgument</Code><Message>gcs-mimic does not support XML API POST route; use GET, HEAD, PUT or DELETE on /BUCKET/OBJECT; omit this option or use"}

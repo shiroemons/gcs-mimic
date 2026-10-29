@@ -1,0 +1,5 @@
+{
+  "emulator": "gcp-storage-emulator",
+  "version": "oittaa/gcp-storage-emulator:v2026.07.19",
+  "measured_at": "2026-10-29T02:49:50Z"
+}
