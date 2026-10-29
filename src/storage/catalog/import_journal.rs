@@ -299,7 +299,7 @@ impl ImportJournal {
         }
         self.0.run_admin(move |connection| {
             matching(connection, &binding)?;
-            connection.prepare(
+            connection.prepare_cached(
                 "SELECT ordinal, fingerprint, inode, ctime_ns FROM import_observations WHERE ordinal > ?1 ORDER BY ordinal LIMIT ?2",
             ).map_err(unavailable)?.query_map(params![after, limit as i64], |row| {
                 Ok(ImportElement {

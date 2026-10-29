@@ -136,7 +136,7 @@ impl Writeback {
                 let mut usage = status(&tx, root)?;
                 if usage.stop != Stop::Ready { return Err(Error::RecoveryRequired); }
                 let (owner, incarnation): (String,String) = tx.query_row("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1", [bucket.as_str()], |r| Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or_else(stale)?;
-                let stored = tx.query_row(&format!("SELECT {} FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3",super::super::COLUMNS),params![bucket.as_str(),name.as_str(),incarnation],super::super::read_record).optional()?;
+                let stored = tx.prepare_cached(super::super::SELECT_BY_NAME)?.query_row(params![bucket.as_str(),name.as_str(),incarnation],super::super::read_record).optional()?;
                 if stored != selected { return Err(stale()); }
                 let record = objects::lookup(&tx,bucket.as_str(),name.as_str())?.map(|(record,_)| record);
                 let kind = if has_source || record.is_some() { Kind::Publish } else { Kind::Remove };

@@ -129,7 +129,8 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
         let request: Value =
             serde_json::from_str(&row.get::<_, String>(3).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
-        let options = resumable::decode_options(&request["options"])?;
+        let options =
+            resumable::decode_options(&request["options"]).map_err(|error| error.to_string())?;
         let string = |value: &Value| {
             value
                 .as_str()
@@ -266,7 +267,7 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
         return Err(super::unavailable("rewrite session limit exceeded"));
     }
     let mut statement = connection
-        .prepare("SELECT * FROM rewrite_sessions ORDER BY id LIMIT 257")
+        .prepare_cached("SELECT * FROM rewrite_sessions ORDER BY id LIMIT 257")
         .map_err(super::unavailable)?;
     let mut rows = statement.query([]).map_err(super::unavailable)?;
     while let Some(row) = rows.next().map_err(super::unavailable)? {
@@ -342,7 +343,7 @@ fn check_incarnations(
     Ok(())
 }
 
-fn progress(session: &RewriteSession, response: Value) -> Result<RewriteProgress, ObjectError> {
+fn progress(session: &RewriteSession, response: &Value) -> Result<RewriteProgress, ObjectError> {
     Ok(RewriteProgress {
         total: session.total,
         offset: response["offset"]
@@ -513,7 +514,7 @@ impl Catalog {
                 &session,
                 session
                     .response
-                    .clone()
+                    .as_ref()
                     .ok_or_else(|| object_unclassified("missing rewrite replay"))?,
             )
             .map_err(Into::into);
@@ -552,7 +553,7 @@ impl Catalog {
             },None).await?;
             return progress(
                 &completed_session,
-                receiver.await.map_err(object_unclassified)?,
+                &receiver.await.map_err(object_unclassified)?,
             )
             .map_err(Into::into);
         }
@@ -568,7 +569,7 @@ impl Catalog {
             let changed=connection.execute("UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5",params![id,next,current.offset as i64,saved,now]).map_err(object_unclassified)?;
             if changed!=1 {return Err(ObjectError::PreconditionFailed);}Ok(())
         }).await?;
-        progress(&session, response).map_err(Into::into)
+        progress(&session, &response).map_err(Into::into)
     }
 
     pub(crate) async fn maintain_rewrite_sessions(
@@ -578,7 +579,7 @@ impl Catalog {
         let mut after = String::new();
         loop {
             let cursor = after.clone();
-            let ids=self.run(move |connection| connection.prepare("SELECT id FROM rewrite_sessions WHERE deadline<=?1 AND id>?2 ORDER BY id LIMIT 16").map_err(super::unavailable)?.query_map(params![now,cursor],|row|row.get::<_,String>(0)).map_err(super::unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(super::unavailable)).await?;
+            let ids=self.run(move |connection| connection.prepare_cached("SELECT id FROM rewrite_sessions WHERE deadline<=?1 AND id>?2 ORDER BY id LIMIT 16").map_err(super::unavailable)?.query_map(params![now,cursor],|row|row.get::<_,String>(0)).map_err(super::unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(super::unavailable)).await?;
             if ids.is_empty() {
                 break;
             }

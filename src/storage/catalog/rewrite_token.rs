@@ -2,16 +2,16 @@ use serde_json::{Map, Value};
 
 /// An unguessable database key: its authoritative request binding stays in the catalog.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RewriteToken(String);
+pub(crate) struct RewriteToken(String);
 
 impl RewriteToken {
-    pub fn generate() -> Result<Self, getrandom::Error> {
+    pub(crate) fn generate() -> Result<Self, getrandom::Error> {
         let mut bytes = [0; 32];
         getrandom::fill(&mut bytes)?;
         Ok(Self(crate::hashing::encode_lower(&bytes)))
     }
 
-    pub fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         (value.len() == 64
             && value
                 .bytes()
@@ -19,14 +19,14 @@ impl RewriteToken {
         .then(|| Self(value.to_owned()))
     }
 
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 }
 
 /// Includes the selected immutable generation, even when sourceGeneration was omitted.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RewriteBinding {
+pub(crate) struct RewriteBinding {
     pub source_bucket: String,
     pub source_object: String,
     pub source_generation: i64,
@@ -38,7 +38,7 @@ pub struct RewriteBinding {
 
 impl RewriteBinding {
     /// Continuations may omit optional fields, but cannot replace stored conditions or metadata.
-    pub fn accepts(
+    pub(crate) fn accepts(
         &self,
         path: [&str; 4],
         supplied_parameters: &Map<String, Value>,

@@ -13,8 +13,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-pub const MAX_SESSIONS: usize = 128;
-pub const SESSION_LIFETIME: Duration = Duration::from_secs(604800);
+pub(crate) const MAX_SESSIONS: usize = 128;
+pub(crate) const SESSION_LIFETIME: Duration = Duration::from_secs(604800);
 pub(super) const SCHEMA: &str = "CREATE TABLE bucket_incarnations (
     bucket TEXT PRIMARY KEY COLLATE BINARY,
     incarnation TEXT NOT NULL UNIQUE CHECK(length(incarnation) = 32)
@@ -173,7 +173,7 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
         return Err(unavailable("invalid resumable catalog state"));
     }
     let mut statement = connection
-        .prepare("SELECT * FROM resumable_sessions ORDER BY id LIMIT 129")
+        .prepare_cached("SELECT * FROM resumable_sessions ORDER BY id LIMIT 129")
         .map_err(unavailable)?;
     let mut rows = statement.query([]).map_err(unavailable)?;
     while let Some(row) = rows.next().map_err(unavailable)? {
@@ -374,9 +374,27 @@ pub(super) fn encode_options(o: &ResumableOptions) -> Value {
     options
 }
 
-pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
-    let invalid = || "invalid resumable options".to_owned();
-    let field = |key: &str| -> Result<Option<Option<String>>, String> {
+/// Stored resumable session options that no longer decode; the catalog treats them as corrupt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::storage) struct InvalidOptions(String);
+
+impl InvalidOptions {
+    pub(in crate::storage) fn new(reason: impl Into<String>) -> Self {
+        Self(reason.into())
+    }
+}
+
+impl fmt::Display for InvalidOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for InvalidOptions {}
+
+pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, InvalidOptions> {
+    let invalid = || InvalidOptions::new("invalid resumable options");
+    let field = |key: &str| -> Result<Option<Option<String>>, InvalidOptions> {
         if v["version"] == 2 {
             let value = &v["metadata"][key];
             if value.is_null() {
@@ -437,7 +455,7 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
             } else {
                 Some(
                     Identity::from_upload_snapshot(&a["identity"])
-                        .map_err(|error| error.to_string())?,
+                        .map_err(|error| InvalidOptions::new(error.to_string()))?,
                 )
             },
             permission: crate::auth::Permission::ObjectsCreate,
@@ -527,7 +545,13 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
             &serde_json::from_str::<Value>(&row.get::<_, String>(5)?)
                 .map_err(|e| invalid(e.to_string()))?,
         )
-        .map_err(invalid)?,
+        .map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                5,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
         total: row
             .get::<_, Option<i64>>(6)?
             .map(|n| u64::try_from(n).map_err(|e| invalid(e.to_string())))

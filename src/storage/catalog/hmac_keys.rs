@@ -122,8 +122,27 @@ impl From<CatalogError> for HmacKeyError {
     }
 }
 
-const COLUMNS: &str =
-    "access_id, project, service_account_email, state, time_created, updated, revision";
+// A literal macro keeps the statements below static for the prepared statement cache.
+macro_rules! hmac_columns {
+    () => {
+        "access_id, project, service_account_email, state, time_created, updated, revision"
+    };
+}
+const SELECT_KEY: &str = concat!(
+    "SELECT ",
+    hmac_columns!(),
+    " FROM hmac_keys WHERE access_id = ?1 AND project = ?2"
+);
+const LIST_KEYS: &str = concat!(
+    "SELECT ",
+    hmac_columns!(),
+    " FROM hmac_keys
+     WHERE project = ?1
+       AND (?2 IS NULL OR service_account_email = ?2)
+       AND (?3 OR state != 'DELETED')
+       AND (?4 IS NULL OR access_id > ?4)
+     ORDER BY access_id LIMIT ?5"
+);
 
 fn record(row: &Row<'_>) -> rusqlite::Result<HmacKeyRecord> {
     let state: String = row.get(3)?;
@@ -150,12 +169,12 @@ fn select(
     access_id: &str,
 ) -> Result<Option<HmacKeyRecord>, CatalogError> {
     connection
-        .query_row(
-            &format!("SELECT {COLUMNS} FROM hmac_keys WHERE access_id = ?1 AND project = ?2"),
-            params![access_id, project],
-            record,
-        )
-        .optional()
+        .prepare_cached(SELECT_KEY)
+        .and_then(|mut statement| {
+            statement
+                .query_row(params![access_id, project], record)
+                .optional()
+        })
         .map_err(unavailable)
 }
 
@@ -264,16 +283,7 @@ impl Catalog {
         }
         Ok(self
             .run(move |connection| {
-                let mut statement = connection
-                    .prepare(&format!(
-                        "SELECT {COLUMNS} FROM hmac_keys
-                         WHERE project = ?1
-                           AND (?2 IS NULL OR service_account_email = ?2)
-                           AND (?3 OR state != 'DELETED')
-                           AND (?4 IS NULL OR access_id > ?4)
-                         ORDER BY access_id LIMIT ?5"
-                    ))
-                    .map_err(unavailable)?;
+                let mut statement = connection.prepare_cached(LIST_KEYS).map_err(unavailable)?;
                 let mut items = statement
                     .query_map(
                         params![

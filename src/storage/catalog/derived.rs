@@ -203,7 +203,7 @@ struct Input {
 }
 
 fn inputs(connection: &Connection, id: &str) -> Result<Vec<Input>, ObjectError> {
-    connection.prepare("SELECT blob_id, start, length, size FROM derived_inputs WHERE transfer_id = ?1 ORDER BY position LIMIT 33")
+    connection.prepare_cached("SELECT blob_id, start, length, size FROM derived_inputs WHERE transfer_id = ?1 ORDER BY position LIMIT 33")
         .map_err(object_unclassified)?.query_map([id], |row| Ok(Input { id: row.get(0)?, start: row.get::<_, i64>(1)? as u64, length: row.get::<_, i64>(2)? as u64, size: row.get::<_, i64>(3)? as u64 }))
         .map_err(object_unclassified)?.collect::<rusqlite::Result<_>>().map_err(object_unclassified)
 }
@@ -798,7 +798,7 @@ impl Catalog {
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
         let mut failure = self.reclaim_pending().await.err();
         let due = self.run_object(move |connection| {
-            connection.prepare("SELECT id FROM derived_transfers WHERE deadline <= ?1 ORDER BY id LIMIT 128").map_err(object_unclassified)?
+            connection.prepare_cached("SELECT id FROM derived_transfers WHERE deadline <= ?1 ORDER BY id LIMIT 128").map_err(object_unclassified)?
                 .query_map([now], |row| row.get::<_, String>(0)).map_err(object_unclassified)?.collect::<rusqlite::Result<Vec<_>>>().map_err(object_unclassified)
         }).await.map_err(super::unavailable)?;
         for id in due {
@@ -853,7 +853,7 @@ fn reclaim_derived_deletions(
     data_dir: &Path,
     transfer_id: Option<&str>,
 ) -> Result<(), ObjectError> {
-    let ids = connection.prepare("SELECT blob_id FROM derived_deletions WHERE (?1 IS NULL OR transfer_id = ?1) ORDER BY blob_id LIMIT 128").map_err(object_unclassified)?
+    let ids = connection.prepare_cached("SELECT blob_id FROM derived_deletions WHERE (?1 IS NULL OR transfer_id = ?1) ORDER BY blob_id LIMIT 128").map_err(object_unclassified)?
         .query_map([transfer_id], |row| row.get::<_, String>(0)).map_err(object_unclassified)?.collect::<rusqlite::Result<Vec<_>>>().map_err(object_unclassified)?;
     let mut failure = None;
     for id in ids {
@@ -933,7 +933,7 @@ pub(super) fn recover(
         return Err(object_unclassified("too many derived transfers"));
     }
     let ids = connection
-        .prepare("SELECT id FROM derived_transfers ORDER BY id LIMIT ?1")
+        .prepare_cached("SELECT id FROM derived_transfers ORDER BY id LIMIT ?1")
         .map_err(object_unclassified)?
         .query_map([(2 * MAX_TRANSFERS_PER_KIND + 1) as i64], |row| {
             row.get::<_, String>(0)

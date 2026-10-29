@@ -80,7 +80,7 @@ impl RootLease {
         let lease = self.clone();
         self.catalog().run_admin(move |connection| {
             let _lease = lease;
-            connection.prepare("SELECT bucket,incarnation FROM sync_buckets WHERE root_id=?1 AND bucket>?2 ORDER BY bucket LIMIT ?3").map_err(unavailable)?
+            connection.prepare_cached("SELECT bucket,incarnation FROM sync_buckets WHERE root_id=?1 AND bucket>?2 ORDER BY bucket LIMIT ?3").map_err(unavailable)?
                 .query_map(params![root,after,limit as i64], |r|Ok((r.get(0)?,r.get(1)?))).map_err(unavailable)?
                 .collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await.map_err(RootError::from)

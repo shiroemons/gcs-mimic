@@ -119,7 +119,13 @@ macro_rules! bucket_columns {
                       object_retention_enabled, autoclass"
     };
 }
-const COLUMNS: &str = bucket_columns!();
+use bucket_columns;
+const INSERT_BUCKET: &str = concat!(
+    "INSERT INTO buckets (",
+    bucket_columns!(),
+    ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL)
+         ON CONFLICT(name) DO NOTHING"
+);
 const SELECT_BUCKET: &str = concat!(
     "SELECT ",
     bucket_columns!(),
@@ -165,17 +171,45 @@ fn migrate_bucket_settings(connection: &mut Connection) -> Result<(), CatalogErr
 fn migrate_timestamp_precision(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
     // SQLite promotes overflowing integer multiplication to REAL, losing precision.
-    for (table, columns) in [
-        ("buckets", &["time_created", "updated"][..]),
-        ("objects", &["time_created", "updated", "time_deleted"][..]),
-    ] {
-        let condition = columns.iter().map(|column| format!("({column} IS NOT NULL AND (typeof({column}) != 'integer' OR {column} NOT BETWEEN -9223372036854775 AND 9223372036854775))")).collect::<Vec<_>>().join(" OR ");
-        let invalid: bool = transaction
-            .query_row(
-                &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE {condition})"),
-                [],
-                |row| row.get(0),
+    macro_rules! unconvertible {
+        ($column:literal) => {
+            concat!(
+                "(",
+                $column,
+                " IS NOT NULL AND (typeof(",
+                $column,
+                ") != 'integer' OR ",
+                $column,
+                " NOT BETWEEN -9223372036854775 AND 9223372036854775))"
             )
+        };
+    }
+    for (table, check) in [
+        (
+            "buckets",
+            concat!(
+                "SELECT EXISTS(SELECT 1 FROM buckets WHERE ",
+                unconvertible!("time_created"),
+                " OR ",
+                unconvertible!("updated"),
+                ")"
+            ),
+        ),
+        (
+            "objects",
+            concat!(
+                "SELECT EXISTS(SELECT 1 FROM objects WHERE ",
+                unconvertible!("time_created"),
+                " OR ",
+                unconvertible!("updated"),
+                " OR ",
+                unconvertible!("time_deleted"),
+                ")"
+            ),
+        ),
+    ] {
+        let invalid: bool = transaction
+            .query_row(check, [], |row| row.get(0))
             .map_err(unavailable)?;
         if invalid {
             return Err(unavailable(format!(
@@ -416,7 +450,7 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
     }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
-            db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 257")
+            db.prepare_cached("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 257")
             .map_err(unavailable)?.query_map([], |row| {
                 let sql: String = row.get(3)?;
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, sql.split_whitespace().collect::<Vec<_>>().join(" ")))
@@ -773,7 +807,7 @@ impl Catalog {
             }
             // A version marker alone must not make a missing or incompatible schema ready.
             connection
-                .prepare("SELECT name, project, location, location_type, storage_class, labels, metageneration, time_created, updated FROM buckets LIMIT 0")
+                .prepare_cached("SELECT name, project, location, location_type, storage_class, labels, metageneration, time_created, updated FROM buckets LIMIT 0")
                 .map_err(unavailable)?;
             if version < 2 {
                 objects::migrate(&mut connection)?;
@@ -1566,30 +1600,50 @@ fn bucket_list_page(
         Some(start) if start >= prefix => (start, ">"),
         _ => (prefix, ">="),
     };
+    // One static text per bound shape keeps both name bounds indexable; the project list is
+    // bound as one JSON array so its length does not change the statement text.
+    macro_rules! projects {
+        () => {
+            "project IN (SELECT value FROM json_each(?)) AND "
+        };
+    }
+    macro_rules! page {
+        ($projects:expr, $comparison:literal, $upper:literal) => {
+            concat!(
+                "SELECT ",
+                bucket_columns!(),
+                " FROM buckets WHERE ",
+                $projects,
+                "name ",
+                $comparison,
+                " ? ",
+                $upper,
+                " ORDER BY name LIMIT ?"
+            )
+        };
+    }
+    let sql = match (projects.is_some(), comparison, upper.is_some()) {
+        (false, ">", false) => page!("", ">", ""),
+        (false, ">", true) => page!("", ">", "AND name < CAST(? AS TEXT)"),
+        (false, _, false) => page!("", ">=", ""),
+        (false, _, true) => page!("", ">=", "AND name < CAST(? AS TEXT)"),
+        (true, ">", false) => page!(projects!(), ">", ""),
+        (true, ">", true) => page!(projects!(), ">", "AND name < CAST(? AS TEXT)"),
+        (true, _, false) => page!(projects!(), ">=", ""),
+        (true, _, true) => page!(projects!(), ">=", "AND name < CAST(? AS TEXT)"),
+    };
     let mut values = Vec::new();
-    let project_clause = match projects {
-        Some(projects) => {
-            let placeholders = vec!["?"; projects.len()].join(", ");
-            values.extend(projects.into_iter().map(Value::Text));
-            format!("project IN ({placeholders}) AND")
-        }
-        None => String::new(),
-    };
+    if let Some(projects) = projects {
+        values.push(Value::Text(
+            serde_json::to_string(&projects).map_err(unavailable)?,
+        ));
+    }
     values.push(Value::Text(lower));
-    let upper_clause = match upper {
-        Some(upper) => {
-            values.push(Value::Blob(upper));
-            "AND name < CAST(? AS TEXT)"
-        }
-        None => "",
-    };
+    if let Some(upper) = upper {
+        values.push(Value::Blob(upper));
+    }
     values.push(Value::Integer(limit as i64 + 1));
-    let sql = format!(
-        "SELECT {COLUMNS} FROM buckets
-        WHERE {project_clause} name {comparison} ? {upper_clause} ORDER BY name LIMIT ?"
-    );
-    // The text varies only by bound shape and project count, so the LRU cache stays useful.
-    let mut statement = connection.prepare_cached(&sql).map_err(unavailable)?;
+    let mut statement = connection.prepare_cached(sql).map_err(unavailable)?;
     let mut rows = statement
         .query(rusqlite::params_from_iter(values))
         .map_err(unavailable)?;
@@ -1653,30 +1707,41 @@ fn insert_bucket_in_transaction(
         .transpose()?;
     let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
     let changed = transaction
-        .execute(
-            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL)
-         ON CONFLICT(name) DO NOTHING"),
-            params![
-                record.name,
-                record.project,
-                record.location,
-                record.location_type,
-                record.storage_class,
-                labels,
-                record.metageneration,
-                created,
-                updated,
-                record.versioning_enabled,
-                record.default_event_based_hold,
-                cors_value(&record.cors).to_string(),
-                record.public_access_prevention_enforced,
-                record.uniform_bucket_level_access_locked_time.map(unix_micros).transpose()?,
-                serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
-                record.retention_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
-                record.soft_delete_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
-                record.object_retention_enabled,
-            ],
-        )
+        .prepare_cached(INSERT_BUCKET)
+        .map_err(unavailable)?
+        .execute(params![
+            record.name,
+            record.project,
+            record.location,
+            record.location_type,
+            record.storage_class,
+            labels,
+            record.metageneration,
+            created,
+            updated,
+            record.versioning_enabled,
+            record.default_event_based_hold,
+            cors_value(&record.cors).to_string(),
+            record.public_access_prevention_enforced,
+            record
+                .uniform_bucket_level_access_locked_time
+                .map(unix_micros)
+                .transpose()?,
+            serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
+            record
+                .retention_policy
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(unavailable)?,
+            record
+                .soft_delete_policy
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(unavailable)?,
+            record.object_retention_enabled,
+        ])
         .map_err(unavailable)?;
     if changed == 0 {
         return Err(CatalogError::AlreadyExists);

@@ -341,7 +341,22 @@ impl RootLease {
     }
 }
 
-const COLUMNS: &str = "id,ordinal,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,retained,size,md5,crc32c";
+// A literal macro keeps the statements below static for the prepared statement cache.
+macro_rules! pending_columns {
+    () => {
+        "id,ordinal,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,retained,size,md5,crc32c"
+    };
+}
+const SELECT_PENDING_PAGE: &str = concat!(
+    "SELECT ",
+    pending_columns!(),
+    " FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4 AND ordinal>?2 ORDER BY ordinal LIMIT ?3"
+);
+const SELECT_PENDING: &str = concat!(
+    "SELECT ",
+    pending_columns!(),
+    " FROM sync_writeback_ops WHERE root_id=?1 AND id=?2"
+);
 fn pending(row: &rusqlite::Row<'_>, catalog: CatalogId, root: RootId) -> rusqlite::Result<Pending> {
     let id: String = row.get(0)?;
     if BlobId::parse(&id).is_none() {
@@ -691,8 +706,14 @@ impl Writeback {
         }
         self.fs(|_, _| Ok(())).await?;
         let (catalog, root) = self.identities();
-        self.db(move |c|Ok(c.prepare(&format!("SELECT {COLUMNS} FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4 AND ordinal>?2 ORDER BY ordinal LIMIT ?3"))?
-            .query_map(params![root.as_bytes(),after,limit as i64],|r|pending(r,catalog,root))?.collect::<rusqlite::Result<Vec<_>>>()?)).await
+        self.db(move |c| {
+            Ok(c.prepare_cached(SELECT_PENDING_PAGE)?
+                .query_map(params![root.as_bytes(), after, limit as i64], |r| {
+                    pending(r, catalog, root)
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+        .await
     }
     pub async fn get(&self, id: &str) -> Result<Pending, Error> {
         if BlobId::parse(id).is_none() {
@@ -1033,13 +1054,10 @@ impl Writeback {
     }
 }
 fn load(c: &Connection, catalog: CatalogId, root: RootId, id: &str) -> Result<Pending, Error> {
-    c.query_row(
-        &format!("SELECT {COLUMNS} FROM sync_writeback_ops WHERE root_id=?1 AND id=?2"),
-        params![root.as_bytes(), id],
-        |r| pending(r, catalog, root),
-    )
-    .optional()?
-    .ok_or_else(stale)
+    c.prepare_cached(SELECT_PENDING)?
+        .query_row(params![root.as_bytes(), id], |r| pending(r, catalog, root))
+        .optional()?
+        .ok_or_else(stale)
 }
 fn checked(c: &Connection, token: &Token) -> Result<Pending, Error> {
     let item = load(c, token.catalog, token.root, &token.id)?;

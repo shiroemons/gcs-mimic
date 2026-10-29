@@ -15,7 +15,7 @@
 //! }
 //! ```
 
-use super::{COLUMNS, Catalog, objects, read_bucket, select_bucket, unavailable};
+use super::{Catalog, objects, read_bucket, select_bucket, unavailable};
 use crate::{
     bucket::{BucketAccess, BucketRecord, CatalogError},
     clock::Clock,
@@ -24,7 +24,7 @@ use crate::{
         UploadChunk,
     },
 };
-use rusqlite::{Connection, TransactionBehavior, params_from_iter};
+use rusqlite::{Connection, TransactionBehavior};
 use std::{fmt, io, num::NonZeroI64, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
@@ -456,19 +456,23 @@ impl Admin {
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(unavailable)?;
                 let mut results = Vec::with_capacity(records.len());
-                let placeholders = std::iter::repeat_n("?", records.len())
-                    .collect::<Vec<_>>()
-                    .join(",");
+                // The names are bound as one JSON array so the statement text stays static.
+                let names = serde_json::to_string(
+                    &records
+                        .iter()
+                        .map(|record| record.0.name.as_str())
+                        .collect::<Vec<_>>(),
+                )
+                .map_err(unavailable)?;
                 let mut lookup = transaction
-                    .prepare(&format!(
-                        "SELECT {COLUMNS} FROM buckets WHERE name IN ({placeholders})"
+                    .prepare_cached(concat!(
+                        "SELECT ",
+                        super::bucket_columns!(),
+                        " FROM buckets WHERE name IN (SELECT value FROM json_each(?1))"
                     ))
                     .map_err(unavailable)?;
                 let mut existing = lookup
-                    .query_map(
-                        params_from_iter(records.iter().map(|record| &record.0.name)),
-                        read_bucket,
-                    )
+                    .query_map([names], read_bucket)
                     .map_err(unavailable)?
                     .map(|record| record.map(|record| (record.name.clone(), record)))
                     .collect::<rusqlite::Result<std::collections::HashMap<_, _>>>()
@@ -545,8 +549,10 @@ impl Admin {
         self.catalog
             .run_admin(move |connection| {
                 let mut statement = connection
-                    .prepare(&format!(
-                        "SELECT {COLUMNS}, i.incarnation FROM buckets
+                    .prepare_cached(concat!(
+                        "SELECT ",
+                        super::bucket_columns!(),
+                        ", i.incarnation FROM buckets
                  LEFT JOIN bucket_incarnations i ON i.bucket = buckets.name
                  WHERE name > ?1 ORDER BY name LIMIT ?2"
                     ))

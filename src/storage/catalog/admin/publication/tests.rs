@@ -532,8 +532,7 @@ fn publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers() 
     });
     let stage = dir.0.join("snapshot");
     FORCE_COPY.set(true);
-    let (size, hashes) =
-        stage_file(input, stage.clone(), ExpectedHashes::default(), 200_000).unwrap();
+    let (size, hashes) = stage_file(&input, &stage, ExpectedHashes::default(), 200_000).unwrap();
     assert_eq!(size, bytes.len() as u64);
     assert_eq!(hashes.crc32c, crc32c::crc32c(&fs::read(stage).unwrap()));
     let input = source(&dir.0, &bytes);
@@ -542,8 +541,8 @@ fn publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers() 
         *hook = Some(Box::new(move || fs::write(path, b"changed").unwrap()))
     });
     let result = stage_file(
-        input,
-        dir.0.join("drift"),
+        &input,
+        &dir.0.join("drift"),
         ExpectedHashes::default(),
         200_000,
     );

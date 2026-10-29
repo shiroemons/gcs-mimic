@@ -190,7 +190,7 @@ struct Ownership {
 
 fn reserve(
     connection: &mut Connection,
-    location: Vec<u8>,
+    location: &[u8],
     identity: FileIdentity,
     marker: Option<(String, String)>,
     catalog: CatalogId,
@@ -452,7 +452,7 @@ impl SyncState {
             .0
             .run_admin(move |connection| {
                 Ok(reserve(
-                    connection, location, identity, marker_ids, catalog, activation,
+                    connection, &location, identity, marker_ids, catalog, activation,
                 ))
             })
             .await??;

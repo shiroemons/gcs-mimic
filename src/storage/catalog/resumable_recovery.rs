@@ -6,7 +6,7 @@ use std::{fs, io, path::Path};
 pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError> {
     let mut after = String::new();
     loop {
-        let rows = connection.prepare("SELECT id, blob_id, offset FROM resumable_sessions WHERE id > ?1 AND state = 'ACTIVE' ORDER BY id LIMIT 16").map_err(unavailable)?
+        let rows = connection.prepare_cached("SELECT id, blob_id, offset FROM resumable_sessions WHERE id > ?1 AND state = 'ACTIVE' ORDER BY id LIMIT 16").map_err(unavailable)?
             .query_map([&after], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))).map_err(unavailable)?
             .collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)?;
         if rows.is_empty() {
@@ -69,7 +69,8 @@ pub(super) fn recover_prefix(
         fs::rename(&blob, &stage).map_err(unavailable)?;
         #[cfg(unix)]
         {
-            super::objects::sync_dir(blob.parent().expect("blob parent")).map_err(unavailable)?;
+            let shard = super::objects::blob_shard(&blob).map_err(unavailable)?;
+            super::objects::sync_dir(shard).map_err(unavailable)?;
             super::objects::sync_dir(&data_dir.join("staging")).map_err(unavailable)?;
         }
         metadata

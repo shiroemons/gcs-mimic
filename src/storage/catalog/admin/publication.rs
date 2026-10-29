@@ -6,7 +6,7 @@ use crate::{fsutil, hashing::Hasher, storage::failure::BackendCause};
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
-    path::PathBuf,
+    path::Path,
 };
 use tokio::sync::oneshot;
 
@@ -196,15 +196,15 @@ fn changed(before: fsutil::FileIdentity, after: fsutil::FileIdentity) -> Result<
 }
 
 fn stage_file(
-    source: File,
-    stage: PathBuf,
+    source: &File,
+    stage: &Path,
     expected: ExpectedHashes,
     max_bytes: u64,
 ) -> Result<(u64, crate::hashing::Hashes), AdminError> {
     if !source.metadata()?.is_file() {
         return Err(AdminError::Invalid("expected a regular source file".into()));
     }
-    let before = fsutil::stat_identity(&source).map_err(fs_error)?;
+    let before = fsutil::stat_identity(source).map_err(fs_error)?;
     if before.size > max_bytes {
         return Err(AdminError::TooLarge);
     }
@@ -217,7 +217,7 @@ fn stage_file(
     let mut hasher = Hasher::default();
     let mut size = 0u64;
     let mut buffer = [0; 64 * 1024];
-    let clone = || fsutil::clone_into(&source, &fsutil::open_directory(parent)?, name);
+    let clone = || fsutil::clone_into(source, &fsutil::open_directory(parent)?, name);
     #[cfg(test)]
     let cloned = if FORCE_COPY.get() {
         Err(fsutil::FsError::Unsupported)
@@ -232,18 +232,18 @@ fn stage_file(
         Err(error) => return Err(fs_error(error)),
     };
     let mut target = if cloned {
-        File::open(&stage)?
+        File::open(stage)?
     } else {
         OpenOptions::new()
             .create_new(true)
             .write(true)
-            .open(&stage)?
+            .open(stage)?
     };
     loop {
         let count = if cloned {
             target.read(&mut buffer)
         } else {
-            fsutil::read_at(&source, &mut buffer, size)
+            fsutil::read_at(source, &mut buffer, size)
         };
         let count = match count {
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
@@ -268,7 +268,7 @@ fn stage_file(
         });
     }
     target.sync_all()?;
-    changed(before, fsutil::stat_identity(&source).map_err(fs_error)?)?;
+    changed(before, fsutil::stat_identity(source).map_err(fs_error)?)?;
     let hashes = hasher.finish();
     if expected.md5.is_some_and(|md5| md5 != hashes.md5)
         || expected.crc32c.is_some_and(|crc| crc != hashes.crc32c)
@@ -359,7 +359,7 @@ impl Admin {
                     if blob.try_exists()? || stage.try_exists()? {
                         return Err(AdminError::Invalid("blob ID collision".into()));
                     }
-                    Ok(stage_file(source, stage, expected, max_bytes))
+                    Ok(stage_file(&source, &stage, expected, max_bytes))
                 })
                 .await?;
             handle.id = Some(id);

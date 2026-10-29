@@ -1,6 +1,7 @@
 //! Catalog persistence for bucket object-retention enablement and per-object retention.
 
 use super::{object_unavailable, system_time_micros, unix_micros};
+use crate::storage::catalog::resumable::InvalidOptions;
 use crate::{
     bucket::CatalogError,
     object::{
@@ -77,8 +78,8 @@ pub(in crate::storage) fn session_value(
 /// Decodes [`session_value`]; sessions written before retention support have no key.
 pub(in crate::storage) fn from_session(
     value: &serde_json::Value,
-) -> Result<Option<Option<ObjectRetention>>, String> {
-    let invalid = || "invalid resumable retention".to_owned();
+) -> Result<Option<Option<ObjectRetention>>, InvalidOptions> {
+    let invalid = || InvalidOptions::new("invalid resumable retention");
     if value.is_null() {
         return Ok(None);
     }

@@ -70,7 +70,7 @@ fn read_all(
 ) -> Result<Vec<NotificationRecord>, CatalogError> {
     // The documented 100-configuration limit bounds this read.
     let mut statement = connection
-        .prepare(
+        .prepare_cached(
             "SELECT id, config FROM bucket_notifications WHERE bucket = ?1 ORDER BY id LIMIT 101",
         )
         .map_err(unavailable)?;

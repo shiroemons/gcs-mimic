@@ -232,7 +232,27 @@ pub(super) fn delete_in_transaction(
     Ok(())
 }
 
-const COLUMNS: &str = "name,path,generation,size,mtime_ns,ctime_ns,inode,md5,crc32c,racy";
+// A literal macro keeps the statements below static for the prepared statement cache.
+macro_rules! sync_columns {
+    () => {
+        "name,path,generation,size,mtime_ns,ctime_ns,inode,md5,crc32c,racy"
+    };
+}
+const SELECT_BY_PATH: &str = concat!(
+    "SELECT ",
+    sync_columns!(),
+    " FROM sync_objects WHERE path = ?1 AND bucket = ?2 AND incarnation = ?3"
+);
+const SELECT_PAGE: &str = concat!(
+    "SELECT ",
+    sync_columns!(),
+    " FROM sync_objects INDEXED BY sync_objects_path WHERE path > ?1 AND bucket = ?2 AND incarnation = ?3 ORDER BY path LIMIT ?4"
+);
+const SELECT_BY_NAME: &str = concat!(
+    "SELECT ",
+    sync_columns!(),
+    " FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3"
+);
 fn read_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncRecord> {
     let generation: i64 = row.get(2)?;
     Ok(SyncRecord {
@@ -324,13 +344,25 @@ impl SyncState {
         if !valid_path(&path) {
             return Err(AdminError::Invalid("invalid synchronization path".into()));
         }
-        self.0.run_admin(move |connection| {
-            Ok((|| {
-                matching(connection, &binding, &binding.bucket)?;
-                connection.query_row(&format!("SELECT {COLUMNS} FROM sync_objects WHERE path = ?1 AND bucket = ?2 AND incarnation = ?3"),
-                    params![path,binding.bucket,binding.incarnation], read_record).optional().map_err(super::objects::object_unavailable)
-            })())
-        }).await?.map_err(AdminError::from)
+        self.0
+            .run_admin(move |connection| {
+                Ok((|| {
+                    matching(connection, &binding, &binding.bucket)?;
+                    connection
+                        .prepare_cached(SELECT_BY_PATH)
+                        .and_then(|mut statement| {
+                            statement
+                                .query_row(
+                                    params![path, binding.bucket, binding.incarnation],
+                                    read_record,
+                                )
+                                .optional()
+                        })
+                        .map_err(super::objects::object_unavailable)
+                })())
+            })
+            .await?
+            .map_err(AdminError::from)
     }
 
     /// Continue after the last returned path; an empty page terminates traversal.
@@ -343,14 +375,23 @@ impl SyncState {
         if !(1..=MAX_PAGE).contains(&limit) || (!after.is_empty() && !valid_path(&after)) {
             return Err(AdminError::Invalid("invalid synchronization page".into()));
         }
-        self.0.run_admin(move |connection| {
-            Ok((|| {
-                matching(connection, &binding, &binding.bucket)?;
-                connection.prepare(&format!("SELECT {COLUMNS} FROM sync_objects INDEXED BY sync_objects_path WHERE path > ?1 AND bucket = ?2 AND incarnation = ?3 ORDER BY path LIMIT ?4"))
-                    .map_err(super::objects::object_unavailable)?
-                    .query_map(params![after,binding.bucket,binding.incarnation,limit as i64], read_record)
-                    .map_err(super::objects::object_unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(super::objects::object_unavailable)
-            })())
-        }).await?.map_err(AdminError::from)
+        self.0
+            .run_admin(move |connection| {
+                Ok((|| {
+                    matching(connection, &binding, &binding.bucket)?;
+                    connection
+                        .prepare_cached(SELECT_PAGE)
+                        .map_err(super::objects::object_unavailable)?
+                        .query_map(
+                            params![after, binding.bucket, binding.incarnation, limit as i64],
+                            read_record,
+                        )
+                        .map_err(super::objects::object_unavailable)?
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                        .map_err(super::objects::object_unavailable)
+                })())
+            })
+            .await?
+            .map_err(AdminError::from)
     }
 }

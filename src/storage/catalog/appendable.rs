@@ -59,7 +59,7 @@ const COPY_CHUNK: usize = 64 * 1024;
 /// buckets and data files that never received a row.
 pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError> {
     let retired = connection
-        .prepare(
+        .prepare_cached(
             "SELECT a.blob_id FROM appendable_objects a WHERE EXISTS(SELECT 1 FROM objects o WHERE o.bucket = a.bucket AND o.name = a.name AND o.generation = a.generation) OR NOT EXISTS(SELECT 1 FROM bucket_incarnations i WHERE i.bucket = a.bucket AND i.incarnation = a.incarnation)",
         )
         .map_err(super::unavailable)?
@@ -300,7 +300,9 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
     let options = serde_json::from_str(&options)
         .map_err(object_unavailable)
         .and_then(|value| {
-            decode_options(&value).map_err(|reason| ObjectError::Corrupt(reason.into()))
+            decode_options(&value).map_err(|error| {
+                ObjectError::Corrupt(crate::storage::failure::BackendCause::from_error(error))
+            })
         })?;
     Ok(Lookup::Live(Box::new(Row {
         generation,

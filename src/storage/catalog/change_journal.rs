@@ -339,7 +339,7 @@ impl Catalog {
             let rescan = !enabled || after.is_none_or(|a| !valid(a)) || !valid(target) || after.is_some_and(|a| a.sequence > target.sequence);
             if rescan { return Ok(ChangePage {items: vec![], next: current, fence: current, has_more: false, rescan_required: true}); }
             let start = after.ok_or_else(|| unavailable("missing journal cursor"))?;
-            let mut statement = connection.prepare("SELECT sequence, origin, kind, bucket, project, incarnation, object, generation, metageneration FROM change_journal WHERE sequence > ?1 AND sequence <= ?2 ORDER BY sequence LIMIT ?3").map_err(unavailable)?;
+            let mut statement = connection.prepare_cached("SELECT sequence, origin, kind, bucket, project, incarnation, object, generation, metageneration FROM change_journal WHERE sequence > ?1 AND sequence <= ?2 ORDER BY sequence LIMIT ?3").map_err(unavailable)?;
             let items = statement.query_map(params![start.sequence.0 as i64, target.sequence.0 as i64, limit as i64], |r| {
                 let value: String = r.get(1)?;
                 let origin = match value.as_str() { "api" => Origin::Api, "seed" => Origin::Seed, "bucket-init" => Origin::BucketInit, "sync-ingest" => Origin::SyncIngest, "import" => Origin::Import, _ => return Err(rusqlite::Error::InvalidQuery) };

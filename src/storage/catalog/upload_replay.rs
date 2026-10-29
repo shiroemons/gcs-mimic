@@ -43,7 +43,7 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
         return Err(unavailable("upload replay capacity exceeded"));
     }
     let mut statement = connection
-        .prepare("SELECT completion FROM upload_replays ORDER BY token")
+        .prepare_cached("SELECT completion FROM upload_replays ORDER BY token")
         .map_err(unavailable)?;
     let mut rows = statement.query([]).map_err(unavailable)?;
     while let Some(row) = rows.next().map_err(unavailable)? {

@@ -36,7 +36,6 @@ macro_rules! object_columns {
     retention_mode, retain_until_time, customer_key_sha256"
     };
 }
-pub(super) const OBJECT_COLUMNS: &str = object_columns!();
 const SELECT_LIVE_OBJECT: &str = concat!(
     "SELECT ",
     object_columns!(),
@@ -191,8 +190,18 @@ pub(super) fn sync_dir(path: &Path) -> io::Result<()> {
 
 static SHARD_CREATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// The shard directory that holds a blob; every blob path built by `blob_path` has one.
+pub(super) fn blob_shard(path: &Path) -> io::Result<&Path> {
+    path.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "blob path has no shard directory",
+        )
+    })
+}
+
 pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> {
-    let shard = destination.parent().expect("blob parent");
+    let shard = blob_shard(destination)?;
     {
         // A concurrent publisher must not pass a creator whose parent fsync is unfinished.
         let creation = SHARD_CREATION.lock();
@@ -278,10 +287,11 @@ pub(super) fn reclaim(
         ));
     }
     let path = blob_path(data_dir, id)?;
+    let shard = blob_shard(&path).map_err(object_unavailable)?;
     unlink(&path).map_err(object_unavailable)?;
     #[cfg(unix)]
-    if path.parent().expect("blob parent").exists() {
-        sync_dir(path.parent().expect("blob parent")).map_err(object_unavailable)?;
+    if shard.exists() {
+        sync_dir(shard).map_err(object_unavailable)?;
     }
     connection
         .execute(
@@ -326,7 +336,9 @@ pub(super) fn recover(
         // Keyset pages bound memory independently of the number of objects or pending deletions.
         loop {
             let ids = connection
-                .prepare("SELECT blob_id FROM pending_blob_deletions ORDER BY blob_id LIMIT 128")
+                .prepare_cached(
+                    "SELECT blob_id FROM pending_blob_deletions ORDER BY blob_id LIMIT 128",
+                )
                 .map_err(object_unavailable)?
                 .query_map([], |r| r.get::<_, String>(0))
                 .map_err(object_unavailable)?
@@ -348,7 +360,7 @@ pub(super) fn recover(
         let mut after = String::new();
         loop {
             let rows = connection
-                .prepare("SELECT blob_id, size FROM objects WHERE blob_id > ?1 ORDER BY blob_id LIMIT 128")
+                .prepare_cached("SELECT blob_id, size FROM objects WHERE blob_id > ?1 ORDER BY blob_id LIMIT 128")
                 .map_err(object_unavailable)?
                 .query_map([&after], |r| Ok((r.get::<_, String>(0)?, read_size(r, 1)?)))
                 .map_err(object_unavailable)?
@@ -1351,86 +1363,275 @@ fn prefix_end(prefix: &str) -> Option<Vec<u8>> {
     Some(end)
 }
 
-fn list_seek_sql(
-    versions: bool,
-    after: bool,
-    bounded: bool,
-    soft_deleted_after: Option<i64>,
-) -> String {
-    let retained = soft_deleted_after
-        .map(|now| format!("AND soft_delete_time IS NOT NULL AND hard_delete_time > {now}"));
-    let (source, live, order) = if let Some(retained) = retained.as_deref() {
-        (
-            "objects INDEXED BY objects_soft_deleted",
-            retained,
-            "name, generation",
-        )
-    } else if versions {
-        (
-            "objects",
-            "AND soft_delete_time IS NULL",
-            "name, generation",
-        )
-    } else {
-        // The primary key includes history; a live seek must not walk noncurrent rows.
-        (
-            "objects INDEXED BY objects_live",
-            "AND time_deleted IS NULL",
-            "name",
-        )
+/// Which rows a listing walks: live objects, every live generation, or soft-deleted ones.
+#[derive(Clone, Copy)]
+enum ListSource {
+    Live,
+    Versions,
+    SoftDeleted,
+}
+
+impl ListSource {
+    fn of(query: &ObjectListQuery) -> Self {
+        if query.soft_deleted {
+            Self::SoftDeleted
+        } else if query.versions {
+            Self::Versions
+        } else {
+            Self::Live
+        }
+    }
+}
+
+/// Whether a seek may return the lower bound itself.
+#[derive(Clone, Copy)]
+enum SeekStart {
+    Inclusive,
+    Exclusive,
+}
+
+/// Whether a listing stops before an upper name bound.
+#[derive(Clone, Copy)]
+enum UpperBound {
+    Open,
+    Bounded,
+}
+
+// Every list statement numbers its parameters the same way: bucket ?1, lower bound ?2, upper
+// bound ?3, generation ?4 and the current time ?5. Binding the time instead of embedding it
+// gives each listing shape one static text that the connection cache reuses.
+macro_rules! visible_live {
+    () => {
+        "soft_delete_time IS NULL"
     };
-    let comparison = if after { ">" } else { ">=" };
-    let upper = if bounded {
+}
+macro_rules! visible_soft_deleted {
+    () => {
+        "soft_delete_time IS NOT NULL AND hard_delete_time > ?5"
+    };
+}
+macro_rules! name_upper_bound {
+    () => {
         "AND name < CAST(?3 AS TEXT)"
-    } else {
-        ""
     };
-    format!(
-        "SELECT {OBJECT_COLUMNS} FROM {source} WHERE bucket = ?1 AND name {comparison} CAST(?2 AS TEXT) {upper} {live} ORDER BY {order} LIMIT 1"
+}
+macro_rules! list_seek {
+    ($source:literal, $comparison:literal, $upper:expr, $visible:expr, $order:literal) => {
+        concat!(
+            "SELECT ",
+            object_columns!(),
+            " FROM ",
+            $source,
+            " WHERE bucket = ?1 AND name ",
+            $comparison,
+            " CAST(?2 AS TEXT) ",
+            $upper,
+            " AND ",
+            $visible,
+            " ORDER BY ",
+            $order,
+            " LIMIT 1"
+        )
+    };
+}
+macro_rules! list_versioned {
+    ($upper:expr, $visible:expr) => {
+        concat!(
+            "SELECT ",
+            object_columns!(),
+            " FROM objects WHERE bucket = ?1 AND (name, generation) > (CAST(?2 AS TEXT), ?4) ",
+            $upper,
+            " AND ",
+            $visible,
+            " ORDER BY name, generation LIMIT 1"
+        )
+    };
+}
+
+fn list_seek_sql(source: ListSource, start: SeekStart, upper: UpperBound) -> &'static str {
+    macro_rules! shapes {
+        ($source:literal, $visible:expr, $order:literal) => {
+            match (start, upper) {
+                (SeekStart::Inclusive, UpperBound::Open) => {
+                    list_seek!($source, ">=", "", $visible, $order)
+                }
+                (SeekStart::Inclusive, UpperBound::Bounded) => {
+                    list_seek!($source, ">=", name_upper_bound!(), $visible, $order)
+                }
+                (SeekStart::Exclusive, UpperBound::Open) => {
+                    list_seek!($source, ">", "", $visible, $order)
+                }
+                (SeekStart::Exclusive, UpperBound::Bounded) => {
+                    list_seek!($source, ">", name_upper_bound!(), $visible, $order)
+                }
+            }
+        };
+    }
+    match source {
+        ListSource::SoftDeleted => shapes!(
+            "objects INDEXED BY objects_soft_deleted",
+            visible_soft_deleted!(),
+            "name, generation"
+        ),
+        ListSource::Versions => shapes!("objects", visible_live!(), "name, generation"),
+        // The primary key includes history; a live seek must not walk noncurrent rows.
+        ListSource::Live => shapes!(
+            "objects INDEXED BY objects_live",
+            "time_deleted IS NULL",
+            "name"
+        ),
+    }
+}
+
+fn list_versioned_sql(source: ListSource, upper: UpperBound) -> &'static str {
+    match (source, upper) {
+        (ListSource::SoftDeleted, UpperBound::Open) => {
+            list_versioned!("", visible_soft_deleted!())
+        }
+        (ListSource::SoftDeleted, UpperBound::Bounded) => {
+            list_versioned!(name_upper_bound!(), visible_soft_deleted!())
+        }
+        (_, UpperBound::Open) => list_versioned!("", visible_live!()),
+        (_, UpperBound::Bounded) => list_versioned!(name_upper_bound!(), visible_live!()),
+    }
+}
+
+/// Whether another visible generation of a name follows generation `?4`.
+fn later_generation_sql(source: ListSource) -> &'static str {
+    match source {
+        ListSource::SoftDeleted => concat!(
+            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation > ?4 AND ",
+            visible_soft_deleted!(),
+            ")"
+        ),
+        _ => concat!(
+            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation > ?4 AND ",
+            visible_live!(),
+            ")"
+        ),
+    }
+}
+
+/// Runs a list statement with the leading parameters it declares, so shapes that omit the
+/// upper bound, generation or time share one binding convention.
+fn query_list_row<T>(
+    statement: &mut rusqlite::CachedStatement<'_>,
+    values: [&dyn rusqlite::ToSql; 5],
+    read: impl FnOnce(&Row<'_>) -> rusqlite::Result<T>,
+) -> rusqlite::Result<T> {
+    let count = statement.parameter_count();
+    statement.query_row(
+        rusqlite::params_from_iter(values.into_iter().take(count)),
+        read,
     )
 }
 
-/// Live and version listings use a small fixed set of SQL texts that the connection cache
-/// reuses. Soft-deleted listings embed the current time, so caching them would only evict
-/// reusable statements.
-#[derive(Clone, Copy)]
-enum ListCache {
-    Reuse,
-    Bypass,
+/// The three seeks one listing alternates between.
+struct ListStatements<'c> {
+    inclusive: rusqlite::CachedStatement<'c>,
+    exclusive: rusqlite::CachedStatement<'c>,
+    versioned: rusqlite::CachedStatement<'c>,
 }
 
-enum ListStatement<'c> {
-    Cached(rusqlite::CachedStatement<'c>),
-    Fresh(rusqlite::Statement<'c>),
-}
-
-impl<'c> ListStatement<'c> {
-    fn prepare(connection: &'c Connection, sql: &str, cache: ListCache) -> rusqlite::Result<Self> {
-        match cache {
-            ListCache::Reuse => connection.prepare_cached(sql).map(Self::Cached),
-            ListCache::Bypass => connection.prepare(sql).map(Self::Fresh),
-        }
+impl<'c> ListStatements<'c> {
+    fn prepare(
+        connection: &'c Connection,
+        source: ListSource,
+        upper: UpperBound,
+    ) -> rusqlite::Result<Self> {
+        Ok(Self {
+            inclusive: connection.prepare_cached(list_seek_sql(
+                source,
+                SeekStart::Inclusive,
+                upper,
+            ))?,
+            exclusive: connection.prepare_cached(list_seek_sql(
+                source,
+                SeekStart::Exclusive,
+                upper,
+            ))?,
+            versioned: connection.prepare_cached(list_versioned_sql(source, upper))?,
+        })
     }
 }
 
-impl<'c> std::ops::Deref for ListStatement<'c> {
-    type Target = rusqlite::Statement<'c>;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Cached(statement) => statement,
-            Self::Fresh(statement) => statement,
-        }
-    }
+/// Where the next seek starts, derived from the previous page entry.
+struct SeekPosition {
+    after: bool,
+    after_generation: Option<i64>,
+    trailing_prefix: bool,
 }
 
-impl std::ops::DerefMut for ListStatement<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            Self::Cached(statement) => statement,
-            Self::Fresh(statement) => statement,
+/// Advances `lower` past the previous entry; `None` means the listing is exhausted.
+fn seek_position(
+    connection: &Connection,
+    query: &ObjectListQuery,
+    now: i64,
+    cursor: Option<&ObjectListCursor>,
+    lower: &mut Vec<u8>,
+) -> Result<Option<SeekPosition>, ObjectError> {
+    let mut position = SeekPosition {
+        after: false,
+        after_generation: None,
+        trailing_prefix: false,
+    };
+    let Some(previous) = cursor else {
+        return Ok(Some(position));
+    };
+    let bound = if previous.is_prefix {
+        let Some(end) = prefix_end(&previous.name) else {
+            return Ok(None);
+        };
+        end
+    } else {
+        previous.name.as_bytes().to_vec()
+    };
+    if bound < *lower {
+        return Ok(Some(position));
+    }
+    *lower = bound;
+    // A trailing marker emits an item and prefix as separate page entries.
+    position.after = !previous.is_prefix && !trailing_marker(&previous.name, query);
+    if (query.versions || query.soft_deleted) && !previous.is_prefix {
+        position.after_generation = previous.generation;
+        if trailing_marker(&previous.name, query) {
+            let more: bool = connection
+                .prepare_cached(later_generation_sql(ListSource::of(query)))
+                .and_then(|mut statement| {
+                    let none: Option<Vec<u8>> = None;
+                    query_list_row(
+                        &mut statement,
+                        [
+                            &query.bucket,
+                            &previous.name,
+                            &none,
+                            &previous.generation,
+                            &now,
+                        ],
+                        |row| row.get(0),
+                    )
+                })
+                .map_err(object_unavailable)?;
+            if !more {
+                position.after_generation = None;
+                position.trailing_prefix = true;
+            }
         }
     }
+    Ok(Some(position))
+}
+
+/// The exclusive upper name bound: the prefix's end or the end offset, whichever is lower.
+fn list_upper(query: &ObjectListQuery) -> Option<Vec<u8>> {
+    let upper = prefix_end(&query.prefix);
+    if !query.end_offset.is_empty()
+        && upper
+            .as_deref()
+            .is_none_or(|end| query.end_offset.as_bytes() < end)
+    {
+        return Some(query.end_offset.as_bytes().to_vec());
+    }
+    upper
 }
 
 pub(super) fn list_page(
@@ -1458,99 +1659,43 @@ fn list_page_at(
         .as_bytes()
         .max(query.start_offset.as_bytes())
         .to_vec();
-    let mut upper = prefix_end(&query.prefix);
-    if !query.end_offset.is_empty()
-        && upper
-            .as_deref()
-            .is_none_or(|end| query.end_offset.as_bytes() < end)
-    {
-        upper = Some(query.end_offset.as_bytes().to_vec());
-    }
-    let upper_clause = if upper.is_some() {
-        "AND name < CAST(?3 AS TEXT)"
+    let upper = list_upper(query);
+    let bound = if upper.is_some() {
+        UpperBound::Bounded
     } else {
-        ""
+        UpperBound::Open
     };
-    let visibility = if query.soft_deleted {
-        format!("soft_delete_time IS NOT NULL AND hard_delete_time > {now}")
-    } else {
-        "soft_delete_time IS NULL".into()
-    };
-    let seek = |after| {
-        list_seek_sql(
-            query.versions,
-            after,
-            upper.is_some(),
-            query.soft_deleted.then_some(now),
-        )
-    };
-    let cache = if query.soft_deleted {
-        ListCache::Bypass
-    } else {
-        ListCache::Reuse
-    };
-    let mut inclusive =
-        ListStatement::prepare(connection, &seek(false), cache).map_err(object_unavailable)?;
-    let mut exclusive =
-        ListStatement::prepare(connection, &seek(true), cache).map_err(object_unavailable)?;
-    let mut versioned = ListStatement::prepare(connection, &format!(
-        "SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND (name, generation) > (CAST(?2 AS TEXT), ?4) {upper_clause} AND {visibility} ORDER BY name, generation LIMIT 1"
-    ), cache).map_err(object_unavailable)?;
+    let mut statements = ListStatements::prepare(connection, ListSource::of(query), bound)
+        .map_err(object_unavailable)?;
     loop {
-        let mut after = false;
-        let mut after_generation = None;
-        let mut trailing_prefix = false;
-        if let Some(previous) = &cursor {
-            let bound = if previous.is_prefix {
-                let Some(end) = prefix_end(&previous.name) else {
-                    break;
-                };
-                end
-            } else {
-                previous.name.as_bytes().to_vec()
-            };
-            if bound >= lower {
-                lower = bound;
-                // A trailing marker emits an item and prefix as separate page entries.
-                after = !previous.is_prefix && !trailing_marker(&previous.name, query);
-                if (query.versions || query.soft_deleted) && !previous.is_prefix {
-                    after_generation = previous.generation;
-                    if trailing_marker(&previous.name, query) {
-                        let more: bool = connection.query_row(
-                            &format!("SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation > ?3 AND {visibility})"),
-                            params![query.bucket, previous.name, previous.generation], |row| row.get(0),
-                        ).map_err(object_unavailable)?;
-                        if !more {
-                            after_generation = None;
-                            trailing_prefix = true;
-                        }
-                    }
-                }
-            }
-        }
+        let Some(position) = seek_position(connection, query, now, cursor.as_ref(), &mut lower)?
+        else {
+            break;
+        };
         if upper
             .as_deref()
             .is_some_and(|upper| lower.as_slice() >= upper)
         {
             break;
         }
-        let statement = if after_generation.is_some() {
-            &mut versioned
-        } else if after {
-            &mut exclusive
+        let statement = if position.after_generation.is_some() {
+            &mut statements.versioned
+        } else if position.after {
+            &mut statements.exclusive
         } else {
-            &mut inclusive
+            &mut statements.inclusive
         };
-        let record = if let Some(generation) = after_generation {
-            statement.query_row(params![query.bucket, lower, upper, generation], read_object)
-        } else {
-            match &upper {
-                Some(upper) => {
-                    statement.query_row(params![query.bucket, lower, upper], read_object)
-                }
-                None => statement.query_row(params![query.bucket, lower], read_object),
-            }
-        }
+        let record = query_list_row(
+            statement,
+            [
+                &query.bucket,
+                &lower,
+                &upper,
+                &position.after_generation,
+                &now,
+            ],
+            read_object,
+        )
         .optional()
         .map_err(object_unavailable)?;
         let Some((record, _)) = record else { break };
@@ -1560,13 +1705,12 @@ fn list_page_at(
                 || cursor.as_ref().is_some_and(|cursor| {
                     !cursor.is_prefix
                         && cursor.name == record.name
-                        && (!(query.versions || query.soft_deleted) || trailing_prefix)
+                        && (!(query.versions || query.soft_deleted) || position.trailing_prefix)
                 })
         });
-        let name = if is_prefix {
-            group.expect("grouped entry").to_owned()
-        } else {
-            record.name.clone()
+        let name = match group {
+            Some(group) if is_prefix => group.to_owned(),
+            _ => record.name.clone(),
         };
         let matches = query
             .match_glob
@@ -1850,7 +1994,7 @@ impl Catalog {
             let ids = catalog
                 .run_upload(|connection| {
                     let ids = connection
-                        .prepare(
+                        .prepare_cached(
                             // Cancelled sessions need their marker until staging cleanup also succeeds.
                             "SELECT blob_id FROM pending_blob_deletions AS pending WHERE NOT EXISTS (SELECT 1 FROM resumable_sessions AS session WHERE session.blob_id = pending.blob_id AND session.state != 'COMPLETE') ORDER BY blob_id LIMIT 128",
                         )
@@ -1885,9 +2029,10 @@ impl Catalog {
                 let mut failure = None;
                 for id in ids {
                     let path = blob_path(&data_dir, &id)?;
+                    let shard = blob_shard(&path).map_err(object_unavailable)?.to_owned();
                     match unlink(&path) {
                         Ok(()) => shards
-                            .entry(path.parent().expect("blob parent").to_owned())
+                            .entry(shard)
                             .or_default()
                             .push(id),
                         Err(error) => {
@@ -2328,16 +2473,13 @@ mod tests {
             VALUES ('bucket','c',20001,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,printf('%032x',20001)),
             ('bucket','d/file',20002,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,printf('%032x',20002)),
             ('bucket','z',20003,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,printf('%032x',20003));").unwrap();
-        for versions in [false, true] {
-            for after in [false, true] {
-                for bounded in [false, true] {
-                    let sql = format!(
-                        "EXPLAIN QUERY PLAN {}",
-                        list_seek_sql(versions, after, bounded, None)
-                    );
+        for source in [ListSource::Live, ListSource::Versions] {
+            for start in [SeekStart::Inclusive, SeekStart::Exclusive] {
+                for upper in [UpperBound::Open, UpperBound::Bounded] {
+                    let sql = format!("EXPLAIN QUERY PLAN {}", list_seek_sql(source, start, upper));
                     let mut statement = connection.prepare(&sql).unwrap();
                     let read = |row: &Row<'_>| row.get::<_, String>(3);
-                    let plan: Vec<String> = if bounded {
+                    let plan: Vec<String> = if matches!(upper, UpperBound::Bounded) {
                         statement
                             .query_map(params!["bucket", "", "zz"], read)
                             .unwrap()
@@ -2358,7 +2500,7 @@ mod tests {
                         plan.iter().all(|step| !step.contains("TEMP B-TREE")),
                         "{plan:?}"
                     );
-                    if !versions {
+                    if matches!(source, ListSource::Live) {
                         assert!(
                             plan.iter()
                                 .any(|step| step.contains("USING INDEX objects_live")),
