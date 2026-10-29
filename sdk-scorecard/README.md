@@ -92,8 +92,11 @@ Composer image in the existing daily update detection.
 
 ## Emulator configuration
 
-Every product runs over plain HTTP on a loopback port, with a fresh in-memory or
-temporary data store, in its most capable documented configuration:
+Every product receives the same HTTPS loopback origin through a Go
+standard-library TLS frontend and a temporary development CA. Each official
+SDK and signed-request client verifies that CA and the certificate hostname.
+The HTTP backends bind only loopback and use a fresh in-memory or temporary
+data store in their most capable documented configuration:
 
 - gcs-mimic: `serve --scheme http --grpc-listen ...` with the default
   permissive authentication profile.
@@ -102,12 +105,17 @@ temporary data store, in its most capable documented configuration:
 - gcp-storage-emulator: `start --in-memory`; it has no gRPC listener, so the
   gRPC cases fail by timeout.
 
-Signed URLs use the public test key in `fixtures/signing`. Clients are
+The frontend streams the original method, Host, escaped path, query, body and
+integrity headers. Resumable Locations from the explicit backend origin are
+normalized to the public HTTPS origin; external authorities are rejected.
+Signed URLs use the public test key in `fixtures/signing` and are sent unchanged,
+including V2 URLs generated with HTTPS. Clients are
 anonymous and never contact Google Cloud or the metadata server.
 The PHP container routes loopback connections through `host.docker.internal`
 using cURL `CONNECT_TO`; request URLs, Host headers, advertised upload locations
-and signatures stay unchanged. The PHP and Python HTTP handlers reject requests
-outside the emulator origin; signed HTTP requests cannot follow redirects.
+and signatures stay unchanged. Every SDK transport is restricted to the selected
+local origin. Signed HTTP requests cannot follow redirects. See the
+[transport contract](../docs/en/slices/sdk-scorecard-tls.md).
 
 SDK-specific public options are part of the probe contract:
 
@@ -123,9 +131,8 @@ SDK-specific public options are part of the probe contract:
 - PHP uses `apiEndpoint` and explicit anonymous credentials. Compose supplies
   `contentType`, which this SDK requires for extensionless destination names.
   V4 URLs use the SDK's custom-host option with the bucket path. Its V2 signer
-  hardcodes HTTPS, so the unchanged URL fails the HTTP-only scorecard and is
-  rejected before network access. PHP signed URLs are not rewritten after
-  signing; the existing Go V2 probe does adapt its URL scheme, as described below.
+  hardcodes HTTPS, which matches the shared TLS frontend. Neither PHP nor Go
+  rewrites signed URL schemes after signing.
 
 Ordinary SDK headers and query values are preserved. A failure during setup
 (for example, upload rejected before a subsequent range read) fails that
@@ -158,7 +165,7 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
-The [2026-10-29 five-SDK run](results/2026-10-29-3/summary.md) records 783
+The historical [2026-10-29 five-SDK HTTP run](results/2026-10-29-3/summary.md) records 783
 case executions: 261 per product. Scores are gcs-mimic **63.9**,
 fake-gcs-server **46.1** and gcp-storage-emulator **40.7**.
 gcs-mimic passes Go 57/57, Ruby 51/51, Node.js 22/51, PHP 21/51 and Python
@@ -168,7 +175,8 @@ send an idempotency header without a generation condition, while Python sends
 object-retention query boolean also fail. The raw results preserve these
 failures; the three integration ledger rows remain `PARTIAL`. Next work should
 reconcile ordinary upload headers and replay guarantees with their official
-contracts before implementing server changes.
+contracts. The integrated server and common HTTPS transport now have scoped
+wire checks; a new full comparison run remains pending and no new score is claimed.
 
 The former two-SDK score of 100 and the new score of 63.9 use different SDK
 sets and weights. Go/Ruby still pass all their cases in this run. No server
@@ -210,15 +218,15 @@ ordinary compatibility failures remain recorded `pass: false` cases.
 - Wrong-checksum rejection is stricter in Node.js, PHP and Python: it requires
   a checksum-specific 400 and no object. Go and Ruby accept any upload error
   followed by an absent object, which can credit an unrelated failure.
-- V2 endpoint handling differs: Go changes HTTPS to HTTP after signing because
-  V2 does not sign the scheme; PHP keeps the generated HTTPS URL and fails the
-  HTTP-only origin guard. PHP's failure is a harness/endpoint constraint, not
-  evidence that an emulator rejects a valid V2 request. Normalize this policy
-  before treating aggregate scores as equivalent cross-SDK coverage.
+- In the historical HTTP run, Go changed HTTPS to HTTP after V2 signing while
+  PHP kept HTTPS and failed the origin guard. That failure measured an endpoint
+  constraint. Current runs use common HTTPS and send both signed URLs unchanged;
+  historical scores cannot be compared as equivalent transport evidence.
 - Equal case weights do not reflect how often each feature is used.
-- Only permissive, HTTP and default-region behavior is measured. Strict
-  authorization, TLS, browser CORS and crash recovery have their own evidence
-  under `docs/en/evidence`.
+- Historical scores measure permissive HTTP and default-region behavior. Current
+  runs use a shared HTTPS frontend, not each emulator's native TLS listener.
+  Strict authorization, other profiles/regions/transports, browser CORS, crash
+  recovery and real-GCS parity remain separate verification scopes.
 - A case is pass/fail; partial support inside a case is not credited.
 - Full error-message text and exact HTTP headers are not compared; the new
   checksum cases do inspect the error message to classify checksum rejection.

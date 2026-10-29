@@ -120,6 +120,9 @@ if ARGV == ["--transport-check"]
   rescue ArgumentError => e
     check e.message == "request escaped emulator", e.message
   end
+  # Exercise the SDK adapter first so certificate failures cannot be masked by Net::HTTP.
+  response = connection.get("#{ORIGIN.to_s.delete_suffix('/')}/")
+  check response.status == 200, "SDK TLS fixture status"
   status, = http("GET", "#{ORIGIN.to_s.delete_suffix('/')}/")
   check status == 200, "TLS fixture status"
   puts "PASS: Ruby transport CA/SAN and exact-origin guards"
