@@ -52,6 +52,29 @@ pub enum SourcePlatform {
     Windows,
 }
 
+/// Whether the destination must be empty (inspection) or may hold an unfinished import to
+/// resume (actual import).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Destination {
+    MustBeEmpty,
+    MayResume,
+}
+
+/// Why a scan runs: inspection only reports, while publication keeps each source body open
+/// and uses smaller pages so few descriptors are held at once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScanPurpose {
+    Inspect,
+    Publish,
+}
+
+/// Whether a finding blocks the import or is only a warning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Severity {
+    Blocking,
+    Warning,
+}
+
 #[derive(Clone, Debug)]
 pub struct Options {
     pub source: PathBuf,
@@ -84,10 +107,10 @@ impl Options {
     }
 
     fn validate(&self) -> Result<(), Diagnostics> {
-        self.validate_destination(false)
+        self.validate_destination(Destination::MustBeEmpty)
     }
 
-    fn validate_destination(&self, resume: bool) -> Result<(), Diagnostics> {
+    fn validate_destination(&self, destination: Destination) -> Result<(), Diagnostics> {
         let mut diagnostics = Diagnostics::default();
         let mut issue = |key, fix| {
             diagnostics
@@ -102,7 +125,7 @@ impl Options {
         }
         match fs::symlink_metadata(&self.destination) {
             Ok(m) if m.is_dir() => {
-                if !resume
+                if destination == Destination::MustBeEmpty
                     && !fs::read_dir(&self.destination)
                         .is_ok_and(|mut entries| entries.next().is_none())
                 {
@@ -232,7 +255,7 @@ pub(super) struct Reporter {
     observations: Context,
     body_manifest: Context,
     baseline: Option<filesystem::Baseline>,
-    publication_files: bool,
+    purpose: ScanPurpose,
 }
 
 enum PageSender {
@@ -259,7 +282,7 @@ impl Reporter {
         Ok(())
     }
     fn boundary(&mut self) -> Result<(), ImportFailure> {
-        let limit = if self.publication_files {
+        let limit = if self.purpose == ScanPurpose::Publish {
             PUBLICATION_PAGE_SIZE
         } else {
             PAGE_SIZE
@@ -269,22 +292,23 @@ impl Reporter {
         }
         Ok(())
     }
-    pub fn record(&mut self, record: Record) -> Result<(), ImportFailure> {
+    pub(crate) fn record(&mut self, record: Record) -> Result<(), ImportFailure> {
         if let Some(baseline) = &mut self.baseline {
             baseline.check(&record)?;
         }
         self.page.records.push(record);
         self.boundary()
     }
-    pub fn finding(
+    pub(crate) fn finding(
         &mut self,
         path: &str,
         field: &str,
         reason: impl Into<String>,
         fix: impl Into<String>,
-        blocking: bool,
+        severity: Severity,
         original: Option<String>,
     ) -> Result<(), ImportFailure> {
+        let blocking = severity == Severity::Blocking;
         if blocking {
             self.summary.blocking_findings += 1;
         } else {
@@ -299,19 +323,23 @@ impl Reporter {
         });
         self.boundary()
     }
-    pub fn failure(&mut self, path: &str, failure: ImportFailure) -> Result<(), ImportFailure> {
+    pub(crate) fn failure(
+        &mut self,
+        path: &str,
+        failure: &ImportFailure,
+    ) -> Result<(), ImportFailure> {
         if matches!(failure, ImportFailure::Io(_)) {
             self.summary.io_findings += 1;
         }
         if failure.retryable_stat_drift() {
             self.summary.stat_identity_drift_findings += 1;
         }
-        let fields = if let ImportFailure::SourceChanged { fields } = &failure {
+        let fields = if let ImportFailure::SourceChanged { fields } = failure {
             fields.clone()
         } else {
             Vec::new()
         };
-        let (field, fix) = match &failure {
+        let (field, fix) = match failure {
             ImportFailure::Corrupt { field, fix, .. } => (*field, fix.as_ref()),
             ImportFailure::SourceChanged { .. } => (
                 "fingerprint",
@@ -336,11 +364,11 @@ impl Reporter {
         self.summary.blocking_findings += 1;
         self.boundary()
     }
-    pub fn manifest(&mut self, kind: &str, path: &str, fields: &[&[u8]]) {
+    pub(crate) fn manifest(&mut self, kind: &str, path: &str, fields: &[&[u8]]) {
         digest_fields(&mut self.manifest, kind, path, fields);
     }
 
-    pub fn verified_body(&mut self, path: &str, hashes: Hashes) {
+    pub(crate) fn verified_body(&mut self, path: &str, hashes: Hashes) {
         digest_fields(
             &mut self.body_manifest,
             "body",
@@ -348,7 +376,7 @@ impl Reporter {
             &[&hashes.md5, &hashes.crc32c.to_be_bytes()],
         );
     }
-    pub fn observations(&mut self, path: &str, fingerprint: &Fingerprint) {
+    pub(crate) fn observations(&mut self, path: &str, fingerprint: &Fingerprint) {
         digest_fields(
             &mut self.observations,
             "stat",
@@ -421,7 +449,13 @@ fn inspect_with_xattr(
     )?;
     writeln!(output)?;
     let (send, receive) = std::sync::mpsc::sync_channel(2);
-    let worker = spawn_scan(options, xattr, PageSender::Sync(send), None, false)?;
+    let worker = spawn_scan(
+        options,
+        xattr,
+        PageSender::Sync(send),
+        None,
+        ScanPurpose::Inspect,
+    )?;
     let write_result = (|| -> io::Result<()> {
         for page in &receive {
             let mut batch = Diagnostics::default();
@@ -461,17 +495,11 @@ type Scan = (mpsc::Receiver<Page>, ScanWorker);
 fn scan_with_baseline(
     options: Options,
     xattr: reader::XattrReader,
-    baseline: Option<(PathBuf, bool)>,
-    publication_files: bool,
+    baseline: Option<(PathBuf, filesystem::BaselineMode)>,
+    purpose: ScanPurpose,
 ) -> io::Result<Scan> {
     let (send, receive) = mpsc::channel(2);
-    let worker = spawn_scan(
-        options,
-        xattr,
-        PageSender::Async(send),
-        baseline,
-        publication_files,
-    )?;
+    let worker = spawn_scan(options, xattr, PageSender::Async(send), baseline, purpose)?;
     Ok((receive, worker))
 }
 
@@ -479,8 +507,8 @@ fn spawn_scan(
     options: Options,
     xattr: reader::XattrReader,
     send: PageSender,
-    baseline: Option<(PathBuf, bool)>,
-    publication_files: bool,
+    baseline: Option<(PathBuf, filesystem::BaselineMode)>,
+    purpose: ScanPurpose,
 ) -> io::Result<ScanWorker> {
     let worker = std::thread::Builder::new()
         .name("import-inspection".into())
@@ -496,9 +524,9 @@ fn spawn_scan(
                 observations: digest_context(b"stat"),
                 body_manifest: digest_context(b"bodies"),
                 baseline: baseline
-                    .map(|(path, write)| filesystem::Baseline::open(&path, write))
+                    .map(|(path, mode)| filesystem::Baseline::open(&path, mode))
                     .transpose()?,
-                publication_files,
+                purpose,
             };
             reporter.manifest(
                 "options",
@@ -521,7 +549,7 @@ fn spawn_scan(
             match reader::scan(&options, &mut reporter, xattr) {
                 Ok(()) => reporter.summary.complete = true,
                 Err(ImportFailure::ReportClosed) => return Err(ImportFailure::ReportClosed),
-                Err(error) => reporter.failure(".", error)?,
+                Err(error) => reporter.failure(".", &error)?,
             }
             reporter.summary.eligible =
                 reporter.summary.complete && reporter.summary.blocking_findings == 0;

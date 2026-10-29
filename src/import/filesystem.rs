@@ -84,15 +84,29 @@ fn element(record: &Record, ordinal: i64) -> Option<ImportElement> {
     })
 }
 
+/// Whether a scan records stat observations to the baseline or verifies them against it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BaselineMode {
+    Record,
+    Verify,
+}
+
+/// Whether an import starts in an empty destination or resumes an unfinished one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ImportStart {
+    Fresh,
+    Resume,
+}
+
 /// This execution's disk-backed observations are never resume authority.
 pub(super) struct Baseline {
     file: File,
-    write: bool,
+    mode: BaselineMode,
 }
 
 impl Baseline {
-    pub(super) fn open(path: &Path, write: bool) -> io::Result<Self> {
-        let file = if write {
+    pub(super) fn open(path: &Path, mode: BaselineMode) -> io::Result<Self> {
+        let file = if mode == BaselineMode::Record {
             let mut options = OpenOptions::new();
             options.write(true).create_new(true);
             #[cfg(unix)]
@@ -104,7 +118,7 @@ impl Baseline {
         } else {
             File::open(path)?
         };
-        Ok(Self { file, write })
+        Ok(Self { file, mode })
     }
 
     pub(super) fn check(&mut self, record: &Record) -> Result<(), ImportFailure> {
@@ -120,7 +134,7 @@ impl Baseline {
         if let Record::Object { fingerprint, .. } = record {
             bytes[58..].copy_from_slice(&fingerprint.device.unwrap_or_default().to_be_bytes());
         }
-        if self.write {
+        if self.mode == BaselineMode::Record {
             self.file.write_all(&bytes)?;
         } else {
             let mut expected = [0; 66];
@@ -209,14 +223,14 @@ fn findings(page: &Page, diagnostics: &mut impl Write) -> Result<(), Failure> {
 async fn metadata_scan(
     options: &Options,
     baseline: &Path,
-    write: bool,
+    mode: BaselineMode,
     diagnostics: &mut impl Write,
 ) -> Result<Summary, Failure> {
     let (mut receive, worker) = scan_with_baseline(
         options.clone(),
         crate::fsutil::read_source_metadata,
-        Some((baseline.into(), write)),
-        false,
+        Some((baseline.into(), mode)),
+        super::ScanPurpose::Inspect,
     )?;
     let result = async {
         while let Some(page) = receive.recv().await {
@@ -295,7 +309,7 @@ pub fn execute(
     mut output: impl Write,
     mut diagnostics: impl Write,
 ) -> Result<Summary, Failure> {
-    options.validate_destination(true)?;
+    options.validate_destination(super::Destination::MayResume)?;
     options.verify_bodies = false;
     let source = fs::canonicalize(&options.source)?;
     let source = source
@@ -325,9 +339,13 @@ pub fn execute(
     );
     let mut source_id = [0; 32];
     source_id.copy_from_slice(source_context.finish().as_ref());
-    let resume =
-        fs::read_dir(&options.destination).is_ok_and(|mut entries| entries.next().is_some());
-    if resume
+    let start =
+        if fs::read_dir(&options.destination).is_ok_and(|mut entries| entries.next().is_some()) {
+            ImportStart::Resume
+        } else {
+            ImportStart::Fresh
+        };
+    if start == ImportStart::Resume
         && !fs::symlink_metadata(options.destination.join("catalog.sqlite3"))
             .is_ok_and(|entry| entry.is_file())
     {
@@ -350,7 +368,7 @@ pub fn execute(
     let result = runtime.block_on(run(
         &options,
         source_id,
-        resume,
+        start,
         &baseline,
         &mut output,
         &mut diagnostics,
@@ -374,21 +392,21 @@ pub fn execute(
 async fn run(
     options: &Options,
     source: [u8; 32],
-    resume: bool,
+    start: ImportStart,
     baseline: &Path,
     output: &mut impl Write,
     diagnostics: &mut impl Write,
 ) -> Result<Summary, Failure> {
-    let preflight = if resume {
+    let preflight = if start == ImportStart::Resume {
         None
     } else {
-        Some(metadata_scan(options, baseline, true, diagnostics).await?)
+        Some(metadata_scan(options, baseline, BaselineMode::Record, diagnostics).await?)
     };
     let catalog = Catalog::open(&options.destination).await?;
     let result = async {
         let journal = catalog.import_journal();
         let original = journal.progress().await?;
-        if resume && !original.as_ref().is_some_and(|state| state.active && state.binding.source == source) {
+        if start == ImportStart::Resume && !original.as_ref().is_some_and(|state| state.active && state.binding.source == source) {
             return Err(invalid("data-dir: destination is not the same unfinished import with matching options").into());
         }
         if let Some(failure) = original.as_ref().and_then(|state| state.failure.as_ref()) {
@@ -397,7 +415,7 @@ async fn run(
         let imported = async {
             let preflight = match preflight {
                 Some(summary) => summary,
-                None => metadata_scan(options, baseline, true, diagnostics).await?,
+                None => metadata_scan(options, baseline, BaselineMode::Record, diagnostics).await?,
             };
             let fingerprint = preflight.manifest_sha256.as_deref().ok_or_else(|| invalid("missing source fingerprint"))?;
             let binding = ImportBinding {
@@ -473,8 +491,8 @@ async fn import(
     let (mut receive, worker) = scan_with_baseline(
         options.clone(),
         crate::fsutil::read_source_metadata,
-        Some((baseline.into(), false)),
-        true,
+        Some((baseline.into(), BaselineMode::Verify)),
+        super::ScanPurpose::Publish,
     )?;
     let mut bytes_hashed = 0;
     let mut body_digests = super::digest_context(b"bodies");
@@ -530,7 +548,7 @@ async fn import(
     result?;
     let published = joined?;
     same_export(preflight, &published)?;
-    let final_scan = metadata_scan(options, baseline, false, diagnostics).await?;
+    let final_scan = metadata_scan(options, baseline, BaselineMode::Verify, diagnostics).await?;
     same_export(preflight, &final_scan)?;
     journal.finish(binding.clone()).await?;
     let summary = Summary {
