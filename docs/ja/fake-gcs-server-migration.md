@@ -153,6 +153,15 @@ path-styleの匿名GETは既定のpermissiveで本文を返しますが、XMLを
 バケットのCORS設定が別途必要です。strictではCORSを許可しても権限は増えません。
 [GoogleのCORS仕様](https://docs.cloud.google.com/storage/docs/cross-origin)も参照してください。
 
+fake-gcs-serverはすべてのルートに同じワイルドカードのCORSを返すため、
+`$api/assets/browser.txt`のようなpath-styleの公開URLを設定なしでfetchできました。
+gcs-mimicでは、バケットに`cors`を設定するまでこのfetchはCORSエラーになります。
+移行中にこれまでの挙動を保つには、サーバーの環境変数に`GCS_MIMIC_CORS_FALLBACK=allow-all`を追加します。
+適用されるのはCORSルールを保存していないバケットだけで、権限は変わりません。
+無効のまま、Origin付きのXMLリクエストがルールのないバケットに届くと、
+バケットごとに1回だけ`cors_unconfigured`の警告をログに出します。
+詳しくは[CORSフォールバックの仕様](../en/slices/cors-fallback.md)（英語）を参照してください。
+
 サーバーが作った署名なしのresumable URLをブラウザーへ渡す場合は、pathとqueryを保ち、
 到達可能なオリジンへ置き換えます。シナリオはHost変更後のPUT、Content-Range、preflightを確認します。
 取り消しのDELETEは[JSON resumableの仕様](https://docs.cloud.google.com/storage/docs/performing-resumable-uploads)どおり

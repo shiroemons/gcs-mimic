@@ -267,6 +267,9 @@ curl --fail -H 'Content-Type: application/json' \
 Create another bucket with different rules, or change existing rules with
 `PATCH /storage/v1/b/BUCKET`. Bucket CORS governs XML object endpoints;
 JSON endpoints use fixed CORS defaults. CORS does not grant object permissions.
+To let any origin read XML/public URLs of buckets without rules, as
+fake-gcs-server did, add `GCS_MIMIC_CORS_FALLBACK=allow-all`; see
+[CORS fallback](slices/cors-fallback.md).
 
 ## Initialize bucket settings
 

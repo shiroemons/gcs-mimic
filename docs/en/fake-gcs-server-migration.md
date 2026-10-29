@@ -195,6 +195,16 @@ returns bytes in this permissive profile; XML cross-origin fetch uses separate
 bucket CORS rules. CORS never grants access in strict mode. See
 [Google's CORS distinction](https://docs.cloud.google.com/storage/docs/cross-origin).
 
+fake-gcs-server answers every route with one wildcard CORS policy, so a page
+that fetches path-style public URLs such as `$api/assets/browser.txt` worked
+without configuration. In gcs-mimic that cross-origin fetch fails until the
+bucket has `cors` rules. To keep the source behavior while migrating, add
+`GCS_MIMIC_CORS_FALLBACK=allow-all` to the server environment. It applies only to
+buckets without stored rules and never changes authorization. The server logs
+one `cors_unconfigured` warning per bucket when an Origin-bearing XML request
+reaches a bucket without rules while the fallback is off. See
+[CORS fallback](slices/cors-fallback.md).
+
 For an unsigned resumable session created by the server, preserve path/query
 when replacing the internal authority with the browser-reachable authority.
 The scenario verifies changed-Host PUT with Content-Range and a preflight.
@@ -443,7 +453,7 @@ assume that changing the image name is sufficient.
 | `-filesystem-root` | `--data-dir`, `GCS_MIMIC_DATA_DIR` | Persistent destination with a different format; cannot reuse the source root directly |
 | `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
 | `-log-level` | `--log-level`, `GCS_MIMIC_LOG_LEVEL`, JSON `log_level` | Minimum runtime stderr severity; default info; debug/info/warn/error and warning alias; diagnostics and stdout lifecycle are unfiltered |
-| `-cors-headers` | Bucket `cors` through the JSON API | Source setting extends globally allowed request headers; gcs-mimic XML rules are per bucket, JSON defaults are fixed |
+| `-cors-headers` | Remove it. Only for browser reads of XML/public URLs: bucket `cors`, or `--cors-fallback allow-all` / `GCS_MIMIC_CORS_FALLBACK=allow-all` | The source extends one global request-header allowlist. JSON already allows every valid requested header. The `allow-all` fallback allows every valid header on XML/public routes of buckets without stored rules; stored bucket rules stay exact. See [CORS fallback](slices/cors-fallback.md) |
 | `-location` | `--default-location`, `GCS_MIMIC_DEFAULT_LOCATION`, JSON `default_location` | Native accepts official regional/predefined dual-region and `US`, `EU`, `ASIA` names, case-insensitively; API/initializer nonempty location wins. Legacy profile retains fixed `US-CENTRAL1` and rejects the global default. No physical placement or configurable dual-region simulation; see [location contract](slices/sdk-regional-locations.md). |
 | `-backend memory` | None | Current backend is persistent SQLite metadata plus files |
 

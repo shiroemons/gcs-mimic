@@ -130,8 +130,10 @@ supported name, for example `GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1` or
 examples. The legacy profile's global default remains unsupported.
 Unsupported log settings,
 memory backend and event delivery are identified as unsupported; future names
-are not working replacements. JSON CORS callers can remove the old global
-header setting; XML/public callers configure bucket CORS `responseHeader`.
+are not working replacements. `FAKE_GCS_CORS_HEADERS` is rejected with advice
+to remove it, because JSON already allows every valid requested header. Only
+callers whose browsers read XML/public URLs of buckets without stored CORS
+rules also set `GCS_MIMIC_CORS_FALLBACK=allow-all`.
 
 Legacy option names are detected in one- and two-hyphen forms with separate or
 equals values, including a Compose command that omits `serve`. Native

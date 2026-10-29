@@ -31,10 +31,11 @@ Refinements to its design requirements are explicit below: settings described
 there as having no native equivalent remain unsupported until their named
 slice implements an effective replacement. Reserving a name below does not make
 it accepted. JSON CORS header additions are unnecessary under the existing
-allow-all-valid-request-header contract. The global legacy CORS setting remains
-unsupported: JSON callers can remove it, while XML/public-URL callers must set
-bucket CORS `responseHeader` entries. This protocol-specific advice avoids an
-ineffective global replacement and preserves bucket-specific XML behavior.
+allow-all-valid-request-header contract. The legacy header list remains
+rejected; its advice says to remove it and, only for browser reads of
+XML/public URLs, names the opt-in [CORS fallback](cors-fallback.md), which
+applies only to buckets without stored rules and so preserves bucket-specific
+XML behavior.
 Memory and notification delivery remain separate plans.
 
 The pinned comparison is fake-gcs-server **v1.56.1**, commit
@@ -229,7 +230,7 @@ and relative data directory replace the image's usable listener/persistence.
 | `FAKE_GCS_BACKEND` | Unsupported selector; disk-backed native catalog remains default. Bounded memory mode needs a separate DESIGN-077 slice; no claim that `memory` works | Separate plan |
 | `FAKE_GCS_CERT_LOCATION` | `GCS_MIMIC_TLS_CERT=certs/server.pem` together with `GCS_MIMIC_TLS_KEY=certs/server-key.pem` | Diagnostics |
 | `FAKE_GCS_PRIVATE_KEY_LOCATION` | Matching `GCS_MIMIC_TLS_KEY=certs/server-key.pem` and TLS_CERT; one-sided overrides fail | Diagnostics |
-| `FAKE_GCS_CORS_HEADERS` | Unsupported global setting. JSON preflight already echoes every syntactically valid requested header, so JSON-only callers can remove it. For XML/public URLs, configure each bucket's CORS `responseHeader` (e.g. `["X-Example"]`) with the required origins/methods; there is no global native replacement | Diagnostics |
+| `FAKE_GCS_CORS_HEADERS` | Rejected with advice to remove it: JSON preflight already echoes every syntactically valid requested header. Only if browsers read XML/public URLs of buckets without stored rules, also set `GCS_MIMIC_CORS_FALLBACK=allow-all` (or `--cors-fallback allow-all`) | Diagnostics; [CORS fallback](cors-fallback.md) |
 | `FAKE_GCS_LOCATION` | Rejected with migration advice: use `GCS_MIMIC_COMPAT_PROFILE=native` and `GCS_MIMIC_DEFAULT_LOCATION` with the same supported name, normalized to uppercase (for example `US-CENTRAL1`, `ASIA-NORTHEAST1` or `NAM4`). Unknown values are redacted and receive valid examples. Legacy-profile global location defaults remain unsupported. | `config-remaining-settings`, `sdk-regional-locations`; BEHAVIOR-BUCKET-003 |
 | `FAKE_GCS_LOG_LEVEL` | Reject legacy input; use effective `GCS_MIMIC_LOG_LEVEL=info` or `--log-level info`; supported `warning` normalizes to `warn` | `config-log-level` |
 | `FAKE_GCS_EVENT_PUBSUB_PROJECT_ID` | Unsupported publisher; remove this key for current startup. Real project integration needs separate EXT-BEH-032 delivery | Separate event plan |
@@ -532,8 +533,9 @@ remain PARTIAL.
 - Keep project create authorization and initializer administrative authority
   unchanged. Reject `FAKE_GCS_LOCATION` with actionable native migration advice;
   do not translate regional values into multi-regions.
-- Add no global CORS setting: the existing JSON preflight and per-bucket XML
-  CORS contract already covers the intended use.
+- Add no global CORS setting in this slice. The later
+  [CORS fallback](cors-fallback.md) slice adds the opt-in `allow-all` mode
+  for buckets without stored rules.
 
 ### Remaining location settings verification
 

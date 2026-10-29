@@ -128,6 +128,8 @@ gcs-mimic persists CORS on each bucket through JSON insert/PATCH/PUT. Its XML
 GET/HEAD/PUT and preflight use that bucket's rules; JSON requests use independent
 defaults. This separation follows the
 [Google CORS contract](https://docs.cloud.google.com/storage/docs/cross-origin).
+The opt-in [CORS fallback](slices/cors-fallback.md) `allow-all` gives buckets
+without stored rules an any-origin XML policy close to the source middleware.
 The XML bucket CORS configuration subresource itself remains unimplemented.
 Bucket IAM, labels and supported versioning settings are also separate per bucket;
 advanced settings retain their feature-ledger limitations.

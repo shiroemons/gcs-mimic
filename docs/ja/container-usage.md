@@ -248,6 +248,8 @@ curl --fail -H 'Content-Type: application/json' \
 別バケットには別のルールを指定できます。既存ルールの変更には
 `PATCH /storage/v1/b/BUCKET`を使います。バケットCORSはXML用で、
 JSON APIは固定のCORSルールを使います。CORSを許可しても読み取り権限は増えません。
+fake-gcs-serverのように、ルールのないバケットのXML・公開URLをどのオリジンからでも読めるようにするには、
+`GCS_MIMIC_CORS_FALLBACK=allow-all`を追加します（[CORSフォールバックの仕様](../en/slices/cors-fallback.md)、英語）。
 
 ## 初期バケット設定ファイルを使う
 

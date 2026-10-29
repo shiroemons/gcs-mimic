@@ -14,7 +14,7 @@
   "counts_by_kind": {
     "api_operation": 310,
     "behavior": 201,
-    "project_requirement": 93
+    "project_requirement": 94
   },
   "api_counts_by_category": {
     "JSON API / anywhereCaches": 7,
@@ -927,7 +927,7 @@
           "Implement and verify listener, advertised API origin, public URL construction and Host routing as separate roles, including host/peer/browser access, resumable Locations and final-host signing.",
           "Deliver missing source configuration capabilities such as dual listeners, memory mode, notification settings, location and log selection as separate bounded slices with effective behavior; recognized but ignored settings cannot pass."
         ],
-        "deferred_scope": "Literal CLI/environment aliases are not required. config-contract records the executed pinned Host matrix in docs/en/evidence/configuration-host-matching.md; config-public-origin implements its normative rules and explicit local boundaries before runtime parity claims, including explicit-domain XML reserved paths and API-authority XML fallback when public/API authorities differ. DESIGN-056 proxy derivation, DESIGN-077 memory mode and EXT-BEH-032 events retain separate delivery. Shared typed diagnostics and TLS/identity preflight aggregation are implemented by config-legacy-input-diagnostics, then reused by Initializer/Sync/Import; global CORS headers remain unsupported with protocol-specific JSON/XML migration advice. config-api-origin-default owns preflight host-collision validation and post-bind port resolution before State/ready without reordering startup phases. Distribution owns dependency freshness and release gates. This track does not gate independent distribution, initializer or storage adapters."
+        "deferred_scope": "Literal CLI/environment aliases are not required. config-contract records the executed pinned Host matrix in docs/en/evidence/configuration-host-matching.md; config-public-origin implements its normative rules and explicit local boundaries before runtime parity claims, including explicit-domain XML reserved paths and API-authority XML fallback when public/API authorities differ. DESIGN-056 proxy derivation, DESIGN-077 memory mode and EXT-BEH-032 events retain separate delivery. Shared typed diagnostics and TLS/identity preflight aggregation are implemented by config-legacy-input-diagnostics, then reused by Initializer/Sync/Import; the legacy CORS header list remains rejected with advice to remove it and, only for XML/public browser reads, to set the opt-in DESIGN-100 cors_fallback=allow-all. config-api-origin-default owns preflight host-collision validation and post-bind port resolution before State/ready without reordering startup phases. Distribution owns dependency freshness and release gates. This track does not gate independent distribution, initializer or storage adapters."
       },
       {
         "id": "onboarding-state-contract",
@@ -48896,6 +48896,96 @@
       ],
       "implemented_in": null,
       "last_verified": "2026-10-24"
+    },
+    {
+      "id": "DESIGN-100",
+      "kind": "project_requirement",
+      "category": "Developer ergonomics",
+      "title": "CORS fallback for buckets without rules for fake-gcs-server migration",
+      "interface": "Emulator configuration and XML CORS",
+      "phase": "P2",
+      "priority": "MEDIUM",
+      "status": "IMPLEMENTED",
+      "target_fidelity": "PROJECT",
+      "actual_fidelity": "PROJECT",
+      "source_urls": [
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go",
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/config/config.go",
+        "https://github.com/gorilla/handlers/blob/main/cors.go",
+        "https://docs.cloud.google.com/storage/docs/cross-origin"
+      ],
+      "source_checked_at": "2026-10-29",
+      "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
+      "notes": "--cors-fallback / GCS_MIMIC_CORS_FALLBACK / JSON cors_fallback chooses none (default) or allow-all in both profiles. allow-all gives XML/public object routes of buckets without stored CORS rules, and missing buckets, an any-origin policy: Allow-Origin *, methods HEAD/GET/POST/PUT/DELETE, every valid requested header, exposed Location, no credentials or max age. Stored bucket rules stay exact; JSON and gRPC are unchanged; CORS never authorizes. Server-wide rules and header lists are deliberately not configurable because production buckets need their own cors; FAKE_GCS_CORS_HEADERS stays rejected with advice to remove it first and to set allow-all only for XML/public browser reads. A bare --cors-fallback names --cors-fallback allow-all. With none, the first Origin-bearing XML request to each existing bucket without rules logs one cors_unconfigured warning (at most 64 remembered buckets). The ready event reports cors_fallback. This is an emulator migration aid, not Cloud Storage behavior. Contract: docs/en/slices/cors-fallback.md; evidence: docs/en/evidence/cors-fallback.md.",
+      "dependencies": [
+        "DESIGN-051",
+        "DESIGN-052"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-100-CONFIG",
+          "description": "Default none; CLI > environment > JSON precedence; exact none/allow-all validation rejecting booleans and other spellings; both profiles; bare-flag example; ready field; legacy -cors-headers advice starts with removal and names allow-all only for XML/public browser reads, without echoing the list.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::cors_fallback_defaults_to_none_with_precedence_in_both_profiles",
+            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
+            "api_origin_ready_and_resumable_locations_use_bound_addresses"
+          ]
+        },
+        {
+          "id": "DESIGN-100-FALLBACK",
+          "description": "allow-all preflight/actual headers on buckets without rules and missing buckets; stored rules keep their denials; invalid origins, methods and headers receive no CORS; none adds nothing; JSON CORS unchanged.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules",
+            "allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json"
+          ]
+        },
+        {
+          "id": "DESIGN-100-WARNING",
+          "description": "With none, one bounded cors_unconfigured warning per bucket for Origin-bearing XML requests; no warning for Origin-less requests or with allow-all.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
+            "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback"
+          ]
+        }
+      ],
+      "test_ids": [
+        "config::tests::cors_fallback_defaults_to_none_with_precedence_in_both_profiles",
+        "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+        "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
+        "api_origin_ready_and_resumable_locations_use_bound_addresses",
+        "xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules",
+        "allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json",
+        "xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
+        "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/with-test-tmpdir.sh bash scripts/test-rust.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/cors-fallback.md",
+          "test_ids": [
+            "config::tests::cors_fallback_defaults_to_none_with_precedence_in_both_profiles",
+            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
+            "api_origin_ready_and_resumable_locations_use_bound_addresses",
+            "xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules",
+            "allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json",
+            "xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
+            "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback"
+          ]
+        }
+      ],
+      "sdk_evidence": [],
+      "known_deviations": [],
+      "implemented_in": "5eb3efdd0b7b4b83d1b419151e1a9d627ed035cf",
+      "last_verified": "2026-10-29"
     },
     {
       "id": "UX-001",

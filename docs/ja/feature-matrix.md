@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 250 | 0 | 59 | 1 | 0 | 0 |
 | behavior | 201 | 112 | 0 | 51 | 38 | 0 | 0 |
-| project_requirement | 93 | 35 | 0 | 29 | 29 | 0 | 0 |
+| project_requirement | 94 | 35 | 0 | 29 | 30 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 250 | 29 | 31 | 0 | 0 | 0 |
 | behavior | 113 | 53 | 32 | 3 | 0 | 0 |
-| project_requirement | 35 | 0 | 0 | 0 | 0 | 58 |
+| project_requirement | 35 | 0 | 0 | 0 | 0 | 59 |
 
 ## api_operation
 
@@ -870,6 +870,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-067 | ヘルス・準備完了確認・正常停止 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-068 | 分離された初期化・再投入管理操作 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-069 | 決定的な時計・メンテナンス実行 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-100 | fake-gcs-server移行向け、CORSルールのないバケットの扱い | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 
 ### End-to-end onboarding
 
