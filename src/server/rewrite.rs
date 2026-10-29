@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    json::rewrite::RewriteRequest,
+    json::rewrite::{RewriteRequest, RewriteSide},
     storage::{
         DerivedDestination,
         rewrite::{RewriteBinding, RewriteError, RewriteStart},
@@ -53,7 +53,7 @@ pub(super) async fn respond(
     json::validate_read_condition_headers(request.headers(), false)?;
     json::validate_keyed_object_headers(
         request.headers(),
-        false,
+        json::ObjectRead::Metadata,
         &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
     )?;
     let keys = Keys {
@@ -163,7 +163,7 @@ async fn execute(
                 &operation.path[0],
                 &operation.path[1],
                 operation.number("sourceGeneration"),
-                operation.conditions(true),
+                operation.conditions(RewriteSide::Source),
                 &source_access,
                 keys.source,
             )
@@ -175,7 +175,7 @@ async fn execute(
             .check_upload(
                 &operation.path[2],
                 &operation.path[3],
-                operation.conditions(false),
+                operation.conditions(RewriteSide::Destination),
                 &destination_access,
             )
             .await?;
@@ -223,7 +223,7 @@ async fn execute(
         let start = RewriteStart {
             binding,
             destination,
-            source_conditions: operation.conditions(true),
+            source_conditions: operation.conditions(RewriteSide::Source),
             source_metageneration: source.object.metageneration,
             source_access: source_access.clone(),
             source_key_sha256: keys.source.map(crate::csek::CustomerKey::sha256),
@@ -276,7 +276,7 @@ fn destination(
             md5: Some(source.md5),
             crc32c: Some(source.crc32c),
         },
-        conditions: request.conditions(false),
+        conditions: request.conditions(RewriteSide::Destination),
         access: BucketAccess::Permissive,
     })
 }

@@ -397,7 +397,7 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
     let mut headers = HeaderMap::new();
     headers.insert("if-range", HeaderValue::from_static("opaque"));
     assert_eq!(
-        validate_object_get_headers(&headers, true)
+        validate_object_get_headers(&headers, ObjectRead::Media)
             .unwrap_err()
             .status,
         StatusCode::BAD_REQUEST
@@ -475,7 +475,7 @@ fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditio
                 (StatusCode::BAD_REQUEST, "invalidParameter")
             );
         }
-        for media in [false, true] {
+        for media in [ObjectRead::Metadata, ObjectRead::Media] {
             let error = validate_object_get_headers(&headers, media).unwrap_err();
             assert_eq!(
                 (error.status, error.reason),
@@ -658,14 +658,14 @@ fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected()
     for value in ["bytes=0-1", "", "invalid"] {
         let mut headers = HeaderMap::new();
         headers.insert("range", HeaderValue::from_str(value).unwrap());
-        assert!(validate_object_get_headers(&headers, true).is_ok());
-        assert!(validate_object_get_headers(&headers, false).is_ok());
+        assert!(validate_object_get_headers(&headers, ObjectRead::Media).is_ok());
+        assert!(validate_object_get_headers(&headers, ObjectRead::Metadata).is_ok());
     }
     for key in ["if-match", "if-none-match"] {
         let mut headers = HeaderMap::new();
         headers.insert(key, HeaderValue::from_static("\"value\""));
-        assert!(validate_object_get_headers(&headers, false).is_ok());
-        assert!(validate_object_get_headers(&headers, true).is_ok());
+        assert!(validate_object_get_headers(&headers, ObjectRead::Metadata).is_ok());
+        assert!(validate_object_get_headers(&headers, ObjectRead::Media).is_ok());
         assert_eq!(
             parse_object_upload_headers(&headers, Default::default())
                 .unwrap_err()
@@ -679,7 +679,7 @@ fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected()
         HeaderValue::from_static("value"),
     );
     assert_eq!(
-        validate_object_get_headers(&headers, false)
+        validate_object_get_headers(&headers, ObjectRead::Metadata)
             .unwrap_err()
             .status,
         StatusCode::BAD_REQUEST

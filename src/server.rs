@@ -1151,7 +1151,7 @@ async fn object_response(
             conditions,
             projection,
         } => {
-            json::validate_object_get_headers(request.headers(), false)?;
+            json::validate_object_get_headers(request.headers(), json::ObjectRead::Metadata)?;
             validate_bodyless_post(request, &query).await?;
             let create_access =
                 authorize_bucket(state, caller, auth::OBJECTS_CREATE, &bucket).await?;
@@ -1169,7 +1169,7 @@ async fn object_response(
             json::object_resource(&record, &state.api_base_url, projection)?
         }
         ObjectRequest::Move(params) => {
-            json::validate_object_get_headers(request.headers(), false)?;
+            json::validate_object_get_headers(request.headers(), json::ObjectRead::Metadata)?;
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
             // The Node SDK serializes empty options as {}, without move semantics.
             if !bytes.is_empty()
@@ -1202,7 +1202,7 @@ async fn object_response(
         ObjectRequest::Copy(params) => {
             json::validate_keyed_object_headers(
                 request.headers(),
-                false,
+                json::ObjectRead::Metadata,
                 &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
             )?;
             let destination_key = json::request_key(request.headers())?;
@@ -1328,7 +1328,7 @@ async fn object_response(
         } => {
             json::validate_keyed_object_headers(
                 request.headers(),
-                false,
+                json::ObjectRead::Metadata,
                 &[crate::csek::DESTINATION_PREFIX],
             )?;
             let key = json::request_key(request.headers())?;
@@ -1390,7 +1390,7 @@ async fn object_response(
             .await;
         }
         ObjectRequest::List(params) => {
-            json::validate_object_get_headers(request.headers(), false)?;
+            json::validate_object_get_headers(request.headers(), json::ObjectRead::Metadata)?;
             let page = state
                 .catalog
                 .list_objects_authorized(params.query.clone(), params.max_results, &access)
@@ -1434,7 +1434,7 @@ async fn object_response(
         } => {
             json::validate_keyed_object_headers(
                 request.headers(),
-                false,
+                json::ObjectRead::Metadata,
                 &[crate::csek::DESTINATION_PREFIX],
             )?;
             let key = json::request_key(request.headers())?;
@@ -1705,7 +1705,7 @@ async fn object_response(
             if params.media {
                 json::validate_keyed_object_headers(
                     request.headers(),
-                    true,
+                    json::ObjectRead::Media,
                     &[crate::csek::DESTINATION_PREFIX],
                 )?;
                 let key = json::request_key(request.headers())?;
@@ -1787,7 +1787,7 @@ async fn object_response(
             }
             json::validate_keyed_object_headers(
                 request.headers(),
-                false,
+                json::ObjectRead::Metadata,
                 &[crate::csek::DESTINATION_PREFIX],
             )?;
             let key = json::request_key(request.headers())?;
@@ -1833,7 +1833,7 @@ async fn object_response(
             generation,
             conditions,
         } => {
-            json::validate_object_get_headers(request.headers(), false)?;
+            json::validate_object_get_headers(request.headers(), json::ObjectRead::Metadata)?;
             state
                 .catalog
                 .delete_object_authorized(&bucket, &name, generation, conditions, &access)

@@ -519,20 +519,28 @@ pub fn parse_object_upload_headers(
     Ok((content_type.to_owned(), hashes))
 }
 
+/// What an object request returns. Only media reads honor ranges, so only they must reject the
+/// unsupported `If-Range` validator.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectRead {
+    Metadata,
+    Media,
+}
+
 /// Reject unsupported encryption and range-validator headers explicitly.
 // shortcut: GET/DELETE tokens do not deduplicate retries; add replay storage for strict retry fidelity.
-pub fn validate_object_get_headers(headers: &HeaderMap, media: bool) -> Result<(), JsonError> {
-    validate_keyed_object_headers(headers, media, &[])
+pub fn validate_object_get_headers(headers: &HeaderMap, read: ObjectRead) -> Result<(), JsonError> {
+    validate_keyed_object_headers(headers, read, &[])
 }
 
 /// As [`validate_object_get_headers`], leaving the listed key header prefixes to the caller.
 pub fn validate_keyed_object_headers(
     headers: &HeaderMap,
-    media: bool,
+    read: ObjectRead,
     keys: &[&str],
 ) -> Result<(), JsonError> {
     unsupported_headers(headers, keys)?;
-    if media && headers.contains_key("if-range") {
+    if read == ObjectRead::Media && headers.contains_key("if-range") {
         return Err(JsonError::unsupported_object("If-Range"));
     }
     Ok(())

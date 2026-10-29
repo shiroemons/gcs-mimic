@@ -57,10 +57,10 @@ pub(crate) use object_metadata::validate_fixed_metadata;
 pub use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
 pub use object_move::ObjectMoveParams;
 pub use objects::{
-    ObjectGetParams, ObjectInsertParams, ObjectRequest, object_media_headers, object_media_range,
-    object_resource, parse_object_upload_headers, route_object, route_object_with_profile,
-    validate_keyed_object_headers, validate_object_get_headers, validate_object_media_encoding,
-    validate_object_name,
+    ObjectGetParams, ObjectInsertParams, ObjectRead, ObjectRequest, object_media_headers,
+    object_media_range, object_resource, parse_object_upload_headers, route_object,
+    route_object_with_profile, validate_keyed_object_headers, validate_object_get_headers,
+    validate_object_media_encoding, validate_object_name,
 };
 pub(crate) use objects::{
     base64, decode_hash, object_etag, object_media_transcoding, validate_read_condition_headers,

@@ -6,6 +6,14 @@ use crate::{config::CompatProfile, object::ObjectConditions, storage::rewrite::R
 use hyper::{Method, StatusCode, Uri};
 use serde_json::{Map, Value, json};
 
+/// Which object a rewrite precondition applies to: `ifSource*` parameters guard the source and
+/// the unprefixed ones guard the destination.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RewriteSide {
+    Source,
+    Destination,
+}
+
 pub(crate) struct RewriteRequest {
     pub path: [String; 4],
     pub token: Option<String>,
@@ -19,8 +27,8 @@ impl RewriteRequest {
             .and_then(Value::as_str)
             .and_then(|value| value.parse().ok())
     }
-    pub fn conditions(&self, source: bool) -> ObjectConditions {
-        let keys = if source {
+    pub fn conditions(&self, side: RewriteSide) -> ObjectConditions {
+        let keys = if side == RewriteSide::Source {
             [
                 "ifSourceGenerationMatch",
                 "ifSourceGenerationNotMatch",
