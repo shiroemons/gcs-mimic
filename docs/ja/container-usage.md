@@ -289,7 +289,7 @@ BEHAVIOR-BUCKET-009はIMPLEMENTEDを維持します。
 
 ## 詳しい手順
 
-- [HTTPSと証明書](../en/getting-started.md#local-https-with-an-explicit-development-ca)
+- [HTTPSと証明書](../en/local-https.md#local-https-with-an-explicit-development-ca)
 - [SDK・認証・ブラウザー](../en/getting-started.md)
 - [イメージ配布と対応環境](../en/container-distribution.md)
 - [今後の導入機能](roadmap.md)

@@ -190,7 +190,7 @@ API originの既定はprimaryのHTTPSです。HTTPで開始したresumable uploa
 
 ネイティブCLIは`serve --scheme http`などの形式です。
 全項目のCLI・既定値は
-[英語の設定リファレンス](../en/getting-started.md#native-binary-and-configuration)、
+[英語の設定リファレンス](../en/native-binary.md#native-binary-and-configuration)、
 用途別の起動例は[移行ガイド](../en/fake-gcs-server-migration.md#startup-options-and-current-equivalents)
 を参照してください。
 

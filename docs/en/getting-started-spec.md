@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-**Status: broader end-to-end design specification.** The current JSON, strict IAM, XML GET/HEAD/PUT and V4 RSA query signing implementation has a separate [runnable guide](getting-started.md). The registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), with bounded inline RSA public keys; the server never needs a signer private key. The [signed access journey](getting-started.md#signed-private-downloads-and-uploads) covers native/source-built Docker signing, private GET/PUT, method/object/host/expiry/header failures, conditions, restart and peer endpoints. It also covers the two response overrides, opt-in virtual hosts, PAP enforcement with preserved public bindings, valid signed GET/PUT and public reactivation. The [integrated evidence](evidence/signed-urls.md) records execution and UX-006 status. TOML, broader fixtures/SDKs, proxy-derived origins and other signing formats below remain future acceptance targets, not current commands/settings. Fixed `api_base_url` is implemented. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
+**Status: broader end-to-end design specification.** The current JSON, strict IAM, XML GET/HEAD/PUT and V4 RSA query signing implementation has a separate [runnable guide](getting-started.md). The registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), with bounded inline RSA public keys; the server never needs a signer private key. The [signed access journey](signed-urls.md#signed-private-downloads-and-uploads) covers native/source-built Docker signing, private GET/PUT, method/object/host/expiry/header failures, conditions, restart and peer endpoints. It also covers the two response overrides, opt-in virtual hosts, PAP enforcement with preserved public bindings, valid signed GET/PUT and public reactivation. The [integrated evidence](evidence/signed-urls.md) records execution and UX-006 status. TOML, broader fixtures/SDKs, proxy-derived origins and other signing formats below remain future acceptance targets, not current commands/settings. Fixed `api_base_url` is implemented. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
 
 This English document is canonical. Any Japanese companion is optional supplementary planning material outside the project's canonical documentation tree. Implementation prompts are Japanese; source code, identifiers, commits and project documentation remain English.
 
@@ -97,7 +97,7 @@ omission preservation.
 
 The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart and bounded JSON resumable uploads, versioning/default holds, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, initial seed directories, Go SDK tests, stopping and isolated smoke checks. Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
-The delivered [local TLS journey](getting-started.md#local-https-with-an-explicit-development-ca)
+The delivered [local TLS journey](local-https.md#local-https-with-an-explicit-development-ca)
 uses HTTPS by default with a built-in development certificate/key and exported
 client CA trust. A supplied PEM chain/key pair overrides the built-in identity.
 Native, non-root container, pinned Go/Ruby and isolated browser checks cover
@@ -367,7 +367,7 @@ deliberately non-secret and valid only inside this local identity registry.
 
 For that proposed future layout, generate a throwaway test signing key. These
 commands do not register it in the current inline-PEM JSON fixture; use the
-[runnable signing guide](getting-started.md#signed-private-downloads-and-uploads)
+[runnable signing guide](signed-urls.md#signed-private-downloads-and-uploads)
 for the implemented workflow:
 
 ```bash

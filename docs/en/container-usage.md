@@ -308,7 +308,7 @@ See the [schema, limits and ready counts](slices/bucket-initialization.md).
 
 ## Further setup
 
-- [HTTPS and custom certificates](getting-started.md#local-https-with-an-explicit-development-ca)
+- [HTTPS and custom certificates](local-https.md#local-https-with-an-explicit-development-ca)
 - [SDK, authentication and browser examples](getting-started.md)
 - [Source builds and verification](development.md)
 - [Image publication and supported platforms](container-distribution.md)

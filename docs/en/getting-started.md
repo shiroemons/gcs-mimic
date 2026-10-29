@@ -2,8 +2,24 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-For image-based use without a checkout, start with [Docker usage](container-usage.md).
-This guide covers source builds and detailed integration checks.
+For image-based use without a checkout, start with the [README](../../README.md)
+and [Docker usage](container-usage.md). These guides cover source builds and
+detailed integration checks.
+
+## Guides
+
+| Guide | Covers |
+| --- | --- |
+| This page | Source-built Compose service, bucket and object JSON journeys, resumable uploads, CORS, restart and reset, the Go SDK and strict local authentication |
+| [Local HTTPS](local-https.md) | The built-in development CA, custom certificates and HTTPS with Compose |
+| [Signed URLs](signed-urls.md) | V4 signed private downloads and uploads, response overrides, virtual hosts and public access prevention |
+| [Native binary](native-binary.md) | Native builds and configuration, the bucket initialization file and seed files |
+
+The journeys on this page continue from [Build and start with Compose](#build-and-start-with-compose);
+run their shell blocks in order in one Bash session from the repository root.
+The other guides are standalone.
+
+## Scope
 
 The current slice supports JSON bucket create/get/list/delete and metadata PATCH/PUT, bucket IAM policy
 get/set and object media/multipart upload,
@@ -14,13 +30,13 @@ Seed directory import runs before readiness. Path-style XML GET/HEAD and
 bucket `allUsers` / `allAuthenticatedUsers` grants support public and private reads.
 V4 RSA query signatures, bounded XML PUT, opt-in virtual hosts, response overrides
 and public access prevention are implemented in the
-[signed private transfer journey](#signed-private-downloads-and-uploads).
+[signed private transfer journey](signed-urls.md).
 If-Range, transcoding, object IAM, testIamPermissions,
 conditional policies, ACLs, XML listing and UBLA transitions remain unavailable.
 JSON defaults and bucket-configured XML-read
 CORS are available; see the browser journey below. HTTPS is the default listener mode;
 HTTP examples explicitly select HTTP. TLS 1.2/1.3 uses built-in or supplied PEM files and
-explicit client CA trust, as shown in the standalone HTTPS journey below.
+explicit client CA trust, as shown in the [local HTTPS guide](local-https.md).
 The default permissive profile enforces no authentication; use an isolated local
 development environment. An optional strict profile checks local bearer tokens
 against project and bucket grants of predefined storage roles.
@@ -36,116 +52,12 @@ The resumable journeys below specify the [frozen upload contract](slices/resumab
 and its expected outputs; they await final-source execution and are not verification
 evidence or a released-image claim. Implementation status remains in the
 [feature ledger](../../compatibility/features.json).
-Run the shell blocks in order in one Bash session from the repository root.
-
-## Local HTTPS with an explicit development CA
-
-HTTPS starts without certificate preparation. The binary embeds a development
-certificate for `localhost`, `gcs`, `127.0.0.1` and `::1`; `tls ca` prints its
-public CA without reading configuration or opening the data directory/network.
-The shared development server key is deliberately public. Keep this emulator
-isolated; custom certificate/key pairs remain available below. This standalone
-journey uses Bash, curl and jq and changes no system trust store.
-
-```sh
-tls_work=$(mktemp -d)
-cert_dir="$tls_work/certs"
-mkdir "$cert_dir"
-cargo build --locked
-./target/debug/gcs-mimic tls ca > "$cert_dir/ca.pem"
-./target/debug/gcs-mimic serve --listen 127.0.0.1:54443 \
-  --api-base-url https://localhost:54443 --data-dir "$tls_work/data" \
-  > "$tls_work/native.log" 2>&1 &
-tls_pid=$!
-for attempt in $(seq 1 50); do
-  if ./target/debug/gcs-mimic healthcheck --url https://localhost:54443/_internal/ready; then break; fi
-  sleep 0.1
-done
-bash scripts/tls-smoke.sh https://localhost:54443 "$cert_dir/ca.pem"
-kill -TERM "$tls_pid"
-wait "$tls_pid"
-```
-
-`--scheme https` is the default; omitting both TLS paths uses the built-in pair.
-To use HTTP, explicitly select `--scheme http` and omit the TLS paths. Custom
-TLS needs both `--tls-cert` and `--tls-key`; a single path fails. The supplied
-PEM chain (leaf first) and private key are loaded and checked before recovery,
-seeding, binding or readiness. Each is capped at 1 MiB. TLS 1.2/1.3 and HTTP/1.1
-are supported; handshakes share `max_connections` and have a separate
-`--tls-handshake-timeout-ms` deadline (default 5000, range 1–60000).
-Configuration precedence is CLI > `GCS_MIMIC_` environment > JSON > defaults.
-For example, use JSON `scheme`, `tls_cert`, `tls_key`, `tls_handshake_timeout_ms`
-or environment `GCS_MIMIC_SCHEME`, `GCS_MIMIC_TLS_CERT`, `GCS_MIMIC_TLS_KEY`.
-An omitted API base uses the listener scheme and actual bound address, including
-the allocated port for `--listen 127.0.0.1:0`. Wildcard `0.0.0.0` / `::` becomes
-`127.0.0.1` / `[::1]`. Ready reports the effective `api_base_url`.
-Set `--api-base-url` for a different client-reachable address or proxy prefix.
-Explicit HTTP(S) API bases remain independent for
-reverse proxies. Neither `Host` nor forwarding headers change generated links.
-
-Build and run the same journey with the non-root, read-only source image:
-
-```sh
-export COMPOSE_PROJECT_NAME=gcs-mimic-tls-demo-$$
-export GCS_MIMIC_IMAGE=gcs-mimic:tls-dev
-export GCS_MIMIC_PORT=54444
-export GCS_MIMIC_API_BASE_URL=https://localhost:54444
-docker build -t "$GCS_MIMIC_IMAGE" .
-docker compose config --quiet
-docker compose up -d --no-build --wait
-bash scripts/tls-smoke.sh "$GCS_MIMIC_API_BASE_URL" "$cert_dir/ca.pem"
-docker compose stop
-docker compose start --wait
-docker compose exec -T --interactive=false gcs \
-  gcs-mimic healthcheck --url https://localhost:4443/_internal/ready
-```
-
-For peers that follow generated links, set `GCS_MIMIC_API_BASE_URL=https://gcs:4443`
-and recreate the service before starting their upload. Host clients and browsers
-use `https://localhost:54444`. Both names are in the certificate; a container's
-`localhost` names that container. Mount only `ca.pem` in client containers and
-pass it to their TLS client. The public URL helper accepts an independent base
-and grants no access. Same-origin browser navigation works after explicitly
-trusting the development CA in an isolated browser profile; cross-origin fetch
-uses JSON defaults or the configured XML bucket rules. Never disable certificate
-or hostname verification. The [TLS evidence](evidence/local-tls.md) records the
-isolated Chromium trust procedure and failure checks.
-
-The Docker image and `compose.yaml` default to built-in HTTPS without TLS mounts.
-The built-in leaf expires on 2036-10-19 and its CA on 2036-10-20; renew the
-embedded assets before then. To use a custom development CA instead, generate
-throwaway two-day fixtures with OpenSSL and select the read-only TLS override:
-
-```sh
-custom_cert_dir="$tls_work/custom-certs"
-bash scripts/tls-fixtures.sh "$custom_cert_dir"
-export GCS_MIMIC_TLS_DIR="$custom_cert_dir"
-docker compose -f compose.yaml -f compose.tls.yaml up -d --no-build --wait
-bash scripts/tls-smoke.sh "$GCS_MIMIC_API_BASE_URL" "$custom_cert_dir/ca.pem"
-```
-
-Custom probes use `--ca-cert /tls/ca.pem`; the default probe trusts only the
-built-in CA. Explicit `--ca-cert` replaces that trust rather than adding it.
-`compose.http.yaml` explicitly selects HTTP for the detailed HTTP journey below.
-Add `compose.strict.yaml` to require the existing local test identities.
-Stopping/recreating preserves the named data volume. `docker compose ... down`
-stops/removes this demo's containers without resetting its data. To reset only
-this disposable project's local catalog, first stop it and explicitly remove
-its named volume; never reset another project's data.
-
-For official clients, run the [Go HTTPS suite](../../sdk-tests/go/README.md#https-with-an-explicit-development-ca)
-and [Ruby HTTPS journey](../../sdk-tests/ruby/README.md) using the same CA and
-advertised origin. Their endpoint guards prevent fallback to Google or metadata
-servers. The Rust [wire tests](../../tests/tls.rs) cover untrusted CA, wrong
-hostname, expiry, invalid files, stalled admission, strict grants and restart.
-After all clients and containers stop, delete only `$tls_work`; it contains
-this journey's disposable certificates and native data.
 
 ## Build and start with Compose
 
 Install Git, Docker Engine/Desktop with Buildx and Compose v2 (`up --wait` and
 `start --wait`), curl and jq. No Google credentials or cloud resources are needed.
-Build from a checkout; no image is published. The commands use an isolated Compose
+This journey builds from a checkout; the README covers the published image. The commands use an isolated Compose
 project and a dynamically allocated loopback port to avoid other local emulators.
 
 ```sh
@@ -233,7 +145,8 @@ PATCH merges supplied label keys and preserves omitted keys. A key set to null
 removes that label; `labels:{}` preserves the map and `labels:null` clears it.
 The supported default class is metadata only; changing it does not rewrite
 existing objects or simulate physical placement. This sequence uses the Compose
-endpoint; the native smoke check below repeats the merge/removal steps.
+endpoint; the [native smoke check](native-binary.md#native-binary-and-configuration)
+repeats the merge/removal steps.
 
 ```sh
 patch_dir=$(mktemp -d)
@@ -1102,7 +1015,8 @@ test "$status" = 404
 
 `down --volumes` deletes **all data in this Compose project's managed volume**;
 the final get returns 404. Use it only for a disposable local catalog. There is no
-fixture replay in this unseeded journey; see the separate seed example below.
+fixture replay in this unseeded journey; see the separate
+[seed example](native-binary.md#seed-a-native-catalog-and-read-a-byte-range).
 SIGINT/SIGTERM stop acceptance and drain; recovery and
 exclusive data-directory ownership must finish before bind/readiness. A second
 process using the same directory fails without reporting ready. Future-schema,
@@ -1547,7 +1461,7 @@ Revocation affects new requests; it cannot recall bytes already downloaded or
 cached, and an already-open read may finish. XML GET supports one stored-byte
 range (206/416); HEAD remains 200 for a satisfiable range with Content-Range.
 Unsupported XML inputs/operations return 501. V4 RSA query signatures support
-private GET/HEAD and bounded PUT in the standalone signed-URL journey below,
+private GET/HEAD and bounded PUT in the standalone [signed-URL journey](signed-urls.md),
 which also covers opt-in virtual hosts and PAP. ACLs and UBLA transitions remain
 outside the supported scope.
 
@@ -1615,611 +1529,6 @@ docker image rm "$GCS_MIMIC_IMAGE"
 rm -r "$work_dir"
 unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
 ```
-
-## Signed private downloads and uploads
-
-This standalone journey needs Bash, curl, jq and OpenSSL. Run it from the repository
-root. It uses a disposable strict registry/catalog and a local RSA key; it never
-calls Google IAM. The server receives only the public key. Native and source-built
-Docker paths run the same private GET/PUT, response overrides, virtual-host and
-PAP checks. HTTPS clients must add the exported CA shown above.
-
-Virtual-host routing is disabled by default. This journey enables the explicit
-`localhost` suffix with `--xml-virtual-host-domains localhost` natively and
-`GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS: localhost` in Compose. The equivalent JSON
-configuration is `{"xml_virtual_host_domains":"localhost"}`; CLI overrides
-environment, then file settings. Only bucket hosts under configured suffixes
-route as XML. JSON APIs and probes stay on the base endpoint.
-DNS must resolve each final bucket host to the listener. Some clients resolve
-`*.localhost` automatically; the commands use curl `--resolve` to work without
-system DNS changes. This changes only the connection destination, preserving
-the signed URL, Host and HTTPS SNI.
-
-For HTTPS virtual hosts, supply `--tls-cert` and `--tls-key` plus client CA trust.
-The built-in certificate does not cover bucket subdomains. A SAN must match the
-final host, for example `signed-guide-bucket.localhost`; `*.localhost` covers
-one bucket label, not a dotted bucket name. Dotted virtual bucket names are an
-explicit local extension (SPEC-XML-VIRTUAL-HOST). Never disable certificate
-verification or change the host after signing.
-
-```sh
-signed_work=$(mktemp -d)
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
-  -out "$signed_work/private.pem" 2> "$signed_work/keygen.log"
-openssl pkey -in "$signed_work/private.pem" -pubout -out "$signed_work/public.pem"
-jq -n --rawfile key "$signed_work/public.pem" '{identities:[{
-  id:"guide-signer@example.invalid", tokens:["guide-admin-token"], public_keys:[$key],
-  project_roles:{"local-project":["roles/storage.admin"]}
-}]}' > "$signed_work/identities.json"
-printf 'Signed private bytes.\n' > "$signed_work/input.txt"
-signed_sign() {
-  "$signed_binary" url sign --base-url "$2" --bucket signed-guide-bucket \
-    --object "$3" --method "$1" --expires 5m --signer guide-signer@example.invalid \
-    --private-key "$signed_work/private.pem" "${@:4}"
-}
-signed_curl() {
-  curl --disable --noproxy '*' --silent --show-error --max-time 15 "$@"
-}
-signed_journey() {
-  signed_curl --fail -H 'Authorization: Bearer guide-admin-token' \
-    -H 'Content-Type: application/json' --data '{"name":"signed-guide-bucket"}' \
-    "$signed_endpoint/storage/v1/b?project=local-project" > "$signed_work/bucket.json"
-  signed_curl --fail -H 'Authorization: Bearer guide-admin-token' \
-    --data-binary @"$signed_work/input.txt" \
-    "$signed_endpoint/upload/storage/v1/b/signed-guide-bucket/o?uploadType=media&name=private.txt" \
-    > "$signed_work/object.json"
-  test "$(signed_curl -o /dev/null -w '%{http_code}' \
-    "$signed_endpoint/signed-guide-bucket/private.txt")" = 401
-  signed_get=$(signed_sign GET "$signed_endpoint" private.txt)
-  signed_curl --fail "$signed_get" > "$signed_work/download.txt"
-  cmp "$signed_work/input.txt" "$signed_work/download.txt"
-  signed_put=$(signed_sign PUT "$signed_endpoint" uploaded.txt \
-    --header 'content-type:text/plain' --header 'x-goog-if-generation-match:0')
-  signed_curl --fail -X PUT -H 'Content-Type: text/plain' \
-    -H 'x-goog-if-generation-match: 0' --data-binary @"$signed_work/input.txt" "$signed_put"
-  uploaded_get=$(signed_sign GET "$signed_endpoint" uploaded.txt)
-  signed_curl --fail "$uploaded_get" > "$signed_work/uploaded.txt"
-  cmp "$signed_work/input.txt" "$signed_work/uploaded.txt"
-  test "$(signed_curl -o /dev/null -w '%{http_code}' -X PUT "$signed_get")" = 403
-  changed_object=${signed_get/\/private.txt/\/changed.txt}
-  test "$(signed_curl -o /dev/null -w '%{http_code}' "$changed_object")" = 403
-  test "$(signed_curl -o /dev/null -w '%{http_code}' \
-    -H 'Host: changed.invalid' "$signed_get")" = 403
-  expired_get=$(signed_sign GET "$signed_endpoint" private.txt --timestamp 20200101T000000Z)
-  test "$(signed_curl -o /dev/null -w '%{http_code}' "$expired_get")" = 400
-  test "$(signed_curl -o /dev/null -w '%{http_code}' -X PUT \
-    -H 'Content-Type: changed' -H 'x-goog-if-generation-match: 0' "$signed_put")" = 403
-  test "$(signed_curl -o /dev/null -w '%{http_code}' -X PUT \
-    -H 'Content-Type: text/plain' -H 'x-goog-if-generation-match: 0' \
-    --data-binary @"$signed_work/input.txt" "$signed_put")" = 412
-  echo 'PASS: private signed GET/PUT, method/object/host/expiry/header failures and atomic condition'
-
-  override_get=$(signed_sign GET "$signed_endpoint" private.txt \
-    --query 'response-content-type=text/csv' \
-    --query 'response-content-disposition=attachment; filename="private.csv"')
-  signed_curl --fail -D "$signed_work/override.headers" "$override_get" \
-    > "$signed_work/override.txt"
-  cmp "$signed_work/input.txt" "$signed_work/override.txt"
-  tr -d '\r' < "$signed_work/override.headers" | grep -Fxi 'content-type: text/csv'
-  tr -d '\r' < "$signed_work/override.headers" | \
-    grep -Fxi 'content-disposition: attachment; filename="private.csv"'
-  test "$(signed_curl -o /dev/null -w '%{http_code}' \
-    "${override_get/text%2Fcsv/text%2Fhtml}")" = 403
-  echo 'PASS: signed response overrides and query tamper rejection'
-
-  signed_curl --fail -H 'Authorization: Bearer guide-admin-token' \
-    "$signed_endpoint/storage/v1/b/signed-guide-bucket/iam" > "$signed_work/policy.json"
-  jq '.bindings += [{role:"roles/storage.objectViewer",members:["allUsers"]}]' \
-    "$signed_work/policy.json" > "$signed_work/public-policy.json"
-  signed_curl --fail -X PUT -H 'Authorization: Bearer guide-admin-token' \
-    -H 'Content-Type: application/json' --data-binary @"$signed_work/public-policy.json" \
-    "$signed_endpoint/storage/v1/b/signed-guide-bucket/iam" > "$signed_work/public-policy.json.new"
-  signed_curl --fail "$signed_endpoint/signed-guide-bucket/private.txt" \
-    > "$signed_work/public.txt"
-  cmp "$signed_work/input.txt" "$signed_work/public.txt"
-
-  signed_curl --fail -X PATCH -H 'Authorization: Bearer guide-admin-token' \
-    -H 'Content-Type: application/json' \
-    --data '{"iamConfiguration":{"publicAccessPrevention":"enforced"}}' \
-    "$signed_endpoint/storage/v1/b/signed-guide-bucket" > "$signed_work/pap.json"
-  jq -e '.iamConfiguration.publicAccessPrevention == "enforced"' "$signed_work/pap.json" > /dev/null
-  test "$(signed_curl -o /dev/null -w '%{http_code}' \
-    "$signed_endpoint/signed-guide-bucket/private.txt")" = 401
-  pap_get=$(signed_sign GET "$signed_endpoint" private.txt)
-  signed_curl --fail "$pap_get" > "$signed_work/pap-download.txt"
-  cmp "$signed_work/input.txt" "$signed_work/pap-download.txt"
-  pap_put=$(signed_sign PUT "$signed_endpoint" pap-uploaded.txt \
-    --header 'content-type:text/plain' --header 'x-goog-if-generation-match:0')
-  signed_curl --fail -X PUT -H 'Content-Type: text/plain' \
-    -H 'x-goog-if-generation-match: 0' --data-binary @"$signed_work/input.txt" "$pap_put"
-  pap_uploaded_get=$(signed_sign GET "$signed_endpoint" pap-uploaded.txt)
-  signed_curl --fail "$pap_uploaded_get" > "$signed_work/pap-uploaded.txt"
-  cmp "$signed_work/input.txt" "$signed_work/pap-uploaded.txt"
-  test "$(signed_curl -o /dev/null -w '%{http_code}' "${pap_get}00")" = 403
-  echo 'PASS: enforced PAP denies anonymous access and permits valid signed GET/PUT'
-  signed_curl --fail -H 'Authorization: Bearer guide-admin-token' \
-    "$signed_endpoint/storage/v1/b/signed-guide-bucket/iam" > "$signed_work/pap-policy.json"
-  cmp "$signed_work/public-policy.json.new" "$signed_work/pap-policy.json"
-
-  signed_port=${signed_endpoint##*:}
-  virtual_base="http://localhost:$signed_port"
-  virtual_host="signed-guide-bucket.localhost:$signed_port"
-  virtual_get=$(signed_sign GET "$virtual_base" private.txt --style virtual-hosted \
-    --query 'response-content-type=text/csv')
-  signed_curl --fail --resolve "$virtual_host:127.0.0.1" \
-    -D "$signed_work/virtual.headers" "$virtual_get" > "$signed_work/virtual.txt"
-  cmp "$signed_work/input.txt" "$signed_work/virtual.txt"
-  tr -d '\r' < "$signed_work/virtual.headers" | grep -Fxi 'content-type: text/csv'
-  test "$(signed_curl --resolve "$virtual_host:127.0.0.1" -o /dev/null -w '%{http_code}' \
-    "http://$virtual_host/private.txt")" = 401
-  virtual_put=$(signed_sign PUT "$virtual_base" virtual-uploaded.txt --style virtual-hosted \
-    --header 'content-type:text/plain' --header 'x-goog-if-generation-match:0')
-  signed_curl --fail --resolve "$virtual_host:127.0.0.1" -X PUT \
-    -H 'Content-Type: text/plain' -H 'x-goog-if-generation-match: 0' \
-    --data-binary @"$signed_work/input.txt" "$virtual_put"
-  virtual_uploaded_get=$(signed_sign GET "$virtual_base" virtual-uploaded.txt --style virtual-hosted)
-  signed_curl --fail --resolve "$virtual_host:127.0.0.1" "$virtual_uploaded_get" \
-    > "$signed_work/virtual-uploaded.txt"
-  cmp "$signed_work/input.txt" "$signed_work/virtual-uploaded.txt"
-  echo 'PASS: virtual-host signed GET/PUT and response override under PAP'
-
-  signed_curl --fail -X PATCH -H 'Authorization: Bearer guide-admin-token' \
-    -H 'Content-Type: application/json' \
-    --data '{"iamConfiguration":{"publicAccessPrevention":"inherited"}}' \
-    "$signed_endpoint/storage/v1/b/signed-guide-bucket" > "$signed_work/pap-disabled.json"
-  jq -e '.iamConfiguration.publicAccessPrevention == "inherited"' "$signed_work/pap-disabled.json" > /dev/null
-  signed_curl --fail -H 'Authorization: Bearer guide-admin-token' \
-    "$signed_endpoint/storage/v1/b/signed-guide-bucket/iam" > "$signed_work/reactivated-policy.json"
-  cmp "$signed_work/public-policy.json.new" "$signed_work/reactivated-policy.json"
-  signed_curl --fail "$signed_endpoint/signed-guide-bucket/private.txt" > "$signed_work/reactivated.txt"
-  cmp "$signed_work/input.txt" "$signed_work/reactivated.txt"
-  signed_curl --fail --resolve "$virtual_host:127.0.0.1" "http://$virtual_host/private.txt" \
-    > "$signed_work/reactivated-virtual.txt"
-  cmp "$signed_work/input.txt" "$signed_work/reactivated-virtual.txt"
-  echo 'PASS: stored public policy survives PAP and reactivates on both endpoint styles'
-  signed_curl --fail -X PATCH -H 'Authorization: Bearer guide-admin-token' \
-    -H 'Content-Type: application/json' \
-    --data '{"iamConfiguration":{"publicAccessPrevention":"enforced"}}' \
-    "$signed_endpoint/storage/v1/b/signed-guide-bucket" > /dev/null
-}
-```
-
-Build and run the native binary. The ephemeral listener differs from the default
-advertised API base; the helper receives the actual final client endpoint.
-
-```sh
-cargo build --locked
-signed_binary=./target/debug/gcs-mimic
-env -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT \
-  "$signed_binary" serve --scheme http --listen 127.0.0.1:0 \
-  --xml-virtual-host-domains localhost \
-  --data-dir "$signed_work/native-data" --auth-mode strict \
-  --identity-file "$signed_work/identities.json" > "$signed_work/native.log" 2>&1 &
-signed_pid=$!
-for attempt in {1..100}; do
-  signed_address=$(jq -r 'select(.event == "ready") | .listen' "$signed_work/native.log")
-  if [ -n "$signed_address" ]; then break; fi
-  sleep 0.1
-done
-signed_endpoint="http://$signed_address"
-"$signed_binary" healthcheck --url "$signed_endpoint/_internal/ready"
-signed_journey
-kill -TERM "$signed_pid"
-wait "$signed_pid"
-```
-
-First build the source image using the earlier Compose build block. Retain the
-same `GCS_MIMIC_IMAGE` if you selected a custom tag. This isolated project uses
-the strict override with its registry mount replaced by the generated
-`identities.json`. The server never mounts `private.pem`; only the short-lived,
-network-disabled signing container reads it.
-
-```sh
-signed_project="gcs-mimic-signed-$$"
-export GCS_MIMIC_PORT=0
-cat > "$signed_work/compose.signed.yaml" <<EOF
-services:
-  gcs:
-    environment:
-      GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS: localhost
-    volumes:
-      - type: bind
-        source: $signed_work/identities.json
-        target: /etc/gcs-mimic/identities.json
-        read_only: true
-EOF
-signed_compose() {
-  docker compose -p "$signed_project" -f compose.yaml -f compose.http.yaml \
-    -f compose.strict.yaml -f "$signed_work/compose.signed.yaml" "$@"
-}
-signed_compose up -d --no-build --wait
-signed_endpoint="http://$(signed_compose port gcs 4443)"
-signed_sign() {
-  docker run --rm --network none --read-only --user "$(id -u):$(id -g)" \
-    --mount "type=bind,src=$signed_work/private.pem,dst=/key.pem,readonly" \
-    "${GCS_MIMIC_IMAGE:-gcs-mimic:dev}" url sign --base-url "$2" \
-    --bucket signed-guide-bucket --object "$3" --method "$1" --expires 5m \
-    --signer guide-signer@example.invalid --private-key /key.pem "${@:4}"
-}
-signed_journey
-signed_compose stop
-signed_compose start --wait
-signed_endpoint="http://$(signed_compose port gcs 4443)"
-test "$(signed_curl -o /dev/null -w '%{http_code}' \
-  "$signed_endpoint/signed-guide-bucket/private.txt")" = 401
-uploaded_get=$(signed_sign GET "$signed_endpoint" uploaded.txt)
-signed_curl --fail "$uploaded_get" > "$signed_work/restarted.txt"
-cmp "$signed_work/input.txt" "$signed_work/restarted.txt"
-peer_get=$(signed_sign GET http://gcs:4443 uploaded.txt)
-peer_image=curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
-docker run --rm --read-only --network "${signed_project}_default" "$peer_image" \
-  --disable --noproxy '*' --silent --show-error --fail --max-time 15 "$peer_get" \
-  > "$signed_work/peer.txt"
-cmp "$signed_work/input.txt" "$signed_work/peer.txt"
-echo 'PASS: signed Docker restart and independently signed Compose peer URL'
-signed_compose down --volumes
-rm -r "$signed_work"
-unset GCS_MIMIC_PORT
-```
-
-The host PC and browser use the published loopback port; a Compose peer uses
-`gcs:4443`. A browser cannot resolve that Compose-only name. Sign a separate URL
-for each final host/port and never rewrite it afterward. With a dynamically
-published port, inspect the port again after restart and create a fresh signature.
-Signing changes no IAM policy. A signer needs create for new uploads and delete
-as well for overwrites.
-SHA256/Content-MD5 failures preserve the old object; sign headers to constrain
-metadata, digest declarations and conditions. SHA256 checking is incremental;
-the canonical URL payload remains UNSIGNED-PAYLOAD. CORS grants no permission.
-The [trusted HTTPS Chromium journey](evidence/signed-browser.md) verifies actual
-signed PUT/GET/HEAD, exposed headers, CORS denials, strict errors and restart.
-
-Go storage v1.70.0 omits non-default ports from canonical Host. Prefer the helper
-for local ports or expose a default-port endpoint. Ruby Storage 1.62.1 signs
-`storage.googleapis.com` by default even with an emulator endpoint. Its pinned
-test uses `file.signed_url(version: :v4, method: "GET"/"PUT", issuer:, signing_key:,
-bucket_bound_hostname:)` with an explicit bucket/name File path because
-bucket-bound signing removes the normal bucket prefix. This preserves host:port
-before signing; see the [SDK details](../../sdk-tests/ruby/README.md) and
-SPEC-GO-SIGNER-PORT / SPEC-RUBY-SIGNER-ENDPOINT. Strict verification is unchanged.
-PAP suppresses stored `allUsers` and `allAuthenticatedUsers` grants in strict mode;
-explicit signer grants remain usable. The journey compares the policy before,
-during and after enforcement, shows public reactivation with `inherited`, then
-enforces again for the restart check. A configured local parent fixture can keep
-an inherited bucket effectively enforced; see the [PAP contract](slices/public-access-prevention.md).
-
-Only `response-content-type` and `response-content-disposition` are supported.
-Supply literal values through repeated `url sign --query NAME=VALUE`; the helper
-encodes them before signing. These change response headers without mutating
-stored metadata. Query changes invalidate the signature. Duplicate decoded names
-are rejected locally, while exact provider duplicate/validation behavior stays
-open in SPEC-SIGNING-EDGES and SPEC-XML-RESPONSE-OVERRIDES. Other response-* names
-return 501. The [signed-browser subsection](#signed-browser-upload-and-download)
-documents the separate actual-browser preparation/run workflow.
-
-When using the pinned SDK signers, omit x-goog-content-sha256/SHA256 signing
-options for PUT URLs. Go v1.70.0 substitutes a supplied header into the canonical
-payload and the emulator rejects that URL with 403 SignatureDoesNotMatch, even
-for a matching body; no object is changed. To bind SHA256 locally, use
-`gcs-mimic url sign --header 'x-goog-content-sha256:LOWERCASE_HEX_DIGEST'` and send
-the same header. The helper keeps the official query UNSIGNED-PAYLOAD rule and
-the server checks the streamed bytes. See SPEC-SIGNED-PAYLOAD.
-
-## Native binary and configuration
-
-Build with Rust 1.99.1 and the committed lockfile:
-
-```sh
-cargo +1.99.1 build --release --locked --bin gcs-mimic
-native_dir=$(mktemp -d)
-./target/release/gcs-mimic serve --scheme http --listen 127.0.0.1:0 --data-dir "$native_dir/data" \
-  --api-base-url http://127.0.0.1:4443 > "$native_dir/server.log" 2>&1 &
-native_pid=$!
-trap 'kill -TERM "$native_pid" 2>/dev/null || true' EXIT
-for attempt in $(seq 1 100); do
-  if jq -e 'select(.event == "ready")' "$native_dir/server.log" >/dev/null; then break; fi
-  kill -0 "$native_pid"
-  sleep 0.1
-done
-native_endpoint="http://$(jq -r 'select(.event == "ready") | .listen' "$native_dir/server.log")"
-./target/release/gcs-mimic healthcheck --url "$native_endpoint/_internal/ready"
-curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
-  --data '{"name":"native-bucket"}' "$native_endpoint/storage/v1/b?project=local-project"
-curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 'native data' \
-  "$native_endpoint/upload/storage/v1/b/native-bucket/o?uploadType=media&name=hello.txt"
-curl --disable --noproxy '*' --fail \
-  "$native_endpoint/storage/v1/b/native-bucket/o/hello.txt?alt=media" > "$native_dir/download.txt"
-printf 'native data' | cmp - "$native_dir/download.txt"
-native_public_url=$(./target/release/gcs-mimic url public --base-url "$native_endpoint" \
-  --bucket native-bucket --object hello.txt)
-status=$(curl --disable --noproxy '*' --silent --show-error --output "$native_dir/xml.txt" \
-  --write-out '%{http_code}' "$native_public_url")
-test "$status" = 200
-printf 'native data' | cmp - "$native_dir/xml.txt"
-curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
-  --data '{"labels":{"team":"local","stage":"dev"},"storageClass":"NEARLINE"}' \
-  "$native_endpoint/storage/v1/b/native-bucket?ifMetagenerationMatch=1" > "$native_dir/patched.json"
-jq -e '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE" and .metageneration == "2"' \
-  "$native_dir/patched.json"
-curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
-  --data '{"labels":{"stage":null}}' "$native_endpoint/storage/v1/b/native-bucket" > "$native_dir/removed.json"
-jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' "$native_dir/removed.json"
-curl --disable --noproxy '*' --fail "$native_endpoint/storage/v1/b/native-bucket" > "$native_dir/after.json"
-cmp "$native_dir/removed.json" "$native_dir/after.json"
-kill -TERM "$native_pid"
-wait "$native_pid"
-trap - EXIT
-jq . "$native_dir/server.log"
-rm -r "$native_dir"
-```
-
-Compose-only `GCS_MIMIC_IMAGE`, `GCS_MIMIC_PORT` and `GCS_MIMIC_TLS_DIR` must be
-unset before native startup; the binary explains their image, host-port and
-mount roles. The temporary native catalog above is
-removed after a successful SIGTERM shutdown; use `--data-dir data` to keep a local catalog.
-The native example uses permissive mode, so XML reads bypass authorization.
-On macOS and other Unix systems outside Linux/Android, restarting on the same
-port may wait for TIME_WAIT to drain (about 30 seconds on the verified macOS
-host, at most 65 seconds). A `bind_wait` event explains the bounded wait;
-an existing live listener still causes startup to fail. Linux/Android enables
-address reuse while preserving live-listener exclusivity. Windows is unchanged.
-For a wildcard listen address, the loopback probe may miss a live listener on
-a specific non-loopback IP; startup then waits up to 65 seconds before failing
-with address-in-use rather than taking over that listener's traffic.
-SIGINT/SIGTERM cancel the bind wait and release the catalog promptly.
-For private objects, start with `--auth-mode strict --identity-file config/identities.json`
-and follow the public/private policy journey above using the native URL helper.
-The resulting binary needs no Rust, Python, curl or Go installation. CLI overrides
-`GCS_MIMIC_` environment, JSON config and defaults; `--config` overrides
-`GCS_MIMIC_CONFIG`. Config files are capped at 64 KiB; invalid settings fail before
-readiness. The current configuration is JSON; future TOML settings are unavailable.
-Independent configuration, TLS and identity errors are collected into stderr
-JSON diagnostic batches before catalog access; warnings precede errors. Known
-legacy inputs fail with native migration advice, unknown `FAKE_GCS_*` names
-warn, and native values preserve their existing precedence. See
-[migration diagnostics](fake-gcs-server-configuration.md#migration-diagnostics)
-for the bounded input, redaction and `/data` inspection rules.
-
-Runtime stderr is newline-delimited JSON with `event` and `level` fields.
-`log_level` in JSON, `GCS_MIMIC_LOG_LEVEL` or `--log-level` selects a minimum
-severity: `debug`, `info` (default), `warn` or `error`; `warning` aliases `warn`.
-Debug adds connection completion, info includes seeding/stopping, warn includes
-transport failures/timeouts and deferred cleanup, and error includes lock-release
-failure. Validation diagnostics, including input warnings, remain visible at
-every level. Stdout `ready` and `stopped` are always emitted for automation.
-Empty/unknown levels fail before catalog access. Legacy `FAKE_GCS_LOG_LEVEL`
-and `-log-level` remain errors with native migration advice.
-
-| CLI option | Environment | Default | Range |
-| --- | --- | --- | --- |
-| `--listen` | `GCS_MIMIC_LISTEN` | `127.0.0.1:4443` | Numeric IP:port; port 0 allowed |
-| `--log-level` | `GCS_MIMIC_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`; `warning` aliases `warn`; JSON key `log_level` |
-| `--scheme` | `GCS_MIMIC_SCHEME` | `https` | `http`, `https` or `both`; both uses primary HTTPS and secondary HTTP |
-| `--listen-http` | `GCS_MIMIC_LISTEN_HTTP` | Primary listen IP:8000 | Numeric IP:port, port 0 allowed; requires `scheme=both`; reject equal nonzero endpoints |
-| `--grpc-listen` | `GCS_MIMIC_GRPC_LISTEN` | none (disabled) | JSON key `grpc_listen`; numeric IP:port (for example `127.0.0.1:4444`), port 0 allowed; separate plaintext h2c listener. Set Go `STORAGE_EMULATOR_HOST_GRPC` to its address. It serves the scoped Storage v2 bucket, object, write and read RPCs and the legacy Storage v1 migration profile; other RPCs and unsupported fields return actionable, non-retryable `UNIMPLEMENTED`. See the [Storage v2 bucket](slices/grpc-v2-buckets.md), [object I/O](slices/grpc-v2-object-io.md), [update/copy](slices/grpc-v2-update-copy.md), [bidi read](slices/grpc-v2-bidi-read.md) and [Storage v1](slices/grpc-v1-legacy.md) contracts. |
-| `--tls-cert` | `GCS_MIMIC_TLS_CERT` | built-in development certificate | Optional PEM leaf-first chain, at most 1 MiB; requires matching key |
-| `--tls-key` | `GCS_MIMIC_TLS_KEY` | built-in development key | Optional matching unencrypted PEM private key, at most 1 MiB; requires certificate |
-| `--tls-handshake-timeout-ms` | `GCS_MIMIC_TLS_HANDSHAKE_TIMEOUT_MS` | 5000 | 1–60000; HTTPS only, within connection admission |
-| `--data-dir` | `GCS_MIMIC_DATA_DIR` | `data` relative to cwd | Nonempty path; exclusive catalog ownership |
-| `--seed-dir` | `GCS_MIMIC_SEED_DIR` | none | JSON key `seed_dir`; stable read-only bucket-directory input applied before readiness on every startup. Wins over `default_seed_dir` |
-| `--default-seed-dir` | `GCS_MIMIC_DEFAULT_SEED_DIR` | none; the image sets `/data` | JSON key `default_seed_dir`. Used only when `seed_dir` is unset, the directory exists and it does not overlap the data or sync directory; otherwise silently ignored |
-| `--seed-content-type` | `GCS_MIMIC_SEED_CONTENT_TYPE` | `extension` | JSON key `seed_content_type`; `extension` uses the pinned filename-extension table, `octet-stream` stores `application/octet-stream`. Also applies to files ingested from `--sync-dir` |
-| `--seed-project` | `GCS_MIMIC_SEED_PROJECT` | `local-project` | Existing bucket project validation; administrative import |
-| `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved |
-| `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Actual bound listener URL | Wildcard IP becomes loopback; port 0 becomes the allocated port. Explicit absolute HTTP(S) base remains independent; optional base path, no credentials/query/fragment. Ready includes the effective string |
-| `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 32 | 1–1024; total across listeners, including TLS handshakes |
-| `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–32 |
-| `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 2 | 1–32 |
-| `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | 5000 | 1–60000; request headers, then object response startup and chunk inactivity |
-| `--keep-alive-timeout-ms` | `GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS` | 120000 (2 minutes) | 1–600000 (10 minutes); idle time between HTTP/1.1 requests on one connection |
-| `--object-request-timeout-ms` | `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` | 900000 (15 minutes) | 1–86400000 (24 hours) |
-| `--catalog-wait-timeout-ms` | `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 30000 | 1–60000 |
-| `--shutdown-timeout-ms` | `GCS_MIMIC_SHUTDOWN_TIMEOUT_MS` | 5000 | 1–60000 |
-| `--max-object-bytes` | `GCS_MIMIC_MAX_OBJECT_BYTES` | 1073741824 (1 GiB) | 1–5497558138880 (5 TiB) |
-| `--auth-mode` | `GCS_MIMIC_AUTH_MODE` | `permissive` | `permissive` or `strict`; strict requires an identity file |
-| `--compat-profile` | `GCS_MIMIC_COMPAT_PROFILE` | `native` | `native` or `legacy-emulator`; JSON key `compat_profile`; independent of authentication. The source bucket profile supplies `seed_project` when creation omits `project`; see the [contract](slices/bucket-core-parity.md). |
-| `--cors-fallback` | `GCS_MIMIC_CORS_FALLBACK` | `none` | `none` or `allow-all`; JSON key `cors_fallback`. XML/public CORS for buckets without stored rules; `allow-all` allows any origin; see [CORS fallback](slices/cors-fallback.md) |
-| `--identity-file` | `GCS_MIMIC_IDENTITY_FILE` | none | JSON identity registry, at most 64 KiB; only with `strict` |
-
-To accept HTTP and HTTPS together, run:
-
-```sh
-target/debug/gcs-mimic serve --scheme both \
-  --listen 127.0.0.1:4443 --listen-http 127.0.0.1:8000 --data-dir data
-```
-
-Both listeners use the same catalog, authentication and total connection limit.
-Ready retains the primary `listen` and adds a `listeners` array with each actual
-address/scheme. An implicit API base uses primary HTTPS, including for requests
-made over HTTP; supply `--api-base-url` for another fixed reachable origin.
-Port zero allocates each listener independently. Either bind failure prevents
-ready and releases the sockets/catalog; shutdown closes both. Compose users
-must publish the second HTTP port explicitly. TLS clients still need CA trust
-and a matching SAN, as described in the HTTPS section.
-
-The identity file is read once at startup; an invalid registry, `strict` without a
-file or a file with `permissive` fails before readiness. Run
-`gcs-mimic url public --help` for the URL helper, which accepts no serve options.
-
-HTTP/1.1 connections stay open for further requests, with a 16 KiB parser buffer and
-64 headers. Each request has its own deadline. An idle connection closes when no next
-request starts within `--keep-alive-timeout-ms` (default two minutes), or at once when
-every `--max-connections` slot is taken, so a waiting client can connect; a request
-head that starts must finish within the connection timeout (default five seconds).
-Object routes use a header deadline followed by renewed chunk-inactivity
-deadlines; active transfers can exceed the default five seconds. After confirmed upload EOF,
-body inactivity is suspended while storage finishes. Upload/media requests additionally
-have an absolute 15-minute ceiling that chunks cannot renew. Expiry before a response
-returns a retryable error without publication: 408 `uploadBrokenConnection` for object
-uploads and 503 `backendError` for other requests. Expiry during download truncates the
-stream after its headers and closes the connection. A deadline response, or a rejection
-that leaves the request body unread, closes the connection; the server then keeps
-reading and discarding client input for up to 30 seconds, so a rejected upload still
-reads its response instead of a connection reset.
-For large/slow transfers, use `--object-request-timeout-ms 3600000` for one hour or set
-the corresponding environment/JSON value. Advisory checks and post-EOF storage waits each default to 30 seconds,
-capped by the remaining absolute request budget, and return 503 `backendError` on expiry.
-After a post-EOF timeout the mutation outcome is unknown: the commit may still complete,
-so re-read state or retry with generation/metageneration preconditions. Complete bodies
-may also commit after disconnect or shutdown. SQLite lock waiting retains five seconds;
-background filesystem work and shutdown catalog close have no separate execution bound.
-Bucket/probe routes retain a total deadline.
-Uploads share the `max_connections` limit (default 32), with excess connections
-waiting for capacity. There is no separate upload admission cap. Each upload uses
-a two-slot channel with at most 64 KiB
-per copied chunk, and independent size checks before publication. Downloads use one channel
-slot and a 64 KiB reader. No transaction or blocking worker waits for incoming body data.
-These inspected bounds are not an RSS/cgroup/CPU benchmark; the 1 GiB default cap has not
-been verified by a 1 GiB transfer under the Compose limit.
-Unknown routes return 404 without body reads; probes retain
-GET/HEAD support and body rejection. Catalog work has 32 admitted calls, one
-executing blocking job, a 2 MiB SQLite cache and no memory map. The runtime bounds
-blocking threads; queued/cancelled operations retain directory ownership until
-execution finishes. Before confirmed EOF, a timeout/disconnect aborts the upload without
-publishing partial bytes. Early rejections send a response and half-close the socket, then
-discard at most 256 KiB for at most 100 ms. Generic admitted catalog writes and completed
-upload bodies can still commit after the client disconnects; clients must read back state
-when the response is lost. Trickle uploads cannot renew the absolute request ceiling;
-cancelled uploads remain tracked until their cleanup finishes. Upload prechecks
-and resumable session creation/read/checkpoint calls wait for catalog admission
-within the catalog wait deadline; other catalog calls still reject saturation.
-
-Schema-v1 bucket catalogs contain no objects and migrate transactionally through v3,
-v4 and v5 to v6. Existing v3 objects gain default metadata columns; v5 adds the durable
-seed initialization marker, and v6 adds default bucket IAM policies and an etag
-counter. Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs
-are rejected without changing their data; automatic recovery of deleted v2 generations is
-unavailable. Recovery ignores `.DS_Store` and `._*` OS metadata; other invalid storage
-entries stop startup with a path diagnostic. Object `selfLink` addresses the current
-resource without a generation query; `mediaLink` selects the returned generation.
-
-## Initialize missing buckets from a file
-
-After building the binary, run this from the repository root:
-
-```sh
-target/debug/gcs-mimic serve --scheme http --buckets-file config/buckets.json
-```
-
-This creates `initialized-assets` with XML CORS and versioning and
-`initialized-private` in a different project with PAP enforced. The stdout ready
-event includes `buckets_file` with `created`, `existing` and `project_mismatches`.
-Without a selector its outcome is `disabled`; an empty list is `applied` with zeros.
-The selector also accepts `GCS_MIMIC_BUCKETS_FILE` or server JSON `buckets_file`,
-using CLI > environment > config. Relative paths use the process working directory.
-
-Restart with the same data directory to retain API changes and object versions;
-only missing buckets are created, even if settings in the file change. Removed
-entries remain stored. Different existing projects warn without changing owners.
-Initialization runs before seed, using local administrative authority in strict
-and permissive modes, and grants no API permissions. Invalid entries stop startup
-with complete diagnostics and no ready event. IAM policies, ACLs, lifecycle, UBLA
-and unknown fields are rejected even when empty or disabled. Limits are 1 MiB,
-1000 buckets and 64 KiB per entry. See the [schema](slices/bucket-initialization.md)
-and [read-only Compose example](container-usage.md#initialize-bucket-settings).
-
-## Seed a native catalog and read a byte range
-
-After building the native binary above, run this standalone example in Bash from
-the repository root. It uses fresh data and a separate seed directory.
-
-```sh
-unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
-seed_demo=$(mktemp -d)
-mkdir -p "$seed_demo/fixtures/example-bucket"
-printf 'hello world' > "$seed_demo/fixtures/example-bucket/hello.txt"
-./target/release/gcs-mimic serve --scheme http --listen 127.0.0.1:0 \
-  --data-dir "$seed_demo/data" --seed-dir "$seed_demo/fixtures" \
-  --seed-project local-project > "$seed_demo/server.log" 2>&1 &
-seed_pid=$!
-trap 'kill -TERM "$seed_pid" 2>/dev/null || true' EXIT
-for attempt in $(seq 1 100); do
-  if jq -e 'select(.event == "ready")' "$seed_demo/server.log" >/dev/null; then break; fi
-  kill -0 "$seed_pid"
-  sleep 0.1
-done
-seed_endpoint="http://$(jq -r 'select(.event == "ready") | .listen' "$seed_demo/server.log")"
-./target/release/gcs-mimic healthcheck --url "$seed_endpoint/_internal/ready"
-curl --disable --noproxy '*' --fail \
-  "$seed_endpoint/storage/v1/b/example-bucket/o/hello.txt?alt=media" > "$seed_demo/full.txt"
-printf 'hello world' | cmp - "$seed_demo/full.txt"
-curl --disable --noproxy '*' --fail-with-body -sS -D "$seed_demo/range.headers" \
-  -H 'Range: bytes=0-4' \
-  "$seed_endpoint/download/storage/v1/b/example-bucket/o/hello.txt?alt=media" > "$seed_demo/range.txt"
-printf 'hello' | cmp - "$seed_demo/range.txt"
-sed -n '1,20p' "$seed_demo/range.headers"
-printf 'Range body: '; sed -n '1p' "$seed_demo/range.txt"; printf '\n'
-kill -TERM "$seed_pid"
-wait "$seed_pid"
-trap - EXIT
-jq . "$seed_demo/server.log"
-rm -r "$seed_demo"
-```
-
-Expect 206, `Content-Range: bytes 0-4/11`, `Content-Length: 5` and `hello`.
-Closed/open/suffix ranges use stored bytes; pin `generation` when assembling
-multiple requests. Unsatisfiable ranges return 416. If-Range and required gzip
-decompression return 501. See the [range contract](slices/json-object-range.md)
-for local malformed/multiple-range fallback rules and header-parity limits.
-
-Each top-level seed directory names a bucket; nested regular files name objects
-with `/` separators. Empty bucket directories work. Imported objects take their
-MIME from the pinned filename-extension table (`seed_content_type=extension`,
-the default); `octet-stream` stores
-`application/octet-stream`. Size, MD5 and CRC32C come from
-their bytes. Keep fixtures stable and read-only throughout startup. Symlinks,
-special files, invalid names and overlapping roots fail before readiness.
-Traversal is limited to 10000 entries and 32 nested directories;
-`max_object_bytes` applies per new file. No sidecar metadata is imported.
-
-Seeding runs on every startup while a seed directory is
-in effect. Missing buckets are created and existing ones keep their settings;
-a bucket owned by a project other than `seed_project` stops startup. A missing
-object is created. An object exactly matching what seeding would write (same
-bytes and seed Content-Type, with no Content-Encoding, Content-Disposition,
-Content-Language, Cache-Control, custom time or custom metadata) keeps its
-generation. Any other difference, including API metadata edits, is replaced as
-a new live generation with seed default metadata (versioned buckets keep the
-previous one as noncurrent). A differing object under a hold or retention is
-left unchanged and reported as `blocked`; holds and storage class are not
-compared. Objects without a seed file are untouched, and removing a
-seed file never deletes an object. Restart to apply fixture edits; there is no
-watcher or reseed endpoint. The ready event's `seed` field reports `buckets` and
-`objects` (newly created), `replaced`, `unchanged`, `blocked` and
-`skipped_os_metadata`. 0.2.1 and earlier imported seed files once into a fresh
-catalog with an `octet-stream` default; see the
-[0.3.0 release notes](releases/0.3.0.md). Import is administrative in both profiles; strict API reads
-still need a permitted local bearer token. See the [seed contract](slices/seed.md).
-
-### Seed with Compose
-
-Use a separate project with a new volume. Build its image from this checkout;
-the seed source is the checked-in `fixtures/local-bucket/hello.txt`.
-
-```sh
-export COMPOSE_PROJECT_NAME=gcs-mimic-seed-demo-$$
-export GCS_MIMIC_IMAGE="gcs-mimic:seed-demo-$$"
-docker build -t "$GCS_MIMIC_IMAGE" .
-export GCS_MIMIC_PORT=0
-docker compose -f compose.yaml -f compose.http.yaml -f compose.seed.yaml up -d --wait
-seed_address=$(docker compose -f compose.yaml -f compose.http.yaml -f compose.seed.yaml port gcs 4443)
-curl --disable --noproxy '*' --fail "http://$seed_address/storage/v1/b?project=local-project"
-curl --disable --noproxy '*' --fail "http://$seed_address/storage/v1/b/local-bucket/o"
-curl --disable --noproxy '*' --fail \
-  "http://$seed_address/storage/v1/b/local-bucket/o/hello.txt?alt=media"
-docker compose -f compose.yaml -f compose.http.yaml -f compose.seed.yaml stop
-```
-
-The last response is `Hello from the emulator.` followed by a newline. The override
-mounts fixtures read-only. Keep both `-f` arguments on restart/recreate commands;
-add `-f compose.strict.yaml` and the local admin bearer token for strict mode.
-Ordinary `stop` or `down` preserves data. To delete only this disposable demo's
-emulator data, explicitly run `docker compose -f compose.yaml -f compose.http.yaml -f compose.seed.yaml
-down --volumes`; the next `up -d --wait` imports into the fresh volume. A plain
-restart also reapplies the fixtures as described above.
-This complete guide, including bucket versioning/default holds, resumable upload,
-seeded Compose and strict bucket IAM/public/private journeys, passed on 2026-10-22;
-see the [final bucket integration evidence](evidence/bucket-core-parity.md).
 
 ## Verification and troubleshooting
 

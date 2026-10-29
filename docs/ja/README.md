@@ -196,7 +196,9 @@ gRPCの行は通常バケットでの記載範囲で、台帳の個々のRPCは`
 - [バージョンと公開の方針](release-policy.md)
 - [開発とpush前の確認](development.md)
 
-HTTPS、SDK、認証の詳しい手順は[英語の利用ガイド](../en/getting-started.md)を参照してください。
+SDK、認証の詳しい手順は[英語の利用ガイド](../en/getting-started.md)を参照してください。
+HTTPS、署名付きURL、ネイティブ実行は、それぞれ[ローカルHTTPS](../en/local-https.md)、
+[署名付きURL](../en/signed-urls.md)、[ネイティブバイナリ](../en/native-binary.md)の英語ガイドにあります。
 
 ## ライセンス
 

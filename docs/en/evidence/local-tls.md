@@ -70,7 +70,7 @@ disable proxies and redirects and guard the exact local origin.
 
 ## Native and container journeys
 
-The runnable guide's [TLS section](../getting-started.md#local-https-with-an-explicit-development-ca)
+The runnable guide's [TLS section](../local-https.md#local-https-with-an-explicit-development-ca)
 was exercised with the native binary, exported CA and `bash scripts/tls-smoke.sh`.
 The built-in native listener was `0.0.0.0:54447`, advertised as
 `https://localhost:54447`; browser peer access used `https://gcs:54447`.

@@ -77,7 +77,7 @@ Use native names by role. **gcs-mimic rejects all 19 known
 they are not aliases. Unknown `FAKE_GCS_*` names warn without stopping startup.
 Unknown `GCS_MIMIC_*` names fail validation, and an empty native value does not
 generally mean “use the default.” See the
-[native configuration reference](getting-started.md#native-binary-and-configuration).
+[native configuration reference](native-binary.md#native-binary-and-configuration).
 
 | Source role | Current native setting | Remaining difference |
 | --- | --- | --- |

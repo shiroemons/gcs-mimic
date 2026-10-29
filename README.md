@@ -197,7 +197,10 @@ sources and verification limits, and the generated
 
 - [Docker usage](docs/en/container-usage.md): seed files, sync directory,
   bucket initialization file and configuration
-- [Setup, configuration and examples](docs/en/getting-started.md)
+- [Setup, configuration and examples](docs/en/getting-started.md), with separate
+  guides for [local HTTPS](docs/en/local-https.md),
+  [signed URLs](docs/en/signed-urls.md) and the
+  [native binary](docs/en/native-binary.md)
 - [Detailed feature comparison](docs/en/feature-comparison.md)
 - [Generated implementation matrix](docs/en/feature-matrix.md)
 - [fake-gcs-server migration guide](docs/en/fake-gcs-server-migration.md) and
