@@ -4,9 +4,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .ok_or("missing grpc directory")?;
+    // Object data uses bytes::Bytes so decoded payloads and read chunks pass to and
+    // from the body streams without an extra copy into or out of a Vec.
     // Generate legacy first so shared packages retain the v2 foundation output.
     tonic_prost_build::configure()
         .build_client(false)
+        .bytes(".google.storage.v1.ChecksummedData.content")
         .generate_default_stubs(true)
         .extern_path(".google.api", "crate::grpc::generated::google::api")
         .extern_path(".google.iam.v1", "crate::grpc::generated::google::iam::v1")
@@ -17,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
     tonic_prost_build::configure()
         .build_client(false)
+        .bytes(".google.storage.v2.ChecksummedData.content")
         .out_dir(root.join("generated"))
         .include_file("mod.rs")
         .compile_protos(

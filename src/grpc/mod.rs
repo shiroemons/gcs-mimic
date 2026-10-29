@@ -24,6 +24,16 @@ use tokio::{net::TcpStream, sync::watch};
 use tonic::codegen::Service;
 
 const STREAM_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(60);
+const UPLOAD_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Splits decoded message data into the upload channel's 64 KiB chunks without copying.
+/// Queued chunks share the decoded message, so the 4 MiB decode limit and the bounded
+/// upload channel still bound the memory a stream retains.
+pub(crate) fn upload_chunks(data: &bytes::Bytes) -> impl Iterator<Item = bytes::Bytes> + '_ {
+    (0..data.len())
+        .step_by(UPLOAD_CHUNK_BYTES)
+        .map(|start| data.slice(start..data.len().min(start + UPLOAD_CHUNK_BYTES)))
+}
 
 pub(crate) async fn serve_connection(
     stream: TcpStream,

@@ -2327,8 +2327,8 @@ pub struct BucketAccessControl {
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ChecksummedData {
     /// Optional. The data.
-    #[prost(bytes = "vec", tag = "1")]
-    pub content: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "bytes", tag = "1")]
+    pub content: ::prost::bytes::Bytes,
     /// If set, the CRC32C digest of the content field.
     #[prost(fixed32, optional, tag = "2")]
     pub crc32c: ::core::option::Option<u32>,

@@ -491,8 +491,8 @@ pub mod list_channels_response {
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ChecksummedData {
     /// The data.
-    #[prost(bytes = "vec", tag = "1")]
-    pub content: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "bytes", tag = "1")]
+    pub content: ::prost::bytes::Bytes,
     /// CRC32C digest of the contents.
     #[prost(message, optional, tag = "2")]
     pub crc32c: ::core::option::Option<u32>,

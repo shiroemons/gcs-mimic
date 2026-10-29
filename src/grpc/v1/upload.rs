@@ -6,7 +6,6 @@ use crate::{
     hashing::Hasher,
     object::{ExpectedHashes, UploadChunk},
 };
-use bytes::Bytes;
 use tokio::sync::mpsc;
 use tonic::{Status, Streaming};
 
@@ -168,9 +167,9 @@ impl Storage {
                             )
                         })?;
                     hasher.update(&data.content);
-                    for part in data.content.chunks(64 * 1024) {
+                    for part in crate::grpc::upload_chunks(&data.content) {
                         sender
-                            .send(Ok(UploadChunk::Data(Bytes::copy_from_slice(part))))
+                            .send(Ok(UploadChunk::Data(part)))
                             .await
                             .map_err(|_| Status::cancelled("Upload staging stopped"))?;
                     }

@@ -8,7 +8,6 @@ use crate::{
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, UploadChunk},
     storage::{ResumableChunk, ResumableError, ResumableOptions, SessionState},
 };
-use bytes::Bytes;
 use prost::Message;
 use tokio::sync::{mpsc, watch};
 use tonic::codegen::tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
@@ -408,7 +407,7 @@ impl Storage {
                         let bytes = data.unwrap_or_default();
                         response.checksummed_data = Some(pb::ChecksummedData {
                             crc32c: Some(crc32c::crc32c(&bytes)),
-                            content: bytes.to_vec(),
+                            content: bytes,
                         });
                         if tx.send(Ok(response)).await.is_err() || done {
                             break;
@@ -895,8 +894,8 @@ impl Storage {
                 .admit_object_upload()
                 .map_err(object_status)?;
             let producer = async {
-                for bytes in data.content.chunks(64 * 1024) {
-                    tx.send(Ok(UploadChunk::Data(Bytes::copy_from_slice(bytes))))
+                for bytes in crate::grpc::upload_chunks(&data.content) {
+                    tx.send(Ok(UploadChunk::Data(bytes)))
                         .await
                         .map_err(|_| Status::cancelled("Upload consumer stopped"))?;
                 }
@@ -1013,7 +1012,7 @@ impl Storage {
                     ));
                 }
                 let discard = (offset - start).min(data.content.len() as u64) as usize;
-                let added = &data.content[discard..];
+                let added = data.content.slice(discard..);
                 offset = offset
                     .checked_add(added.len() as u64)
                     .ok_or_else(|| Status::out_of_range("Object size overflow"))?;
@@ -1029,9 +1028,9 @@ impl Storage {
                         "Written bytes do not match object_size; start a new upload with the correct size",
                     ));
                 }
-                hasher.update(added);
-                for chunk in added.chunks(64 * 1024) {
-                    tx.send(Ok(UploadChunk::Data(Bytes::copy_from_slice(chunk))))
+                hasher.update(&added);
+                for chunk in crate::grpc::upload_chunks(&added) {
+                    tx.send(Ok(UploadChunk::Data(chunk)))
                         .await
                         .map_err(|_| Status::cancelled("Upload consumer stopped"))?;
                 }
@@ -1161,7 +1160,7 @@ mod tests {
             finish_write: true,
             data: Some(pb::bidi_write_object_request::Data::ChecksummedData(
                 pb::ChecksummedData {
-                    content: data.to_vec(),
+                    content: bytes::Bytes::copy_from_slice(data),
                     crc32c: Some(crc32c::crc32c(data)),
                 },
             )),
@@ -1459,7 +1458,7 @@ mod tests {
             .into_inner();
         let response = reader.next().await.unwrap().unwrap();
         let data = response.checksummed_data.unwrap();
-        assert_eq!(data.content, b"gin");
+        assert_eq!(data.content, b"gin".as_slice());
         assert_eq!(data.crc32c, Some(crc32c::crc32c(b"gin")));
         assert_eq!(
             response.object_checksums.unwrap().crc32c,

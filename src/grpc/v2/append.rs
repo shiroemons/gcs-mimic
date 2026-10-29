@@ -13,7 +13,6 @@ use crate::{
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord},
     storage::{AppendError, AppendWriter, ObjectReader},
 };
-use bytes::Bytes;
 use tokio::sync::mpsc;
 use tonic::{
     Status,
@@ -203,7 +202,7 @@ impl Storage {
                     )
                 })?;
                 writer
-                    .append(offset, Bytes::from(data.content), self.max_object_bytes)
+                    .append(offset, data.content, self.max_object_bytes)
                     .await
                     .map_err(|e| append_status(e, caller))?;
             }

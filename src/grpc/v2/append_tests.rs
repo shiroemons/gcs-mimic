@@ -6,6 +6,7 @@ use crate::{
     storage::Catalog,
     test_support::TestDir,
 };
+use bytes::Bytes;
 use pb::bidi_write_object_request::{Data, FirstMessage};
 use pb::bidi_write_object_response::WriteStatus;
 use std::sync::{Arc, atomic::AtomicBool};
@@ -44,7 +45,7 @@ async fn setup(strict: bool) -> (TestDir, Storage) {
 
 fn data(content: &[u8]) -> Option<Data> {
     Some(Data::ChecksummedData(pb::ChecksummedData {
-        content: content.to_vec(),
+        content: Bytes::copy_from_slice(content),
         crc32c: Some(crc32c::crc32c(content)),
     }))
 }

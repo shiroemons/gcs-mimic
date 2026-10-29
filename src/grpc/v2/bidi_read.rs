@@ -325,13 +325,14 @@ async fn serve(
                     reader.next_chunk().await.map_err(|_| Status::internal("Cannot read object data; restore a valid data directory"))?
                         .unwrap_or_default()
                 };
-                range.read_offset += data.len() as i64;
-                range.read_length -= data.len() as i64;
+                let length = data.len() as i64;
+                range.read_offset += length;
+                range.read_length -= length;
                 let range_end = range.read_length == 0;
                 let response = pb::BidiReadObjectResponse {
                     object_data_ranges: vec![pb::ObjectRangeData {
-                        checksummed_data: Some(pb::ChecksummedData { crc32c: Some(crc32c::crc32c(&data)), content: data.to_vec() }),
-                        read_range: Some(pb::ReadRange { read_offset: offset, read_length: data.len() as i64, read_id: range.read_id }),
+                        checksummed_data: Some(pb::ChecksummedData { crc32c: Some(crc32c::crc32c(&data)), content: data }),
+                        read_range: Some(pb::ReadRange { read_offset: offset, read_length: length, read_id: range.read_id }),
                         range_end,
                     }],
                     ..Default::default()
