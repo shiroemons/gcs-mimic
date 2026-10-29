@@ -162,7 +162,11 @@ Their implementations were inspected; full upstream test suites were not execute
 | TLS listener | ✅ HTTPS-only (default) with built-in development certificate or supplied pair; explicit HTTP-only, TLS 1.2/1.3 and bounded handshake; [verified scope](evidence/local-tls.md) | ✅ HTTPS (default), HTTP or both; supplied pair or Go test certificate; [pinned implementation](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/main.go#L27-L76), source review | ❌ HTTP only; source review |
 | Default CORS for JSON API requests | ✅ | ✅ Global middleware | ❌ |
 | Enforce bucket-configured XML GET/HEAD/PUT CORS | ✅ | ❌ | ❌ |
-| ACL operations | ❌ | 🚧 Metadata operations; no enforcement | 🚧 Metadata/list operations; no enforcement |
+| ACL operations | 🚧 Bucket, default object and object ACL CRUD, default ACL inheritance and UBLA rejection; no enforcement; [contract](slices/json-acl.md) | 🚧 Metadata operations; no enforcement | 🚧 Metadata/list operations; no enforcement |
+| Project HMAC keys and service agent | 🚧 Persistent key lifecycle with one-time secrets; keys do not sign requests; [contract](slices/project-hmac-keys.md) | ❌ SDK scorecard | ❌ SDK scorecard |
+| Bucket notification configurations | 🚧 Stored and listed; nothing is published to Pub/Sub; [contract](slices/bucket-notifications.md) | ✅ SDK scorecard round trip | ❌ SDK scorecard |
+| Signed V4 POST policy form uploads | ✅ RSA signature, conditions and expiry; [scope](signed-urls.md#signed-post-policy-form-uploads) | ◐ SDK scorecard: Ruby passes, Go fails | ❌ SDK scorecard |
+| Object retention and customer-supplied keys | 🚧 Retention modes enforced on delete/overwrite; CSEK keys required to read data, which stays unencrypted on disk; [retention](slices/sdk-object-retention.md), [CSEK](slices/customer-supplied-keys.md) | ❌ SDK scorecard | ❌ SDK scorecard |
 | Store/retrieve unconditional bucket IAM bindings | ✅ | ❌ | ✅ Stored only |
 | Enforce predefined-role bucket IAM grants | ✅ Strict local identities | ❌ | ❌ |
 | Enforce strict local bearer-token permissions on scoped JSON/XML routes | ✅ | ❌ | ❌ |
@@ -173,6 +177,10 @@ Their implementations were inspected; full upstream test suites were not execute
 | XML response Content-Type / Content-Disposition overrides | ✅ Authorized GET/HEAD, ranges and V4 query binding without metadata mutation; [scope](slices/xml-response-overrides.md) | ✅ Both response headers in [download handler](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/object.go#L1162-L1174); source review only | 🚧 Content-Disposition only in [download handler](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py#L687-L740); source review only |
 | Virtual-hosted-style object endpoints | ✅ Explicit DNS suffix opt-in, GET/HEAD/PUT and strict signing; supplied matching SAN required for HTTPS; [scope](slices/xml-virtual-host.md) | ✅ Bucket-host GET/HEAD and upload routes in [router](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go#L306-L343); source review only | ❌ Path-only [public routes](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/server.py#L133-L143); source review only |
 | Public access prevention with preserved grants and valid signed access | ✅ Bucket enforcement and stored-grant reactivation; parent policy is LOCAL_SIMULATION; [scope](slices/public-access-prevention.md) | ❌ [Object handlers](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/object.go) do not enforce public grants/PAP; source review only | ❌ [Download handler](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py#L687-L740) does not enforce public grants/PAP; source review only |
+
+Rows marked "SDK scorecard" cite the
+[second 2026-10-29 run](../../sdk-scorecard/results/2026-10-29-2/summary.md);
+a passing scorecard case shows an SDK round trip, not full API compatibility.
 
 The optional plaintext `grpc_listen` serves the scoped Storage v2 subset in the
 first gRPC row: bucket CRUD, updates, IAM and retention locking; object reads,
