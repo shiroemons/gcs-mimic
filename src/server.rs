@@ -1150,6 +1150,8 @@ async fn object_response(
             )?;
             let destination_key = json::request_key(request.headers())?;
             let source_key = json::source_key(request.headers())?;
+            let token = json::resumable::single(request.headers(), "x-goog-gcs-idempotency-token")?
+                .map(str::to_owned);
             for name in [
                 "content-md5",
                 "x-goog-hash",
@@ -1157,7 +1159,6 @@ async fn object_response(
                 "if-range",
                 "if-modified-since",
                 "if-unmodified-since",
-                "x-goog-gcs-idempotency-token",
             ] {
                 if request.headers().contains_key(name) {
                     return Err(JsonError::unsupported_object(name));
@@ -1165,57 +1166,102 @@ async fn object_response(
             }
             let source_access =
                 authorize_bucket(state, caller, auth::OBJECTS_GET, &params.source_bucket).await?;
-            let source = state
-                .catalog
-                .resolve_derived_source_keyed(
-                    &params.source_bucket,
-                    &params.source_name,
-                    params.source_generation,
-                    params.source_conditions,
-                    &source_access,
-                    source_key,
-                )
-                .await?;
+            let method = request.method().clone();
+            let uri = request.uri().clone();
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let (mut metadata, storage_class, expected) =
-                json::derived_metadata(&bytes, &source.object)?;
-            metadata.customer_key_sha256 = destination_key.map(crate::csek::CustomerKey::sha256);
-            let source_location = if source.object.component_count.is_some() {
-                Some(
-                    state
-                        .catalog
-                        .get_bucket(&params.source_bucket)
-                        .await?
-                        .ok_or(ObjectError::BucketNotFound)?
-                        .location,
+            let request_binding = format!(
+                "copy-v1:{method}|{uri}|{}|{:?}|{:?}|{:?}",
+                state.api_base_url,
+                destination_key.map(crate::csek::CustomerKey::sha256),
+                source_key.map(crate::csek::CustomerKey::sha256),
+                ring::digest::digest(&ring::digest::SHA256, &bytes).as_ref()
+            );
+            let replay = await_upload_catalog(
+                state.catalog.prepare_copy_replay(
+                    &params.bucket,
+                    &params.name,
+                    params.conditions,
+                    &access,
+                    &params.source_bucket,
+                    &source_access,
+                    token.as_deref(),
+                    &request_binding,
+                ),
+                catalog_timeout,
+                deadline,
+                activity,
+            )
+            .await?;
+            upload_acl_snapshot = replay
+                .as_ref()
+                .map(crate::storage::CopyReplay::acl_snapshot);
+            let cached = if let Some(replay) = &replay {
+                await_upload_catalog(
+                    state.catalog.copy_replay_record(replay),
+                    catalog_timeout,
+                    deadline,
+                    activity,
                 )
+                .await?
             } else {
                 None
             };
             let projection = params.projection;
-            let record = copy::execute(
-                &state.catalog,
-                source,
-                source_access,
-                crate::storage::DerivedDestination {
-                    bucket: params.bucket,
-                    name: params.name,
-                    content_type: String::new(),
-                    metadata,
-                    storage_class,
-                    expected,
-                    conditions: params.conditions,
-                    access,
-                    component_count: None,
-                },
-                source_location,
-                config,
-                deadline,
-                activity,
-                #[cfg(test)]
-                None,
-            )
-            .await?;
+            let record = if let Some(record) = cached {
+                record
+            } else {
+                let source = state
+                    .catalog
+                    .resolve_derived_source_keyed(
+                        &params.source_bucket,
+                        &params.source_name,
+                        params.source_generation,
+                        params.source_conditions,
+                        &source_access,
+                        source_key,
+                    )
+                    .await?;
+                let (mut metadata, storage_class, expected) =
+                    json::derived_metadata(&bytes, &source.object)?;
+                metadata.customer_key_sha256 =
+                    destination_key.map(crate::csek::CustomerKey::sha256);
+                let source_location = if source.object.component_count.is_some() {
+                    Some(
+                        state
+                            .catalog
+                            .get_bucket(&params.source_bucket)
+                            .await?
+                            .ok_or(ObjectError::BucketNotFound)?
+                            .location,
+                    )
+                } else {
+                    None
+                };
+                copy::execute(
+                    &state.catalog,
+                    source,
+                    source_access,
+                    crate::storage::DerivedDestination {
+                        bucket: params.bucket,
+                        name: params.name,
+                        content_type: String::new(),
+                        metadata,
+                        storage_class,
+                        expected,
+                        conditions: params.conditions,
+                        access,
+                        component_count: None,
+                    },
+                    source_location,
+                    replay,
+                    config,
+                    deadline,
+                    activity,
+                    #[cfg(test)]
+                    None,
+                )
+                .await?
+            };
             json::object_resource_keyed(&record, &state.api_base_url, projection, destination_key)?
         }
         ObjectRequest::Compose {

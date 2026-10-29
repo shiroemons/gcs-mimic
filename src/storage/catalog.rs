@@ -47,6 +47,7 @@ pub use resumable::ResumableError;
 pub(crate) use resumable::ResumableSession;
 pub(crate) use resumable::{ResumableOptions, SessionState};
 pub(crate) use resumable_transfer::ResumableChunk;
+pub(crate) use upload_replay::CopyReplay;
 
 #[path = "resumable_maintenance.rs"]
 mod resumable_maintenance;

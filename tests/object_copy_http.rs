@@ -57,6 +57,243 @@ fn assert_no_transfer_files(dir: &TestDir) {
 }
 
 #[test]
+fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
+    let (dir, mut server) = setup(false);
+    server.put("source", b"original bytes").json();
+    let path = path(
+        "source",
+        "test-bucket",
+        "copy",
+        "?ifGenerationMatch=0&projection=full",
+    );
+    let headers = "X-Goog-Gcs-Idempotency-Token: retained-copy\r\n";
+    let body = br#"{"metadata":{"copied":"yes"}}"#;
+    server.put("copy", b"existing destination").json();
+    server
+        .request("POST", &path, headers, body)
+        .error(412, "conditionNotMet");
+    assert_eq!(
+        server
+            .request("DELETE", "/storage/v1/b/test-bucket/o/copy", ADMIN, b"")
+            .status,
+        204
+    );
+    let original = server.request("POST", &path, headers, body);
+    assert_eq!(original.status, 200);
+    assert!(original.json()["acl"].is_array());
+    server.put("source", b"changed source").json();
+    server.put("copy", b"changed destination").json();
+    assert_eq!(
+        server.request("POST", &path, headers, body).body,
+        original.body
+    );
+    assert_eq!(
+        media(&server, "test-bucket", "copy"),
+        b"changed destination"
+    );
+    for name in ["source", "copy"] {
+        assert_eq!(
+            server
+                .request(
+                    "DELETE",
+                    &format!("/storage/v1/b/test-bucket/o/{name}"),
+                    ADMIN,
+                    b""
+                )
+                .status,
+            204
+        );
+    }
+    server.stop();
+    let server = Server::start(&dir, false);
+    assert_eq!(
+        server.request("POST", &path, headers, body).body,
+        original.body
+    );
+    server.get("copy").error(404, "notFound");
+    for changed in [
+        path.replace("ifGenerationMatch=0", "ifGenerationMatch=1"),
+        path.replace("/o/copy?", "/o/other?"),
+        format!("{path}&sourceGeneration=1"),
+    ] {
+        server
+            .request("POST", &changed, headers, body)
+            .error(400, "invalidArgument");
+    }
+    server
+        .request("POST", &path, headers, b"{}")
+        .error(400, "invalidArgument");
+    server
+        .request(
+            "POST",
+            &path,
+            "X-Goog-Gcs-Idempotency-Token: fresh-copy\r\n",
+            body,
+        )
+        .error(404, "notFound");
+    assert_no_transfer_files(&dir);
+    assert_eq!(object_effects_support::blobs(&dir), 0);
+}
+
+#[test]
+fn concurrent_copy_token_retries_publish_one_generation_without_extra_blobs() {
+    let (dir, server) = setup(false);
+    server.put("source", &vec![b'x'; 1024 * 1024 + 3]).json();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    let workers: Vec<_> = (0..8)
+        .map(|_| {
+            let barrier = barrier.clone();
+            let address = server.address.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                object_effects_support::request(
+                    &address,
+                    "POST",
+                    &path("source", "test-bucket", "copy", "?ifGenerationMatch=0"),
+                    "X-Goog-Gcs-Idempotency-Token: concurrent-copy\r\n",
+                    b"",
+                )
+            })
+        })
+        .collect();
+    let results: Vec<_> = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap().json())
+        .collect();
+    assert!(results.iter().all(|value| value == &results[0]));
+    let last: i64 = rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
+        .unwrap()
+        .query_row("SELECT last_generation FROM object_generation", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(last.to_string(), results[0]["generation"].as_str().unwrap());
+    assert_no_transfer_files(&dir);
+    assert_eq!(object_effects_support::blobs(&dir), 2);
+}
+
+#[test]
+fn copy_token_rechecks_source_destination_and_acl_permissions() {
+    let (dir, server) = setup(true);
+    server.put("source", b"data").json();
+    server
+        .request(
+            "POST",
+            "/storage/v1/b?project=local",
+            ADMIN,
+            br#"{"name":"destination-bucket"}"#,
+        )
+        .json();
+    let policy = |bucket: &str, role: Option<&str>| {
+        let bindings = role
+            .map(|role| vec![json!({"role":role,"members":["user:scoped@example.test"]})])
+            .unwrap_or_default();
+        server
+            .request(
+                "PUT",
+                &format!("/storage/v1/b/{bucket}/iam"),
+                ADMIN,
+                json!({"bindings":bindings}).to_string().as_bytes(),
+            )
+            .json();
+    };
+    policy("test-bucket", Some("roles/storage.objectViewer"));
+    policy("destination-bucket", Some("roles/storage.objectAdmin"));
+    let path = path(
+        "source",
+        "destination-bucket",
+        "copy",
+        "?projection=full&ifGenerationMatch=0",
+    );
+    let headers = "Authorization: Bearer scoped\r\nX-Goog-Gcs-Idempotency-Token: scoped-copy\r\n";
+    let original = server.request("POST", &path, headers, b"");
+    assert_eq!(original.status, 200);
+    assert!(original.json()["acl"].is_array());
+    policy("test-bucket", None);
+    server
+        .request("POST", &path, headers, b"")
+        .error(403, "forbidden");
+    policy("test-bucket", Some("roles/storage.objectViewer"));
+    policy("destination-bucket", None);
+    server
+        .request("POST", &path, headers, b"")
+        .error(403, "forbidden");
+    policy("destination-bucket", Some("roles/storage.objectCreator"));
+    let retry = server.request("POST", &path, headers, b"");
+    assert_eq!(retry.status, 200);
+    let mut expected = original.json();
+    expected.as_object_mut().unwrap().remove("acl");
+    expected.as_object_mut().unwrap().remove("owner");
+    assert_eq!(retry.json(), expected);
+    policy("destination-bucket", Some("roles/storage.objectAdmin"));
+    assert_eq!(
+        server.request("POST", &path, headers, b"").body,
+        original.body
+    );
+    server
+        .request(
+            "POST",
+            &path,
+            "Authorization: Bearer admin\r\nX-Goog-Gcs-Idempotency-Token: scoped-copy\r\n",
+            b"",
+        )
+        .error(400, "invalidArgument");
+    assert_no_transfer_files(&dir);
+}
+
+#[test]
+fn copy_token_rejects_recreated_source_or_destination_buckets() {
+    for recreate in ["test-bucket", "destination-bucket"] {
+        let (_dir, server) = setup(false);
+        server.put("source", b"data").json();
+        server
+            .request(
+                "POST",
+                "/storage/v1/b?project=local",
+                ADMIN,
+                br#"{"name":"destination-bucket"}"#,
+            )
+            .json();
+        let path = path("source", "destination-bucket", "copy", "");
+        let headers = "X-Goog-Gcs-Idempotency-Token: incarnation-copy\r\n";
+        server.request("POST", &path, headers, b"").json();
+        let object = if recreate == "test-bucket" {
+            "source"
+        } else {
+            "copy"
+        };
+        assert_eq!(
+            server
+                .request(
+                    "DELETE",
+                    &format!("/storage/v1/b/{recreate}/o/{object}"),
+                    ADMIN,
+                    b""
+                )
+                .status,
+            204
+        );
+        assert_eq!(
+            server
+                .request("DELETE", &format!("/storage/v1/b/{recreate}"), ADMIN, b"")
+                .status,
+            204
+        );
+        server
+            .request(
+                "POST",
+                "/storage/v1/b?project=local",
+                ADMIN,
+                json!({"name":recreate}).to_string().as_bytes(),
+            )
+            .json();
+        server
+            .request("POST", &path, headers, b"")
+            .error(400, "invalidArgument");
+    }
+}
+
+#[test]
 fn copy_accepts_noop_hold_and_custom_time_defaults() {
     let (_dir, server) = setup(false);
     server.put("source", b"source bytes").json();

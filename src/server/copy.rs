@@ -4,7 +4,7 @@ use crate::{
     config::Config,
     json,
     object::{ObjectError, ObjectRecord},
-    storage::{Catalog, DerivedDestination, DerivedSource},
+    storage::{Catalog, CopyReplay, DerivedDestination, DerivedSource},
 };
 use std::time::Duration;
 use tokio::{sync::watch, time::Instant};
@@ -50,24 +50,27 @@ pub(super) async fn execute(
     source_access: BucketAccess,
     destination: DerivedDestination,
     source_location: Option<String>,
+    replay: Option<CopyReplay>,
     config: &Config,
     deadline: Instant,
     activity: &watch::Sender<ObjectActivity>,
     #[cfg(test)] mut checkpoint: Option<Checkpoint>,
 ) -> Result<ObjectRecord, ObjectError> {
     let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
-    await_upload_catalog(
-        catalog.check_upload(
-            &destination.bucket,
-            &destination.name,
-            destination.conditions,
-            &destination.access,
-        ),
-        catalog_timeout,
-        deadline,
-        activity,
-    )
-    .await?;
+    if replay.is_none() {
+        await_upload_catalog(
+            catalog.check_upload(
+                &destination.bucket,
+                &destination.name,
+                destination.conditions,
+                &destination.access,
+            ),
+            catalog_timeout,
+            deadline,
+            activity,
+        )
+        .await?;
+    }
     let source_record = source.object.clone();
     // shortcut: admission is phase-local; reserve one slot if later-stage rejection under load must be eliminated.
     activity.send_modify(|activity| activity.awaiting_catalog = true);
@@ -100,7 +103,7 @@ pub(super) async fn execute(
     // Only catalog admission can time out. Once publication starts, return its durable outcome
     // rather than reporting a timeout while a detached mutation can still commit.
     let result = catalog
-        .publish_derived_prepared(
+        .publish_derived_replayed(
             &transfer.id,
             destination,
             move |connection, destination| {
@@ -127,6 +130,7 @@ pub(super) async fn execute(
             },
             |_, _| Ok(()),
             Some(deadline.min(Instant::now() + catalog_timeout)),
+            replay,
         )
         .await;
     activity.send_modify(|activity| activity.awaiting_catalog = false);
@@ -263,6 +267,7 @@ mod tests {
                 source_access,
                 destination,
                 Some("US".into()),
+                None,
                 &config,
                 Instant::now() + Duration::from_secs(15),
                 &activity,

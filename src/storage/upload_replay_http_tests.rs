@@ -1,6 +1,122 @@
 use super::*;
 
 #[tokio::test]
+async fn copy_replay_binds_both_encryption_keys_and_keeps_retained_entries_at_capacity() {
+    let h = Harness::start(1000, false, None).await;
+    let key = |prefix, bytes: &[u8; 32]| {
+        crate::csek::key_headers(prefix, bytes)
+            .iter()
+            .map(|(name, value)| format!("{name}: {}\r\n", value.to_str().unwrap()))
+            .collect::<String>()
+    };
+    let destination = key(crate::csek::DESTINATION_PREFIX, &[1; 32]);
+    let source = key(crate::csek::SOURCE_PREFIX, &[1; 32]);
+    assert_eq!(
+        h.request(
+            "POST",
+            "/upload/storage/v1/b/bucket/o?uploadType=media&name=source",
+            &destination,
+            b"original"
+        )
+        .await
+        .status,
+        200
+    );
+    let path = "/storage/v1/b/bucket/o/source/copyTo/b/bucket/o/copy?ifGenerationMatch=0";
+    let token = "X-Goog-Gcs-Idempotency-Token: keyed-copy\r\n";
+    let headers = format!("{token}{destination}{source}");
+    let original = h.request("POST", path, &headers, b"").await;
+    assert_eq!(original.status, 200);
+    for changed in [
+        format!(
+            "{token}{destination}{}",
+            key(crate::csek::SOURCE_PREFIX, &[2; 32])
+        ),
+        format!(
+            "{token}{source}{}",
+            key(crate::csek::DESTINATION_PREFIX, &[2; 32])
+        ),
+    ] {
+        h.request("POST", path, &changed, b"")
+            .await
+            .error(400, "invalidArgument");
+    }
+    let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM entries WHERE n < 4095) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created, deadline, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
+    assert_eq!(
+        h.request("POST", path, &headers, b"").await.body,
+        original.body
+    );
+    h.request(
+        "POST",
+        path,
+        &format!("X-Goog-Gcs-Idempotency-Token: new-copy\r\n{destination}{source}"),
+        b"",
+    )
+    .await
+    .error(503, "backendError");
+    assert_eq!(
+        h.request("POST", path, &headers, b"").await.body,
+        original.body
+    );
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn copy_replay_oversized_completion_rolls_back_destination_and_generation() {
+    let h = Harness::start(1000, false, None).await;
+    assert_eq!(
+        h.request(
+            "POST",
+            "/upload/storage/v1/b/bucket/o?uploadType=media&name=source",
+            "",
+            b"source"
+        )
+        .await
+        .status,
+        200
+    );
+    let entries: Vec<_> = (0..100)
+        .map(|i| json!({"entity":format!("user-{i}{}", "a".repeat(700)),"role":"READER"}))
+        .collect();
+    let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
+    connection.execute("INSERT INTO acl_bucket_entries VALUES ('bucket', 'defaultObject', ?1) ON CONFLICT(bucket, scope) DO UPDATE SET entries = excluded.entries", [json!(entries).to_string()]).unwrap();
+    let generation: i64 = connection
+        .query_row("SELECT last_generation FROM object_generation", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    h.request(
+        "POST",
+        "/storage/v1/b/bucket/o/source/copyTo/b/bucket/o/oversized",
+        "X-Goog-Gcs-Idempotency-Token: oversized-copy\r\n",
+        b"",
+    )
+    .await
+    .error(400, "invalidArgument");
+    assert_eq!(
+        connection
+            .query_row("SELECT last_generation FROM object_generation", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+        generation
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM upload_replays", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    h.request("GET", "/storage/v1/b/bucket/o/oversized", "", b"")
+        .await
+        .error(404, "notFound");
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn upload_replay_never_crosses_authentication_profiles_after_restart() {
     let h = Harness::start(1000, false, Some("http://example.invalid")).await;
     let path = "/upload/storage/v1/b/bucket/o?uploadType=media&name=profile&ifGenerationMatch=0";

@@ -88,7 +88,8 @@ impl Server {
             std::fs::write(&identities, serde_json::json!({"identities":[
                 {"id":"admin@example.test","tokens":["admin"],"project_roles":{"local":["roles/storage.admin"]}},
                 {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"local":["roles/storage.objectViewer"]}},
-                {"id":"creator@example.test","tokens":["creator"],"project_roles":{"local":["roles/storage.objectCreator"]}}
+                {"id":"creator@example.test","tokens":["creator"],"project_roles":{"local":["roles/storage.objectCreator"]}},
+                {"id":"scoped@example.test","tokens":["scoped"]}
             ]}).to_string()).unwrap();
             command
                 .args(["--auth-mode", "strict", "--identity-file"])

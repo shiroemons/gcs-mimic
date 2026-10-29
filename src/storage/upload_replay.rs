@@ -61,11 +61,70 @@ fn invalid() -> ObjectError {
     ObjectError::InvalidFixedMetadata("Idempotency token was reused for a different upload".into())
 }
 
+#[derive(Clone)]
 pub(super) struct UploadReplay {
     token: Vec<u8>,
     request: Vec<u8>,
     incarnation: String,
     snapshot: UploadAclSnapshot,
+}
+
+#[derive(Clone)]
+pub(crate) struct CopyReplay {
+    replay: UploadReplay,
+    fingerprint: Vec<u8>,
+    source_bucket: String,
+    source_incarnation: String,
+    source_access: BucketAccess,
+    destination_bucket: String,
+    destination_access: BucketAccess,
+}
+
+impl CopyReplay {
+    pub(crate) fn acl_snapshot(&self) -> UploadAclSnapshot {
+        self.replay.snapshot.clone()
+    }
+
+    pub(super) fn cached(
+        &self,
+        connection: &Connection,
+        now: i64,
+    ) -> Result<Option<ObjectRecord>, ObjectError> {
+        objects::authorized_bucket(
+            connection,
+            &self.destination_bucket,
+            &self.destination_access,
+        )?;
+        objects::authorized_bucket(connection, &self.source_bucket, &self.source_access)?;
+        self.replay
+            .check_incarnation(connection, &self.destination_bucket)?;
+        let incarnation: String = connection
+            .query_row(
+                "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
+                [&self.source_bucket],
+                |row| row.get(0),
+            )
+            .map_err(objects::object_unavailable)?;
+        if incarnation != self.source_incarnation {
+            return Err(ObjectError::PreconditionFailed);
+        }
+        self.replay.replay(connection, now, &self.fingerprint)
+    }
+
+    pub(super) fn store(
+        &self,
+        connection: &Connection,
+        now: i64,
+        record: &ObjectRecord,
+    ) -> Result<(), ObjectError> {
+        self.replay.store(
+            connection,
+            now,
+            &self.fingerprint,
+            record,
+            &self.destination_access,
+        )
+    }
 }
 
 impl UploadReplay {
@@ -211,6 +270,86 @@ pub(super) fn fingerprint(value: &impl std::fmt::Debug) -> Vec<u8> {
 }
 
 impl Catalog {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Copy replay binds both resource authorities and the exact invocation"
+    )]
+    pub(crate) async fn prepare_copy_replay(
+        &self,
+        bucket: &str,
+        name: &str,
+        conditions: ObjectConditions,
+        access: &BucketAccess,
+        source_bucket: &str,
+        source_access: &BucketAccess,
+        token: Option<&str>,
+        request: &str,
+    ) -> Result<Option<CopyReplay>, ObjectError> {
+        if token.is_none() {
+            return Ok(None);
+        }
+        let source_bucket = source_bucket.to_owned();
+        let source_access = source_access.clone();
+        let source_query = source_bucket.clone();
+        let source_authority = source_access.clone();
+        let source_incarnation: String = self
+            .run_waiting(move |connection| {
+                Ok((|| {
+                    objects::authorized_bucket(connection, &source_query, &source_authority)?;
+                    connection
+                        .query_row(
+                            "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
+                            [&source_query],
+                            |row| row.get(0),
+                        )
+                        .map_err(objects::object_unavailable)
+                })())
+            })
+            .await
+            .map_err(objects::object_unavailable)??;
+        let request = serde_json::to_string(&(request, &source_incarnation))
+            .map_err(objects::object_unavailable)?;
+        let mut permit = self.admit_object_upload()?;
+        self.check_upload_replay(
+            bucket,
+            name,
+            conditions,
+            access,
+            token,
+            &request,
+            &mut permit,
+        )
+        .await?;
+        let replay = permit
+            .replay
+            .take()
+            .ok_or_else(|| objects::object_unavailable("Missing copy replay binding"))?;
+        Ok(Some(CopyReplay {
+            replay,
+            fingerprint: fingerprint(&request),
+            source_bucket,
+            source_incarnation,
+            source_access,
+            destination_bucket: bucket.to_owned(),
+            destination_access: access.clone(),
+        }))
+    }
+
+    pub(crate) async fn copy_replay_record(
+        &self,
+        replay: &CopyReplay,
+    ) -> Result<Option<ObjectRecord>, ObjectError> {
+        let replay = replay.clone();
+        let clock = self.0.clock.clone();
+        self.run_waiting(move |connection| {
+            Ok(unix_micros(clock.now())
+                .map_err(objects::object_unavailable)
+                .and_then(|now| replay.cached(connection, now)))
+        })
+        .await
+        .map_err(objects::object_unavailable)?
+    }
+
     #[allow(
         clippy::too_many_arguments,
         reason = "Upload advisory checks also bind the invocation and its admission permit"

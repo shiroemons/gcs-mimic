@@ -36,8 +36,9 @@ no dependency or SDK request header is removed or replaced.
 Media and multipart upload accept one nonempty invocation token with or without
 generation conditions. Empty or duplicate token headers still return 400
 `invalidParameter` before reading the body. Missing-token requests retain their
-existing behavior. XML, resumable initiation, PATCH, DELETE, derived transfers
-and other token-bearing operations are outside this replay implementation.
+existing behavior. Copy has the separately bounded scope below. XML, resumable
+initiation, PATCH, DELETE, rewrite, compose and other token-bearing operations
+are outside this replay implementation.
 
 The token's SHA-256 identifies a bounded catalog entry. The request binding
 contains the exact upload URI (including fields/projection and query spelling),
@@ -93,6 +94,30 @@ commit's blob is preserved even when SQL commit outcome is ambiguous. Response
 loss and restart do not erase the committed replay. This is not a claim about
 every filesystem crash window, host power loss or Google's exact cache policy.
 
+## JSON copy replay
+
+Copy uses the same ten-minute, 4096-entry, 64 KiB completion catalog without
+eviction. Its binding includes the exact method/URI, raw metadata-body digest,
+advertised API base, source and destination encryption-key digests,
+authentication profile/principal and both bucket incarnations. A changed
+query, body, key or principal is a conflicting invocation, not a new copy.
+The retained response is selected before resolving a mutable source generation.
+Thus a successful response can replay after source/destination overwrite or
+deletion and after restart, without recreating the deleted destination.
+
+Current source-read and destination-create permissions remain mandatory on
+every retry, including inside publication. ACL visibility uses the retained
+snapshot and current ACL-read permission. Fresh operations still enforce
+source/destination conditions, hashes, holds, retention and overwrite rights.
+Concurrent identical copies commit one generation and completion together;
+redundant derived blobs enter the existing recovery/deletion journal. A full
+catalog or oversized completion fails before destination publication commits.
+This scoped local replay rule does not establish exact provider cache behavior.
+Token admission checks destination conditions/capacity before resolving the
+source; a fresh token can therefore return 412/503 before a source 404/412.
+Non-token error ordering is unchanged and provider precedence is unverified.
+Bucket recreation during an in-flight copy returns 412 before publication.
+
 ## Python advisory content type
 
 Python's ordinary multipart request and later resumable PUT can repeat
@@ -115,6 +140,10 @@ declaration; conflicts fail without changing the acknowledged prefix.
 Nonfinal status-only requests may repeat an already-persisted declaration or
 subset after syntax/consistency validation, without changing hashes or offsets.
 New or conflicting declarations fail without invalidating the usable session.
+Completed status, final-status and data retries can repeat the persisted
+declarations or a subset, but cannot introduce a new algorithm, even with a
+correct checksum. Conflicts return 400 without invalidating the retained
+completion or changing the object; a later identical retry still replays.
 
 Finalization rereads the complete staged object in bounded buffers and verifies
 all persisted MD5/CRC32C declarations, including when the final request omits
@@ -138,6 +167,10 @@ on nonfinal chunks remains unverified; SDK compatibility does not close that gap
 | Python initiation and repeated PUT MIME | `python_upload_content_type_is_advisory_after_initiation` |
 | Empty, malformed and duplicate advisory MIME; preserved empty initiation fallback | `python_advisory_content_type_rejects_empty_malformed_and_duplicate_values` |
 | PHP repeated/conflicting declarations, restart, bad whole MD5/CRC32C | `php_chunk_hashes_persist_and_validate_the_whole_object` |
+| Completed status/final/data checksum retries preserve the completion | `completed_retries_reject_new_checksums_without_invalidating_completion` |
+| Copy response loss, changes, deletion, restart, concurrency and permissions | `copy_token_*`, `concurrent_copy_token_retries_publish_one_generation_without_extra_blobs` |
+| Copy source/destination key binding and full cache | `copy_replay_binds_both_encryption_keys_and_keeps_retained_entries_at_capacity` |
+| Oversized copy completion rolls back destination and generation | `copy_replay_oversized_completion_rolls_back_destination_and_generation` |
 
 Container builds and the full SDK scorecard run belong to integration. Neither
 is inferred from these native tests. Parent ledger rows retain unrelated pending
@@ -145,6 +178,9 @@ cases, existing evidence and their current statuses.
 
 ## Native verification
 
+The following historical slice checks preceded the final integration source.
+Final-source verification and the complete SDK result are collected in
+[SDK integration](sdk-scorecard-integration.md).
 Executed on 2026-10-29 with the committed Rust 1.99.1 toolchain and lockfile:
 
 | Command | Result |

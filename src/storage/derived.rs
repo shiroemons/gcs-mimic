@@ -670,6 +670,19 @@ impl Catalog {
         complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
         admission_deadline: Option<tokio::time::Instant>,
     ) -> Result<ObjectRecord, ObjectError> {
+        self.publish_derived_replayed(id, destination, prepare, complete, admission_deadline, None)
+            .await
+    }
+
+    pub(crate) async fn publish_derived_replayed(
+        &self,
+        id: &str,
+        destination: DerivedDestination,
+        prepare: impl FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
+        complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
+        admission_deadline: Option<tokio::time::Instant>,
+        replay: Option<super::upload_replay::CopyReplay>,
+    ) -> Result<ObjectRecord, ObjectError> {
         let permit = self.admit_object_upload()?;
         let guard = self.derived_guard(id)?;
         let execution = self.0.execution.clone().acquire_owned();
@@ -697,6 +710,13 @@ impl Catalog {
                 objects::publish_blob(&stage, &objects::blob_path(&data_dir, &query)?).map_err(unavailable)?;
                 let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
                 let (default_class, allow_overwrite) = objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
+                let micros = unix_micros(clock.now()).map_err(unavailable)?;
+                let cached = replay.as_ref().map(|replay| replay.cached(&transaction, micros)).transpose()?.flatten();
+                let record = if let Some(record) = cached {
+                    transaction.execute("INSERT INTO pending_blob_deletions(blob_id) VALUES (?1)", [&query]).map_err(unavailable)?;
+                    record
+                } else {
+                if replay.is_some() { super::upload_replay::capacity(&transaction, micros)?; }
                 // Autoclass ignores rewrite/copy/compose class requests and stores STANDARD.
                 let storage_class = super::bucket_autoclass::object_storage_class(&transaction, &destination.bucket, destination.storage_class.clone(), default_class).map_err(unavailable)?;
                 let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(&transaction, &destination.bucket).map_err(unavailable)?;
@@ -705,7 +725,6 @@ impl Catalog {
                 if destination.expected.md5.is_some_and(|hash| hash != md5) || destination.expected.crc32c.is_some_and(|hash| hash != crc32c) { return Err(ObjectError::ChecksumMismatch); }
                 let now = clock.now();
                 now.duration_since(std::time::UNIX_EPOCH).map_err(unavailable)?;
-                let micros = unix_micros(now).map_err(unavailable)?;
                 let time = system_time_micros(micros).map_err(unavailable)?;
                 let (record, _retired, ()) = objects::publish_in_transaction(&transaction, micros, objects::GenerationAssignment::Automatic, previous.as_ref(), versioning, &query, super::change_journal::origin(&destination.access), |generation| {
                 crate::bucket::validate_storage_class(&storage_class).map_err(|error| ObjectError::UnsupportedMetadata(error.to_string()))?;
@@ -724,6 +743,9 @@ impl Catalog {
                 Ok((record, ()))
                 })?;
                 complete(&transaction, &record)?;
+                if let Some(replay) = &replay { replay.store(&transaction, micros, &record)?; }
+                record
+                };
                 transaction.execute("DELETE FROM derived_inputs WHERE transfer_id = ?1", [&query]).map_err(unavailable)?;
                 transaction.execute("DELETE FROM derived_transfers WHERE id = ?1", [&query]).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
