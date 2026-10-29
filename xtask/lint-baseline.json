@@ -21,7 +21,6 @@
       "src/server/acl.rs": 1,
       "src/server/resumable.rs": 1,
       "src/server/rewrite.rs": 1,
-      "src/storage/acl.rs": 2,
       "src/storage/objects.rs": 5,
       "src/storage/resumable_recovery.rs": 1,
       "src/xml/mod.rs": 1
@@ -31,7 +30,7 @@
       "src/bucket.rs": 1,
       "src/bucket_init.rs": 1,
       "src/config_input.rs": 1,
-      "src/fsutil.rs": 3,
+      "src/fsutil.rs": 1,
       "src/grpc/v1/mod.rs": 2,
       "src/grpc/v2/append.rs": 2,
       "src/grpc/v2/object_io.rs": 2,
@@ -44,10 +43,8 @@
       "src/json/multipart.rs": 2,
       "src/json/object_metadata.rs": 3,
       "src/json/object_retention.rs": 1,
-      "src/json/objects.rs": 3,
+      "src/json/objects.rs": 1,
       "src/json/projects.rs": 1,
-      "src/json/query.rs": 1,
-      "src/json/rewrite.rs": 1,
       "src/match_glob.rs": 1,
       "src/object_retention.rs": 2,
       "src/server.rs": 1,
@@ -107,25 +104,6 @@
       "src/xml/post.rs": 3,
       "src/xml/put.rs": 1
     },
-    "clippy::unwrap_used": {
-      "src/auth/signature.rs": 8,
-      "src/bucket_lifecycle.rs": 3,
-      "src/http_conditions.rs": 1,
-      "src/json/buckets.rs": 1,
-      "src/json/cors.rs": 1,
-      "src/json/error.rs": 1,
-      "src/json/resumable_cancel.rs": 1,
-      "src/server.rs": 18,
-      "src/server/acl.rs": 1,
-      "src/server/notifications.rs": 1,
-      "src/server/project_resources.rs": 1,
-      "src/server/resumable.rs": 6,
-      "src/url.rs": 2,
-      "src/xml/cors.rs": 6,
-      "src/xml/mod.rs": 1,
-      "src/xml/post.rs": 2,
-      "src/xml/put.rs": 3
-    },
     "text::allow_too_many_arguments": {
       "src/grpc/v1/mod.rs": 1
     },
@@ -150,16 +128,10 @@
       "src/storage/sync_writeback.rs": 2
     },
     "text::string_error_result": {
-      "src/acl.rs": 3,
-      "src/auth/mod.rs": 3,
-      "src/auth/signature.rs": 6,
-      "src/config.rs": 2,
+      "src/config.rs": 1,
       "src/main.rs": 3,
-      "src/notification.rs": 6,
       "src/storage/object_retention.rs": 1,
-      "src/storage/resumable.rs": 1,
-      "src/sync/mod.rs": 1,
-      "src/url.rs": 5
+      "src/storage/resumable.rs": 1
     },
     "text::unavailable_helper": {
       "(all files)": 5
