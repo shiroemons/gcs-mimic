@@ -80,4 +80,10 @@ CIはリンク時間を短くするため`CARGO_PROFILE_DEV_DEBUG=line-tables-on
 Windowsのテストは一時ディレクトリに`RUNNER_TEMP`を使います。
 リリースワークフローのネイティブテストも同じ2つの設定を使いますが、Cargoのキャッシュは使わず、
 配布アーカイブは常にクリーンなtargetディレクトリからビルドします。
+
+Markdownファイルと`docs/`だけを変えた場合は、Foundation checksを実行せず、Documentation checksワークフローを実行します。
+このワークフローは`scripts/check.sh`と同じ`scripts/check-docs.sh`を使い、機能台帳と生成した機能表、
+リリースノートのリンク、Docker Hubの説明文を検査します。コミット済みのドキュメントを読む検査を追加するときは、
+両方のワークフローで実行されるよう、このスクリプトに加えます。ほかのファイルも変えた場合は通常どおりFoundation checksを実行し、
+リリースのワークフローは常にすべての検査を実行します。ドキュメントだけのコミットでFoundation checksを実行したいときは、手動実行を使います。
 依存の更新確認や直接実行するコマンドは[英語の開発手順](../en/development.md)を参照してください。

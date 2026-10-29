@@ -1,0 +1,46 @@
+name: Documentation checks
+on:
+  # These paths are exactly the ones Foundation checks ignores, plus this
+  # workflow's own inputs, so no documentation change goes unchecked.
+  push:
+    branches: ['**']
+    paths:
+      - '**/*.md'
+      - 'docs/**'
+      - '.github/workflows/docs.yaml'
+      - 'scripts/check-docs.sh'
+  pull_request:
+    paths:
+      - '**/*.md'
+      - 'docs/**'
+      - '.github/workflows/docs.yaml'
+      - 'scripts/check-docs.sh'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  docs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust
+        shell: bash
+        run: |
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
+          rustup toolchain install "$pin" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
+      # The xtask build is small; a separate key keeps it from replacing the
+      # Foundation checks caches.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: docs
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo fetch --locked
+      - run: bash scripts/check-docs.sh

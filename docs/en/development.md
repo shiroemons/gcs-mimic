@@ -98,6 +98,15 @@ and Windows tests use `RUNNER_TEMP` as their temporary directory. The release
 workflow's native test runs use the same two settings but no Cargo cache, so
 release archives always build from a clean target directory.
 
+Changes that touch only Markdown files or `docs/` skip Foundation checks and
+run the Documentation checks workflow instead. It runs `scripts/check-docs.sh`,
+the same documentation checks that `scripts/check.sh` runs: the feature ledger
+and generated matrices, release-note links and the Docker Hub overview. Add any
+new check that reads committed documentation to that script so both workflows
+run it. A change that also touches other files runs Foundation checks as usual,
+and release workflows always run the full checks. Use manual dispatch to run
+Foundation checks for a documentation-only commit.
+
 Run the separate online freshness check at slice start and before release:
 
 ```sh
