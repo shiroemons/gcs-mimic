@@ -233,12 +233,12 @@ not imply complete XML semantics or authenticated-only public access.
 | API-created objects appear as bucket/object files | ✅ `--sync-dir` mirror beside opaque storage | ✅ Filesystem backend | ✅ Disk backend |
 | Reconcile external edits with hashes and generation metadata | 🚧 Create/edit at startup; no deletion or watcher | ❌ Direct reads can expose stale metadata | ❌ No reconciliation contract |
 | Optional in-memory backend | ❌ | ✅ | ✅ |
-| Import a bucket/object seed directory | ✅ Every startup; an exactly identical object keeps its generation (0.2.1: one-time import) | ✅ Startup and explicit reseed | ❌ Default bucket creation is separate |
+| Import a bucket/object seed directory | ✅ Every startup; an exactly identical object keeps its generation | ✅ Startup and explicit reseed | ❌ Default bucket creation is separate |
 | Published native binaries | ✅ macOS, Windows and Linux amd64+arm64 | ✅ macOS/Linux amd64+arm64; Windows amd64 | ❌ Python runtime required |
 | Published Docker image | ✅ GHCR and Docker Hub linux/amd64+arm64 | ✅ Docker Hub | ✅ Docker Hub |
 | Project license | MIT OR Apache-2.0 | BSD-2-Clause | BSD-3-Clause |
 
-From the next release, gcs-mimic applies its seed directory before readiness on
+gcs-mimic applies its seed directory before readiness on
 every startup, and the image reads `/data` without extra settings. As in
 fake-gcs-server, an object that differs from its seed file in bytes or metadata,
 including API metadata edits, becomes a new live generation. Only an object
@@ -246,8 +246,7 @@ exactly matching what seeding would write keeps its generation, where
 fake-gcs-server writes a new one; fake-gcs-server also offers
 `/_internal/reseed`, while gcs-mimic has no reseed endpoint or watcher, so
 restart to apply edits. Neither product deletes
-objects whose seed file was removed. The 0.2.1 release imports once into a fresh
-data directory.
+objects whose seed file was removed.
 
 gcs-mimic's sync directory is a mirror beside its catalog, not a second storage
 backend: API writes appear shortly after each response, and external creates and

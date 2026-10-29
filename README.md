@@ -12,7 +12,7 @@ fixtures by mounting a directory, and keep data with a volume.
 ## Quick start
 
 ```sh
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.2.1
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.3.0
 curl -k 'https://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -27,7 +27,7 @@ then create a bucket, upload a file and read it:
 ```sh
 docker rm -f gcs-mimic
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.2.1
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.3.0
 curl --fail \
   -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=demo-project'
@@ -42,8 +42,8 @@ so that shells such as zsh do not expand `?`. Data stays in the container until
 it is removed; add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep it.
 
 The image is published for `linux/amd64` and `linux/arm64`. Docker Hub serves
-the same digest as `shiroemons/gcs-mimic:0.2.1`. See the
-[0.2.1 release notes](docs/en/releases/0.2.1.md), the
+the same digest as `shiroemons/gcs-mimic:0.3.0`. See the
+[0.3.0 release notes](docs/en/releases/0.3.0.md), the
 [0.1.0 features and known limitations](docs/en/releases/0.1.0.md), or the
 [source-build guide](docs/en/getting-started.md).
 
@@ -52,7 +52,7 @@ the same digest as `shiroemons/gcs-mimic:0.2.1`. See the
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.2.1
+    image: ghcr.io/shiroemons/gcs-mimic:0.3.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -79,18 +79,16 @@ data/
 ```
 
 ```sh
-# GCS_MIMIC_SEED_DIR is needed only for 0.2.1; later releases read /data automatically.
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_SEED_DIR=/data \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.2.1
+  -e GCS_MIMIC_SCHEME=http \
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.3.0
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 curl 'http://localhost:4443/storage/v1/b/sample-bucket/o'
 ```
 
 Each top-level directory becomes a bucket owned by `local-project`, and files
-become objects. From the next release, like fake-gcs-server, the files are
-applied on every startup and win over API changes at the same names, while
-other objects are kept; 0.2.1 imports them once into a fresh data directory.
+become objects. Like fake-gcs-server, the files are applied on every startup
+and win over API changes at the same names, while other objects are kept.
 See [loading local files](docs/en/container-usage.md#load-local-files) for the
 exact rules and the differences from fake-gcs-server.
 
@@ -145,7 +143,7 @@ and the [SDK and authentication guide](docs/en/getting-started.md) for more.
 List every option with:
 
 ```sh
-docker run --rm ghcr.io/shiroemons/gcs-mimic:0.2.1 --help
+docker run --rm ghcr.io/shiroemons/gcs-mimic:0.3.0 --help
 ```
 
 Moving from fake-gcs-server? Its flags and the 19 known `FAKE_GCS_*` variables
@@ -180,8 +178,7 @@ These are workflow summaries, not claims of complete Google API compatibility.
 | gRPC legacy Storage v1 reference RPCs | ✅ | ◐ First upload message | ❌ |
 | Published Docker image | ✅ GHCR and Docker Hub | ✅ | ✅ |
 
-The seed row describes the next release; 0.2.1 imports once into a fresh data
-directory. The mirror row uses an optional `--sync-dir`
+The mirror row uses an optional `--sync-dir`
 [directory](docs/en/container-usage.md#mirror-objects-to-a-host-directory)
 beside the internal storage; external deletion is not imported. The gRPC rows
 cover scoped subsets on standard buckets, and individual RPC rows in the feature
@@ -190,7 +187,7 @@ ledger remain `PARTIAL`; see the
 their limits.
 
 Comparison baseline: fake-gcs-server `v1.56.1` and gcp-storage-emulator
-`v2026.07.19`; gcs-mimic is `0.2.1`.
+`v2026.07.19`; gcs-mimic is `0.3.0`.
 Seed loading excludes migration of existing backend metadata and history.
 See the [detailed comparison](docs/en/feature-comparison.md) for criteria,
 sources and verification limits, and the generated
@@ -209,7 +206,7 @@ sources and verification limits, and the generated
 - [Roadmap](docs/en/roadmap.md)
 - [Development and checks](docs/en/development.md)
 - [Release policy](docs/en/release-policy.md)
-- [0.2.1 release notes](docs/en/releases/0.2.1.md) and
+- [0.3.0 release notes](docs/en/releases/0.3.0.md) and
   [0.1.0 features and known limitations](docs/en/releases/0.1.0.md)
 
 ## License

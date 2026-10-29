@@ -2,9 +2,9 @@
 
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
-The image `ghcr.io/shiroemons/gcs-mimic:0.2.1` is published for `linux/amd64`
+The image `ghcr.io/shiroemons/gcs-mimic:0.3.0` is published for `linux/amd64`
 and `linux/arm64`; pulling it needs no registry login. Docker Hub serves the same
-image digest as `shiroemons/gcs-mimic:0.2.1`, so either name works in the
+image digest as `shiroemons/gcs-mimic:0.3.0`, so either name works in the
 commands below. Pin this exact version in CI. To test unreleased source instead,
 build a local image from a checkout and use its tag in the commands below:
 
@@ -19,7 +19,7 @@ empty buckets. It covers UX-012, DESIGN-061 and UX-001.
 The [README quick start](../../README.md#quick-start) is the shortest start: one
 `docker run` serves HTTPS with a built-in development certificate, and
 `-e GCS_MIMIC_SCHEME=http` selects plain HTTP. List every option with
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.2.1 --help`.
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.3.0 --help`.
 
 ## Docker run
 
@@ -28,7 +28,7 @@ docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
-  ghcr.io/shiroemons/gcs-mimic:0.2.1
+  ghcr.io/shiroemons/gcs-mimic:0.3.0
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -100,16 +100,14 @@ Mount it read-only at `/data`:
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
   -e GCS_MIMIC_SCHEME=http \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.2.1
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.3.0
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
 In Compose, add `- ./data:/data:ro` to the service's existing `volumes` list.
-No environment variable is needed from the next release. With 0.2.1, also set
-`GCS_MIMIC_SEED_DIR=/data`; it imports once into a fresh data directory, and
-later restarts or added bucket directories do not import again.
-
-The rest of this section describes the next release.
+No environment variable is needed. 0.2.1 and earlier required
+`GCS_MIMIC_SEED_DIR=/data` and imported seed files once; see the
+[0.3.0 release notes](releases/0.3.0.md) when upgrading.
 
 ### When the seed directory is used
 
@@ -238,7 +236,7 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
   -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
   -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/data \
   -e GCS_MIMIC_SYNC_DIR=/sync \
-  ghcr.io/shiroemons/gcs-mimic:0.2.1
+  ghcr.io/shiroemons/gcs-mimic:0.3.0
 ```
 
 See the [synchronization contract](slices/directory-synchronization.md) for the

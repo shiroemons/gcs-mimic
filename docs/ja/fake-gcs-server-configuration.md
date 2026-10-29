@@ -136,11 +136,11 @@ Composeの`command`はCMDを置き換えるため、サーバー引数を渡す�
 変更する場合は環境変数を上書きすると、自動ヘルスチェックも同じ待受を使います。
 `GCS_MIMIC_PORT`・`GCS_MIMIC_IMAGE`・`GCS_MIMIC_TLS_DIR`はCompose呼び出し側だけに渡してください。
 
-0.2.1では、seed未指定で無関係な`/data`に中身がある場合、一度だけのseed取込設定を警告します。
-自動取込はせず、native保存先との重なり・親子・symlinkを検査して危険な案内を避けます。
-次のリリースからは、イメージが代わりに`GCS_MIMIC_DEFAULT_SEED_DIR=/data`を設定します。
+イメージは`GCS_MIMIC_DEFAULT_SEED_DIR=/data`を設定します。
 `seed_dir`が未指定なら、存在してデータ・同期ディレクトリと重ならない`/data`を読み込み、
 それ以外は何も表示せずに無視します。[初期ファイルの読み込み](container-usage.md#初期ファイルを読み込む)を参照してください。
+0.2.1以前は明示した`GCS_MIMIC_SEED_DIR`からだけ、初期ファイルを一度だけ読み込んでいました。
+[0.3.0のリリースノート（英語）](../en/releases/0.3.0.md)を参照してください。
 設定はCLI・環境変数・JSONを合わせて1024件、元のキーはUTF-8で256バイトまでです。
 JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制限します。
 [契約と検証結果](../en/evidence/configuration-diagnostics.md)を参照してください。
@@ -152,8 +152,8 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | 追加のHTTP待受 | `GCS_MIMIC_LISTEN_HTTP` | both専用。既定はprimaryのIPと8000番 |
 | API応答に載せる接続先 | `GCS_MIMIC_API_BASE_URL` | 公開URLの生成とは別 |
 | 公開origin | `GCS_MIMIC_PUBLIC_BASE_URL` | DNS名のXML仮想ホストと、任意指定のlegacy Host照合に使用 |
-| 初期ファイル | `GCS_MIMIC_SEED_DIR`、`GCS_MIMIC_DEFAULT_SEED_DIR`（イメージでは`/data`） | 次のリリースから起動のたびに反映する。APIでのメタデータ変更を含め、違いがあれば新しい世代にし、完全に同じオブジェクトだけ世代を残す。reseedのルートはない。0.2.1は`GCS_MIMIC_SEED_DIR`が必要で初回読込のみ |
-| 初期ファイルのContent-Type | `GCS_MIMIC_SEED_CONTENT_TYPE` | 次のリリースから既定は拡張子から決める`extension`。`octet-stream`で以前の既定値に戻す |
+| 初期ファイル | `GCS_MIMIC_SEED_DIR`、`GCS_MIMIC_DEFAULT_SEED_DIR`（イメージでは`/data`） | 起動のたびに反映する。APIでのメタデータ変更を含め、違いがあれば新しい世代にし、完全に同じオブジェクトだけ世代を残す。reseedのルートはない |
+| 初期ファイルのContent-Type | `GCS_MIMIC_SEED_CONTENT_TYPE` | 既定は拡張子から決める`extension`。`octet-stream`で以前の既定値に戻す |
 | 初期バケットのproject | `GCS_MIMIC_SEED_PROJECT` | 所有projectを指定 |
 | 永続データ保存先 | `GCS_MIMIC_DATA_DIR` | 旧保存先の直接流用は不可 |
 | 証明書 | `GCS_MIMIC_TLS_CERT` | 対応する鍵も必要 |

@@ -29,9 +29,8 @@ Both trees can look like this, but they are separate copies:
 The seed reader treats top-level directories as buckets and relative file paths
 as object names. It also creates empty buckets. It reads fixture bytes into
 memory, calculates hashes and derives Content-Type from the filename extension.
-From the next release, the native gcs-mimic seed reader also derives
-Content-Type from the extension through its own pinned table; 0.2.1 defaults to
-`application/octet-stream`.
+The native gcs-mimic seed reader also derives Content-Type from the extension
+through its own pinned table.
 
 Source: [CLI configuration](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/config/config.go),
 [Docker entrypoint](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/Dockerfile),
@@ -104,15 +103,15 @@ objects. Restart with the same seed also overwrites an API mutation at that name
 Source inspection shows that memory reseed replaces the in-memory backend, so it
 has a different lifecycle; that branch was not executed in this investigation.
 
-From the next release, gcs-mimic also applies its seed directory on every
+gcs-mimic also applies its seed directory on every
 startup, and its image reads `/data` by default. Like fake-gcs-server, it
 replaces an object that differs from its seed file in bytes or metadata,
 including API metadata edits, with a new live generation. Unlike
 fake-gcs-server, an object exactly matching what seeding would write keeps its
 generation. Objects without a seed file are retained, and removing a seed
-file deletes nothing. There is no reseed route or watcher. In 0.2.1, a persisted
-initialization marker limits import to a fresh catalog, so restart and later
-fixture edits do not replay over API changes.
+file deletes nothing. There is no reseed route or watcher. 0.2.1 and earlier
+imported seed files once into a fresh catalog; see the
+[0.3.0 release notes](releases/0.3.0.md).
 
 ## Multiple buckets and CORS
 

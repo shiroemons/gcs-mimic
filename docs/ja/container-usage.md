@@ -6,9 +6,9 @@
 
 最短の起動方法は[READMEの「まず動かす」](README.md#まず動かす)です。
 `docker run`ひとつで組み込みの開発用証明書を使うHTTPSが起動し、`-e GCS_MIMIC_SCHEME=http`でHTTPになります。
-すべての設定は`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.2.1 --help`で確認できます。
-イメージ`ghcr.io/shiroemons/gcs-mimic:0.2.1`は`linux/amd64`と`linux/arm64`向けに公開済みで、
-ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.2.1`として公開しており、
+すべての設定は`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.3.0 --help`で確認できます。
+イメージ`ghcr.io/shiroemons/gcs-mimic:0.3.0`は`linux/amd64`と`linux/arm64`向けに公開済みで、
+ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.3.0`として公開しており、
 以下のコマンドではどちらの名前も使えます。CIではこのバージョンを明示してください。
 未公開のソースを試す場合は、チェックアウトでローカルイメージをビルドし、以下のコマンドのイメージ名を置き換えます。
 
@@ -29,7 +29,7 @@ docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
-  ghcr.io/shiroemons/gcs-mimic:0.2.1
+  ghcr.io/shiroemons/gcs-mimic:0.3.0
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -105,15 +105,13 @@ data/
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
   -e GCS_MIMIC_SCHEME=http \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.2.1
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.3.0
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
 Composeでは、サービスの既存の`volumes`へ`- ./data:/data:ro`を追記します。
-次のリリースからは環境変数は不要です。0.2.1では`GCS_MIMIC_SEED_DIR=/data`も指定してください。
-新しいデータディレクトリへ一度だけ読み込み、再起動や後から足したバケットディレクトリでは読み込みません。
-
-以降は次のリリースの動作です。
+環境変数は不要です。0.2.1以前は`GCS_MIMIC_SEED_DIR=/data`が必要で、初期ファイルを一度だけ読み込んでいました。
+更新するときは[0.3.0のリリースノート（英語）](../en/releases/0.3.0.md)を参照してください。
 
 ### 初期ファイルのディレクトリが使われる条件
 
@@ -225,7 +223,7 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
   -p 127.0.0.1:4443:4443 \
   -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
   -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/data -e GCS_MIMIC_SYNC_DIR=/sync \
-  ghcr.io/shiroemons/gcs-mimic:0.2.1
+  ghcr.io/shiroemons/gcs-mimic:0.3.0
 ```
 
 検証済みの範囲、復旧の挙動、未実装の作業は[同期の契約（英語）](../en/slices/directory-synchronization.md)を参照してください。

@@ -15,7 +15,7 @@ Google Cloudのアカウントなしで、バケット作成やファイルの�
 ## まず動かす
 
 ```sh
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.2.1
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.3.0
 curl -k 'https://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -29,7 +29,7 @@ SDKから使う場合はHTTPのほうが手軽です。コンテナをHTTPで起
 ```sh
 docker rm -f gcs-mimic
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.2.1
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.3.0
 curl --fail \
   -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=demo-project'
@@ -43,8 +43,8 @@ curl --fail 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=medi
 データはコンテナを削除するまで残ります。削除後も残すには`-v gcs-mimic-data:/var/lib/gcs-mimic`を追加します。
 
 イメージは`linux/amd64`と`linux/arm64`向けに公開しています。
-Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.2.1`として取得できます。
-[0.2.1のリリースノート（英語）](../en/releases/0.2.1.md)、
+Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.3.0`として取得できます。
+[0.3.0のリリースノート（英語）](../en/releases/0.3.0.md)、
 [0.1.0の機能と既知の制限（英語）](../en/releases/0.1.0.md)、
 [ソースからの導入手順（英語）](../en/getting-started.md)も参照してください。
 
@@ -53,7 +53,7 @@ Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.2.1`とし
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.2.1
+    image: ghcr.io/shiroemons/gcs-mimic:0.3.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -79,17 +79,16 @@ data/
 ```
 
 ```sh
-# GCS_MIMIC_SEED_DIRが必要なのは0.2.1だけです。次のリリースからは/dataを自動で読み込みます。
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_SEED_DIR=/data \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.2.1
+  -e GCS_MIMIC_SCHEME=http \
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.3.0
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 curl 'http://localhost:4443/storage/v1/b/sample-bucket/o'
 ```
 
 最上位のディレクトリは`local-project`所有のバケットになり、ファイルはオブジェクトになります。
-次のリリースからはfake-gcs-serverと同じく起動のたびに反映し、同じ名前ではAPIでの変更よりファイルを優先します。
-それ以外のオブジェクトは残ります。0.2.1では新しいデータディレクトリへ一度だけ読み込みます。
+fake-gcs-serverと同じく起動のたびに反映し、同じ名前ではAPIでの変更よりファイルを優先します。
+それ以外のオブジェクトは残ります。
 細かい規則とfake-gcs-serverとの違いは[初期ファイルの読み込み](container-usage.md#初期ファイルを読み込む)を参照してください。
 
 ## アプリから接続する
@@ -141,7 +140,7 @@ GoのgRPCクライアントは、後述のgRPC待受を`STORAGE_EMULATOR_HOST_GR
 すべての設定は次のコマンドで確認できます。
 
 ```sh
-docker run --rm ghcr.io/shiroemons/gcs-mimic:0.2.1 --help
+docker run --rm ghcr.io/shiroemons/gcs-mimic:0.3.0 --help
 ```
 
 fake-gcs-serverから移行する場合、旧フラグと既知19個の`FAKE_GCS_*`環境変数は、
@@ -175,13 +174,12 @@ Google API全体との完全互換を示すものではありません。
 | 比較対象の旧Storage v1 gRPC RPC | ✅ | ◐ 最初のアップロードメッセージのみ | ❌ |
 | 公開Dockerイメージ | ✅ GHCR・Docker Hub | ✅ | ✅ |
 
-初期ファイルの行は次のリリースの動作です。0.2.1は新しいデータディレクトリへ一度だけ読み込みます。
 書き出しの行は、内部の保存先とは別の任意の`--sync-dir`
 [ディレクトリ](container-usage.md#オブジェクトをホストのディレクトリへ書き出す)を使い、外部での削除は取り込みません。
 gRPCの行は通常バケットでの記載範囲で、台帳の個々のRPCは`PARTIAL`のままです。
 制限は[機能比較](feature-comparison.md)と[gRPCの接続と制限](grpc-v2-bidi-read.md)を参照してください。
 
-比較対象はfake-gcs-server`v1.56.1`とgcp-storage-emulator`v2026.07.19`、gcs-mimicは`0.2.1`です。
+比較対象はfake-gcs-server`v1.56.1`とgcp-storage-emulator`v2026.07.19`、gcs-mimicは`0.3.0`です。
 初期ファイルの読み込みは、既存バックエンドのメタデータや履歴の移行を含みません。
 基準・出典・検証の範囲は[機能比較](feature-comparison.md)、
 実装状態は[詳細な機能表](feature-matrix.md)を参照してください。
