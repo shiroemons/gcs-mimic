@@ -21,11 +21,18 @@ pub async fn cancel_response<B: Body + Unpin>(
         .await
         .map_err(JsonError::from)?;
     let mut response = Response::new(Full::new(Bytes::new()));
-    // Google answers a cancelled resumable session with the nonstandard 499 status.
-    *response.status_mut() =
-        StatusCode::from_u16(499).expect("499 lies within the valid 100..=999 status range");
+    *response.status_mut() = cancelled_status();
     response
         .headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok(response)
+}
+
+/// Google answers a cancelled resumable session with the nonstandard 499 status.
+#[expect(
+    clippy::expect_used,
+    reason = "499 lies within the 100..=999 range StatusCode accepts, and from_u16 is not const"
+)]
+fn cancelled_status() -> StatusCode {
+    StatusCode::from_u16(499).expect("499 is a valid status code")
 }

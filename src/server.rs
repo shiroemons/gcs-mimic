@@ -1761,9 +1761,7 @@ async fn object_response(
                         let mut response = error
                             .into_response()
                             .map(|body| body.map_err(|never| match never {}).boxed_unsync());
-                        response
-                            .headers_mut()
-                            .insert("content-range", unsatisfied_content_range(record.size));
+                        insert_unsatisfied_content_range(response.headers_mut(), record.size);
                         return Ok(response);
                     }
                 };
@@ -1776,7 +1774,7 @@ async fn object_response(
                         )
                     })?;
                     headers.insert("content-length", length.into());
-                    headers.insert("content-range", content_range(offset, length, record.size));
+                    insert_content_range(&mut headers, offset, length, record.size);
                 }
                 let mut response = Response::new(object_body(reader, activity));
                 if range.is_some() {
@@ -1983,14 +1981,12 @@ async fn xml_response(
         Ok(range) => range,
         Err(_) if head => {
             // HEAD's Range only adds Content-Range; status and representation length stay unchanged.
-            headers.insert("content-range", unsatisfied_content_range(record.size));
+            insert_unsatisfied_content_range(&mut headers, record.size);
             None
         }
         Err(error) => {
             let mut response = boxed(xml::Error::from(error).response(head));
-            response
-                .headers_mut()
-                .insert("content-range", unsatisfied_content_range(record.size));
+            insert_unsatisfied_content_range(response.headers_mut(), record.size);
             return Ok(response);
         }
     };
@@ -2005,7 +2001,7 @@ async fn xml_response(
             })?;
             headers.insert("content-length", length.into());
         }
-        headers.insert("content-range", content_range(offset, length, record.size));
+        insert_content_range(&mut headers, offset, length, record.size);
     }
     let mut response = if head {
         boxed(empty_response(StatusCode::OK))
@@ -2506,16 +2502,21 @@ fn read_metadata_response(
     query_not_modified: bool,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let not_modified = read_etag_not_modified(headers, etag)? || query_not_modified;
-    let etag = hyper::header::HeaderValue::from_str(etag)
-        .expect("ETags are rendered locally from quoted ASCII digits and base64");
     let no_cache = hyper::header::HeaderValue::from_static("no-cache");
-    if not_modified {
-        return Ok(not_modified_response(&etag, &no_cache));
+    // ETags are rendered locally from quoted ASCII digits and base64, so the conversion always
+    // succeeds; omitting the validator is safer than panicking if that ever changes.
+    let etag = hyper::header::HeaderValue::from_str(etag).ok();
+    let mut response = if not_modified {
+        empty_response(StatusCode::NOT_MODIFIED)
+    } else {
+        fields.apply(&mut value);
+        json_response(&value)
+    };
+    let response_headers = response.headers_mut();
+    if let Some(etag) = etag {
+        response_headers.insert("etag", etag);
     }
-    fields.apply(&mut value);
-    let mut response = json_response(&value);
-    response.headers_mut().insert("etag", etag);
-    response.headers_mut().insert("cache-control", no_cache);
+    response_headers.insert("cache-control", no_cache);
     Ok(response)
 }
 
@@ -2535,21 +2536,24 @@ fn json_response(value: &serde_json::Value) -> Response<Full<Bytes>> {
     response
 }
 
-/// `Content-Range` for a satisfiable range; decimal positions always form a valid value.
-fn content_range(offset: u64, length: u64, size: u64) -> hyper::header::HeaderValue {
-    hyper::header::HeaderValue::try_from(format!(
+/// Insert `Content-Range` for a satisfiable range. Decimal positions always form a valid header
+/// value, so the conversion cannot fail in practice.
+fn insert_content_range(headers: &mut hyper::HeaderMap, offset: u64, length: u64, size: u64) {
+    if let Ok(value) = hyper::header::HeaderValue::try_from(format!(
         "bytes {}-{}/{}",
         offset,
         offset + length - 1,
         size
-    ))
-    .expect("a decimal byte range is a valid header value")
+    )) {
+        headers.insert("content-range", value);
+    }
 }
 
-/// `Content-Range` for an unsatisfiable range request.
-fn unsatisfied_content_range(size: u64) -> hyper::header::HeaderValue {
-    hyper::header::HeaderValue::try_from(format!("bytes */{size}"))
-        .expect("a decimal object size is a valid header value")
+/// Insert `Content-Range` for an unsatisfiable range request.
+fn insert_unsatisfied_content_range(headers: &mut hyper::HeaderMap, size: u64) {
+    if let Ok(value) = hyper::header::HeaderValue::try_from(format!("bytes */{size}")) {
+        headers.insert("content-range", value);
+    }
 }
 
 fn probe_or_unknown(request: &Request<Incoming>, state: &State) -> Response<Full<Bytes>> {

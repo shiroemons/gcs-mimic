@@ -88,11 +88,10 @@ pub(crate) fn response_headers(
                 .map(HeaderName::as_str)
                 .collect::<Vec<_>>()
                 .join(", ");
-            result.insert(
-                "access-control-allow-headers",
-                HeaderValue::try_from(names)
-                    .expect("header names joined by \", \" are a valid header value"),
-            );
+            // Header names joined by ", " always form a valid header value.
+            if let Ok(names) = HeaderValue::try_from(names) {
+                result.insert("access-control-allow-headers", names);
+            }
         }
         result.insert("access-control-max-age", HeaderValue::from_static("3600"));
     } else {

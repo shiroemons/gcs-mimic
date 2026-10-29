@@ -111,12 +111,11 @@ pub(super) fn incomplete(
     } else {
         StatusCode::PERMANENT_REDIRECT
     });
-    if offset > 0 {
-        response.headers_mut().insert(
-            "range",
-            HeaderValue::try_from(format!("bytes=0-{}", offset - 1))
-                .expect("a decimal byte range is a valid header value"),
-        );
+    // A decimal byte range is always a valid header value.
+    if offset > 0
+        && let Ok(range) = HeaderValue::try_from(format!("bytes=0-{}", offset - 1))
+    {
+        response.headers_mut().insert("range", range);
     }
     if override_status {
         response.headers_mut().insert(
