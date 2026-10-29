@@ -101,26 +101,95 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            let nested = error
-                .downcast_ref::<io::Error>()
-                .and_then(|e| e.get_ref())
-                .and_then(|e| e.downcast_ref::<Diagnostics>());
             let fallback = Diagnostics::error(
                 DiagnosticSource::Runtime,
                 "runtime",
                 "Command failed; check --help and the configured local resources.",
             );
-            let diagnostics = error
-                .downcast_ref::<Diagnostics>()
-                .or(nested)
-                .unwrap_or(&fallback);
+            let diagnostics = error.diagnostics().unwrap_or(&fallback);
             let _ = diagnostics.write(io::stderr().lock());
             ExitCode::FAILURE
         }
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+/// A command failure. Only its diagnostics reach the user; any other failure is reported as a
+/// generic runtime diagnostic so internal error text never replaces actionable advice.
+#[derive(Debug)]
+enum CliError {
+    Diagnostics(Diagnostics),
+    /// A failure that may carry diagnostics as its inner error, as startup phases do.
+    Io(io::Error),
+}
+
+impl CliError {
+    fn diagnostics(&self) -> Option<&Diagnostics> {
+        match self {
+            Self::Diagnostics(diagnostics) => Some(diagnostics),
+            Self::Io(error) => error
+                .get_ref()
+                .and_then(|inner| inner.downcast_ref::<Diagnostics>()),
+        }
+    }
+
+    /// Keeps the diagnostics of a dynamically typed failure, such as the importer's.
+    fn from_boxed(error: Box<dyn std::error::Error>) -> Self {
+        match error.downcast::<Diagnostics>() {
+            Ok(diagnostics) => Self::Diagnostics(*diagnostics),
+            Err(error) => match error.downcast::<io::Error>() {
+                Ok(error) => Self::Io(*error),
+                Err(error) => Self::Io(io::Error::other(error.to_string())),
+            },
+        }
+    }
+}
+
+impl std::fmt::Display for CliError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Diagnostics(diagnostics) => diagnostics.fmt(f),
+            Self::Io(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for CliError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Diagnostics(diagnostics) => Some(diagnostics),
+            Self::Io(error) => Some(error),
+        }
+    }
+}
+
+impl From<Diagnostics> for CliError {
+    fn from(diagnostics: Diagnostics) -> Self {
+        Self::Diagnostics(diagnostics)
+    }
+}
+
+impl From<io::Error> for CliError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+/// The fix text of a rejected `url` helper invocation, reported as its `url` diagnostic.
+struct UrlFix(String);
+
+impl From<String> for UrlFix {
+    fn from(fix: String) -> Self {
+        Self(fix)
+    }
+}
+
+impl From<&str> for UrlFix {
+    fn from(fix: &str) -> Self {
+        Self(fix.to_owned())
+    }
+}
+
+fn cli_args() -> Result<Vec<String>, Diagnostics> {
     let args: Vec<_> = std::env::args_os()
         .skip(1)
         .take(2054)
@@ -139,12 +208,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             DiagnosticSource::Cli,
             "input_limit",
             "Configuration accepts at most 1024 supplied settings; remove excess arguments.",
-        )
-        .into());
+        ));
     }
+    Ok(args)
+}
+
+fn run() -> Result<(), CliError> {
+    let args = cli_args()?;
     match args.as_slice() {
         [command, kind, rest @ ..] if command == "import" && kind == "fake-gcs-server" => {
-            return gcs_mimic::import::cli(rest);
+            return gcs_mimic::import::cli(rest).map_err(CliError::from_boxed);
         }
         _ => (),
     }
@@ -180,89 +253,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         [command, kind, rest @ ..] if command == "url" && kind == "public" => {
-            let configured = helper_public_base(rest)?;
-            println!(
-                "{}",
-                url_public(rest, configured).map_err(|fix| Diagnostics::error(
-                    DiagnosticSource::Cli,
-                    "url",
-                    fix
-                ))?
-            );
-            Ok(())
+            url_command(rest, url_public)
         }
         [command, kind, help] if command == "url" && kind == "sign" && help == "--help" => {
             println!("{URL_SIGN_HELP}");
             Ok(())
         }
         [command, kind, rest @ ..] if command == "url" && kind == "sign" => {
-            let configured = helper_public_base(rest)?;
-            println!(
-                "{}",
-                url_sign(rest, configured).map_err(|fix| Diagnostics::error(
-                    DiagnosticSource::Cli,
-                    "url",
-                    fix
-                ))?
-            );
-            Ok(())
+            url_command(rest, url_sign)
         }
-        [command, rest @ ..] if command == "serve" => {
-            let mut report = Config::preflight_os(rest, std::env::vars_os());
-            // Validate supplied TLS material before touching the catalog, seed or listener.
-            let mut acceptor = None;
-            if report.valid(&["scheme", "tls_cert", "tls_key"]) {
-                match tls::load_server(&report.config) {
-                    Ok(value) => acceptor = value,
-                    Err(_) => report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Tls, "tls_cert",
-                        "Cannot load TLS identity; provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with one private key and a certificate chain.")),
-                }
-            }
-            // Load the registry before binding so a bad identity file never reaches readiness.
-            let mut auth = Auth::permissive();
-            if report.valid(&["auth_mode", "identity_file"])
-                && let Some(path) = &report.config.identity_file
-            {
-                match Registry::load(path) {
-                    Ok(registry) => auth = Auth::strict(registry),
-                    Err(_) => report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Identity, "identity_file",
-                        "Cannot load identity_file; provide a readable valid registry at most 64 KiB with unique ids/tokens, supported project_roles and valid RSA public_keys; remove unknown fields and private keys.")),
-                }
-            }
-            if report.valid(&["data_dir", "seed_dir", "default_seed_dir", "sync_dir"]) {
-                let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
-                report.diagnostics.warnings.extend(warnings);
-            }
-            if report.diagnostics.is_err() {
-                return Err(report.diagnostics.into());
-            }
-            report.diagnostics.write(io::stderr().lock())?;
-            let config = report.config;
-            gcs_mimic::diagnostics::set_log_level(config.log_level);
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(config.worker_threads)
-                .max_blocking_threads(config.max_blocking_threads)
-                .enable_all()
-                .build().map_err(|_| phase(DiagnosticSource::Runtime, "runtime", "Cannot create runtime; check worker limits and available system resources."))?;
-            runtime.block_on(async move {
-                #[cfg(unix)]
-                let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).map_err(|_| phase(DiagnosticSource::Runtime, "signal", "Cannot register termination signal; check the local runtime environment."))?;
-                #[cfg(unix)]
-                let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).map_err(|_| phase(DiagnosticSource::Runtime, "signal", "Cannot register interrupt signal; check the local runtime environment."))?;
-                #[cfg(windows)]
-                let mut terminate = tokio::signal::windows::ctrl_break().map_err(|_| phase(DiagnosticSource::Runtime, "signal", "Cannot register termination signal; check the local runtime environment."))?;
-                #[cfg(windows)]
-                let mut interrupt = tokio::signal::windows::ctrl_c().map_err(|_| phase(DiagnosticSource::Runtime, "signal", "Cannot register interrupt signal; check the local runtime environment."))?;
-                let shutdown = async {
-                    #[cfg(any(unix, windows))]
-                    tokio::select! { _ = interrupt.recv() => Ok(()), _ = terminate.recv() => Ok(()) }
-                    #[cfg(not(any(unix, windows)))]
-                    tokio::signal::ctrl_c().await
-                };
-                startup::serve(config, auth, acceptor, shutdown).await
-            })?;
-            Ok(())
-        }
+        [command, rest @ ..] if command == "serve" => serve(rest),
         _ => Err(Diagnostics::error(
             DiagnosticSource::Cli,
             "command",
@@ -270,6 +270,112 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         )
         .into()),
     }
+}
+
+/// Prints the URL a `url` helper builds, after reading an explicit `--config` base.
+fn url_command(
+    args: &[String],
+    build: fn(&[String], Option<String>) -> Result<String, UrlFix>,
+) -> Result<(), CliError> {
+    let configured = helper_public_base(args)?;
+    let url = build(args, configured)
+        .map_err(|UrlFix(fix)| Diagnostics::error(DiagnosticSource::Cli, "url", fix))?;
+    println!("{url}");
+    Ok(())
+}
+
+fn serve(rest: &[String]) -> Result<(), CliError> {
+    let mut report = Config::preflight_os(rest, std::env::vars_os());
+    // Validate supplied TLS material before touching the catalog, seed or listener.
+    let mut acceptor = None;
+    if report.valid(&["scheme", "tls_cert", "tls_key"]) {
+        match tls::load_server(&report.config) {
+            Ok(value) => acceptor = value,
+            Err(_) => report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Tls, "tls_cert",
+                "Cannot load TLS identity; provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with one private key and a certificate chain.")),
+        }
+    }
+    // Load the registry before binding so a bad identity file never reaches readiness.
+    let mut auth = Auth::permissive();
+    if report.valid(&["auth_mode", "identity_file"])
+        && let Some(path) = &report.config.identity_file
+    {
+        match Registry::load(path) {
+            Ok(registry) => auth = Auth::strict(registry),
+            Err(_) => report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Identity, "identity_file",
+                "Cannot load identity_file; provide a readable valid registry at most 64 KiB with unique ids/tokens, supported project_roles and valid RSA public_keys; remove unknown fields and private keys.")),
+        }
+    }
+    if report.valid(&["data_dir", "seed_dir", "default_seed_dir", "sync_dir"]) {
+        let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
+        report.diagnostics.warnings.extend(warnings);
+    }
+    if report.diagnostics.is_err() {
+        return Err(report.diagnostics.into());
+    }
+    report.diagnostics.write(io::stderr().lock())?;
+    let config = report.config;
+    gcs_mimic::diagnostics::set_log_level(config.log_level);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(config.worker_threads)
+        .max_blocking_threads(config.max_blocking_threads)
+        .enable_all()
+        .build()
+        .map_err(|_| {
+            phase(
+                DiagnosticSource::Runtime,
+                "runtime",
+                "Cannot create runtime; check worker limits and available system resources.",
+            )
+        })?;
+    runtime.block_on(async move {
+        #[cfg(unix)]
+        let mut terminate = tokio::signal::unix::signal(
+            tokio::signal::unix::SignalKind::terminate(),
+        )
+        .map_err(|_| {
+            phase(
+                DiagnosticSource::Runtime,
+                "signal",
+                "Cannot register termination signal; check the local runtime environment.",
+            )
+        })?;
+        #[cfg(unix)]
+        let mut interrupt = tokio::signal::unix::signal(
+            tokio::signal::unix::SignalKind::interrupt(),
+        )
+        .map_err(|_| {
+            phase(
+                DiagnosticSource::Runtime,
+                "signal",
+                "Cannot register interrupt signal; check the local runtime environment.",
+            )
+        })?;
+        #[cfg(windows)]
+        let mut terminate = tokio::signal::windows::ctrl_break().map_err(|_| {
+            phase(
+                DiagnosticSource::Runtime,
+                "signal",
+                "Cannot register termination signal; check the local runtime environment.",
+            )
+        })?;
+        #[cfg(windows)]
+        let mut interrupt = tokio::signal::windows::ctrl_c().map_err(|_| {
+            phase(
+                DiagnosticSource::Runtime,
+                "signal",
+                "Cannot register interrupt signal; check the local runtime environment.",
+            )
+        })?;
+        let shutdown = async {
+            #[cfg(any(unix, windows))]
+            tokio::select! { _ = interrupt.recv() => Ok(()), _ = terminate.recv() => Ok(()) }
+            #[cfg(not(any(unix, windows)))]
+            tokio::signal::ctrl_c().await
+        };
+        startup::serve(config, auth, acceptor, shutdown).await
+    })?;
+    Ok(())
 }
 
 fn helper_public_base(args: &[String]) -> Result<Option<String>, Diagnostics> {
@@ -289,24 +395,23 @@ fn helper_public_base(args: &[String]) -> Result<Option<String>, Diagnostics> {
     }
 }
 
-fn url_public(args: &[String], configured: Option<String>) -> Result<String, String> {
+fn url_public(args: &[String], configured: Option<String>) -> Result<String, UrlFix> {
     let mut options = BTreeMap::new();
     for pair in args.chunks(2) {
         let [name, value] = pair else {
             return Err(format!(
                 "url public options require --name VALUE pairs\n{URL_PUBLIC_HELP}"
-            ));
+            )
+            .into());
         };
         if !matches!(
             name.as_str(),
             "--base-url" | "--config" | "--bucket" | "--object" | "--style"
         ) {
-            return Err(format!(
-                "unknown url public option: {name}\n{URL_PUBLIC_HELP}"
-            ));
+            return Err(format!("unknown url public option: {name}\n{URL_PUBLIC_HELP}").into());
         }
         if options.insert(name.as_str(), value.as_str()).is_some() {
-            return Err(format!("duplicate option: {name}"));
+            return Err(format!("duplicate option: {name}").into());
         }
     }
     let required = |name| {
@@ -325,23 +430,23 @@ fn url_public(args: &[String], configured: Option<String>) -> Result<String, Str
         required("--bucket")?,
         required("--object")?,
     )
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string().into())
 }
 
-fn url_base(options: &BTreeMap<&str, &str>, configured: Option<String>) -> Result<String, String> {
+fn url_base(options: &BTreeMap<&str, &str>, configured: Option<String>) -> Result<String, UrlFix> {
     options.get("--base-url").map(|base| (*base).to_owned()).or(configured)
         .ok_or_else(|| "missing required option: --base-url; provide --base-url URL or --config PATH containing public_base_url.".into())
 }
 
-fn url_sign(args: &[String], configured: Option<String>) -> Result<String, String> {
+fn url_sign(args: &[String], configured: Option<String>) -> Result<String, UrlFix> {
     let mut options = BTreeMap::new();
     let mut headers = hyper::HeaderMap::new();
     let mut query = Vec::new();
     for pair in args.chunks(2) {
         let [name, value] = pair else {
-            return Err(format!(
-                "url sign options require --name VALUE pairs\n{URL_SIGN_HELP}"
-            ));
+            return Err(
+                format!("url sign options require --name VALUE pairs\n{URL_SIGN_HELP}").into(),
+            );
         };
         if name == "--header" {
             let (key, value) = value.split_once(':').ok_or("header must be NAME:VALUE")?;
@@ -372,10 +477,10 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, Strin
                     | "--timestamp"
                     | "--style"
             ) {
-                return Err(format!("unknown url sign option: {name}"));
+                return Err(format!("unknown url sign option: {name}").into());
             }
             if options.insert(name.as_str(), value.as_str()).is_some() {
-                return Err(format!("duplicate option: {name}"));
+                return Err(format!("duplicate option: {name}").into());
             }
         }
     }
@@ -442,7 +547,7 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, Strin
         now,
         headers,
     )
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string().into())
 }
 
 fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
