@@ -5,7 +5,7 @@ use crate::{
     json::{self, JsonError},
     object::{ObjectConditions, ObjectError},
     server::{
-        ObjectCtx, ResponseBody, acl, boxed, gzip, insert_content_range,
+        ObjectCtx, QueryPrecondition, ResponseBody, acl, boxed, gzip, insert_content_range,
         insert_unsatisfied_content_range, not_modified_response, object_body,
         read_etag_not_modified, read_metadata_response,
     },
@@ -198,12 +198,18 @@ async fn metadata(
     if params.projection == json::Projection::Full {
         acl::add_full_projection(ctx.state, ctx.caller, &mut resource).await?;
     }
+    let query = if params.conditions.if_generation_not_match == Some(record.generation)
+        || params.conditions.if_metageneration_not_match == Some(record.metageneration)
+    {
+        QueryPrecondition::NotModified
+    } else {
+        QueryPrecondition::Unmatched
+    };
     Ok(boxed(read_metadata_response(
         request.headers(),
         &json::object_etag(&record),
         resource,
         fields,
-        params.conditions.if_generation_not_match == Some(record.generation)
-            || params.conditions.if_metageneration_not_match == Some(record.metageneration),
+        query,
     )?))
 }

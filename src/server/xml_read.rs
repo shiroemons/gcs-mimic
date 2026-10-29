@@ -82,10 +82,12 @@ async fn read(
             .map(|(record, reader)| (record, reader, true))
     }
     .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
-    let mut headers = xml::media_headers(
-        &record,
-        xml::CacheScope::for_public_read(reader.publicly_readable),
-    )?;
+    let scope = if reader.publicly_readable {
+        xml::CacheScope::Public
+    } else {
+        xml::CacheScope::Private
+    };
+    let mut headers = xml::media_headers(&record, scope)?;
     json::insert_response_headers(&record, &mut headers);
     if !reveal {
         headers.remove("x-goog-hash");
@@ -100,7 +102,9 @@ async fn read(
             None
         }
         Err(error) => {
-            let mut response = boxed(xml::Error::from(error).response(head));
+            let mut response = boxed(
+                xml::Error::from(error).response(xml::ErrorBody::for_method(request.method())),
+            );
             insert_unsatisfied_content_range(response.headers_mut(), record.size);
             return Ok(response);
         }

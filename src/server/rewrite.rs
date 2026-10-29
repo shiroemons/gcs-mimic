@@ -102,13 +102,12 @@ pub(super) async fn respond(
     activity.send_modify(|progress| progress.awaiting_catalog = false);
     let (value, mut owner) = result
         .map_err(|failure| JsonError::from(ObjectError::Unavailable(failure.to_string())))??;
-    let response = boxed(
-        Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "application/json; charset=utf-8")
-            .body(Full::new(Bytes::from(value.to_string())))
-            .expect("valid rewrite response"),
+    let mut response = Response::new(Full::new(Bytes::from(value.to_string())));
+    response.headers_mut().insert(
+        "content-type",
+        hyper::header::HeaderValue::from_static("application/json; charset=utf-8"),
     );
+    let response = boxed(response);
     if let Some(owner) = &mut owner {
         owner.disarm();
     }

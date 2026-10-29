@@ -79,6 +79,24 @@ pub(crate) struct Error {
     message: String,
 }
 
+/// Whether an XML error response carries its body. A HEAD response sends only the headers,
+/// including the Content-Length of the body it omits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ErrorBody {
+    Include,
+    Omit,
+}
+
+impl ErrorBody {
+    pub(crate) fn for_method(method: &Method) -> Self {
+        if method == Method::HEAD {
+            Self::Omit
+        } else {
+            Self::Include
+        }
+    }
+}
+
 impl Error {
     fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
         Self {
@@ -88,7 +106,7 @@ impl Error {
         }
     }
 
-    pub fn unsupported(name: &str) -> Self {
+    pub(crate) fn unsupported(name: &str) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
             "InvalidArgument",
@@ -98,7 +116,7 @@ impl Error {
         )
     }
 
-    pub fn response(self, head: bool) -> Response<Full<Bytes>> {
+    pub(crate) fn response(self, body_mode: ErrorBody) -> Response<Full<Bytes>> {
         let escaped = self
             .message
             .replace('&', "&amp;")
@@ -109,10 +127,9 @@ impl Error {
             self.code
         );
         let content_length = HeaderValue::from(body.len());
-        let mut response = Response::new(Full::new(if head {
-            Bytes::new()
-        } else {
-            Bytes::from(body)
+        let mut response = Response::new(Full::new(match body_mode {
+            ErrorBody::Omit => Bytes::new(),
+            ErrorBody::Include => Bytes::from(body),
         }));
         *response.status_mut() = self.status;
         let headers = response.headers_mut();
@@ -271,7 +288,7 @@ pub(crate) struct ObjectPath {
 }
 
 impl ObjectPath {
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.uri.path()[self.name_start..]
     }
 }
@@ -400,7 +417,7 @@ pub(crate) fn route(
         }
         let generation = query
             .remove("generation")
-            .map(|value| number(&value, false))
+            .map(|value| number(&value, MinValue::One))
             .transpose()?;
         if *method == Method::DELETE && !query.is_empty() {
             return Err(Error::unsupported(
@@ -451,10 +468,22 @@ fn signing_parameter(key: &str) -> bool {
         || crate::auth::signature::V2_PARAMETERS.contains(&key)
 }
 
-fn number(raw: &str, zero: bool) -> Result<i64, Error> {
+/// The smallest generation or metageneration a field accepts. Generation 0 in a generation
+/// precondition requires that no live object exists; every other field starts at 1.
+#[derive(Clone, Copy)]
+enum MinValue {
+    Zero,
+    One,
+}
+
+fn number(raw: &str, min: MinValue) -> Result<i64, Error> {
+    let floor = match min {
+        MinValue::Zero => 0,
+        MinValue::One => 1,
+    };
     raw.parse::<i64>()
         .ok()
-        .filter(|n| *n >= i64::from(!zero))
+        .filter(|n| *n >= floor)
         .filter(|_| !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()))
         .ok_or_else(|| {
             Error::new(
@@ -528,16 +557,16 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
             return Err(Error::unsupported(key));
         }
     }
-    for (key, target, zero) in [
+    for (key, target, min) in [
         (
             "x-goog-if-generation-match",
             &mut request.conditions.if_generation_match,
-            true,
+            MinValue::Zero,
         ),
         (
             "x-goog-if-metageneration-match",
             &mut request.conditions.if_metageneration_match,
-            false,
+            MinValue::One,
         ),
     ] {
         let mut values = headers.get_all(key).iter();
@@ -557,7 +586,7 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
                         "Invalid precondition header.",
                     )
                 })?,
-                zero,
+                min,
             )?);
         }
     }
@@ -581,16 +610,6 @@ pub(crate) enum CacheScope {
     Private,
 }
 
-impl CacheScope {
-    pub(crate) fn for_public_read(publicly_readable: bool) -> Self {
-        if publicly_readable {
-            Self::Public
-        } else {
-            Self::Private
-        }
-    }
-}
-
 pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<HeaderMap, Error> {
     let mut headers = json::object_media_headers(record)?;
     let cache = record.cache_control.as_deref().unwrap_or(match scope {
@@ -611,23 +630,32 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
         )
     };
     let timestamp = json::timestamp(record.updated)?;
+    let invalid_timestamp = || {
+        Error::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ServiceUnavailable",
+            "Invalid stored timestamp.",
+        )
+    };
     let days = record
         .updated
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| {
-            Error::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "ServiceUnavailable",
-                "Invalid stored timestamp.",
-            )
-        })?
+        .map_err(|_| invalid_timestamp())?
         .as_secs()
         / 86400;
     let weekday = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"][(days % 7) as usize];
-    let month: usize = timestamp[5..7].parse().expect("validated timestamp month");
-    let month = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ][month - 1];
+    // RFC 3339 timestamps always carry a two-digit month at bytes 5..7.
+    let month = timestamp
+        .get(5..7)
+        .and_then(|month| month.parse::<usize>().ok())
+        .and_then(|month| {
+            [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ]
+            .get(month.checked_sub(1)?)
+            .copied()
+        })
+        .ok_or_else(invalid_timestamp)?;
     let date = format!(
         "{weekday}, {} {month} {} {} GMT",
         &timestamp[8..10],

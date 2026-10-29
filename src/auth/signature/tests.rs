@@ -252,7 +252,7 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
     )
     .err()
     .unwrap();
-    let response = error.response(false);
+    let response = error.response(crate::xml::ErrorBody::Include);
     assert_eq!(response.status(), hyper::StatusCode::BAD_REQUEST);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert!(String::from_utf8_lossy(&body).contains("<Code>ExpiredToken</Code>"));

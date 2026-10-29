@@ -2,8 +2,8 @@
 //! request validation.
 
 use super::{
-    BUCKET_BODY_LIMIT, State, acl, authorize_bucket, authorize_project, empty_response,
-    json_response, read_metadata_response, validate_bodyless_post,
+    BUCKET_BODY_LIMIT, QueryPrecondition, State, acl, authorize_bucket, authorize_project,
+    empty_response, json_response, read_metadata_response, validate_bodyless_post,
 };
 use crate::{
     auth::{self, Caller},
@@ -296,15 +296,20 @@ async fn get_iam(
     fields: &json::Fields,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let policy = ctx.state.catalog.get_policy(bucket, access).await?;
+    // The catalog renders every stored policy with an etag from its revision.
+    let etag = policy.etag.as_deref().ok_or_else(|| {
+        JsonError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "backendError",
+            "Stored IAM policy has no etag",
+        )
+    })?;
     read_metadata_response(
         request.headers(),
-        &format!(
-            "\"{}\"",
-            policy.etag.as_deref().expect("stored policy etag")
-        ),
+        &format!("\"{etag}\""),
         json::policy_resource(&policy, bucket),
         fields,
-        false,
+        QueryPrecondition::Unmatched,
     )
 }
 
@@ -380,8 +385,12 @@ async fn get(
     {
         return Err(CatalogError::PreconditionFailed.into());
     }
-    let query_not_modified = conditions.if_metageneration_not_match == Some(record.metageneration);
-    if query_not_modified
+    let query = if conditions.if_metageneration_not_match == Some(record.metageneration) {
+        QueryPrecondition::NotModified
+    } else {
+        QueryPrecondition::Unmatched
+    };
+    if query == QueryPrecondition::NotModified
         && !request.headers().contains_key("if-match")
         && !request.headers().contains_key("if-none-match")
     {
@@ -401,7 +410,7 @@ async fn get(
         &json::bucket_etag(&record),
         resource,
         fields,
-        query_not_modified,
+        query,
     )
 }
 
@@ -417,14 +426,14 @@ async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Value, Jso
             limit,
         )
         .await?;
-    let token = if page.has_more {
-        Some(json::encode_page_token(
+    // A page with more results always holds the bucket the next page continues after.
+    let token = match page.items.last().filter(|_| page.has_more) {
+        Some(last) => Some(json::encode_page_token(
             &params.project,
             &params.prefix,
-            &page.items.last().expect("nonempty continuation page").name,
-        )?)
-    } else {
-        None
+            &last.name,
+        )?),
+        None => None,
     };
     json::bucket_list_with_profile(
         &page.items,

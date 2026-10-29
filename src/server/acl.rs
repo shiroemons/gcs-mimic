@@ -17,12 +17,19 @@ use hyper::{
 };
 use serde_json::Value;
 
-fn permission(kind: AclKind, read: bool) -> &'static str {
-    match (kind, read) {
-        (AclKind::Object, true) => auth::OBJECTS_GET_IAM,
-        (AclKind::Object, false) => auth::OBJECTS_SET_IAM,
-        (_, true) => auth::BUCKETS_GET_IAM,
-        (_, false) => auth::BUCKETS_SET_IAM,
+/// Whether an ACL request reads or changes the ACL.
+#[derive(Clone, Copy)]
+enum AclAccess {
+    Read,
+    Write,
+}
+
+fn permission(kind: AclKind, access: AclAccess) -> &'static str {
+    match (kind, access) {
+        (AclKind::Object, AclAccess::Read) => auth::OBJECTS_GET_IAM,
+        (AclKind::Object, AclAccess::Write) => auth::OBJECTS_SET_IAM,
+        (_, AclAccess::Read) => auth::BUCKETS_GET_IAM,
+        (_, AclAccess::Write) => auth::BUCKETS_SET_IAM,
     }
 }
 
@@ -92,11 +99,14 @@ pub(super) async fn respond(
         if_metageneration_not_match,
         fields,
     } = operation;
-    let read = matches!(operation, AclOperation::List | AclOperation::Get(_));
+    let acl_access = match operation {
+        AclOperation::List | AclOperation::Get(_) => AclAccess::Read,
+        _ => AclAccess::Write,
+    };
     let access = authorize_bucket(
         state,
         caller,
-        permission(target.kind(), read),
+        permission(target.kind(), acl_access),
         target.bucket(),
     )
     .await?;
@@ -171,7 +181,14 @@ pub(super) async fn respond(
                 )
                 .await
                 .map_err(|error| acl_error(error, &target))?;
-            let entry = entry.expect("an upsert returns its entry");
+            // The catalog returns the entry that every upsert writes.
+            let entry = entry.ok_or_else(|| {
+                JsonError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "backendError",
+                    "ACL change returned no entry",
+                )
+            })?;
             json::acl::acl_entry_resource(base, owner(&target, &acl), &entry)
         }
     };
@@ -238,7 +255,7 @@ pub(super) async fn may_read(
     kind: AclKind,
     bucket: &str,
 ) -> Result<bool, JsonError> {
-    match authorize_bucket(state, caller, permission(kind, true), bucket).await {
+    match authorize_bucket(state, caller, permission(kind, AclAccess::Read), bucket).await {
         Ok(_) => Ok(true),
         Err(error) if error.status == StatusCode::FORBIDDEN => Ok(false),
         Err(error) => Err(error),

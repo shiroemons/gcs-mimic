@@ -1,4 +1,4 @@
-use super::{Error, ReadRequest, number};
+use super::{Error, MinValue, ReadRequest, number};
 use crate::{
     auth::{self, Caller},
     json,
@@ -42,13 +42,42 @@ fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, Err
     })
 }
 
-fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers, Error> {
+/// Whether the request is a signed URL, whose signature may declare `x-goog-content-sha256`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Signing {
+    SignedUrl,
+    Header,
+}
+
+fn headers(headers: &HeaderMap, max_bytes: u64, signing: Signing) -> Result<Headers, Error> {
+    reject_unsupported_headers(headers, signing)?;
+    let conditions = conditions(headers)?;
+    validate_framing(headers, max_bytes)?;
+    let (content_type, expected) = content_type_and_hashes(headers, conditions)?;
+    let metadata = metadata(headers)?;
+    let sha256 = auth::signature::payload_hash(headers).map_err(|_| {
+        Error::new(
+            StatusCode::BAD_REQUEST,
+            "InvalidDigest",
+            "Invalid SHA256 declaration.",
+        )
+    })?;
+    Ok(Headers {
+        content_type,
+        expected,
+        conditions,
+        metadata,
+        sha256,
+    })
+}
+
+fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(), Error> {
     for key in headers.keys() {
         let name = key.as_str();
         if (name.starts_with("x-goog-")
             && !name.starts_with("x-goog-meta-")
             && !crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)
-            && !(signed && name == "x-goog-content-sha256")
+            && !(signing == Signing::SignedUrl && name == "x-goog-content-sha256")
             && !matches!(
                 name,
                 "x-goog-hash"
@@ -74,21 +103,25 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
             return Err(Error::unsupported(name));
         }
     }
+    Ok(())
+}
+
+fn conditions(headers: &HeaderMap) -> Result<ObjectConditions, Error> {
     let mut conditions = ObjectConditions::default();
-    for (key, target, zero) in [
+    for (key, target, min) in [
         (
             "x-goog-if-generation-match",
             &mut conditions.if_generation_match,
-            true,
+            MinValue::Zero,
         ),
         (
             "x-goog-if-metageneration-match",
             &mut conditions.if_metageneration_match,
-            false,
+            MinValue::One,
         ),
     ] {
         *target = single(headers, key)?
-            .map(|raw| number(raw, zero))
+            .map(|raw| number(raw, min))
             .transpose()?;
     }
     if let Some(token) = single(headers, "x-goog-gcs-idempotency-token")? {
@@ -105,6 +138,10 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
             ));
         }
     }
+    Ok(conditions)
+}
+
+fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
     let length = single(headers, "content-length")?
         .map(|raw| {
             raw.parse::<u64>()
@@ -142,6 +179,13 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
     if length.is_some_and(|length| length > max_bytes) {
         return Err(storage_error(ObjectError::TooLarge, None));
     }
+    Ok(())
+}
+
+fn content_type_and_hashes(
+    headers: &HeaderMap,
+    conditions: ObjectConditions,
+) -> Result<(String, ExpectedHashes), Error> {
     let mut selected = HeaderMap::new();
     if let Some(content_type) = headers.get("content-type") {
         single(headers, "content-type")?;
@@ -181,6 +225,10 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
         }
         expected.md5 = Some(content_md5);
     }
+    Ok((content_type, expected))
+}
+
+fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Error> {
     let mut metadata = ObjectMetadataUpdate {
         customer_key_sha256: json::request_key(headers)?.map(crate::csek::CustomerKey::sha256),
         ..Default::default()
@@ -230,20 +278,7 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
         ));
     }
     metadata.metadata = Some(Some(custom));
-    let sha256 = auth::signature::payload_hash(headers).map_err(|_| {
-        Error::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidDigest",
-            "Invalid SHA256 declaration.",
-        )
-    })?;
-    Ok(Headers {
-        content_type,
-        expected,
-        conditions,
-        metadata,
-        sha256,
-    })
+    Ok(metadata)
 }
 
 pub(super) fn storage_error(error: ObjectError, caller: Option<Caller<'_>>) -> Error {
@@ -283,17 +318,18 @@ pub(crate) async fn respond(
         .authorize(auth::OBJECTS_CREATE, &operation.bucket)
         .await
         .map_err(|error| anonymous_error(error, caller))?;
+    let signing = if auth::signature::is_signed(request.uri().query()) {
+        Signing::SignedUrl
+    } else {
+        Signing::Header
+    };
     let Headers {
         content_type,
         expected,
         conditions,
         metadata,
         sha256,
-    } = headers(
-        request.headers(),
-        config.max_object_bytes,
-        auth::signature::is_signed(request.uri().query()),
-    )?;
+    } = headers(request.headers(), config.max_object_bytes, signing)?;
     let permit = ctx
         .await_catalog(state.catalog.prepare_object_upload(
             &operation.bucket,

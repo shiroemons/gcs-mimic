@@ -60,9 +60,16 @@ pub(crate) fn requested_headers(headers: &HeaderMap) -> Result<Vec<HeaderName>, 
     Ok(names)
 }
 
+/// Whether a CORS request is a browser preflight or the actual request.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum CorsRequest {
+    Preflight,
+    Actual,
+}
+
 pub(crate) fn response_headers(
     headers: &HeaderMap,
-    preflight: bool,
+    request: CorsRequest,
 ) -> Result<HeaderMap, JsonError> {
     let mut result = HeaderMap::new();
     result.insert("vary", HeaderValue::from_static("Origin"));
@@ -70,7 +77,7 @@ pub(crate) fn response_headers(
         return Ok(result);
     };
     result.insert("access-control-allow-origin", origin.clone());
-    if preflight {
+    if request == CorsRequest::Preflight {
         result.insert(
             "vary",
             HeaderValue::from_static(
@@ -116,8 +123,13 @@ pub(crate) fn preflight_status(headers: &HeaderMap) -> StatusCode {
     }
 }
 
-pub(crate) fn is_preflight(method: &Method, headers: &HeaderMap) -> bool {
-    method == Method::OPTIONS && origin(headers).is_some()
+/// A JSON API preflight is an OPTIONS request with a valid origin.
+pub(crate) fn request_kind(method: &Method, headers: &HeaderMap) -> CorsRequest {
+    if method == Method::OPTIONS && origin(headers).is_some() {
+        CorsRequest::Preflight
+    } else {
+        CorsRequest::Actual
+    }
 }
 
 #[cfg(test)]

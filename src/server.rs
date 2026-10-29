@@ -111,7 +111,7 @@ const LINGER_TIME: Duration = Duration::from_secs(30);
 /// are read at once, report a backend timeout.
 struct DeadlineReply {
     xml: bool,
-    head: bool,
+    body: xml::ErrorBody,
     upload: bool,
 }
 
@@ -134,7 +134,7 @@ impl DeadlineReply {
             || (xml && matches!(*request.method(), Method::PUT | Method::POST));
         Self {
             xml,
-            head: request.method() == Method::HEAD,
+            body: xml::ErrorBody::for_method(request.method()),
             upload: has_body(request) && upload_route,
         }
     }
@@ -154,7 +154,7 @@ impl DeadlineReply {
             )
         };
         let mut response = if self.xml {
-            boxed(xml::Error::from(error).response(self.head))
+            boxed(xml::Error::from(error).response(self.body))
         } else {
             boxed(error.into_response())
         };
@@ -969,14 +969,23 @@ fn not_modified_response(
     response
 }
 
+/// Whether a metadata read's query preconditions (`ifGenerationNotMatch`,
+/// `ifMetagenerationNotMatch`) already select a `304 Not Modified` response.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QueryPrecondition {
+    NotModified,
+    Unmatched,
+}
+
 fn read_metadata_response(
     headers: &hyper::HeaderMap,
     etag: &str,
     mut value: serde_json::Value,
     fields: &json::Fields,
-    query_not_modified: bool,
+    query: QueryPrecondition,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    let not_modified = read_etag_not_modified(headers, etag)? || query_not_modified;
+    let not_modified =
+        read_etag_not_modified(headers, etag)? || query == QueryPrecondition::NotModified;
     let no_cache = hyper::header::HeaderValue::from_static("no-cache");
     // ETags are rendered locally from quoted ASCII digits and base64, so the conversion always
     // succeeds; omitting the validator is safer than panicking if that ever changes.

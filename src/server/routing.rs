@@ -11,7 +11,7 @@ use super::{
 use crate::{
     auth::Caller,
     config::{CompatProfile, CorsFallback},
-    json::{self, JsonError, ObjectRequest},
+    json::{self, JsonError, ObjectRequest, cors::CorsRequest},
     xml,
 };
 use http_body_util::{BodyExt, Full};
@@ -28,7 +28,7 @@ pub(super) async fn respond(
 ) -> Response<ResponseBody> {
     let selected = match xml::select_object(request.uri(), request.headers(), ctx.config) {
         Ok(selected) => selected,
-        Err(error) => return boxed(error.response(request.method() == Method::HEAD)),
+        Err(error) => return boxed(error.response(xml::ErrorBody::for_method(request.method()))),
     };
     if selected.is_none() && json::cors::is_route(request.uri()) {
         return respond_json_cors(request, ctx).await;
@@ -48,12 +48,12 @@ async fn respond_json_cors(
     request: Request<Incoming>,
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
-    let preflight = json::cors::is_preflight(request.method(), request.headers());
-    let mut headers = match json::cors::response_headers(request.headers(), preflight) {
+    let kind = json::cors::request_kind(request.method(), request.headers());
+    let mut headers = match json::cors::response_headers(request.headers(), kind) {
         Ok(headers) => headers,
         Err(error) => return boxed(error.into_response()),
     };
-    let mut response = if preflight {
+    let mut response = if kind == CorsRequest::Preflight {
         let status = json::cors::preflight_status(request.headers());
         if status == StatusCode::NOT_FOUND {
             headers.insert(
@@ -89,6 +89,11 @@ async fn respond_xml_cors(
     let RequestCtx { state, config, .. } = ctx;
     let has_origin = request.headers().contains_key("origin");
     let preflight = request.method() == Method::OPTIONS && has_origin;
+    let kind = if preflight {
+        CorsRequest::Preflight
+    } else {
+        CorsRequest::Actual
+    };
     let cors = if has_origin {
         match state.catalog.get_bucket(&object.bucket).await {
             Ok(Some(bucket)) => {
@@ -99,7 +104,7 @@ async fn respond_xml_cors(
                     request.headers(),
                     request.method(),
                     &bucket.cors,
-                    preflight,
+                    kind,
                     config.cors_fallback,
                 )
             }
@@ -108,13 +113,13 @@ async fn respond_xml_cors(
                 request.headers(),
                 request.method(),
                 &[],
-                preflight,
+                kind,
                 config.cors_fallback,
             ),
             Err(error) => {
                 return boxed(
                     xml::Error::from(JsonError::from(error))
-                        .response(request.method() == Method::HEAD),
+                        .response(xml::ErrorBody::for_method(request.method())),
                 );
             }
         }
@@ -166,7 +171,7 @@ async fn respond_routed(
         let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
         let result = xml::post::respond(request, object, ctx, deadline).await;
         ctx.finish_object_request();
-        return result.unwrap_or_else(|error| boxed(error.response(false)));
+        return result.unwrap_or_else(|error| boxed(error.response(xml::ErrorBody::Include)));
     }
     if selected.is_none()
         && let Some(parsed) = json::notifications::route(method, uri, profile)
@@ -268,6 +273,7 @@ async fn respond_xml_object(
     parsed: Result<xml::ReadRequest, xml::Error>,
 ) -> Response<ResponseBody> {
     let head = request.method() == Method::HEAD;
+    let error_body = xml::ErrorBody::for_method(request.method());
     let put = request.method() == Method::PUT;
     let delete = request.method() == Method::DELETE;
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
@@ -292,7 +298,7 @@ async fn respond_xml_object(
     if head || put || delete || result.is_err() {
         ctx.finish_object_request();
     }
-    result.unwrap_or_else(|error| boxed(error.response(head)))
+    result.unwrap_or_else(|error| boxed(error.response(error_body)))
 }
 
 async fn respond_rewrite(

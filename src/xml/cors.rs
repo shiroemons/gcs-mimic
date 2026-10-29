@@ -1,4 +1,4 @@
-use crate::{bucket::CorsRule, config::CorsFallback};
+use crate::{bucket::CorsRule, config::CorsFallback, json::cors::CorsRequest};
 use hyper::{
     HeaderMap, Method,
     header::{HeaderName, HeaderValue},
@@ -46,10 +46,11 @@ pub(crate) fn cors(
     headers: &HeaderMap,
     method: &Method,
     rules: &[CorsRule],
-    preflight: bool,
+    request: CorsRequest,
     fallback: CorsFallback,
 ) -> HeaderMap {
     let mut result = HeaderMap::new();
+    let preflight = request == CorsRequest::Preflight;
     let one = |name: &str| {
         let mut values = headers.get_all(name).iter();
         let value = values.next()?;
@@ -75,7 +76,7 @@ pub(crate) fn cors(
         return result;
     }
     if rules.is_empty() && fallback == CorsFallback::AllowAll {
-        return allow_all(headers, preflight, one("access-control-request-headers"));
+        return allow_all(headers, request, one("access-control-request-headers"));
     }
     // The first origin/method match determines the policy, even if its headers deny preflight.
     let Some(rule) = rules.iter().find(|rule| {
@@ -145,8 +146,13 @@ pub(crate) fn cors(
 /// Mirrors fake-gcs-server's wildcard middleware for valid origins without its credential grant:
 /// browsers reject credentials with a wildcard origin, so omitting it changes no allowed request.
 /// Every valid requested header is allowed, which also covers its `-cors-headers` additions.
-fn allow_all(headers: &HeaderMap, preflight: bool, requested_headers: Option<&str>) -> HeaderMap {
+fn allow_all(
+    headers: &HeaderMap,
+    request: CorsRequest,
+    requested_headers: Option<&str>,
+) -> HeaderMap {
     let mut result = HeaderMap::new();
+    let preflight = request == CorsRequest::Preflight;
     if preflight {
         if headers.contains_key("access-control-request-headers") {
             let Some(value) = requested_headers
@@ -246,6 +252,14 @@ fn origin_matches(allowed: &str, origin: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn kind(preflight: bool) -> CorsRequest {
+        if preflight {
+            CorsRequest::Preflight
+        } else {
+            CorsRequest::Actual
+        }
+    }
+
     fn rule() -> CorsRule {
         CorsRule {
             origin: vec!["https://app.example".into()],
@@ -262,7 +276,7 @@ mod tests {
         rules: &[CorsRule],
         preflight: bool,
     ) -> HeaderMap {
-        super::cors(headers, method, rules, preflight, CorsFallback::None)
+        super::cors(headers, method, rules, kind(preflight), CorsFallback::None)
     }
 
     fn allow_all(
@@ -271,7 +285,13 @@ mod tests {
         rules: &[CorsRule],
         preflight: bool,
     ) -> HeaderMap {
-        super::cors(headers, method, rules, preflight, CorsFallback::AllowAll)
+        super::cors(
+            headers,
+            method,
+            rules,
+            kind(preflight),
+            CorsFallback::AllowAll,
+        )
     }
 
     fn request(origin: &str, method: Option<&str>, names: Option<&str>) -> HeaderMap {

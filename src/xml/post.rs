@@ -7,18 +7,15 @@
 use super::{Error, ObjectPath, put::storage_error};
 use crate::{
     auth::{
-        self,
+        self, Caller,
         signature::{self, Failure, MAX_EXPIRES},
     },
     json::{self, JsonError},
     object::{
-        ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, UploadChunk,
-        custom_time_key,
+        ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
+        UploadChunk, custom_time_key,
     },
-    server::{
-        RequestCtx, ResponseBody, anonymous_error, authorize_bucket, await_upload_catalog,
-        body_progress, boxed,
-    },
+    server::{ObjectCtx, RequestCtx, ResponseBody, State, anonymous_error, body_progress, boxed},
 };
 use http_body_util::{BodyExt, Full};
 use hyper::{
@@ -240,32 +237,13 @@ fn unconditioned(field: &str) -> bool {
     matches!(field, "x-goog-signature" | "policy")
 }
 
-/// Check every condition against the submitted form and require a condition for every
-/// field. Returns the inclusive content-length-range, if any.
-///
-/// `signed_at` is the x-goog-date of a verified signature. It is absent in the permissive
-/// profile, which ignores policy credentials.
-fn check_policy(
-    encoded: &str,
-    fields: &BTreeMap<String, String>,
-    bucket: &str,
+/// Check that the policy has not expired and, for a verified signature, that it is already
+/// valid and expires within the V4 signing limit.
+fn check_policy_window(
+    document: &serde_json::Map<String, serde_json::Value>,
     now: SystemTime,
     signed_at: Option<SystemTime>,
-) -> Result<Option<(u64, u64)>, Error> {
-    let document = decode_base64(encoded)
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .ok_or_else(|| policy_error("The policy field must be base64-encoded UTF-8 JSON."))?;
-    let document = document
-        .as_object()
-        .ok_or_else(|| policy_error("The policy document must be a JSON object."))?;
-    if let Some(key) = document
-        .keys()
-        .find(|key| !matches!(key.as_str(), "expiration" | "conditions"))
-    {
-        return Err(policy_error(format!(
-            "Unsupported policy document field {key}."
-        )));
-    }
+) -> Result<(), Error> {
     let expires = document
         .get("expiration")
         .and_then(serde_json::Value::as_str)
@@ -296,6 +274,36 @@ fn check_policy(
             ));
         }
     }
+    Ok(())
+}
+
+/// Check every condition against the submitted form and require a condition for every
+/// field. Returns the inclusive content-length-range, if any.
+///
+/// `signed_at` is the x-goog-date of a verified signature. It is absent in the permissive
+/// profile, which ignores policy credentials.
+fn check_policy(
+    encoded: &str,
+    fields: &BTreeMap<String, String>,
+    bucket: &str,
+    now: SystemTime,
+    signed_at: Option<SystemTime>,
+) -> Result<Option<(u64, u64)>, Error> {
+    let document = decode_base64(encoded)
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .ok_or_else(|| policy_error("The policy field must be base64-encoded UTF-8 JSON."))?;
+    let document = document
+        .as_object()
+        .ok_or_else(|| policy_error("The policy document must be a JSON object."))?;
+    if let Some(key) = document
+        .keys()
+        .find(|key| !matches!(key.as_str(), "expiration" | "conditions"))
+    {
+        return Err(policy_error(format!(
+            "Unsupported policy document field {key}."
+        )));
+    }
+    check_policy_window(document, now, signed_at)?;
     let conditions = document
         .get("conditions")
         .and_then(serde_json::Value::as_array)
@@ -483,26 +491,7 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
         key.clone()
     };
     json::validate_object_name(&name)?;
-    let success = if let Some(url) = fields.get("success_action_redirect") {
-        let location = url
-            .parse()
-            .ok()
-            .filter(|uri: &Uri| {
-                matches!(uri.scheme_str(), Some("http" | "https")) && uri.authority().is_some()
-            })
-            .and_then(|uri| HeaderValue::try_from(uri.to_string()).ok())
-            .ok_or_else(|| invalid("success_action_redirect must be an absolute HTTP(S) URL."))?;
-        Success::Redirect(location)
-    } else {
-        match fields.get("success_action_status").map(String::as_str) {
-            None | Some("204") => Success::Status(StatusCode::NO_CONTENT),
-            Some("200") => Success::Status(StatusCode::OK),
-            Some("201") => Success::Status(StatusCode::CREATED),
-            Some(_) => {
-                return Err(invalid("success_action_status must be 200, 201 or 204."));
-            }
-        }
-    };
+    let success = success_action(fields)?;
     let mut selected = HeaderMap::new();
     if let Some(value) = fields.get("content-type") {
         selected.insert(
@@ -523,6 +512,36 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
                 .ok_or_else(|| invalid("Invalid Content-Length form field."))
         })
         .transpose()?;
+    Ok(Plan {
+        name,
+        content_type,
+        metadata: form_metadata(fields)?,
+        declared_length,
+        success,
+    })
+}
+
+fn success_action(fields: &BTreeMap<String, String>) -> Result<Success, Error> {
+    if let Some(url) = fields.get("success_action_redirect") {
+        let location = url
+            .parse()
+            .ok()
+            .filter(|uri: &Uri| {
+                matches!(uri.scheme_str(), Some("http" | "https")) && uri.authority().is_some()
+            })
+            .and_then(|uri| HeaderValue::try_from(uri.to_string()).ok())
+            .ok_or_else(|| invalid("success_action_redirect must be an absolute HTTP(S) URL."))?;
+        return Ok(Success::Redirect(location));
+    }
+    match fields.get("success_action_status").map(String::as_str) {
+        None | Some("204") => Ok(Success::Status(StatusCode::NO_CONTENT)),
+        Some("200") => Ok(Success::Status(StatusCode::OK)),
+        Some("201") => Ok(Success::Status(StatusCode::CREATED)),
+        Some(_) => Err(invalid("success_action_status must be 200, 201 or 204.")),
+    }
+}
+
+fn form_metadata(fields: &BTreeMap<String, String>) -> Result<ObjectMetadataUpdate, Error> {
     let mut metadata = ObjectMetadataUpdate::default();
     for (field, target) in [
         ("cache-control", &mut metadata.cache_control),
@@ -558,13 +577,7 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
         ));
     }
     metadata.metadata = Some(Some(custom));
-    Ok(Plan {
-        name,
-        content_type,
-        metadata,
-        declared_length,
-        success,
-    })
+    Ok(metadata)
 }
 
 fn escape(value: &str) -> String {
@@ -615,28 +628,7 @@ pub(crate) async fn respond(
         success,
     } = plan(&form, &bucket)?;
     let fields = &form.fields;
-    let caller = if let Some(policy) = fields.get("policy") {
-        if headers.contains_key("authorization") {
-            return Err(invalid(
-                "Send either a policy form or an Authorization header, not both.",
-            ));
-        }
-        state
-            .auth
-            .authenticate_policy(
-                &fields["x-goog-algorithm"],
-                &fields["x-goog-credential"],
-                &fields["x-goog-date"],
-                &fields["x-goog-signature"],
-                policy,
-            )
-            .map_err(signature_error)?
-    } else {
-        state
-            .auth
-            .authenticate(&headers, None)
-            .map_err(|error| Error::from(JsonError::from(error)))?
-    };
+    let caller = authenticate(state, &headers, fields)?;
     let range = fields
         .get("policy")
         .map(|policy| {
@@ -648,21 +640,20 @@ pub(crate) async fn respond(
         })
         .transpose()?
         .flatten();
-    let access = authorize_bucket(state, caller, auth::OBJECTS_CREATE, &bucket)
+    let ctx = ctx.object(caller, deadline);
+    let access = ctx
+        .authorize(auth::OBJECTS_CREATE, &bucket)
         .await
         .map_err(|error| anonymous_error(error, caller))?;
-    let max_bytes = config.max_object_bytes;
-    let timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
-    let permit = await_upload_catalog(
-        state
-            .catalog
-            .prepare_object_upload(&bucket, &name, ObjectConditions::default(), &access),
-        timeout,
-        deadline,
-        activity,
-    )
-    .await
-    .map_err(|error| storage_error(error, caller))?;
+    let permit = ctx
+        .await_catalog(state.catalog.prepare_object_upload(
+            &bucket,
+            &name,
+            ObjectConditions::default(),
+            &access,
+        ))
+        .await
+        .map_err(|error| storage_error(error, caller))?;
     let (sender, receiver) = mpsc::channel(2);
     let upload = state.catalog.put_object_prechecked(
         &bucket,
@@ -670,12 +661,72 @@ pub(crate) async fn respond(
         content_type,
         ExpectedHashes::default(),
         ObjectConditions::default(),
-        max_bytes,
+        config.max_object_bytes,
         receiver,
         permit,
         metadata,
         access,
     );
+    let limits = FileLimits {
+        range,
+        declared_length,
+    };
+    let record = stream_file(&mut parser, ctx, upload, sender, limits).await?;
+    success_response(success, &record, &state.api_base_url)
+}
+
+/// Authenticates a form upload from its policy fields, or from its Authorization header when
+/// the form has no policy.
+fn authenticate<'a>(
+    state: &'a State,
+    headers: &HeaderMap,
+    fields: &BTreeMap<String, String>,
+) -> Result<Option<Caller<'a>>, Error> {
+    let Some(policy) = fields.get("policy") else {
+        return state
+            .auth
+            .authenticate(headers, None)
+            .map_err(|error| Error::from(JsonError::from(error)));
+    };
+    if headers.contains_key("authorization") {
+        return Err(invalid(
+            "Send either a policy form or an Authorization header, not both.",
+        ));
+    }
+    state
+        .auth
+        .authenticate_policy(
+            &fields["x-goog-algorithm"],
+            &fields["x-goog-credential"],
+            &fields["x-goog-date"],
+            &fields["x-goog-signature"],
+            policy,
+        )
+        .map_err(signature_error)
+}
+
+/// The file sizes a form allows: the policy's inclusive content-length-range and the
+/// Content-Length form field.
+#[derive(Clone, Copy)]
+struct FileLimits {
+    range: Option<(u64, u64)>,
+    declared_length: Option<u64>,
+}
+
+/// Streams the file part into `upload` and checks its size against the form's limits.
+async fn stream_file<B: Body<Data = Bytes> + Unpin>(
+    parser: &mut json::Multipart<B>,
+    ctx: ObjectCtx<'_>,
+    upload: impl std::future::Future<Output = Result<ObjectRecord, ObjectError>>,
+    sender: mpsc::Sender<Result<UploadChunk, io::Error>>,
+    limits: FileLimits,
+) -> Result<ObjectRecord, Error> {
+    let FileLimits {
+        range,
+        declared_length,
+    } = limits;
+    let caller = ctx.caller;
+    let max_bytes = ctx.config.max_object_bytes;
     tokio::pin!(upload);
     let streaming = async {
         let mut size = 0_u64;
@@ -723,22 +774,30 @@ pub(crate) async fn respond(
                 let _ = sender.send(Err(io::Error::other(error.message.clone()))).await;
                 drop(sender);
                 // Await cleanup so a rejected form never leaves a partial object behind.
-                match await_upload_catalog(upload, timeout, deadline, activity).await {
+                match ctx.await_catalog(upload).await {
                     Ok(_) | Err(ObjectError::BodyAborted(_)) => {}
                     Err(storage) => return Err(storage_error(storage, caller)),
                 }
                 return Err(error);
             }
-            await_upload_catalog(async {
+            ctx.await_catalog(async {
                 let _ = sender.send(Ok(UploadChunk::End)).await;
                 drop(sender);
                 upload.await
-            }, timeout, deadline, activity)
+            })
             .await
             .map_err(|error| storage_error(error, caller))?
         }
     };
-    let mut media = super::media_headers(&record, super::CacheScope::Private)?;
+    Ok(record)
+}
+
+fn success_response(
+    success: Success,
+    record: &ObjectRecord,
+    api_base_url: &str,
+) -> Result<Response<ResponseBody>, Error> {
+    let mut media = super::media_headers(record, super::CacheScope::Private)?;
     let etag = media["etag"].to_str().unwrap_or_default().to_owned();
     let (status, body, content_type) = match success {
         Success::Redirect(_) => (StatusCode::SEE_OTHER, String::new(), None),
@@ -748,7 +807,7 @@ pub(crate) async fn respond(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?><PostResponse><Location>{}</Location><Bucket>{}</Bucket><Key>{}</Key><ETag>{}</ETag></PostResponse>",
                 escape(&format!(
                     "{}/{}/{}",
-                    state.api_base_url.trim_end_matches('/'),
+                    api_base_url.trim_end_matches('/'),
                     record.bucket,
                     crate::url::encode_object_name(&record.name)
                 )),
