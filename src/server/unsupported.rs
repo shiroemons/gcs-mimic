@@ -11,9 +11,6 @@ const ROUTES: &[(&str, &str)] = &[
     ),
     ("GET|POST", "b/{bucket}/o/{object}/acl"),
     ("GET|DELETE|PATCH|PUT", "b/{bucket}/o/{object}/acl/{entity}"),
-    ("GET|POST", "projects/{projectId}/hmacKeys"),
-    ("GET|DELETE|PUT", "projects/{projectId}/hmacKeys/{accessId}"),
-    ("GET", "projects/{projectId}/serviceAccount"),
     ("POST", "b/{bucket}/restore"),
     ("POST", "b/{bucket}/relocate"),
     ("GET", "b/{bucket}/storageLayout"),
@@ -110,6 +107,12 @@ mod tests {
             "storage.objects.rewrite",
             "storage.objects.restore",
             "storage.objects.update",
+            "storage.projects.hmacKeys.create",
+            "storage.projects.hmacKeys.delete",
+            "storage.projects.hmacKeys.get",
+            "storage.projects.hmacKeys.list",
+            "storage.projects.hmacKeys.update",
+            "storage.projects.serviceAccount.get",
         ];
         for operation in inventory["methods"].as_array().unwrap() {
             let path = operation["path"].as_str().unwrap();

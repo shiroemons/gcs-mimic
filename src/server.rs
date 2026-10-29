@@ -61,6 +61,8 @@ tokio::task_local! { static FORCE_LISTENER_ERROR: bool; }
 mod copy;
 #[path = "server/notifications.rs"]
 mod notifications;
+#[path = "server/project_resources.rs"]
+mod project_resources;
 #[path = "server/resumable.rs"]
 mod resumable;
 #[path = "server/retention_access.rs"]
@@ -880,6 +882,17 @@ async fn respond_routed(
             activity.send_replace(ObjectActivity::default());
         }
         return result.unwrap_or_else(|error| boxed(error.into_response()));
+    }
+    if let Some(parsed) = json::route_project(request.method(), request.uri()) {
+        let result = match authenticate().and_then(|caller| parsed.map(|op| (op, caller))) {
+            Ok(((operation, fields), caller)) => {
+                project_resources::respond(request, operation, fields, caller, state)
+                    .await
+                    .map_err(|error| anonymous_error(error, caller))
+            }
+            Err(error) => Err(error),
+        };
+        return boxed(result.unwrap_or_else(JsonError::into_response));
     }
     if let Some(parsed) = json::route_with_profile(
         request.method(),

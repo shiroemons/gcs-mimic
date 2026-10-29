@@ -35,6 +35,12 @@ fn unsupported_google_routes_and_inputs() {
         "storage.objects.rewrite",
         "storage.objects.restore",
         "storage.objects.update",
+        "storage.projects.hmacKeys.create",
+        "storage.projects.hmacKeys.delete",
+        "storage.projects.hmacKeys.get",
+        "storage.projects.hmacKeys.list",
+        "storage.projects.hmacKeys.update",
+        "storage.projects.serviceAccount.get",
     ];
     for operation in inventory["methods"].as_array().unwrap() {
         if implemented.contains(&operation["id"].as_str().unwrap()) {

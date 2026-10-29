@@ -230,6 +230,15 @@ impl Identity {
             .is_some_and(|permissions| permissions.contains(permission))
     }
 
+    /// Whether any role is granted in `project`. The pinned snapshot keeps only `storage.*`
+    /// permissions, so this stands in for project-level checks such as
+    /// `resourcemanager.projects.get`.
+    pub fn has_project_grant(&self, project: &str) -> bool {
+        self.permissions
+            .get(project)
+            .is_some_and(|permissions| !permissions.is_empty())
+    }
+
     pub fn allows_anywhere(&self, permission: &str) -> bool {
         self.permissions
             .values()

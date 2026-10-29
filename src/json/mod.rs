@@ -27,6 +27,7 @@ mod object_restore;
 mod object_retention;
 mod objects;
 mod page_token;
+mod projects;
 mod query;
 pub(crate) mod resumable;
 pub mod resumable_cancel;
@@ -63,6 +64,10 @@ pub(crate) use objects::{base64, decode_hash, object_etag, validate_read_conditi
 pub use page_token::{
     decode_all_projects_page_token, decode_page_token, encode_all_projects_page_token,
     encode_page_token,
+};
+pub use projects::{
+    HmacKeyListParams, HmacKeyUpdate, ProjectRequest, hmac_key_list, hmac_key_metadata,
+    hmac_key_resource, parse_hmac_key_update, route_project, service_account,
 };
 pub use query::{
     BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection, route,
