@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, watch};
 use tonic::codegen::tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tonic::{Request, Response, Status, Streaming};
 
-fn object_status(error: ObjectError) -> Status {
+pub(super) fn object_status(error: ObjectError) -> Status {
     if matches!(error, ObjectError::UnsupportedMetadata(_)) {
         return unsupported(&error.to_string(), None);
     }
@@ -22,7 +22,7 @@ fn object_status(error: ObjectError) -> Status {
 }
 
 /// Anonymous denials ask for credentials, matching bucket RPCs, BidiReadObject and JSON.
-fn access_status(error: json::JsonError, caller: Option<Caller<'_>>) -> Status {
+pub(super) fn access_status(error: json::JsonError, caller: Option<Caller<'_>>) -> Status {
     json_status(crate::server::anonymous_error(error, caller))
 }
 
@@ -36,7 +36,7 @@ fn session_status(error: ResumableError) -> Status {
     }
 }
 
-fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> {
+pub(super) fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> {
     if params.is_some_and(|p| p != &pb::CommonObjectRequestParams::default()) {
         return Err(unsupported(
             "customer encryption; omit common_object_request_params",
@@ -46,7 +46,7 @@ fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> 
     Ok(())
 }
 
-fn conditions(
+pub(super) fn conditions(
     g: Option<i64>,
     ng: Option<i64>,
     m: Option<i64>,
@@ -74,7 +74,7 @@ fn generation(value: i64) -> Result<Option<i64>, Status> {
     Ok((value != 0).then_some(value))
 }
 
-fn hashes(value: Option<&pb::ObjectChecksums>) -> Result<ExpectedHashes, Status> {
+pub(super) fn hashes(value: Option<&pb::ObjectChecksums>) -> Result<ExpectedHashes, Status> {
     let Some(value) = value else {
         return Ok(ExpectedHashes::default());
     };
@@ -230,22 +230,20 @@ impl Storage {
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_DELETE, bucket)
             .await
             .map_err(|e| access_status(e, caller))?;
-        self.state
-            .catalog
-            .delete_object_authorized(
-                bucket,
-                name,
-                generation(r.generation)?,
-                conditions(
-                    r.if_generation_match,
-                    r.if_generation_not_match,
-                    r.if_metageneration_match,
-                    r.if_metageneration_not_match,
-                )?,
-                &access,
-            )
-            .await
-            .map_err(object_status)?;
+        self.delete_including_appendable(
+            bucket,
+            name,
+            generation(r.generation)?,
+            conditions(
+                r.if_generation_match,
+                r.if_generation_not_match,
+                r.if_metageneration_match,
+                r.if_metageneration_not_match,
+            )?,
+            &access,
+        )
+        .await
+        .map_err(object_status)?;
         Ok(Response::new(()))
     }
     /// Shares the JSON session-URI cancellation so staged bytes follow one cleanup journal.
@@ -302,10 +300,8 @@ impl Storage {
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_GET, bucket)
             .await
             .map_err(|e| access_status(e, caller))?;
-        let record = self
-            .state
-            .catalog
-            .get_object_authorized(
+        let (record, unfinalized) = self
+            .get_readable(
                 bucket,
                 name,
                 generation(r.generation)?,
@@ -320,7 +316,7 @@ impl Storage {
             .await
             .map_err(object_status)?;
         Ok(Response::new(mask_object(
-            convert::object(&record)?,
+            super::append::object(&record, unfinalized)?,
             r.read_mask.as_ref(),
         )?))
     }
@@ -335,10 +331,8 @@ impl Storage {
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_GET, bucket)
             .await
             .map_err(|e| access_status(e, caller))?;
-        let (record, mut reader) = self
-            .state
-            .catalog
-            .open_object_authorized(
+        let (record, mut reader, unfinalized) = self
+            .open_readable(
                 bucket,
                 name,
                 generation(r.generation)?,
@@ -356,7 +350,7 @@ impl Storage {
         reader.set_range(start, length).await.map_err(|_| {
             Status::internal("Cannot seek object data; restore a valid data directory")
         })?;
-        let object = convert::object(&record)?;
+        let object = super::append::object(&record, unfinalized)?;
         let mut first = pb::ReadObjectResponse {
             metadata: Some(object.clone()),
             object_checksums: object.checksums,
@@ -483,13 +477,7 @@ impl Storage {
         let first = stream.message().await?.ok_or_else(|| {
             Status::invalid_argument("First message must contain write_object_spec or upload_id")
         })?;
-        if matches!(
-            first.first_message,
-            Some(pb::bidi_write_object_request::FirstMessage::AppendObjectSpec(_))
-        ) || matches!(&first.first_message,Some(pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(s)) if s.appendable==Some(true))
-        {
-            return Err(unsupported("Rapid append", caller));
-        }
+        let append = super::append::is_append(&first);
         let strict = caller.is_some();
         let identity = caller.and_then(|c| match c {
             Caller::Principal(i) => Some(i.clone()),
@@ -506,11 +494,19 @@ impl Storage {
                     .as_ref()
                     .map_or(Caller::Anonymous, Caller::Principal)
             });
-            let mut input = tonic::codegen::tokio_stream::once(Ok(first)).chain(stream);
-            if let Err(error) = storage
-                .receive_write(&mut input, caller, Some(&tx), false)
-                .await
-            {
+            let result = if append {
+                let mut stream = stream;
+                storage
+                    .receive_append(first, &mut stream, caller, &tx)
+                    .await
+            } else {
+                let mut input = tonic::codegen::tokio_stream::once(Ok(first)).chain(stream);
+                storage
+                    .receive_write(&mut input, caller, Some(&tx), false)
+                    .await
+                    .map(|_| ())
+            };
+            if let Err(error) = result {
                 let _ = tx.send(Err(error)).await;
             }
         });
@@ -667,7 +663,7 @@ fn decode_completion(value: Option<&serde_json::Value>) -> Result<pb::Object, St
 }
 
 impl Storage {
-    async fn write_spec(
+    pub(super) async fn write_spec(
         &self,
         mut spec: pb::WriteObjectSpec,
         checksums: Option<&pb::ObjectChecksums>,

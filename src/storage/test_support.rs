@@ -29,8 +29,16 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
         DROP TABLE objects_with_versions;").unwrap();
 }
 
+/// Restores the schema 33 layout, which predates Rapid appendable objects.
+pub fn downgrade_appendable_schema(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch("DROP TABLE IF EXISTS appendable_objects;")
+        .unwrap();
+}
+
 /// Restores the schema 32 layout, which predates stored access control lists.
 pub fn downgrade_acl_schema(connection: &rusqlite::Connection) {
+    downgrade_appendable_schema(connection);
     connection
         .execute_batch(
             "DROP TABLE IF EXISTS acl_object_entries; DROP TABLE IF EXISTS acl_bucket_entries;",

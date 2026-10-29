@@ -397,6 +397,15 @@ pub struct ObjectReader {
 }
 
 impl ObjectReader {
+    /// Appendable generations grow in place, so reads stop at the persisted size.
+    pub(super) fn bounded(file: tokio::fs::File, remaining: u64) -> Self {
+        Self {
+            file,
+            remaining,
+            publicly_readable: false,
+        }
+    }
+
     /// Transfers the already-opened immutable generation; no storage path is exposed.
     pub async fn into_file(self) -> File {
         self.file.into_std().await

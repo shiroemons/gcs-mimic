@@ -39,7 +39,14 @@ func TestGRPCFoundationFailsFast(t *testing.T) {
 		name string
 		call func(context.Context) error
 	}{
-		{"RapidWriter", func(ctx context.Context) error {
+		// Appendable creation over an existing live object remains unsupported.
+		{"RapidReplace", func(ctx context.Context) error {
+			if err := bucket.Create(ctx, "grpc-foundation", nil); err != nil && status.Code(err) != codes.AlreadyExists {
+				return err
+			}
+			if _, err := strictUpload(ctx, bucket.Object("object"), []byte("live")); err != nil {
+				return err
+			}
 			writer := bucket.Object("object").NewWriter(ctx)
 			writer.Append = true
 			_, writeErr := writer.Write([]byte("hello"))

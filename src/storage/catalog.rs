@@ -63,6 +63,11 @@ mod rewrite_token;
 
 #[path = "customer_keys.rs"]
 mod customer_keys;
+
+#[path = "appendable.rs"]
+mod appendable;
+pub(crate) use appendable::{AppendError, AppendWriter};
+
 #[path = "object_move.rs"]
 mod object_move;
 #[path = "objects.rs"]
@@ -107,7 +112,7 @@ pub(crate) mod acl;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 33;
+const CATALOG_SCHEMA_VERSION: i64 = 34;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -405,6 +410,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
     }
     if version >= 33 {
         expected.execute_batch(acl::SCHEMA).map_err(unavailable)?;
+    }
+    if version >= 34 {
+        expected
+            .execute_batch(appendable::SCHEMA)
+            .map_err(unavailable)?;
     }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
@@ -736,6 +746,9 @@ impl Catalog {
             if version < 33 {
                 acl::migrate(&mut connection)?;
             }
+            if version < 34 {
+                appendable::migrate(&mut connection)?;
+            }
             // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
             if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {
                 crate::diagnostics::emit(
@@ -758,6 +771,7 @@ impl Catalog {
             rewrite::recover_due(&mut connection, recovery_now)?;
             resumable_maintenance::recover_due(&connection, &data_dir, recovery_now)?;
             objects::recover(&connection, &data_dir, recovery_now)?;
+            appendable::recover(&connection, &data_dir)?;
             Ok(Self(Arc::new(Inner {
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),

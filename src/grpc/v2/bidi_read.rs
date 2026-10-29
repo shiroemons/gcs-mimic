@@ -1,5 +1,5 @@
 use super::{
-    ResponseStream, Storage, convert, names, pb,
+    ResponseStream, Storage, names, pb,
     status::{self, unsupported},
 };
 use crate::{
@@ -24,6 +24,8 @@ const MAX_HANDLES: usize = 64;
 struct Selected {
     record: ObjectRecord,
     reader: Mutex<ObjectReader>,
+    /// An appendable generation snapshot: reads stop at the size persisted when it was opened.
+    unfinalized: bool,
 }
 
 struct Handle {
@@ -164,10 +166,8 @@ impl Storage {
                 if_metageneration_match: spec.if_metageneration_match,
                 if_metageneration_not_match: spec.if_metageneration_not_match,
             };
-            let (record, reader) = self
-                .state
-                .catalog
-                .open_object_authorized(
+            let (record, reader, unfinalized) = self
+                .open_readable(
                     bucket,
                     object,
                     (spec.generation != 0).then_some(spec.generation),
@@ -179,6 +179,7 @@ impl Storage {
             let selected = Arc::new(Selected {
                 record,
                 reader: Mutex::new(reader),
+                unfinalized,
             });
             let mut token = vec![0; 32];
             getrandom::fill(&mut token)
@@ -202,7 +203,10 @@ impl Storage {
             metadata: if resumed {
                 None
             } else {
-                Some(convert::object(&selected.record)?)
+                Some(super::append::object(
+                    &selected.record,
+                    selected.unfinalized,
+                )?)
             },
             read_handle: Some(pb::BidiReadHandle { handle: token }),
             ..Default::default()

@@ -611,7 +611,7 @@ async fn versioned_schema_migrations_preserve_objects() {
                 .unwrap()
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            33
+            34
         );
     }
 }
