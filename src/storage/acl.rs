@@ -183,6 +183,102 @@ fn scope(kind: AclKind) -> &'static str {
     }
 }
 
+/// Replace entries inside the metadata mutation's transaction, without a second revision bump.
+pub(super) fn replace_resource_acl(
+    connection: &Connection,
+    target: &AclTarget,
+    entries: &[AclEntry],
+    access: &BucketAccess,
+) -> Result<(), CatalogError> {
+    let bucket = target.bucket();
+    let row = bucket_row(connection, bucket)?.ok_or(CatalogError::NotFound)?;
+    if let BucketAccess::Policy {
+        identity, project, ..
+    } = access
+    {
+        let mut policy_access = BucketAccess::Policy {
+            identity: identity.clone(),
+            project: project.clone(),
+            permission: if target.kind() == AclKind::Object {
+                crate::auth::Permission::ObjectsSetIam
+            } else {
+                crate::auth::Permission::BucketsSetIam
+            },
+        };
+        match check_access(connection, bucket, &row.project, &policy_access) {
+            Ok(_) => {}
+            Err(CatalogError::Forbidden) => {
+                if let BucketAccess::Policy { permission, .. } = &mut policy_access {
+                    *permission = if target.kind() == AclKind::Object {
+                        crate::auth::Permission::ObjectsGetIam
+                    } else {
+                        crate::auth::Permission::BucketsGetIam
+                    };
+                }
+                check_access(connection, bucket, &row.project, &policy_access)?;
+                // Preserve full-resource echoes only for callers already allowed to read the ACL.
+                if !row.uniform_access {
+                    let mut current = match target {
+                        AclTarget::Object {
+                            name, generation, ..
+                        } => stored_object_entries(
+                            connection,
+                            bucket,
+                            name,
+                            generation.expect("metadata mutation selects a generation"),
+                        )?,
+                        _ => stored_bucket_entries(connection, bucket, scope(target.kind()))?,
+                    }
+                    .unwrap_or_else(|| project_private(&row.project));
+                    let mut requested = entries.to_vec();
+                    current.sort_by(|a, b| a.entity.cmp(&b.entity));
+                    requested.sort_by(|a, b| a.entity.cmp(&b.entity));
+                    if current == requested {
+                        return Ok(());
+                    }
+                }
+                return Err(CatalogError::Forbidden);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    if row.uniform_access {
+        return Err(CatalogError::InvalidMetadata(
+            "Cannot use legacy ACLs while uniform bucket-level access is enabled; omit acl/defaultObjectAcl or disable uniform access".into(),
+        ));
+    }
+    crate::acl::validate_entries(target.kind(), entries).map_err(CatalogError::InvalidMetadata)?;
+    if entries
+        .iter()
+        .any(|entry| Entity::parse(&entry.entity).is_ok_and(Entity::is_public))
+        && public_access_prevention(connection, bucket)?
+    {
+        return Err(CatalogError::PublicAccessPrevention);
+    }
+    let entries = serde_json::to_string(entries).map_err(unavailable)?;
+    match target {
+        AclTarget::Object {
+            name, generation, ..
+        } => {
+            connection.execute(
+                "INSERT INTO acl_object_entries (bucket, name, generation, entries) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(bucket, name, generation) DO UPDATE SET entries = excluded.entries",
+                params![bucket, name, generation.expect("metadata mutation selects a generation"), entries],
+            ).map_err(unavailable)?;
+        }
+        _ => {
+            connection
+                .execute(
+                    "INSERT INTO acl_bucket_entries (bucket, scope, entries) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(bucket, scope) DO UPDATE SET entries = excluded.entries",
+                    params![bucket, scope(target.kind()), entries],
+                )
+                .map_err(unavailable)?;
+        }
+    }
+    Ok(())
+}
+
 /// Authorize, reject uniform access and select the target inside the caller's transaction.
 fn load(
     connection: &Connection,

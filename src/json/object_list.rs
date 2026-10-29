@@ -1,6 +1,6 @@
 use super::{
     JsonError, Projection, object_resource,
-    query::{finish, parse_query, projection},
+    query::{boolean, finish, parse_query, projection},
 };
 use crate::storage::{ObjectListPage, ObjectListQuery};
 use serde_json::{Value, json};
@@ -122,19 +122,6 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         projection,
         max_results,
     })
-}
-
-fn boolean(
-    params: &mut std::collections::BTreeMap<String, String>,
-    name: &str,
-) -> Result<bool, JsonError> {
-    match params.remove(name).as_deref() {
-        None | Some("false") => Ok(false),
-        Some("true") => Ok(true),
-        Some(_) => Err(JsonError::invalid_parameter(format!(
-            "{name} must be true or false"
-        ))),
-    }
 }
 
 pub fn object_list(

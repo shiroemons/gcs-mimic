@@ -1325,14 +1325,7 @@ async fn object_response(
             let key = json::request_key(request.headers())?;
             // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let target = crate::acl::AclTarget::Object {
-                bucket: bucket.clone(),
-                name: name.clone(),
-                generation: params.generation,
-            };
-            let bytes =
-                acl::strip_echoed_acls(state, caller, bytes, &[("acl", target)], &access).await?;
-            let mut update = json::parse_object_metadata(&bytes, replace)?;
+            let mut update = json::parse_object_metadata_mutation(&bytes, replace)?;
             retention_access::authorize_update(
                 state,
                 &access,
@@ -2149,14 +2142,6 @@ async fn bucket_response(
         }
         BucketRequest::Patch { bucket, params } | BucketRequest::Update { bucket, params } => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let echoed = [
-                ("acl", crate::acl::AclTarget::Bucket(bucket.clone())),
-                (
-                    "defaultObjectAcl",
-                    crate::acl::AclTarget::DefaultObject(bucket.clone()),
-                ),
-            ];
-            let bytes = acl::strip_echoed_acls(state, caller, bytes, &echoed, &access).await?;
             let update = if replace {
                 json::parse_bucket_replacement(&bytes, profile)?
             } else {

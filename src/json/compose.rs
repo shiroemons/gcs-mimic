@@ -49,14 +49,8 @@ pub(crate) fn route(
                 return Err(JsonError::unsupported_object(key));
             }
         }
-        match query.remove("prettyPrint").as_deref() {
-            None | Some("false") => {}
-            Some("true") => return Err(JsonError::unsupported_object("prettyPrint")),
-            Some(_) => {
-                return Err(JsonError::invalid_parameter(
-                    "prettyPrint must be a boolean",
-                ));
-            }
+        if super::query::boolean(&mut query, "prettyPrint")? {
+            return Err(JsonError::unsupported_object("prettyPrint"));
         }
         match query.remove("alt").as_deref() {
             None | Some("json") => {}

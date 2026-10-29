@@ -321,7 +321,7 @@ fn parse_bucket_update(
         .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
-            if replace && *field == "acl" && body.get(*field) == Some(&json!([])) {
+            if matches!(*field, "acl" | "defaultObjectAcl") {
                 continue;
             }
             return Err(JsonError::unsupported(field));
@@ -426,6 +426,14 @@ fn parse_bucket_update(
         location = None;
     }
     Ok(BucketMetadataUpdate {
+        acl: body
+            .get("acl")
+            .map(|value| super::acl::parse_entries(value, crate::acl::AclKind::Bucket))
+            .transpose()?,
+        default_object_acl: body
+            .get("defaultObjectAcl")
+            .map(|value| super::acl::parse_entries(value, crate::acl::AclKind::DefaultObject))
+            .transpose()?,
         soft_delete_retention: parse_soft_delete_retention(body.get("softDeletePolicy"))?,
         retention_period: parse_retention_period(body.get("retentionPolicy"))?,
         lock_retention_policy: false,

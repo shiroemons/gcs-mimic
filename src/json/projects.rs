@@ -155,15 +155,7 @@ fn parse(
             if let Some(email) = &service_account_email {
                 validate_service_account_email(email)?;
             }
-            let show_deleted_keys = match query.remove("showDeletedKeys").as_deref() {
-                None | Some("false") => false,
-                Some("true") => true,
-                Some(_) => {
-                    return Err(JsonError::invalid_parameter(
-                        "showDeletedKeys must be true or false",
-                    ));
-                }
-            };
+            let show_deleted_keys = super::query::boolean(&mut query, "showDeletedKeys")?;
             let max_results = match query.remove("maxResults") {
                 None => HMAC_KEY_PAGE_CAP,
                 Some(value) => {

@@ -34,6 +34,21 @@ pub fn parse_object_metadata(
     bytes: &[u8],
     replace: bool,
 ) -> Result<ObjectMetadataRequest, JsonError> {
+    parse_metadata(bytes, replace, false)
+}
+
+pub(crate) fn parse_object_metadata_mutation(
+    bytes: &[u8],
+    replace: bool,
+) -> Result<ObjectMetadataRequest, JsonError> {
+    parse_metadata(bytes, replace, true)
+}
+
+fn parse_metadata(
+    bytes: &[u8],
+    replace: bool,
+    allow_acl: bool,
+) -> Result<ObjectMetadataRequest, JsonError> {
     let value: Value = serde_json::from_slice(bytes).map_err(|_| {
         JsonError::new(
             StatusCode::BAD_REQUEST,
@@ -45,6 +60,9 @@ pub fn parse_object_metadata(
         .as_object()
         .ok_or_else(|| JsonError::invalid_argument("Object resource must be a JSON object"))?;
     for field in ["acl", "predefinedAcl", "contexts", "kmsKeyName"] {
+        if field == "acl" && allow_acl {
+            continue;
+        }
         if body.contains_key(field) {
             return Err(JsonError::unsupported_object(field));
         }
@@ -86,6 +104,7 @@ pub fn parse_object_metadata(
         if !matches!(
             key.as_str(),
             "contentType"
+                | "acl"
                 | "contentEncoding"
                 | "contentDisposition"
                 | "contentLanguage"
@@ -142,6 +161,10 @@ pub fn parse_object_metadata(
     Ok(ObjectMetadataRequest {
         unchanged,
         update: ObjectMetadataUpdate {
+            acl: body
+                .get("acl")
+                .map(|value| super::acl::parse_entries(value, crate::acl::AclKind::Object))
+                .transpose()?,
             replace,
             content_type: string(body, "contentType")?,
             content_encoding: string(body, "contentEncoding")?,

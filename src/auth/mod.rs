@@ -755,6 +755,92 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[tokio::test]
+    async fn resource_acl_echo_requires_read_permission_and_changes_require_set_permission() {
+        use crate::{
+            bucket::{BucketAccess, BucketMetadataUpdate, CatalogError},
+            storage::Catalog,
+        };
+        let dir =
+            std::env::temp_dir().join(format!("gcs-mimic-acl-permissions-{}", std::process::id()));
+        let catalog = Catalog::open(&dir).await.unwrap();
+        let record = crate::json::parse_insert(
+            br#"{"name":"acl-permissions"}"#,
+            "project",
+            std::time::UNIX_EPOCH,
+        )
+        .unwrap();
+        catalog.insert_bucket(record).await.unwrap();
+        for default_acl in [false, true] {
+            for readable in [false, true] {
+                let mut permissions = BTreeSet::from([BUCKETS_UPDATE]);
+                if readable {
+                    permissions.insert(BUCKETS_GET_IAM);
+                }
+                let access = BucketAccess::Policy {
+                    identity: Some(Identity {
+                        id: "local".into(),
+                        permissions: BTreeMap::from([("project".into(), permissions)]),
+                    }),
+                    permission: Permission::BucketsUpdate,
+                    project: Some("project".into()),
+                };
+                for replace in [false, true] {
+                    for same in [false, true] {
+                        let before = catalog
+                            .get_bucket("acl-permissions")
+                            .await
+                            .unwrap()
+                            .unwrap();
+                        let mut entries = crate::acl::project_private("project");
+                        entries.reverse();
+                        if !same {
+                            entries[0].role = "OWNER".into();
+                        }
+                        let mut update = BucketMetadataUpdate {
+                            labels: Some(Some(BTreeMap::from([(
+                                "changed".into(),
+                                Some("yes".into()),
+                            )]))),
+                            ..Default::default()
+                        };
+                        if default_acl {
+                            update.default_object_acl = Some(entries);
+                        } else {
+                            update.acl = Some(entries);
+                        }
+                        let result = if replace {
+                            catalog
+                                .replace_bucket("acl-permissions", update, None, None, &access)
+                                .await
+                        } else {
+                            catalog
+                                .patch_bucket("acl-permissions", update, None, None, &access)
+                                .await
+                        };
+                        if readable && same {
+                            let after = result.unwrap();
+                            assert_eq!(after.metageneration, before.metageneration + 1);
+                            assert_eq!(after.labels["changed"], "yes");
+                        } else {
+                            assert_eq!(result, Err(CatalogError::Forbidden));
+                            assert_eq!(
+                                catalog
+                                    .get_bucket("acl-permissions")
+                                    .await
+                                    .unwrap()
+                                    .unwrap(),
+                                before
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn role_snapshot_is_sorted_unique_storage_permission_data() {
         let names: Vec<_> = roles::PREDEFINED_ROLES

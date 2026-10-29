@@ -1229,6 +1229,14 @@ impl Catalog {
                     ],
                 )
                 .map_err(unavailable)?;
+            for (target, entries) in [
+                (crate::acl::AclTarget::Bucket(name.clone()), update.acl),
+                (crate::acl::AclTarget::DefaultObject(name.clone()), update.default_object_acl),
+            ] {
+                if let Some(entries) = entries {
+                    acl::replace_resource_acl(&transaction, &target, &entries, &access)?;
+                }
+            }
             change_journal::append(&transaction, change_journal::origin(&access), change_journal::ChangeKind::BucketUpdate, &name, None)?;
             transaction.commit().map_err(unavailable)?;
             Ok(record)

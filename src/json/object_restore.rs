@@ -53,14 +53,8 @@ pub(super) fn route(
             }
         }
         for key in ["copySourceAcl", "prettyPrint"] {
-            match query.remove(key).as_deref() {
-                None | Some("false") => {}
-                Some("true") => return Err(JsonError::unsupported_object(key)),
-                Some(_) => {
-                    return Err(JsonError::invalid_parameter(format!(
-                        "{key} must be true or false; use false"
-                    )));
-                }
+            if super::query::boolean(&mut query, key)? {
+                return Err(JsonError::unsupported_object(key));
             }
         }
         if query.remove("alt").is_some_and(|alt| alt != "json") {

@@ -291,6 +291,7 @@ impl From<ObjectError> for JsonError {
                 "The upload request body did not complete",
             ),
             ObjectError::InvalidFixedMetadata(reason) => Self::invalid_argument(reason),
+            ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
             ObjectError::Unavailable(message) => Self::backend(&message),
             ObjectError::Io(kind) => Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,

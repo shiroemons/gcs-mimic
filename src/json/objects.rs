@@ -1,7 +1,7 @@
 use super::{
     JsonError, Projection,
     buckets::{encode_segment, timestamp, validate_bucket_name_for_profile},
-    query::{decode, finish, parse_query, projection},
+    query::{boolean, decode, finish, parse_query, projection},
 };
 use crate::{
     config::CompatProfile,
@@ -245,14 +245,8 @@ fn parse_object_query(
             return Err(JsonError::unsupported_object(key));
         }
     }
-    match query.remove("prettyPrint").as_deref() {
-        None | Some("false") => {}
-        Some("true") => return Err(JsonError::unsupported_object("prettyPrint")),
-        Some(_) => {
-            return Err(JsonError::invalid_parameter(
-                "prettyPrint must be true or false",
-            ));
-        }
+    if boolean(&mut query, "prettyPrint")? {
+        return Err(JsonError::unsupported_object("prettyPrint"));
     }
     let media = match query.remove("alt").as_deref() {
         None | Some("json") => false,
@@ -346,16 +340,7 @@ fn parse_object_query(
         } else {
             projection(&mut query)?
         };
-        let override_unlocked_retention = match query.remove("overrideUnlockedRetention").as_deref()
-        {
-            None | Some("false") => false,
-            Some("true") => true,
-            Some(_) => {
-                return Err(JsonError::invalid_parameter(
-                    "overrideUnlockedRetention must be true or false",
-                ));
-            }
-        };
+        let override_unlocked_retention = boolean(&mut query, "overrideUnlockedRetention")?;
         finish(query)?;
         return Ok(ObjectRequest::Update {
             bucket,
@@ -372,15 +357,7 @@ fn parse_object_query(
         });
     }
     if method == Method::GET {
-        let soft_deleted = match query.remove("softDeleted").as_deref() {
-            None | Some("false") => false,
-            Some("true") => true,
-            Some(_) => {
-                return Err(JsonError::invalid_parameter(
-                    "softDeleted must be true or false",
-                ));
-            }
-        };
+        let soft_deleted = boolean(&mut query, "softDeleted")?;
         if soft_deleted && (generation.is_none() || media) {
             return Err(JsonError::invalid_argument(
                 "softDeleted=true requires generation and forbids alt=media; use generation=123&softDeleted=true",
