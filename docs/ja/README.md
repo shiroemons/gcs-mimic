@@ -4,6 +4,11 @@
 {"MD013": {"code_blocks": false, "tables": false}}
 -->
 
+[![Foundation checks](https://github.com/shiroemons/gcs-mimic/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/shiroemons/gcs-mimic/actions/workflows/ci.yaml)
+[![Release](https://img.shields.io/github/v/release/shiroemons/gcs-mimic)](https://github.com/shiroemons/gcs-mimic/releases/latest)
+[![Docker Hub](https://img.shields.io/docker/v/shiroemons/gcs-mimic?sort=semver&label=docker%20hub)](https://hub.docker.com/r/shiroemons/gcs-mimic)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#ライセンス)
+
 gcs-mimicは、ローカル開発とCIで使うGoogle Cloud Storageエミュレーターです。
 Google Cloudのアカウントなしで、バケット作成やファイルの保存・取得・削除を試せます。
 `docker run`ひとつで起動し、ディレクトリをマウントすれば初期ファイルを読み込み、
