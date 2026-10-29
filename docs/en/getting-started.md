@@ -215,7 +215,7 @@ Insert bodies are capped at 64 KiB; get/list/delete require no body.
 Peer-container curl uses a digest-pinned, test-only official curl image:
 
 ```sh
-peer_image=curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+peer_image=curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
 docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
   --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
   --data '{"name":"peer-bucket"}' 'http://gcs:4443/storage/v1/b?project=local-project'
@@ -1851,7 +1851,7 @@ uploaded_get=$(signed_sign GET "$signed_endpoint" uploaded.txt)
 signed_curl --fail "$uploaded_get" > "$signed_work/restarted.txt"
 cmp "$signed_work/input.txt" "$signed_work/restarted.txt"
 peer_get=$(signed_sign GET http://gcs:4443 uploaded.txt)
-peer_image=curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+peer_image=curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
 docker run --rm --read-only --network "${signed_project}_default" "$peer_image" \
   --disable --noproxy '*' --silent --show-error --fail --max-time 15 "$peer_get" \
   > "$signed_work/peer.txt"

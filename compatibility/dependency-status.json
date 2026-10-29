@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-28T11:22:24Z",
-  "scope": "0.2.1 pre-release refresh: the rebuilt rust:1.99.1-slim-trixie index digest, whose linux/amd64 and linux/arm64 platform digests are unchanged. Rust crates, Rust/Go/Ruby toolchains, Storage SDK, API client, other Docker inputs and catalog schema are unchanged.",
+  "checked_at_utc": "2026-10-29T00:14:38Z",
+  "scope": "0.3.0 pre-release refresh: rusqlite 0.41.1 with unchanged libsqlite3-sys 0.39.1, the rebuilt curlimages/curl:8.23.0 test peer digest, and google.golang.org/api v0.310.0 with its compatible indirect graph. Rust/Go/Ruby toolchains, Storage SDK, Dockerfile inputs and catalog schema are unchanged.",
   "freshness_check": {
-    "command": "cargo xtask dependencies check",
-    "exit_code": 1,
-    "result": "UPDATE_AVAILABLE",
-    "artifact": "docs/en/slices/grpc-v2-foundation.md",
-    "follow_up": "The first attempt timed out on the Go proxy. One retry completed detection: all Rust and other inputs CURRENT, grpc-go 1.85.0 available. Applied that update and its required compatible transitive graph before final SDK checks; the broad network detector was not repeated again."
+    "command": "just check-dependencies",
+    "exit_code": 0,
+    "result": "CURRENT",
+    "artifact": "docs/en/evidence/dependency-refresh.md",
+    "follow_up": "All 55 checked inputs are CURRENT after adopting the three updates; no freshness exception remains."
   },
   "toolchain": {
     "channel": "stable",
@@ -126,14 +126,14 @@
       "resolution_constraints": "Latest stable compatible with Hyper 1.12.0."
     },
     {
-      "name": "rusqlite", "current": "0.41.0", "latest_non_yanked_stable": "0.41.0",
-      "license": "MIT", "compressed_crate_bytes": 181395, "minimum_rust": "1.89.0",
+      "name": "rusqlite", "current": "0.41.1", "latest_non_yanked_stable": "0.41.1",
+      "license": "MIT", "compressed_crate_bytes": 181833, "minimum_rust": "1.89.0",
       "purpose": "Indexed transactional bucket/object catalog with bundled SQLite, durable generation allocation, WAL recovery and atomic mutation preconditions.",
       "features": ["bundled"],
-      "maintenance": "Official publisher repository is not archived; last push 2026-10-24T10:36:00Z. Latest non-yanked stable checked from the official Cargo index on 2026-10-24; crate published 2026-10-24T10:35:41Z and publisher release at 10:36:00Z.",
-      "source_urls": ["https://index.crates.io/ru/sq/rusqlite", "https://static.crates.io/crates/rusqlite/rusqlite-0.41.0.crate", "https://github.com/rusqlite/rusqlite/releases/tag/v0.41.0", "https://api.github.com/repos/rusqlite/rusqlite", "https://index.crates.io/li/bs/libsqlite3-sys", "https://static.crates.io/crates/libsqlite3-sys/libsqlite3-sys-0.39.1.crate", "https://www.sqlite.org/releaselog/3_54_1.html"],
-      "source_sha256": "9c026b4444579e8d754556c6c75d040d69c4a44283cdb648ab8a8d5965c2cfa8",
-      "resolution_constraints": "Default features disabled; bundled SQLite only (implies modern_sqlite). The 2026-10-27 refresh keeps rusqlite 0.41.0 and resolves libsqlite3-sys 0.39.1, bundling SQLite 3.54.1. libsqlite3-sys is MIT, 2759388 compressed bytes, Rust 1.88.0, non-yanked, SHA-256 14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3. The rusqlite release mentions Rust 1.88.0, but both registry and distributed manifests declare 1.89.0; the project remains on tested Rust 1.99.1. No cache, pooling, SQLCipher, bindgen, WASM or Rust extension features added. See docs/en/evidence/rusqlite-update.md for the original API/build migration and docs/en/evidence/dependency-refresh.md for the patch refresh."
+      "maintenance": "Official publisher repository is not archived; last push 2026-10-28T17:59:00Z. Latest non-yanked stable checked from the official Cargo index on 2026-10-29; crate published 2026-10-28T17:58:27Z and publisher release at 17:59:01Z.",
+      "source_urls": ["https://index.crates.io/ru/sq/rusqlite", "https://static.crates.io/crates/rusqlite/rusqlite-0.41.1.crate", "https://github.com/rusqlite/rusqlite/releases/tag/v0.41.1", "https://api.github.com/repos/rusqlite/rusqlite", "https://index.crates.io/li/bs/libsqlite3-sys", "https://static.crates.io/crates/libsqlite3-sys/libsqlite3-sys-0.39.1.crate", "https://www.sqlite.org/releaselog/3_54_1.html"],
+      "source_sha256": "da9bba6f3506135e120a6586df05be18b48d18896600646a4bec8f993d91a594",
+      "resolution_constraints": "Default features disabled; bundled SQLite only (implies modern_sqlite). The 2026-10-29 refresh moves rusqlite 0.41.0 to 0.41.1 and keeps libsqlite3-sys 0.39.1, bundling SQLite 3.54.1. libsqlite3-sys is MIT, 2759388 compressed bytes, Rust 1.88.0, non-yanked, SHA-256 14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3. Both registry and distributed manifests declare Rust 1.89.0; the project remains on tested Rust 1.99.1. No cache, pooling, SQLCipher, bindgen, WASM or Rust extension features added. See docs/en/evidence/rusqlite-update.md for the original API/build migration and docs/en/evidence/dependency-refresh.md for the patch refreshes."
     },
     {
       "name": "bytes", "current": "1.12.1", "latest_non_yanked_stable": "1.12.1",
@@ -215,13 +215,14 @@
       {
         "repository": "curlimages/curl", "reference": "curlimages/curl:8.23.0",
         "tag": "8.23.0", "latest_tag": "latest",
-        "digest": "sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac",
+        "digest": "sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93",
         "platforms": {
-          "linux/amd64": "sha256:ed154ad601683a2a85f8634398a6fbefd64d624df7b8432bbad512f8b8bfbf93",
-          "linux/arm64": "sha256:a2f9b99fea55a4ba8c6af3c4f770e1dd1b1270bbc56124ed8e2b1103dfa4b318"
+          "linux/amd64": "sha256:3b8fde20978e330b401837f24b871ebe2c8d14ff7f07b87990bcd832588a1a75",
+          "linux/arm64": "sha256:77fbb9f773fffafe4b1f3bf8a58cf104d0f401f3f297ed6204e70ac2cd1d7a40"
         },
         "source_url": "https://github.com/curl/curl-container",
-        "purpose": "Test-only peer-container curl in scripts/smoke-containers.sh; not shipped in the runtime image."
+        "purpose": "Test-only peer-container curl in scripts/smoke-containers.sh; not shipped in the runtime image.",
+        "update_scope": "Registry inspection on 2026-10-29 found the curl-container 8.23.0_2 rebuild, which moves the Alpine base from 3.24.2 to 3.24.3; curl stays 8.23.0 and both 8.23.0 and latest resolve to this index."
       },
       {
         "repository": "docker/dockerfile", "reference": "docker/dockerfile:1",
@@ -273,7 +274,7 @@
     {
       "ecosystem": "go",
       "manifest": "sdk-tests/go/go.mod",
-      "checked_at_utc": "2026-10-28T07:34:50Z",
+      "checked_at_utc": "2026-10-29T00:14:38Z",
       "toolchain": {
         "version": "1.27.3", "go": "1.27.0", "toolchain": "go1.27.3",
         "source_url": "https://go.dev/dl/?mode=json"
@@ -306,22 +307,22 @@
           "source_urls": ["https://proxy.golang.org/golang.org/x/oauth2/@v/list", "https://proxy.golang.org/golang.org/x/oauth2/@v/v0.37.0.info", "https://proxy.golang.org/golang.org/x/oauth2/@v/v0.37.0.mod", "https://raw.githubusercontent.com/golang/oauth2/v0.37.0/LICENSE"]
         },
         {
-          "name": "google.golang.org/api", "current": "v0.309.0",
-          "latest_non_retracted_stable": "v0.309.0", "license": "BSD-3-Clause",
-          "compressed_module_bytes": 52469611, "minimum_go": "1.26.0",
+          "name": "google.golang.org/api", "current": "v0.310.0",
+          "latest_non_retracted_stable": "v0.310.0", "license": "BSD-3-Clause",
+          "compressed_module_bytes": 52506899, "minimum_go": "1.26.0",
           "purpose": "Official client options, pagination and JSON API error types.",
-          "maintenance": "Google-maintained generated client module, published 2026-10-26; latest stable, non-prerelease and non-retracted status verified on 2026-10-27. BSD-3-Clause license is unchanged.",
-          "source_revision": "e7015502b05a4d306a3db5e8bea8686590ece244",
+          "maintenance": "Google-maintained generated client module, published 2026-10-28; latest stable, non-prerelease and non-retracted status verified on 2026-10-29. The BSD-3-Clause LICENSE is byte-identical to v0.309.0.",
+          "source_revision": "de7f75e7596890fe01fe84e8b5529fadb5af2968",
           "source_urls": [
             "https://proxy.golang.org/google.golang.org/api/@latest",
-            "https://proxy.golang.org/google.golang.org/api/@v/v0.309.0.info",
-            "https://proxy.golang.org/google.golang.org/api/@v/v0.309.0.mod",
-            "https://github.com/googleapis/google-api-go-client/releases/tag/v0.309.0",
-            "https://github.com/googleapis/google-api-go-client/tree/e7015502b05a4d306a3db5e8bea8686590ece244"
+            "https://proxy.golang.org/google.golang.org/api/@v/v0.310.0.info",
+            "https://proxy.golang.org/google.golang.org/api/@v/v0.310.0.mod",
+            "https://github.com/googleapis/google-api-go-client/releases/tag/v0.310.0",
+            "https://github.com/googleapis/google-api-go-client/tree/de7f75e7596890fe01fe84e8b5529fadb5af2968"
           ]
         }
       ],
-      "resolution_constraints": "Storage v1.70.0, API v0.309.0, OAuth2 v0.37.0 and the Go requirement remain unchanged. grpc-go v1.85.0 requires compatible cel.dev/expr, Envoy and genproto/api updates; the 2026-10-28 genproto pseudo-version raises cloud.google.com/go/iam to v1.15.0 and genproto/googleapis/api indirectly; go.mod/go.sum record the graph. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
+      "resolution_constraints": "Storage v1.70.0, OAuth2 v0.37.0 and the Go requirement remain unchanged. API v0.310.0 raises gax-go/v2 to v2.27.0, enterprise-certificate-proxy to v0.3.24 and the OpenTelemetry otel, metric, sdk, sdk/metric and trace modules to v1.47.0, and adds otel/log v1.47.0 indirectly. grpc-go v1.85.0 requires compatible cel.dev/expr, Envoy and genproto/api updates; the 2026-10-28 genproto pseudo-version raises cloud.google.com/go/iam to v1.15.0 and genproto/googleapis/api indirectly; go.mod/go.sum record the graph. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
     },
     {
       "ecosystem": "ruby",

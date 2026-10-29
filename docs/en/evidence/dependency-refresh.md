@@ -30,3 +30,38 @@ Exact pins remain in the [snapshot](../../../compatibility/dependency-status.jso
 
 Application-container checks were omitted because Dockerfile inputs were unchanged; AMD64 execution was omitted as requested.
 No benchmark, performance measurement, real-cloud test, HTTPS-mode SDK rerun, remote CI, push, publication or release was performed.
+
+## Refresh: 2026-10-29
+
+The final check at `2026-10-29T00:14:38Z` exited 0: all 55 inputs were `CURRENT`.
+No update was deferred, no freshness exception remains, and no direct dependency was added.
+
+| Input | Previous | Adopted |
+| --- | --- | --- |
+| rusqlite | 0.41.0 | 0.41.1; libsqlite3-sys stays 0.39.1, bundling SQLite 3.54.1 |
+| google.golang.org/api | v0.309.0 | v0.310.0 |
+| github.com/googleapis/gax-go/v2 (indirect) | v2.26.2 | v2.27.0 |
+| github.com/googleapis/enterprise-certificate-proxy (indirect) | v0.3.23 | v0.3.24 |
+| go.opentelemetry.io/otel, metric, sdk, sdk/metric, trace (indirect) | v1.45.0 | v1.47.0; otel/log v1.47.0 added |
+| curlimages/curl:8.23.0 | sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac | sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93 |
+
+### Upstream changes reviewed
+
+- rusqlite v0.41.1 skips the PRAGMA name check under SQLCipher and fixes a panic with a zero-argument deterministic scalar function. The catalog enables neither SQLCipher nor custom scalar functions, so no code change was needed.
+- google-api-go-client v0.310.0 contains only regenerated Discovery clients. gax-go v2.27.0 adds a path expression helper. No harness migration was needed.
+- The curl-container 8.23.0_2 rebuild moves the Alpine base from 3.24.2 to 3.24.3; curl stays 8.23.0 and `latest` resolves to the same index.
+
+### Validation performed on 2026-10-29
+
+| Command or check | Result |
+| --- | --- |
+| `cargo check --all-targets --locked` | PASS |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS |
+| `just check` | PASS: 45 test binaries and doctests, 1113 tests without failures or ignores; formatting, clippy, ledger, shell and offline publication checks |
+| `just check-sdk` | PASS: Go vet, 82 top-level tests and 109 subtests without failures; the V2 signed URL test skips by design outside HTTPS mode; Ruby self-check, migration, permissive/strict operations and V2/V4 signatures |
+| `docker pull` of the new curl digest | PASS: curl 8.23.0 on linux/arm64 |
+| `bash scripts/smoke-containers.sh --image <local build> linux/arm64` | PASS: every linux/arm64 smoke step, including the peer-container curl steps |
+| `just check-dependencies` | PASS: exit 0, all 55 inputs `CURRENT` |
+
+AMD64 container execution was not run.
+No benchmark, performance measurement, real-cloud test, HTTPS-mode SDK rerun, remote CI, push, publication or release was performed.

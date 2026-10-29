@@ -79,8 +79,8 @@ patch with a `toolchain` directive and its language series with an exact
 `go MAJOR.MINOR.0` directive. Keep both: Go removes a redundant toolchain directive
 when both specify the same patch. `actions/setup-go` reads the toolchain from
 `sdk-tests/go/go.mod`; local Go can select/download it with `GOTOOLCHAIN=auto`.
-The verified 2026-10-27 snapshot uses Go 1.27.3, Storage v1.70.0 and API client
-v0.309.0. These are dated inputs, not permanent version requirements.
+The verified 2026-10-29 snapshot uses Go 1.27.3, Storage v1.70.0 and API client
+v0.310.0. These are dated inputs, not permanent version requirements.
 
 Commit `go.mod` and `go.sum`. Go's minimum version selection uses the manifest's
 direct and indirect requirements; `go.sum` authenticates module content rather

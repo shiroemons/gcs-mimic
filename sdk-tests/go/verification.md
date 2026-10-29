@@ -2,6 +2,18 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+## SDK API client update: 2026-10-29
+
+Current pins are Go 1.27.3, Storage v1.70.0, API v0.310.0 and OAuth2 v0.37.0.
+`GOTOOLCHAIN=go1.27.3 go get google.golang.org/api@v0.310.0` and `go mod tidy`
+update the API client and, through its requirements, gax-go/v2 v2.27.0,
+enterprise-certificate-proxy v0.3.24 and OpenTelemetry v1.47.0 (adding
+otel/log indirectly). The Go requirement is unchanged. Official release notes
+describe regenerated Discovery clients only; no harness migration was required.
+The full `just check-sdk` passed Go vet, every Go test (the V2 signed URL test
+skips by design outside HTTPS mode) and the Ruby permissive/strict journeys.
+See the [dependency refresh evidence](../../docs/en/evidence/dependency-refresh.md).
+
 ## SDK API client update: 2026-10-27
 
 Current pins are Go 1.27.3, Storage v1.70.0, API v0.309.0 and OAuth2 v0.37.0.
