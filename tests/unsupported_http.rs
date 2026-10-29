@@ -68,22 +68,16 @@ fn unsupported_google_routes_and_inputs() {
             "{value}"
         );
     }
-    for (path, body, field) in [
-        (
-            "/storage/v1/b?project=local",
-            json!({"name":"rejected-bucket", "website":{"mainPageSuffix":"index.html"}}),
-            "website",
-        ),
-        (
-            "/storage/v1/b?project=local",
-            json!({"name":"rejected-bucket", "autoclass":{"enabled":true}}),
-            "autoclass",
-        ),
-    ] {
-        let reply = server.request("POST", path, "", body.to_string().as_bytes());
-        reply.error(400, "badRequest");
-        assert!(String::from_utf8_lossy(&reply.body).contains(field));
-    }
+    let reply = server.request(
+        "POST",
+        "/storage/v1/b?project=local",
+        "",
+        json!({"name":"rejected-bucket", "website":{"mainPageSuffix":"index.html"}})
+            .to_string()
+            .as_bytes(),
+    );
+    reply.error(400, "badRequest");
+    assert!(String::from_utf8_lossy(&reply.body).contains("website"));
     server
         .request(
             "GET",

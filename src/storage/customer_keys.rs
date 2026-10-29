@@ -144,6 +144,7 @@ mod tests {
                 location: "US".into(),
                 location_type: "multi-region".into(),
                 storage_class: "STANDARD".into(),
+                autoclass: None,
                 labels: Default::default(),
                 versioning_enabled: false,
                 default_event_based_hold: false,
@@ -301,7 +302,7 @@ mod tests {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            30
+            31
         );
         // The column rejects anything but a 32-byte fingerprint.
         assert!(

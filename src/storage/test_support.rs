@@ -29,6 +29,22 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
         DROP TABLE objects_with_versions;").unwrap();
 }
 
+/// Remove the version 31 Autoclass column; fixtures built at older versions lack it.
+pub fn downgrade_autoclass_schema(connection: &rusqlite::Connection) {
+    let present: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('buckets') WHERE name = 'autoclass')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if present {
+        connection
+            .execute_batch("ALTER TABLE buckets DROP COLUMN autoclass;")
+            .unwrap();
+    }
+}
+
 pub fn downgrade_soft_delete_schema(connection: &rusqlite::Connection) {
     downgrade_object_retention_schema(connection);
     connection
@@ -47,6 +63,7 @@ pub fn downgrade_object_retention_schema(connection: &rusqlite::Connection) {
 
 /// Restores the schema 29 layout, which predates customer-supplied key fingerprints.
 pub fn downgrade_customer_key_schema(connection: &rusqlite::Connection) {
+    downgrade_autoclass_schema(connection);
     connection
         .execute_batch("ALTER TABLE objects DROP COLUMN customer_key_sha256;")
         .unwrap();

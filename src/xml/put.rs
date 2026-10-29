@@ -60,6 +60,7 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
                     | "x-goog-if-metageneration-match"
                     | "x-goog-api-client"
                     | "x-goog-gcs-idempotency-token"
+                    | "x-goog-storage-class"
             ))
             || name.starts_with("x-amz-")
             || matches!(
@@ -195,6 +196,17 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
         ("content-language", &mut metadata.content_language),
     ] {
         *field = single(headers, name)?.map(|value| Some(value.to_owned()));
+    }
+    if let Some(class) = single(headers, "x-goog-storage-class")? {
+        crate::object::validate_object_storage_class(class).map_err(|error| match error {
+            ObjectError::UnsupportedMetadata(reason) => Error::unsupported(&reason),
+            _ => Error::new(
+                StatusCode::BAD_REQUEST,
+                "InvalidArgument",
+                "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE.",
+            ),
+        })?;
+        metadata.storage_class = Some(class.to_owned());
     }
     let mut custom = BTreeMap::new();
     for name in headers.keys() {

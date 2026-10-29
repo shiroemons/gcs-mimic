@@ -94,6 +94,7 @@ fn bucket_mask(
             location,
             location_type,
             storage_class,
+            autoclass,
             labels,
             create_time,
             update_time,
@@ -194,12 +195,17 @@ fn create_metadata(
     if remaining.rpo == "DEFAULT" {
         remaining.rpo.clear();
     }
-    if remaining
-        .autoclass
-        .as_ref()
-        .is_some_and(|v| v == &Default::default())
-    {
-        remaining.autoclass = None;
+    if let Some(autoclass) = remaining.autoclass.take() {
+        if autoclass.toggle_time.is_some() || autoclass.terminal_storage_class_update_time.is_some()
+        {
+            return Err(super::status::unsupported(
+                "create bucket autoclass output fields",
+            ));
+        }
+        body["autoclass"] = json!({"enabled": autoclass.enabled});
+        if let Some(class) = autoclass.terminal_storage_class {
+            body["autoclass"]["terminalStorageClass"] = class.into();
+        }
     }
     if remaining
         .billing
@@ -714,6 +720,99 @@ mod tests {
             let code = storage.get_bucket(request, None).await.unwrap_err().code();
             assert!(matches!(code, Code::InvalidArgument | Code::Unimplemented));
         }
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_buckets_create_autoclass_shares_json_rules() {
+        let (_dir, storage) = storage(false).await;
+        let mut request = create("auto-bucket");
+        request.bucket.as_mut().unwrap().autoclass = Some(pb::bucket::Autoclass {
+            enabled: true,
+            terminal_storage_class: Some("ARCHIVE".into()),
+            ..Default::default()
+        });
+        let created = storage
+            .create_bucket(Request::new(request), None)
+            .await
+            .unwrap()
+            .into_inner();
+        let config = created.autoclass.clone().unwrap();
+        assert!(config.enabled);
+        assert_eq!(config.terminal_storage_class.as_deref(), Some("ARCHIVE"));
+        assert_eq!(config.toggle_time, created.create_time);
+        assert_eq!(
+            config.terminal_storage_class_update_time,
+            created.create_time
+        );
+        let fetched = storage
+            .get_bucket(Request::new(get("auto-bucket")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(fetched.autoclass, created.autoclass);
+        let masked = storage
+            .get_bucket(
+                Request::new(pb::GetBucketRequest {
+                    read_mask: Some(prost_types::FieldMask {
+                        paths: vec!["autoclass".into()],
+                    }),
+                    ..get("auto-bucket")
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(masked.autoclass, created.autoclass);
+
+        for (name, autoclass, class) in [
+            (
+                "bad-terminal",
+                pb::bucket::Autoclass {
+                    enabled: true,
+                    terminal_storage_class: Some("COLDLINE".into()),
+                    ..Default::default()
+                },
+                "",
+            ),
+            (
+                "bad-class",
+                pb::bucket::Autoclass {
+                    enabled: true,
+                    ..Default::default()
+                },
+                "NEARLINE",
+            ),
+        ] {
+            let mut request = create(name);
+            let bucket = request.bucket.as_mut().unwrap();
+            bucket.autoclass = Some(autoclass);
+            bucket.storage_class = class.into();
+            assert_eq!(
+                storage
+                    .create_bucket(Request::new(request), None)
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument,
+                "{name}"
+            );
+        }
+        let mut request = create("output-only");
+        request.bucket.as_mut().unwrap().autoclass = Some(pb::bucket::Autoclass {
+            enabled: true,
+            toggle_time: Some(prost_types::Timestamp::default()),
+            ..Default::default()
+        });
+        assert_eq!(
+            storage
+                .create_bucket(Request::new(request), None)
+                .await
+                .unwrap_err()
+                .code(),
+            Code::Unimplemented
+        );
         storage.state.catalog.close().await.unwrap();
     }
 

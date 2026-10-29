@@ -697,6 +697,8 @@ impl Catalog {
                 objects::publish_blob(&stage, &objects::blob_path(&data_dir, &query)?).map_err(unavailable)?;
                 let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
                 let (default_class, allow_overwrite) = objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
+                // Autoclass ignores rewrite/copy/compose class requests and stores STANDARD.
+                let storage_class = super::bucket_autoclass::object_storage_class(&transaction, &destination.bucket, destination.storage_class.clone(), default_class).map_err(unavailable)?;
                 let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(&transaction, &destination.bucket).map_err(unavailable)?;
                 let previous = objects::lookup(&transaction, &destination.bucket, &destination.name)?;
                 objects::check_publication(previous.as_ref(), destination.conditions, allow_overwrite, clock.now())?;
@@ -706,7 +708,6 @@ impl Catalog {
                 let micros = unix_micros(now).map_err(unavailable)?;
                 let time = system_time_micros(micros).map_err(unavailable)?;
                 let (record, _retired, ()) = objects::publish_in_transaction(&transaction, micros, objects::GenerationAssignment::Automatic, previous.as_ref(), versioning, &query, super::change_journal::origin(&destination.access), |generation| {
-                let storage_class = destination.storage_class.unwrap_or(default_class);
                 crate::bucket::validate_storage_class(&storage_class).map_err(|error| ObjectError::UnsupportedMetadata(error.to_string()))?;
                 let mut record = ObjectRecord {
                     bucket: destination.bucket, name: destination.name, generation, metageneration: 1,
@@ -1006,6 +1007,7 @@ mod tests {
                 location: "US".into(),
                 location_type: "multi-region".into(),
                 storage_class: "STANDARD".into(),
+                autoclass: None,
                 labels: Default::default(),
                 versioning_enabled: false,
                 default_event_based_hold: false,

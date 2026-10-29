@@ -1449,9 +1449,9 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
         let server = profile_server(&dir, profile);
         let before = server.insert("patch-input", "project").json();
         let path = "/storage/v1/b/patch-input";
+        // Autoclass is supported on PATCH/PUT; bucket_autoclass_http covers its errors.
         for field in [
             "acl",
-            "autoclass",
             "billing",
             "customPlacementConfig",
             "defaultObjectAcl",
@@ -2650,9 +2650,9 @@ fn bucket_core_unsupported_settings_preserve_state() {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
+        // Autoclass validation errors are covered by bucket_autoclass_http.
         for field in [
             "acl",
-            "autoclass",
             "billing",
             "customPlacementConfig",
             "defaultObjectAcl",
@@ -2672,9 +2672,7 @@ fn bucket_core_unsupported_settings_preserve_state() {
                 json!(false),
                 json!({"enabled":true}),
             ] {
-                let value = if field == "autoclass" && (value.is_null() || value == json!({})) {
-                    json!({"enabled": false, "terminalStorageClass": "ARCHIVE"})
-                } else if field == "customPlacementConfig"
+                let value = if field == "customPlacementConfig"
                     && (value.is_null() || value == json!({}))
                 {
                     json!({"dataLocations":["US-EAST1", "US-WEST1"]})
@@ -3001,7 +2999,7 @@ fn bucket_core_migrates_v7_settings() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            30
+            31
         );
     }
 }

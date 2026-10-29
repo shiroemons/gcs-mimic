@@ -153,7 +153,6 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
       # Use the SDK's default retry count for unsupported calls, independent of the transfer suite.
       api.request_options.retries = 3
       {
-        "autoclass" => -> { storage.create_bucket("sdk-ruby-unsupported-#{SecureRandom.hex(8)}", autoclass_enabled: true) },
         "includeFoldersAsPrefixes" => -> { bucket.files(delimiter: "/", include_folders_as_prefixes: true) },
         "bucket ACL" => -> { bucket.acl.reload! },
         "default object ACL" => -> { bucket.default_acl.reload! },
@@ -194,6 +193,20 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     notification.delete
     raise "notification still listed" unless bucket.notifications.empty?
     puts "ruby-bucket-notifications passed"
+    autoclass_bucket = nil
+    begin
+      autoclass_bucket = storage.create_bucket("sdk-ruby-autoclass-#{SecureRandom.hex(8)}", autoclass_enabled: true)
+      autoclass_bucket.reload!
+      raise "autoclass not enabled" unless autoclass_bucket.autoclass_enabled
+      raise "autoclass toggle time missing" unless autoclass_bucket.autoclass_toggle_time
+      raise "autoclass terminal class differs" unless autoclass_bucket.autoclass_terminal_storage_class == "NEARLINE"
+      autoclass_file = autoclass_bucket.create_file(StringIO.new("x"), "cold", storage_class: :coldline)
+      raise "autoclass object class differs" unless autoclass_file.storage_class == "STANDARD"
+      autoclass_file.delete
+      puts "ruby-bucket-autoclass passed"
+    ensure
+      autoclass_bucket&.delete
+    end
     uniform_bucket = nil
     begin
       uniform_bucket = storage.create_bucket("sdk-ruby-ubla-#{SecureRandom.hex(8)}") do |item|

@@ -1135,7 +1135,7 @@ async fn populated_v4_catalog_migrates_and_replays_seed() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        30
+        31
     );
 }
 

@@ -14,6 +14,17 @@ pub fn bucket(record: &BucketRecord) -> pb::Bucket {
         location: record.location.clone(),
         location_type: record.location_type.clone(),
         storage_class: record.storage_class.clone(),
+        autoclass: record
+            .autoclass
+            .as_ref()
+            .map(|config| pb::bucket::Autoclass {
+                enabled: config.enabled,
+                toggle_time: Some(config.toggle_time.into()),
+                terminal_storage_class: config.terminal_storage_class.clone(),
+                terminal_storage_class_update_time: config
+                    .terminal_storage_class_update_time
+                    .map(Into::into),
+            }),
         labels: record.labels.clone().into_iter().collect(),
         create_time: Some(record.time_created.into()),
         update_time: Some(record.updated.into()),
@@ -147,6 +158,7 @@ mod tests {
             location: "US".into(),
             location_type: "multi-region".into(),
             storage_class: "STANDARD".into(),
+            autoclass: None,
             labels: BTreeMap::from([("team".into(), "dev".into())]),
             cors: vec![crate::bucket::CorsRule {
                 origin: vec!["https://example.invalid".into()],

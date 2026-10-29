@@ -15,7 +15,6 @@ const LEGACY_LOCATION: &str = "US-CENTRAL1";
 
 pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "acl",
-    "autoclass",
     "billing",
     "customPlacementConfig",
     "defaultObjectAcl",
@@ -125,14 +124,6 @@ pub fn parse_insert_with_profile(
             {
                 continue;
             }
-            // Ruby sends disabled Autoclass even when no option was supplied.
-            if *field == "autoclass"
-                && body.get(*field).is_some_and(|value| {
-                    value.is_null() || value == &json!({}) || value == &json!({"enabled": false})
-                })
-            {
-                continue;
-            }
             return Err(JsonError::unsupported(field));
         }
     }
@@ -210,6 +201,14 @@ pub fn parse_insert_with_profile(
         string("storageClass", Some("STANDARD"))?
     };
     validate_storage_class(&storage_class)?;
+    // Ruby sends disabled Autoclass even when no option was supplied; that stays unconfigured.
+    let autoclass = body
+        .get("autoclass")
+        .map(crate::bucket::autoclass::parse_json)
+        .transpose()?
+        .map(|update| crate::bucket::autoclass::apply(None, &update, now))
+        .transpose()?
+        .and_then(|(config, _)| config);
     let mut labels = BTreeMap::new();
     if let Some(value) = body
         .get("labels")
@@ -258,6 +257,7 @@ pub fn parse_insert_with_profile(
         location: location.to_owned(),
         location_type: location_type.to_owned(),
         storage_class,
+        autoclass,
         labels,
         cors: parse_cors(body.get("cors"))?.unwrap_or_default(),
         lifecycle: body
@@ -439,6 +439,10 @@ fn parse_bucket_update(
             .transpose()?,
         labels,
         storage_class,
+        autoclass: body
+            .get("autoclass")
+            .map(crate::bucket::autoclass::parse_json)
+            .transpose()?,
         versioning_enabled,
         default_event_based_hold: boolean(
             body.get("defaultEventBasedHold"),
@@ -620,6 +624,17 @@ pub fn bucket_resource_with_profile(
     }
     value["iamConfiguration"]["uniformBucketLevelAccess"] = uniform_access.clone();
     value["iamConfiguration"]["bucketPolicyOnly"] = uniform_access;
+    if let Some(config) = &bucket.autoclass {
+        let mut autoclass =
+            json!({"enabled": config.enabled, "toggleTime": timestamp(config.toggle_time)?});
+        if let Some(class) = &config.terminal_storage_class {
+            autoclass["terminalStorageClass"] = class.as_str().into();
+        }
+        if let Some(time) = config.terminal_storage_class_update_time {
+            autoclass["terminalStorageClassUpdateTime"] = timestamp(time)?.into();
+        }
+        value["autoclass"] = autoclass;
+    }
     if !bucket.labels.is_empty() {
         value["labels"] = json!(bucket.labels);
     }

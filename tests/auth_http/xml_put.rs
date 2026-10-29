@@ -278,7 +278,9 @@ fn xml_put_unsupported_inputs_fail_before_continue_and_preserve_state() {
     for header in [
         "x-goog-acl: public-read",
         "x-goog-encryption-kms-key-name: key",
-        "x-goog-storage-class: STANDARD",
+        "x-goog-storage-class: GLACIER",
+        "x-goog-storage-class: nearline",
+        "x-goog-storage-class: REGIONAL",
         "x-goog-user-project: billing",
         "x-goog-object-lock-mode: GOVERNANCE",
         "x-goog-object-lock-retain-until-date: 2030-01-01T00:00:00Z",

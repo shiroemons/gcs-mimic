@@ -711,6 +711,13 @@ impl Catalog {
                             .map_err(object_unavailable)?;
                         let (storage_class, allow_overwrite) =
                             authorized_bucket(&transaction, &bucket, &access)?;
+                        let storage_class = super::bucket_autoclass::object_storage_class(
+                            &transaction,
+                            &bucket,
+                            metadata.storage_class.clone(),
+                            storage_class,
+                        )
+                        .map_err(object_unavailable)?;
                         let (versioning, default_hold) =
                             Catalog::bucket_settings_in_transaction(&transaction, &bucket)
                                 .map_err(object_unavailable)?;
@@ -2298,6 +2305,7 @@ mod tests {
                     location: "US".into(),
                     location_type: "multi-region".into(),
                     storage_class: "STANDARD".into(),
+                    autoclass: None,
                     labels: Default::default(),
                     versioning_enabled: false,
                     default_event_based_hold: false,
@@ -2378,6 +2386,7 @@ mod tests {
                 location: "US".into(),
                 location_type: "multi-region".into(),
                 storage_class: "STANDARD".into(),
+                autoclass: None,
                 labels: Default::default(),
                 versioning_enabled: false,
                 default_event_based_hold: false,
@@ -2534,6 +2543,7 @@ mod tests {
                 location: "US".into(),
                 location_type: "multi-region".into(),
                 storage_class: "STANDARD".into(),
+                autoclass: None,
                 labels: Default::default(),
                 versioning_enabled: false,
                 default_event_based_hold: false,

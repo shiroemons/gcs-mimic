@@ -775,7 +775,6 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
         "generation",
         "metageneration",
         "size",
-        "storageClass",
         "etag",
         "timeCreated",
         "id",
@@ -790,9 +789,19 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
             )
             .error(400, "badRequest");
     }
+    server
+        .upload(
+            "name=existing",
+            &wire(br#"{"storageClass":"REGIONAL"}"#, None, b"new", None),
+        )
+        .error(400, "badRequest");
     for value in [
         json!({"temporaryHold":"true"}),
         json!({"customTime":"invalid"}),
+        json!({"storageClass":"GLACIER"}),
+        json!({"storageClass":"coldline"}),
+        json!({"storageClass":""}),
+        json!({"storageClass":7}),
     ] {
         server
             .upload(

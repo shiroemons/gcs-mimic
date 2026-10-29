@@ -286,6 +286,13 @@ impl Catalog {
                 }
                 let (storage_class, allow_overwrite) =
                     authorized_bucket(&transaction, &session.bucket, &options.access)?;
+                let storage_class = super::bucket_autoclass::object_storage_class(
+                    &transaction,
+                    &session.bucket,
+                    options.metadata.storage_class.clone(),
+                    storage_class,
+                )
+                .map_err(unavailable)?;
                 let (versioning, default_hold) =
                     Catalog::bucket_settings_in_transaction(&transaction, &session.bucket)
                         .map_err(unavailable)?;

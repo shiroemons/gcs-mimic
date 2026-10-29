@@ -143,10 +143,27 @@ pub struct ObjectMetadataUpdate {
     pub override_unlocked_retention: bool,
     /// Set only by data writes that carry a customer-supplied key; metadata patches keep it.
     pub customer_key_sha256: Option<[u8; 32]>,
+    /// Requested class for a new generation; creation resolves it against the bucket's
+    /// default and Autoclass. Metadata updates never change the class (rewrite does).
+    pub storage_class: Option<String>,
+}
+
+pub(crate) fn validate_object_storage_class(class: &str) -> Result<(), ObjectError> {
+    crate::bucket::validate_storage_class(class).map_err(|error| match error {
+        crate::bucket::CatalogError::UnsupportedMetadata(reason) => {
+            ObjectError::UnsupportedMetadata(format!("storageClass={class}: {reason}"))
+        }
+        _ => ObjectError::InvalidFixedMetadata(
+            "Invalid object storageClass; use STANDARD, NEARLINE, COLDLINE or ARCHIVE".into(),
+        ),
+    })
 }
 
 impl ObjectMetadataUpdate {
     pub(crate) fn validate(&self) -> Result<(), ObjectError> {
+        if let Some(class) = &self.storage_class {
+            validate_object_storage_class(class)?;
+        }
         if let Some(Some(value)) = &self.custom_time {
             custom_time_key(value)?;
         }

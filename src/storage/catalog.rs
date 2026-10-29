@@ -81,6 +81,8 @@ pub(crate) use derived::{
 
 #[path = "admin.rs"]
 pub mod admin;
+#[path = "bucket_autoclass.rs"]
+pub(crate) mod bucket_autoclass;
 #[path = "notifications.rs"]
 mod notifications;
 #[path = "policies.rs"]
@@ -99,7 +101,7 @@ pub mod sync_state;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 30;
+const CATALOG_SCHEMA_VERSION: i64 = 31;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -121,7 +123,7 @@ const COLUMNS: &str = "name, project, location, location_type, storage_class, la
                       metageneration, time_created, updated, versioning_enabled,
                       default_event_based_hold, cors, public_access_prevention_enforced,
                       uniform_bucket_level_access_locked_time, lifecycle, retention_policy, soft_delete_policy,
-                      object_retention_enabled";
+                      object_retention_enabled, autoclass";
 const BUCKET_PAP_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN public_access_prevention_enforced INTEGER NOT NULL DEFAULT 0 CHECK(public_access_prevention_enforced IN (0, 1));
 PRAGMA user_version = 13;";
 const BUCKET_CORS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN cors TEXT NOT NULL DEFAULT '[]';
@@ -383,6 +385,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
     if version >= 30 {
         expected
             .execute_batch(customer_keys::SCHEMA)
+            .map_err(unavailable)?;
+    }
+    if version >= 31 {
+        expected
+            .execute_batch(bucket_autoclass::SCHEMA)
             .map_err(unavailable)?;
     }
     let inventory =
@@ -705,6 +712,9 @@ impl Catalog {
             }
             if version < 30 {
                 customer_keys::migrate(&mut connection)?;
+            }
+            if version < 31 {
+                bucket_autoclass::migrate(&mut connection)?;
             }
             // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
             if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {
@@ -1086,6 +1096,7 @@ impl Catalog {
                     record.retention_policy = None;
                 }
             }
+            bucket_autoclass::update(&transaction, &mut record, &update, clock.now())?;
             if let Some(labels) = update.labels {
                 if replace {
                     record.labels.clear();
@@ -1468,7 +1479,7 @@ fn insert_bucket_in_transaction(
     let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
     let changed = transaction
         .execute(
-            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL)
          ON CONFLICT(name) DO NOTHING"),
             params![
                 record.name,
@@ -1495,6 +1506,7 @@ fn insert_bucket_in_transaction(
     if changed == 0 {
         return Err(CatalogError::AlreadyExists);
     }
+    bucket_autoclass::insert(transaction, record)?;
     insert_policy(
         transaction,
         &record.name,
@@ -1583,6 +1595,7 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         location: row.get(2)?,
         location_type: row.get(3)?,
         storage_class: row.get(4)?,
+        autoclass: bucket_autoclass::read(row)?,
         labels: serde_json::from_str(&labels)
             .map_err(|e| rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(e)))?,
         lifecycle: serde_json::from_str(&row.get::<_, String>(14)?)

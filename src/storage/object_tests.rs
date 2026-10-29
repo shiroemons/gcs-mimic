@@ -65,6 +65,7 @@ async fn setup(dir: &TestDir) -> Catalog {
             location: "US".into(),
             location_type: "multi-region".into(),
             storage_class: "NEARLINE".into(),
+            autoclass: None,
             labels: BTreeMap::new(),
             versioning_enabled: false,
             default_event_based_hold: false,
@@ -1571,7 +1572,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        30
+        31
     );
 }
 

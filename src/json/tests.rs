@@ -542,13 +542,12 @@ fn bkt_ins_002_recognized_unsupported_fields_never_succeed() {
     for field in super::buckets::UNSUPPORTED_FIELDS {
         for value in [Value::Null, json!({}), json!([]), json!(false)] {
             let mut body = json!({"name":"abc"});
-            body[field] = if *field == "autoclass" && (value.is_null() || value == json!({})) {
-                json!({"enabled": true})
-            } else if *field == "customPlacementConfig" && (value.is_null() || value == json!({})) {
-                json!({"dataLocations":["US-EAST1", "US-WEST1"]})
-            } else {
-                value
-            };
+            body[field] =
+                if *field == "customPlacementConfig" && (value.is_null() || value == json!({})) {
+                    json!({"dataLocations":["US-EAST1", "US-WEST1"]})
+                } else {
+                    value
+                };
             let error = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap_err();
             assert_eq!(error.status, StatusCode::BAD_REQUEST, "{field}");
             assert!(error.message.contains(field));

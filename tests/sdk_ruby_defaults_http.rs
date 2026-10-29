@@ -7,9 +7,14 @@ use serde_json::json;
 fn ruby_default_create_bucket() {
     let dir = TestDir::new();
     let server = Server::start(&dir, false);
-    for (index, autoclass) in [json!(null), json!({}), json!({"enabled": false})]
-        .into_iter()
-        .enumerate()
+    for (index, autoclass) in [
+        json!(null),
+        json!({}),
+        json!({"enabled": false}),
+        json!({"enabled": null}),
+    ]
+    .into_iter()
+    .enumerate()
     {
         let name = format!("ruby-default-{index}");
         let created = server
@@ -29,10 +34,9 @@ fn ruby_default_create_bucket() {
             .json();
         assert!(fetched.get("autoclass").is_none());
     }
+    // Enabled Autoclass is covered by bucket_autoclass_http; malformed settings still fail.
     for autoclass in [
-        json!({"enabled": true}),
         json!({"enabled": false, "terminalStorageClass": "ARCHIVE"}),
-        json!({"enabled": null}),
         json!({"enabled": "false"}),
         json!({"unknown": false}),
         json!(false),
@@ -46,7 +50,7 @@ fn ruby_default_create_bucket() {
                     .to_string()
                     .as_bytes(),
             )
-            .error(400, "badRequest");
+            .error(400, "invalidArgument");
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/unsupported-autoclass", "", b"")

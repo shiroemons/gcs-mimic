@@ -471,6 +471,17 @@ pub fn multipart_metadata(
     {
         return Err(JsonError::unsupported_object("kind"));
     }
+    // Insert accepts a creation class; metadata updates keep comparing it as output-only.
+    if let Some(class) = unchanged
+        .remove("storageClass")
+        .filter(|value| !value.is_null())
+    {
+        let class = class
+            .as_str()
+            .ok_or_else(|| JsonError::invalid_argument("storageClass must be a string or null"))?;
+        crate::object::validate_object_storage_class(class).map_err(JsonError::from)?;
+        update.storage_class = Some(class.to_owned());
+    }
     let expected = merge_hashes(&mut unchanged, expected)?;
     if let Some((key, _)) = unchanged.into_iter().next() {
         return Err(JsonError::unsupported_object(&key));

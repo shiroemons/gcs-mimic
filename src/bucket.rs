@@ -9,6 +9,9 @@ use std::{
 #[path = "bucket_lifecycle.rs"]
 pub mod lifecycle;
 
+#[path = "bucket_autoclass.rs"]
+pub mod autoclass;
+
 pub(crate) const UNIFORM_ACCESS_LOCK_PERIOD: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 
 // Pinned to the official locations page checked in sdk-regional-locations.md.
@@ -104,6 +107,7 @@ pub struct BucketRecord {
     pub location: String,
     pub location_type: String,
     pub storage_class: String,
+    pub autoclass: Option<autoclass::Autoclass>,
     pub labels: BTreeMap<String, String>,
     pub cors: Vec<CorsRule>,
     pub lifecycle: Vec<serde_json::Value>,
@@ -132,6 +136,7 @@ pub struct BucketMetadataUpdate {
     pub object_retention_enabled: Option<bool>,
     pub labels: Option<Option<BTreeMap<String, Option<String>>>>,
     pub storage_class: Option<String>,
+    pub autoclass: Option<autoclass::AutoclassUpdate>,
     pub versioning_enabled: Option<bool>,
     pub default_event_based_hold: Option<bool>,
     pub public_access_prevention_enforced: Option<bool>,

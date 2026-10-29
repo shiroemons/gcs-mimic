@@ -354,7 +354,7 @@ async fn import_journal_upgrade_preserves_native_state_and_stopped_snapshot() {
     assert!(!catalog.admin(Origin::Seed).seed_complete().await.unwrap());
     catalog.close().await.unwrap();
     let connection = Connection::open(&path).unwrap();
-    super::super::validate_schema(&connection, 30).unwrap();
+    super::super::validate_schema(&connection, 31).unwrap();
     assert!(super::super::validate_schema(&connection, 15).is_err());
     let snapshot = Connection::open(backup.0.join("catalog.sqlite3")).unwrap();
     super::super::validate_schema(&snapshot, 15).unwrap();

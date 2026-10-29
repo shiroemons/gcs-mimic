@@ -99,8 +99,10 @@ requires 400 badRequest within three seconds, distinguishable from not
 found. Test fixtures are removed on success and failure.
 
 Bucket creation uses high-level `Project#create_bucket(name)` without optional
-arguments. The disabled Autoclass setting sent by the SDK is treated as absent;
-enabling Autoclass or supplying additional settings returns 400 badRequest.
+arguments. The disabled Autoclass setting sent by the SDK is treated as absent.
+`create_bucket(name, autoclass_enabled: true)` reads back enabled Autoclass with
+a toggle time and the default NEARLINE terminal class, and a COLDLINE upload to
+that bucket is stored as STANDARD.
 An extensionless `StringIO` upload uses `create_file` without `content_type` and
 verifies application/octet-stream and exact bytes. The migration scenario also
 omits `content_type` for its named text file.

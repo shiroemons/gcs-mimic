@@ -223,6 +223,11 @@ fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
         "labels"=>body["labels"]=if b.labels.is_empty(){Value::Null}else{json!(b.labels)},
         p if p.starts_with("labels.") && p.len()>7=>{let key=&p[7..];body["labels"][key]=b.labels.get(key).map_or(Value::Null,|v|v.clone().into());}
         "storage_class"=>body["storageClass"]=b.storage_class.clone().into(),
+        "autoclass"|"autoclass.enabled"|"autoclass.terminal_storage_class"=>{
+            let a=b.autoclass.clone().unwrap_or_default();
+            if path!="autoclass.terminal_storage_class"{body["autoclass"]["enabled"]=a.enabled.into();}
+            if path!="autoclass.enabled" && let Some(class)=a.terminal_storage_class{body["autoclass"]["terminalStorageClass"]=class.into();}
+        }
         "versioning"|"versioning.enabled"=>body["versioning"]=json!({"enabled":b.versioning.as_ref().is_some_and(|v|v.enabled)}),
         "default_event_based_hold"=>body["defaultEventBasedHold"]=b.default_event_based_hold.into(),
         "cors"=>body["cors"]=json!(b.cors.iter().map(|c|json!({"origin":c.origin,"method":c.method,"responseHeader":c.response_header,"maxAgeSeconds":c.max_age_seconds})).collect::<Vec<_>>()),
@@ -1153,6 +1158,78 @@ mod tests {
             .unwrap(),
             json!({"temporaryHold":false,"eventBasedHold":false})
         );
+    }
+
+    #[tokio::test]
+    async fn grpc_update_bucket_autoclass_masks() {
+        let autoclass = |enabled, class: Option<&str>| pb::Bucket {
+            autoclass: Some(pb::bucket::Autoclass {
+                enabled,
+                terminal_storage_class: class.map(str::to_owned),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            bucket_patch(&autoclass(true, Some("ARCHIVE")), &["autoclass".into()]).unwrap(),
+            json!({"autoclass":{"enabled":true,"terminalStorageClass":"ARCHIVE"}})
+        );
+        assert_eq!(
+            bucket_patch(
+                &autoclass(true, Some("ARCHIVE")),
+                &["autoclass.terminal_storage_class".into()]
+            )
+            .unwrap(),
+            json!({"autoclass":{"terminalStorageClass":"ARCHIVE"}})
+        );
+        assert_eq!(
+            bucket_patch(&pb::Bucket::default(), &["autoclass.enabled".into()]).unwrap(),
+            json!({"autoclass":{"enabled":false}})
+        );
+        let (s, _dir) = setup().await;
+        let update = |bucket: pb::Bucket, paths: &[&str]| pb::UpdateBucketRequest {
+            bucket: Some(pb::Bucket {
+                name: "projects/_/buckets/update-copy-bucket".into(),
+                ..bucket
+            }),
+            update_mask: update_mask(paths),
+            ..Default::default()
+        };
+        let enabled = s
+            .update_bucket(
+                Request::new(update(autoclass(true, None), &["autoclass"])),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        let config = enabled.autoclass.unwrap();
+        assert!(config.enabled);
+        assert_eq!(config.terminal_storage_class.as_deref(), Some("NEARLINE"));
+        assert!(
+            config.toggle_time.is_some() && config.terminal_storage_class_update_time.is_some()
+        );
+        assert_eq!(enabled.storage_class, "STANDARD");
+        let invalid = update(autoclass(true, Some("COLDLINE")), &["autoclass"]);
+        assert_eq!(
+            s.update_bucket(Request::new(invalid), None)
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::InvalidArgument
+        );
+        let disabled = s
+            .update_bucket(
+                Request::new(update(autoclass(false, None), &["autoclass.enabled"])),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        let config = disabled.autoclass.unwrap();
+        assert!(!config.enabled);
+        assert_eq!(config.terminal_storage_class, None);
+        s.state.catalog.close().await.unwrap();
     }
 
     #[tokio::test]

@@ -721,6 +721,8 @@ impl Storage {
                 .take()
                 .map(|time| time.to_string())
                 .map(Some),
+            storage_class: (!resource.storage_class.is_empty())
+                .then(|| std::mem::take(&mut resource.storage_class)),
             ..Default::default()
         };
         resource.temporary_hold = false;
@@ -1238,6 +1240,49 @@ mod tests {
             .code(),
             tonic::Code::Unimplemented
         );
+    }
+
+    #[tokio::test]
+    async fn grpc_io_write_spec_storage_class() {
+        let (_dir, storage) = setup(false).await;
+        let mut request = message("cold", b"x");
+        let Some(pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec)) =
+            &mut request.first_message
+        else {
+            unreachable!()
+        };
+        spec.resource.as_mut().unwrap().storage_class = "COLDLINE".into();
+        let pb::bidi_write_object_response::WriteStatus::Resource(object) =
+            write(&storage, vec![request.clone()]).await.unwrap()
+        else {
+            panic!("write did not finish");
+        };
+        assert_eq!(object.storage_class, "COLDLINE");
+        let stored = storage
+            .state
+            .catalog
+            .get_object("grpc-io", "cold", None, Default::default())
+            .await
+            .unwrap();
+        assert_eq!(stored.storage_class, "COLDLINE");
+        for (class, code) in [
+            ("GLACIER", tonic::Code::InvalidArgument),
+            ("REGIONAL", tonic::Code::Unimplemented),
+        ] {
+            let mut bad = request.clone();
+            let Some(pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec)) =
+                &mut bad.first_message
+            else {
+                unreachable!()
+            };
+            spec.resource.as_mut().unwrap().storage_class = class.into();
+            assert_eq!(
+                write(&storage, vec![bad]).await.unwrap_err().code(),
+                code,
+                "{class}"
+            );
+        }
+        storage.state.catalog.close().await.unwrap();
     }
 
     #[tokio::test]

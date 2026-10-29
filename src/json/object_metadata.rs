@@ -175,6 +175,7 @@ pub fn parse_object_metadata(
                 .transpose()?,
             override_unlocked_retention: false,
             customer_key_sha256: None,
+            storage_class: None,
         },
     })
 }

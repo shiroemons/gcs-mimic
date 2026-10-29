@@ -671,6 +671,7 @@ mod tests {
                 location: "US".into(),
                 location_type: "multi-region".into(),
                 storage_class: "STANDARD".into(),
+                autoclass: None,
                 labels: Default::default(),
                 versioning_enabled: false,
                 default_event_based_hold: false,
