@@ -247,6 +247,14 @@ Its [historical freshness check](evidence/rusqlite-dependencies.txt) exited 1
 for a distroless digest update adopted later. The 2026-10-27 refresh retains
 rusqlite 0.41.0 and advances the binding to 0.39.1, bundling SQLite 3.54.1;
 see the current [refresh evidence](evidence/dependency-refresh.md).
+On 2026-10-29 rusqlite also enables its `cache` feature so request paths reuse
+prepared statements through `prepare_cached`; the connection cache holds at most
+64 statements. Cargo.lock adds hashlink 0.12.2 (MIT OR Apache-2.0, 33,361
+compressed bytes, Rust 1.85) and foldhash 0.2.0 for the already locked hashbrown
+0.17.1 (Zlib, 23,329 compressed bytes, Rust 1.60). The official Cargo index
+confirms both as the latest non-yanked stable releases, their publisher
+repositories are not archived, and both packages ship their license texts.
+Digests are in the [dependency snapshot](../../compatibility/dependency-status.json).
 
 The V4 signed-download slice promotes the already locked TLS transitive dependency
 `ring` 0.17.14 to a direct dependency for RSASSA-PKCS1-v1_5 SHA-256 signing,
