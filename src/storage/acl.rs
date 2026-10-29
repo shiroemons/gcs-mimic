@@ -183,10 +183,41 @@ fn scope(kind: AclKind) -> &'static str {
     }
 }
 
+/// The resource a metadata mutation replaces ACLs on. Unlike [`AclTarget`], an object target
+/// carries the generation the mutation already selected, so no live-generation lookup remains.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum ResolvedAclTarget<'a> {
+    Bucket(&'a str),
+    DefaultObject(&'a str),
+    Object {
+        bucket: &'a str,
+        name: &'a str,
+        generation: i64,
+    },
+}
+
+impl<'a> ResolvedAclTarget<'a> {
+    fn kind(self) -> AclKind {
+        match self {
+            Self::Bucket(_) => AclKind::Bucket,
+            Self::DefaultObject(_) => AclKind::DefaultObject,
+            Self::Object { .. } => AclKind::Object,
+        }
+    }
+
+    fn bucket(self) -> &'a str {
+        match self {
+            Self::Bucket(bucket) | Self::DefaultObject(bucket) | Self::Object { bucket, .. } => {
+                bucket
+            }
+        }
+    }
+}
+
 /// Replace entries inside the metadata mutation's transaction, without a second revision bump.
 pub(super) fn replace_resource_acl(
     connection: &Connection,
-    target: &AclTarget,
+    target: ResolvedAclTarget<'_>,
     entries: &[AclEntry],
     access: &BucketAccess,
 ) -> Result<(), CatalogError> {
@@ -219,14 +250,9 @@ pub(super) fn replace_resource_acl(
                 // Preserve full-resource echoes only for callers already allowed to read the ACL.
                 if !row.uniform_access {
                     let mut current = match target {
-                        AclTarget::Object {
+                        ResolvedAclTarget::Object {
                             name, generation, ..
-                        } => stored_object_entries(
-                            connection,
-                            bucket,
-                            name,
-                            generation.expect("metadata mutation selects a generation"),
-                        )?,
+                        } => stored_object_entries(connection, bucket, name, generation)?,
                         _ => stored_bucket_entries(connection, bucket, scope(target.kind()))?,
                     }
                     .unwrap_or_else(|| project_private(&row.project));
@@ -258,13 +284,13 @@ pub(super) fn replace_resource_acl(
     }
     let entries = serde_json::to_string(entries).map_err(unavailable)?;
     match target {
-        AclTarget::Object {
+        ResolvedAclTarget::Object {
             name, generation, ..
         } => {
             connection.execute(
                 "INSERT INTO acl_object_entries (bucket, name, generation, entries) VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT(bucket, name, generation) DO UPDATE SET entries = excluded.entries",
-                params![bucket, name, generation.expect("metadata mutation selects a generation"), entries],
+                params![bucket, name, generation, entries],
             ).map_err(unavailable)?;
         }
         _ => {

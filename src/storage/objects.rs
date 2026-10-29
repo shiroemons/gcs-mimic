@@ -1019,10 +1019,10 @@ impl Catalog {
             if let Some(entries) = &update.acl {
                 super::acl::replace_resource_acl(
                     &transaction,
-                    &crate::acl::AclTarget::Object {
-                        bucket: bucket.clone(),
-                        name: name.clone(),
-                        generation: Some(record.generation),
+                    super::acl::ResolvedAclTarget::Object {
+                        bucket: &bucket,
+                        name: &name,
+                        generation: record.generation,
                     },
                     entries,
                     &access,
