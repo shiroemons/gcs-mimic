@@ -88,12 +88,15 @@ pub(super) async fn respond(
     let body = body.filter(|value| !value.is_null());
     activity.send_modify(|progress| progress.awaiting_catalog = true);
     // Once mutation starts, await its durable result instead of timing out a detached commit.
-    let result = tokio::spawn(execute(
+    let job = RewriteJob {
         operation,
         body,
         keys,
         source_access,
         destination_access,
+    };
+    let result = tokio::spawn(execute(
+        job,
         state.catalog.clone(),
         config.max_object_bytes,
         state.api_base_url.clone(),
@@ -122,20 +125,28 @@ struct Keys {
     source: Option<crate::csek::CustomerKey>,
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "The detached rewrite owns its request, keys and access context"
-)]
-async fn execute(
+/// What one detached rewrite step owns: the request, its metadata body, keys and access.
+struct RewriteJob {
     operation: RewriteRequest,
     body: Option<Value>,
     keys: Keys,
     source_access: BucketAccess,
     destination_access: BucketAccess,
+}
+
+async fn execute(
+    job: RewriteJob,
     catalog: Catalog,
     max_bytes: u64,
     base: String,
 ) -> Result<(Value, Option<crate::storage::DerivedRequestGuard>), JsonError> {
+    let RewriteJob {
+        operation,
+        body,
+        keys,
+        source_access,
+        destination_access,
+    } = job;
     let mut owner = None;
     let token = if let Some(token) = &operation.token {
         let session = catalog.rewrite_session(token).await.map_err(error)?;
