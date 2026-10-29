@@ -44,7 +44,6 @@ async fn export_checkpoint(phase: &str) {
 
 // Directory synchronization supports only Linux and macOS; elsewhere roots are rejected.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-#[path = "mirror_tests.rs"]
 mod tests;
 
 #[derive(Default, Debug, serde::Serialize)]

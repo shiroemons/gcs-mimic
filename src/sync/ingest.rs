@@ -558,5 +558,4 @@ async fn checkpoint(phase: &str) {
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-#[path = "ingest_tests.rs"]
 mod tests;

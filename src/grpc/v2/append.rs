@@ -323,5 +323,4 @@ impl Storage {
 }
 
 #[cfg(test)]
-#[path = "append_tests.rs"]
 mod tests;
