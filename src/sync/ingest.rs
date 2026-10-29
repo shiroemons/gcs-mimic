@@ -9,10 +9,13 @@ use crate::{
     storage::{
         Catalog,
         admin::{
-            AdminError, BatchPublication, BucketName, Generation, GenerationCondition, ObjectName,
-            Origin, Publication, PublishMode,
+            Admin, AdminError, BatchPublication, BucketName, Generation, GenerationCondition,
+            ObjectName, Origin, Publication, PublishMode, StagedObject,
         },
-        sync_state::{SyncBinding, SyncFingerprint, SyncRecord, SyncUpdate, root::RootLease},
+        sync_state::{
+            SyncBinding, SyncFingerprint, SyncRecord, SyncUpdate,
+            root::{RootError, RootLease},
+        },
     },
 };
 use std::{ffi::OsString, fs::File, io, path::PathBuf};
@@ -43,7 +46,7 @@ impl Scan {
             let Some((path, after)) = self.stack.last_mut() else {
                 break;
             };
-            let directory = match parent(root, path, false) {
+            let directory = match parent(root, path, fsutil::DirectoryOpen::Existing) {
                 Ok(directory) => directory,
                 Err(ParentError::Finding(_)) => {
                     self.stack.pop();
@@ -225,7 +228,12 @@ pub(super) async fn rescan(
             "Unfinished write-back blocks ingestion; preserve the working tree/workspace and select a fresh sync_dir after backup until recovery controls are available",
         ));
     }
-    let admin = catalog.admin(Origin::SyncIngest);
+    let ingest = Ingest {
+        catalog,
+        root,
+        config,
+        admin: catalog.admin(Origin::SyncIngest),
+    };
     let mut summary = Reconciliation::default();
     forget_missing_directories(root, stopping).await?;
     let mut scan = Scan {
@@ -251,110 +259,17 @@ pub(super) async fn rescan(
                 continue;
             }
             if entry.directory {
-                if entry.path.components().count() == 1 {
-                    let Some(text) = entry.path.to_str() else {
-                        summary.unrepresentable += 1;
-                        continue;
-                    };
-                    if let Ok(bucket) = BucketName::new(text) {
-                        if !root
-                            .ensure_sync_bucket(&bucket, &config.seed_project)
-                            .await
-                            .map_err(io::Error::other)?
-                        {
-                            summary.blocked_buckets += 1;
-                            summary.deferred += 1;
-                            diagnostics::emit(
-                                LogLevel::Warn,
-                                "sync_bucket_missing",
-                                serde_json::json!({
-                                    "path":entry.path,"reason":"The previously synchronized bucket was deleted through the API",
-                                    "remedy":"Remove or move this directory, or recreate the bucket through the API (for example, create the same bucket name in the intended project); then request another rescan"
-                                }),
-                            );
-                            scan.stack
-                                .retain(|(path, _)| !path.starts_with(&entry.path));
-                            blocked.push(entry.path.clone());
-                        }
-                    } else {
-                        summary.unrepresentable += 1;
-                    }
+                if ingest.bucket_directory(&entry, &mut summary).await? == BucketDirectory::Blocked
+                {
+                    scan.stack
+                        .retain(|(path, _)| !path.starts_with(&entry.path));
+                    blocked.push(entry.path.clone());
                 }
                 continue;
             }
-            let (bucket, name) = match mapping::path_to_name(&entry.path) {
-                Ok(mapped) => mapped,
-                Err(mapping::Reason::Ignored) => {
-                    summary.ignored += 1;
-                    continue;
-                }
-                Err(_) => {
-                    summary.unrepresentable += 1;
-                    continue;
-                }
-            };
-            let Some(identity) = entry.identity else {
-                summary.unrepresentable += 1;
-                diagnostics::emit(
-                    LogLevel::Warn,
-                    "sync_unsafe_entry",
-                    serde_json::json!({"path":entry.path,"remedy":"Replace the symlink or special file with a regular file; for example, copy its intended bytes into a new regular file"}),
-                );
-                continue;
-            };
-            let state = catalog.sync_state();
-            let binding = match state.binding(&bucket).await {
-                Ok(binding) => binding,
-                Err(AdminError::NotFound | AdminError::Precondition) => {
-                    summary.deferred += 1;
-                    continue;
-                }
-                Err(error) => return Err(io::Error::other(error)),
-            };
-            let path = entry
-                .path
-                .to_str()
-                .ok_or_else(|| io::Error::other("invalid sync path"))?
-                .to_owned();
-            let tracked = match state.get_path(binding.clone(), path.clone()).await {
-                Ok(tracked) => tracked,
-                Err(AdminError::NotFound | AdminError::Precondition) => {
-                    summary.deferred += 1;
-                    continue;
-                }
-                Err(error) => return Err(io::Error::other(error)),
-            };
-            if tracked
-                .as_ref()
-                .is_some_and(|record| same_stat(&record.fingerprint, identity))
-            {
-                continue;
+            if let Some(candidate) = ingest.candidate(entry, &mut summary).await? {
+                candidates.push(candidate);
             }
-            let live = match admin.get_object(&bucket, &name, None).await {
-                Ok(record) => Some(record),
-                Err(AdminError::NotFound) => None,
-                Err(error) => return Err(io::Error::other(error)),
-            };
-            if super::mirror::hierarchy_collision(&admin, &bucket, &name)
-                .await
-                .map_err(io::Error::other)?
-            {
-                summary.unrepresentable += 1;
-                diagnostics::emit(
-                    LogLevel::Warn,
-                    "sync_path_collision",
-                    serde_json::json!({"path":entry.path,"remedy":"Rename the external file or the API object so a file is not also a parent directory; for example, use files/object instead of files"}),
-                );
-                continue;
-            }
-            candidates.push(Candidate {
-                entry,
-                bucket,
-                name,
-                binding,
-                tracked,
-                live,
-            });
         }
         // Stable files need no timer or body read; one quiet interval covers changed candidates.
         if !candidates.is_empty() {
@@ -369,174 +284,341 @@ pub(super) async fn rescan(
                 _ = stopping.changed() => return Ok(summary),
             }
         }
-        for Candidate {
+        for candidate in candidates {
+            if *stopping.borrow() {
+                return Ok(summary);
+            }
+            ingest.ingest(candidate, &mut summary).await?;
+        }
+    }
+    Ok(summary)
+}
+
+/// Whether a top-level directory may be ingested or belongs to a bucket deleted through the
+/// API, which blocks the whole subtree until the user resolves it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BucketDirectory {
+    Ready,
+    Blocked,
+}
+
+/// Shared state of one ingestion rescan.
+struct Ingest<'a> {
+    catalog: &'a Catalog,
+    root: &'a RootLease,
+    config: &'a Config,
+    admin: Admin,
+}
+
+impl Ingest<'_> {
+    async fn bucket_directory(
+        &self,
+        entry: &Entry,
+        summary: &mut Reconciliation,
+    ) -> io::Result<BucketDirectory> {
+        if entry.path.components().count() != 1 {
+            return Ok(BucketDirectory::Ready);
+        }
+        let Some(text) = entry.path.to_str() else {
+            summary.unrepresentable += 1;
+            return Ok(BucketDirectory::Ready);
+        };
+        let Ok(bucket) = BucketName::new(text) else {
+            summary.unrepresentable += 1;
+            return Ok(BucketDirectory::Ready);
+        };
+        if self
+            .root
+            .ensure_sync_bucket(&bucket, &self.config.seed_project)
+            .await
+            .map_err(io::Error::other)?
+        {
+            return Ok(BucketDirectory::Ready);
+        }
+        summary.blocked_buckets += 1;
+        summary.deferred += 1;
+        diagnostics::emit(
+            LogLevel::Warn,
+            "sync_bucket_missing",
+            serde_json::json!({
+                "path":entry.path,"reason":"The previously synchronized bucket was deleted through the API",
+                "remedy":"Remove or move this directory, or recreate the bucket through the API (for example, create the same bucket name in the intended project); then request another rescan"
+            }),
+        );
+        Ok(BucketDirectory::Blocked)
+    }
+
+    /// Selects a regular file whose observed state differs from its tracked fingerprint;
+    /// `None` means it is unchanged or was counted as ignored, unrepresentable or deferred.
+    async fn candidate(
+        &self,
+        entry: Entry,
+        summary: &mut Reconciliation,
+    ) -> io::Result<Option<Candidate>> {
+        let (bucket, name) = match mapping::path_to_name(&entry.path) {
+            Ok(mapped) => mapped,
+            Err(mapping::Reason::Ignored) => {
+                summary.ignored += 1;
+                return Ok(None);
+            }
+            Err(_) => {
+                summary.unrepresentable += 1;
+                return Ok(None);
+            }
+        };
+        let Some(identity) = entry.identity else {
+            summary.unrepresentable += 1;
+            diagnostics::emit(
+                LogLevel::Warn,
+                "sync_unsafe_entry",
+                serde_json::json!({"path":entry.path,"remedy":"Replace the symlink or special file with a regular file; for example, copy its intended bytes into a new regular file"}),
+            );
+            return Ok(None);
+        };
+        let state = self.catalog.sync_state();
+        let binding = match state.binding(&bucket).await {
+            Ok(binding) => binding,
+            Err(AdminError::NotFound | AdminError::Precondition) => {
+                summary.deferred += 1;
+                return Ok(None);
+            }
+            Err(error) => return Err(io::Error::other(error)),
+        };
+        let path = entry
+            .path
+            .to_str()
+            .ok_or_else(|| io::Error::other("invalid sync path"))?
+            .to_owned();
+        let tracked = match state.get_path(binding.clone(), path.clone()).await {
+            Ok(tracked) => tracked,
+            Err(AdminError::NotFound | AdminError::Precondition) => {
+                summary.deferred += 1;
+                return Ok(None);
+            }
+            Err(error) => return Err(io::Error::other(error)),
+        };
+        if tracked
+            .as_ref()
+            .is_some_and(|record| same_stat(&record.fingerprint, identity))
+        {
+            return Ok(None);
+        }
+        let live = match self.admin.get_object(&bucket, &name, None).await {
+            Ok(record) => Some(record),
+            Err(AdminError::NotFound) => None,
+            Err(error) => return Err(io::Error::other(error)),
+        };
+        if super::mirror::hierarchy_collision(&self.admin, &bucket, &name)
+            .await
+            .map_err(io::Error::other)?
+        {
+            summary.unrepresentable += 1;
+            diagnostics::emit(
+                LogLevel::Warn,
+                "sync_path_collision",
+                serde_json::json!({"path":entry.path,"remedy":"Rename the external file or the API object so a file is not also a parent directory; for example, use files/object instead of files"}),
+            );
+            return Ok(None);
+        }
+        Ok(Some(Candidate {
             entry,
             bucket,
             name,
             binding,
             tracked,
             live,
-        } in candidates
-        {
-            if *stopping.borrow() {
-                return Ok(summary);
+        }))
+    }
+
+    /// Stages the file's current bytes, verifying that its identity and parent did not change
+    /// while it was read.
+    async fn stage(
+        &self,
+        selected: PathBuf,
+        identity: FileIdentity,
+    ) -> Result<StagedObject, RootError> {
+        let staging_admin = self.admin.clone();
+        let runtime = tokio::runtime::Handle::current();
+        let max = self.config.max_object_bytes;
+        self.root
+            .file_job(move |root| {
+                let directory = parent(
+                    root,
+                    selected.parent().ok_or(AdminError::Precondition)?,
+                    fsutil::DirectoryOpen::Existing,
+                )
+                .map_err(|_| AdminError::Precondition)?;
+                let leaf = selected.file_name().ok_or(AdminError::Precondition)?;
+                let file = fsutil::open_regular_at(&directory, leaf)?;
+                if fsutil::stat_identity(&file).map_err(fs_error)? != identity {
+                    return Err(AdminError::Precondition);
+                }
+                let staged = runtime.block_on(staging_admin.stage_from_file(
+                    file,
+                    Default::default(),
+                    max,
+                ))?;
+                let current = parent(
+                    root,
+                    selected.parent().ok_or(AdminError::Precondition)?,
+                    fsutil::DirectoryOpen::Existing,
+                )
+                .map_err(|_| AdminError::Precondition)?;
+                let file = fsutil::open_regular_at(&current, leaf)?;
+                if fsutil::stat_identity(&file).map_err(fs_error)? != identity {
+                    return Err(AdminError::Precondition);
+                }
+                Ok(staged)
+            })
+            .await
+    }
+
+    /// Stages a candidate's bytes with the fingerprint that tracks them; `None` means the
+    /// file changed or became unreadable and was deferred.
+    async fn stage_update(
+        &self,
+        entry: &Entry,
+        binding: &SyncBinding,
+        summary: &mut Reconciliation,
+    ) -> io::Result<Option<(StagedObject, SyncUpdate)>> {
+        let identity = entry
+            .identity
+            .ok_or_else(|| io::Error::other("missing observed file identity"))?;
+        let path = entry
+            .path
+            .to_str()
+            .ok_or_else(|| io::Error::other("invalid sync path"))?
+            .to_owned();
+        let staged = match self.stage(entry.path.clone(), identity).await {
+            Ok(staged) => staged,
+            Err(RootError::Admin(
+                AdminError::Precondition
+                | AdminError::NotFound
+                | AdminError::SourceChanged { .. }
+                | AdminError::Io(io::ErrorKind::NotFound),
+            )) => {
+                summary.deferred += 1;
+                return Ok(None);
             }
-            let identity = entry
-                .identity
-                .ok_or_else(|| io::Error::other("missing observed file identity"))?;
-            let path = entry
-                .path
-                .to_str()
-                .ok_or_else(|| io::Error::other("invalid sync path"))?
-                .to_owned();
-            let selected = entry.path.clone();
-            let staging_admin = admin.clone();
-            let runtime = tokio::runtime::Handle::current();
-            let max = config.max_object_bytes;
-            let staged = root
-                .file_job(move |root| {
-                    let directory = parent(
-                        root,
-                        selected.parent().ok_or(AdminError::Precondition)?,
-                        false,
-                    )
-                    .map_err(|_| AdminError::Precondition)?;
-                    let leaf = selected.file_name().ok_or(AdminError::Precondition)?;
-                    let file = fsutil::open_regular_at(&directory, leaf)?;
-                    if fsutil::stat_identity(&file).map_err(fs_error)? != identity {
-                        return Err(AdminError::Precondition);
-                    }
-                    let staged = runtime.block_on(staging_admin.stage_from_file(
-                        file,
-                        Default::default(),
-                        max,
-                    ))?;
-                    let current = parent(
-                        root,
-                        selected.parent().ok_or(AdminError::Precondition)?,
-                        false,
-                    )
-                    .map_err(|_| AdminError::Precondition)?;
-                    let file = fsutil::open_regular_at(&current, leaf)?;
-                    if fsutil::stat_identity(&file).map_err(fs_error)? != identity {
-                        return Err(AdminError::Precondition);
-                    }
-                    Ok(staged)
-                })
-                .await;
-            let staged = match staged {
-                Ok(staged) => staged,
-                Err(crate::storage::sync_state::root::RootError::Admin(
-                    AdminError::Precondition
-                    | AdminError::NotFound
-                    | AdminError::SourceChanged { .. }
-                    | AdminError::Io(io::ErrorKind::NotFound),
-                )) => {
-                    summary.deferred += 1;
-                    continue;
-                }
-                Err(crate::storage::sync_state::root::RootError::Admin(AdminError::Io(error))) => {
-                    deferred(&entry.path, error, &mut summary);
-                    continue;
-                }
-                Err(error) => return Err(io::Error::other(error)),
-            };
-            let hashes = staged.hashes();
-            let fingerprint = SyncFingerprint {
-                size: staged.size(),
-                mtime_ns: identity.modified_ns,
-                ctime_ns: identity.changed_ns,
-                inode: identity.inode,
-                md5: hashes.md5,
-                crc32c: hashes.crc32c,
-                racy: false,
-            };
-            let update =
-                SyncUpdate::new(binding.clone(), path, fingerprint).map_err(io::Error::other)?;
-            if let Some(live) = &live {
-                let generation = Generation::new(live.generation).map_err(io::Error::other)?;
-                if live.size == staged.size()
-                    && live.md5 == hashes.md5
-                    && live.crc32c == hashes.crc32c
-                {
-                    staged.discard().await.map_err(io::Error::other)?;
-                    match catalog
-                        .sync_state()
-                        .acknowledge(&name, generation, update)
-                        .await
-                    {
-                        Ok(()) => summary.identical += 1,
-                        Err(AdminError::Precondition | AdminError::NotFound) => {
-                            summary.deferred += 1
-                        }
-                        Err(error) => return Err(io::Error::other(error)),
-                    }
-                    continue;
-                }
-                if tracked
-                    .as_ref()
-                    .is_none_or(|record| record.generation != generation)
-                {
-                    staged.discard().await.map_err(io::Error::other)?;
-                    root.record_export_conflict(binding, name, generation)
-                        .await
-                        .map_err(io::Error::other)?;
-                    summary.conflicting += 1;
-                    continue;
-                }
-            } else if let Some(tracked) = &tracked {
+            Err(RootError::Admin(AdminError::Io(error))) => {
+                deferred(&entry.path, error, summary);
+                return Ok(None);
+            }
+            Err(error) => return Err(io::Error::other(error)),
+        };
+        let hashes = staged.hashes();
+        let fingerprint = SyncFingerprint {
+            size: staged.size(),
+            mtime_ns: identity.modified_ns,
+            ctime_ns: identity.changed_ns,
+            inode: identity.inode,
+            md5: hashes.md5,
+            crc32c: hashes.crc32c,
+            racy: false,
+        };
+        let update =
+            SyncUpdate::new(binding.clone(), path, fingerprint).map_err(io::Error::other)?;
+        Ok(Some((staged, update)))
+    }
+
+    async fn ingest(&self, candidate: Candidate, summary: &mut Reconciliation) -> io::Result<()> {
+        let Candidate {
+            entry,
+            bucket,
+            name,
+            binding,
+            tracked,
+            live,
+        } = candidate;
+        let Some((staged, update)) = self.stage_update(&entry, &binding, summary).await? else {
+            return Ok(());
+        };
+        let hashes = staged.hashes();
+        if let Some(live) = &live {
+            let generation = Generation::new(live.generation).map_err(io::Error::other)?;
+            if live.size == staged.size() && live.md5 == hashes.md5 && live.crc32c == hashes.crc32c
+            {
                 staged.discard().await.map_err(io::Error::other)?;
-                root.record_export_conflict(binding, name, tracked.generation)
+                match self
+                    .catalog
+                    .sync_state()
+                    .acknowledge(&name, generation, update)
+                    .await
+                {
+                    Ok(()) => summary.identical += 1,
+                    Err(AdminError::Precondition | AdminError::NotFound) => summary.deferred += 1,
+                    Err(error) => return Err(io::Error::other(error)),
+                }
+                return Ok(());
+            }
+            if tracked
+                .as_ref()
+                .is_none_or(|record| record.generation != generation)
+            {
+                staged.discard().await.map_err(io::Error::other)?;
+                self.root
+                    .record_export_conflict(binding, name, generation)
                     .await
                     .map_err(io::Error::other)?;
                 summary.conflicting += 1;
-                continue;
+                return Ok(());
             }
-            #[cfg(test)]
-            checkpoint("publish").await;
-            let result = admin
-                .publish_objects(vec![BatchPublication {
-                    bucket,
-                    name,
-                    request: Publication {
-                        content_type: config
-                            .seed_content_type
-                            .for_name(
-                                entry
-                                    .path
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .unwrap_or_default(),
-                            )
-                            .into(),
-                        metadata: Default::default(),
-                        expected: Default::default(),
-                        condition: Some(
-                            live.as_ref()
-                                .map_or(Ok(GenerationCondition::Absent), |record| {
-                                    Generation::new(record.generation).map(GenerationCondition::Is)
-                                })
-                                .map_err(io::Error::other)?,
-                        ),
-                        max_bytes: max,
-                        mode: PublishMode::InheritAndSkipIfSameHash,
-                    },
-                    staged: staged.with_sync_state(update),
-                }])
+        } else if let Some(tracked) = &tracked {
+            staged.discard().await.map_err(io::Error::other)?;
+            self.root
+                .record_export_conflict(binding, name, tracked.generation)
                 .await
                 .map_err(io::Error::other)?;
-            for result in result.results {
-                match result {
-                    Ok(_) => summary.ingested += 1,
-                    Err(AdminError::Precondition | AdminError::NotFound | AdminError::Hold) => {
-                        summary.deferred += 1
-                    }
-                    Err(error) => return Err(io::Error::other(error)),
+            summary.conflicting += 1;
+            return Ok(());
+        }
+        #[cfg(test)]
+        checkpoint("publish").await;
+        let content_type = self
+            .config
+            .seed_content_type
+            .for_name(
+                entry
+                    .path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default(),
+            )
+            .into();
+        let condition = live
+            .as_ref()
+            .map_or(Ok(GenerationCondition::Absent), |record| {
+                Generation::new(record.generation).map(GenerationCondition::Is)
+            })
+            .map_err(io::Error::other)?;
+        let result = self
+            .admin
+            .publish_objects(vec![BatchPublication {
+                bucket,
+                name,
+                request: Publication {
+                    content_type,
+                    metadata: Default::default(),
+                    expected: Default::default(),
+                    condition: Some(condition),
+                    max_bytes: self.config.max_object_bytes,
+                    mode: PublishMode::InheritAndSkipIfSameHash,
+                },
+                staged: staged.with_sync_state(update),
+            }])
+            .await
+            .map_err(io::Error::other)?;
+        for result in result.results {
+            match result {
+                Ok(_) => summary.ingested += 1,
+                Err(AdminError::Precondition | AdminError::NotFound | AdminError::Hold) => {
+                    summary.deferred += 1
                 }
+                Err(error) => return Err(io::Error::other(error)),
             }
         }
+        Ok(())
     }
-    Ok(summary)
 }
 
 #[cfg(test)]

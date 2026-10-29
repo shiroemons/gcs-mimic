@@ -10,6 +10,7 @@ use crate::{
         admin::{Admin, AdminError, BucketName, Generation, ObjectName, Origin},
         change_journal::{ChangeKind, JournalFence},
         sync_state::{
+            SyncBinding, SyncRecord,
             root::{RootError, RootLease},
             writeback::{self, Limits, LiveExport, LiveResult, Stop, Writeback},
         },
@@ -150,8 +151,7 @@ async fn run_live_config(
         .fence;
     let ingested = super::ingest::rescan(catalog, root, config, stopping).await?;
     diagnostics::emit(LogLevel::Info, "sync_ingested", &ingested);
-    let mut ingest_complete =
-        ingested.deferred == 0 && ingested.unrepresentable == 0 && ingested.conflicting == 0;
+    let mut ingest_complete = BaselineGate::after_ingest(&ingested);
     let mut summary = reconcile_until(catalog, root, stopping, ingest_complete).await?;
     summary.ingested = ingested.ingested;
     let mut baseline_complete = summary.baseline_complete;
@@ -182,9 +182,9 @@ async fn run_live_config(
                 Some(request) = requests.recv() => {
                     let summary = async {
                         let mut summary = super::ingest::rescan(catalog, root, config, stopping).await?;
-                        ingest_complete = summary.deferred == 0 && summary.unrepresentable == 0 && summary.conflicting == 0;
-                        if !baseline_complete && ingest_complete && !*stopping.borrow() {
-                            let merged = reconcile_until(catalog, root, stopping, true).await?;
+                        ingest_complete = BaselineGate::after_ingest(&summary);
+                        if !baseline_complete && ingest_complete == BaselineGate::Allowed && !*stopping.borrow() {
+                            let merged = reconcile_until(catalog, root, stopping, BaselineGate::Allowed).await?;
                             baseline_complete = merged.baseline_complete;
                         }
                         summary.baseline_complete = baseline_complete;
@@ -262,185 +262,260 @@ async fn reconcile_live_object(
     fence: JournalFence,
     summary: &mut Reconciliation,
 ) -> io::Result<()> {
-    let admin = catalog.admin(Origin::SyncIngest);
-    #[cfg(test)]
-    export_checkpoint("before-binding").await;
-    let binding = match catalog.sync_state().binding(bucket).await {
-        Ok(binding) => binding,
-        Err(AdminError::NotFound) => return Ok(()),
-        Err(error) => return Err(io::Error::other(error)),
+    let object = LiveObject {
+        catalog,
+        root,
+        bucket,
+        name,
     };
-    #[cfg(test)]
-    export_checkpoint("after-binding").await;
-    let record = match admin.get_object(bucket, name, None).await {
-        Ok(record) => Some(record),
-        Err(AdminError::NotFound) => None,
-        Err(error) => return Err(io::Error::other(error)),
+    let Some(plan) = object.plan(summary).await? else {
+        return Ok(());
     };
-    let path = match mapping::name_to_path(bucket, name) {
-        PathMapping::File(path) => path,
-        PathMapping::Unrepresentable(reason) => {
-            if let Some(record) = record {
-                finding(catalog, root, bucket, name, &record, reason, summary).await?;
-            }
-            return Ok(());
-        }
-    };
-    let tracked = match catalog
-        .sync_state()
-        .get_path(
-            binding.clone(),
-            path.to_str()
-                .ok_or_else(|| io::Error::other("invalid export path"))?
-                .to_owned(),
+    object.export(writeback, fence, plan, summary).await
+}
+
+/// One object whose catalog state a live export reconciles with the working tree.
+struct LiveObject<'a> {
+    catalog: &'a Catalog,
+    root: &'a RootLease,
+    bucket: &'a BucketName,
+    name: &'a ObjectName,
+}
+
+/// Whether the working-tree file already holds the catalog generation's bytes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Content {
+    Identical,
+    Changed,
+}
+
+/// A live export decided from one read of the binding, tracked path and live object.
+struct LivePlan {
+    binding: SyncBinding,
+    tracked: Option<SyncRecord>,
+    generation: Generation,
+    source: Option<File>,
+    content: Content,
+}
+
+impl LiveObject<'_> {
+    async fn finding(
+        &self,
+        record: &ObjectRecord,
+        reason: Reason,
+        summary: &mut Reconciliation,
+    ) -> io::Result<()> {
+        finding(
+            self.catalog,
+            self.root,
+            self.bucket,
+            self.name,
+            record,
+            reason,
+            summary,
         )
         .await
-    {
-        Ok(tracked) => tracked,
-        Err(AdminError::Precondition | AdminError::NotFound) => {
-            summary.deferred += 1;
-            return Ok(());
-        }
-        Err(error) => return Err(io::Error::other(error)),
-    };
-    if record.is_none() && tracked.is_none() {
-        return Ok(());
     }
-    let mut identical = false;
-    if let Some(record) = &record {
-        let collision = match hierarchy_collision(&admin, bucket, name).await {
+
+    /// Reads current state once and decides what to export; `None` means nothing to do now,
+    /// with any finding or deferral already counted in `summary`.
+    async fn plan(&self, summary: &mut Reconciliation) -> io::Result<Option<LivePlan>> {
+        let (catalog, bucket, name) = (self.catalog, self.bucket, self.name);
+        let admin = catalog.admin(Origin::SyncIngest);
+        #[cfg(test)]
+        export_checkpoint("before-binding").await;
+        let binding = match catalog.sync_state().binding(bucket).await {
+            Ok(binding) => binding,
+            Err(AdminError::NotFound) => return Ok(None),
+            Err(error) => return Err(io::Error::other(error)),
+        };
+        #[cfg(test)]
+        export_checkpoint("after-binding").await;
+        let record = match admin.get_object(bucket, name, None).await {
+            Ok(record) => Some(record),
+            Err(AdminError::NotFound) => None,
+            Err(error) => return Err(io::Error::other(error)),
+        };
+        let path = match mapping::name_to_path(bucket, name) {
+            PathMapping::File(path) => path,
+            PathMapping::Unrepresentable(reason) => {
+                if let Some(record) = record {
+                    self.finding(&record, reason, summary).await?;
+                }
+                return Ok(None);
+            }
+        };
+        let tracked = match catalog
+            .sync_state()
+            .get_path(
+                binding.clone(),
+                path.to_str()
+                    .ok_or_else(|| io::Error::other("invalid export path"))?
+                    .to_owned(),
+            )
+            .await
+        {
+            Ok(tracked) => tracked,
+            Err(AdminError::Precondition | AdminError::NotFound) => {
+                summary.deferred += 1;
+                return Ok(None);
+            }
+            Err(error) => return Err(io::Error::other(error)),
+        };
+        let Some(record) = record else {
+            let Some(tracked) = tracked else {
+                return Ok(None);
+            };
+            return Ok(Some(LivePlan {
+                binding,
+                generation: tracked.generation,
+                tracked: Some(tracked),
+                source: None,
+                content: Content::Changed,
+            }));
+        };
+        let Some(content) = self
+            .check_target(&admin, &record, path, tracked.as_ref(), summary)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let generation = Generation::new(record.generation).map_err(io::Error::other)?;
+        let source = match admin.open_object(bucket, name, Some(generation)).await {
+            Ok((_, reader)) => match content {
+                Content::Identical => None,
+                Content::Changed => Some(reader.into_file().await),
+            },
+            Err(AdminError::NotFound | AdminError::Precondition) => {
+                summary.deferred += 1;
+                return Ok(None);
+            }
+            Err(error) => return Err(io::Error::other(error)),
+        };
+        Ok(Some(LivePlan {
+            binding,
+            tracked,
+            generation,
+            source,
+            content,
+        }))
+    }
+
+    /// Compares the live object with its working-tree path; `None` means a finding or
+    /// deferral was recorded instead of an export.
+    async fn check_target(
+        &self,
+        admin: &Admin,
+        record: &ObjectRecord,
+        path: PathBuf,
+        tracked: Option<&SyncRecord>,
+        summary: &mut Reconciliation,
+    ) -> io::Result<Option<Content>> {
+        let collision = match hierarchy_collision(admin, self.bucket, self.name).await {
             Ok(collision) => collision,
             Err(AdminError::Precondition | AdminError::NotFound) => {
                 summary.deferred += 1;
-                return Ok(());
+                return Ok(None);
             }
             Err(error) => return Err(io::Error::other(error)),
         };
         if collision {
-            finding(
-                catalog,
-                root,
-                bucket,
-                name,
-                record,
-                Reason::Collision,
-                summary,
-            )
-            .await?;
-            return Ok(());
+            self.finding(record, Reason::Collision, summary).await?;
+            return Ok(None);
         }
-        let selected = path.clone();
         let observed = record.clone();
-        match file_job_retry(root, move |root| inspect(root, &selected, &observed)).await? {
+        match file_job_retry(self.root, move |root| inspect(root, &path, &observed)).await? {
             Target::Finding(reason) => {
-                finding(catalog, root, bucket, name, record, reason, summary).await?;
-                return Ok(());
+                self.finding(record, reason, summary).await?;
+                Ok(None)
             }
-            Target::Identical => {
-                identical = true;
-            }
+            Target::Identical => Ok(Some(Content::Identical)),
             Target::Conflicting if tracked.is_none() => {
-                finding(
-                    catalog,
-                    root,
-                    bucket,
-                    name,
-                    record,
-                    Reason::Collision,
-                    summary,
+                self.finding(record, Reason::Collision, summary).await?;
+                summary.conflicting += 1;
+                Ok(None)
+            }
+            _ => Ok(Some(Content::Changed)),
+        }
+    }
+
+    async fn export(
+        &self,
+        writeback: &Writeback,
+        fence: JournalFence,
+        plan: LivePlan,
+        summary: &mut Reconciliation,
+    ) -> io::Result<()> {
+        let (bucket, name) = (self.bucket, self.name);
+        let LivePlan {
+            binding,
+            tracked,
+            generation,
+            source,
+            content,
+        } = plan;
+        #[cfg(test)]
+        export_checkpoint("after-get-path").await;
+        let mut seconds = 1;
+        let operation = loop {
+            match writeback
+                .begin_live_export(
+                    binding.clone(),
+                    name.clone(),
+                    generation,
+                    tracked.clone(),
+                    fence,
+                    source.as_ref().map(File::try_clone).transpose()?,
                 )
-                .await?;
-                summary.conflicting += 1;
-                return Ok(());
-            }
-            _ => {}
-        }
-    }
-    let (generation, source) = if let Some(record) = &record {
-        let generation = Generation::new(record.generation).map_err(io::Error::other)?;
-        match admin.open_object(bucket, name, Some(generation)).await {
-            Ok((_, reader)) => (
-                generation,
-                if identical {
-                    None
-                } else {
-                    Some(reader.into_file().await)
-                },
-            ),
-            Err(AdminError::NotFound | AdminError::Precondition) => {
-                summary.deferred += 1;
-                return Ok(());
-            }
-            Err(error) => return Err(io::Error::other(error)),
-        }
-    } else {
-        (
-            tracked
-                .as_ref()
-                .ok_or_else(|| io::Error::other("missing tracked deletion"))?
-                .generation,
-            None,
-        )
-    };
-    #[cfg(test)]
-    export_checkpoint("after-get-path").await;
-    let mut seconds = 1;
-    let operation = loop {
-        match writeback
-            .begin_live_export(
-                binding.clone(),
-                name.clone(),
-                generation,
-                tracked.clone(),
-                fence,
-                source.as_ref().map(File::try_clone).transpose()?,
-            )
-            .await
-        {
-            Ok(operation) => break operation,
-            Err(error) if concurrent_change(&error) => {
-                summary.deferred += 1;
-                return Ok(());
-            }
-            Err(error) if retryable(&error) => wait_retry(&error, &mut seconds).await,
-            Err(error) => return Err(io::Error::other(error)),
-        }
-    };
-    #[cfg(test)]
-    export_checkpoint("after-prepare").await;
-    loop {
-        match advance_with_retry(writeback, operation.clone()).await? {
-            LiveResult::Pending => {}
-            LiveResult::Complete => {
-                if identical {
-                    summary.identical += 1;
-                } else {
-                    #[cfg(test)]
-                    let _ = LIVE_EXPORTS
-                        .try_with(|count| count.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
-                    summary.exported += 1;
+                .await
+            {
+                Ok(operation) => break operation,
+                Err(error) if concurrent_change(&error) => {
+                    summary.deferred += 1;
+                    return Ok(());
                 }
-                break;
+                Err(error) if retryable(&error) => wait_retry(&error, &mut seconds).await,
+                Err(error) => return Err(io::Error::other(error)),
             }
-            LiveResult::Obsolete => {
-                summary.deferred += 1;
-                break;
-            }
-            LiveResult::Conflict => {
-                summary.conflicting += 1;
-                root.record_export_conflict(binding.clone(), name.clone(), generation)
-                    .await
-                    .map_err(io::Error::other)?;
-                diagnostics::emit(
-                    LogLevel::Warn,
-                    "sync_external_conflict",
-                    serde_json::json!({"bucket":bucket.as_str(),"object":name.as_str(),"remedy":"Preserve or back up the edited file, then restore its previously exported contents or select a fresh sync_dir; automatic conflict transfer is pending"}),
-                );
-                break;
+        };
+        #[cfg(test)]
+        export_checkpoint("after-prepare").await;
+        loop {
+            match advance_with_retry(writeback, operation.clone()).await? {
+                LiveResult::Pending => {}
+                LiveResult::Complete => {
+                    if content == Content::Identical {
+                        summary.identical += 1;
+                    } else {
+                        #[cfg(test)]
+                        let _ = LIVE_EXPORTS.try_with(|count| {
+                            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                        });
+                        summary.exported += 1;
+                    }
+                    break;
+                }
+                LiveResult::Obsolete => {
+                    summary.deferred += 1;
+                    break;
+                }
+                LiveResult::Conflict => {
+                    summary.conflicting += 1;
+                    self.root
+                        .record_export_conflict(binding.clone(), name.clone(), generation)
+                        .await
+                        .map_err(io::Error::other)?;
+                    diagnostics::emit(
+                        LogLevel::Warn,
+                        "sync_external_conflict",
+                        serde_json::json!({"bucket":bucket.as_str(),"object":name.as_str(),"remedy":"Preserve or back up the edited file, then restore its previously exported contents or select a fresh sync_dir; automatic conflict transfer is pending"}),
+                    );
+                    break;
+                }
             }
         }
+        Ok(())
     }
-    Ok(())
 }
 
 fn retryable(error: &writeback::Error) -> bool {
@@ -494,10 +569,12 @@ async fn file_job_retry<T: Send + 'static>(
 }
 
 async fn create_directory(root: &RootLease, directory: PathBuf) -> io::Result<bool> {
-    file_job_retry(root, move |root| match parent(root, &directory, true) {
-        Ok(_) => Ok(true),
-        Err(ParentError::Finding(_)) => Ok(false),
-        Err(ParentError::Io(error)) => Err(error.into()),
+    file_job_retry(root, move |root| {
+        match parent(root, &directory, fsutil::DirectoryOpen::CreateIfMissing) {
+            Ok(_) => Ok(true),
+            Err(ParentError::Finding(_)) => Ok(false),
+            Err(ParentError::Io(error)) => Err(error.into()),
+        }
     })
     .await
 }
@@ -553,7 +630,11 @@ impl From<io::Error> for ParentError {
     }
 }
 
-pub(super) fn parent(root: &File, path: &Path, create: bool) -> Result<File, ParentError> {
+pub(super) fn parent(
+    root: &File,
+    path: &Path,
+    open: fsutil::DirectoryOpen,
+) -> Result<File, ParentError> {
     let mut directory = root.try_clone()?;
     let mut depth = 0;
     for component in path.iter() {
@@ -569,7 +650,10 @@ pub(super) fn parent(root: &File, path: &Path, create: bool) -> Result<File, Par
                 }
                 directory = next;
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound && create => {
+            Err(error)
+                if error.kind() == io::ErrorKind::NotFound
+                    && open == fsutil::DirectoryOpen::CreateIfMissing =>
+            {
                 let next = fsutil::directory_at(
                     &directory,
                     component,
@@ -622,7 +706,7 @@ fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, Ad
         root,
         path.parent()
             .ok_or_else(|| AdminError::Invalid("missing parent".into()))?,
-        true,
+        fsutil::DirectoryOpen::CreateIfMissing,
     ) {
         Ok(directory) => directory,
         Err(ParentError::Finding(reason)) => return Ok(Target::Finding(reason)),
@@ -662,11 +746,15 @@ fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, Ad
     }
     let after = fsutil::stat_identity(&file).map_err(fs_error)?;
     let reopened = fsutil::open_regular_at(&directory, name)?;
-    let current_parent = parent(root, path.parent().ok_or(AdminError::Precondition)?, false)
-        .map_err(|error| match error {
-            ParentError::Finding(_) => AdminError::Precondition,
-            ParentError::Io(error) => error.into(),
-        })?;
+    let current_parent = parent(
+        root,
+        path.parent().ok_or(AdminError::Precondition)?,
+        fsutil::DirectoryOpen::Existing,
+    )
+    .map_err(|error| match error {
+        ParentError::Finding(_) => AdminError::Precondition,
+        ParentError::Io(error) => error.into(),
+    })?;
     if before != after
         || !same_inode(&file, &reopened)?
         || !same_inode(&directory, &current_parent)?
@@ -796,8 +884,8 @@ async fn export(
             writeback
                 .file_job(armed.token.clone(), move |root, workspace| {
                     let relative = path.parent().ok_or(AdminError::Precondition)?;
-                    let directory =
-                        parent(root, relative, false).map_err(|_| AdminError::Precondition)?;
+                    let directory = parent(root, relative, fsutil::DirectoryOpen::Existing)
+                        .map_err(|_| AdminError::Precondition)?;
                     let target = path.file_name().ok_or(AdminError::Precondition)?;
                     let result = fsutil::durable_replace_between(
                         workspace,
@@ -810,8 +898,8 @@ async fn export(
                     if !matches!(result, fsutil::ReplaceOutcome::Created) {
                         return Err(AdminError::Precondition);
                     }
-                    let current =
-                        parent(root, relative, false).map_err(|_| AdminError::Precondition)?;
+                    let current = parent(root, relative, fsutil::DirectoryOpen::Existing)
+                        .map_err(|_| AdminError::Precondition)?;
                     if !same_inode(&directory, &current)? {
                         return Err(AdminError::Precondition);
                     }
@@ -862,14 +950,49 @@ pub async fn reconcile(
     _config: &Config,
 ) -> io::Result<Reconciliation> {
     let (_sender, stopping) = tokio::sync::watch::channel(false);
-    reconcile_until(catalog, root, &stopping, true).await
+    reconcile_until(catalog, root, &stopping, BaselineGate::Allowed).await
+}
+
+/// Whether a reconciliation may record the baseline as complete. It is deferred while the
+/// working tree still has entries that ingestion could not take in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BaselineGate {
+    Allowed,
+    Deferred,
+}
+
+impl BaselineGate {
+    fn after_ingest(ingested: &Reconciliation) -> Self {
+        if ingested.deferred == 0 && ingested.unrepresentable == 0 && ingested.conflicting == 0 {
+            Self::Allowed
+        } else {
+            Self::Deferred
+        }
+    }
+}
+
+/// Whether a reconciliation step finished or saw the stop signal.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Continue,
+    Stopped,
+}
+
+/// Shared state of one full reconciliation pass.
+struct Reconciler<'a> {
+    catalog: &'a Catalog,
+    root: &'a RootLease,
+    stopping: &'a tokio::sync::watch::Receiver<bool>,
+    admin: Admin,
+    writeback: Writeback,
+    fence: JournalFence,
 }
 
 async fn reconcile_until(
     catalog: &Catalog,
     root: &RootLease,
     stopping: &tokio::sync::watch::Receiver<bool>,
-    allow_baseline: bool,
+    baseline: BaselineGate,
 ) -> io::Result<Reconciliation> {
     catalog
         .set_change_journal_enabled(true)
@@ -892,181 +1015,19 @@ async fn reconcile_until(
             "Unfinished write-back requires recovery; preserve workspace entries and select a fresh root after backup until recovery controls are available",
         ));
     }
-    let admin = catalog.admin(Origin::SyncIngest);
+    let reconciler = Reconciler {
+        catalog,
+        root,
+        stopping,
+        admin: catalog.admin(Origin::SyncIngest),
+        writeback,
+        fence,
+    };
     let mut summary = Reconciliation::default();
-    let mut after = None;
-    loop {
-        if *stopping.borrow() {
-            return Ok(summary);
-        }
-        let page = admin
-            .list_all_buckets(after.as_deref(), 256)
-            .await
-            .map_err(io::Error::other)?;
-        let next = page.items.last().map(|entry| entry.bucket.name.clone());
-        for entry in page.items {
-            let bucket = match BucketName::new(entry.bucket.name.clone()) {
-                Ok(bucket) => bucket,
-                Err(_) => {
-                    summary.unrepresentable += 1;
-                    continue;
-                }
-            };
-            let directory = PathBuf::from(bucket.as_str());
-            if !root
-                .remember_sync_bucket(&bucket)
-                .await
-                .map_err(io::Error::other)?
-            {
-                summary.deferred += 1;
-                continue;
-            }
-            if !create_directory(root, directory).await? {
-                summary.unrepresentable += 1;
-            }
-            let mut query = ObjectListQuery::default();
-            loop {
-                let objects = admin
-                    .list_objects(&bucket, query.clone(), 256)
-                    .await
-                    .map_err(io::Error::other)?;
-                for record in objects.items {
-                    if *stopping.borrow() {
-                        return Ok(summary);
-                    }
-                    let name = ObjectName::new(record.name.clone()).map_err(io::Error::other)?;
-                    if let PathMapping::File(path) = mapping::name_to_path(&bucket, &name) {
-                        let binding = catalog
-                            .sync_state()
-                            .binding(&bucket)
-                            .await
-                            .map_err(io::Error::other)?;
-                        if catalog
-                            .sync_state()
-                            .get_path(binding, path.to_string_lossy().into_owned())
-                            .await
-                            .map_err(io::Error::other)?
-                            .is_some()
-                        {
-                            reconcile_live_object(
-                                catalog,
-                                root,
-                                &writeback,
-                                &bucket,
-                                &name,
-                                fence,
-                                &mut summary,
-                            )
-                            .await?;
-                            continue;
-                        }
-                    }
-                    let path = match mapping::name_to_path(&bucket, &name) {
-                        PathMapping::Unrepresentable(reason) => {
-                            finding(catalog, root, &bucket, &name, &record, reason, &mut summary)
-                                .await?;
-                            continue;
-                        }
-                        PathMapping::File(path) => path,
-                    };
-                    if hierarchy_collision(&admin, &bucket, &name)
-                        .await
-                        .map_err(io::Error::other)?
-                    {
-                        finding(
-                            catalog,
-                            root,
-                            &bucket,
-                            &name,
-                            &record,
-                            Reason::Collision,
-                            &mut summary,
-                        )
-                        .await?;
-                        continue;
-                    }
-                    let selected = path.clone();
-                    let observed = record.clone();
-                    let target =
-                        file_job_retry(root, move |root| inspect(root, &selected, &observed))
-                            .await?;
-                    if *stopping.borrow() {
-                        return Ok(summary);
-                    }
-                    match target {
-                        Target::Finding(reason) => {
-                            finding(catalog, root, &bucket, &name, &record, reason, &mut summary)
-                                .await?
-                        }
-                        Target::Conflicting => summary.conflicting += 1,
-                        Target::Identical | Target::Absent => {
-                            reconcile_live_object(
-                                catalog,
-                                root,
-                                &writeback,
-                                &bucket,
-                                &name,
-                                fence,
-                                &mut summary,
-                            )
-                            .await?;
-                        }
-                    }
-                }
-                match objects.next {
-                    Some(next) => query.cursor = Some(next),
-                    None => break,
-                }
-            }
-            let binding = catalog
-                .sync_state()
-                .binding(&bucket)
-                .await
-                .map_err(io::Error::other)?;
-            let mut after_path = String::new();
-            loop {
-                let tracked = catalog
-                    .sync_state()
-                    .page(binding.clone(), after_path.clone(), 256)
-                    .await
-                    .map_err(io::Error::other)?;
-                if tracked.is_empty() {
-                    break;
-                }
-                for record in tracked {
-                    if *stopping.borrow() {
-                        return Ok(summary);
-                    }
-                    after_path = record.path;
-                    let name = ObjectName::new(record.name).map_err(io::Error::other)?;
-                    match admin.get_object(&bucket, &name, None).await {
-                        Err(AdminError::NotFound) => {
-                            reconcile_live_object(
-                                catalog,
-                                root,
-                                &writeback,
-                                &bucket,
-                                &name,
-                                fence,
-                                &mut summary,
-                            )
-                            .await?
-                        }
-                        Ok(_) => {}
-                        Err(error) => return Err(io::Error::other(error)),
-                    }
-                }
-            }
-        }
-        if !page.has_more {
-            break;
-        }
-        after = next;
-    }
-    let scan_admin = admin.clone();
-    if *stopping.borrow() {
+    if reconciler.buckets(&mut summary).await? == Step::Stopped || *stopping.borrow() {
         return Ok(summary);
     }
+    let scan_admin = reconciler.admin.clone();
     let runtime = tokio::runtime::Handle::current();
     let external = root
         .file_job(move |root| external_files(root, Path::new(""), &scan_admin, &runtime, 0))
@@ -1080,7 +1041,7 @@ async fn reconcile_until(
         .await
         .map_err(io::Error::other)?
         .fence;
-    if allow_baseline
+    if baseline == BaselineGate::Allowed
         && summary.deferred == 0
         && !*stopping.borrow()
         && summary.conflicting == 0
@@ -1092,6 +1053,202 @@ async fn reconcile_until(
         summary.baseline_complete = true;
     }
     Ok(summary)
+}
+
+impl Reconciler<'_> {
+    fn stopped(&self) -> bool {
+        *self.stopping.borrow()
+    }
+
+    async fn live_object(
+        &self,
+        bucket: &BucketName,
+        name: &ObjectName,
+        summary: &mut Reconciliation,
+    ) -> io::Result<()> {
+        reconcile_live_object(
+            self.catalog,
+            self.root,
+            &self.writeback,
+            bucket,
+            name,
+            self.fence,
+            summary,
+        )
+        .await
+    }
+
+    async fn buckets(&self, summary: &mut Reconciliation) -> io::Result<Step> {
+        let mut after = None;
+        loop {
+            if self.stopped() {
+                return Ok(Step::Stopped);
+            }
+            let page = self
+                .admin
+                .list_all_buckets(after.as_deref(), 256)
+                .await
+                .map_err(io::Error::other)?;
+            let next = page.items.last().map(|entry| entry.bucket.name.clone());
+            for entry in page.items {
+                let bucket = match BucketName::new(entry.bucket.name.clone()) {
+                    Ok(bucket) => bucket,
+                    Err(_) => {
+                        summary.unrepresentable += 1;
+                        continue;
+                    }
+                };
+                let directory = PathBuf::from(bucket.as_str());
+                if !self
+                    .root
+                    .remember_sync_bucket(&bucket)
+                    .await
+                    .map_err(io::Error::other)?
+                {
+                    summary.deferred += 1;
+                    continue;
+                }
+                if !create_directory(self.root, directory).await? {
+                    summary.unrepresentable += 1;
+                }
+                if self.objects(&bucket, summary).await? == Step::Stopped
+                    || self.tracked_deletions(&bucket, summary).await? == Step::Stopped
+                {
+                    return Ok(Step::Stopped);
+                }
+            }
+            if !page.has_more {
+                return Ok(Step::Continue);
+            }
+            after = next;
+        }
+    }
+
+    async fn objects(&self, bucket: &BucketName, summary: &mut Reconciliation) -> io::Result<Step> {
+        let mut query = ObjectListQuery::default();
+        loop {
+            let objects = self
+                .admin
+                .list_objects(bucket, query.clone(), 256)
+                .await
+                .map_err(io::Error::other)?;
+            for record in objects.items {
+                if self.object(bucket, &record, summary).await? == Step::Stopped {
+                    return Ok(Step::Stopped);
+                }
+            }
+            match objects.next {
+                Some(next) => query.cursor = Some(next),
+                None => return Ok(Step::Continue),
+            }
+        }
+    }
+
+    async fn object(
+        &self,
+        bucket: &BucketName,
+        record: &ObjectRecord,
+        summary: &mut Reconciliation,
+    ) -> io::Result<Step> {
+        let catalog = self.catalog;
+        if self.stopped() {
+            return Ok(Step::Stopped);
+        }
+        let name = ObjectName::new(record.name.clone()).map_err(io::Error::other)?;
+        if let PathMapping::File(path) = mapping::name_to_path(bucket, &name) {
+            let binding = catalog
+                .sync_state()
+                .binding(bucket)
+                .await
+                .map_err(io::Error::other)?;
+            if catalog
+                .sync_state()
+                .get_path(binding, path.to_string_lossy().into_owned())
+                .await
+                .map_err(io::Error::other)?
+                .is_some()
+            {
+                self.live_object(bucket, &name, summary).await?;
+                return Ok(Step::Continue);
+            }
+        }
+        let path = match mapping::name_to_path(bucket, &name) {
+            PathMapping::Unrepresentable(reason) => {
+                finding(catalog, self.root, bucket, &name, record, reason, summary).await?;
+                return Ok(Step::Continue);
+            }
+            PathMapping::File(path) => path,
+        };
+        if hierarchy_collision(&self.admin, bucket, &name)
+            .await
+            .map_err(io::Error::other)?
+        {
+            finding(
+                catalog,
+                self.root,
+                bucket,
+                &name,
+                record,
+                Reason::Collision,
+                summary,
+            )
+            .await?;
+            return Ok(Step::Continue);
+        }
+        let observed = record.clone();
+        let target = file_job_retry(self.root, move |root| inspect(root, &path, &observed)).await?;
+        if self.stopped() {
+            return Ok(Step::Stopped);
+        }
+        match target {
+            Target::Finding(reason) => {
+                finding(catalog, self.root, bucket, &name, record, reason, summary).await?
+            }
+            Target::Conflicting => summary.conflicting += 1,
+            Target::Identical | Target::Absent => {
+                self.live_object(bucket, &name, summary).await?;
+            }
+        }
+        Ok(Step::Continue)
+    }
+
+    /// Reconciles tracked paths whose objects no longer exist, exporting their deletion.
+    async fn tracked_deletions(
+        &self,
+        bucket: &BucketName,
+        summary: &mut Reconciliation,
+    ) -> io::Result<Step> {
+        let binding = self
+            .catalog
+            .sync_state()
+            .binding(bucket)
+            .await
+            .map_err(io::Error::other)?;
+        let mut after_path = String::new();
+        loop {
+            let tracked = self
+                .catalog
+                .sync_state()
+                .page(binding.clone(), after_path.clone(), 256)
+                .await
+                .map_err(io::Error::other)?;
+            if tracked.is_empty() {
+                return Ok(Step::Continue);
+            }
+            for record in tracked {
+                if self.stopped() {
+                    return Ok(Step::Stopped);
+                }
+                after_path = record.path;
+                let name = ObjectName::new(record.name).map_err(io::Error::other)?;
+                match self.admin.get_object(bucket, &name, None).await {
+                    Err(AdminError::NotFound) => self.live_object(bucket, &name, summary).await?,
+                    Ok(_) => {}
+                    Err(error) => return Err(io::Error::other(error)),
+                }
+            }
+        }
+    }
 }
 
 fn external_files(
