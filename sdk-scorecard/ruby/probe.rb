@@ -12,6 +12,10 @@ require "uri"
 require "zlib"
 
 ORIGIN = URI(ENV.fetch("SCORECARD_ENDPOINT"))
+raise ArgumentError, "local HTTP(S) origin required" unless ORIGIN.is_a?(URI::HTTP) &&
+  %w[127.0.0.1 localhost ::1].include?(ORIGIN.hostname) && ORIGIN.userinfo.nil? &&
+  [nil, "", "/"].include?(ORIGIN.path) && ORIGIN.query.nil? && ORIGIN.fragment.nil?
+CA_CERT = ENV["SCORECARD_CA_CERT"]
 PROJECT = ENV.fetch("SCORECARD_PROJECT", "local-project")
 SIGNING_KEY = File.read(ENV.fetch("SCORECARD_SIGNING_KEY",
                                   File.expand_path("../../fixtures/signing/test-only-private.pem", __dir__)))
@@ -24,6 +28,20 @@ Google::Apis.logger = Logger.new($stderr, level: Logger::WARN)
 STORAGE = Google::Cloud::Storage.anonymous(endpoint: "#{ORIGIN.to_s.delete_suffix('/')}/",
                                            retries: 0, timeout: 20, upload_chunk_size: 256 * 1024)
 STORAGE.service.project = PROJECT
+connection = STORAGE.service.service.client
+connection.ssl.ca_file = CA_CERT if CA_CERT
+connection.ssl.verify = true
+connection.ssl.verify_hostname = true
+connection.builder.delete(Google::Apis::Core::FollowRedirectsMiddleware)
+class EmulatorOriginGuard < Faraday::Middleware
+  def call(env)
+    unless [env.url.scheme, env.url.host, env.url.port] == [ORIGIN.scheme, ORIGIN.host, ORIGIN.port]
+      raise ArgumentError, "request escaped emulator"
+    end
+    @app.call(env)
+  end
+end
+connection.builder.use(EmulatorOriginGuard)
 
 class ProbeFailure < StandardError; end
 
@@ -62,7 +80,9 @@ end
 
 def http(method, url, body: nil, headers: {})
   uri = URI(url)
-  Net::HTTP.start(uri.host, uri.port, nil, use_ssl: uri.scheme == "https", open_timeout: 10, read_timeout: 20) do |client|
+  check [uri.scheme, uri.host, uri.port] == [ORIGIN.scheme, ORIGIN.host, ORIGIN.port], "request escaped emulator"
+  Net::HTTP.start(uri.host, uri.port, nil, use_ssl: uri.scheme == "https", ca_file: CA_CERT,
+                 verify_mode: OpenSSL::SSL::VERIFY_PEER, verify_hostname: true, open_timeout: 10, read_timeout: 20) do |client|
     request = Net::HTTPGenericRequest.new(method, !body.nil?, true, uri.request_uri)
     headers.each { |key, value| request[key] = value }
     request.body = body if body
@@ -84,6 +104,26 @@ end
 
 def names_of(list)
   list.all.map(&:name).sort
+end
+
+if ARGV == ["--transport-check"]
+  begin
+    http("GET", "https://storage.googleapis.com/")
+    raise "external origin accepted"
+  rescue ProbeFailure => e
+    check e.message == "request escaped emulator", e.message
+  end
+  guard = EmulatorOriginGuard.new(->(_) { raise "external origin reached adapter" })
+  begin
+    guard.call(Faraday::Env.new(url: URI("https://storage.googleapis.com/")))
+    raise "external SDK origin accepted"
+  rescue ArgumentError => e
+    check e.message == "request escaped emulator", e.message
+  end
+  status, = http("GET", "#{ORIGIN.to_s.delete_suffix('/')}/")
+  check status == 200, "TLS fixture status"
+  puts "PASS: Ruby transport CA/SAN and exact-origin guards"
+  exit
 end
 
 CASES = []
@@ -261,8 +301,8 @@ probe "object.checksum_rejected", "object" do
   begin
     upload(bucket, "crc.txt", "payload", crc32c: "AAAAAA==")
     raise ProbeFailure, "wrong CRC32C accepted"
-  rescue Google::Cloud::Error
-    nil
+  rescue Google::Cloud::InvalidArgumentError => e
+    check e.message.match?(/checksum|crc32c/i), "expected checksum error: #{e.message}"
   end
   check bucket.file("crc.txt").nil?, "rejected upload left an object"
 end
@@ -512,7 +552,9 @@ probe "signed.post_policy_v4", "signed" do
   request = Net::HTTP::Post.new(uri)
   request.set_form(policy.fields.map { |k, v| [k, v] } + [["file", StringIO.new("posted"), { filename: "post.txt" }]],
                    "multipart/form-data")
-  response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") { |client| client.request(request) }
+  response = Net::HTTP.start(uri.host, uri.port, nil, use_ssl: uri.scheme == "https", ca_file: CA_CERT,
+                            verify_mode: OpenSSL::SSL::VERIFY_PEER, verify_hostname: true,
+                            open_timeout: 10, read_timeout: 20) { |client| client.request(request) }
   check response.code.to_i.between?(200, 299), "status #{response.code} body #{response.body.to_s[0, 200]}"
   check download(bucket.file("post.txt")) == "posted", "posted bytes differ"
 end

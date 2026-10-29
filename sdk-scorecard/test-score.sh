@@ -33,6 +33,11 @@ expect_failure
 jq -c '.sdk = "ruby"' "$work/saved" >"$work/second.node.jsonl"
 expect_failure
 cp "$work/saved" "$work/second.node.jsonl"
+jq '.transport = {scheme: "http"}' "$work/second.meta.json" >"$work/changed"
+mv "$work/changed" "$work/second.meta.json"
+expect_failure
+jq 'del(.transport)' "$work/second.meta.json" >"$work/changed"
+mv "$work/changed" "$work/second.meta.json"
 rm "$work/second.php.jsonl"
 expect_failure
 

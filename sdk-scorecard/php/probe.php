@@ -28,6 +28,17 @@ function expectCode(int $code, callable $call): void {
     }
     throw new RuntimeException("expected HTTP $code, got success");
 }
+function failureDetail(Throwable $error): string {
+    $cause = $error;
+    while ($cause->getPrevious()) $cause = $cause->getPrevious();
+    $message = $cause->getMessage();
+    if ($error instanceof ServiceException && $error->getMetadata()) {
+        $message = json_encode($error->getMetadata(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    }
+    // SDK resumable errors replace the cause with a bearer-capability URI.
+    $message = preg_replace('~https?://[^\s"<>]+~', '[redacted URL]', $message);
+    return substr(get_class($error) . ' HTTP ' . $error->getCode() . ': ' . $message, 0, 300);
+}
 function uniqueName(): string { return 'sc-php-' . bin2hex(random_bytes(6)); }
 function newBucket(array $options = []) {
     global $storage;
@@ -65,6 +76,7 @@ $stack->push(Middleware::mapRequest(function ($request) use ($origin) {
     return $request;
 }));
 $config = ['handler' => $stack, 'timeout' => 20, 'allow_redirects' => false, 'proxy' => ''];
+if (getenv('SCORECARD_CA_CERT')) $config['verify'] = getenv('SCORECARD_CA_CERT');
 if (getenv('SCORECARD_DOCKER_GATEWAY')) {
     // Route loopback through Docker's gateway without changing signed URLs or Host.
     $port = $parts['port'] ?? ($parts['scheme'] === 'https' ? 443 : 80);
@@ -74,6 +86,20 @@ $http = new Client($config);
 $storage = new StorageClient(['projectId' => $project, 'apiEndpoint' => $origin,
     'credentialsFetcher' => new AnonymousCredentials(), 'retries' => 0, 'requestTimeout' => 20,
     'httpHandler' => HttpHandlerFactory::build($http)]);
+if (($argv[1] ?? '') === '--transport-check') {
+    $detail = failureDetail(new ServiceException('Resume at https://127.0.0.1/upload?upload_id=redact-me', 400, null,
+        ['error' => ['code' => 400, 'message' => 'Final metadata requires a final request',
+            'location' => 'https://127.0.0.1/upload?upload_id=redact-me']]));
+    check(str_contains($detail, 'HTTP 400') && str_contains($detail, 'Final metadata'), 'lost root cause');
+    check(!str_contains($detail, 'redact-me'), 'structured session capability leaked');
+    check(!str_contains(failureDetail(new RuntimeException('Resume at https://127.0.0.1/upload?upload_id=redact-me')),
+        'redact-me'), 'session capability leaked');
+    try { $http->get('https://storage.googleapis.com/'); throw new LogicException('external origin accepted'); }
+    catch (RuntimeException $e) { check($e->getMessage() === 'request escaped emulator', $e->getMessage()); }
+    check($http->get($origin . '/')->getStatusCode() === 200, 'TLS fixture status');
+    echo "PASS: PHP transport CA/SAN and exact-origin guard\n";
+    exit;
+}
 $cases = [];
 function probe(string $id, callable $run): void { global $cases; $cases[$id] = $run; }
 
@@ -390,9 +416,7 @@ foreach ($cases as $id => $run) {
     try { set_time_limit(60); $run(); }
     catch (Throwable $e) {
         $result['pass'] = false;
-        $cause = $e;
-        while ($cause->getPrevious()) $cause = $cause->getPrevious();
-        $result['detail'] = substr(get_class($e) . ': ' . $cause->getMessage(), 0, 300);
+        $result['detail'] = failureDetail($e);
     }
     echo json_encode($result, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE) . "\n";
     flush();

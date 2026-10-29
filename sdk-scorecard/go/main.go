@@ -65,11 +65,16 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+	http.DefaultClient, err = localClient(endpoint, os.Getenv("SCORECARD_CA_CERT"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	// The SDK reads the emulator origin from the environment; explicit anonymous
 	// clients prevent credential discovery and metadata-server access.
 	os.Setenv("STORAGE_EMULATOR_HOST", endpoint.String())
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+	client, err := storage.NewClient(ctx, option.WithoutAuthentication(), option.WithHTTPClient(http.DefaultClient))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -692,10 +697,13 @@ func cases() []testCase {
 			o := b.Object("crc.txt")
 			_, err = write(p.ctx, o, []byte("payload"), func(w *storage.Writer) {
 				w.SendCRC32C = true
-				w.CRC32C = 12345
+				w.CRC32C = 0
 			})
-			if err == nil {
-				return fmt.Errorf("wrong CRC32C accepted")
+			if err := expectCode(err, 400); err != nil {
+				return err
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), "crc32c") && !strings.Contains(strings.ToLower(err.Error()), "checksum") {
+				return fmt.Errorf("expected checksum error: %w", err)
 			}
 			if _, err := o.Attrs(p.ctx); !errors.Is(err, storage.ErrObjectNotExist) {
 				return fmt.Errorf("rejected upload left an object: %v", err)
@@ -1200,11 +1208,6 @@ func cases() []testCase {
 			u, err := p.signedURL(b.BucketName(), "s2.txt", "GET", storage.SigningSchemeV2)
 			if err != nil {
 				return err
-			}
-			// The SDK always emits https for V2; the V2 string-to-sign excludes the
-			// scheme and host, so matching the emulator's scheme keeps the signature valid.
-			if p.endpoint.Scheme == "http" {
-				u = "http" + strings.TrimPrefix(u, "https")
 			}
 			code, body, err := httpDo(p.ctx, "GET", u, nil, nil)
 			if err != nil || code != 200 {

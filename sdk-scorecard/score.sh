@@ -18,9 +18,13 @@ for sdk in go ruby node php python; do
 done
 [[ ${#sdks[@]} -gt 0 && ${#sdks[@]} == "$(jq length <<<"$sdk_set")" ]] || { echo 'invalid SDK set' >&2; exit 1; }
 first=$(jq -er '.emulator' "${metas[0]}")
+transport=$(jq -cS '.transport // null' "${metas[0]}")
 for meta in "${metas[@]}"; do
   emulator=$(jq -er .emulator "$meta")
   [[ $emulator =~ ^[a-z0-9-]+$ ]] || { echo 'invalid emulator name' >&2; exit 1; }
+  [[ $(jq -cS '.transport // null' "$meta") == "$transport" ]] || {
+    echo "transport inputs differ: $emulator" >&2; exit 1;
+  }
   [[ $(jq -cS '.sdks // {go: {cases: 57}, ruby: {cases: 51}}' "$meta") == "$sdk_set" ]] || {
     echo "SDK inputs differ: $emulator" >&2; exit 1;
   }
