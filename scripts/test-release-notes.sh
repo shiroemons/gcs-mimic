@@ -57,6 +57,12 @@ printf '[gone](absent.md)\n' > "$work/docs/en/releases/missing.md"
 expect_failure 'a link without a target' 'has no target' docs/en/releases/missing.md v9.9.9
 printf '[out](../../../../outside.md)\n' > "$work/docs/en/releases/escape.md"
 expect_failure 'a link outside the repository' 'leaves the repository' docs/en/releases/escape.md v9.9.9
+printf '[run](x`touch${IFS}%s/ran`.md)\n' "$work" > "$work/docs/en/releases/shell.md"
+expect_failure 'shell syntax in a link' 'supported path set' docs/en/releases/shell.md v9.9.9
+if [[ -e "$work/ran" ]]; then
+  echo 'A link target reached a shell' >&2
+  exit 1
+fi
 : > "$work/docs/en/releases/empty.md"
 expect_failure 'empty notes' '' docs/en/releases/empty.md v9.9.9
 expect_failure 'an absolute notes path' '' "$work/docs/en/releases/9.9.9.md" v9.9.9

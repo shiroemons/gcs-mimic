@@ -39,7 +39,13 @@ function rewrite(target,   anchor, at, path, parts, count, depth, i, kept, resol
   }
   resolved = ""
   for (i = 1; i <= depth; i++) resolved = resolved (i > 1 ? "/" : "") kept[i]
-  if (resolved == "" || system("test -e \"" resolved "\"") != 0) {
+  # The existence check runs through a shell, so only plain path characters
+  # may reach it; any other link target fails instead.
+  if (resolved !~ /^[A-Za-z0-9_.\/-]+$/) {
+    fail("has characters outside the supported path set", target)
+    return target
+  }
+  if (system("test -e \"" resolved "\"") != 0) {
     fail("has no target in the repository", target)
     return target
   }
