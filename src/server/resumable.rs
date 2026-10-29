@@ -14,7 +14,7 @@ use crate::{
 };
 use bytes::Bytes;
 use http_body_util::Full;
-use hyper::{Request, Response, StatusCode, body::Incoming};
+use hyper::{Request, Response, StatusCode, body::Incoming, header::HeaderValue};
 use tokio::sync::{mpsc, watch};
 
 #[allow(
@@ -58,7 +58,7 @@ pub(super) async fn initiate(
         ));
     }
     let base = crate::url::normalize_base_url(&state.api_base_url)
-        .map_err(JsonError::invalid_parameter)?;
+        .map_err(|error| JsonError::invalid_parameter(error.to_string()))?;
     let location_prefix =
         format!("{base}/upload/storage/v1/b/{bucket}/o?uploadType=resumable&upload_id=");
     location_prefix
@@ -97,7 +97,7 @@ pub(super) async fn initiate(
     );
     response
         .headers_mut()
-        .insert("cache-control", "no-store".parse().unwrap());
+        .insert("cache-control", HeaderValue::from_static("no-store"));
     Ok(boxed(response))
 }
 
@@ -112,18 +112,21 @@ pub(super) fn incomplete(
         StatusCode::PERMANENT_REDIRECT
     });
     if offset > 0 {
-        response
-            .headers_mut()
-            .insert("range", format!("bytes=0-{}", offset - 1).parse().unwrap());
+        response.headers_mut().insert(
+            "range",
+            HeaderValue::try_from(format!("bytes=0-{}", offset - 1))
+                .expect("a decimal byte range is a valid header value"),
+        );
     }
     if override_status {
-        response
-            .headers_mut()
-            .insert("x-http-status-code-override", "308".parse().unwrap());
+        response.headers_mut().insert(
+            "x-http-status-code-override",
+            HeaderValue::from_static("308"),
+        );
     }
     response
         .headers_mut()
-        .insert("cache-control", "no-store".parse().unwrap());
+        .insert("cache-control", HeaderValue::from_static("no-store"));
     Ok(boxed(response))
 }
 
@@ -131,11 +134,11 @@ pub(super) fn completed(value: serde_json::Value) -> Response<ResponseBody> {
     let mut response = Response::new(Full::new(Bytes::from(value.to_string())));
     response.headers_mut().insert(
         "content-type",
-        "application/json; charset=UTF-8".parse().unwrap(),
+        HeaderValue::from_static("application/json; charset=UTF-8"),
     );
     response
         .headers_mut()
-        .insert("cache-control", "no-store".parse().unwrap());
+        .insert("cache-control", HeaderValue::from_static("no-store"));
     boxed(response)
 }
 

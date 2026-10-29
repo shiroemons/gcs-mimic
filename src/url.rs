@@ -1,8 +1,83 @@
 //! Pure construction of public object URLs. Building a URL never grants or checks access; whether
 //! the URL is servable depends entirely on IAM/ACL state at request time.
 
-use crate::json::{validate_bucket_name, validate_object_name};
-use std::fmt::Write;
+use crate::{
+    config::InvalidDnsName,
+    json::{validate_bucket_name, validate_object_name},
+};
+use std::fmt;
+
+/// Why a base URL, public origin or object URL was rejected. `Display` is the operator-facing
+/// diagnostic that CLI output and configuration reports show verbatim.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UrlError {
+    InvalidBaseUrl,
+    UnsupportedBaseUrl,
+    MissingAuthority,
+    MissingScheme,
+    InvalidBasePort,
+    OriginHasPath,
+    OriginPortZero,
+    InvalidOriginIpv6,
+    AmbiguousNumericHost,
+    InvalidOriginAuthority,
+    InvalidDnsName(InvalidDnsName),
+    InvalidBucket(String),
+    InvalidObject(String),
+    ReservedNamespace,
+    VirtualHostPathPrefix,
+    VirtualHostBucketNotDns,
+    InvalidVirtualHostPort,
+}
+
+impl fmt::Display for UrlError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidBaseUrl => f.write_str("invalid base URL"),
+            Self::UnsupportedBaseUrl => f.write_str(
+                "base URL must be an absolute HTTP(S) URL without credentials, query or fragment",
+            ),
+            Self::MissingAuthority => f.write_str("missing base URL authority"),
+            Self::MissingScheme => f.write_str("missing base URL scheme"),
+            Self::InvalidBasePort => {
+                f.write_str("invalid base URL port; use an integer in 0..=65535")
+            }
+            Self::OriginHasPath => {
+                f.write_str("public_base_url must be an HTTP(S) origin with a root path only")
+            }
+            Self::OriginPortZero => f.write_str(
+                "public_base_url port must be in 1..=65535; use a reachable port such as http://storage.invalid:4443",
+            ),
+            Self::InvalidOriginIpv6 => f.write_str("invalid public_base_url IPv6 address"),
+            Self::AmbiguousNumericHost => f.write_str(
+                "ambiguous numeric public hostname; use canonical IPv4 such as http://127.0.0.1 or a DNS name ending in a nonnumeric label",
+            ),
+            Self::InvalidOriginAuthority => f.write_str("invalid public origin authority"),
+            Self::InvalidDnsName(error) => error.fmt(f),
+            Self::InvalidBucket(message) => write!(f, "bucket: {message}"),
+            Self::InvalidObject(message) => write!(f, "object: {message}"),
+            Self::ReservedNamespace => {
+                f.write_str("object URL collides with a reserved API namespace")
+            }
+            Self::VirtualHostPathPrefix => {
+                f.write_str("virtual-host base URL must not have a path prefix")
+            }
+            Self::VirtualHostBucketNotDns => {
+                f.write_str("bucket name must be a DNS label sequence for virtual-host URLs")
+            }
+            Self::InvalidVirtualHostPort => f.write_str("invalid virtual-host base URL port"),
+        }
+    }
+}
+
+// `InvalidDnsName` is displayed transparently, so it is not repeated as a `source`.
+impl std::error::Error for UrlError {}
+
+impl From<InvalidDnsName> for UrlError {
+    fn from(error: InvalidDnsName) -> Self {
+        Self::InvalidDnsName(error)
+    }
+}
 
 #[derive(Clone, Debug)]
 enum OriginHost {
@@ -20,15 +95,15 @@ pub struct PublicOrigin {
 }
 
 impl PublicOrigin {
-    pub fn parse(value: &str) -> Result<Self, String> {
+    pub fn parse(value: &str) -> Result<Self, UrlError> {
         let base = normalize_base_url(value)?;
-        let uri: hyper::Uri = base.parse().map_err(|_| "invalid base URL")?;
+        let uri: hyper::Uri = base.parse().map_err(|_| UrlError::InvalidBaseUrl)?;
         if !uri.path().trim_matches('/').is_empty() {
-            return Err("public_base_url must be an HTTP(S) origin with a root path only".into());
+            return Err(UrlError::OriginHasPath);
         }
-        let authority = uri.authority().ok_or("missing base URL authority")?;
+        let authority = uri.authority().ok_or(UrlError::MissingAuthority)?;
         if authority.port_u16() == Some(0) {
-            return Err("public_base_url port must be in 1..=65535; use a reachable port such as http://storage.invalid:4443".into());
+            return Err(UrlError::OriginPortZero);
         }
         let host = authority.host();
         let host = if host.starts_with('[') {
@@ -36,7 +111,7 @@ impl PublicOrigin {
                 host.trim_start_matches('[')
                     .trim_end_matches(']')
                     .parse()
-                    .map_err(|_| "invalid public_base_url IPv6 address")?,
+                    .map_err(|_| UrlError::InvalidOriginIpv6)?,
             )
         } else if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
             OriginHost::Ipv4(ip)
@@ -49,7 +124,7 @@ impl PublicOrigin {
                         .or_else(|| last.strip_prefix("0X"))
                         .is_some_and(|digits| digits.bytes().all(|byte| byte.is_ascii_hexdigit())))
             {
-                return Err("ambiguous numeric public hostname; use canonical IPv4 such as http://127.0.0.1 or a DNS name ending in a nonnumeric label".into());
+                return Err(UrlError::AmbiguousNumericHost);
             }
             crate::config::validate_dns_name(host)?;
             OriginHost::Dns(host.to_ascii_lowercase())
@@ -59,7 +134,7 @@ impl PublicOrigin {
             OriginHost::Ipv4(ip) => ip.to_string(),
             OriginHost::Ipv6(ip) => format!("[{ip}]"),
         };
-        let scheme = uri.scheme_str().ok_or("missing base URL scheme")?;
+        let scheme = uri.scheme_str().ok_or(UrlError::MissingScheme)?;
         let port = authority
             .port_u16()
             .filter(|port| !matches!((scheme, port), ("http", 80) | ("https", 443)));
@@ -71,7 +146,7 @@ impl PublicOrigin {
             base: format!("{scheme}://{authority_text}"),
             authority: authority_text
                 .parse()
-                .map_err(|_| "invalid public origin authority")?,
+                .map_err(|_| UrlError::InvalidOriginAuthority)?,
             host,
         })
     }
@@ -94,38 +169,35 @@ impl PublicOrigin {
 
 /// Validate an advertised base URL with the same rules as `api_base_url` and trim trailing
 /// slashes so callers can append `/<path>` without producing `//`.
-pub fn normalize_base_url(value: &str) -> Result<String, String> {
-    let uri: hyper::Uri = value.parse().map_err(|_| "invalid base URL")?;
+pub fn normalize_base_url(value: &str) -> Result<String, UrlError> {
+    let uri: hyper::Uri = value.parse().map_err(|_| UrlError::InvalidBaseUrl)?;
     if !matches!(uri.scheme_str(), Some("http" | "https"))
         || uri.authority().is_none_or(|a| a.as_str().contains('@'))
         || uri.query().is_some()
         || value.contains('#')
     {
-        return Err(
-            "base URL must be an absolute HTTP(S) URL without credentials, query or fragment"
-                .into(),
-        );
+        return Err(UrlError::UnsupportedBaseUrl);
     }
-    let authority = uri.authority().ok_or("missing base URL authority")?;
+    let authority = uri.authority().ok_or(UrlError::MissingAuthority)?;
     if authority.as_str() != authority.host() && authority.port_u16().is_none() {
-        return Err("invalid base URL port; use an integer in 0..=65535".into());
+        return Err(UrlError::InvalidBasePort);
     }
     Ok(value.trim_end_matches('/').to_owned())
 }
 
 /// Normalize a public origin before deriving routing domains or signing helper URLs.
-pub fn normalize_public_base_url(value: &str) -> Result<String, String> {
+pub fn normalize_public_base_url(value: &str) -> Result<String, UrlError> {
     PublicOrigin::parse(value).map(|origin| origin.base)
 }
 
 /// Build `<base>/<bucket>/<encoded object>` for the XML-style path endpoint.
-pub fn public_object_url(base_url: &str, bucket: &str, object: &str) -> Result<String, String> {
+pub fn public_object_url(base_url: &str, bucket: &str, object: &str) -> Result<String, UrlError> {
     let base = normalize_base_url(base_url)?;
-    validate_bucket_name(bucket).map_err(|e| format!("bucket: {}", e.message))?;
-    validate_object_name(object).map_err(|e| format!("object: {}", e.message))?;
+    validate_bucket_name(bucket).map_err(|e| UrlError::InvalidBucket(e.message))?;
+    validate_object_name(object).map_err(|e| UrlError::InvalidObject(e.message))?;
     let path = format!("/{bucket}/{}", encode_object_name(object));
     if crate::xml::reserved_path(&path) {
-        return Err("object URL collides with a reserved API namespace".into());
+        return Err(UrlError::ReservedNamespace);
     }
     Ok(format!("{base}{path}"))
 }
@@ -135,26 +207,25 @@ pub fn virtual_host_object_url(
     base_url: &str,
     bucket: &str,
     object: &str,
-) -> Result<String, String> {
+) -> Result<String, UrlError> {
     let base = normalize_base_url(base_url)?;
-    validate_bucket_name(bucket).map_err(|e| format!("bucket: {}", e.message))?;
-    validate_object_name(object).map_err(|e| format!("object: {}", e.message))?;
-    let uri: hyper::Uri = base.parse().map_err(|_| "invalid base URL")?;
+    validate_bucket_name(bucket).map_err(|e| UrlError::InvalidBucket(e.message))?;
+    validate_object_name(object).map_err(|e| UrlError::InvalidObject(e.message))?;
+    let uri: hyper::Uri = base.parse().map_err(|_| UrlError::InvalidBaseUrl)?;
     if uri.path() != "/" && !uri.path().is_empty() {
-        return Err("virtual-host base URL must not have a path prefix".into());
+        return Err(UrlError::VirtualHostPathPrefix);
     }
-    let authority = uri.authority().ok_or("missing base URL authority")?;
+    let authority = uri.authority().ok_or(UrlError::MissingAuthority)?;
     crate::config::validate_dns_name(authority.host())?;
-    crate::config::validate_dns_name(bucket)
-        .map_err(|_| "bucket name must be a DNS label sequence for virtual-host URLs")?;
+    crate::config::validate_dns_name(bucket).map_err(|_| UrlError::VirtualHostBucketNotDns)?;
     let host = format!("{bucket}.{}", authority.host().to_ascii_lowercase());
     crate::config::validate_dns_name(&host)?;
     if authority.as_str().contains(':') && authority.port_u16().is_none() {
-        return Err("invalid virtual-host base URL port".into());
+        return Err(UrlError::InvalidVirtualHostPort);
     }
     Ok(format!(
         "{}://{host}{}/{}",
-        uri.scheme_str().unwrap(),
+        uri.scheme_str().ok_or(UrlError::MissingScheme)?,
         authority
             .port_u16()
             .map(|port| format!(":{port}"))
@@ -178,10 +249,19 @@ pub fn encode_object_name(object: &str) -> String {
         {
             encoded.push(byte as char);
         } else {
-            write!(encoded, "%{byte:02X}").unwrap();
+            push_percent_encoded(&mut encoded, byte);
         }
     }
     encoded
+}
+
+/// Append `%XX` with uppercase hex digits, the RFC 3986 form shared by object paths and
+/// signed-URL canonicalization.
+pub(crate) fn push_percent_encoded(out: &mut String, byte: u8) {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    out.push('%');
+    out.push(char::from(HEX[usize::from(byte >> 4)]));
+    out.push(char::from(HEX[usize::from(byte & 0x0f)]));
 }
 
 #[cfg(test)]
@@ -320,7 +400,7 @@ mod tests {
             let origin = PublicOrigin::parse(&input).unwrap();
             let uri: hyper::Uri = origin.as_str().parse().unwrap();
             let input = format!("{}://{}:0", uri.scheme_str().unwrap(), uri.host().unwrap());
-            prop_assert!(PublicOrigin::parse(&input).unwrap_err().contains(":4443"));
+            prop_assert!(PublicOrigin::parse(&input).unwrap_err().to_string().contains(":4443"));
         }
     }
 
@@ -346,6 +426,7 @@ mod tests {
         assert!(
             virtual_host_object_url("https://storage.invalid", "bucket_name", "o")
                 .unwrap_err()
+                .to_string()
                 .contains("bucket name must be a DNS label sequence")
         );
         for base in [
@@ -431,7 +512,9 @@ mod tests {
         for bucket in [
             "", "ab", "UPPER", "-bucket", "bucket-", "goog-x", "a/b", "1.2.3.4",
         ] {
-            let error = public_object_url("http://localhost", bucket, "o").unwrap_err();
+            let error = public_object_url("http://localhost", bucket, "o")
+                .unwrap_err()
+                .to_string();
             assert!(error.starts_with("bucket:"), "{bucket:?}: {error}");
         }
     }
@@ -448,7 +531,9 @@ mod tests {
             ".well-known/acme-challenge/x",
             long.as_str(),
         ] {
-            let error = public_object_url("http://localhost", "bucket", object).unwrap_err();
+            let error = public_object_url("http://localhost", "bucket", object)
+                .unwrap_err()
+                .to_string();
             assert!(error.starts_with("object:"), "{object:?}: {error}");
         }
         assert!(public_object_url("http://localhost", "bucket", &"a".repeat(1024)).is_ok());

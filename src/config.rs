@@ -446,7 +446,7 @@ impl Config {
                         if !value.is_empty() {
                             for domain in value.split(',') {
                                 let domain = domain.trim().to_ascii_lowercase();
-                                validate_dns_name(&domain)?;
+                                validate_dns_name(&domain).map_err(|error| error.to_string())?;
                                 if config.xml_virtual_host_domains.contains(&domain) {
                                     return Err("duplicate xml_virtual_host_domains entry; remove repeated DNS names".into());
                                 }
@@ -871,7 +871,21 @@ fn read_config(path: &str) -> Result<Vec<(String, serde_json::Value)>, ConfigRea
         })
 }
 
-pub(crate) fn validate_dns_name(value: &str) -> Result<(), String> {
+/// A host or virtual-host domain that is not a plain DNS name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InvalidDnsName;
+
+impl std::fmt::Display for InvalidDnsName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot",
+        )
+    }
+}
+
+impl std::error::Error for InvalidDnsName {}
+
+pub(crate) fn validate_dns_name(value: &str) -> Result<(), InvalidDnsName> {
     if value.is_empty()
         || value.len() > 253
         || value.parse::<std::net::IpAddr>().is_ok()
@@ -885,10 +899,7 @@ pub(crate) fn validate_dns_name(value: &str) -> Result<(), String> {
                     .all(|b| b.is_ascii_alphanumeric() || b == b'-')
         })
     {
-        return Err(
-            "virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot"
-                .into(),
-        );
+        return Err(InvalidDnsName);
     }
     Ok(())
 }

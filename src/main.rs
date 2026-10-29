@@ -325,6 +325,7 @@ fn url_public(args: &[String], configured: Option<String>) -> Result<String, Str
         required("--bucket")?,
         required("--object")?,
     )
+    .map_err(|error| error.to_string())
 }
 
 fn url_base(options: &BTreeMap<&str, &str>, configured: Option<String>) -> Result<String, String> {
@@ -393,7 +394,8 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, Strin
         &url_base(&options, configured)?,
         required("--bucket")?,
         required("--object")?,
-    )?;
+    )
+    .map_err(|error| error.to_string())?;
     if !query.is_empty() {
         url.push('?');
         url.push_str(&query.join("&"));
