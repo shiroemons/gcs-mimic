@@ -30,7 +30,7 @@ use std::{
     fmt, fs,
     io::{self, Read, Seek, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock, PoisonError},
     time::SystemTime,
 };
 use tokio::sync::mpsc;
@@ -174,18 +174,72 @@ struct Slot {
 
 type SlotKey = (PathBuf, String, String);
 
+struct SlotEntry {
+    /// Live `SlotHandle`s; counted under the map lock, unlike `Arc::strong_count`, whose
+    /// decrement in a dropped handle would otherwise race with another handle's check.
+    holders: usize,
+    slot: Arc<tokio::sync::Mutex<Slot>>,
+}
+
 /// Process-local because file descriptors are; the row's write handle remains authoritative
 /// across restarts, when no writer survives.
-fn slot(data_dir: &Path, bucket: &str, name: &str) -> Arc<tokio::sync::Mutex<Slot>> {
-    static SLOTS: OnceLock<Mutex<HashMap<SlotKey, Arc<tokio::sync::Mutex<Slot>>>>> =
-        OnceLock::new();
-    SLOTS
-        .get_or_init(Mutex::default)
+fn slots() -> &'static Mutex<HashMap<SlotKey, SlotEntry>> {
+    static SLOTS: OnceLock<Mutex<HashMap<SlotKey, SlotEntry>>> = OnceLock::new();
+    SLOTS.get_or_init(Mutex::default)
+}
+
+/// Every in-process user of one appendable object's slot, writers included, holds a handle.
+/// The last handle to drop removes the entry, so the map holds only objects in use, and
+/// every concurrent holder of a key shares one slot.
+struct SlotHandle {
+    key: SlotKey,
+    slot: Arc<tokio::sync::Mutex<Slot>>,
+}
+
+impl SlotHandle {
+    fn new(data_dir: &Path, bucket: &str, name: &str) -> Self {
+        let key = (data_dir.to_owned(), bucket.to_owned(), name.to_owned());
+        // The map only counts holders, and each update completes before the lock is
+        // released, so a panic elsewhere cannot leave it inconsistent.
+        let mut slots = slots().lock().unwrap_or_else(PoisonError::into_inner);
+        let entry = slots.entry(key.clone()).or_insert_with(|| SlotEntry {
+            holders: 0,
+            slot: Arc::default(),
+        });
+        entry.holders += 1;
+        let slot = entry.slot.clone();
+        Self { key, slot }
+    }
+}
+
+impl std::ops::Deref for SlotHandle {
+    type Target = tokio::sync::Mutex<Slot>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.slot
+    }
+}
+
+impl Drop for SlotHandle {
+    fn drop(&mut self) {
+        let mut slots = slots().lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(entry) = slots.get_mut(&self.key) {
+            entry.holders = entry.holders.saturating_sub(1);
+            if entry.holders == 0 {
+                slots.remove(&self.key);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+fn slot_count(data_dir: &Path) -> usize {
+    slots()
         .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .entry((data_dir.to_owned(), bucket.to_owned(), name.to_owned()))
-        .or_default()
-        .clone()
+        .unwrap_or_else(PoisonError::into_inner)
+        .keys()
+        .filter(|(dir, _, _)| dir == data_dir)
+        .count()
 }
 
 fn data_path(data_dir: &Path, blob_id: &str) -> Result<PathBuf, ObjectError> {
@@ -329,6 +383,8 @@ pub(crate) struct AppendWriter {
     name: String,
     path: PathBuf,
     handle: String,
+    /// Keeps the slot, and so this writer's ownership claim, registered while it lives.
+    slot: SlotHandle,
     record: ObjectRecord,
     /// Bytes received on this writer, including those not yet flushed.
     end: u64,
@@ -349,7 +405,7 @@ impl AppendWriter {
     }
 
     fn slot(&self) -> Arc<tokio::sync::Mutex<Slot>> {
-        slot(&self.catalog.0.data_dir, &self.bucket, &self.name)
+        self.slot.slot.clone()
     }
 
     /// Writes bytes at `offset`; bytes this writer already received are skipped.
@@ -636,7 +692,7 @@ impl Catalog {
         .await
         .map_err(object_unavailable)?
         .map_err(object_unavailable)?;
-        let slot = slot(&self.0.data_dir, bucket, name);
+        let slot = SlotHandle::new(&self.0.data_dir, bucket, name);
         let mut guard = slot.lock().await;
         let result = self
             .insert_appendable(bucket, name, &blob_id, &handle, options)
@@ -659,6 +715,7 @@ impl Catalog {
             name: name.to_owned(),
             path,
             handle,
+            slot,
             end: 0,
             crc32c: 0,
             record: created,
@@ -753,7 +810,7 @@ impl Catalog {
         access: BucketAccess,
     ) -> Result<AppendWriter, AppendError> {
         let new_handle = BlobId::generate().map_err(object_unavailable)?.to_hex();
-        let slot = slot(&self.0.data_dir, bucket, name);
+        let slot = SlotHandle::new(&self.0.data_dir, bucket, name);
         let mut guard = slot.lock().await;
         let (owned_bucket, owned_name, handle) =
             (bucket.to_owned(), name.to_owned(), new_handle.clone());
@@ -826,6 +883,7 @@ impl Catalog {
             name: name.to_owned(),
             path,
             handle: new_handle,
+            slot,
             end: record.size,
             crc32c: record.crc32c,
             record,
@@ -876,7 +934,7 @@ impl Catalog {
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
-        let slot = slot(&self.0.data_dir, bucket, name);
+        let slot = SlotHandle::new(&self.0.data_dir, bucket, name);
         let mut guard = slot.lock().await;
         let (owned_bucket, owned_name, access) =
             (bucket.to_owned(), name.to_owned(), access.clone());

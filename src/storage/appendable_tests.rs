@@ -287,6 +287,68 @@ async fn interrupted_finalization_before_publication_stays_appendable() {
     assert_eq!((record.generation, record.size), (generation, 4));
 }
 
+/// The writer registry tracks only objects with a live in-process user, so it does not grow
+/// with the number of objects ever appended, while a takeover still shares the slot that
+/// supersedes the earlier writer.
+#[tokio::test]
+async fn writer_slots_are_released_with_their_last_holder() {
+    let dir = TestDir::new();
+    let catalog = catalog_with_bucket(&dir).await;
+    for index in 0..64 {
+        let name = format!("object-{index}");
+        let mut writer = catalog
+            .create_appendable("append", &name, options())
+            .await
+            .unwrap();
+        writer
+            .append(0, Bytes::from_static(b"abc"), 1024)
+            .await
+            .unwrap();
+        if index % 2 == 0 {
+            writer
+                .finalize(None, BucketAccess::Permissive, 1024)
+                .await
+                .unwrap();
+        } else {
+            // An abandoned stream drops its writer without finalizing.
+            writer.flush().await.unwrap();
+        }
+        drop(writer);
+        assert_eq!(slot_count(&dir.0), 0);
+    }
+
+    let mut first = catalog
+        .create_appendable("append", "shared", options())
+        .await
+        .unwrap();
+    let generation = first.record().generation;
+    let mut second = catalog
+        .take_over_appendable(
+            "append",
+            "shared",
+            generation,
+            None,
+            Default::default(),
+            BucketAccess::Permissive,
+        )
+        .await
+        .unwrap();
+    assert_eq!(slot_count(&dir.0), 1);
+    assert_eq!(
+        first.append(0, Bytes::from_static(b"x"), 1024).await,
+        Err(AppendError::Superseded)
+    );
+    drop(first);
+    assert_eq!(slot_count(&dir.0), 1);
+    second
+        .append(0, Bytes::from_static(b"y"), 1024)
+        .await
+        .unwrap();
+    assert_eq!(second.flush().await.unwrap(), 1);
+    drop(second);
+    assert_eq!(slot_count(&dir.0), 0);
+}
+
 /// Rows belong to one bucket incarnation, so a recreated bucket never resurrects them.
 #[tokio::test]
 async fn appendable_objects_do_not_survive_bucket_recreation() {
