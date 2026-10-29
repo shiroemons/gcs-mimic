@@ -513,6 +513,17 @@
       "required_resolution": "Keep exact provider wire fidelity pending until authoritative clarification or explicitly authorized differential evidence resolves temporaryHold null and customTime reason/message. See docs/en/slices/sdk-object-holds-customtime.md."
     },
     {
+      "id": "SPEC-OBJECT-RETENTION",
+      "title": "Object retention error wire details and unspecified edge choices are local",
+      "status": "OPEN",
+      "affected_features": ["BEHAVIOR-OBJECT-034"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/object-lock", "https://docs.cloud.google.com/storage/docs/using-object-lock", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/insert", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "observed_at": "2026-10-29",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The Object Retention Lock guides establish Unlocked/Locked rules, overrideUnlockedRetention and its permission, the 100-year cap, the event-based-hold conflict, noncurrent transitions of retained live versions and independence from bucket retention policies. They do not state the status, reason or message for invalid transitions, buckets without the feature or the event-hold conflict; locally these return 400 invalidArgument with corrective guidance. Retained deletes and replacements reuse 403 retentionPolicyNotMet with an object-retention message. Past retainUntilTime values are accepted. null, {} and all-null retention remove a configuration; PUT omission keeps it. Echoed bucket objectRetention values are accepted only when they match the stored state. overrideUnlockedRetention=true is authorized whenever it accompanies a retention change. No provider differential request was made.",
+      "required_resolution": "Verify provider status/reason/message for each rejection, past retainUntilTime, PUT omission and empty-object removal before claiming wire parity. Implement gRPC input, copy/rewrite/compose destination retention, XML retention headers (EXT-XML-016/027), lifecycle interaction and the project lien separately. See docs/en/slices/sdk-object-retention.md."
+    },
+    {
       "id": "SPEC-EVENT-HOLD-WIRE",
       "title": "Event hold omission, null, propagation and error wire details remain unverified",
       "status": "OPEN",

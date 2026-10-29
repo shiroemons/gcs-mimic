@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 246 | 0 | 63 | 1 | 0 | 0 |
-| behavior | 201 | 110 | 0 | 53 | 38 | 0 | 0 |
+| behavior | 201 | 109 | 0 | 54 | 38 | 0 | 0 |
 | project_requirement | 95 | 34 | 0 | 30 | 31 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 246 | 33 | 31 | 0 | 0 | 0 |
-| behavior | 111 | 53 | 34 | 3 | 0 | 0 |
+| behavior | 110 | 54 | 34 | 3 | 0 | 0 |
 | project_requirement | 34 | 0 | 0 | 0 | 0 | 61 |
 
 ## api_operation
@@ -732,7 +732,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-031 | オブジェクト復元の意味論 | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-032 | HNSのrestoreToken識別 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-033 | 一括復元の条件と件数 | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-034 | オブジェクト保持設定 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-034 | オブジェクト保持設定 | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-035 | 一時保留・イベントベース保留 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 3 |
 | BEHAVIOR-OBJECT-036 | バケット保持期間の強制 | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-037 | 顧客指定暗号鍵の検証 | NOT_STARTED | P7 | EXACT | NONE | 0 |

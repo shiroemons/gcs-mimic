@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 246 | 0 | 63 | 1 | 0 | 0 |
-| behavior | 201 | 110 | 0 | 53 | 38 | 0 | 0 |
+| behavior | 201 | 109 | 0 | 54 | 38 | 0 | 0 |
 | project_requirement | 95 | 34 | 0 | 30 | 31 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 246 | 33 | 31 | 0 | 0 | 0 |
-| behavior | 111 | 53 | 34 | 3 | 0 | 0 |
+| behavior | 110 | 54 | 34 | 3 | 0 | 0 |
 | project_requirement | 34 | 0 | 0 | 0 | 0 | 61 |
 
 ## api_operation
@@ -732,7 +732,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-031 | Restore object semantics | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-032 | HNS restore-token disambiguation | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-033 | Bulk restore filtering and counters | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-034 | Object retention configuration | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-034 | Object retention configuration | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-035 | Temporary and event-based holds | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 3 |
 | BEHAVIOR-OBJECT-036 | Bucket retention enforcement | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-037 | Customer-supplied encryption key checks | NOT_STARTED | P7 | EXACT | NONE | 0 |

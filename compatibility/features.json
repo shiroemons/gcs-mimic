@@ -27729,26 +27729,46 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/object-lock",
+        "https://docs.cloud.google.com/storage/docs/using-object-lock",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/insert",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "SPEC_BASED",
-      "notes": "retainUntilTime, Locked/Unlocked, overrideUnlockedRetention and irreversible local state rules.",
+      "notes": "JSON buckets.insert enableObjectRetention (create-only, output objectRetention) and object retention on multipart/resumable upload and PATCH/PUT with Unlocked/Locked transition rules, overrideUnlockedRetention, atomic delete/replace protection through the shared publication and deletion checks, versioned noncurrent transitions, soft delete, holds and bucket policy interactions, strict setRetention/overrideUnlockedRetention/enableObjectRetention permissions and schema 29 persistence. gRPC reports Bucket.object_retention and Object.retention but rejects retention input. docs/en/slices/sdk-object-retention.md records scope and evidence.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id":"OBJRET-BUCKET-ENABLE","description":"enableObjectRetention=true stores and reports objectRetention; it cannot be enabled later or disabled and echoes must match.","result":"PASS","test_ids":["object_retention_bucket_enablement_is_create_only_and_persists","bucket_object_retention_echo_values"]},
+        {"id":"OBJRET-CONFIG","description":"Multipart, resumable, PATCH and PUT set retention; get, list and upload responses read it back; JSON parsing boundaries.","result":"PASS","test_ids":["object_retention_mode_transitions_and_injected_clock_expiry","object_retention_resumable_upload_and_strict_permissions","object_retention_json_parsing_boundaries"]},
+        {"id":"OBJRET-TRANSITIONS","description":"Unlocked extension is free; lock/shorten/remove need overrideUnlockedRetention; Locked only extends.","result":"PASS","test_ids":["object_retention_transitions_follow_mode_rules","object_retention_mode_transitions_and_injected_clock_expiry"]},
+        {"id":"OBJRET-PROTECT","description":"Delete, generation delete, soft delete and upload replacement return 403 until retainUntilTime on the injected clock; versioned live versions may become noncurrent.","result":"PASS","test_ids":["object_retention_mode_transitions_and_injected_clock_expiry","object_retention_versioning_soft_delete_and_bucket_policy"]},
+        {"id":"OBJRET-VALIDATION","description":"Disabled buckets, event-based hold conflicts, the 100-year cap and invalid values are rejected without mutation; copy/rewrite/compose reject retention.","result":"PASS","test_ids":["object_retention_requires_enabled_bucket_and_no_event_hold"]},
+        {"id":"OBJRET-INTERACTIONS","description":"Holds and retention protect independently; bucket policy and object retention both apply and retentionExpirationTime reports the later deadline.","result":"PASS","test_ids":["object_retention_requires_enabled_bucket_and_no_event_hold","object_retention_versioning_soft_delete_and_bucket_policy"]},
+        {"id":"OBJRET-AUTH","description":"Strict profile requires setRetention, overrideUnlockedRetention and enableObjectRetention where applicable.","result":"PASS","test_ids":["object_retention_resumable_upload_and_strict_permissions","object_retention_bucket_enablement_is_create_only_and_persists"]},
+        {"id":"OBJRET-PERSIST","description":"Schema 28-to-29 migration and restart persistence.","result":"PASS","test_ids":["object_retention_schema_migration_and_restart","object_retention_bucket_enablement_is_create_only_and_persists"]},
+        {"id":"OBJRET-SDK","description":"Pinned Go and Ruby scorecard object.retention journeys store retention and get 403 on delete.","result":"PASS","test_ids":["object.retention"]},
+        {"id":"OBJRET-PENDING","description":"gRPC retention input, copy/rewrite/compose destination retention, XML retention headers, lifecycle interaction, initialization files, the project lien and provider-exact error details.","result":"PENDING","test_ids":[]}
+      ],
+      "test_ids": ["object_retention_bucket_enablement_is_create_only_and_persists","bucket_object_retention_echo_values","object_retention_mode_transitions_and_injected_clock_expiry","object_retention_resumable_upload_and_strict_permissions","object_retention_json_parsing_boundaries","object_retention_transitions_follow_mode_rules","object_retention_versioning_soft_delete_and_bucket_policy","object_retention_requires_enabled_bucket_and_no_event_hold","object_retention_schema_migration_and_restart","object.retention"],
+      "verification": [
+        {"command":"cargo test --locked --offline --lib object_retention","result":"PASS","verified_at":"2026-10-29","artifact":"docs/en/slices/sdk-object-retention.md","test_ids":["object_retention_bucket_enablement_is_create_only_and_persists","bucket_object_retention_echo_values","object_retention_mode_transitions_and_injected_clock_expiry","object_retention_resumable_upload_and_strict_permissions","object_retention_json_parsing_boundaries","object_retention_transitions_follow_mode_rules","object_retention_versioning_soft_delete_and_bucket_policy","object_retention_requires_enabled_bucket_and_no_event_hold","object_retention_schema_migration_and_restart"]},
+        {"command":"bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-retention\" gcs-mimic","result":"PASS","verified_at":"2026-10-29","artifact":"docs/en/slices/sdk-object-retention.md","test_ids":["object.retention"]}
+      ],
+      "sdk_evidence": [
+        {"language":"Go","toolchain":"1.27.3","sdk":"cloud.google.com/go/storage","version":"v1.70.0","transport":"HTTP JSON; SetObjectRetention, Writer.Retention and retained delete","result":"PASS","verified_at":"2026-10-29","command":"bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-retention\" gcs-mimic","artifact":"docs/en/slices/sdk-object-retention.md","test_ids":["object.retention"]},
+        {"language":"Ruby","toolchain":"4.0.9","sdk":"google-cloud-storage","version":"1.62.1","transport":"HTTP JSON; enable_object_retention, File#retention= and retained delete","result":"PASS","verified_at":"2026-10-29","command":"bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-retention\" gcs-mimic","artifact":"docs/en/slices/sdk-object-retention.md","test_ids":["object.retention"]}
+      ],
+      "known_deviations": ["SPEC-OBJECT-RETENTION: invalid transitions, disabled buckets and event-hold conflicts return local 400 invalidArgument; retained deletes reuse 403 retentionPolicyNotMet; past retainUntilTime is accepted; PUT omission keeps retention. gRPC input, copy/rewrite/compose destination retention, XML retention headers, lifecycle interaction, initialization files and the project lien remain PENDING."],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "BEHAVIOR-OBJECT-035",
@@ -27902,7 +27922,7 @@
         {"id":"RETENTION-CLOCK","description":"Injected clock expiry with no sleep.","result":"PASS","test_ids":["retention_all_mutation_paths_expire_with_injected_clock"]},
         {"id":"RETENTION-HOLDS","description":"Temporary/event holds and retention independently protect objects; event-hold release age reset is separately pending.","result":"PASS","test_ids":["retention_and_both_holds_are_independent"]},
         {"id":"RETENTION-PERSIST","description":"Schema migration and restart persistence.","result":"PASS","test_ids":["retention_schema_migration_preserves_existing_buckets","retention_configuration_lock_permissions_and_restart"]},
-        {"id":"RETENTION-PENDING","description":"Initialization, XML policy APIs/deletion, object retention, lifecycle/soft-delete interactions, event-hold release age reset and provider null/edge-error verification.","result":"PENDING","test_ids":[]}
+        {"id":"RETENTION-PENDING","description":"Initialization, XML policy APIs/deletion, lifecycle/soft-delete interactions, event-hold release age reset and provider null/edge-error verification. Object retention is tracked by BEHAVIOR-OBJECT-034.","result":"PENDING","test_ids":[]}
       ],
       "test_ids": ["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","retention_all_mutation_paths_expire_with_injected_clock","retention_and_both_holds_are_independent","retention_schema_migration_preserves_existing_buckets","TestBucketRetentionPolicy","ruby-bucket-retention-policy"],
       "verification": [
@@ -27915,7 +27935,7 @@
         {"language":"Go","toolchain":"1.27.3","sdk":"cloud.google.com/go/storage","version":"v1.70.0","api_client_version":"v0.309.0","transport":"HTTP JSON; retained delete and retentionExpirationTime","result":"PASS","verified_at":"2026-10-27","command":"just check-sdk","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["TestBucketRetentionPolicy"]},
         {"language":"Ruby","toolchain":"4.0.9","sdk":"google-cloud-storage","version":"1.62.1","transport":"HTTP JSON; retained-delete denial in permissive/strict profiles","result":"PASS","verified_at":"2026-10-27","command":"just check-sdk","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["ruby-bucket-retention-policy"]}
       ],
-      "known_deviations": ["SPEC-RETENTION-POLICY retains provider null/empty and absent/already-locked error details. Specific JSON HTTP sources establish 400 badRequestException for locked-policy removal/shortening rather than Discovery's generic PERMISSION_DENIED. Initialization-file policies, XML policy APIs and XML DELETE, object retention and lifecycle/soft-delete interactions remain PENDING. Releasing an event-based hold currently does not restart retention age: expiration stays creation-based; restarting it remains PENDING. Existing XML PUT shares retention enforcement; no XML policy endpoint is implied."],
+      "known_deviations": ["SPEC-RETENTION-POLICY retains provider null/empty and absent/already-locked error details. Specific JSON HTTP sources establish 400 badRequestException for locked-policy removal/shortening rather than Discovery's generic PERMISSION_DENIED. Initialization-file policies, XML policy APIs and XML DELETE and lifecycle/soft-delete interactions remain PENDING; object retention (BEHAVIOR-OBJECT-034) applies alongside the policy and retentionExpirationTime reports the later deadline. Releasing an event-based hold currently does not restart retention age: expiration stays creation-based; restarting it remains PENDING. Existing XML PUT shares retention enforcement; no XML policy endpoint is implied."],
       "implemented_in": "644517a",
       "last_verified": "2026-10-27"
     },
