@@ -12605,7 +12605,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "The frozen local copy subset covers generation-pinned bounded bytes, metadata, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Historical evidence: docs/en/evidence/object-copy.md and docs/en/evidence/derived-objects.md. JSON copy now reuses schema 35 response replay, binding method/raw URI/base/raw body digest, source/destination CSEK digests, profile/principal and both bucket incarnations. Publication atomically retains the original resource and originally visible ACL snapshot; retries survive source/destination overwrite/deletion and restart with current source-read/create authorization rechecked in the transaction. ACL-read revocation omits ACL/owner; required source-read/create denial stays 403. Conflicting bindings return 400 and mid-flight incarnation changes return 412. Copy shares the media/multipart global 4096-entry, ten-minute, 64 KiB completion cache; full capacity returns safe 503 without early eviction. Token admission conditions/capacity precede source-object lookup as a provider-unverified local rule. Source and acceptance tests: docs/en/slices/sdk-upload-replay.md; final-source suite/SDK results remain pending. Independent transfer quotas retain 128 ephemeral copy/compose slots and 128 continuable slots, with seven-day rewrite expiry. Whole-method status stays PARTIAL for provider/full-projection parity.",
+      "notes": "The frozen local copy subset covers generation-pinned bounded bytes, metadata, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract: docs/en/slices/object-copy.md. Historical evidence: docs/en/evidence/object-copy.md and docs/en/evidence/derived-objects.md. Non-token copy rechecks source read grants at publication while retaining selection-time generation/condition semantics; revocation returns 403 without destination or transfer residue. JSON copy now reuses schema 35 response replay, binding method/raw URI/base/raw body digest, source/destination CSEK digests, profile/principal and both bucket incarnations. Publication atomically retains the original resource and originally visible ACL snapshot; retries survive source/destination overwrite/deletion and restart with current source-read/create authorization rechecked in the transaction. ACL-read revocation omits ACL/owner; required source-read/create denial stays 403. Conflicting bindings return 400 and mid-flight incarnation changes return 412. Copy shares the media/multipart global 4096-entry, ten-minute, 64 KiB completion cache; full capacity returns safe 503 without early eviction. Token admission conditions/capacity precede source-object lookup as a provider-unverified local rule. Source and acceptance tests: docs/en/slices/sdk-upload-replay.md; final-source suite/SDK results remain pending. Independent transfer quotas retain 128 ephemeral copy/compose slots and 128 continuable slots, with seven-day rewrite expiry. Whole-method status stays PARTIAL for provider/full-projection parity.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -27958,26 +27958,81 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/transcoding",
         "https://docs.cloud.google.com/storage/docs/metadata",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
-      "source_evidence": "SPEC_BASED",
-      "notes": "gzip/Accept-Encoding behavior, content length and checksum differences.",
+      "source_checked_at": "2026-10-29",
+      "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
+      "notes": "JSON media GET supports bounded gzip expansion selected by Accept-Encoding and stored no-transform. Expansion ignores Range, removes encoding/length/range headers, retains stored hashes/ETag and aborts corrupt or oversized output. Explicit gzip acceptance and no-transform preserve stored bytes/ranges. XML expansion, media HEAD, double-compression detection and exact provider error/negotiation parity remain outside the subset. Contract: docs/en/slices/sdk-scorecard-integration.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "REFINED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "JSON-GZIP-REPRESENTATION",
+          "description": "Select expanded or stored JSON GET bytes; ignore Range only for expansion; retain stored hashes/ETag, selected-generation conditions and authorization.",
+          "result": "PASS",
+          "test_ids": ["json_gzip_negotiation_range_and_conditions_preserve_stored_representation"]
+        },
+        {
+          "id": "JSON-GZIP-BOUNDS",
+          "description": "Bound compressed input/output steps and backpressure; resume optional headers and concatenated members across budgets; abort corruption, truncation and expansion beyond the local cap.",
+          "result": "PASS",
+          "test_ids": [
+            "json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof",
+            "gzip_budget_resumes_optional_headers_deflate_trailers_and_member_boundaries",
+            "gzip_budget_one_never_hides_corruption_at_member_boundaries",
+            "gzip_decode_bounds_input_and_output_across_members"
+          ]
+        },
+        {
+          "id": "GZIP-REMAINING-PARITY",
+          "description": "XML/media HEAD, double-compression detection, additional encodings and exact provider negotiation/error parity remain pending.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "json_gzip_negotiation_range_and_conditions_preserve_stored_representation",
+        "json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof",
+        "gzip_budget_resumes_optional_headers_deflate_trailers_and_member_boundaries",
+        "gzip_budget_one_never_hides_corruption_at_member_boundaries",
+        "gzip_decode_bounds_input_and_output_across_members"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --lib server::gzip::tests",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "gzip_budget_resumes_optional_headers_deflate_trailers_and_member_boundaries",
+            "gzip_budget_one_never_hides_corruption_at_member_boundaries",
+            "gzip_decode_bounds_input_and_output_across_members"
+          ]
+        },
+        {
+          "command": "cargo test --locked --test sdk_object_wire_http",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/sdk-scorecard-integration.md",
+          "test_ids": [
+            "json_gzip_negotiation_range_and_conditions_preserve_stored_representation",
+            "json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Expansion is limited by max_object_bytes and can abort after 200 headers; stored hashes do not describe expanded bytes. XML expansion/media HEAD and double-compression detection remain unsupported; provider exactness is unverified."
+      ],
+      "implemented_in": "b894ed0",
+      "last_verified": "2026-10-29"
     },
     {
       "id": "BEHAVIOR-OBJECT-018",

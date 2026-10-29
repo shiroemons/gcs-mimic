@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 222 | 0 | 87 | 1 | 0 | 0 |
-| behavior | 201 | 101 | 0 | 62 | 38 | 0 | 0 |
+| behavior | 201 | 100 | 0 | 63 | 38 | 0 | 0 |
 | project_requirement | 95 | 31 | 0 | 33 | 31 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 222 | 38 | 32 | 18 | 0 | 0 |
-| behavior | 102 | 60 | 35 | 4 | 0 | 0 |
+| behavior | 101 | 60 | 36 | 4 | 0 | 0 |
 | project_requirement | 31 | 0 | 0 | 0 | 0 | 64 |
 
 ## api_operation
@@ -715,7 +715,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-014 | アップロード確定時の可視性 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-015 | データ取得とメタデータ取得 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-016 | 範囲取得 | IMPLEMENTED | P1 | EXACT | EXACT | 0 |
-| BEHAVIOR-OBJECT-017 | コンテンツエンコードと変換 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-017 | コンテンツエンコードと変換 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-018 | prefix・delimiterによる一覧 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-019 | 一覧の範囲・glob条件 | PARTIAL | P1 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-020 | フォルダーをprefixに含める一覧 | NOT_STARTED | P5 | EXACT | NONE | 0 |
