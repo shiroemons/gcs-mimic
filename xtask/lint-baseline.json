@@ -2,35 +2,14 @@
   "schema_version": 1,
   "counts": {
     "clippy::expect_used": {
-      "src/json/buckets.rs": 1,
-      "src/json/csek.rs": 1,
-      "src/json/fields.rs": 1,
-      "src/json/objects.rs": 3,
-      "src/json/page_token.rs": 1,
-      "src/json/resumable.rs": 1,
-      "src/server.rs": 2,
-      "src/server/acl.rs": 1,
-      "src/server/resumable.rs": 1,
-      "src/server/rewrite.rs": 1,
       "src/storage/catalog/objects.rs": 5,
-      "src/storage/catalog/resumable_recovery.rs": 1,
-      "src/xml/mod.rs": 1
+      "src/storage/catalog/resumable_recovery.rs": 1
     },
     "clippy::fn_params_excessive_bools": {
       "src/auth/policy.rs": 1,
       "src/bucket.rs": 1,
-      "src/json/buckets.rs": 2,
-      "src/json/cors.rs": 1,
       "src/json/derived_metadata.rs": 1,
-      "src/json/multipart.rs": 2,
-      "src/json/object_metadata.rs": 3,
-      "src/json/object_retention.rs": 1,
-      "src/json/objects.rs": 1,
-      "src/json/projects.rs": 1,
       "src/object/retention.rs": 2,
-      "src/server.rs": 1,
-      "src/server/acl.rs": 1,
-      "src/server/retention_access.rs": 1,
       "src/storage/catalog.rs": 2,
       "src/storage/catalog/appendable.rs": 1,
       "src/storage/catalog/change_journal.rs": 1,
@@ -38,26 +17,14 @@
       "src/storage/catalog/derived.rs": 2,
       "src/storage/catalog/objects.rs": 6,
       "src/storage/catalog/sync_state/writeback.rs": 1,
-      "src/storage/catalog/sync_state/writeback/unpublished.rs": 1,
-      "src/xml/cors.rs": 2,
-      "src/xml/mod.rs": 3,
-      "src/xml/put.rs": 1
+      "src/storage/catalog/sync_state/writeback/unpublished.rs": 1
     },
     "clippy::needless_pass_by_value": {
-      "src/json/query.rs": 1,
-      "src/server/resumable.rs": 1,
       "src/storage/catalog/admin/publication.rs": 2,
       "src/storage/catalog/rewrite.rs": 1,
       "src/storage/catalog/sync_state/root.rs": 1
     },
     "clippy::too_many_lines": {
-      "src/json/buckets.rs": 2,
-      "src/json/compose.rs": 1,
-      "src/json/object_metadata.rs": 1,
-      "src/json/objects.rs": 1,
-      "src/json/query.rs": 1,
-      "src/server.rs": 4,
-      "src/server/resumable.rs": 1,
       "src/storage/catalog.rs": 3,
       "src/storage/catalog/admin/publication.rs": 1,
       "src/storage/catalog/compose.rs": 1,
@@ -65,9 +32,7 @@
       "src/storage/catalog/objects.rs": 3,
       "src/storage/catalog/resumable_transfer.rs": 1,
       "src/storage/catalog/rewrite.rs": 1,
-      "src/storage/catalog/sync_state/writeback/live_export.rs": 1,
-      "src/xml/post.rs": 3,
-      "src/xml/put.rs": 1
+      "src/storage/catalog/sync_state/writeback/live_export.rs": 1
     },
     "text::format_sql": {
       "src/storage/catalog.rs": 3,
@@ -106,11 +71,8 @@
       "src/storage/catalog/upload_replay.rs": 1
     },
     "unreachable_pub": {
-      "src/json/projects.rs": 1,
-      "src/json/rewrite.rs": 2,
       "src/storage/catalog/resumable.rs": 2,
-      "src/storage/catalog/rewrite_token.rs": 6,
-      "src/xml/mod.rs": 3
+      "src/storage/catalog/rewrite_token.rs": 6
     }
   }
 }
