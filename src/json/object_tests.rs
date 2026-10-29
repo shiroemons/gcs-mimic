@@ -34,6 +34,7 @@ pub(super) fn record() -> ObjectRecord {
         temporary_hold: false,
         custom_time: None,
         retention_expiration_time: None,
+        retention: None,
     }
 }
 

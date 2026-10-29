@@ -291,7 +291,9 @@ impl From<ObjectError> for AdminError {
             ObjectError::InvalidFixedMetadata(reason)
             | ObjectError::UnsupportedMetadata(reason) => Self::Invalid(reason),
             ObjectError::PreconditionFailed => Self::Precondition,
-            ObjectError::ActiveHold | ObjectError::RetentionPolicyNotMet => Self::Hold,
+            ObjectError::ActiveHold
+            | ObjectError::RetentionPolicyNotMet
+            | ObjectError::ObjectRetentionNotMet => Self::Hold,
             ObjectError::BucketNotFound | ObjectError::ObjectNotFound => Self::NotFound,
             ObjectError::ChecksumMismatch => Self::Checksum,
             ObjectError::TooLarge => Self::TooLarge,

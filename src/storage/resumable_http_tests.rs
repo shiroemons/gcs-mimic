@@ -1,4 +1,6 @@
 use super::catalog::replace_resumable_cleanup_obstacle;
+#[path = "object_retention_http_tests.rs"]
+mod object_retention;
 #[path = "retention_http_tests.rs"]
 mod retention;
 #[path = "soft_delete_http_tests.rs"]
@@ -100,6 +102,7 @@ impl Harness {
                     lifecycle: Vec::new(),
                     retention_policy: None,
                     soft_delete_policy: None,
+                    object_retention_enabled: false,
                     cors: Vec::new(),
                     metageneration: 1,
                     time_created: UNIX_EPOCH,

@@ -272,6 +272,7 @@ mod tests {
             lifecycle: Vec::new(),
             retention_policy: None,
             soft_delete_policy: None,
+            object_retention_enabled: false,
             cors: Vec::new(),
             metageneration: 1,
             time_created: UNIX_EPOCH,
@@ -463,6 +464,7 @@ mod tests {
         let original = catalog.insert_bucket(bucket("bucket")).await.unwrap();
         catalog.close().await.unwrap();
         let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+        super::super::test_support::downgrade_object_retention_schema(&connection);
         connection
             .execute_batch(
                 "DROP TABLE bucket_notifications; DROP TABLE bucket_notification_ids; PRAGMA user_version = 27;",

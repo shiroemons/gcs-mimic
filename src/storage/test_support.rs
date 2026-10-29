@@ -30,10 +30,18 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
 }
 
 pub fn downgrade_soft_delete_schema(connection: &rusqlite::Connection) {
+    downgrade_object_retention_schema(connection);
     connection
         .execute_batch("DROP TABLE IF EXISTS bucket_notifications; DROP TABLE IF EXISTS bucket_notification_ids; DROP TABLE IF EXISTS sync_buckets;")
         .unwrap();
     connection.execute_batch("DROP INDEX objects_soft_deleted; DROP INDEX objects_soft_expiry; ALTER TABLE objects DROP COLUMN soft_delete_time; ALTER TABLE objects DROP COLUMN hard_delete_time; ALTER TABLE buckets DROP COLUMN soft_delete_policy;").unwrap();
+}
+
+/// Restores the schema 28 layout; retain_until_time's CHECK names retention_mode, so it goes first.
+pub fn downgrade_object_retention_schema(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch("ALTER TABLE objects DROP COLUMN retain_until_time; ALTER TABLE objects DROP COLUMN retention_mode; ALTER TABLE buckets DROP COLUMN object_retention_enabled;")
+        .unwrap();
 }
 
 pub fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {

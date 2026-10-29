@@ -62,6 +62,9 @@ pub fn derived_metadata(
     {
         return Err(JsonError::unsupported_object("customTime on copy/rewrite"));
     }
+    if parsed.update.retention.is_some() {
+        return Err(JsonError::unsupported_object("retention on copy/rewrite"));
+    }
     for key in ["name", "bucket"] {
         if let Some(value) = parsed.unchanged.remove(key)
             && !value.is_string()

@@ -330,7 +330,7 @@ fn unsupported_legacy_profile() {
             .request(
                 "POST",
                 "/storage/v1/b?project=local",
-                r#"{"name":"unsupported-bucket","objectRetention":{"mode":"Enabled"}}"#,
+                r#"{"name":"unsupported-bucket","website":{"mainPageSuffix":"index.html"}}"#,
             )
             .error(400, "badRequest");
         server
@@ -1459,7 +1459,6 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
             "hierarchicalNamespace",
             "ipFilter",
             "logging",
-            "objectRetention",
             "rpo",
             "satisfiesPZI",
             "satisfiesPZS",
@@ -1540,7 +1539,7 @@ fn bucket_put_conditions_and_query_contract() {
                 },
             );
         server
-            .request("PUT", &conditioned, r#"{"objectRetention":{}}"#)
+            .request("PUT", &conditioned, r#"{"website":{}}"#)
             .error(400, "badRequest");
         assert_eq!(server.request("GET", path, "").json(), before);
         let registry = dir.0.join("identities.json");
@@ -2661,7 +2660,6 @@ fn bucket_core_unsupported_settings_preserve_state() {
             "hierarchicalNamespace",
             "ipFilter",
             "logging",
-            "objectRetention",
             "rpo",
             "satisfiesPZI",
             "satisfiesPZS",
@@ -2726,7 +2724,9 @@ fn bucket_core_strict_protection_settings_never_create_an_unprotected_bucket() {
             json!({"defaultObjectAcl":[{"entity":"allUsers","role":"READER"}]}),
             json!({"encryption":{"defaultKmsKeyName":"unavailable-key"}}),
         ] {
-            let invalid_uniform_access = settings.get("iamConfiguration").is_some();
+            // objectRetention is output-only without enableObjectRetention=true.
+            let invalid_uniform_access = settings.get("iamConfiguration").is_some()
+                || settings.get("objectRetention").is_some();
             let mut body = settings;
             body["name"] = "protected-bucket".into();
             server
@@ -3001,7 +3001,7 @@ fn bucket_core_migrates_v7_settings() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            28
+            29
         );
     }
 }
@@ -3536,8 +3536,14 @@ fn bkt_http_query_body_name_and_route_boundaries() {
             .request("GET", &format!("/storage/v1/b?project=x&{query}"), "")
             .error(400, "badRequest");
     }
+    server
+        .request(
+            "POST",
+            "/storage/v1/b?project=x&enableObjectRetention=yes",
+            r#"{"name":"valid-bucket"}"#,
+        )
+        .error(400, "invalidParameter");
     for query in [
-        "enableObjectRetention=false",
         "predefinedAcl=private",
         "predefinedDefaultObjectAcl=private",
     ] {

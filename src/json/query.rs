@@ -21,6 +21,7 @@ pub struct Conditions {
 pub struct InsertParams {
     pub project: String,
     pub projection: Projection,
+    pub enable_object_retention: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -246,7 +247,15 @@ fn parse(
     common(&mut query)?;
     match (method, bucket) {
         (&Method::POST, None) => {
-            unsupported(&query, &["enableObjectRetention"])?;
+            let enable_object_retention = match query.remove("enableObjectRetention").as_deref() {
+                None | Some("false") => false,
+                Some("true") => true,
+                Some(_) => {
+                    return Err(JsonError::invalid_parameter(
+                        "enableObjectRetention must be true or false",
+                    ));
+                }
+            };
             if profile == CompatProfile::LegacyEmulator {
                 query
                     .entry("project".into())
@@ -260,6 +269,7 @@ fn parse(
             Ok(BucketRequest::Insert(InsertParams {
                 project,
                 projection,
+                enable_object_retention,
             }))
         }
         (&Method::GET, None) => {

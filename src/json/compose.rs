@@ -199,6 +199,9 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
     {
         return Err(JsonError::unsupported_object("customTime on compose"));
     }
+    if metadata.update.retention.is_some() {
+        return Err(JsonError::unsupported_object("retention on compose"));
+    }
     if let Some(key) = metadata.unchanged.keys().next() {
         return Err(JsonError::unsupported_object(key));
     }

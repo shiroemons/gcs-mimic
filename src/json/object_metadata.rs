@@ -47,7 +47,6 @@ pub fn parse_object_metadata(
     for field in [
         "acl",
         "predefinedAcl",
-        "retention",
         "contexts",
         "kmsKeyName",
         "customerEncryption",
@@ -100,6 +99,7 @@ pub fn parse_object_metadata(
                 | "eventBasedHold"
                 | "temporaryHold"
                 | "customTime"
+                | "retention"
         ) {
             return Err(JsonError::unsupported_object(key));
         }
@@ -174,6 +174,11 @@ pub fn parse_object_metadata(
                     })
                 })
                 .transpose()?,
+            retention: body
+                .get("retention")
+                .map(super::object_retention::parse)
+                .transpose()?,
+            override_unlocked_retention: false,
         },
     })
 }

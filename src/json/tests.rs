@@ -246,11 +246,11 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
     assert_eq!(
         request(
             Method::POST,
-            "/storage/v1/b?project=p&enableObjectRetention=false"
+            "/storage/v1/b?project=p&enableObjectRetention=yes"
         )
         .unwrap_err()
-        .status,
-        JsonError::unsupported("enableObjectRetention").status
+        .reason,
+        "invalidParameter"
     );
     for path in [
         "/storage/v1/b/abc?generation=1",

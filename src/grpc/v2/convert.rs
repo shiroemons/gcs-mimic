@@ -1,5 +1,8 @@
 use super::pb;
-use crate::{bucket::BucketRecord, object::ObjectRecord};
+use crate::{
+    bucket::BucketRecord,
+    object::{ObjectRecord, retention::RetentionMode},
+};
 use prost_types::{Duration, Timestamp};
 
 pub fn bucket(record: &BucketRecord) -> pb::Bucket {
@@ -47,6 +50,9 @@ pub fn bucket(record: &BucketRecord) -> pb::Bucket {
                 }),
             }
         }),
+        object_retention: record
+            .object_retention_enabled
+            .then_some(pb::bucket::ObjectRetention { enabled: true }),
         iam_config: Some(pb::bucket::IamConfig {
             public_access_prevention: if record.public_access_prevention_enforced {
                 "enforced"
@@ -100,7 +106,14 @@ pub fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status> {
         component_count: record.component_count.unwrap_or_default() as i32,
         temporary_hold: record.temporary_hold,
         event_based_hold: Some(record.event_based_hold),
-        retention_expire_time: record.retention_expiration_time.map(Into::into),
+        retention_expire_time: record.earliest_deletion_time().map(Into::into),
+        retention: record.retention.map(|retention| pb::object::Retention {
+            mode: match retention.mode {
+                RetentionMode::Unlocked => pb::object::retention::Mode::Unlocked,
+                RetentionMode::Locked => pb::object::retention::Mode::Locked,
+            } as i32,
+            retain_until_time: Some(retention.retain_until.into()),
+        }),
         custom_time,
         ..Default::default()
     })
@@ -141,6 +154,7 @@ mod tests {
                 retention_duration_seconds: 604800,
                 effective_time: now,
             }),
+            object_retention_enabled: false,
             versioning_enabled: true,
             default_event_based_hold: true,
             public_access_prevention_enforced: false,
@@ -218,6 +232,7 @@ mod tests {
             temporary_hold: true,
             custom_time: Some("2026-10-20T01:02:03.123456789Z".into()),
             retention_expiration_time: None,
+            retention: None,
         };
         let value = json::object_resource(&record, "http://localhost", Projection::NoAcl).unwrap();
         let proto = object(&record).unwrap();

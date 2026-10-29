@@ -126,7 +126,6 @@ fn mask_object(
                 | "contexts"
                 | "owner"
                 | "customer_encryption"
-                | "retention"
         )
     }) {
         return Err(unsupported(

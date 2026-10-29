@@ -71,8 +71,8 @@ fn unsupported_google_routes_and_inputs() {
     for (path, body, field) in [
         (
             "/storage/v1/b?project=local",
-            json!({"name":"rejected-bucket", "objectRetention":{"mode":"Enabled"}}),
-            "objectRetention",
+            json!({"name":"rejected-bucket", "website":{"mainPageSuffix":"index.html"}}),
+            "website",
         ),
         (
             "/storage/v1/b?project=local",

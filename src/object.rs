@@ -2,6 +2,9 @@
 
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 
+#[path = "object_retention.rs"]
+pub mod retention;
+
 /// Only a transport-confirmed EOF permits publication; a dropped producer is an abort.
 pub enum UploadChunk {
     Data(bytes::Bytes),
@@ -36,7 +39,9 @@ pub struct ObjectRecord {
     pub event_based_hold: bool,
     pub temporary_hold: bool,
     pub custom_time: Option<String>,
+    /// Bucket retention policy expiration only; object retention is kept in `retention`.
     pub retention_expiration_time: Option<SystemTime>,
+    pub retention: Option<retention::ObjectRetention>,
 }
 
 impl ObjectRecord {
@@ -44,7 +49,14 @@ impl ObjectRecord {
         self.event_based_hold || self.temporary_hold
     }
 
+    /// Guards removing this generation permanently (or soft deleting it).
     pub(crate) fn check_retention(&self, now: SystemTime) -> Result<(), ObjectError> {
+        self.check_policy_and_holds(now)?;
+        self.check_object_retention(now)
+    }
+
+    /// Holds and the bucket policy also forbid making a live object noncurrent.
+    pub(crate) fn check_policy_and_holds(&self, now: SystemTime) -> Result<(), ObjectError> {
         if self.has_hold() {
             return Err(ObjectError::ActiveHold);
         }
@@ -55,6 +67,26 @@ impl ObjectRecord {
             return Err(ObjectError::RetentionPolicyNotMet);
         }
         Ok(())
+    }
+
+    /// The object-lock guide allows a retained live version to become noncurrent, so
+    /// callers apply this only when the generation would be deleted or replaced.
+    pub(crate) fn check_object_retention(&self, now: SystemTime) -> Result<(), ObjectError> {
+        if self
+            .retention
+            .is_some_and(|retention| retention.active(now))
+        {
+            return Err(ObjectError::ObjectRetentionNotMet);
+        }
+        Ok(())
+    }
+
+    /// The earliest deletion time across the bucket policy and the object's own retention.
+    pub(crate) fn earliest_deletion_time(&self) -> Option<SystemTime> {
+        self.retention_expiration_time
+            .into_iter()
+            .chain(self.retention.map(|retention| retention.retain_until))
+            .max()
     }
 }
 
@@ -104,6 +136,9 @@ pub struct ObjectMetadataUpdate {
     pub event_based_hold: Option<bool>,
     pub temporary_hold: Option<bool>,
     pub custom_time: Option<Option<String>>,
+    /// `Some(None)` removes the configuration; transitions are checked by the catalog.
+    pub retention: Option<Option<retention::ObjectRetention>>,
+    pub override_unlocked_retention: bool,
 }
 
 impl ObjectMetadataUpdate {
@@ -154,6 +189,9 @@ impl ObjectMetadataUpdate {
         }
         if let Some(hold) = self.temporary_hold {
             record.temporary_hold = hold;
+        }
+        if let Some(retention) = self.retention {
+            record.retention = retention;
         }
         if self.replace {
             record.content_type.clear();
@@ -250,6 +288,8 @@ pub enum ObjectError {
     OverwriteForbidden,
     ActiveHold,
     RetentionPolicyNotMet,
+    /// The object's own retain-until time has not passed.
+    ObjectRetentionNotMet,
     ObjectNotSoftDeleted,
     /// The bucket's current owning project is not one the caller was authorized for.
     Forbidden,
@@ -281,6 +321,9 @@ impl fmt::Display for ObjectError {
             Self::ActiveHold => formatter.write_str("object under active hold"),
             Self::RetentionPolicyNotMet => {
                 formatter.write_str("object retention period has not elapsed")
+            }
+            Self::ObjectRetentionNotMet => {
+                formatter.write_str("object retain-until time has not elapsed")
             }
             Self::ObjectNotSoftDeleted => formatter.write_str(
                 "object is not soft deleted; select a generation from softDeleted=true listing",

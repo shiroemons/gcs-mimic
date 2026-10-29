@@ -267,6 +267,13 @@ impl From<ObjectError> for JsonError {
                 "retentionPolicyNotMet",
                 "Object retention period has not elapsed; wait until retentionExpirationTime or remove an unlocked bucket retention policy.",
             ),
+            // The object-lock guide documents denial of retained deletes and replacements;
+            // the reason string is shared with bucket retention as a local choice.
+            ObjectError::ObjectRetentionNotMet => Self::new(
+                StatusCode::FORBIDDEN,
+                "retentionPolicyNotMet",
+                "Object is retained until retention.retainUntilTime; wait until then, or shorten or remove an Unlocked configuration with overrideUnlockedRetention=true.",
+            ),
             ObjectError::ChecksumMismatch => Self::new(
                 StatusCode::BAD_REQUEST,
                 "invalid",

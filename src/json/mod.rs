@@ -23,6 +23,7 @@ mod object_list;
 mod object_metadata;
 mod object_move;
 mod object_restore;
+mod object_retention;
 mod objects;
 mod page_token;
 mod query;

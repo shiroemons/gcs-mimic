@@ -33,6 +33,9 @@ pub const OBJECTS_GET: &str = "storage.objects.get";
 pub const OBJECTS_LIST: &str = "storage.objects.list";
 pub const OBJECTS_UPDATE: &str = "storage.objects.update";
 pub const OBJECTS_RESTORE: &str = "storage.objects.restore";
+pub const BUCKETS_ENABLE_OBJECT_RETENTION: &str = "storage.buckets.enableObjectRetention";
+pub const OBJECTS_SET_RETENTION: &str = "storage.objects.setRetention";
+pub const OBJECTS_OVERRIDE_UNLOCKED_RETENTION: &str = "storage.objects.overrideUnlockedRetention";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Permission {
@@ -49,6 +52,8 @@ pub enum Permission {
     ObjectsList,
     ObjectsUpdate,
     ObjectsRestore,
+    ObjectsSetRetention,
+    ObjectsOverrideUnlockedRetention,
 }
 
 impl Permission {
@@ -67,6 +72,8 @@ impl Permission {
             Self::ObjectsList => OBJECTS_LIST,
             Self::ObjectsUpdate => OBJECTS_UPDATE,
             Self::ObjectsRestore => OBJECTS_RESTORE,
+            Self::ObjectsSetRetention => OBJECTS_SET_RETENTION,
+            Self::ObjectsOverrideUnlockedRetention => OBJECTS_OVERRIDE_UNLOCKED_RETENTION,
         }
     }
 }
@@ -88,6 +95,8 @@ impl TryFrom<&str> for Permission {
             Self::ObjectsList,
             Self::ObjectsUpdate,
             Self::ObjectsRestore,
+            Self::ObjectsSetRetention,
+            Self::ObjectsOverrideUnlockedRetention,
         ]
         .into_iter()
         .find(|permission| permission.as_str() == value)

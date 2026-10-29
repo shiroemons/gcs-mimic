@@ -97,7 +97,7 @@ pub mod sync_state;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 28;
+const CATALOG_SCHEMA_VERSION: i64 = 29;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -118,7 +118,8 @@ PRAGMA user_version = 5;";
 const COLUMNS: &str = "name, project, location, location_type, storage_class, labels,
                       metageneration, time_created, updated, versioning_enabled,
                       default_event_based_hold, cors, public_access_prevention_enforced,
-                      uniform_bucket_level_access_locked_time, lifecycle, retention_policy, soft_delete_policy";
+                      uniform_bucket_level_access_locked_time, lifecycle, retention_policy, soft_delete_policy,
+                      object_retention_enabled";
 const BUCKET_PAP_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN public_access_prevention_enforced INTEGER NOT NULL DEFAULT 0 CHECK(public_access_prevention_enforced IN (0, 1));
 PRAGMA user_version = 13;";
 const BUCKET_CORS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN cors TEXT NOT NULL DEFAULT '[]';
@@ -371,6 +372,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .execute_batch(notifications::SCHEMA)
             .map_err(unavailable)?;
         notifications::validate(connection)?;
+    }
+    if version >= 29 {
+        expected
+            .execute_batch(objects::retention::SCHEMA)
+            .map_err(unavailable)?;
     }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
@@ -686,6 +692,9 @@ impl Catalog {
             }
             if version < 28 {
                 notifications::migrate(&mut connection)?;
+            }
+            if version < 29 {
+                objects::retention::migrate(&mut connection)?;
             }
             // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
             if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {
@@ -1029,6 +1038,9 @@ impl Catalog {
                     }
                     _ => {}
                 }
+            }
+            if update.object_retention_enabled.is_some_and(|enabled| enabled != record.object_retention_enabled) {
+                return Err(CatalogError::InvalidMetadata("objectRetention can only be enabled when the bucket is created (enableObjectRetention=true) and can never be disabled; omit objectRetention".into()));
             }
             if let Some(duration) = update.soft_delete_retention {
                 if duration != 0 && !(604800..=7776000).contains(&duration) {
@@ -1446,7 +1458,7 @@ fn insert_bucket_in_transaction(
     let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
     let changed = transaction
         .execute(
-            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
          ON CONFLICT(name) DO NOTHING"),
             params![
                 record.name,
@@ -1466,6 +1478,7 @@ fn insert_bucket_in_transaction(
                 serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
                 record.retention_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
                 record.soft_delete_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
+                record.object_retention_enabled,
             ],
         )
         .map_err(unavailable)?;
@@ -1567,6 +1580,7 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         metageneration: row.get(6)?,
         time_created: system_time_micros(row.get(7)?)?,
         updated: system_time_micros(row.get(8)?)?,
+        object_retention_enabled: row.get(17)?,
         versioning_enabled: row.get(9)?,
         default_event_based_hold: row.get(10)?,
         public_access_prevention_enforced: row.get(12)?,

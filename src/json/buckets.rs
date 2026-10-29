@@ -23,7 +23,6 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "hierarchicalNamespace",
     "ipFilter",
     "logging",
-    "objectRetention",
     "rpo",
     "satisfiesPZI",
     "satisfiesPZS",
@@ -249,6 +248,11 @@ pub fn parse_insert_with_profile(
                 effective_time: now,
                 is_locked: false,
             }),
+        // The adapter reconciles an echoed value with enableObjectRetention.
+        object_retention_enabled: super::object_retention::parse_bucket(
+            body.get("objectRetention"),
+        )?
+        .unwrap_or(false),
         name,
         project: project.to_owned(),
         location: location.to_owned(),
@@ -425,6 +429,9 @@ fn parse_bucket_update(
         soft_delete_retention: parse_soft_delete_retention(body.get("softDeletePolicy"))?,
         retention_period: parse_retention_period(body.get("retentionPolicy"))?,
         lock_retention_policy: false,
+        object_retention_enabled: super::object_retention::parse_bucket(
+            body.get("objectRetention"),
+        )?,
         cors: parse_cors(body.get("cors"))?,
         lifecycle: body
             .get("lifecycle")
@@ -627,6 +634,11 @@ pub fn bucket_resource_with_profile(
     }
     if let Some(policy) = &bucket.retention_policy {
         value["retentionPolicy"] = json!({"retentionPeriod":policy.retention_period.to_string(), "effectiveTime":timestamp(policy.effective_time)?, "isLocked":policy.is_locked});
+    }
+    if let Some(object_retention) =
+        super::object_retention::render_bucket(bucket.object_retention_enabled)
+    {
+        value["objectRetention"] = object_retention;
     }
     if let Some(policy) = &bucket.soft_delete_policy {
         value["softDeletePolicy"] = json!({"retentionDurationSeconds": policy.retention_duration_seconds.to_string(), "effectiveTime": timestamp(policy.effective_time)?});

@@ -63,6 +63,8 @@ mod copy;
 mod notifications;
 #[path = "server/resumable.rs"]
 mod resumable;
+#[path = "server/retention_access.rs"]
+mod retention_access;
 #[path = "server/rewrite.rs"]
 mod rewrite;
 mod unsupported;
@@ -1271,11 +1273,20 @@ async fn object_response(
             name,
             params,
             replace,
+            override_unlocked_retention,
         } => {
             json::validate_object_get_headers(request.headers(), false)?;
             // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let update = json::parse_object_metadata(&bytes, replace)?;
+            let mut update = json::parse_object_metadata(&bytes, replace)?;
+            retention_access::authorize_update(
+                state,
+                &access,
+                &bucket,
+                &mut update.update,
+                override_unlocked_retention,
+            )
+            .await?;
             let base = state.api_base_url.clone();
             let record = state
                 .catalog
@@ -1341,6 +1352,7 @@ async fn object_response(
             let bytes = multipart.metadata().await?;
             let name_known = name.is_some();
             let (name, metadata, expected) = json::multipart_metadata(&bytes, name, expected)?;
+            retention_access::authorize_upload(state, &access, &bucket, &metadata).await?;
             if !name_known {
                 await_upload_catalog(
                     state
@@ -1852,6 +1864,13 @@ async fn bucket_response(
     let access = match &operation {
         BucketRequest::Insert(params) => {
             authorize_project(caller, auth::BUCKETS_CREATE, &params.project)?;
+            if params.enable_object_retention {
+                authorize_project(
+                    caller,
+                    auth::BUCKETS_ENABLE_OBJECT_RETENTION,
+                    &params.project,
+                )?;
+            }
             BucketAccess::Permissive
         }
         BucketRequest::List(params) => {
@@ -2034,13 +2053,19 @@ async fn bucket_response(
         }
         BucketRequest::Insert(params) => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let record = json::parse_insert_with_profile(
+            let mut record = json::parse_insert_with_profile(
                 &bytes,
                 &params.project,
                 state.clock.now(),
                 profile,
                 &state.default_location,
             )?;
+            if record.object_retention_enabled && !params.enable_object_retention {
+                return Err(JsonError::invalid_argument(
+                    "objectRetention is output-only; add the enableObjectRetention=true query parameter to enable object retention",
+                ));
+            }
+            record.object_retention_enabled = params.enable_object_retention;
             let name = record.name.clone();
             json::reject_predefined_acl(
                 acl_query.as_deref(),

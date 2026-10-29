@@ -825,6 +825,7 @@ fn publish_entry(
                 temporary_hold: false,
                 custom_time: None,
                 retention_expiration_time: None,
+                retention: None,
             };
             entry.request.metadata.clone().apply(&mut record)?;
             objects::inherit_metadata(entry.request.mode, previous.as_ref(), &mut record);

@@ -109,6 +109,8 @@ pub struct BucketRecord {
     pub lifecycle: Vec<serde_json::Value>,
     pub retention_policy: Option<RetentionPolicy>,
     pub soft_delete_policy: Option<SoftDeletePolicy>,
+    /// Set only at creation (`enableObjectRetention=true`); it can never be disabled.
+    pub object_retention_enabled: bool,
     pub versioning_enabled: bool,
     pub default_event_based_hold: bool,
     pub public_access_prevention_enforced: bool,
@@ -126,6 +128,8 @@ pub struct BucketMetadataUpdate {
     pub retention_period: Option<Option<u64>>,
     pub soft_delete_retention: Option<u64>,
     pub lock_retention_policy: bool,
+    /// An echoed `objectRetention` value; it must match the stored state.
+    pub object_retention_enabled: Option<bool>,
     pub labels: Option<Option<BTreeMap<String, Option<String>>>>,
     pub storage_class: Option<String>,
     pub versioning_enabled: Option<bool>,

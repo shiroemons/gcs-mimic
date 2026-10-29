@@ -37,6 +37,7 @@ async fn setup(dir: &TestDir, clock: Arc<TestClock>) -> Catalog {
                 lifecycle: Vec::new(),
                 retention_policy: None,
                 soft_delete_policy: None,
+                object_retention_enabled: false,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,

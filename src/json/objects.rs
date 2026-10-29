@@ -48,6 +48,7 @@ pub enum ObjectRequest {
         name: String,
         params: ObjectGetParams,
         replace: bool,
+        override_unlocked_retention: bool,
     },
     Insert {
         bucket: String,
@@ -235,7 +236,7 @@ fn parse_object_query(
     } else if method == Method::GET {
         &["restoreToken"]
     } else if method == Method::PATCH || method == Method::PUT {
-        &["predefinedAcl", "overrideUnlockedRetention"]
+        &["predefinedAcl"]
     } else {
         &[]
     };
@@ -345,10 +346,21 @@ fn parse_object_query(
         } else {
             projection(&mut query)?
         };
+        let override_unlocked_retention = match query.remove("overrideUnlockedRetention").as_deref()
+        {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(_) => {
+                return Err(JsonError::invalid_parameter(
+                    "overrideUnlockedRetention must be true or false",
+                ));
+            }
+        };
         finish(query)?;
         return Ok(ObjectRequest::Update {
             bucket,
             name,
+            override_unlocked_retention,
             replace: method == Method::PUT,
             params: ObjectGetParams {
                 generation,
@@ -678,8 +690,11 @@ pub fn object_resource(
     if object.temporary_hold {
         value["temporaryHold"] = json!(true);
     }
-    if let Some(time) = object.retention_expiration_time {
-        value["retentionExpirationTime"] = json!(timestamp(time)?);
+    if let Some(time) = super::object_retention::expiration(object.earliest_deletion_time())? {
+        value["retentionExpirationTime"] = json!(time);
+    }
+    if let Some(retention) = &object.retention {
+        value["retention"] = super::object_retention::render(retention)?;
     }
     if let Some(time) = &object.custom_time {
         value["customTime"] = json!(time);

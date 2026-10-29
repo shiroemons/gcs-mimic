@@ -73,6 +73,7 @@ async fn setup(dir: &TestDir) -> Catalog {
             lifecycle: Vec::new(),
             retention_policy: None,
             soft_delete_policy: None,
+            object_retention_enabled: false,
             cors: Vec::new(),
             metageneration: 1,
             time_created: UNIX_EPOCH,
@@ -1570,7 +1571,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        28
+        29
     );
 }
 
@@ -1641,6 +1642,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         temporary_hold: false,
         custom_time: None,
         retention_expiration_time: None,
+        retention: None,
     };
     drop(connection);
     let clock = Arc::new(FixedClock(AtomicU64::new(9_876_000)));

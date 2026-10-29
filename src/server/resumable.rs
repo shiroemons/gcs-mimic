@@ -72,6 +72,8 @@ pub(super) async fn initiate(
     let (name, mut options) = resumable::options(
         &bytes, name, mime, expected, params, access, origin, encoding,
     )?;
+    super::retention_access::authorize_upload(state, &options.access, bucket, &options.metadata)
+        .await?;
     options.response_fields = response_fields;
     let session = await_upload_catalog(
         state

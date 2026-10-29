@@ -601,7 +601,6 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
         for field in [
             "acl",
             "predefinedAcl",
-            "retention",
             "contexts",
             "storageClass",
             "kmsKeyName",
@@ -622,11 +621,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
                 .update(method, "", json!({field:null}))
                 .error(400, "badRequest");
         }
-        for query in [
-            "predefinedAcl=private",
-            "overrideUnlockedRetention=false",
-            "userProject=test",
-        ] {
+        for query in ["predefinedAcl=private", "userProject=test"] {
             server
                 .update(method, &format!("?{query}"), json!({}))
                 .error(400, "badRequest");
@@ -636,6 +631,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             "ifGenerationMatch=9223372036854775808",
             "projection=invalid",
             "generation=1&generation=2",
+            "overrideUnlockedRetention=yes",
         ] {
             server
                 .update(method, &format!("?{query}"), json!({}))

@@ -335,6 +335,7 @@ impl Catalog {
                             temporary_hold: false,
                             custom_time: None,
                             retention_expiration_time: None,
+                            retention: None,
                         };
                         options.metadata.apply(&mut record)?;
                         let period: Option<i64> = transaction.query_row("SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1", [&record.bucket], |row| row.get(0)).map_err(unavailable)?;

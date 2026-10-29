@@ -21,12 +21,16 @@ use tokio::{
     sync::{OwnedSemaphorePermit, mpsc, oneshot},
 };
 
+#[path = "object_retention.rs"]
+pub(super) mod retention;
+
 const CHUNK_SIZE: usize = 64 * 1024;
 pub(super) const OBJECT_COLUMNS: &str = "bucket, name, generation, metageneration, content_type, size,
     md5, crc32c, storage_class, time_created, updated, blob_id,
     content_encoding, content_disposition, content_language, cache_control, metadata,
     time_deleted, event_based_hold, component_count, temporary_hold, custom_time,
-    time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket), soft_delete_time, hard_delete_time";
+    time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket), soft_delete_time, hard_delete_time,
+    retention_mode, retain_until_time";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectListCursor {
@@ -766,6 +770,7 @@ impl Catalog {
                                     temporary_hold: false,
                                     custom_time: None,
                                     retention_expiration_time: None,
+                                    retention: None,
                                 };
                                 metadata.apply(&mut record)?;
                                 inherit_metadata(mode, previous.as_ref(), &mut record);
@@ -956,7 +961,18 @@ impl Catalog {
                 &access,
             )?;
             validate(&record)?;
+            let previous_retention = record.retention;
+            let override_unlocked = update.override_unlocked_retention;
             update.apply(&mut record)?;
+            if record.retention != previous_retention {
+                crate::object::retention::check_transition(
+                    previous_retention.as_ref(),
+                    record.retention.as_ref(),
+                    override_unlocked,
+                )?;
+                retention::validate_publication(&transaction, &record, clock.now())?;
+            }
+            let (retention_mode, retain_until) = retention::columns(record.retention.as_ref())?;
             record.metageneration = record
                 .metageneration
                 .checked_add(1)
@@ -969,7 +985,7 @@ impl Catalog {
                     "UPDATE objects SET metageneration = ?3, updated = ?4, content_type = ?5,
                     content_encoding = ?6, content_disposition = ?7, content_language = ?8,
                     cache_control = ?9, metadata = ?10, event_based_hold = ?11,
-                    temporary_hold = ?13, custom_time = ?14
+                    temporary_hold = ?13, custom_time = ?14, retention_mode = ?15, retain_until_time = ?16
                     WHERE bucket = ?1 AND name = ?2 AND generation = ?12",
                     params![
                         bucket,
@@ -985,7 +1001,9 @@ impl Catalog {
                         record.event_based_hold,
                         record.generation,
                         record.temporary_hold,
-                        record.custom_time
+                        record.custom_time,
+                        retention_mode,
+                        retain_until
                     ],
                 )
                 .map_err(object_unavailable)?;
@@ -1126,12 +1144,17 @@ pub(super) fn delete_selected(
         false,
         access,
     )?;
-    record.check_retention(clock.now())?;
+    let (versioning, _) = Catalog::bucket_settings_in_transaction(&transaction, bucket)
+        .map_err(object_unavailable)?;
+    // Deleting a live version in a versioned bucket only makes it noncurrent.
+    if versioning && generation.is_none() {
+        record.check_policy_and_holds(clock.now())?;
+    } else {
+        record.check_retention(clock.now())?;
+    }
     if let Some(binding) = sync_binding {
         super::sync_state::delete_in_transaction(&transaction, binding, &record)?;
     }
-    let (versioning, _) = Catalog::bucket_settings_in_transaction(&transaction, bucket)
-        .map_err(object_unavailable)?;
     super::change_journal::object(
         &transaction,
         super::change_journal::origin(access),
@@ -1516,8 +1539,9 @@ pub(super) fn check_publication(
     if previous.is_some() && !allow_overwrite {
         return Err(ObjectError::OverwriteForbidden);
     }
+    // Object retention depends on versioning; publish_in_transaction checks it.
     if let Some((record, _)) = previous {
-        record.check_retention(now)?;
+        record.check_policy_and_holds(now)?;
     }
     Ok(())
 }
@@ -1609,6 +1633,13 @@ pub(super) fn publish_in_transaction<T>(
                 .ok_or(ObjectError::InvalidMetadata)
         })
         .transpose()?;
+    let now = system_time_micros(micros).map_err(object_unavailable)?;
+    // A retained live version may become noncurrent, but it cannot be replaced outright.
+    if !versioning && let Some((previous, _)) = previous {
+        previous.check_object_retention(now)?;
+    }
+    retention::validate_publication(transaction, &record, now)?;
+    let (retention_mode, retain_until) = retention::columns(record.retention.as_ref())?;
     if matches!(assignment, GenerationAssignment::Imported(_)) {
         let exists: bool = transaction.query_row(
             "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3)",
@@ -1627,13 +1658,14 @@ pub(super) fn publish_in_transaction<T>(
         )
         .map_err(object_unavailable)?;
     transaction.execute(
-        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21)",
+        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time,retention_mode,retain_until_time) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21,?22,?23)",
         params![record.bucket, record.name, generation, record.metageneration,
             record.content_type, i64::try_from(record.size).map_err(object_unavailable)?,
             &record.md5[..], record.crc32c, record.storage_class, unix_micros(record.time_created).map_err(object_unavailable)?, blob_id,
             record.content_encoding, record.content_disposition, record.content_language,
             record.cache_control, metadata, record.event_based_hold, record.component_count,
-            unix_micros(record.updated).map_err(object_unavailable)?, record.temporary_hold, record.custom_time],
+            unix_micros(record.updated).map_err(object_unavailable)?, record.temporary_hold, record.custom_time,
+            retention_mode, retain_until],
     ).map_err(object_unavailable)?;
     super::change_journal::object(
         transaction,
@@ -1875,6 +1907,7 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, Stri
                 .get::<_, Option<i64>>(24)?
                 .map(system_time_micros)
                 .transpose()?,
+            retention: retention::read(row, 25)?,
         },
         row.get(11)?,
     ))
@@ -2016,6 +2049,7 @@ mod tests {
         connection
             .execute_batch(super::super::SOFT_DELETE_SCHEMA)
             .unwrap();
+        connection.execute_batch(retention::SCHEMA).unwrap();
         let counter = AtomicUsize::new(0);
         // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
         // SAFETY: This live connection invokes the callback synchronously with the live counter.
@@ -2082,6 +2116,7 @@ mod tests {
         connection
             .execute_batch(super::super::SOFT_DELETE_SCHEMA)
             .unwrap();
+        connection.execute_batch(retention::SCHEMA).unwrap();
         connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
             INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,time_deleted)
             SELECT 'bucket', CASE WHEN n <= 10000 THEN 'a/history' ELSE printf('y/%05d',n) END, n,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,printf('%032x',n),1 FROM entries;
@@ -2269,6 +2304,7 @@ mod tests {
                     lifecycle: Vec::new(),
                     retention_policy: None,
                     soft_delete_policy: None,
+                    object_retention_enabled: false,
                     cors: Vec::new(),
                     metageneration: 1,
                     time_created: UNIX_EPOCH,
@@ -2348,6 +2384,7 @@ mod tests {
                 lifecycle: Vec::new(),
                 retention_policy: None,
                 soft_delete_policy: None,
+                object_retention_enabled: false,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
@@ -2503,6 +2540,7 @@ mod tests {
                 lifecycle: Vec::new(),
                 retention_policy: None,
                 soft_delete_policy: None,
+                object_retention_enabled: false,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,

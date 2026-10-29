@@ -768,7 +768,6 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
         .json();
     for field in [
         "acl",
-        "retention",
         "contexts",
         "kmsKeyName",
         "customerEncryption",

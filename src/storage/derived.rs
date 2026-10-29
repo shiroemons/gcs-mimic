@@ -705,7 +705,7 @@ impl Catalog {
                     content_encoding: None, content_disposition: None, content_language: None,
                     cache_control: None, metadata: Default::default(), time_created: time, updated: time,
                     time_deleted: None, soft_delete_time: None, hard_delete_time: None, event_based_hold: default_hold,
-                    temporary_hold: false, custom_time: None, retention_expiration_time: None,
+                    temporary_hold: false, custom_time: None, retention_expiration_time: None, retention: None,
                 };
                 destination.metadata.apply(&mut record)?;
                 transaction.execute("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query]).map_err(unavailable)?;
@@ -1004,6 +1004,7 @@ mod tests {
                 lifecycle: Vec::new(),
                 retention_policy: None,
                 soft_delete_policy: None,
+                object_retention_enabled: false,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
