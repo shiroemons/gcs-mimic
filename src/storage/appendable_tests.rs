@@ -287,6 +287,84 @@ async fn interrupted_finalization_before_publication_stays_appendable() {
     assert_eq!((record.generation, record.size), (generation, 4));
 }
 
+/// Publication of the reserved generation removes the appendable row in its own commit, so a
+/// finalization that stops right after that commit cannot leave a row that would look
+/// unfinalized again, with its old bytes, once the published generation is deleted.
+#[tokio::test]
+async fn publishing_a_reserved_generation_retires_its_row_atomically() {
+    let dir = TestDir::new();
+    let catalog = catalog_with_bucket(&dir).await;
+    let mut writer = catalog
+        .create_appendable("append", "atomic", options())
+        .await
+        .unwrap();
+    writer
+        .append(0, Bytes::from_static(b"old"), 1024)
+        .await
+        .unwrap();
+    writer.flush().await.unwrap();
+    let record = writer.record().clone();
+    drop(writer);
+    let identity = super::super::admin::ImportedIdentity::new(
+        super::super::admin::Generation::new(record.generation).unwrap(),
+        record.time_created,
+        record.updated,
+    )
+    .unwrap();
+    // Publish exactly as finalization does, without the steps that follow its commit.
+    let (tx, rx) = mpsc::channel(2);
+    tx.send(Ok(UploadChunk::Data(Bytes::from_static(b"old"))))
+        .await
+        .unwrap();
+    tx.send(Ok(UploadChunk::End)).await.unwrap();
+    let published = catalog
+        .put_object_with_mode(
+            "append",
+            "atomic",
+            record.content_type.clone(),
+            Default::default(),
+            ObjectConditions {
+                if_generation_match: Some(0),
+                ..Default::default()
+            },
+            1024,
+            rx,
+            catalog.admit_object_upload().unwrap(),
+            Default::default(),
+            BucketAccess::Permissive,
+            super::super::admin::PublishMode::Replace,
+            Some(identity),
+        )
+        .await
+        .unwrap();
+    assert_eq!(published.generation, record.generation);
+    let rows: i64 = catalog
+        .run_upload(|connection| {
+            connection
+                .query_row("SELECT COUNT(*) FROM appendable_objects", [], |row| {
+                    row.get(0)
+                })
+                .map_err(object_unavailable)
+        })
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+    catalog
+        .delete_object_authorized(
+            "append",
+            "atomic",
+            None,
+            Default::default(),
+            &BucketAccess::Permissive,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        open(&catalog, "atomic").await.err(),
+        Some(ObjectError::ObjectNotFound)
+    );
+}
+
 /// The writer registry tracks only objects with a live in-process user, so it does not grow
 /// with the number of objects ever appended, while a takeover still shares the slot that
 /// supersedes the earlier writer.

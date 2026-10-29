@@ -827,6 +827,10 @@ impl Catalog {
                                 Ok((record, ()))
                             },
                         )?;
+                        // Only a reserved generation can match an appendable row.
+                        if identity.is_some() {
+                            super::appendable::retire_published(&transaction, &record)?;
+                        }
                         if let Some(replay) = &replay {
                             replay.store(
                                 &transaction,

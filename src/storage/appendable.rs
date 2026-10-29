@@ -5,10 +5,11 @@
 //! the durability boundary. Bytes past its `size` are unacknowledged and are truncated by the
 //! next writer; readers never look past it. Finalization marks the row `finalizing`, streams
 //! the persisted bytes through ordinary publication with the generation reserved at creation,
-//! then removes the row. Publication and row removal are separate transactions, so startup
-//! recovery resolves every `finalizing` row before any request can delete the published
-//! generation: a published generation retires the row, otherwise the row becomes appendable
-//! again. At runtime a row whose generation is published is always treated as finalized.
+//! and that publication's transaction removes the row. Catalogs written before that change can
+//! still hold a row whose generation was published, so startup recovery resolves every
+//! `finalizing` row before any request can delete the published generation: a published
+//! generation retires the row, otherwise the row becomes appendable again. At runtime a row
+//! whose generation is published is always treated as finalized.
 
 use super::{
     Catalog,
@@ -633,28 +634,46 @@ impl AppendWriter {
         Ok(row.options.metadata)
     }
 
-    /// Removal after publication is best effort: a surviving row names a published generation,
-    /// which every lookup treats as stale.
+    /// The publication commit already removed the row, so the data file is unreferenced and
+    /// only its removal remains.
     async fn retire(&self) {
-        let (bucket, name, generation) = (
-            self.bucket.clone(),
-            self.name.clone(),
-            self.record.generation,
-        );
         let path = self.path.clone();
-        let _ = self
+        let removed = self
             .catalog
-            .run_upload(move |connection| {
-                connection
-                    .execute(
-                        "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
-                        params![bucket, name, generation],
-                    )
-                    .map_err(object_unavailable)?;
-                unlink(&path).map_err(object_unavailable)
-            })
+            .run_upload(move |_| unlink(&path).map_err(object_unavailable))
             .await;
+        if let Err(error) = removed {
+            deferred_cleanup(&error);
+        }
     }
+}
+
+/// Removes the appendable row of a generation in the transaction that publishes it. Were
+/// the row removed later, a failure in between would leave it behind, and once the published
+/// generation was deleted that row would look unfinalized and serve the old bytes again.
+pub(super) fn retire_published(
+    connection: &Connection,
+    record: &ObjectRecord,
+) -> Result<(), ObjectError> {
+    connection
+        .execute(
+            "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
+            params![record.bucket, record.name, record.generation],
+        )
+        .map_err(object_unavailable)?;
+    Ok(())
+}
+
+/// A data file that no row references is never read, and startup recovery removes every such
+/// file, so a failed removal only delays reclaiming its space.
+fn deferred_cleanup(error: &dyn fmt::Display) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Warn,
+        "appendable_cleanup_deferred",
+        serde_json::json!({
+            "message": format!("unreferenced appendable data is removed at the next startup: {error}"),
+        }),
+    );
 }
 
 impl Catalog {
@@ -700,12 +719,18 @@ impl Catalog {
         let (stale, created) = match result {
             Ok(value) => value,
             Err(error) => {
-                let _ = unlink(&path);
+                // No row was committed, so the new file stays unreferenced.
+                if let Err(cleanup) = unlink(&path) {
+                    deferred_cleanup(&cleanup);
+                }
                 return Err(error);
             }
         };
         if let Some(stale) = stale {
-            let _ = unlink(&data_path(&self.0.data_dir, &stale)?);
+            // The insert removed the stale row, so its file is unreferenced.
+            if let Err(cleanup) = unlink(&data_path(&self.0.data_dir, &stale)?) {
+                deferred_cleanup(&cleanup);
+            }
         }
         guard.owner = Some(handle.clone());
         drop(guard);
