@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import secrets
 import signal
+import sys
 from urllib.parse import urlsplit
 
 from google.api_core import exceptions
@@ -34,6 +35,7 @@ class LocalHTTP(requests.Session):
     def __init__(self):
         super().__init__()
         self.trust_env = False
+        self.verify = os.environ.get("SCORECARD_CA_CERT", True)
 
     def send(self, request, **kwargs):
         parts = urlsplit(request.url)
@@ -48,6 +50,15 @@ HTTP = LocalHTTP()
 os.environ["STORAGE_EMULATOR_HOST"] = ORIGIN
 CLIENT = storage.Client(project=PROJECT, credentials=AnonymousCredentials(), _http=HTTP,
                         client_options={"api_endpoint": ORIGIN})
+if sys.argv[1:] == ["--transport-check"]:
+    try:
+        HTTP.get("https://storage.googleapis.com/")
+        raise AssertionError("external origin accepted")
+    except ValueError as error:
+        assert str(error) == "request escaped emulator"
+    assert HTTP.get(ORIGIN + "/").status_code == 200
+    print("PASS: Python transport CA/SAN and exact-origin guard")
+    sys.exit()
 CASES = []
 
 

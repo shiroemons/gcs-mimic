@@ -3,10 +3,14 @@ import {createHash, randomBytes} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {gzipSync} from 'node:zlib';
 import {Storage} from '@google-cloud/storage';
+import {guardLocalConnections} from './local-http.mjs';
 
 const origin = new URL(process.env.SCORECARD_ENDPOINT);
 assert(['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname), 'local endpoint required');
-assert(['http:', 'https:'].includes(origin.protocol) && origin.pathname === '/', 'origin required');
+assert(['http:', 'https:'].includes(origin.protocol) && origin.pathname === '/' &&
+  !origin.username && !origin.password && !origin.search && !origin.hash, 'origin required');
+guardLocalConnections(origin);
+for (const key of ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY']) delete process.env[key];
 const projectId = process.env.SCORECARD_PROJECT || 'local-project';
 const private_key = readFileSync(process.env.SCORECARD_SIGNING_KEY ||
   new URL('../../fixtures/signing/test-only-private.pem', import.meta.url), 'utf8');
@@ -34,6 +38,18 @@ const http = async (url, options = {}) => {
   assert.equal(new URL(url).origin, origin.origin, 'request escaped emulator');
   return fetch(url, {...options, redirect: 'error', signal: AbortSignal.timeout(20000)});
 };
+if (process.argv.includes('--transport-check')) {
+  await assert.rejects(() => http('https://storage.googleapis.com/'), /request escaped emulator/);
+  assert.equal((await http(origin.href)).status, 200);
+  // Both SDK transports use node:https, while signed requests use native fetch.
+  const {get} = await import('node:https');
+  await new Promise((resolve, reject) => get(origin, response => {
+    response.resume();
+    response.on('end', resolve);
+  }).on('error', reject));
+  console.log('PASS: Node transport CA/SAN and exact-origin guards');
+  process.exit();
+}
 
 probe('bucket.create_get_delete', async () => {
   const b = await bucket();

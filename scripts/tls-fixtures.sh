@@ -24,6 +24,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 -config ca-req.cnf \
 openssl req -new -newkey rsa:2048 -nodes -sha256 \
   -subj '/CN=localhost' -keyout server.key -out server.csr 2>openssl.log
 printf '%s\n' 'basicConstraints=critical,CA:FALSE' \
+  'subjectKeyIdentifier=hash' 'authorityKeyIdentifier=keyid,issuer' \
   'keyUsage=critical,digitalSignature,keyEncipherment' \
   'extendedKeyUsage=serverAuth' \
   'subjectAltName=DNS:localhost,DNS:gcs,IP:127.0.0.1,IP:::1' > server.ext
