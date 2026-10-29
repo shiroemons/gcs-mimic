@@ -9853,26 +9853,164 @@
       "interface": "storage.notifications.delete",
       "phase": "P7",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/notifications",
+        "https://docs.cloud.google.com/storage/docs/pubsub-notifications",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, notification. Query parameters: userProject.",
+      "notes": "Contract and evidence: docs/en/slices/bucket-notifications.md, docs/en/evidence/bucket-notifications.md. Delivered subset: DELETE b/{bucket}/notificationConfigs/{notification} removes a stored configuration and returns 204 with an empty body, increments the bucket metageneration and updated time in the same transaction, and returns 404 notFound for absent, non-canonical or non-numeric IDs after bucket authorization; deleted IDs are never reused while the bucket exists. Bucket deletion cascades to configurations. Strict profile requires storage.buckets.update. Configuration CRUD only: gcs-mimic never publishes Pub/Sub messages.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "NOTIF-DELETE",
+          "description": "DELETE returns 204 with an empty body and removes the configuration from get/list across restart; absent, non-canonical (01) and non-numeric IDs return 404 notFound; a deleted highest ID is not reallocated.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket"
+          ]
+        },
+        {
+          "id": "NOTIF-METAGENERATION",
+          "description": "A successful delete increments the bucket metageneration atomically; deletes of absent IDs change nothing.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle"
+          ]
+        },
+        {
+          "id": "NOTIF-BUCKET-DELETE",
+          "description": "Deleting the bucket removes its configurations and ID allocator in the bucket-delete transaction; a recreated bucket starts empty with ID 1.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket"
+          ]
+        },
+        {
+          "id": "NOTIF-QUERY-METHODS",
+          "description": "Item route allows GET/DELETE (others 405 with Allow); fields is schema-validated; userProject returns 400 badRequest; unknown/duplicate parameters, conditional headers and nonempty bodies are rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation"
+          ]
+        },
+        {
+          "id": "NOTIF-STRICT",
+          "description": "Strict profile requires storage.buckets.update; insufficient grants return 403 forbidden (including a bucket-scoped legacyBucketReader grant), missing credentials 401 required and invalid credentials 401 authError.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_strict_permissions_follow_bucket_get_and_update",
+            "TestStrictAuthBucketNotifications"
+          ]
+        },
+        {
+          "id": "NOTIF-SDK",
+          "description": "Pinned Go BucketHandle.DeleteNotification and Ruby Notification#delete succeed and a second delete returns 404.",
+          "result": "PASS",
+          "test_ids": [
+            "TestBucketNotifications",
+            "ruby-bucket-notifications"
+          ]
+        },
+        {
+          "id": "NOTIF-WIRE-PARITY",
+          "description": "Obtain opted-in cloud responses for absent/non-numeric IDs, error reasons and messages, userProject and the updated-time effect of the documented metageneration increment.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+        "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+        "notifications_http::notification_strict_permissions_follow_bucket_get_and_update",
+        "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+        "json::notifications::tests::routes_methods_paths_and_queries",
+        "TestBucketNotifications",
+        "TestStrictAuthBucketNotifications",
+        "ruby-bucket-notifications"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test notifications_http",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+            "notifications_http::notification_strict_permissions_follow_bucket_get_and_update"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib notification",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+            "json::notifications::tests::routes_methods_paths_and_queries"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "TestBucketNotifications",
+            "TestStrictAuthBucketNotifications",
+            "ruby-bucket-notifications"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.309.0",
+          "transport": "HTTP JSON; BucketHandle.DeleteNotification in permissive/strict profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "TestBucketNotifications",
+            "TestStrictAuthBucketNotifications"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; Notification#delete",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "ruby-bucket-notifications"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-NOTIFICATIONS: configuration CRUD only; no Pub/Sub message is ever published (EXT-BEH-032/033 remain NOT_STARTED). Error reasons/messages for absent IDs, userProject (400 badRequest, unsupported) and advancing bucket updated with the documented metageneration increment are local choices without cloud wire evidence."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "DELETE",
       "path": "b/{bucket}/notificationConfigs/{notification}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -9899,26 +10037,149 @@
       "interface": "storage.notifications.get",
       "phase": "P7",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/notifications",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, notification. Query parameters: userProject.",
+      "notes": "Contract and evidence: docs/en/slices/bucket-notifications.md, docs/en/evidence/bucket-notifications.md. Delivered subset: GET b/{bucket}/notificationConfigs/{notification} returns the stored Notification (kind, decimal id, selfLink under the advertised API base URL, canonical topic, payload_format, etag equal to the immutable ID, and nonempty event_types/custom_attributes/object_name_prefix) with schema-validated fields selection; absent, non-canonical or non-numeric IDs return 404 after bucket authorization, and configurations survive restart. Strict profile requires storage.buckets.get. Configuration CRUD only: gcs-mimic never publishes Pub/Sub messages.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "NOTIF-GET",
+          "description": "GET returns the exact stored resource, including after restart; optional fields appear only when nonempty; fields=id,topic filters the response.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "json::notifications::tests::renders_resources_and_lists"
+          ]
+        },
+        {
+          "id": "NOTIF-NOT-FOUND",
+          "description": "Absent, non-canonical (01) and non-numeric IDs return 404 notFound; a missing bucket returns 404; configurations of a deleted bucket are not visible after recreation.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket"
+          ]
+        },
+        {
+          "id": "NOTIF-STORED-VALIDATION",
+          "description": "Reads reject stored rows that fail validation as corrupt instead of rendering them.",
+          "result": "PASS",
+          "test_ids": [
+            "notification::tests::stored_configs_round_trip_and_reject_invalid_rows",
+            "storage::catalog::notifications::tests::corrupt_notification_rows_are_rejected"
+          ]
+        },
+        {
+          "id": "NOTIF-QUERY-METHODS",
+          "description": "Item route allows GET/DELETE (others 405 with Allow); fields is schema-validated; userProject returns 400 badRequest; unknown/duplicate parameters, conditional headers and nonempty bodies are rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation"
+          ]
+        },
+        {
+          "id": "NOTIF-STRICT",
+          "description": "Strict profile requires storage.buckets.get: objectViewer is denied 403, a bucket-scoped legacyBucketReader grant is allowed, missing credentials return 401 required and invalid credentials 401 authError.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_strict_permissions_follow_bucket_get_and_update"
+          ]
+        },
+        {
+          "id": "NOTIF-SDK",
+          "description": "Pinned Ruby Bucket#notification reads back the normalized topic, event types, prefix, custom attributes and payload format.",
+          "result": "PASS",
+          "test_ids": [
+            "ruby-bucket-notifications"
+          ]
+        },
+        {
+          "id": "NOTIF-WIRE-PARITY",
+          "description": "Obtain opted-in cloud responses for absent/non-numeric IDs, error reasons and messages, etag format and userProject.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+        "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+        "notifications_http::notification_strict_permissions_follow_bucket_get_and_update",
+        "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+        "storage::catalog::notifications::tests::corrupt_notification_rows_are_rejected",
+        "notification::tests::stored_configs_round_trip_and_reject_invalid_rows",
+        "json::notifications::tests::routes_methods_paths_and_queries",
+        "json::notifications::tests::renders_resources_and_lists",
+        "ruby-bucket-notifications"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test notifications_http",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+            "notifications_http::notification_strict_permissions_follow_bucket_get_and_update"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib notification",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+            "storage::catalog::notifications::tests::corrupt_notification_rows_are_rejected",
+            "notification::tests::stored_configs_round_trip_and_reject_invalid_rows",
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "json::notifications::tests::renders_resources_and_lists"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "ruby-bucket-notifications"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; Bucket#notification",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "ruby-bucket-notifications"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-NOTIFICATIONS: configuration CRUD only; no Pub/Sub message is ever published (EXT-BEH-032/033 remain NOT_STARTED). Error reasons/messages for absent IDs, the etag-equals-ID choice for immutable configurations and userProject (400 badRequest, unsupported) are local choices without cloud wire evidence."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "GET",
       "path": "b/{bucket}/notificationConfigs/{notification}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -9945,26 +10206,224 @@
       "interface": "storage.notifications.insert",
       "phase": "P7",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/notifications",
+        "https://docs.cloud.google.com/storage/docs/pubsub-notifications",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: userProject.",
+      "notes": "Contract and evidence: docs/en/slices/bucket-notifications.md, docs/en/evidence/bucket-notifications.md. Delivered subset: POST b/{bucket}/notificationConfigs validates and stores topic (full //pubsub.googleapis.com/projects/P/topics/T or relative projects/P/topics/T, stored in full form, Pub/Sub topic-ID rules), payload_format (JSON_API_V1 default or NONE), event_types (four documented values, no duplicates), custom_attributes (at most 10 string pairs within Pub/Sub attribute bounds) and object_name_prefix; ignores output-only id/etag/selfLink; enforces the documented 100-per-bucket and 10-per-event-type limits inside the transaction; allocates per-bucket decimal IDs that are never reused; increments the bucket metageneration; persists across restart (catalog schema 28). Strict profile requires storage.buckets.update. Configuration CRUD only: gcs-mimic never publishes Pub/Sub messages and does not check topic existence or publisher permissions.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "NOTIF-INSERT",
+          "description": "Insert returns kind, decimal id, selfLink, canonical topic, payload_format and etag, plus event_types/custom_attributes/object_name_prefix when nonempty; get/list read back the same resource across restart.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "json::notifications::tests::parses_defaults_normalizes_and_ignores_output_only_fields",
+            "json::notifications::tests::renders_resources_and_lists"
+          ]
+        },
+        {
+          "id": "NOTIF-TOPIC",
+          "description": "Full and relative topic names normalize to //pubsub.googleapis.com/projects/P/topics/T; malformed shapes, empty projects and Pub/Sub-invalid topic IDs (length 3..255, leading letter, allowed characters, no goog prefix) return 400; missing/null topic returns 400 required.",
+          "result": "PASS",
+          "test_ids": [
+            "notification::tests::topics_normalize_relative_and_full_names_and_reject_malformed_names",
+            "json::notifications::tests::rejects_malformed_and_unsupported_values",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation"
+          ]
+        },
+        {
+          "id": "NOTIF-FIELDS",
+          "description": "Invalid payload_format, unknown or duplicate event types, non-string values, more than 10 custom attributes, invalid attribute keys/values, prefixes over 1024 bytes, wrong kind and malformed JSON return 400 without storing anything; output-only id/etag/selfLink are ignored.",
+          "result": "PASS",
+          "test_ids": [
+            "notification::tests::fields_reject_unknown_duplicate_and_oversized_values",
+            "json::notifications::tests::rejects_malformed_and_unsupported_values",
+            "json::notifications::tests::parses_defaults_normalizes_and_ignores_output_only_fields",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation"
+          ]
+        },
+        {
+          "id": "NOTIF-LIMITS",
+          "description": "The 101st configuration and the 11th configuration for the same event type (all-event configurations count for every type) return 400 invalidArgument inside the insert transaction without storing.",
+          "result": "PASS",
+          "test_ids": [
+            "notification::tests::limits_count_all_event_configs_against_every_event_type",
+            "storage::catalog::notifications::tests::notification_limits_are_enforced_inside_the_transaction",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation"
+          ]
+        },
+        {
+          "id": "NOTIF-IDS-PERSISTENCE",
+          "description": "Per-bucket decimal IDs start at 1, are never reused after deletion while the bucket exists, survive restart, restart from 1 for a recreated bucket; schema 27 catalogs migrate; rows beyond their allocator fail startup validation.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+            "storage::catalog::notifications::tests::notification_schema_migration_preserves_existing_buckets",
+            "storage::catalog::notifications::tests::corrupt_notification_rows_are_rejected",
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle"
+          ]
+        },
+        {
+          "id": "NOTIF-METAGENERATION",
+          "description": "A successful insert increments the bucket metageneration atomically; rejected inserts leave it unchanged.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation"
+          ]
+        },
+        {
+          "id": "NOTIF-QUERY-METHODS",
+          "description": "Collection route allows GET/POST (others 405 with Allow); fields is schema-validated; userProject returns 400 badRequest; unknown/duplicate parameters and conditional headers are rejected; missing bucket returns 404.",
+          "result": "PASS",
+          "test_ids": [
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle"
+          ]
+        },
+        {
+          "id": "NOTIF-STRICT",
+          "description": "Strict profile requires storage.buckets.update: objectViewer and bucket-scoped legacyBucketReader are denied 403, missing credentials return 401 required and invalid credentials 401 authError; admin succeeds.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_strict_permissions_follow_bucket_get_and_update",
+            "TestStrictAuthBucketNotifications"
+          ]
+        },
+        {
+          "id": "NOTIF-SDK",
+          "description": "Pinned Go BucketHandle.AddNotification (full topic name, all fields and defaults) and Ruby Bucket#create_notification (relative topic name) create configurations that read back exactly; an invalid payload format returns 400.",
+          "result": "PASS",
+          "test_ids": [
+            "TestBucketNotifications",
+            "ruby-bucket-notifications"
+          ]
+        },
+        {
+          "id": "NOTIF-TOPIC-EXISTENCE-AND-DELIVERY",
+          "description": "Google rejects topics that do not exist or that the Cloud Storage service agent cannot publish to, and publishes events. gcs-mimic has no Pub/Sub topics, accepts any well-formed topic and never publishes (EXT-BEH-032/033).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "NOTIF-WIRE-PARITY",
+          "description": "Obtain opted-in cloud responses for invalid-field and limit error reasons/messages, duplicate event types, custom-attribute bounds, unknown-field handling and userProject.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+        "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+        "notifications_http::notification_strict_permissions_follow_bucket_get_and_update",
+        "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+        "storage::catalog::notifications::tests::notification_limits_are_enforced_inside_the_transaction",
+        "storage::catalog::notifications::tests::corrupt_notification_rows_are_rejected",
+        "storage::catalog::notifications::tests::notification_schema_migration_preserves_existing_buckets",
+        "notification::tests::topics_normalize_relative_and_full_names_and_reject_malformed_names",
+        "notification::tests::fields_reject_unknown_duplicate_and_oversized_values",
+        "notification::tests::limits_count_all_event_configs_against_every_event_type",
+        "json::notifications::tests::routes_methods_paths_and_queries",
+        "json::notifications::tests::parses_defaults_normalizes_and_ignores_output_only_fields",
+        "json::notifications::tests::rejects_malformed_and_unsupported_values",
+        "json::notifications::tests::renders_resources_and_lists",
+        "TestBucketNotifications",
+        "TestStrictAuthBucketNotifications",
+        "ruby-bucket-notifications"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test notifications_http",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+            "notifications_http::notification_strict_permissions_follow_bucket_get_and_update"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib notification",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+            "storage::catalog::notifications::tests::notification_limits_are_enforced_inside_the_transaction",
+            "storage::catalog::notifications::tests::corrupt_notification_rows_are_rejected",
+            "storage::catalog::notifications::tests::notification_schema_migration_preserves_existing_buckets",
+            "notification::tests::topics_normalize_relative_and_full_names_and_reject_malformed_names",
+            "notification::tests::fields_reject_unknown_duplicate_and_oversized_values",
+            "notification::tests::limits_count_all_event_configs_against_every_event_type",
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "json::notifications::tests::parses_defaults_normalizes_and_ignores_output_only_fields",
+            "json::notifications::tests::rejects_malformed_and_unsupported_values",
+            "json::notifications::tests::renders_resources_and_lists"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "TestBucketNotifications",
+            "TestStrictAuthBucketNotifications",
+            "ruby-bucket-notifications"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.309.0",
+          "transport": "HTTP JSON; BucketHandle.AddNotification in permissive/strict profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "TestBucketNotifications",
+            "TestStrictAuthBucketNotifications"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; Bucket#create_notification with a relative topic name",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "ruby-bucket-notifications"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-NOTIFICATIONS: configuration CRUD only; no Pub/Sub message is ever published and topic existence/publisher permission (pubsub.topics.attachSubscription) is not checked (EXT-BEH-032/033 remain NOT_STARTED). Error reasons/messages, duplicate event-type rejection, Pub/Sub-derived custom-attribute bounds, ignored unknown fields, userProject (400 badRequest, unsupported) and advancing bucket updated with the documented metageneration increment are local choices without cloud wire evidence."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "POST",
       "path": "b/{bucket}/notificationConfigs",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -9987,26 +10446,157 @@
       "interface": "storage.notifications.list",
       "phase": "P7",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/notifications",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: userProject.",
+      "notes": "Contract and evidence: docs/en/slices/bucket-notifications.md, docs/en/evidence/bucket-notifications.md. Delivered subset: GET b/{bucket}/notificationConfigs returns kind storage#notifications with items in ID order (omitted when empty), bounded by the documented 100-configuration limit (Discovery defines no paging), with schema-validated fields selection; a missing bucket returns 404 and a recreated bucket lists nothing. Strict profile requires storage.buckets.get. Configuration CRUD only: gcs-mimic never publishes Pub/Sub messages.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "NOTIF-LIST",
+          "description": "List returns kind storage#notifications, omits items when empty, returns stored resources in ID order across restart and after deletion, and applies fields=items(id).",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "json::notifications::tests::renders_resources_and_lists"
+          ]
+        },
+        {
+          "id": "NOTIF-BUCKET-SCOPE",
+          "description": "Configurations are isolated per bucket; a missing bucket returns 404; a deleted and recreated bucket lists nothing.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle"
+          ]
+        },
+        {
+          "id": "NOTIF-QUERY-METHODS",
+          "description": "Collection route allows GET/POST (others 405 with Allow); fields is validated against the Notifications schema; userProject returns 400 badRequest; unknown/duplicate parameters, conditional headers and nonempty bodies are rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation"
+          ]
+        },
+        {
+          "id": "NOTIF-STRICT",
+          "description": "Strict profile requires storage.buckets.get: objectViewer is denied 403, a bucket-scoped legacyBucketReader grant is allowed, missing credentials return 401 required and invalid credentials 401 authError.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::notification_strict_permissions_follow_bucket_get_and_update",
+            "TestStrictAuthBucketNotifications"
+          ]
+        },
+        {
+          "id": "NOTIF-SDK",
+          "description": "Pinned Go BucketHandle.Notifications and Ruby Bucket#notifications list exactly the stored configurations.",
+          "result": "PASS",
+          "test_ids": [
+            "TestBucketNotifications",
+            "ruby-bucket-notifications"
+          ]
+        },
+        {
+          "id": "NOTIF-WIRE-PARITY",
+          "description": "Obtain opted-in cloud responses for the empty-list shape, error reasons/messages and userProject.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+        "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+        "notifications_http::notification_strict_permissions_follow_bucket_get_and_update",
+        "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+        "json::notifications::tests::routes_methods_paths_and_queries",
+        "json::notifications::tests::renders_resources_and_lists",
+        "TestBucketNotifications",
+        "TestStrictAuthBucketNotifications",
+        "ruby-bucket-notifications"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test notifications_http",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "notifications_http::notification_configs_round_trip_persist_and_follow_bucket_lifecycle",
+            "notifications_http::notification_requests_reject_invalid_input_without_mutation",
+            "notifications_http::notification_strict_permissions_follow_bucket_get_and_update"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib notification",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "storage::catalog::notifications::tests::notifications_persist_allocate_unique_ids_and_cascade_with_bucket",
+            "json::notifications::tests::routes_methods_paths_and_queries",
+            "json::notifications::tests::renders_resources_and_lists"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "TestBucketNotifications",
+            "TestStrictAuthBucketNotifications",
+            "ruby-bucket-notifications"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.309.0",
+          "transport": "HTTP JSON; BucketHandle.Notifications in permissive/strict profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "TestBucketNotifications",
+            "TestStrictAuthBucketNotifications"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; Bucket#notifications",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "ruby-bucket-notifications"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-NOTIFICATIONS: configuration CRUD only; no Pub/Sub message is ever published (EXT-BEH-032/033 remain NOT_STARTED). Omitting items for an empty list, error reasons/messages and userProject (400 badRequest, unsupported) are local choices without cloud wire evidence."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "GET",
       "path": "b/{bucket}/notificationConfigs",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -53165,25 +53755,48 @@
       "interface": "Historical compatibility",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/release-notes"
+        "https://docs.cloud.google.com/storage/docs/release-notes",
+        "https://docs.cloud.google.com/storage/docs/object-change-notification",
+        "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Object change notification is deprecated as of 2026-01-30; it is distinct from Pub/Sub notification configuration/events already tracked. Record a deliberate historical support decision and exact source/version. Do not recreate old watch/channel endpoints by guesswork or infer shutdown merely from deprecation.",
+      "notes": "Object change notification is deprecated as of 2026-01-30; it is distinct from Pub/Sub notification configuration/events already tracked. Record a deliberate historical support decision and exact source/version. Do not recreate old watch/channel endpoints by guesswork or infer shutdown merely from deprecation. Decision (docs/en/slices/bucket-notifications.md#audit-021-deprecated-notification-api-scope): the pinned Storage v1 Discovery revision 20261013 (SHA-256 1f74b7a93b3d2872cc332fc20dafae1657fc255930ce336618bea3d0b4d95ae0) lists no objects.watchAll or channels.stop method, and the former object-change-notification URL now serves the Pub/Sub notifications page (checked 2026-10-29). gcs-mimic does not recreate watch/channel endpoints: POST b/{bucket}/o/watch remains an opaque object path without POST (405) and POST channels/stop is an unknown route (404); neither creates state or returns false success. Pub/Sub notification configurations are tracked by JSON-NOTIFICATIONS-001..004. Revisit if a pinned Discovery revision or official source lists the legacy methods again.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "AUDIT-021-NO-LEGACY-WATCH",
+          "description": "With the decision and pinned source recorded, legacy watch/channel requests never succeed or create state: POST b/{bucket}/o/watch returns 405 and leaves no object or notification configuration; POST channels/stop returns 404.",
+          "result": "PASS",
+          "test_ids": [
+            "notifications_http::deprecated_object_change_notification_routes_are_not_recreated"
+          ]
+        }
+      ],
+      "test_ids": [
+        "notifications_http::deprecated_object_change_notification_routes_are_not_recreated"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test notifications_http",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-notifications.md",
+          "test_ids": [
+            "notifications_http::deprecated_object_change_notification_routes_are_not_recreated"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "AUDIT-022",

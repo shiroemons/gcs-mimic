@@ -14,9 +14,9 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 250 | 0 | 59 | 1 | 0 | 0 |
+| api_operation | 310 | 246 | 0 | 63 | 1 | 0 | 0 |
 | behavior | 201 | 110 | 0 | 53 | 38 | 0 | 0 |
-| project_requirement | 95 | 35 | 0 | 30 | 30 | 0 | 0 |
+| project_requirement | 95 | 34 | 0 | 30 | 31 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -35,9 +35,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 250 | 29 | 31 | 0 | 0 | 0 |
+| api_operation | 246 | 33 | 31 | 0 | 0 | 0 |
 | behavior | 111 | 53 | 34 | 3 | 0 | 0 |
-| project_requirement | 35 | 0 | 0 | 0 | 0 | 60 |
+| project_requirement | 34 | 0 | 0 | 0 | 0 | 61 |
 
 ## api_operation
 
@@ -145,10 +145,10 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-NOTIFICATIONS-001 | notifications.delete | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| JSON-NOTIFICATIONS-002 | notifications.get | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| JSON-NOTIFICATIONS-003 | notifications.insert | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| JSON-NOTIFICATIONS-004 | notifications.list | NOT_STARTED | P7 | EXACT | NONE | 0 |
+| JSON-NOTIFICATIONS-001 | notifications.delete | PARTIAL | P7 | EXACT | EXACT | 2 |
+| JSON-NOTIFICATIONS-002 | notifications.get | PARTIAL | P7 | EXACT | EXACT | 1 |
+| JSON-NOTIFICATIONS-003 | notifications.insert | PARTIAL | P7 | EXACT | EXACT | 2 |
+| JSON-NOTIFICATIONS-004 | notifications.list | PARTIAL | P7 | EXACT | EXACT | 2 |
 
 ### JSON API / objectAccessControls
 
@@ -913,7 +913,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-021 | 非推奨通知APIの対応範囲台帳 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| AUDIT-021 | 非推奨通知APIの対応範囲台帳 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | AUDIT-022 | リリースノートによる動作・制約の差分確認 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-091 | 機械可読の単一機能台帳 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-092 | 英語正本表と任意の日本語補助表の生成 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |

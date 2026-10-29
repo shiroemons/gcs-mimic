@@ -9,7 +9,7 @@ Scope: DESIGN-082 and DESIGN-083. This changes rejection behavior, not support f
 | Case | Required behavior |
 | --- | --- |
 | unsupported-fails-fast-json | Recognized unsupported fields/options, including objectRetention, enabled Autoclass, softDeleted=true and includeFoldersAsPrefixes=true, return 400 badRequest before mutation. No-op/default normalization is unchanged. |
-| unimplemented-google-route-not-404 | The pinned method/path combinations below return the same 400 badRequest. No resource lookup or mutation occurs. Retention policies and locking now have their own [contract](sdk-retention-policy.md). |
+| unimplemented-google-route-not-404 | The pinned method/path combinations below return the same 400 badRequest. No resource lookup or mutation occurs. Retention policies and locking now have their own [contract](sdk-retention-policy.md); notification configurations have theirs in [bucket-notifications.md](bucket-notifications.md). |
 | real-not-found-unchanged | Implemented operations on absent buckets/objects still return 404 notFound. |
 | unknown-path-unchanged | Unknown paths remain 404; this is not a catch-all for the Google namespace. |
 | xml-unsupported-consistent | Existing XML unsupported rejections use 400 InvalidArgument, including HEAD's bodyless error. |
@@ -68,10 +68,6 @@ These 68 method/path combinations are rejected. Variables occupy one nonempty ra
 | `PUT` | `/storage/v1/b/{bucket}/managedFolders/{managedFolder}/iam` |
 | `GET` | `/storage/v1/b/{bucket}/managedFolders/{managedFolder}/iam/testPermissions` |
 | `PATCH` | `/storage/v1/b/{bucket}/managedFolders/{managedFolder}` |
-| `DELETE` | `/storage/v1/b/{bucket}/notificationConfigs/{notification}` |
-| `GET` | `/storage/v1/b/{bucket}/notificationConfigs/{notification}` |
-| `POST` | `/storage/v1/b/{bucket}/notificationConfigs` |
-| `GET` | `/storage/v1/b/{bucket}/notificationConfigs` |
 | `DELETE` | `/storage/v1/b/{bucket}/o/{object}/acl/{entity}` |
 | `GET` | `/storage/v1/b/{bucket}/o/{object}/acl/{entity}` |
 | `POST` | `/storage/v1/b/{bucket}/o/{object}/acl` |
