@@ -297,6 +297,17 @@ impl Catalog {
         offset: u64,
         total: Option<u64>,
     ) -> Result<(), ResumableError> {
+        self.checkpoint_resumable_options(lease, offset, total, None)
+            .await
+    }
+
+    pub(super) async fn checkpoint_resumable_options(
+        &self,
+        lease: &mut SessionLease,
+        offset: u64,
+        total: Option<u64>,
+        options: Option<&ResumableOptions>,
+    ) -> Result<(), ResumableError> {
         if !std::sync::Arc::ptr_eq(&self.0, &lease.guard.catalog.0) {
             return Err(ResumableError::Invalid(
                 "Session belongs to another catalog".into(),
@@ -319,7 +330,13 @@ impl Catalog {
         let id = lease.session.id.clone();
         let old = lease.session.offset;
         let now = unix_millis(self.0.clock.now())?;
-        let changed = self.run_waiting(move |connection| connection.execute("UPDATE resumable_sessions SET offset = ?1, total = ?2 WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![i64::try_from(offset).map_err(unavailable)?, total.map(i64::try_from).transpose().map_err(unavailable)?, id, i64::try_from(old).map_err(unavailable)?, now]).map_err(unavailable)).await?;
+        let encoded = options.map(|o| encode_options(o).to_string());
+        if encoded.as_ref().is_some_and(|v| v.len() > 65536) {
+            return Err(ResumableError::Invalid(
+                "Upload options exceed 64 KiB".into(),
+            ));
+        }
+        let changed = self.run_waiting(move |connection| connection.execute("UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![i64::try_from(offset).map_err(unavailable)?, total.map(i64::try_from).transpose().map_err(unavailable)?, id, i64::try_from(old).map_err(unavailable)?, now, encoded]).map_err(unavailable)).await?;
         if changed != 1 {
             self.resumable_session(&lease.session.id, &lease.session.bucket)
                 .await?;
@@ -327,6 +344,9 @@ impl Catalog {
         }
         lease.session.offset = offset;
         lease.session.total = total;
+        if let Some(options) = options {
+            lease.session.options = options.clone();
+        }
         Ok(())
     }
 }

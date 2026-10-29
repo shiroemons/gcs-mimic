@@ -235,7 +235,7 @@ pub(super) async fn add_full_projection(
     }
 }
 
-async fn may_read(
+pub(super) async fn may_read(
     state: &State,
     caller: Option<Caller<'_>>,
     kind: AclKind,

@@ -507,12 +507,12 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
     drop(lease);
     catalog.close().await.unwrap();
     let connection = Connection::open(&path).unwrap();
-    super::super::validate_schema(&connection, 34).unwrap();
+    super::super::validate_schema(&connection, 35).unwrap();
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        34
+        35
     );
     assert!(super::super::validate_schema(&connection, 14).is_err());
     let snapshot = Connection::open(backup.0.join("catalog.sqlite3")).unwrap();

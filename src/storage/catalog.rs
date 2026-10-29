@@ -40,6 +40,8 @@ pub(super) async fn replace_resumable_cleanup_obstacle(catalog: &Catalog, stage:
 pub(crate) mod resumable;
 #[path = "resumable_transfer.rs"]
 mod resumable_transfer;
+#[path = "upload_replay.rs"]
+mod upload_replay;
 pub use resumable::ResumableError;
 #[cfg(test)]
 pub(crate) use resumable::ResumableSession;
@@ -112,7 +114,7 @@ pub(crate) mod acl;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 34;
+const CATALOG_SCHEMA_VERSION: i64 = 35;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -416,6 +418,12 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .execute_batch(appendable::SCHEMA)
             .map_err(unavailable)?;
     }
+    if version >= 35 {
+        expected
+            .execute_batch(upload_replay::SCHEMA)
+            .map_err(unavailable)?;
+        upload_replay::validate(connection)?;
+    }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
             db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 257")
@@ -479,6 +487,7 @@ struct UploadState {
 pub(crate) struct UploadGuard {
     catalog: Option<Catalog>,
     _admin: Option<tokio::sync::OwnedSemaphorePermit>,
+    replay: Option<upload_replay::UploadReplay>,
 }
 
 impl From<tokio::sync::OwnedSemaphorePermit> for UploadGuard {
@@ -486,6 +495,7 @@ impl From<tokio::sync::OwnedSemaphorePermit> for UploadGuard {
         Self {
             catalog: None,
             _admin: Some(permit),
+            replay: None,
         }
     }
 }
@@ -748,6 +758,9 @@ impl Catalog {
             }
             if version < 34 {
                 appendable::migrate(&mut connection)?;
+            }
+            if version < 35 {
+                upload_replay::migrate(&mut connection)?;
             }
             // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
             if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {

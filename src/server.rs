@@ -1083,6 +1083,7 @@ async fn object_response(
             "This method requires an empty body",
         ));
     }
+    let mut upload_acl_snapshot = None;
     let mut value = match operation {
         ObjectRequest::Restore {
             bucket,
@@ -1373,6 +1374,14 @@ async fn object_response(
                 json::parse_object_upload_headers(request.headers(), params.conditions)?;
             let key = json::request_key(request.headers())?;
             let boundary = json::multipart_boundary(request.headers())?;
+            let token = json::resumable::single(request.headers(), "x-goog-gcs-idempotency-token")?
+                .map(str::to_owned);
+            let replay_request = format!(
+                "{}|{}|{:?}",
+                request.uri(),
+                state.api_base_url,
+                key.map(crate::csek::CustomerKey::sha256)
+            );
             // The parser's JSON, header, delimiter-padding and discard caps total less than 256 KiB.
             if request
                 .headers()
@@ -1383,10 +1392,10 @@ async fn object_response(
             {
                 return Err(ObjectError::TooLarge.into());
             }
-            let permit = state.catalog.admit_object_upload()?;
+            let mut permit = state.catalog.admit_object_upload()?;
             // The final name may be in metadata; check the bucket before reading any body.
             await_upload_catalog(
-                state.catalog.check_upload(
+                state.catalog.check_upload_replay(
                     &bucket,
                     name.as_deref().unwrap_or(""),
                     if name.is_some() {
@@ -1395,6 +1404,9 @@ async fn object_response(
                         Default::default()
                     },
                     &access,
+                    token.as_deref(),
+                    &replay_request,
+                    &mut permit,
                 ),
                 catalog_timeout,
                 deadline,
@@ -1413,9 +1425,15 @@ async fn object_response(
             metadata.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
             if !name_known {
                 await_upload_catalog(
-                    state
-                        .catalog
-                        .check_upload(&bucket, &name, params.conditions, &access),
+                    state.catalog.check_upload_replay(
+                        &bucket,
+                        &name,
+                        params.conditions,
+                        &access,
+                        token.as_deref(),
+                        &replay_request,
+                        &mut permit,
+                    ),
                     catalog_timeout,
                     deadline,
                     activity,
@@ -1427,6 +1445,7 @@ async fn object_response(
                 .await?
                 .unwrap_or_else(|| "application/octet-stream".into());
             let (sender, body) = mpsc::channel(2);
+            upload_acl_snapshot = permit.replay_acl_snapshot();
             let upload = state.catalog.put_object_prechecked(
                 &bucket,
                 &name,
@@ -1488,6 +1507,14 @@ async fn object_response(
             let (content_type, expected) =
                 json::parse_object_upload_headers(request.headers(), params.conditions)?;
             let key = json::request_key(request.headers())?;
+            let token = json::resumable::single(request.headers(), "x-goog-gcs-idempotency-token")?
+                .map(str::to_owned);
+            let replay_request = format!(
+                "{}|{}|{:?}",
+                request.uri(),
+                state.api_base_url,
+                key.map(crate::csek::CustomerKey::sha256)
+            );
             if request
                 .headers()
                 .get("content-length")
@@ -1498,16 +1525,24 @@ async fn object_response(
                 return Err(ObjectError::TooLarge.into());
             }
             // Complete the advisory check before body-derived errors can race its result.
-            let permit = await_upload_catalog(
-                state
-                    .catalog
-                    .prepare_object_upload(&bucket, &name, params.conditions, &access),
+            let mut permit = state.catalog.admit_object_upload()?;
+            await_upload_catalog(
+                state.catalog.check_upload_replay(
+                    &bucket,
+                    &name,
+                    params.conditions,
+                    &access,
+                    token.as_deref(),
+                    &replay_request,
+                    &mut permit,
+                ),
                 catalog_timeout,
                 deadline,
                 activity,
             )
             .await?;
             let (sender, body) = mpsc::channel(2);
+            upload_acl_snapshot = permit.replay_acl_snapshot();
             let upload = state.catalog.put_object_prechecked(
                 &bucket,
                 &name,
@@ -1692,7 +1727,23 @@ async fn object_response(
         }
     };
     if acl_full {
-        acl::add_full_projection(state, caller, &mut value).await?;
+        if let Some(snapshot) = upload_acl_snapshot {
+            if let Some(entries) = snapshot.get().ok_or_else(|| {
+                JsonError::from(ObjectError::Unavailable(
+                    "Missing upload replay snapshot".into(),
+                ))
+            })? {
+                let bucket = value["bucket"]
+                    .as_str()
+                    .ok_or_else(|| JsonError::from(ObjectError::InvalidMetadata))?;
+                if !acl::may_read(state, caller, crate::acl::AclKind::Object, bucket).await? {
+                    return Err(ObjectError::Forbidden.into());
+                }
+                json::acl::add_object_acl_fields(&mut value, &state.api_base_url, entries);
+            }
+        } else {
+            acl::add_full_projection(state, caller, &mut value).await?;
+        }
     }
     fields.apply(&mut value);
     Ok(boxed(

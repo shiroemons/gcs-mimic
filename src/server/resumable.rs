@@ -244,6 +244,12 @@ pub(super) async fn session_response(
     }
     // Validate the override before any bytes can be acknowledged.
     resumable::single(&headers, "x-guploader-no-308")?;
+    if status && !finalize && headers.contains_key("x-goog-hash") {
+        return Err(JsonError::invalid_parameter(
+            "Checksum declarations require a data or final request",
+        ));
+    }
+    // PHP repeats whole-object hashes on every data chunk; checkpoint them for completion.
     let options = match resumable::final_options(&headers, session.options.clone()) {
         Ok(options) => options,
         Err(error) => {
@@ -254,10 +260,9 @@ pub(super) async fn session_response(
         }
     };
     if !finalize
-        && (headers.contains_key("x-goog-hash")
-            || headers
-                .keys()
-                .any(|k| k.as_str().starts_with("x-goog-meta-")))
+        && headers
+            .keys()
+            .any(|k| k.as_str().starts_with("x-goog-meta-"))
     {
         return Err(JsonError::invalid_parameter(
             "Final metadata requires a final request",

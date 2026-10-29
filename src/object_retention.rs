@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 /// The official guide caps retain-until at 3,155,760,000 seconds (100 years) from now.
 pub(crate) const MAX_RETENTION: Duration = Duration::from_secs(3_155_760_000);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RetentionMode {
     Unlocked,
     Locked,
@@ -34,7 +34,7 @@ impl RetentionMode {
 }
 
 /// Microsecond precision, matching other catalog timestamps.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ObjectRetention {
     pub mode: RetentionMode,
     pub retain_until: SystemTime,

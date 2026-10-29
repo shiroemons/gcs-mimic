@@ -1092,6 +1092,65 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
 }
 
 #[test]
+fn obj_multipart_http_unconditional_replay_and_python_advisory_mime() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    let path = "/upload/storage/v1/b/test-bucket/o?uploadType=multipart";
+    let headers = "Content-Type: multipart/related; boundary=boundary\r\nX-Goog-Gcs-Idempotency-Token: unconditioned\r\nX-Upload-Content-Type: text/advisory\r\n";
+    let body = wire(
+        br#"{"name":"python","contentType":"text/metadata"}"#,
+        Some("text/media"),
+        b"original",
+        None,
+    );
+    let barrier = Arc::new(Barrier::new(2));
+    let replies = thread::scope(|scope| {
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let barrier = barrier.clone();
+                let address = server.address.clone();
+                let body = &body;
+                scope.spawn(move || {
+                    barrier.wait();
+                    request(&address, "POST", path, headers, body)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    let original = &replies[0];
+    assert_eq!(replies[1].status, 200);
+    assert_eq!(replies[1].body, original.body);
+    assert_eq!(original.status, 200);
+    assert_eq!(original.json()["contentType"], "text/metadata");
+    assert_eq!(
+        server.request("POST", path, headers, &body).body,
+        original.body
+    );
+    let changed = wire(
+        br#"{"name":"python","contentType":"text/metadata"}"#,
+        Some("text/media"),
+        b"different",
+        None,
+    );
+    server
+        .request("POST", path, headers, &changed)
+        .error(400, "invalidArgument");
+    server.stop();
+    let server = Server::start(&dir, 1000, 30_000);
+    assert_eq!(
+        server.request("POST", path, headers, &body).body,
+        original.body
+    );
+    assert_eq!(server.get("python?alt=media").body, b"original");
+    no_leaks(&dir, 1);
+}
+
+#[test]
 fn obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite() {
     for query_name in [false, true] {
         let dir = TestDir::new();
@@ -1106,19 +1165,24 @@ fn obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_o
         let original = server
             .request("POST", &format!("{path}0"), headers, &body)
             .json();
-        server
-            .request("POST", &format!("{path}0"), headers, &body)
-            .error(412, "conditionNotMet");
+        assert_eq!(
+            server
+                .request("POST", &format!("{path}0"), headers, &body)
+                .json(),
+            original
+        );
         assert_eq!(server.get("token").json(), original);
         assert_eq!(server.get("token?alt=media").body, b"original");
         no_leaks(&dir, 1);
         let overwrite = format!("{path}{}", original["generation"].as_str().unwrap());
         let body = wire(br#"{"name":"token"}"#, None, b"replacement", None);
+        let headers = "Content-Type: multipart/related; boundary=boundary\r\nX-Goog-Gcs-Idempotency-Token: overwrite-token\r\n";
         let replaced = server.request("POST", &overwrite, headers, &body).json();
         assert_ne!(replaced["generation"], original["generation"]);
-        server
-            .request("POST", &overwrite, headers, &body)
-            .error(412, "conditionNotMet");
+        assert_eq!(
+            server.request("POST", &overwrite, headers, &body).json(),
+            replaced
+        );
         assert_eq!(server.get("token").json(), replaced);
         assert_eq!(server.get("token?alt=media").body, b"replacement");
         no_leaks(&dir, 1);
@@ -1126,7 +1190,7 @@ fn obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_o
 }
 
 #[test]
-fn obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body() {
+fn obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 30_000);
     server.bucket();
@@ -1135,16 +1199,6 @@ fn obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body
         .json();
     let token = "X-Goog-Gcs-Idempotency-Token: retry-token\r\n";
     for name in ["", "&name=absent", "&name=existing"] {
-        for query in [
-            "",
-            "&ifGenerationNotMatch=0",
-            "&ifMetagenerationMatch=1",
-            "&ifMetagenerationNotMatch=2",
-        ] {
-            let mut stream = socket(&server.address);
-            write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart{name}{query} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 9999\r\n{token}\r\n").unwrap();
-            Reply::read(stream).error(400, "badRequest");
-        }
         for headers in [
             "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),
             format!("{token}{token}"),
