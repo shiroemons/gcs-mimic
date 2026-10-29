@@ -53,7 +53,7 @@ One application crate contains `config`, `clock`, `auth`, `url`, `server`, `buck
 The bucket/object catalog is concrete; no generic persistence trait is frozen for future work. Recovery gates readiness. The transport-independent `auth` module resolves strict-mode callers and evaluates permissions from a pinned role snapshot; the JSON adapter maps routes to permissions and renders 401/403 errors. Catalog transactions recheck the observed bucket owner, effective project/bucket grants and overwrite-delete permission against the policy current in that transaction. Bucket insert/list remain project scoped. Whole bucket/object CRUD rows retain their existing limitations. Existing SPEC-001/002/003/004/006/007 gaps do not add bucket CRUD semantics. SPEC-008..013 record object condition precedence, direct-200 downloads, checksum/header/MIME choices and retry-token deviations; they remain open for their affected features.
 
 The server caps connections (default 32), headers (64 and 16 KiB), shutdown drain
-(5 seconds), async workers (2) and blocking workers (2). Connection admission stops
+(5 seconds), async workers (2) and blocking workers (8). Connection admission stops
 when full; the requested kernel backlog is 128. Every response closes its connection.
 Bucket insert and IAM PUT JSON are capped at 64 KiB; probe and other bucket methods reject bodies.
 Object media has a configurable `max_object_bytes` cap: 1 GiB by default, validated

@@ -265,7 +265,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         assert_eq!(ready["max_connections"], 32);
         assert_eq!(ready["max_object_bytes"], 1_073_741_824_u64);
         assert_eq!(ready["worker_threads"], 2);
-        assert_eq!(ready["max_blocking_threads"], 2);
+        assert_eq!(ready["max_blocking_threads"], 8);
         assert_eq!(ready["connection_timeout_ms"], 5000);
         assert_eq!(ready["keep_alive_timeout_ms"], 120_000);
         assert_eq!(ready["object_request_timeout_ms"], 900_000);

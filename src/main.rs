@@ -43,7 +43,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --max-connections N          32 (1..1024; shared across listeners and TLS handshakes)
   --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
   --worker-threads N           2 (1..32)
-  --max-blocking-threads N     2 (1..32)
+  --max-blocking-threads N     8 (1..32)
   --connection-timeout-ms N    5000 (1..60000; headers/body inactivity for objects)
   --keep-alive-timeout-ms N    120000 (1..600000; idle time between HTTP/1.1 requests)
   --object-request-timeout-ms N 900000 (1..86400000; absolute upload/media deadline)

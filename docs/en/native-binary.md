@@ -110,7 +110,7 @@ and `-log-level` remain errors with native migration advice.
 | `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Actual bound listener URL | Wildcard IP becomes loopback; port 0 becomes the allocated port. Explicit absolute HTTP(S) base remains independent; optional base path, no credentials/query/fragment. Ready includes the effective string |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 32 | 1–1024; total across listeners, including TLS handshakes |
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–32 |
-| `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 2 | 1–32 |
+| `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 8 | 1–32 |
 | `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | 5000 | 1–60000; request headers, then object response startup and chunk inactivity |
 | `--keep-alive-timeout-ms` | `GCS_MIMIC_KEEP_ALIVE_TIMEOUT_MS` | 120000 (2 minutes) | 1–600000 (10 minutes); idle time between HTTP/1.1 requests on one connection |
 | `--object-request-timeout-ms` | `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` | 900000 (15 minutes) | 1–86400000 (24 hours) |

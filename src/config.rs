@@ -163,7 +163,10 @@ impl Default for Config {
             max_connections: 32,
             max_object_bytes: 1024 * 1024 * 1024,
             worker_threads: 2,
-            max_blocking_threads: 2,
+            // The catalog keeps one blocking thread busy (including its commit fsync);
+            // the rest serve tokio::fs reads, writes and syncs for every connection, so
+            // one slow fsync must not stall all other transfers. Still bounded.
+            max_blocking_threads: 8,
             connection_timeout_ms: 5_000,
             keep_alive_timeout_ms: 120_000,
             object_request_timeout_ms: 900_000,
