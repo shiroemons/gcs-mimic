@@ -807,11 +807,10 @@ fn native(field: &str, value: &Value, key: &str, now: SystemTime, diagnostics: &
     }
 }
 
-fn settings(
+/// Checks a bucket entry's field names and project without decoding setting values.
+fn check_shape(
     fields: &Members<'_>,
     parent: &str,
-    now: SystemTime,
-    validate_values: bool,
     diagnostics: &mut Collected,
 ) -> Result<(), Diagnostics> {
     closed::<Entry>(fields, parent, diagnostics);
@@ -851,9 +850,16 @@ fn settings(
             _ => {}
         }
     }
-    if !validate_values {
-        return Ok(());
-    }
+    Ok(())
+}
+
+/// Checks each setting value against native bucket semantics, reporting the narrowest key.
+fn check_values(
+    fields: &Members<'_>,
+    parent: &str,
+    now: SystemTime,
+    diagnostics: &mut Collected,
+) -> Result<(), Diagnostics> {
     for (name, raw) in &fields.0 {
         let key = path(parent, name);
         let parsed = value(raw)?;
@@ -905,47 +911,7 @@ fn settings(
                 let before = diagnostics.count();
                 if let Some(rules) = array(raw) {
                     for (index, raw) in rules.iter().enumerate() {
-                        let key = format!("{key}[{index}]");
-                        if let Some(rule) = members(raw) {
-                            for (child, raw) in rule.0 {
-                                if schema_fields::<Cors>().contains(&child.as_str()) {
-                                    let values = value(raw)?;
-                                    if let Some(items) =
-                                        values.as_array().filter(|_| child != "maxAgeSeconds")
-                                    {
-                                        for (index, item) in items.iter().enumerate() {
-                                            native(
-                                                name,
-                                                &json!([{&child: [item]}]),
-                                                &format!("{}[{index}]", path(&key, &child)),
-                                                now,
-                                                diagnostics,
-                                            );
-                                        }
-                                        // Empty arrays and scalar-only fields still need type checks.
-                                        if items.is_empty() {
-                                            native(
-                                                name,
-                                                &json!([{&child: values}]),
-                                                &path(&key, &child),
-                                                now,
-                                                diagnostics,
-                                            );
-                                        }
-                                    } else {
-                                        native(
-                                            name,
-                                            &json!([{&child: values}]),
-                                            &path(&key, &child),
-                                            now,
-                                            diagnostics,
-                                        );
-                                    }
-                                }
-                            }
-                        } else {
-                            native(name, &json!([value(raw)?]), &key, now, diagnostics);
-                        }
+                        check_cors_rule(raw, &format!("{key}[{index}]"), now, diagnostics)?;
                     }
                     if before == diagnostics.count() {
                         native(name, &parsed, &key, now, diagnostics);
@@ -958,6 +924,56 @@ fn settings(
                 native(name, &parsed, &key, now, diagnostics)
             }
             _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Checks one CORS rule field by field, and each array item separately.
+fn check_cors_rule(
+    raw: &RawValue,
+    key: &str,
+    now: SystemTime,
+    diagnostics: &mut Collected,
+) -> Result<(), Diagnostics> {
+    let name = "cors";
+    let Some(rule) = members(raw) else {
+        native(name, &json!([value(raw)?]), key, now, diagnostics);
+        return Ok(());
+    };
+    for (child, raw) in rule.0 {
+        if !schema_fields::<Cors>().contains(&child.as_str()) {
+            continue;
+        }
+        let values = value(raw)?;
+        if let Some(items) = values.as_array().filter(|_| child != "maxAgeSeconds") {
+            for (index, item) in items.iter().enumerate() {
+                native(
+                    name,
+                    &json!([{&child: [item]}]),
+                    &format!("{}[{index}]", path(key, &child)),
+                    now,
+                    diagnostics,
+                );
+            }
+            // Empty arrays and scalar-only fields still need type checks.
+            if items.is_empty() {
+                native(
+                    name,
+                    &json!([{&child: values}]),
+                    &path(key, &child),
+                    now,
+                    diagnostics,
+                );
+            }
+        } else {
+            native(
+                name,
+                &json!([{&child: values}]),
+                &path(key, &child),
+                now,
+                diagnostics,
+            );
         }
     }
     Ok(())
@@ -1190,65 +1206,87 @@ pub fn parse(
             continue;
         }
         for (index, raw) in entries.iter().take(BUCKET_LIMIT).enumerate() {
-            let key = format!("buckets[{index}]");
-            let raw_oversized = raw.get().len() > ENTRY_LIMIT;
-            if raw_oversized {
-                error(
-                    &mut diagnostics,
-                    Reason::Limit,
-                    &key,
-                    "Entry exceeds 64 KiB; reduce its original JSON span, including project and whitespace, to at most 65,536 bytes.",
-                );
-            }
-            let Some(fields) = members(raw) else {
-                error(
-                    &mut diagnostics,
-                    Reason::Shape,
-                    &key,
-                    "Expected a bucket object; use {\"name\":\"example-bucket\"}.",
-                );
-                continue;
-            };
-            let mut resource = value(raw)?;
-            for (_, raw) in fields.0.iter().filter(|(field, _)| field == "name") {
-                if let Some(name) = value(raw)?.as_str() {
-                    if let Some(first) = names.get(name) {
-                        if *first != index {
-                            error(
-                                &mut diagnostics,
-                                Reason::Duplicate,
-                                path(&key, "name"),
-                                format!(
-                                    "Duplicate bucket name; first used by buckets[{first}].name. Use a different name, for example example-bucket-other."
-                                ),
-                            );
-                        }
-                    } else {
-                        names.insert(name.to_owned(), index);
-                    }
-                }
-            }
-            if let Some(object) = resource.as_object_mut() {
-                object.remove("project");
-            }
-            let encoded = resource.to_string();
-            let encoded_limit = check_resource_size(encoded.as_bytes());
-            let encoded_oversized = encoded_limit.is_err();
-            if let Err(fix) = encoded_limit {
-                error(&mut diagnostics, Reason::Limit, &key, fix);
-            }
-            settings(
-                &fields,
-                &key,
-                now,
-                !raw_oversized && !encoded_oversized,
-                &mut diagnostics,
-            )?;
+            check_entry(raw, index, now, &mut names, &mut diagnostics)?;
         }
     }
     if diagnostics.is_err() {
         return Err(diagnostics.finish());
     }
+    records(bytes, seed_project, now, default_location, diagnostics)
+}
+
+/// Checks one bucket entry, recording the first index that uses each bucket name.
+fn check_entry(
+    raw: &RawValue,
+    index: usize,
+    now: SystemTime,
+    names: &mut BTreeMap<String, usize>,
+    diagnostics: &mut Collected,
+) -> Result<(), Diagnostics> {
+    let key = format!("buckets[{index}]");
+    let raw_oversized = raw.get().len() > ENTRY_LIMIT;
+    if raw_oversized {
+        error(
+            diagnostics,
+            Reason::Limit,
+            &key,
+            "Entry exceeds 64 KiB; reduce its original JSON span, including project and whitespace, to at most 65,536 bytes.",
+        );
+    }
+    let Some(fields) = members(raw) else {
+        error(
+            diagnostics,
+            Reason::Shape,
+            &key,
+            "Expected a bucket object; use {\"name\":\"example-bucket\"}.",
+        );
+        return Ok(());
+    };
+    let mut resource = value(raw)?;
+    for (_, raw) in fields.0.iter().filter(|(field, _)| field == "name") {
+        if let Some(name) = value(raw)?.as_str() {
+            if let Some(first) = names.get(name) {
+                if *first != index {
+                    error(
+                        diagnostics,
+                        Reason::Duplicate,
+                        path(&key, "name"),
+                        format!(
+                            "Duplicate bucket name; first used by buckets[{first}].name. Use a different name, for example example-bucket-other."
+                        ),
+                    );
+                }
+            } else {
+                names.insert(name.to_owned(), index);
+            }
+        }
+    }
+    if let Some(object) = resource.as_object_mut() {
+        object.remove("project");
+    }
+    let encoded = resource.to_string();
+    let encoded_limit = check_resource_size(encoded.as_bytes());
+    let encoded_oversized = encoded_limit.is_err();
+    if let Err(fix) = encoded_limit {
+        error(diagnostics, Reason::Limit, &key, fix);
+    }
+    check_shape(&fields, &key, diagnostics)?;
+    // Oversized entries are reported once; decoding their values would only add noise.
+    if !raw_oversized && !encoded_oversized {
+        check_values(&fields, &key, now, diagnostics)?;
+    }
+    Ok(())
+}
+
+/// Builds the bucket records of a document whose entries all passed validation.
+fn records(
+    bytes: &[u8],
+    seed_project: &str,
+    now: SystemTime,
+    default_location: &str,
+    mut diagnostics: Collected,
+) -> Result<Vec<BucketRecord>, Diagnostics> {
+    let failure = |key, fix| Diagnostics::error(DiagnosticSource::Initializer, key, fix);
     let document: Document = serde_json::from_slice(bytes).map_err(|_| {
         failure(
             "$",

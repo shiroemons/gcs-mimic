@@ -36,7 +36,7 @@ impl Glob {
             );
         }
         let chars: Vec<_> = pattern.chars().collect();
-        let tokens = sequence(&chars, &mut 0, false)?;
+        let tokens = sequence(&chars, &mut 0, Scope::Pattern)?;
         let mut glob = Self {
             pattern: pattern.into(),
             states: vec![State::Accept],
@@ -139,7 +139,20 @@ impl Glob {
 
 const INVALID: &str = "Invalid matchGlob syntax; close brackets/braces, use ascending ranges and keep / and ** outside braces (example: **/*.{txt,csv})";
 
-fn sequence(chars: &[char], position: &mut usize, brace: bool) -> Result<Vec<Token>, &'static str> {
+/// Whether a token sequence is the whole pattern or one alternative inside `{...}`, where
+/// `,` and `}` end the sequence and `/` is not allowed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Scope {
+    Pattern,
+    Brace,
+}
+
+fn sequence(
+    chars: &[char],
+    position: &mut usize,
+    scope: Scope,
+) -> Result<Vec<Token>, &'static str> {
+    let brace = scope == Scope::Brace;
     let mut tokens = Vec::new();
     while let Some(&character) = chars.get(*position) {
         if brace && matches!(character, ',' | '}') {
@@ -208,7 +221,7 @@ fn sequence(chars: &[char], position: &mut usize, brace: bool) -> Result<Vec<Tok
             '{' => {
                 let mut branches = Vec::new();
                 loop {
-                    branches.push(sequence(chars, position, true)?);
+                    branches.push(sequence(chars, position, Scope::Brace)?);
                     match chars.get(*position) {
                         Some(',') => *position += 1,
                         Some('}') => {

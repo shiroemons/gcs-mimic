@@ -207,7 +207,7 @@ pub fn open_directory_nofollow(path: &std::path::Path) -> io::Result<File> {
 pub fn open_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<File> {
     #[cfg(unix)]
     {
-        open_at(directory, &component(name)?, false)
+        open_at(directory, &component(name)?, FileOpen::Existing)
     }
     #[cfg(not(unix))]
     {
@@ -219,7 +219,7 @@ pub fn open_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<F
 pub fn create_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<File> {
     #[cfg(unix)]
     {
-        open_at(directory, &component(name)?, true)
+        open_at(directory, &component(name)?, FileOpen::CreateNew)
     }
     #[cfg(not(unix))]
     {
@@ -446,13 +446,21 @@ fn component(name: &std::ffi::OsStr) -> io::Result<std::ffi::CString> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
 }
 
+/// Whether `open_at` opens an existing regular file read-only or creates a new one.
 #[cfg(unix)]
-fn open_at(directory: &File, name: &std::ffi::CStr, create: bool) -> io::Result<File> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FileOpen {
+    Existing,
+    CreateNew,
+}
+
+#[cfg(unix)]
+fn open_at(directory: &File, name: &std::ffi::CStr, open: FileOpen) -> io::Result<File> {
     use std::os::fd::{AsRawFd, FromRawFd};
     let flags = libc::O_CLOEXEC
         | libc::O_NOFOLLOW
         | libc::O_NONBLOCK
-        | if create {
+        | if open == FileOpen::CreateNew {
             libc::O_RDWR | libc::O_CREAT | libc::O_EXCL
         } else {
             libc::O_RDONLY
@@ -500,7 +508,7 @@ pub fn clone_into(src: &File, directory: &File, name: &std::ffi::OsStr) -> Resul
                 libc::fclonefileat(src.as_raw_fd(), directory.as_raw_fd(), name.as_ptr(), 0)
             } == 0
             {
-                open_at(directory, &name, false)?.sync_all()?;
+                open_at(directory, &name, FileOpen::Existing)?.sync_all()?;
                 return Ok(());
             }
             let error = io::Error::last_os_error();
@@ -511,7 +519,7 @@ pub fn clone_into(src: &File, directory: &File, name: &std::ffi::OsStr) -> Resul
         }
         #[cfg(target_os = "linux")]
         {
-            let dst = open_at(directory, &name, true)?;
+            let dst = open_at(directory, &name, FileOpen::CreateNew)?;
             // SAFETY: FICLONE receives the two live regular-file descriptors, with a new empty target.
             if unsafe { libc::ioctl(dst.as_raw_fd(), libc::FICLONE as _, src.as_raw_fd()) } == 0 {
                 dst.sync_all()?;
@@ -550,7 +558,7 @@ pub fn clone_or_copy_into(
     #[cfg(unix)]
     {
         let name = component(name)?;
-        let dst = open_at(directory, &name, true)?;
+        let dst = open_at(directory, &name, FileOpen::CreateNew)?;
         #[cfg(target_os = "linux")]
         {
             use std::os::fd::AsRawFd;
@@ -660,7 +668,7 @@ fn copy_read_write(src: &File, dst: &File) -> io::Result<()> {
 
 #[cfg(unix)]
 fn identity_at(directory: &File, name: &std::ffi::CStr) -> Result<Option<FileIdentity>, FsError> {
-    match open_at(directory, name, false) {
+    match open_at(directory, name, FileOpen::Existing) {
         Ok(file) => Ok(Some(stat_identity(&file)?)),
         Err(error)
             if matches!(error.raw_os_error(), Some(libc::ELOOP))
@@ -736,7 +744,7 @@ pub fn durable_replace_between(
         use std::os::fd::AsRawFd;
         let staged = component(staged_name)?;
         let destination = component(destination_name)?;
-        open_at(source_directory, &staged, false)?.sync_all()?;
+        open_at(source_directory, &staged, FileOpen::Existing)?.sync_all()?;
         let before = if expected.is_some() {
             identity_at(destination_directory, &destination)?
         } else {

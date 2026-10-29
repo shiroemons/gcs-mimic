@@ -157,59 +157,7 @@ pub(crate) fn validate(rules: &[Value]) -> Result<(), CatalogError> {
                     "age, matchesPrefix or matchesSuffix",
                 ));
             }
-            match field.as_str() {
-                "age" | "daysSinceCustomTime" | "daysSinceNoncurrentTime" | "numNewerVersions" => {
-                    if !value
-                        .as_i64()
-                        .is_some_and(|number| (0..=i64::from(i32::MAX)).contains(&number))
-                    {
-                        return Err(invalid(field, "a nonnegative int32, for example 30"));
-                    }
-                }
-                "createdBefore" | "customTimeBefore" | "noncurrentTimeBefore" => {
-                    if !value.as_str().is_some_and(valid_date) {
-                        return Err(invalid(
-                            field,
-                            "a valid YYYY-MM-DD date, for example 2026-10-27",
-                        ));
-                    }
-                }
-                "isLive" => {
-                    if !value.is_boolean() {
-                        return Err(invalid(field, "true or false"));
-                    }
-                }
-                _ => {
-                    let values = value.as_array().ok_or_else(|| {
-                        invalid(field, "a nonempty string array, for example [\"archive/\"]")
-                    })?;
-                    let mut unique = BTreeSet::new();
-                    if values.is_empty() {
-                        return Err(invalid(field, "a nonempty string array"));
-                    }
-                    for value in values {
-                        let value = value
-                            .as_str()
-                            .ok_or_else(|| invalid(field, "string values"))?;
-                        if field == "matchesStorageClass" {
-                            if value != "REGIONAL" {
-                                validate_class(
-                                    value,
-                                    &format!("rule[{rule_index}].condition.matchesStorageClass"),
-                                )?;
-                            }
-                        } else if !unique.insert(value) {
-                            return Err(invalid(
-                                field,
-                                "distinct prefixes or suffixes, for example [\"archive/\"]",
-                            ));
-                        }
-                    }
-                    if field != "matchesStorageClass" {
-                        prefixes_suffixes += values.len();
-                    }
-                }
-            }
+            prefixes_suffixes += validate_condition(field, value, rule_index)?;
         }
         if count == 0 {
             return Err(invalid(
@@ -225,6 +173,68 @@ pub(crate) fn validate(rules: &[Value]) -> Result<(), CatalogError> {
         ));
     }
     Ok(())
+}
+
+/// Validates one lifecycle condition value and returns how many prefixes or suffixes it adds.
+fn validate_condition(
+    field: &str,
+    value: &Value,
+    rule_index: usize,
+) -> Result<usize, CatalogError> {
+    match field {
+        "age" | "daysSinceCustomTime" | "daysSinceNoncurrentTime" | "numNewerVersions" => {
+            if !value
+                .as_i64()
+                .is_some_and(|number| (0..=i64::from(i32::MAX)).contains(&number))
+            {
+                return Err(invalid(field, "a nonnegative int32, for example 30"));
+            }
+        }
+        "createdBefore" | "customTimeBefore" | "noncurrentTimeBefore" => {
+            if !value.as_str().is_some_and(valid_date) {
+                return Err(invalid(
+                    field,
+                    "a valid YYYY-MM-DD date, for example 2026-10-27",
+                ));
+            }
+        }
+        "isLive" => {
+            if !value.is_boolean() {
+                return Err(invalid(field, "true or false"));
+            }
+        }
+        _ => {
+            let values = value.as_array().ok_or_else(|| {
+                invalid(field, "a nonempty string array, for example [\"archive/\"]")
+            })?;
+            let mut unique = BTreeSet::new();
+            if values.is_empty() {
+                return Err(invalid(field, "a nonempty string array"));
+            }
+            for value in values {
+                let value = value
+                    .as_str()
+                    .ok_or_else(|| invalid(field, "string values"))?;
+                if field == "matchesStorageClass" {
+                    if value != "REGIONAL" {
+                        validate_class(
+                            value,
+                            &format!("rule[{rule_index}].condition.matchesStorageClass"),
+                        )?;
+                    }
+                } else if !unique.insert(value) {
+                    return Err(invalid(
+                        field,
+                        "distinct prefixes or suffixes, for example [\"archive/\"]",
+                    ));
+                }
+            }
+            if field != "matchesStorageClass" {
+                return Ok(values.len());
+            }
+        }
+    }
+    Ok(0)
 }
 
 fn valid_date(value: &str) -> bool {

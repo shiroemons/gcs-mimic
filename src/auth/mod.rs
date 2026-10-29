@@ -383,27 +383,8 @@ impl Registry {
         }) {
             return Err(error(format!("unknown field: {key}")));
         }
-        let mut public_access_prevention_projects = Vec::new();
-        if let Some(value) = top.get("public_access_prevention_projects") {
-            let projects = value.as_array().filter(|projects| projects.len() <= MAX_PROJECTS)
-                .ok_or_else(|| error("public_access_prevention_projects must be an array of at most 64 project identifiers".into()))?;
-            for project in projects {
-                let project = project.as_str().ok_or_else(|| {
-                    error("public_access_prevention_projects entries must be strings".into())
-                })?;
-                crate::json::validate_project(project)
-                    .map_err(|_| error("invalid public_access_prevention_projects entry".into()))?;
-                if public_access_prevention_projects
-                    .iter()
-                    .any(|existing| existing == project)
-                {
-                    return Err(error(
-                        "duplicate public_access_prevention_projects entry".into(),
-                    ));
-                }
-                public_access_prevention_projects.push(project.to_owned());
-            }
-        }
+        let public_access_prevention_projects =
+            parse_pap_projects(top.get("public_access_prevention_projects"))?;
         let entries = top
             .get("identities")
             .ok_or_else(|| error("missing required field: identities".into()))?
@@ -494,48 +475,10 @@ impl Registry {
                     return Err(error("duplicate token".into()));
                 }
             }
-            let mut permissions = BTreeMap::new();
-            if let Some(projects) = entry.get("project_roles") {
-                let projects = projects
-                    .as_object()
-                    .ok_or_else(|| error("project_roles must be a JSON object".into()))?;
-                if projects.len() > MAX_PROJECTS {
-                    return Err(error(format!(
-                        "project_roles must contain at most {MAX_PROJECTS} projects"
-                    )));
-                }
-                for (project, role_values) in projects {
-                    crate::json::validate_project(project)
-                        .map_err(|e| error(format!("project {project:?}: {}", e.message)))?;
-                    let role_values = role_values
-                        .as_array()
-                        .filter(|roles| (1..=MAX_ROLES).contains(&roles.len()))
-                        .ok_or_else(|| {
-                            error(format!(
-                                "project {project:?}: roles must be an array of 1..={MAX_ROLES} role names"
-                            ))
-                        })?;
-                    let mut names = BTreeSet::new();
-                    let granted: &mut BTreeSet<&'static str> =
-                        permissions.entry(project.clone()).or_default();
-                    for role in role_values {
-                        let role = role.as_str().ok_or_else(|| {
-                            error(format!("project {project:?}: role names must be strings"))
-                        })?;
-                        if !names.insert(role) {
-                            return Err(error(format!(
-                                "project {project:?}: duplicate role {role}"
-                            )));
-                        }
-                        let expanded = roles::permissions(role).ok_or_else(|| {
-                            error(format!(
-                                "project {project:?}: unsupported role {role} (only pinned predefined Cloud Storage roles are available)"
-                            ))
-                        })?;
-                        granted.extend(expanded.iter().copied());
-                    }
-                }
-            }
+            let permissions = match entry.get("project_roles") {
+                Some(projects) => parse_project_roles(projects, index)?,
+                None => BTreeMap::new(),
+            };
             identities.push(Identity {
                 id: id.to_owned(),
                 permissions,
@@ -556,6 +499,85 @@ impl Registry {
     pub fn is_empty(&self) -> bool {
         self.identities.is_empty()
     }
+}
+
+fn parse_pap_projects(value: Option<&Value>) -> Result<Vec<String>, RegistryError> {
+    let error = |reason: String| RegistryError::Invalid {
+        entry: None,
+        reason,
+    };
+    let mut public_access_prevention_projects = Vec::new();
+    let Some(value) = value else {
+        return Ok(public_access_prevention_projects);
+    };
+    let projects = value.as_array().filter(|projects| projects.len() <= MAX_PROJECTS)
+        .ok_or_else(|| error("public_access_prevention_projects must be an array of at most 64 project identifiers".into()))?;
+    for project in projects {
+        let project = project.as_str().ok_or_else(|| {
+            error("public_access_prevention_projects entries must be strings".into())
+        })?;
+        crate::json::validate_project(project)
+            .map_err(|_| error("invalid public_access_prevention_projects entry".into()))?;
+        if public_access_prevention_projects
+            .iter()
+            .any(|existing| existing == project)
+        {
+            return Err(error(
+                "duplicate public_access_prevention_projects entry".into(),
+            ));
+        }
+        public_access_prevention_projects.push(project.to_owned());
+    }
+    Ok(public_access_prevention_projects)
+}
+
+/// Expands an identity's `project_roles` into the permissions granted per project.
+fn parse_project_roles(
+    projects: &Value,
+    index: usize,
+) -> Result<BTreeMap<String, BTreeSet<&'static str>>, RegistryError> {
+    let error = |reason: String| RegistryError::Invalid {
+        entry: Some(index),
+        reason,
+    };
+    let mut permissions = BTreeMap::new();
+    let projects = projects
+        .as_object()
+        .ok_or_else(|| error("project_roles must be a JSON object".into()))?;
+    if projects.len() > MAX_PROJECTS {
+        return Err(error(format!(
+            "project_roles must contain at most {MAX_PROJECTS} projects"
+        )));
+    }
+    for (project, role_values) in projects {
+        crate::json::validate_project(project)
+            .map_err(|e| error(format!("project {project:?}: {}", e.message)))?;
+        let role_values = role_values
+            .as_array()
+            .filter(|roles| (1..=MAX_ROLES).contains(&roles.len()))
+            .ok_or_else(|| {
+                error(format!(
+                    "project {project:?}: roles must be an array of 1..={MAX_ROLES} role names"
+                ))
+            })?;
+        let mut names = BTreeSet::new();
+        let granted: &mut BTreeSet<&'static str> = permissions.entry(project.clone()).or_default();
+        for role in role_values {
+            let role = role
+                .as_str()
+                .ok_or_else(|| error(format!("project {project:?}: role names must be strings")))?;
+            if !names.insert(role) {
+                return Err(error(format!("project {project:?}: duplicate role {role}")));
+            }
+            let expanded = roles::permissions(role).ok_or_else(|| {
+                error(format!(
+                    "project {project:?}: unsupported role {role} (only pinned predefined Cloud Storage roles are available)"
+                ))
+            })?;
+            granted.extend(expanded.iter().copied());
+        }
+    }
+    Ok(permissions)
 }
 
 fn visible_ascii(value: &str, max: usize) -> bool {

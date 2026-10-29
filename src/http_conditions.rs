@@ -10,18 +10,26 @@ pub(crate) enum EtagError {
 
 /// Returns true for a cache hit; the caller must first authorize and select a representation.
 pub(crate) fn etag_not_modified(headers: &HeaderMap, etag: &str) -> Result<bool, EtagError> {
-    if matches_field(headers, "if-match", etag, true)? == Some(false) {
+    if matches_field(headers, "if-match", etag, Comparison::Strong)? == Some(false) {
         return Err(EtagError::PreconditionFailed);
     }
-    Ok(matches_field(headers, "if-none-match", etag, false)? == Some(true))
+    Ok(matches_field(headers, "if-none-match", etag, Comparison::Weak)? == Some(true))
+}
+
+/// RFC 9110 comparison: If-Match uses strong comparison, If-None-Match weak comparison.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Comparison {
+    Strong,
+    Weak,
 }
 
 fn matches_field(
     headers: &HeaderMap,
     name: &str,
     etag: &str,
-    strong: bool,
+    comparison: Comparison,
 ) -> Result<Option<bool>, EtagError> {
+    let strong = comparison == Comparison::Strong;
     let values = headers.get_all(name);
     let mut iter = values.iter();
     if let (Some(only), None) = (iter.next(), iter.next())
@@ -95,12 +103,12 @@ mod tests {
             let mut headers = HeaderMap::new();
             headers.insert("if-match", HeaderValue::from_str(value).unwrap());
             assert_eq!(
-                matches_field(&headers, "if-match", "\"selected\"", true),
+                matches_field(&headers, "if-match", "\"selected\"", Comparison::Strong),
                 Ok(Some(strong)),
                 "{value}"
             );
             assert_eq!(
-                matches_field(&headers, "if-match", "\"selected\"", false),
+                matches_field(&headers, "if-match", "\"selected\"", Comparison::Weak),
                 Ok(Some(weak)),
                 "{value}"
             );
