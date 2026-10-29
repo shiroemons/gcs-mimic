@@ -22,7 +22,7 @@ pub(super) fn route_test_permissions(
         if segment.len() > 222 * 3 {
             return Err(JsonError::invalid_parameter("Invalid bucket name"));
         }
-        let bucket = query::decode(segment, false)?;
+        let bucket = query::decode(segment, query::Decoding::Path)?;
         super::buckets::validate_bucket_name_for_profile(&bucket, profile)?;
         if *method != Method::GET {
             let mut error = JsonError::new(
@@ -50,8 +50,8 @@ pub fn test_permissions_query(raw: Option<&str>) -> Result<(Vec<String>, Fields)
     let mut rest = Vec::new();
     for pair in raw.split('&').filter(|pair| !pair.is_empty()) {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if query::decode(key, true)? == "permissions" {
-            let permission = query::decode(value, true)?;
+        if query::decode(key, query::Decoding::Form)? == "permissions" {
+            let permission = query::decode(value, query::Decoding::Form)?;
             if matches!(
                 permission.as_str(),
                 crate::auth::BUCKETS_CREATE | crate::auth::BUCKETS_LIST

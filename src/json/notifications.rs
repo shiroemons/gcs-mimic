@@ -61,7 +61,7 @@ pub fn route(
         if segment.len() > 222 * 3 {
             return Err(JsonError::invalid_parameter("Invalid bucket name"));
         }
-        let bucket = query::decode(segment, false)?;
+        let bucket = query::decode(segment, query::Decoding::Path)?;
         if profile == CompatProfile::Native {
             super::buckets::validate_bucket_name_for_profile(&bucket, profile)?;
         }
@@ -75,11 +75,11 @@ pub fn route(
             (&Method::GET, None) => NotificationRequest::List { bucket },
             (&Method::GET, Some(item)) => NotificationRequest::Get {
                 bucket,
-                notification: query::decode(item, false)?,
+                notification: query::decode(item, query::Decoding::Path)?,
             },
             (&Method::DELETE, Some(item)) => NotificationRequest::Delete {
                 bucket,
-                notification: query::decode(item, false)?,
+                notification: query::decode(item, query::Decoding::Path)?,
             },
             _ => {
                 let mut error = JsonError::new(

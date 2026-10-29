@@ -382,7 +382,7 @@ pub(crate) fn route(
                 "{method} route; use GET, HEAD, PUT or DELETE on /BUCKET/OBJECT"
             )));
         }
-        let name = json::decode(name, false)?;
+        let name = json::decode(name, json::Decoding::Path)?;
         json::validate_object_name(&name)?;
         let mut query = json::parse_query(uri.query().unwrap_or_default())?;
         let v2 = query

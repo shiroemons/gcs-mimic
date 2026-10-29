@@ -1,6 +1,6 @@
 use super::{
     JsonError, ObjectRequest, Projection,
-    query::{decode, finish, parse_query, projection},
+    query::{Decoding, decode, finish, parse_query, projection},
 };
 use crate::{config::CompatProfile, object::ObjectConditions};
 use hyper::{Method, StatusCode, Uri};
@@ -112,9 +112,9 @@ fn names(path: &str, profile: CompatProfile) -> Result<(String, String), JsonErr
     {
         return Err(JsonError::invalid_parameter("Invalid copy path"));
     }
-    let bucket = decode(bucket, false)?;
+    let bucket = decode(bucket, Decoding::Path)?;
     super::validate_bucket_name_for_profile(&bucket, profile)?;
-    let name = decode(name, false)?;
+    let name = decode(name, Decoding::Path)?;
     super::validate_object_name(&name)?;
     Ok((bucket, name))
 }

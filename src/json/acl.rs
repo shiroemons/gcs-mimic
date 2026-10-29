@@ -2,7 +2,7 @@
 //! routes, request bodies and resources, plus the ACL fields of `projection=full` resources.
 
 use super::{
-    Fields, JsonError,
+    Decoding, Fields, JsonError,
     buckets::encode_segment,
     decode,
     objects::base64,
@@ -86,9 +86,11 @@ fn parse_route(
     operation: AclOperation,
     profile: CompatProfile,
 ) -> Result<AclRequest, JsonError> {
-    let bucket = decode(bucket, false)?;
+    let bucket = decode(bucket, Decoding::Path)?;
     validate_bucket_name_for_profile(&bucket, profile)?;
-    let entity = entity.map(|entity| decode(entity, false)).transpose()?;
+    let entity = entity
+        .map(|entity| decode(entity, Decoding::Path))
+        .transpose()?;
     let operation = match (operation, entity) {
         (AclOperation::Get(_), Some(entity)) => AclOperation::Get(entity),
         (AclOperation::Patch(_), Some(entity)) => AclOperation::Patch(entity),
@@ -130,7 +132,7 @@ fn parse_route(
         None if kind == AclKind::Bucket => AclTarget::Bucket(bucket),
         None => AclTarget::DefaultObject(bucket),
         Some(object) => {
-            let name = decode(object, false)?;
+            let name = decode(object, Decoding::Path)?;
             validate_object_name(&name)?;
             AclTarget::Object {
                 bucket,

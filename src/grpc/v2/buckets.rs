@@ -49,8 +49,8 @@ fn routing<T>(request: &Request<T>, field: &str, resource: &str) -> Result<(), S
             let (key, value) = parameter.split_once('=').ok_or_else(|| {
                 Status::invalid_argument("Routing metadata must contain key=value pairs")
             })?;
-            let key = json::decode(key, true).map_err(json_error)?;
-            let value = json::decode(value, true).map_err(json_error)?;
+            let key = json::decode(key, json::Decoding::Form).map_err(json_error)?;
+            let value = json::decode(value, json::Decoding::Form).map_err(json_error)?;
             if key == field && value != resource {
                 return Err(Status::invalid_argument(
                     "Routing metadata conflicts with the request; use the same resource in x-goog-request-params and the request",

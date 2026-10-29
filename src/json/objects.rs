@@ -1,7 +1,7 @@
 use super::{
     JsonError, Projection,
     buckets::{encode_segment, timestamp, validate_bucket_name_for_profile},
-    query::{boolean, decode, finish, parse_query, projection},
+    query::{Decoding, boolean, decode, finish, parse_query, projection},
 };
 use crate::{
     config::CompatProfile,
@@ -157,7 +157,7 @@ pub fn route_object_with_profile(
         if bucket.len() > 222 * 3 {
             return Err(JsonError::invalid_parameter("Invalid bucket name"));
         }
-        let bucket = decode(bucket, false)?;
+        let bucket = decode(bucket, Decoding::Path)?;
         validate_bucket_name_for_profile(&bucket, profile)?;
         if !upload && object.is_none() {
             return super::object_list::parse_list(bucket, uri.query().unwrap_or_default())
@@ -168,7 +168,7 @@ pub fn route_object_with_profile(
                 if segment.len() > 1024 * 3 {
                     return Err(JsonError::invalid_parameter("Invalid object name"));
                 }
-                let name = decode(segment, false)?;
+                let name = decode(segment, Decoding::Path)?;
                 validate_object_name(&name)?;
                 Ok(name)
             })

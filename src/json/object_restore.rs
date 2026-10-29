@@ -1,7 +1,7 @@
 use super::{
     JsonError, ObjectRequest, Projection,
     objects::integer,
-    query::{decode, finish, parse_query, projection},
+    query::{Decoding, decode, finish, parse_query, projection},
 };
 use crate::{config::CompatProfile, object::ObjectConditions};
 use hyper::{Method, StatusCode, Uri};
@@ -33,8 +33,8 @@ pub(super) fn route(
         {
             return Err(JsonError::invalid_parameter("Invalid object restore path"));
         }
-        let bucket = decode(bucket, false)?;
-        let name = decode(name, false)?;
+        let bucket = decode(bucket, Decoding::Path)?;
+        let name = decode(name, Decoding::Path)?;
         super::validate_bucket_name_for_profile(&bucket, profile)?;
         super::validate_object_name(&name)?;
         let mut query = parse_query(uri.query().unwrap_or_default())?;

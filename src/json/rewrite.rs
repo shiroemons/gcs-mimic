@@ -1,5 +1,5 @@
 use super::{
-    Fields, JsonError, decode, parse_query, query, validate_bucket_name_for_profile,
+    Decoding, Fields, JsonError, decode, parse_query, query, validate_bucket_name_for_profile,
     validate_object_name,
 };
 use crate::{config::CompatProfile, object::ObjectConditions, storage::rewrite::RewriteProgress};
@@ -70,10 +70,10 @@ pub(crate) fn route(
             return Err(error);
         }
         let path = [
-            decode(segments[0], false)?,
-            decode(segments[2], false)?,
-            decode(segments[5], false)?,
-            decode(segments[7], false)?,
+            decode(segments[0], Decoding::Path)?,
+            decode(segments[2], Decoding::Path)?,
+            decode(segments[5], Decoding::Path)?,
+            decode(segments[7], Decoding::Path)?,
         ];
         for bucket in [&path[0], &path[2]] {
             validate_bucket_name_for_profile(bucket, profile)?;

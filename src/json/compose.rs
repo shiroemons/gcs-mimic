@@ -26,9 +26,9 @@ pub(crate) fn route(
             error.allow = Some("POST");
             return Err(error);
         }
-        let bucket = crate::json::decode(bucket, false)?;
+        let bucket = crate::json::decode(bucket, crate::json::Decoding::Path)?;
         crate::json::validate_bucket_name_for_profile(&bucket, profile)?;
-        let name = crate::json::decode(name, false)?;
+        let name = crate::json::decode(name, crate::json::Decoding::Path)?;
         validate_object_name(&name)?;
         let mut query = crate::json::parse_query(uri.query().unwrap_or_default())?;
         crate::json::Fields::take(&mut query, "Object")?;

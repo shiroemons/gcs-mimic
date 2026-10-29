@@ -4,7 +4,7 @@
 //! project and performs catalog operations. The supported subset is recorded in
 //! `docs/en/slices/project-hmac-keys.md`.
 use super::buckets::{encode_segment, timestamp};
-use super::query::{common, decode, finish, parse_query, validate_project};
+use super::query::{Decoding, common, decode, finish, parse_query, validate_project};
 use super::{Fields, JsonError};
 use crate::storage::hmac_keys::{HmacKeyError, HmacKeyRecord, HmacKeyState};
 use hyper::{Method, StatusCode, Uri};
@@ -108,11 +108,11 @@ fn parse(
     item: Option<&str>,
     raw: &str,
 ) -> Result<(ProjectRequest, Fields), JsonError> {
-    let project = decode(project, false)?;
+    let project = decode(project, Decoding::Path)?;
     validate_project(&project)?;
     let access_id = item
         .map(|segment| {
-            let access_id = decode(segment, false)?;
+            let access_id = decode(segment, Decoding::Path)?;
             if access_id.len() > 256 || access_id.chars().any(char::is_control) {
                 return Err(JsonError::invalid_parameter(
                     "accessId must be an HMAC key access ID",

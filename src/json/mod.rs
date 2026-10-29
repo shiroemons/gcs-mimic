@@ -77,7 +77,7 @@ pub use query::{
     BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection, route,
     route_with_profile, validate_project,
 };
-pub(crate) use query::{decode, parse_query};
+pub(crate) use query::{Decoding, decode, parse_query};
 
 #[cfg(test)]
 mod tests;

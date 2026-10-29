@@ -32,7 +32,7 @@ pub(crate) fn session_route(
                 "Session requires PUT, POST or DELETE",
             ));
         }
-        let bucket = super::decode(bucket, false)?;
+        let bucket = super::decode(bucket, super::Decoding::Path)?;
         super::validate_bucket_name_for_profile(&bucket, profile)?;
         let mut query = super::parse_query(uri.query().unwrap_or_default())?;
         let id = query

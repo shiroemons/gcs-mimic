@@ -103,7 +103,7 @@ pub fn route_with_profile(
                     "Use POST to lock a retention policy",
                 ));
             }
-            let bucket = decode(segment, false)?;
+            let bucket = decode(segment, Decoding::Path)?;
             validate_bucket_name_for_profile(&bucket, profile)?;
             let mut query = parse_query(uri.query().unwrap_or_default())?;
             super::Fields::take(&mut query, "Bucket")?;
@@ -139,7 +139,7 @@ pub fn route_with_profile(
         && !segment.contains('/')
     {
         return Some((|| {
-            let bucket = decode(segment, false)?;
+            let bucket = decode(segment, Decoding::Path)?;
             if segment.len() > 222 * 3 {
                 return Err(JsonError::invalid_parameter("Invalid bucket name"));
             }
@@ -184,7 +184,7 @@ pub fn route_with_profile(
         if segment.len() > 222 * 3 {
             return Some(Err(JsonError::invalid_parameter("Invalid bucket name")));
         }
-        match decode(segment, false).and_then(|name| {
+        match decode(segment, Decoding::Path).and_then(|name| {
             if profile == CompatProfile::Native {
                 validate_bucket_name_for_profile(&name, profile)?;
             }
@@ -355,8 +355,8 @@ pub(crate) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonErr
     let mut query = BTreeMap::new();
     for pair in raw.split('&').filter(|pair| !pair.is_empty()) {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        let key = decode(key, true)?;
-        let value = decode(value, true)?;
+        let key = decode(key, Decoding::Form)?;
+        let value = decode(value, Decoding::Form)?;
         if query.insert(key.clone(), value).is_some() {
             return Err(JsonError::invalid_parameter(format!(
                 "Duplicate query parameter: {key}"
@@ -490,7 +490,15 @@ pub(super) fn finish(query: BTreeMap<String, String>) -> Result<(), JsonError> {
     }
 }
 
-pub(crate) fn decode(raw: &str, form: bool) -> Result<String, JsonError> {
+/// How `decode` treats `+`: form-encoded query components use it for a space, while path
+/// segments keep it literally.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Decoding {
+    Path,
+    Form,
+}
+
+pub(crate) fn decode(raw: &str, decoding: Decoding) -> Result<String, JsonError> {
     let invalid = || JsonError::invalid_parameter("Malformed URI encoding");
     let mut bytes = Vec::with_capacity(raw.len());
     let mut input = raw.bytes();
@@ -500,7 +508,7 @@ pub(crate) fn decode(raw: &str, form: bool) -> Result<String, JsonError> {
                 (hex(input.next().ok_or_else(invalid)?).ok_or_else(invalid)? << 4)
                     | hex(input.next().ok_or_else(invalid)?).ok_or_else(invalid)?
             }
-            b'+' if form => b' ',
+            b'+' if decoding == Decoding::Form => b' ',
             byte => byte,
         });
     }

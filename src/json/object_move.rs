@@ -1,6 +1,6 @@
 use super::{
     JsonError, ObjectRequest, Projection,
-    query::{decode, finish, parse_query, projection},
+    query::{Decoding, decode, finish, parse_query, projection},
 };
 use crate::{config::CompatProfile, object::ObjectConditions};
 use hyper::{Method, StatusCode, Uri};
@@ -44,10 +44,10 @@ pub(super) fn route(
         {
             return Err(JsonError::invalid_parameter("Invalid move path"));
         }
-        let bucket = decode(bucket, false)?;
+        let bucket = decode(bucket, Decoding::Path)?;
         super::validate_bucket_name_for_profile(&bucket, profile)?;
-        let source = decode(source, false)?;
-        let destination = decode(destination, false)?;
+        let source = decode(source, Decoding::Path)?;
+        let destination = decode(destination, Decoding::Path)?;
         super::validate_object_name(&source)?;
         super::validate_object_name(&destination)?;
         if source == destination {
