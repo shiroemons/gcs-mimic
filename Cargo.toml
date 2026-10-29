@@ -16,6 +16,10 @@ unsafe_code = "deny"
 
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "deny"
+# Debugging leftovers and placeholders must never reach a request path.
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
 
 [package]
 name = "gcs-mimic"
