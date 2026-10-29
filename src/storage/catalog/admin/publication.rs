@@ -712,12 +712,8 @@ fn objects_error_admin(error: AdminError) -> ObjectError {
     }
 }
 
-fn publish_entry(
-    transaction: &rusqlite::Transaction<'_>,
-    entry: &BatchPublication,
-    grant: &AdminGrant,
-    clock: &dyn Clock,
-) -> Result<ObjectRecord, ObjectError> {
+/// Checks the request's metadata, size limit and declared hashes against the staged body.
+fn validate_staged_entry(entry: &BatchPublication) -> Result<(), ObjectError> {
     crate::object::validate_fixed_metadata("contentType", &entry.request.content_type)?;
     entry.request.metadata.validate()?;
     if entry.staged.size > entry.request.max_bytes {
@@ -736,6 +732,16 @@ fn publish_entry(
     {
         return Err(ObjectError::ChecksumMismatch);
     }
+    Ok(())
+}
+
+fn publish_entry(
+    transaction: &rusqlite::Transaction<'_>,
+    entry: &BatchPublication,
+    grant: &AdminGrant,
+    clock: &dyn Clock,
+) -> Result<ObjectRecord, ObjectError> {
+    validate_staged_entry(entry)?;
     let access = BucketAccess::Admin(grant.clone());
     let bucket = entry.bucket.as_str();
     let name = entry.name.as_str();

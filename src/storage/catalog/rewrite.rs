@@ -206,48 +206,8 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
                 .map(|s| serde_json::from_str(&s).map_err(|e| e.to_string()))
                 .transpose()?,
         };
-        let opaque_id = |value: &str| {
-            value.len() == 32
-                && value
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        };
         let transfer_id: Option<String> = row.get(8).map_err(|error| error.to_string())?;
-        let completed = session
-            .response
-            .as_ref()
-            .and_then(|response| response.get("resource"))
-            .is_some_and(Value::is_object);
-        let response_valid = match &session.response {
-            None => session.offset == 0 && session.previous_token.is_none(),
-            Some(response) => {
-                response["offset"].as_u64() == Some(session.offset)
-                    && if response.get("resource").is_some_and(Value::is_object) {
-                        session.offset == session.total && response.get("token").is_none()
-                    } else {
-                        session.offset < session.total
-                            && response["token"].as_str() == Some(session.token.as_str())
-                    }
-            }
-        };
-        if !opaque_id(&session.id)
-            || if completed {
-                transfer_id.is_some()
-            } else {
-                transfer_id.as_deref() != Some(session.id.as_str())
-            }
-            || !opaque_id(&session.source_incarnation)
-            || !opaque_id(&session.destination_incarnation)
-            || !response_valid
-            || session
-                .previous_token
-                .as_ref()
-                .is_some_and(|token| RewriteToken::parse(token).is_none())
-            || RewriteToken::parse(&session.token).is_none()
-            || session.binding.source_generation <= 0
-            || session.source_metageneration <= 0
-            || session.offset > session.total
-        {
+        if !session_consistent(&session, transfer_id.as_deref()) {
             return Err("invalid rewrite session".into());
         }
         Ok(session)
@@ -255,6 +215,51 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
     decode().map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, error.into())
     })
+}
+
+/// Whether a decoded session's identifiers, progress and stored response agree; an
+/// incomplete session owns the derived transfer with its own ID, a completed one none.
+fn session_consistent(session: &RewriteSession, transfer_id: Option<&str>) -> bool {
+    let opaque_id = |value: &str| {
+        value.len() == 32
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    };
+    let completed = session
+        .response
+        .as_ref()
+        .and_then(|response| response.get("resource"))
+        .is_some_and(Value::is_object);
+    let response_valid = match &session.response {
+        None => session.offset == 0 && session.previous_token.is_none(),
+        Some(response) => {
+            response["offset"].as_u64() == Some(session.offset)
+                && if response.get("resource").is_some_and(Value::is_object) {
+                    session.offset == session.total && response.get("token").is_none()
+                } else {
+                    session.offset < session.total
+                        && response["token"].as_str() == Some(session.token.as_str())
+                }
+        }
+    };
+    opaque_id(&session.id)
+        && if completed {
+            transfer_id.is_none()
+        } else {
+            transfer_id == Some(session.id.as_str())
+        }
+        && opaque_id(&session.source_incarnation)
+        && opaque_id(&session.destination_incarnation)
+        && response_valid
+        && session
+            .previous_token
+            .as_ref()
+            .is_none_or(|token| RewriteToken::parse(token).is_some())
+        && RewriteToken::parse(&session.token).is_some()
+        && session.binding.source_generation > 0
+        && session.source_metageneration > 0
+        && session.offset <= session.total
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {

@@ -93,6 +93,59 @@ async fn receive_chunk(
     Ok(file)
 }
 
+/// Re-reads the staged body from the start; returns its hashes and length.
+async fn hash_staged(file: &mut tokio::fs::File) -> Result<(Hashes, u64), ObjectError> {
+    file.seek(io::SeekFrom::Start(0))
+        .await
+        .map_err(object_unclassified)?;
+    let mut hasher = Hasher::default();
+    let mut length = 0_u64;
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let n = file.read(&mut buffer).await.map_err(object_unclassified)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+        length += n as u64;
+    }
+    Ok((hasher.finish(), length))
+}
+
+/// Inside the publication transaction: the session is still active and unexpired, and its
+/// bucket was not recreated since the session started.
+fn check_session_publishable(
+    transaction: &rusqlite::Transaction<'_>,
+    session: &super::resumable::ResumableSession,
+    now: std::time::SystemTime,
+) -> Result<(), ResumableError> {
+    let stored = transaction
+        .query_row(
+            "SELECT * FROM resumable_sessions WHERE id = ?1",
+            [&session.id],
+            read_session,
+        )
+        .map_err(object_unclassified)?;
+    if now >= stored.deadline {
+        return Err(ResumableError::NotFound);
+    }
+    if stored.state != SessionState::Active {
+        return Err(ResumableError::Gone);
+    }
+    let incarnation: Option<String> = transaction
+        .query_row(
+            "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
+            [&session.bucket],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(object_unclassified)?;
+    if incarnation.as_deref() != Some(&session.incarnation) {
+        return Err(ObjectError::Forbidden.into());
+    }
+    Ok(())
+}
+
 impl Catalog {
     /// The owned task keeps its lease and body slot until filesystem/SQL cleanup has settled.
     pub(crate) async fn write_resumable_session(
@@ -219,21 +272,7 @@ impl Catalog {
         catalog_wait: watch::Sender<bool>,
         render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
     ) -> Result<Value, ResumableError> {
-        file.seek(io::SeekFrom::Start(0))
-            .await
-            .map_err(object_unclassified)?;
-        let mut hasher = Hasher::default();
-        let mut length = 0_u64;
-        let mut buffer = [0; 64 * 1024];
-        loop {
-            let n = file.read(&mut buffer).await.map_err(object_unclassified)?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buffer[..n]);
-            length += n as u64;
-        }
-        let Hashes { md5, crc32c: crc } = hasher.finish();
+        let (Hashes { md5, crc32c: crc }, length) = hash_staged(&mut file).await?;
         if options.expected.md5.is_some_and(|v| v != md5)
             || options.expected.crc32c.is_some_and(|v| v != crc)
         {
@@ -260,30 +299,7 @@ impl Catalog {
                 let transaction = connection
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(object_unclassified)?;
-                let stored = transaction
-                    .query_row(
-                        "SELECT * FROM resumable_sessions WHERE id = ?1",
-                        [&session.id],
-                        read_session,
-                    )
-                    .map_err(object_unclassified)?;
-                if clock.now() >= stored.deadline {
-                    return Err(ResumableError::NotFound);
-                }
-                if stored.state != SessionState::Active {
-                    return Err(ResumableError::Gone);
-                }
-                let incarnation: Option<String> = transaction
-                    .query_row(
-                        "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-                        [&session.bucket],
-                        |r| r.get(0),
-                    )
-                    .optional()
-                    .map_err(object_unclassified)?;
-                if incarnation.as_deref() != Some(&session.incarnation) {
-                    return Err(ObjectError::Forbidden.into());
-                }
+                check_session_publishable(&transaction, &session, clock.now())?;
                 let (storage_class, allow_overwrite) =
                     authorized_bucket(&transaction, &session.bucket, &options.access)?;
                 let storage_class = super::bucket_autoclass::object_storage_class(

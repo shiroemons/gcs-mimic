@@ -117,6 +117,46 @@ impl DerivedSource {
     }
 }
 
+/// The transfer's total length; every range must lie inside its source.
+fn derived_total(segments: &[DerivedSegment], max_bytes: u64) -> Result<u64, ObjectError> {
+    segments.iter().try_fold(0_u64, |total, segment| {
+        if segment.offset > segment.source.object.size
+            || segment.length > segment.source.object.size - segment.offset
+        {
+            return Err(ObjectError::InvalidDerivedArgument(
+                "derived source range is out of bounds".into(),
+            ));
+        }
+        total
+            .checked_add(segment.length)
+            .filter(|total| *total <= max_bytes && *total <= i64::MAX as u64)
+            .ok_or(ObjectError::TooLarge)
+    })
+}
+
+fn insert_inputs(
+    transaction: &rusqlite::Transaction<'_>,
+    id: &str,
+    segments: &[DerivedSegment],
+) -> Result<(), ObjectError> {
+    for (position, segment) in segments.iter().enumerate() {
+        transaction
+            .execute(
+                "INSERT INTO derived_inputs VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    id,
+                    position as i64,
+                    segment.source.id,
+                    segment.offset as i64,
+                    segment.length as i64,
+                    segment.source.object.size as i64
+                ],
+            )
+            .map_err(object_unclassified)?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DerivedTransfer {
     pub id: String,
@@ -437,19 +477,7 @@ impl Catalog {
                 "derived transfer requires 1 to 32 sources".into(),
             ));
         }
-        let total = segments.iter().try_fold(0_u64, |total, segment| {
-            if segment.offset > segment.source.object.size
-                || segment.length > segment.source.object.size - segment.offset
-            {
-                return Err(ObjectError::InvalidDerivedArgument(
-                    "derived source range is out of bounds".into(),
-                ));
-            }
-            total
-                .checked_add(segment.length)
-                .filter(|total| *total <= max_bytes && *total <= i64::MAX as u64)
-                .ok_or(ObjectError::TooLarge)
-        })?;
+        let total = derived_total(&segments, max_bytes)?;
         let permit = self.admit_object_upload()?;
         let data_dir = self.0.data_dir.clone();
         let created = unix_millis(self.0.clock.now()).map_err(object_unclassified)?;
@@ -501,21 +529,7 @@ impl Catalog {
                         ],
                     )
                     .map_err(object_unclassified)?;
-                    for (position, segment) in segments.iter().enumerate() {
-                        transaction
-                            .execute(
-                                "INSERT INTO derived_inputs VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                                params![
-                                    id,
-                                    position as i64,
-                                    segment.source.id,
-                                    segment.offset as i64,
-                                    segment.length as i64,
-                                    segment.source.object.size as i64
-                                ],
-                            )
-                            .map_err(object_unclassified)?;
-                    }
+                    insert_inputs(&transaction, &id, &segments)?;
                     let transfer = DerivedTransfer {
                         id: id.clone(),
                         total,

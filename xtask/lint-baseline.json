@@ -3,11 +3,7 @@
   "counts": {
     "clippy::too_many_lines": {
       "src/storage/catalog.rs": 2,
-      "src/storage/catalog/admin/publication.rs": 1,
-      "src/storage/catalog/derived.rs": 1,
-      "src/storage/catalog/objects.rs": 2,
-      "src/storage/catalog/resumable_transfer.rs": 1,
-      "src/storage/catalog/rewrite.rs": 1,
+      "src/storage/catalog/objects.rs": 1,
       "src/storage/catalog/sync_state/writeback/live_export.rs": 1
     },
     "text::unavailable_helper": {

@@ -307,6 +307,8 @@ pub(super) fn recover(
     data_dir: &Path,
     now: i64,
 ) -> Result<(), CatalogError> {
+    // The phases run in this order: staging and derived state first, then the deletion
+    // journal, so the reference and orphan scans only see committed, durable state.
     let recover = || -> Result<(), ObjectError> {
         fs::create_dir_all(data_dir.join("staging")).map_err(object_unavailable)?;
         fs::create_dir_all(data_dir.join("blobs")).map_err(object_unavailable)?;
@@ -318,121 +320,141 @@ pub(super) fn recover(
         }
         super::resumable_recovery::recover(connection, data_dir).map_err(object_unavailable)?;
         super::derived::recover(connection, data_dir, now)?;
-        for entry in fs::read_dir(data_dir.join("staging")).map_err(object_unavailable)? {
-            let entry = entry.map_err(object_unavailable)?;
-            if os_metadata(&entry) {
-                continue;
-            }
-            let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1)", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
-            if retained {
-                continue;
-            }
-            unlink(&entry.path()).map_err(|error| {
-                object_unavailable(format!("staging entry {}: {error}", entry.path().display()))
-            })?;
-        }
-        #[cfg(unix)]
-        sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?;
-        // Keyset pages bound memory independently of the number of objects or pending deletions.
-        loop {
-            let ids = connection
-                .prepare_cached(
-                    "SELECT blob_id FROM pending_blob_deletions ORDER BY blob_id LIMIT 128",
-                )
-                .map_err(object_unavailable)?
-                .query_map([], |r| r.get::<_, String>(0))
-                .map_err(object_unavailable)?
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(object_unavailable)?;
-            if ids.is_empty() {
-                break;
-            }
-            for id in ids {
-                reclaim(connection, data_dir, &id).map_err(|error| {
-                    let reason = match error {
-                        ObjectError::Unavailable(reason) => reason,
-                        error => error.to_string().into(),
-                    };
-                    object_unavailable(format!("deletion journal blob {id}: {reason}"))
-                })?;
-            }
-        }
-        let mut after = String::new();
-        loop {
-            let rows = connection
-                .prepare_cached("SELECT blob_id, size FROM objects WHERE blob_id > ?1 ORDER BY blob_id LIMIT 128")
-                .map_err(object_unavailable)?
-                .query_map([&after], |r| Ok((r.get::<_, String>(0)?, read_size(r, 1)?)))
-                .map_err(object_unavailable)?
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(object_unavailable)?;
-            if rows.is_empty() {
-                break;
-            }
-            for (id, size) in rows {
-                let path = blob_path(data_dir, &id)?;
-                let metadata = fs::symlink_metadata(&path).map_err(|error| {
-                    object_unavailable(format!("referenced blob {id}: {error}"))
-                })?;
-                if !metadata.is_file() || metadata.len() != size {
-                    return Err(object_unavailable(format!(
-                        "referenced blob {id} has invalid size or type"
-                    )));
-                }
-                after = id;
-            }
-        }
-        // Directory iterators and indexed single-ID probes also keep orphan scans bounded.
-        for shard in fs::read_dir(data_dir.join("blobs")).map_err(object_unavailable)? {
-            let shard = shard.map_err(object_unavailable)?;
-            if os_metadata(&shard) {
-                continue;
-            }
-            if !shard.file_type().map_err(object_unavailable)?.is_dir() {
-                return Err(object_unavailable(format!(
-                    "invalid blob directory entry {}",
-                    shard.path().display()
-                )));
-            }
-            for blob in fs::read_dir(shard.path()).map_err(object_unavailable)? {
-                let blob = blob.map_err(object_unavailable)?;
-                if os_metadata(&blob) {
-                    continue;
-                }
-                let id = blob.file_name().into_string().map_err(|_| {
-                    object_unavailable(format!("invalid blob ID {}", blob.path().display()))
-                })?;
-                let expected = blob_path(data_dir, &id).map_err(|error| {
-                    object_unavailable(format!("blob entry {}: {error}", blob.path().display()))
-                })?;
-                if expected != blob.path() {
-                    return Err(object_unavailable(format!(
-                        "blob in wrong shard {}",
-                        blob.path().display()
-                    )));
-                }
-                let referenced: bool = connection
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-                        [&id],
-                        |r| r.get(0),
-                    )
-                    .map_err(object_unavailable)?;
-                if !referenced {
-                    unlink(&blob.path()).map_err(|error| {
-                        object_unavailable(format!("blob entry {}: {error}", blob.path().display()))
-                    })?;
-                }
-            }
-            #[cfg(unix)]
-            sync_dir(&shard.path()).map_err(object_unavailable)?;
-        }
-        Ok(())
+        remove_unretained_staging(connection, data_dir)?;
+        drain_deletion_journal(connection, data_dir)?;
+        verify_referenced_blobs(connection, data_dir)?;
+        remove_orphan_blobs(connection, data_dir)
     };
     recover().map_err(|error| match error {
         ObjectError::Unavailable(reason) => CatalogError::Unavailable(reason),
         error => unavailable(error),
     })
+}
+
+/// Removes staging entries no active upload or derived transfer still owns.
+fn remove_unretained_staging(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
+    for entry in fs::read_dir(data_dir.join("staging")).map_err(object_unavailable)? {
+        let entry = entry.map_err(object_unavailable)?;
+        if os_metadata(&entry) {
+            continue;
+        }
+        let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1)", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
+        if retained {
+            continue;
+        }
+        unlink(&entry.path()).map_err(|error| {
+            object_unavailable(format!("staging entry {}: {error}", entry.path().display()))
+        })?;
+    }
+    #[cfg(unix)]
+    sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?;
+    Ok(())
+}
+
+/// Finishes deletions committed before a crash.
+fn drain_deletion_journal(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
+    // Keyset pages bound memory independently of the number of objects or pending deletions.
+    loop {
+        let ids = connection
+            .prepare_cached("SELECT blob_id FROM pending_blob_deletions ORDER BY blob_id LIMIT 128")
+            .map_err(object_unavailable)?
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(object_unavailable)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(object_unavailable)?;
+        if ids.is_empty() {
+            return Ok(());
+        }
+        for id in ids {
+            reclaim(connection, data_dir, &id).map_err(|error| {
+                let reason = match error {
+                    ObjectError::Unavailable(reason) => reason,
+                    error => error.to_string().into(),
+                };
+                object_unavailable(format!("deletion journal blob {id}: {reason}"))
+            })?;
+        }
+    }
+}
+
+/// Every catalog row must name a regular blob file of the recorded size.
+fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
+    let mut after = String::new();
+    loop {
+        let rows = connection
+            .prepare_cached(
+                "SELECT blob_id, size FROM objects WHERE blob_id > ?1 ORDER BY blob_id LIMIT 128",
+            )
+            .map_err(object_unavailable)?
+            .query_map([&after], |r| Ok((r.get::<_, String>(0)?, read_size(r, 1)?)))
+            .map_err(object_unavailable)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(object_unavailable)?;
+        if rows.is_empty() {
+            return Ok(());
+        }
+        for (id, size) in rows {
+            let path = blob_path(data_dir, &id)?;
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|error| object_unavailable(format!("referenced blob {id}: {error}")))?;
+            if !metadata.is_file() || metadata.len() != size {
+                return Err(object_unavailable(format!(
+                    "referenced blob {id} has invalid size or type"
+                )));
+            }
+            after = id;
+        }
+    }
+}
+
+/// Removes blobs no catalog row references; misplaced entries fail recovery.
+fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
+    // Directory iterators and indexed single-ID probes also keep orphan scans bounded.
+    for shard in fs::read_dir(data_dir.join("blobs")).map_err(object_unavailable)? {
+        let shard = shard.map_err(object_unavailable)?;
+        if os_metadata(&shard) {
+            continue;
+        }
+        if !shard.file_type().map_err(object_unavailable)?.is_dir() {
+            return Err(object_unavailable(format!(
+                "invalid blob directory entry {}",
+                shard.path().display()
+            )));
+        }
+        for blob in fs::read_dir(shard.path()).map_err(object_unavailable)? {
+            let blob = blob.map_err(object_unavailable)?;
+            if os_metadata(&blob) {
+                continue;
+            }
+            let id = blob.file_name().into_string().map_err(|_| {
+                object_unavailable(format!("invalid blob ID {}", blob.path().display()))
+            })?;
+            let expected = blob_path(data_dir, &id).map_err(|error| {
+                object_unavailable(format!("blob entry {}: {error}", blob.path().display()))
+            })?;
+            if expected != blob.path() {
+                return Err(object_unavailable(format!(
+                    "blob in wrong shard {}",
+                    blob.path().display()
+                )));
+            }
+            let referenced: bool = connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
+                    [&id],
+                    |r| r.get(0),
+                )
+                .map_err(object_unavailable)?;
+            if !referenced {
+                unlink(&blob.path()).map_err(|error| {
+                    object_unavailable(format!("blob entry {}: {error}", blob.path().display()))
+                })?;
+            }
+        }
+        #[cfg(unix)]
+        sync_dir(&shard.path()).map_err(object_unavailable)?;
+    }
+    Ok(())
 }
 
 /// An open immutable generation. Unlinking its directory entry cannot change its bytes.
