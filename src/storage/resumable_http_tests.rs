@@ -2531,6 +2531,7 @@ async fn checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried(
             .unwrap(),
         0
     );
+    drop(connection);
     assert_eq!(
         h.request("GET", "/storage/v1/b/bucket/o/bad-checksum", "", b"")
             .await

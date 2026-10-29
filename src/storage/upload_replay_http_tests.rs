@@ -59,6 +59,7 @@ async fn copy_replay_binds_both_encryption_keys_and_keeps_retained_entries_at_ca
         h.request("POST", path, &headers, b"").await.body,
         original.body
     );
+    drop(connection);
     h.stop().await;
 }
 
@@ -113,6 +114,7 @@ async fn copy_replay_oversized_completion_rolls_back_destination_and_generation(
     h.request("GET", "/storage/v1/b/bucket/o/oversized", "", b"")
         .await
         .error(404, "notFound");
+    drop(connection);
     h.stop().await;
 }
 
@@ -186,6 +188,7 @@ async fn upload_replay_never_crosses_authentication_profiles_after_restart() {
         b"original"
     );
     assert!(reader.next_chunk().await.unwrap().is_none());
+    drop(reader);
     drop(permit);
     catalog.close().await.unwrap();
     h.stop().await;
