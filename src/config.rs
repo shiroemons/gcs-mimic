@@ -497,7 +497,10 @@ impl Config {
                             .map_err(|_| "sync_delete_guard must be true or false")?
                     }
                     "sync_reinitialize" => {
-                        config.sync_reinitialize = Some(crate::sync::parse_catalog_id(&value)?)
+                        config.sync_reinitialize = Some(
+                            crate::sync::parse_catalog_id(&value)
+                                .map_err(|error| error.to_string())?,
+                        )
                     }
                     "seed_project" => {
                         crate::json::validate_project(&value)

@@ -25,18 +25,30 @@ use crate::{
 };
 use std::{io, path::Path};
 
-pub fn parse_catalog_id(value: &str) -> Result<CatalogId, String> {
+/// A `sync_reinitialize` value that is not a lowercase 32-digit hexadecimal catalog ID.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InvalidCatalogId;
+
+impl std::fmt::Display for InvalidCatalogId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("sync_reinitialize requires the exact lowercase 32-digit catalog ID; inspect the root marker or startup diagnostic")
+    }
+}
+
+impl std::error::Error for InvalidCatalogId {}
+
+pub fn parse_catalog_id(value: &str) -> Result<CatalogId, InvalidCatalogId> {
     if value.len() != 32
         || !value
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     {
-        return Err("sync_reinitialize requires the exact lowercase 32-digit catalog ID; inspect the root marker or startup diagnostic".into());
+        return Err(InvalidCatalogId);
     }
     let mut bytes = [0; 16];
     for (index, byte) in bytes.iter_mut().enumerate() {
         *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
-            .map_err(|_| "sync_reinitialize requires a lowercase 32-digit catalog ID")?;
+            .map_err(|_| InvalidCatalogId)?;
     }
     Ok(CatalogId::from_bytes(bytes))
 }
