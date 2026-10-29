@@ -224,7 +224,7 @@ checksum = "1944426bf7d03f1d14f708785e4b33efd750b36d48a157b836b3efc15ede8e1d"
 
 [[package]]
 name = "gcs-mimic"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "bytes",
  "crc32c",

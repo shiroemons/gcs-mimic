@@ -12,7 +12,7 @@ fixtures by mounting a directory, and keep data with a volume.
 ## Quick start
 
 ```sh
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.4.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.4.1
 curl -k 'https://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -27,7 +27,7 @@ then create a bucket, upload a file and read it:
 ```sh
 docker rm -f gcs-mimic
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.4.0
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.4.1
 curl --fail \
   -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=demo-project'
@@ -42,8 +42,8 @@ so that shells such as zsh do not expand `?`. Data stays in the container until
 it is removed; add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep it.
 
 The image is published for `linux/amd64` and `linux/arm64`. Docker Hub serves
-the same digest as `shiroemons/gcs-mimic:0.4.0`. See the
-[0.4.0 release notes](docs/en/releases/0.4.0.md), the
+the same digest as `shiroemons/gcs-mimic:0.4.1`. See the
+[0.4.1 release notes](docs/en/releases/0.4.1.md), the
 [0.1.0 features and known limitations](docs/en/releases/0.1.0.md), or the
 [source-build guide](docs/en/getting-started.md).
 
@@ -52,7 +52,7 @@ the same digest as `shiroemons/gcs-mimic:0.4.0`. See the
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.4.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.4.1
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -81,7 +81,7 @@ data/
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
   -e GCS_MIMIC_SCHEME=http \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.4.0
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.4.1
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 curl 'http://localhost:4443/storage/v1/b/sample-bucket/o'
 ```
@@ -143,7 +143,7 @@ and the [SDK and authentication guide](docs/en/getting-started.md) for more.
 List every option with:
 
 ```sh
-docker run --rm ghcr.io/shiroemons/gcs-mimic:0.4.0 --help
+docker run --rm ghcr.io/shiroemons/gcs-mimic:0.4.1 --help
 ```
 
 Moving from fake-gcs-server? Its flags and the 19 known `FAKE_GCS_*` variables
@@ -187,7 +187,7 @@ ledger remain `PARTIAL`; see the
 their limits.
 
 Comparison baseline: fake-gcs-server `v1.56.1` and gcp-storage-emulator
-`v2026.07.19`; gcs-mimic is `0.4.0`.
+`v2026.07.19`; gcs-mimic is `0.4.1`.
 Seed loading excludes migration of existing backend metadata and history.
 See the [detailed comparison](docs/en/feature-comparison.md) for criteria,
 sources and verification limits, and the generated
@@ -209,7 +209,7 @@ sources and verification limits, and the generated
 - [Roadmap](docs/en/roadmap.md)
 - [Development and checks](docs/en/development.md)
 - [Release policy](docs/en/release-policy.md)
-- [0.4.0 release notes](docs/en/releases/0.4.0.md) and
+- [0.4.1 release notes](docs/en/releases/0.4.1.md) and
   [0.1.0 features and known limitations](docs/en/releases/0.1.0.md)
 
 ## License
