@@ -230,6 +230,39 @@ impl Auth {
         Ok(Some(caller))
     }
 
+    /// Verify a V4 POST policy: RSA-SHA256 over the exact base64 `policy` field value.
+    /// The permissive profile ignores credentials, as it does for signed URLs; policy
+    /// conditions and expiration are form constraints that the adapter always enforces.
+    pub fn authenticate_policy(
+        &self,
+        algorithm: &str,
+        credential: &str,
+        date: &str,
+        signature: &str,
+        policy: &str,
+    ) -> Result<Option<Caller<'_>>, Failure> {
+        if self.registry.is_none() {
+            return Ok(None);
+        }
+        if algorithm != ALGORITHM {
+            return Err(Failure::Malformed);
+        }
+        let parts: Vec<_> = credential.split('/').collect();
+        if parts.len() != 5
+            || parts[0].is_empty()
+            || parts[2].is_empty()
+            || parts[3..] != ["storage", "goog4_request"]
+        {
+            return Err(Failure::Malformed);
+        }
+        parse_timestamp(date).map_err(|_| Failure::Malformed)?;
+        if parts[1] != &date[..8] {
+            return Err(Failure::Malformed);
+        }
+        let bytes = unhex(signature)?;
+        self.verify_signer(parts[0], policy, &bytes).map(Some)
+    }
+
     fn verify_signer(
         &self,
         signer: &str,
@@ -542,6 +575,26 @@ pub fn sign_url(
     let canonical = canonical_request(method, &uri, &headers, &query, &signed)
         .map_err(|_| "invalid signing request")?;
     let message = string_to_sign(&date, &scope, &canonical);
+    let bytes = rsa_sign(private_key, &message)?;
+    Ok(format!(
+        "{}://{}{}?{}&X-Goog-Signature={}",
+        uri.scheme_str().unwrap(),
+        uri.authority().unwrap(),
+        uri.path(),
+        canonical_query(&query),
+        encode_lower(&bytes)
+    ))
+}
+
+/// Sign a base64 V4 POST policy document the way the official SDKs do, returning hex.
+pub fn sign_policy(policy: &str, private_key: &[u8]) -> Result<String, String> {
+    if private_key.len() > 16384 {
+        return Err("private key exceeds 16 KiB".into());
+    }
+    rsa_sign(private_key, policy).map(|bytes| encode_lower(&bytes))
+}
+
+fn rsa_sign(private_key: &[u8], message: &str) -> Result<Vec<u8>, String> {
     let key = PrivateKeyDer::from_pem_slice(private_key)
         .map_err(|_| "private key must be RSA PKCS#8 or PKCS#1 PEM")?;
     let key = match key {
@@ -558,12 +611,5 @@ pub fn sign_url(
         &mut bytes,
     )
     .map_err(|_| "RSA signing failed")?;
-    Ok(format!(
-        "{}://{}{}?{}&X-Goog-Signature={}",
-        uri.scheme_str().unwrap(),
-        uri.authority().unwrap(),
-        uri.path(),
-        canonical_query(&query),
-        encode_lower(&bytes)
-    ))
+    Ok(bytes)
 }

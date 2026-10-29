@@ -95,6 +95,38 @@ pub fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
     if mime != "multipart/related" {
         return Err(invalid());
     }
+    let boundary = boundary(&params)?;
+    // RFC 2387 permits type and start; reordered roots are outside this ordered subset.
+    for (key, value) in &params {
+        if key != "boundary" && !(key == "type" && value.eq_ignore_ascii_case("application/json")) {
+            return Err(JsonError::unsupported_object(key));
+        }
+    }
+    Ok(boundary)
+}
+
+/// XML POST Object forms use the same RFC 2046 boundary grammar as multipart/related.
+pub fn form_data_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
+    let value = headers
+        .get("content-type")
+        .ok_or_else(invalid)?
+        .to_str()
+        .map_err(|_| invalid())?;
+    let (mime, params) = content_type(value)?;
+    if mime != "multipart/form-data" {
+        return Err(invalid());
+    }
+    let boundary = boundary(&params)?;
+    // Forms must be UTF-8 encoded; another declared charset would change field values.
+    for (key, value) in &params {
+        if key != "boundary" && !(key == "charset" && value.eq_ignore_ascii_case("utf-8")) {
+            return Err(JsonError::unsupported_object(key));
+        }
+    }
+    Ok(boundary)
+}
+
+fn boundary(params: &[(String, String)]) -> Result<String, JsonError> {
     let boundary = params
         .iter()
         .find(|(key, _)| key == "boundary")
@@ -108,12 +140,6 @@ pub fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
             .all(|b| b.is_ascii_alphanumeric() || b"'()+_,-./:=? ".contains(&b))
     {
         return Err(invalid());
-    }
-    // RFC 2387 permits type and start; reordered roots are outside this ordered subset.
-    for (key, value) in &params {
-        if key != "boundary" && !(key == "type" && value.eq_ignore_ascii_case("application/json")) {
-            return Err(JsonError::unsupported_object(key));
-        }
     }
     Ok(boundary.clone())
 }
@@ -227,7 +253,39 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         }
     }
 
+    /// Whether the closing delimiter has been read, so no further part follows.
+    pub fn closed(&self) -> bool {
+        self.closed
+    }
+
     pub async fn headers(&mut self, metadata: bool) -> Result<Option<String>, JsonError> {
+        let headers = self.part_headers().await?;
+        let value = headers
+            .get("content-type")
+            .map(|v| {
+                v.to_str()
+                    .map(str::trim)
+                    .map(str::to_owned)
+                    .map_err(|_| invalid())
+            })
+            .transpose()?;
+        if metadata {
+            let (mime, params) = content_type(value.as_deref().ok_or_else(invalid)?)?;
+            if mime != "application/json"
+                || params
+                    .iter()
+                    .any(|(k, v)| k != "charset" || !v.eq_ignore_ascii_case("utf-8"))
+            {
+                return Err(invalid());
+            }
+        } else if let Some(value) = &value {
+            content_type(value)?;
+        }
+        Ok(value)
+    }
+
+    /// Read one bounded part header block; form-data callers need Content-Disposition.
+    pub async fn part_headers(&mut self) -> Result<HeaderMap, JsonError> {
         if self.closed {
             return Err(invalid());
         }
@@ -258,28 +316,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         {
             return Err(invalid());
         }
-        let value = headers
-            .get("content-type")
-            .map(|v| {
-                v.to_str()
-                    .map(str::trim)
-                    .map(str::to_owned)
-                    .map_err(|_| invalid())
-            })
-            .transpose()?;
-        if metadata {
-            let (mime, params) = content_type(value.as_deref().ok_or_else(invalid)?)?;
-            if mime != "application/json"
-                || params
-                    .iter()
-                    .any(|(k, v)| k != "charset" || !v.eq_ignore_ascii_case("utf-8"))
-            {
-                return Err(invalid());
-            }
-        } else if let Some(value) = &value {
-            content_type(value)?;
-        }
-        Ok(value)
+        Ok(headers)
     }
 
     pub async fn next_chunk(&mut self) -> Result<Option<Bytes>, JsonError> {
@@ -621,6 +658,29 @@ mod tests {
             );
             assert_eq!(multipart_boundary(&headers).is_ok(), length == 70);
         }
+    }
+
+    #[test]
+    fn form_data_boundary_accepts_utf8_forms_and_rejects_other_types_and_parameters() {
+        for value in [
+            "multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW",
+            "Multipart/Form-Data; boundary=\"a b\"; charset=UTF-8",
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert("content-type", value.parse().unwrap());
+            form_data_boundary(&headers).unwrap();
+        }
+        for value in [
+            "multipart/related; boundary=x",
+            "multipart/form-data",
+            "multipart/form-data; boundary=x; charset=latin1",
+            "multipart/form-data; boundary=x; type=application/json",
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert("content-type", value.parse().unwrap());
+            assert!(form_data_boundary(&headers).is_err(), "{value}");
+        }
+        assert!(form_data_boundary(&HeaderMap::new()).is_err());
     }
 
     #[tokio::test]

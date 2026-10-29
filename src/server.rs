@@ -736,6 +736,21 @@ async fn respond_routed(
                 .unwrap_or_else(JsonError::into_response),
         );
     }
+    // POST Object targets the bucket itself and authenticates from form fields in the body.
+    if let Some(object) = selected
+        .as_ref()
+        .filter(|object| request.method() == Method::POST && object.name().is_empty())
+    {
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
+        activity.send_replace(ObjectActivity {
+            awaiting_catalog: false,
+            deadline: Some(deadline),
+        });
+        let result = xml::post::respond(request, object, state, config, activity, deadline).await;
+        activity.send_replace(ObjectActivity::default());
+        return result.unwrap_or_else(|error| boxed(error.response(false)));
+    }
     if let Some(parsed) = xml::route(request.method(), config, selected) {
         let head = request.method() == Method::HEAD;
         let put = request.method() == Method::PUT;
@@ -1784,6 +1799,11 @@ pub(crate) async fn stream_upload(
         return Err(ObjectError::ChecksumMismatch);
     }
     Ok(())
+}
+
+/// Record body progress for an adapter that reads the request body through its own parser.
+pub(crate) fn body_progress(activity: &watch::Sender<ObjectActivity>) {
+    activity.send_modify(|progress| progress.awaiting_catalog = false);
 }
 
 pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(

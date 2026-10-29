@@ -237,7 +237,7 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
     })
 }
 
-fn storage_error(error: ObjectError, caller: Option<Caller<'_>>) -> Error {
+pub(super) fn storage_error(error: ObjectError, caller: Option<Caller<'_>>) -> Error {
     match error {
         ObjectError::ChecksumMismatch => Error::new(
             StatusCode::BAD_REQUEST,

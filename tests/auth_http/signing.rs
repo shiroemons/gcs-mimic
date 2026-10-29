@@ -32,6 +32,9 @@ mod overrides;
 #[path = "signing/pap.rs"]
 mod pap;
 
+#[path = "signing/post.rs"]
+mod post;
+
 fn sign(
     server: &Server,
     method: &Method,
