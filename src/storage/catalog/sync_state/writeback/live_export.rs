@@ -109,6 +109,84 @@ fn api_original(c: &Connection, item: &Pending) -> Result<(), Error> {
     Ok(())
 }
 
+/// Installs the staged copy at the target path (or moves a removed file into the workspace)
+/// unless an earlier attempt already did; `Ok(false)` reports an external change.
+fn install_target(
+    root: &File,
+    workspace: &File,
+    selected: &Pending,
+    expected: Option<&SyncRecord>,
+    staged: Option<fsutil::FileIdentity>,
+) -> Result<bool, Error> {
+    let current = target(root, &selected.path)?;
+    let directory = parent(root, &selected.path, ParentSync::Skip)?.ok_or_else(stale)?;
+    let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
+    let retained = entry(workspace, &selected.token.id)?;
+    let already_installed = match staged {
+        Some(staged) => current
+            .as_ref()
+            .map(fsutil::stat_identity)
+            .transpose()?
+            .is_some_and(|f| f.device == staged.device && f.inode == staged.inode),
+        None => retained.is_some(),
+    };
+    if !already_installed {
+        if let Some(staged) = staged {
+            let copy = retained.as_ref().ok_or(Error::Protected)?;
+            if fsutil::stat_identity(copy)? != staged {
+                return Err(Error::Protected);
+            }
+        }
+        let identity = match (&current, expected) {
+            (None, _) => None,
+            (Some(file), Some(expected)) if matches_tracked(file, expected)? => {
+                Some(fsutil::stat_identity(file)?)
+            }
+            _ => return Ok(false),
+        };
+        #[cfg(test)]
+        failure(selected.token.root, "install")?;
+        let outcome = if selected.kind == Kind::Remove && current.is_none() {
+            fsutil::ReplaceOutcome::Created
+        } else if selected.kind == Kind::Publish {
+            fsutil::durable_replace_between(
+                workspace,
+                selected.token.id.as_ref(),
+                &directory,
+                name.as_ref(),
+                identity.as_ref(),
+            )?
+        } else {
+            fsutil::durable_replace_between(
+                &directory,
+                name.as_ref(),
+                workspace,
+                selected.token.id.as_ref(),
+                None,
+            )?
+        };
+        if matches!(outcome, fsutil::ReplaceOutcome::Conflict { .. }) {
+            return Err(Error::Protected);
+        }
+    }
+    #[cfg(test)]
+    failure(selected.token.root, "installed")?;
+    if let Some(file) = entry(workspace, &selected.token.id)? {
+        let matches = match expected {
+            Some(expected) => matches_tracked(&file, expected)?,
+            None => false,
+        };
+        if !matches {
+            return Err(Error::Protected);
+        }
+        fsutil::unlink_file_at(workspace, selected.token.id.as_ref())?;
+    }
+    directory.sync_all()?;
+    workspace.sync_all()?;
+    root.sync_all()?;
+    Ok(true)
+}
+
 impl Writeback {
     /// A missing source observes an identical live body, or removes an API-deleted tracked body.
     pub async fn begin_live_export(
@@ -170,190 +248,225 @@ impl Writeback {
         let this = self.clone();
         self.serial(async move {
             let mut operation = operation.0.lock().await;
-            let mut item = operation.item.clone();
-            this.token(&item.token)?;
+            let operation = &mut *operation;
+            this.token(&operation.item.token)?;
             if let Some(result) = operation.cancelling {
-                this.cancel_live_copy(&item).await?;
+                this.cancel_live_copy(&operation.item.clone()).await?;
                 return Ok(result);
             }
             if !operation.copied {
-                let source = operation.source.as_ref().map(File::try_clone).transpose()?;
-                let selected = item.clone();
-                operation.staged = this.fs(move |_, workspace| {
-                    if let Some(source) = source {
-                        #[cfg(test)]
-                        failure(selected.token.root,"copy")?;
-                        // Only this unarmed operation can own this private, possibly partial API copy.
-                        if entry(workspace, &selected.token.id)?.is_some() { fsutil::unlink_file_at(workspace, selected.token.id.as_ref())?; }
-                        fsutil::clone_or_copy_into(&source, workspace, selected.token.id.as_ref())?;
-                        let file = entry(workspace,&selected.token.id)?.ok_or_else(stale)?;
-                        if !content_matches(&file,selected.size,selected.md5,selected.crc32c)? { return Err(AdminError::Checksum.into()); }
-                        file.sync_all()?;
-                        workspace.sync_all()?;
-                        Ok(Some(fsutil::stat_identity(&file)?))
-                    } else { Ok(None) }
-                }).await?;
-                operation.copied = true;
+                this.copy_live(operation).await?;
                 return Ok(LiveResult::Pending);
             }
             if !operation.installed {
-                let selected = item.clone();
-                if item.phase == Phase::Prepared {
-                    let armed = this.db(move |c| {
-                        #[cfg(test)]
-                        failure(selected.token.root,"arm")?;
-                        let tx = c.transaction()?;
-                        api_original(&tx,&selected)?;
-                        checked(&tx,&selected.token)?;
-                        tx.execute("UPDATE sync_writeback_ops SET phase=1,revision=revision+1 WHERE id=?1",[&selected.token.id])?;
-                        let armed = load(&tx,selected.token.catalog,selected.token.root,&selected.token.id)?;
-                        tx.commit()?;
-                        Ok(armed)
-                    }).await;
-                    match armed {
-                        Ok(armed) => { item = armed; operation.item = item.clone(); }
-                        Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => {
-                            operation.cancelling = Some(LiveResult::Obsolete);
-                            this.cancel_live_copy(&item).await?;
-                            return Ok(LiveResult::Obsolete);
-                        }
-                        Err(error) => return Err(error),
-                    }
-                }
-                let selected = item.clone();
-                let expected = operation.tracked.clone();
-                let staged = operation.staged;
-                let observing = operation.observing;
-                let installed = this.fs(move |root, workspace| {
-                    let current = target(root,&selected.path)?;
-                    if observing {
-                        return match current {
-                            Some(file) => content_matches(&file,selected.size,selected.md5,selected.crc32c),
-                            None => Ok(false),
-                        };
-                    }
-                    let directory = parent(root,&selected.path,ParentSync::Skip)?.ok_or_else(stale)?;
-                    let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
-                    let retained = entry(workspace,&selected.token.id)?;
-                    let already_installed = match staged {
-                        Some(staged) => current.as_ref().map(fsutil::stat_identity).transpose()?.is_some_and(|f| f.device == staged.device && f.inode == staged.inode),
-                        None => retained.is_some(),
-                    };
-                    if !already_installed {
-                        if let Some(staged) = staged {
-                            let copy = retained.as_ref().ok_or(Error::Protected)?;
-                            if fsutil::stat_identity(copy)? != staged { return Err(Error::Protected); }
-                        }
-                        let identity = match (&current,&expected) {
-                            (None,_) => None,
-                            (Some(file),Some(expected)) if matches_tracked(file,expected)? => Some(fsutil::stat_identity(file)?),
-                            _ => return Ok(false),
-                        };
-                        #[cfg(test)]
-                        failure(selected.token.root,"install")?;
-                        let outcome = if selected.kind == Kind::Remove && current.is_none() {
-                            fsutil::ReplaceOutcome::Created
-                        } else if selected.kind == Kind::Publish {
-                            fsutil::durable_replace_between(workspace,selected.token.id.as_ref(),&directory,name.as_ref(),identity.as_ref())?
-                        } else {
-                            fsutil::durable_replace_between(&directory,name.as_ref(),workspace,selected.token.id.as_ref(),None)?
-                        };
-                        if matches!(outcome,fsutil::ReplaceOutcome::Conflict { .. }) { return Err(Error::Protected); }
-                    }
-                    #[cfg(test)]
-                    failure(selected.token.root,"installed")?;
-                    if let Some(file) = entry(workspace,&selected.token.id)? {
-                        let matches = match &expected { Some(expected) => matches_tracked(&file,expected)?, None => false };
-                        if !matches { return Err(Error::Protected); }
-                        fsutil::unlink_file_at(workspace,selected.token.id.as_ref())?;
-                    }
-                    directory.sync_all()?;
-                    workspace.sync_all()?;
-                    root.sync_all()?;
-                    Ok(true)
-                }).await;
-                match installed {
-                    Ok(false) => { operation.cancelling = Some(LiveResult::Conflict); this.cancel_live_copy(&item).await?; return Ok(LiveResult::Conflict); }
-                    Ok(true) => operation.installed = true,
-                    Err(Error::Protected) => { this.inspect_inner(item.token.clone()).await?; return Err(Error::Protected); }
-                    Err(error) => return Err(error),
-                }
-                return Ok(LiveResult::Pending);
+                return this.install_live(operation).await;
             }
             if operation.durable.is_none() {
-                #[cfg(test)]
-                failure(item.token.root,"durable")?;
-                let selected = item.clone();
-                let fp = match this.fs(move |root,workspace| fingerprint(root,workspace,&selected)).await {
-                    Ok(fp) => fp,
-                    Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) if operation.observing => {
-                        operation.cancelling = Some(LiveResult::Conflict);
-                        this.cancel_live_copy(&item).await?;
-                        return Ok(LiveResult::Conflict);
-                    }
-                    Err(error) => return Err(error),
-                };
-                let snapshot = fp.as_ref().map(serde_json::to_vec).transpose().map_err(|e| AdminError::Backend(e.to_string()))?;
-                let selected = item.clone();
-                operation.item = this.db(move |c| {
-                    let tx = c.transaction()?;
-                    checked(&tx,&selected.token)?;
-                    tx.execute("UPDATE sync_writeback_ops SET phase=3,revision=revision+1,snapshot=?2 WHERE id=?1",params![selected.token.id,snapshot])?;
-                    let durable = load(&tx,selected.token.catalog,selected.token.root,&selected.token.id)?;
-                    tx.commit()?;
-                    Ok(durable)
-                }).await?;
-                operation.durable = Some(fp);
-                return Ok(LiveResult::Pending);
+                return this.record_live_durable(operation).await;
             }
-            let fp = operation.durable.clone().ok_or_else(stale)?;
-            let selected = item.clone();
-            let expected = fp.clone();
-            let verified = this.fs(move |root,workspace| {
-                if fingerprint(root,workspace,&selected)? != expected { return Err(stale()); }
-                Ok(())
-            }).await;
-            match verified {
-                Ok(()) => {}
-                Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) if operation.observing => {
-                    operation.cancelling = Some(LiveResult::Conflict);
-                    this.cancel_live_copy(&item).await?;
-                    return Ok(LiveResult::Conflict);
+            this.acknowledge_live(operation).await
+        })
+        .await
+    }
+
+    /// Copies the API body into a private workspace entry and makes it durable.
+    async fn copy_live(&self, operation: &mut LiveOperation) -> Result<(), Error> {
+        let source = operation.source.as_ref().map(File::try_clone).transpose()?;
+        let selected = operation.item.clone();
+        operation.staged = self
+            .fs(move |_, workspace| {
+                if let Some(source) = source {
+                    #[cfg(test)]
+                    failure(selected.token.root, "copy")?;
+                    // Only this unarmed operation can own this private, possibly partial API copy.
+                    if entry(workspace, &selected.token.id)?.is_some() {
+                        fsutil::unlink_file_at(workspace, selected.token.id.as_ref())?;
+                    }
+                    fsutil::clone_or_copy_into(&source, workspace, selected.token.id.as_ref())?;
+                    let file = entry(workspace, &selected.token.id)?.ok_or_else(stale)?;
+                    if !content_matches(&file, selected.size, selected.md5, selected.crc32c)? {
+                        return Err(AdminError::Checksum.into());
+                    }
+                    file.sync_all()?;
+                    workspace.sync_all()?;
+                    Ok(Some(fsutil::stat_identity(&file)?))
+                } else {
+                    Ok(None)
+                }
+            })
+            .await?;
+        operation.copied = true;
+        Ok(())
+    }
+
+    /// Arms a prepared operation, then installs (or, when observing, checks) the target file.
+    async fn install_live(&self, operation: &mut LiveOperation) -> Result<LiveResult, Error> {
+        let mut item = operation.item.clone();
+        let selected = item.clone();
+        if item.phase == Phase::Prepared {
+            let armed = self
+                .db(move |c| {
+                    #[cfg(test)]
+                    failure(selected.token.root, "arm")?;
+                    let tx = c.transaction()?;
+                    api_original(&tx, &selected)?;
+                    checked(&tx, &selected.token)?;
+                    tx.execute(
+                        "UPDATE sync_writeback_ops SET phase=1,revision=revision+1 WHERE id=?1",
+                        [&selected.token.id],
+                    )?;
+                    let armed = load(
+                        &tx,
+                        selected.token.catalog,
+                        selected.token.root,
+                        &selected.token.id,
+                    )?;
+                    tx.commit()?;
+                    Ok(armed)
+                })
+                .await;
+            match armed {
+                Ok(armed) => {
+                    item = armed;
+                    operation.item = item.clone();
+                }
+                Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => {
+                    operation.cancelling = Some(LiveResult::Obsolete);
+                    self.cancel_live_copy(&item).await?;
+                    return Ok(LiveResult::Obsolete);
                 }
                 Err(error) => return Err(error),
             }
-            let selected = item.clone();
-            let record = operation.record.clone();
-            let result = this.db(move |c| {
-                #[cfg(test)]
-                failure(selected.token.root,"ack")?;
-                let tx = c.transaction()?;
-                let current = checked(&tx,&selected.token)?;
-                let valid = match api_original(&tx,&current) {
-                    Ok(()) => true,
-                    Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => false,
-                    Err(error) => return Err(error),
-                };
-                let binding = SyncBinding { catalog: current.token.catalog, bucket: current.bucket.clone(), incarnation: current.incarnation.clone() };
-                let same_binding = match super::super::matching(&tx,&binding,&current.bucket) {
-                    Ok(()) => true,
-                    Err(ObjectError::PreconditionFailed) => false,
-                    Err(error) => return Err(error.into()),
-                };
-                if same_binding {
-                    if let Some(fp) = fp {
-                        let update = SyncUpdate::new(binding,current.path.clone(),fp)?;
-                        // Track the bytes actually installed even if a newer API generation won meanwhile.
-                        super::super::record_in_transaction(&tx,&update,record.as_ref().ok_or_else(stale)?)?;
-                    } else {
-                        tx.execute("DELETE FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4",params![current.bucket,current.name,current.incarnation,current.generation.get()])?;
-                    }
+        }
+        let selected = item.clone();
+        let expected = operation.tracked.clone();
+        let staged = operation.staged;
+        let observing = operation.observing;
+        let installed = self
+            .fs(move |root, workspace| {
+                if observing {
+                    return match target(root, &selected.path)? {
+                        Some(file) => {
+                            content_matches(&file, selected.size, selected.md5, selected.crc32c)
+                        }
+                        None => Ok(false),
+                    };
                 }
-                finish_live(&tx,&current)?;
-                tx.commit()?;
-                Ok(if valid { LiveResult::Complete } else { LiveResult::Obsolete })
-            }).await?;
-            Ok(result)
+                install_target(root, workspace, &selected, expected.as_ref(), staged)
+            })
+            .await;
+        match installed {
+            Ok(false) => {
+                operation.cancelling = Some(LiveResult::Conflict);
+                self.cancel_live_copy(&item).await?;
+                return Ok(LiveResult::Conflict);
+            }
+            Ok(true) => operation.installed = true,
+            Err(Error::Protected) => {
+                self.inspect_inner(item.token.clone()).await?;
+                return Err(Error::Protected);
+            }
+            Err(error) => return Err(error),
+        }
+        Ok(LiveResult::Pending)
+    }
+
+    /// Records the installed file's fingerprint durably before acknowledging it.
+    async fn record_live_durable(
+        &self,
+        operation: &mut LiveOperation,
+    ) -> Result<LiveResult, Error> {
+        let item = operation.item.clone();
+        #[cfg(test)]
+        failure(item.token.root, "durable")?;
+        let selected = item.clone();
+        let fp = match self
+            .fs(move |root, workspace| fingerprint(root, workspace, &selected))
+            .await
+        {
+            Ok(fp) => fp,
+            Err(Error::Admin(AdminError::Precondition | AdminError::NotFound))
+                if operation.observing =>
+            {
+                operation.cancelling = Some(LiveResult::Conflict);
+                self.cancel_live_copy(&item).await?;
+                return Ok(LiveResult::Conflict);
+            }
+            Err(error) => return Err(error),
+        };
+        let snapshot = fp
+            .as_ref()
+            .map(serde_json::to_vec)
+            .transpose()
+            .map_err(|e| AdminError::Backend(e.to_string()))?;
+        let selected = item.clone();
+        operation.item = self.db(move |c| {
+            let tx = c.transaction()?;
+            checked(&tx,&selected.token)?;
+            tx.execute("UPDATE sync_writeback_ops SET phase=3,revision=revision+1,snapshot=?2 WHERE id=?1",params![selected.token.id,snapshot])?;
+            let durable = load(&tx,selected.token.catalog,selected.token.root,&selected.token.id)?;
+            tx.commit()?;
+            Ok(durable)
+        }).await?;
+        operation.durable = Some(fp);
+        Ok(LiveResult::Pending)
+    }
+
+    /// Verifies the durable fingerprint still holds, then tracks it and finishes the operation.
+    async fn acknowledge_live(&self, operation: &mut LiveOperation) -> Result<LiveResult, Error> {
+        let item = operation.item.clone();
+        let fp = operation.durable.clone().ok_or_else(stale)?;
+        let selected = item.clone();
+        let expected = fp.clone();
+        let verified = self
+            .fs(move |root, workspace| {
+                if fingerprint(root, workspace, &selected)? != expected {
+                    return Err(stale());
+                }
+                Ok(())
+            })
+            .await;
+        match verified {
+            Ok(()) => {}
+            Err(Error::Admin(AdminError::Precondition | AdminError::NotFound))
+                if operation.observing =>
+            {
+                operation.cancelling = Some(LiveResult::Conflict);
+                self.cancel_live_copy(&item).await?;
+                return Ok(LiveResult::Conflict);
+            }
+            Err(error) => return Err(error),
+        }
+        let selected = item.clone();
+        let record = operation.record.clone();
+        self.db(move |c| {
+            #[cfg(test)]
+            failure(selected.token.root,"ack")?;
+            let tx = c.transaction()?;
+            let current = checked(&tx,&selected.token)?;
+            let valid = match api_original(&tx,&current) {
+                Ok(()) => true,
+                Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => false,
+                Err(error) => return Err(error),
+            };
+            let binding = SyncBinding { catalog: current.token.catalog, bucket: current.bucket.clone(), incarnation: current.incarnation.clone() };
+            let same_binding = match super::super::matching(&tx,&binding,&current.bucket) {
+                Ok(()) => true,
+                Err(ObjectError::PreconditionFailed) => false,
+                Err(error) => return Err(error.into()),
+            };
+            if same_binding {
+                if let Some(fp) = fp {
+                    let update = SyncUpdate::new(binding,current.path.clone(),fp)?;
+                    // Track the bytes actually installed even if a newer API generation won meanwhile.
+                    super::super::record_in_transaction(&tx,&update,record.as_ref().ok_or_else(stale)?)?;
+                } else {
+                    tx.execute("DELETE FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4",params![current.bucket,current.name,current.incarnation,current.generation.get()])?;
+                }
+            }
+            finish_live(&tx,&current)?;
+            tx.commit()?;
+            Ok(if valid { LiveResult::Complete } else { LiveResult::Obsolete })
         }).await
     }
 

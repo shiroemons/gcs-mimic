@@ -267,190 +267,80 @@ fn immutable_catalog_uri(path: &Path) -> Result<String, CatalogError> {
     Ok(format!("file:{encoded}?immutable=1"))
 }
 
+type StateCheck = fn(&Connection) -> Result<(), CatalogError>;
+
+/// Each schema version's statements, applied in order to build the expected catalog, and the
+/// stored-state check that version introduced.
+const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
+    (2, objects::SCHEMA, None),
+    (3, objects::GENERATION_SCHEMA, None),
+    (4, objects::METADATA_SCHEMA, None),
+    (5, SEED_SCHEMA, Some(validate_seed)),
+    (6, policies::SCHEMA, Some(policies::validate)),
+    (7, resumable::SCHEMA, Some(resumable::validate)),
+    (8, BUCKET_SETTINGS_SCHEMA, None),
+    (9, objects::VERSIONING_SCHEMA, None),
+    (10, derived::SCHEMA, None),
+    (11, rewrite::SCHEMA, Some(rewrite::validate)),
+    (12, BUCKET_CORS_SCHEMA, None),
+    (13, BUCKET_PAP_SCHEMA, None),
+    (15, change_journal::SCHEMA, Some(change_journal::validate)),
+    (16, import_journal::SCHEMA, None),
+    (17, sync_state::SCHEMA, Some(sync_state::validate)),
+    (
+        18,
+        import_journal::FAILURE_SCHEMA,
+        Some(import_journal::validate_failure),
+    ),
+    (19, sync_state::root::SCHEMA, None),
+    (20, sync_state::writeback::SCHEMA, None),
+    (21, sync_state::findings::SCHEMA, None),
+    (22, OBJECT_HOLDS_CUSTOM_TIME_SCHEMA, None),
+    (23, BUCKET_UNIFORM_ACCESS_SCHEMA, None),
+    (24, BUCKET_LIFECYCLE_SCHEMA, None),
+    (25, BUCKET_RETENTION_SCHEMA, None),
+    (26, SOFT_DELETE_SCHEMA, None),
+    (27, sync_state::buckets::SCHEMA, None),
+    (28, notifications::SCHEMA, Some(notifications::validate)),
+    (29, objects::retention::SCHEMA, None),
+    (30, customer_keys::SCHEMA, None),
+    (31, bucket_autoclass::SCHEMA, None),
+    (32, hmac_keys::SCHEMA, None),
+    (33, acl::SCHEMA, None),
+    (34, appendable::SCHEMA, None),
+    (35, upload_replay::SCHEMA, Some(upload_replay::validate)),
+];
+
+fn validate_seed(connection: &Connection) -> Result<(), CatalogError> {
+    let valid: bool = connection
+        .query_row(
+            "SELECT count(*) = 1 AND min(singleton) = 1 FROM startup_seed",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(unavailable)?;
+    if valid {
+        Ok(())
+    } else {
+        Err(unavailable("invalid startup seed state"))
+    }
+}
+
 fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogError> {
     let expected = Connection::open_in_memory().map_err(unavailable)?;
     expected.execute_batch(BUCKET_SCHEMA).map_err(unavailable)?;
-    if version >= 2 {
-        expected
-            .execute_batch(objects::SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 3 {
-        expected
-            .execute_batch(objects::GENERATION_SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 4 {
-        expected
-            .execute_batch(objects::METADATA_SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 5 {
-        expected.execute_batch(SEED_SCHEMA).map_err(unavailable)?;
-        let valid: bool = connection
-            .query_row(
-                "SELECT count(*) = 1 AND min(singleton) = 1 FROM startup_seed",
-                [],
-                |r| r.get(0),
-            )
-            .map_err(unavailable)?;
-        if !valid {
-            return Err(unavailable("invalid startup seed state"));
+    for &(introduced, schema, check) in SCHEMA_STEPS {
+        if version < introduced {
+            break;
         }
-    }
-    if version >= 6 {
-        expected
-            .execute_batch(policies::SCHEMA)
-            .map_err(unavailable)?;
-        policies::validate(connection)?;
-    }
-    if version >= 7 {
-        expected
-            .execute_batch(resumable::SCHEMA)
-            .map_err(unavailable)?;
-        resumable::validate(connection)?;
-    }
-    if version >= 8 {
-        expected
-            .execute_batch(BUCKET_SETTINGS_SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 9 {
-        expected
-            .execute_batch(objects::VERSIONING_SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 10 {
-        expected
-            .execute_batch(derived::SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 11 {
-        expected
-            .execute_batch(rewrite::SCHEMA)
-            .map_err(unavailable)?;
-        rewrite::validate(connection)?;
-    }
-    if version >= 12 {
-        expected
-            .execute_batch(BUCKET_CORS_SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 13 {
-        expected
-            .execute_batch(BUCKET_PAP_SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 15 {
-        expected
-            .execute_batch(change_journal::SCHEMA)
-            .map_err(unavailable)?;
-        change_journal::validate(connection)?;
-    }
-    if version >= 16 {
-        expected
-            .execute_batch(import_journal::SCHEMA)
-            .map_err(unavailable)?;
-        if version < 18 {
+        expected.execute_batch(schema).map_err(unavailable)?;
+        if let Some(check) = check {
+            check(connection)?;
+        }
+        // Version 18 replaced the import journal's validation with the failure journal's.
+        if introduced == 16 && version < 18 {
             import_journal::validate(connection)?;
         }
-    }
-    if version >= 17 {
-        expected
-            .execute_batch(sync_state::SCHEMA)
-            .map_err(unavailable)?;
-        sync_state::validate(connection)?;
-    }
-    if version >= 18 {
-        expected
-            .execute_batch(import_journal::FAILURE_SCHEMA)
-            .map_err(unavailable)?;
-        import_journal::validate_failure(connection)?;
-    }
-    if version >= 19 {
-        expected
-            .execute_batch(sync_state::root::SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 20 {
-        expected
-            .execute_batch(sync_state::writeback::SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 21 {
-        expected
-            .execute_batch(sync_state::findings::SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 22 {
-        expected
-            .execute_batch(OBJECT_HOLDS_CUSTOM_TIME_SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 23 {
-        expected
-            .execute_batch(BUCKET_UNIFORM_ACCESS_SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 24 {
-        expected
-            .execute_batch(BUCKET_LIFECYCLE_SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 25 {
-        expected
-            .execute_batch(BUCKET_RETENTION_SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 26 {
-        expected
-            .execute_batch(SOFT_DELETE_SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 27 {
-        expected
-            .execute_batch(sync_state::buckets::SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 28 {
-        expected
-            .execute_batch(notifications::SCHEMA)
-            .map_err(unavailable)?;
-        notifications::validate(connection)?;
-    }
-    if version >= 29 {
-        expected
-            .execute_batch(objects::retention::SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 30 {
-        expected
-            .execute_batch(customer_keys::SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 31 {
-        expected
-            .execute_batch(bucket_autoclass::SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 32 {
-        expected
-            .execute_batch(hmac_keys::SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 33 {
-        expected.execute_batch(acl::SCHEMA).map_err(unavailable)?;
-    }
-    if version >= 34 {
-        expected
-            .execute_batch(appendable::SCHEMA)
-            .map_err(unavailable)?;
-    }
-    if version >= 35 {
-        expected
-            .execute_batch(upload_replay::SCHEMA)
-            .map_err(unavailable)?;
-        upload_replay::validate(connection)?;
     }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
@@ -692,6 +582,245 @@ impl Drop for UploadGuard {
 #[derive(Clone)]
 pub struct Catalog(Arc<Inner>);
 
+/// Reads and validates an existing catalog without writing to it; returns its stored schema
+/// version, or 0 when the catalog is new.
+fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
+    // A read-write connection can checkpoint a rejected catalog's hot WAL on close.
+    let connection = if path.try_exists().map_err(unavailable)? {
+        if path
+            .with_extension("sqlite3-wal")
+            .try_exists()
+            .map_err(unavailable)?
+        {
+            Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        } else {
+            // Directory ownership makes a WAL-free main file safe for immutable reads.
+            let absolute = path.canonicalize().map_err(unavailable)?;
+            Connection::open_with_flags(
+                immutable_catalog_uri(&absolute)?,
+                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+            )
+        }
+    } else {
+        Connection::open_in_memory()
+    }
+    .map_err(unavailable)?;
+    connection
+        .busy_timeout(Duration::from_secs(5))
+        .map_err(unavailable)?;
+    connection
+        .execute_batch(
+            "PRAGMA cache_size = -2048;
+                 PRAGMA mmap_size = 0;
+                 PRAGMA temp_store = FILE;",
+        )
+        .map_err(unavailable)?;
+    let version: i64 = connection
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .map_err(unavailable)?;
+    validate_schema_version(version, CATALOG_SCHEMA_VERSION)?;
+    if version == 2 {
+        return Err(unavailable(
+            "unsupported unreleased catalog schema version 2; deleted generation history cannot be recovered",
+        ));
+    }
+    let check: String = connection
+        .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
+        .map_err(unavailable)?;
+    if check != "ok" {
+        return Err(CatalogError::Unavailable(
+            format!("catalog quick_check failed: {check}").into(),
+        ));
+    }
+    if version == 0 {
+        let tables: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(unavailable)?;
+        if tables != 0 {
+            return Err(CatalogError::Unavailable(
+                "unversioned catalog is not empty".into(),
+            ));
+        }
+    } else {
+        // Reject foreign schemas before any persistent journal-mode change.
+        validate_schema(&connection, version)?;
+    }
+    Ok(version)
+}
+
+/// Opens the catalog for writing in WAL mode with full synchronization.
+fn open_writable(path: &Path) -> Result<Connection, CatalogError> {
+    let connection = Connection::open(path).map_err(unavailable)?;
+    connection
+        .busy_timeout(Duration::from_secs(5))
+        .map_err(unavailable)?;
+    connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys = ON;
+                 PRAGMA cache_size = -2048;
+                 PRAGMA mmap_size = 0;
+                 PRAGMA temp_store = FILE;",
+        )
+        .map_err(unavailable)?;
+    let mode: String = connection
+        .pragma_query_value(None, "journal_mode", |r| r.get(0))
+        .map_err(unavailable)?;
+    if mode != "wal" {
+        let mode: String = connection
+            .query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))
+            .map_err(unavailable)?;
+        if mode != "wal" {
+            return Err(CatalogError::Unavailable(
+                "SQLite WAL mode is required".into(),
+            ));
+        }
+    }
+    connection
+        .execute_batch("PRAGMA synchronous = FULL; PRAGMA wal_autocheckpoint = 256;")
+        .map_err(unavailable)?;
+    Ok(connection)
+}
+
+/// Creates a new catalog at schema version 5, the base the migrations continue from.
+fn initialize_catalog(connection: &mut Connection) -> Result<(), CatalogError> {
+    let transaction = connection.transaction().map_err(unavailable)?;
+    transaction
+        .execute_batch(BUCKET_SCHEMA)
+        .map_err(unavailable)?;
+    // Freshness and the retryable seed state must survive the same commit.
+    for schema in [
+        objects::SCHEMA,
+        objects::GENERATION_SCHEMA,
+        objects::METADATA_SCHEMA,
+        SEED_SCHEMA,
+    ] {
+        transaction.execute_batch(schema).map_err(unavailable)?;
+    }
+    transaction
+        .execute("INSERT INTO object_generation VALUES (1, 0)", [])
+        .map_err(unavailable)?;
+    transaction
+        .execute("INSERT INTO startup_seed VALUES (1, 0)", [])
+        .map_err(unavailable)?;
+    transaction.commit().map_err(unavailable)
+}
+
+fn migrate_seed(connection: &mut Connection) -> Result<(), CatalogError> {
+    let transaction = connection.transaction().map_err(unavailable)?;
+    transaction
+        .execute_batch(SEED_SCHEMA)
+        .map_err(unavailable)?;
+    // Older catalogs have already served user mutations, even if now empty.
+    transaction
+        .execute("INSERT INTO startup_seed VALUES (1, 1)", [])
+        .map_err(unavailable)?;
+    transaction.commit().map_err(unavailable)
+}
+
+/// One schema upgrade: statements committed in one transaction, or a migration function.
+enum Migration {
+    Statements(&'static str),
+    Function(fn(&mut Connection) -> Result<(), CatalogError>),
+}
+
+impl Migration {
+    fn apply(&self, connection: &mut Connection) -> Result<(), CatalogError> {
+        match self {
+            Self::Statements(schema) => {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(schema).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)
+            }
+            Self::Function(migrate) => migrate(connection),
+        }
+    }
+}
+
+/// Upgrades in order; each applies when the catalog's version is below the paired version.
+const MIGRATIONS: &[(i64, Migration)] = &[
+    (2, Migration::Function(objects::migrate)),
+    (4, Migration::Function(objects::migrate_metadata)),
+    (5, Migration::Function(migrate_seed)),
+    (6, Migration::Function(policies::migrate)),
+    (7, Migration::Function(resumable::migrate)),
+    (8, Migration::Function(migrate_bucket_settings)),
+    (9, Migration::Function(objects::migrate_versioning)),
+    (10, Migration::Statements(derived::SCHEMA)),
+    (11, Migration::Statements(rewrite::SCHEMA)),
+    (12, Migration::Statements(BUCKET_CORS_SCHEMA)),
+    (13, Migration::Statements(BUCKET_PAP_SCHEMA)),
+    (
+        TIMESTAMP_MICROS_SCHEMA_VERSION,
+        Migration::Function(migrate_timestamp_precision),
+    ),
+    (15, Migration::Function(change_journal::migrate)),
+    (16, Migration::Function(import_journal::migrate)),
+    (17, Migration::Function(sync_state::migrate)),
+    (18, Migration::Function(import_journal::migrate_failure)),
+    (19, Migration::Function(sync_state::root::migrate)),
+    (20, Migration::Function(sync_state::writeback::migrate)),
+    (21, Migration::Function(sync_state::findings::migrate)),
+    (22, Migration::Statements(OBJECT_HOLDS_CUSTOM_TIME_SCHEMA)),
+    (23, Migration::Statements(BUCKET_UNIFORM_ACCESS_SCHEMA)),
+    (24, Migration::Statements(BUCKET_LIFECYCLE_SCHEMA)),
+    (25, Migration::Statements(BUCKET_RETENTION_SCHEMA)),
+    (26, Migration::Statements(SOFT_DELETE_SCHEMA)),
+    (27, Migration::Function(sync_state::buckets::migrate)),
+    (28, Migration::Function(notifications::migrate)),
+    (29, Migration::Function(objects::retention::migrate)),
+    (30, Migration::Function(customer_keys::migrate)),
+    (31, Migration::Function(bucket_autoclass::migrate)),
+    (32, Migration::Function(hmac_keys::migrate)),
+    (33, Migration::Function(acl::migrate)),
+    (34, Migration::Function(appendable::migrate)),
+    (35, Migration::Function(upload_replay::migrate)),
+];
+
+/// Resets volatile state and completes crash recovery before the catalog serves requests.
+fn recover_on_open(
+    connection: &mut Connection,
+    data_dir: &Path,
+    clock: &dyn Clock,
+) -> Result<(), CatalogError> {
+    let pending: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(unavailable)?;
+    if pending {
+        connection.execute("UPDATE sync_writeback_roots SET recovery=1 WHERE EXISTS(SELECT 1 FROM sync_writeback_ops p WHERE p.root_id=sync_writeback_roots.root_id AND p.phase!=4)",[]).map_err(unavailable)?;
+    }
+    let journal_enabled: bool = connection
+        .query_row(
+            "SELECT enabled FROM change_journal_state WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(unavailable)?;
+    if journal_enabled {
+        // shortcut: restart requires a full rescan, add durable consumer checkpoints when restart continuity is needed.
+        connection
+            .execute(
+                "UPDATE change_journal_state SET enabled = 0, epoch = epoch + 1 WHERE singleton = 1",
+                [],
+            )
+            .map_err(unavailable)?;
+    }
+    connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(unavailable)?;
+    let recovery_now = unix_millis(clock.now())?;
+    rewrite::recover_due(connection, recovery_now)?;
+    resumable_maintenance::recover_due(connection, data_dir, recovery_now)?;
+    objects::recover(connection, data_dir, recovery_now)?;
+    appendable::recover(connection, data_dir)
+}
+
 impl Catalog {
     /// Acquires directory ownership and completes SQLite recovery before returning.
     pub async fn open(data_dir: impl AsRef<Path>) -> Result<Self, CatalogError> {
@@ -703,236 +832,24 @@ impl Catalog {
         clock: Arc<dyn Clock>,
     ) -> Result<Self, CatalogError> {
         let data_dir = data_dir.as_ref().to_owned();
-        let catalog = tokio::task::spawn_blocking(move || {
+        let catalog = tokio::task::spawn_blocking(move || -> Result<Self, CatalogError> {
             let lock = lock::acquire(&data_dir)?;
             let path = data_dir.join("catalog.sqlite3");
-            // A read-write connection can checkpoint a rejected catalog's hot WAL on close.
-            let connection = if path.try_exists().map_err(unavailable)? {
-                if path.with_extension("sqlite3-wal").try_exists().map_err(unavailable)? {
-                    Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-                } else {
-                    // Directory ownership makes a WAL-free main file safe for immutable reads.
-                    let absolute = path.canonicalize().map_err(unavailable)?;
-                    Connection::open_with_flags(
-                        immutable_catalog_uri(&absolute)?,
-                        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
-                    )
-                }
-            } else {
-                Connection::open_in_memory()
-            }
-            .map_err(unavailable)?;
-            connection
-                .busy_timeout(Duration::from_secs(5))
-                .map_err(unavailable)?;
-            connection
-                .execute_batch(
-                    "PRAGMA cache_size = -2048;
-                 PRAGMA mmap_size = 0;
-                 PRAGMA temp_store = FILE;",
-                )
-                .map_err(unavailable)?;
-            let mut version: i64 = connection
-                .pragma_query_value(None, "user_version", |r| r.get(0))
-                .map_err(unavailable)?;
-            validate_schema_version(version, CATALOG_SCHEMA_VERSION)?;
-            let stored_version = version;
-            if version == 2 {
-                return Err(unavailable("unsupported unreleased catalog schema version 2; deleted generation history cannot be recovered"));
-            }
-            let check: String = connection
-                .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
-                .map_err(unavailable)?;
-            if check != "ok" {
-                return Err(CatalogError::Unavailable(format!(
-                    "catalog quick_check failed: {check}"
-                ).into()));
-            }
+            let stored_version = inspect_catalog(&path)?;
+            let mut connection = open_writable(&path)?;
+            let mut version = stored_version;
             if version == 0 {
-                let tables: i64 = connection
-                    .query_row(
-                        "SELECT count(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
-                        [],
-                        |r| r.get(0),
-                    )
-                    .map_err(unavailable)?;
-                if tables != 0 {
-                    return Err(CatalogError::Unavailable(
-                        "unversioned catalog is not empty".into(),
-                    ));
-                }
-            } else {
-                // Reject foreign schemas before any persistent journal-mode change.
-                validate_schema(&connection, version)?;
-            }
-            drop(connection);
-            let mut connection = Connection::open(path).map_err(unavailable)?;
-            connection
-                .busy_timeout(Duration::from_secs(5))
-                .map_err(unavailable)?;
-            connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
-            connection
-                .execute_batch(
-                    "PRAGMA foreign_keys = ON;
-                 PRAGMA cache_size = -2048;
-                 PRAGMA mmap_size = 0;
-                 PRAGMA temp_store = FILE;",
-                )
-                .map_err(unavailable)?;
-            let mode: String = connection
-                .pragma_query_value(None, "journal_mode", |r| r.get(0))
-                .map_err(unavailable)?;
-            if mode != "wal" {
-                let mode: String = connection
-                    .query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))
-                    .map_err(unavailable)?;
-                if mode != "wal" {
-                    return Err(CatalogError::Unavailable(
-                        "SQLite WAL mode is required".into(),
-                    ));
-                }
-            }
-            connection
-                .execute_batch("PRAGMA synchronous = FULL; PRAGMA wal_autocheckpoint = 256;")
-                .map_err(unavailable)?;
-            if version == 0 {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction
-                    .execute_batch(BUCKET_SCHEMA)
-                    .map_err(unavailable)?;
-                // Freshness and the retryable seed state must survive the same commit.
-                for schema in [objects::SCHEMA, objects::GENERATION_SCHEMA, objects::METADATA_SCHEMA, SEED_SCHEMA] {
-                    transaction.execute_batch(schema).map_err(unavailable)?;
-                }
-                transaction.execute("INSERT INTO object_generation VALUES (1, 0)", []).map_err(unavailable)?;
-                transaction.execute("INSERT INTO startup_seed VALUES (1, 0)", []).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
+                initialize_catalog(&mut connection)?;
                 version = 5;
             }
             // A version marker alone must not make a missing or incompatible schema ready.
             connection
                 .prepare_cached("SELECT name, project, location, location_type, storage_class, labels, metageneration, time_created, updated FROM buckets LIMIT 0")
                 .map_err(unavailable)?;
-            if version < 2 {
-                objects::migrate(&mut connection)?;
-            }
-            if version < 4 {
-                objects::migrate_metadata(&mut connection)?;
-            }
-            if version < 5 {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction.execute_batch(SEED_SCHEMA).map_err(unavailable)?;
-                // Older catalogs have already served user mutations, even if now empty.
-                transaction.execute("INSERT INTO startup_seed VALUES (1, 1)", []).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
-            }
-            if version < 6 {
-                policies::migrate(&mut connection)?;
-            }
-            if version < 7 {
-                resumable::migrate(&mut connection)?;
-            }
-            if version < 8 {
-                migrate_bucket_settings(&mut connection)?;
-            }
-            if version < 9 {
-                objects::migrate_versioning(&mut connection)?;
-            }
-            if version < 10 {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction.execute_batch(derived::SCHEMA).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
-            }
-            if version < 11 {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction.execute_batch(rewrite::SCHEMA).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
-            }
-            if version < 12 {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction.execute_batch(BUCKET_CORS_SCHEMA).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
-            }
-            if version < 13 {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction.execute_batch(BUCKET_PAP_SCHEMA).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
-            }
-            if version < TIMESTAMP_MICROS_SCHEMA_VERSION {
-                migrate_timestamp_precision(&mut connection)?;
-            }
-            if version < 15 {
-                change_journal::migrate(&mut connection)?;
-            }
-            if version < 16 {
-                import_journal::migrate(&mut connection)?;
-            }
-            if version < 17 {
-                sync_state::migrate(&mut connection)?;
-            }
-            if version < 18 {
-                import_journal::migrate_failure(&mut connection)?;
-            }
-            if version < 19 {
-                sync_state::root::migrate(&mut connection)?;
-            }
-            if version < 20 {
-                sync_state::writeback::migrate(&mut connection)?;
-            }
-            if version < 21 {
-                sync_state::findings::migrate(&mut connection)?;
-            }
-            if version < 22 {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction.execute_batch(OBJECT_HOLDS_CUSTOM_TIME_SCHEMA).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
-            }
-            if version < 23 {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction.execute_batch(BUCKET_UNIFORM_ACCESS_SCHEMA).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
-            }
-            if version < 24 {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction.execute_batch(BUCKET_LIFECYCLE_SCHEMA).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
-            }
-            if version < 25 {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction.execute_batch(BUCKET_RETENTION_SCHEMA).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
-            }
-            if version < 26 {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction.execute_batch(SOFT_DELETE_SCHEMA).map_err(unavailable)?;
-                transaction.commit().map_err(unavailable)?;
-            }
-            if version < 27 {
-                sync_state::buckets::migrate(&mut connection)?;
-            }
-            if version < 28 {
-                notifications::migrate(&mut connection)?;
-            }
-            if version < 29 {
-                objects::retention::migrate(&mut connection)?;
-            }
-            if version < 30 {
-                customer_keys::migrate(&mut connection)?;
-            }
-            if version < 31 {
-                bucket_autoclass::migrate(&mut connection)?;
-            }
-            if version < 32 {
-                hmac_keys::migrate(&mut connection)?;
-            }
-            if version < 33 {
-                acl::migrate(&mut connection)?;
-            }
-            if version < 34 {
-                appendable::migrate(&mut connection)?;
-            }
-            if version < 35 {
-                upload_replay::migrate(&mut connection)?;
+            for (before, migration) in MIGRATIONS {
+                if version < *before {
+                    migration.apply(&mut connection)?;
+                }
             }
             // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
             if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {
@@ -942,21 +859,7 @@ impl Catalog {
                     serde_json::json!({"message":format!("migrated catalog schema from version {stored_version} to {CATALOG_SCHEMA_VERSION}; releases that support only schema {stored_version} can no longer open this data directory"),"from":stored_version,"to":CATALOG_SCHEMA_VERSION}),
                 );
             }
-            let pending: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)", [], |row| row.get(0)).map_err(unavailable)?;
-            if pending {
-                connection.execute("UPDATE sync_writeback_roots SET recovery=1 WHERE EXISTS(SELECT 1 FROM sync_writeback_ops p WHERE p.root_id=sync_writeback_roots.root_id AND p.phase!=4)",[]).map_err(unavailable)?;
-            }
-            let journal_enabled: bool = connection.query_row("SELECT enabled FROM change_journal_state WHERE singleton = 1", [], |row| row.get(0)).map_err(unavailable)?;
-            if journal_enabled {
-                // shortcut: restart requires a full rescan, add durable consumer checkpoints when restart continuity is needed.
-                connection.execute("UPDATE change_journal_state SET enabled = 0, epoch = epoch + 1 WHERE singleton = 1", []).map_err(unavailable)?;
-            }
-            connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(unavailable)?;
-            let recovery_now = unix_millis(clock.now())?;
-            rewrite::recover_due(&mut connection, recovery_now)?;
-            resumable_maintenance::recover_due(&connection, &data_dir, recovery_now)?;
-            objects::recover(&connection, &data_dir, recovery_now)?;
-            appendable::recover(&connection, &data_dir)?;
+            recover_on_open(&mut connection, &data_dir, &*clock)?;
             Ok(Self(Arc::new(Inner {
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),

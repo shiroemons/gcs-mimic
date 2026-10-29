@@ -1,6 +1,7 @@
 use super::{Catalog, UploadGuard, system_time_micros, unavailable, unix_micros};
 use crate::{
     bucket::{BucketAccess, CatalogError},
+    clock::Clock,
     hashing::{Hasher, Hashes},
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
@@ -15,6 +16,7 @@ use std::{
     fs::{self, File},
     io,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
@@ -503,6 +505,184 @@ impl ObjectReader {
     }
 }
 
+/// Creates the staging file for a new blob, refusing an ID whose final path already exists.
+async fn create_upload_stage(stage: PathBuf, published: PathBuf) -> Result<File, ObjectError> {
+    tokio::task::spawn_blocking(move || -> io::Result<File> {
+        if published.try_exists()? {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "blob ID collision",
+            ));
+        }
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(stage)
+    })
+    .await
+    .map_err(object_unavailable)?
+    .map_err(object_unavailable)
+}
+
+/// The streamed body's size and digests.
+struct UploadedBody {
+    size: u64,
+    md5: [u8; 16],
+    crc32c: u32,
+    sha256: [u8; 32],
+}
+
+/// Everything a single-request upload commits once its blob is durable.
+struct UploadCommit {
+    bucket: String,
+    name: String,
+    content_type: String,
+    metadata: ObjectMetadataUpdate,
+    conditions: ObjectConditions,
+    access: BucketAccess,
+    mode: super::admin::PublishMode,
+    identity: Option<super::admin::ImportedIdentity>,
+    replay: Option<super::upload_replay::UploadReplay>,
+    clock: Arc<dyn Clock>,
+    blob_id: String,
+    body: UploadedBody,
+}
+
+impl UploadCommit {
+    /// Identifies the request for upload replay: target, metadata, conditions and body.
+    fn fingerprint(&self) -> Vec<u8> {
+        super::upload_replay::fingerprint(&(
+            &self.bucket,
+            &self.name,
+            &self.content_type,
+            &self.metadata,
+            self.conditions,
+            self.body.size,
+            self.body.sha256,
+        ))
+    }
+
+    /// Publishes the upload in one immediate transaction, or returns the replayed or
+    /// unchanged record.
+    fn commit(self, connection: &mut Connection) -> Result<ObjectRecord, ObjectError> {
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(object_unavailable)?;
+        let (storage_class, allow_overwrite) =
+            authorized_bucket(&transaction, &self.bucket, &self.access)?;
+        let fingerprint = self.fingerprint();
+        let replay_now = unix_micros(self.clock.now()).map_err(object_unavailable)?;
+        if let Some(replay) = &self.replay {
+            replay.check_incarnation(&transaction, &self.bucket)?;
+            if let Some(record) = replay.replay(&transaction, replay_now, &fingerprint)? {
+                return Ok(record);
+            }
+            super::upload_replay::capacity(&transaction, replay_now)?;
+        }
+        let storage_class = super::bucket_autoclass::object_storage_class(
+            &transaction,
+            &self.bucket,
+            self.metadata.storage_class.clone(),
+            storage_class,
+        )
+        .map_err(object_unavailable)?;
+        let (versioning, default_hold) =
+            Catalog::bucket_settings_in_transaction(&transaction, &self.bucket)
+                .map_err(object_unavailable)?;
+        let previous = lookup(&transaction, &self.bucket, &self.name)?;
+        // Rechecked under the write lock so a concurrent create cannot be overwritten.
+        check_publication(
+            previous.as_ref(),
+            self.conditions,
+            allow_overwrite,
+            self.clock.now(),
+        )?;
+        let body = &self.body;
+        if skip_same(
+            self.mode,
+            previous.as_ref(),
+            body.size,
+            body.md5,
+            body.crc32c,
+        ) {
+            return previous
+                .map(|(record, _)| record)
+                .ok_or(ObjectError::ObjectNotFound);
+        }
+        let now = self.clock.now();
+        if self.identity.is_none() {
+            now.duration_since(std::time::UNIX_EPOCH)
+                .map_err(object_unavailable)?;
+        }
+        let micros = unix_micros(now).map_err(object_unavailable)?;
+        let time = system_time_micros(micros).map_err(object_unavailable)?;
+        let (record, _retired, ()) = publish_in_transaction(
+            &transaction,
+            micros,
+            self.identity
+                .map_or(GenerationAssignment::Automatic, |value| {
+                    GenerationAssignment::Imported(value.generation())
+                }),
+            previous.as_ref(),
+            versioning,
+            &self.blob_id,
+            super::change_journal::origin(&self.access),
+            |generation| {
+                let mut record = ObjectRecord {
+                    bucket: self.bucket.clone(),
+                    name: self.name.clone(),
+                    generation,
+                    metageneration: 1,
+                    content_type: self.content_type.clone(),
+                    size: body.size,
+                    md5: body.md5,
+                    crc32c: body.crc32c,
+                    component_count: None,
+                    storage_class,
+                    content_encoding: None,
+                    content_disposition: None,
+                    content_language: None,
+                    cache_control: None,
+                    metadata: Default::default(),
+                    time_created: time,
+                    updated: time,
+                    time_deleted: None,
+                    soft_delete_time: None,
+                    hard_delete_time: None,
+                    event_based_hold: default_hold,
+                    temporary_hold: false,
+                    custom_time: None,
+                    retention_expiration_time: None,
+                    retention: None,
+                    customer_key_sha256: None,
+                };
+                self.metadata.clone().apply(&mut record)?;
+                inherit_metadata(self.mode, previous.as_ref(), &mut record);
+                if let Some(identity) = self.identity {
+                    record.time_created = identity.time_created();
+                    record.updated = identity.updated();
+                }
+                Ok((record, ()))
+            },
+        )?;
+        // Only a reserved generation can match an appendable row.
+        if self.identity.is_some() {
+            super::appendable::retire_published(&transaction, &record)?;
+        }
+        if let Some(replay) = &self.replay {
+            replay.store(
+                &transaction,
+                replay_now,
+                &fingerprint,
+                &record,
+                &self.access,
+            )?;
+        }
+        transaction.commit().map_err(object_unavailable)?;
+        Ok(record)
+    }
+}
+
 impl Catalog {
     /// Each emitted entry requires one indexed seek, independent of a grouped prefix's size.
     #[cfg(test)]
@@ -748,23 +928,7 @@ impl Catalog {
             let id = blob.to_hex();
             let stage = blob.staging_path(&catalog.0.data_dir);
             let published = blob.blob_path(&catalog.0.data_dir);
-            let source = stage.clone();
-            let destination = published.clone();
-            let file = tokio::task::spawn_blocking(move || -> io::Result<File> {
-                if destination.try_exists()? {
-                    return Err(io::Error::new(
-                        io::ErrorKind::AlreadyExists,
-                        "blob ID collision",
-                    ));
-                }
-                fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(source)
-            })
-            .await
-            .map_err(object_unavailable)?
-            .map_err(object_unavailable)?;
+            let file = create_upload_stage(stage.clone(), published.clone()).await?;
             let result = async {
                 let (size, md5, crc32c, sha256) = write_body(
                     tokio::fs::File::from_std(file),
@@ -780,128 +944,27 @@ impl Catalog {
                     .await
                     .map_err(object_unavailable)?
                     .map_err(object_unavailable)?;
-                let clock = catalog.0.clock.clone();
-                let blob_id = id.clone();
+                let commit = UploadCommit {
+                    bucket,
+                    name,
+                    content_type,
+                    metadata,
+                    conditions,
+                    access,
+                    mode,
+                    identity,
+                    replay,
+                    clock: catalog.0.clock.clone(),
+                    blob_id: id.clone(),
+                    body: UploadedBody {
+                        size,
+                        md5,
+                        crc32c,
+                        sha256,
+                    },
+                };
                 catalog
-                    .run_upload(move |connection| {
-                        let transaction = connection
-                            .transaction_with_behavior(TransactionBehavior::Immediate)
-                            .map_err(object_unavailable)?;
-                        let (storage_class, allow_overwrite) =
-                            authorized_bucket(&transaction, &bucket, &access)?;
-                        let fingerprint = super::upload_replay::fingerprint(&(
-                            &bucket,
-                            &name,
-                            &content_type,
-                            &metadata,
-                            conditions,
-                            size,
-                            sha256,
-                        ));
-                        let replay_now = unix_micros(clock.now()).map_err(object_unavailable)?;
-                        if let Some(replay) = &replay {
-                            replay.check_incarnation(&transaction, &bucket)?;
-                            if let Some(record) =
-                                replay.replay(&transaction, replay_now, &fingerprint)?
-                            {
-                                return Ok(record);
-                            }
-                            super::upload_replay::capacity(&transaction, replay_now)?;
-                        }
-                        let storage_class = super::bucket_autoclass::object_storage_class(
-                            &transaction,
-                            &bucket,
-                            metadata.storage_class.clone(),
-                            storage_class,
-                        )
-                        .map_err(object_unavailable)?;
-                        let (versioning, default_hold) =
-                            Catalog::bucket_settings_in_transaction(&transaction, &bucket)
-                                .map_err(object_unavailable)?;
-                        let previous = lookup(&transaction, &bucket, &name)?;
-                        // Rechecked under the write lock so a concurrent create cannot be overwritten.
-                        check_publication(
-                            previous.as_ref(),
-                            conditions,
-                            allow_overwrite,
-                            clock.now(),
-                        )?;
-                        if skip_same(mode, previous.as_ref(), size, md5, crc32c) {
-                            return previous
-                                .map(|(record, _)| record)
-                                .ok_or(ObjectError::ObjectNotFound);
-                        }
-                        let now = clock.now();
-                        if identity.is_none() {
-                            now.duration_since(std::time::UNIX_EPOCH)
-                                .map_err(object_unavailable)?;
-                        }
-                        let micros = unix_micros(now).map_err(object_unavailable)?;
-                        let time = system_time_micros(micros).map_err(object_unavailable)?;
-                        let (record, _retired, ()) = publish_in_transaction(
-                            &transaction,
-                            micros,
-                            identity.map_or(GenerationAssignment::Automatic, |value| {
-                                GenerationAssignment::Imported(value.generation())
-                            }),
-                            previous.as_ref(),
-                            versioning,
-                            &blob_id,
-                            super::change_journal::origin(&access),
-                            |generation| {
-                                let mut record = ObjectRecord {
-                                    bucket,
-                                    name,
-                                    generation,
-                                    metageneration: 1,
-                                    content_type,
-                                    size,
-                                    md5,
-                                    crc32c,
-                                    component_count: None,
-                                    storage_class,
-                                    content_encoding: None,
-                                    content_disposition: None,
-                                    content_language: None,
-                                    cache_control: None,
-                                    metadata: Default::default(),
-                                    time_created: time,
-                                    updated: time,
-                                    time_deleted: None,
-                                    soft_delete_time: None,
-                                    hard_delete_time: None,
-                                    event_based_hold: default_hold,
-                                    temporary_hold: false,
-                                    custom_time: None,
-                                    retention_expiration_time: None,
-                                    retention: None,
-                                    customer_key_sha256: None,
-                                };
-                                metadata.apply(&mut record)?;
-                                inherit_metadata(mode, previous.as_ref(), &mut record);
-                                if let Some(identity) = identity {
-                                    record.time_created = identity.time_created();
-                                    record.updated = identity.updated();
-                                }
-                                Ok((record, ()))
-                            },
-                        )?;
-                        // Only a reserved generation can match an appendable row.
-                        if identity.is_some() {
-                            super::appendable::retire_published(&transaction, &record)?;
-                        }
-                        if let Some(replay) = &replay {
-                            replay.store(
-                                &transaction,
-                                replay_now,
-                                &fingerprint,
-                                &record,
-                                &access,
-                            )?;
-                        }
-                        transaction.commit().map_err(object_unavailable)?;
-                        Ok(record)
-                    })
+                    .run_upload(move |connection| commit.commit(connection))
                     .await
             }
             .await;
@@ -916,29 +979,37 @@ impl Catalog {
                         | super::admin::PublishMode::InheritAndSkipIfSameHash
                 )
             {
-                let data_dir = catalog.0.data_dir.clone();
-                // Probe the committed reference before cleanup: SQL commit errors can be ambiguous.
-                catalog
-                    .run_upload(move |connection| {
-                        unlink(&stage).map_err(object_unavailable)?;
-                        let referenced: bool = connection
-                            .query_row(
-                                "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-                                [&id],
-                                |r| r.get(0),
-                            )
-                            .map_err(object_unavailable)?;
-                        if !referenced {
-                            reclaim(connection, &data_dir, &id)?;
-                        }
-                        Ok(())
-                    })
-                    .await?;
+                catalog.discard_unreferenced_stage(stage, id).await?;
             }
             result
         })
         .await
         .map_err(object_unavailable)?
+    }
+
+    /// Removes a staged body and, when no committed row references its blob, the blob too.
+    async fn discard_unreferenced_stage(
+        &self,
+        stage: PathBuf,
+        id: String,
+    ) -> Result<(), ObjectError> {
+        let data_dir = self.0.data_dir.clone();
+        // Probe the committed reference before cleanup: SQL commit errors can be ambiguous.
+        self.run_upload(move |connection| {
+            unlink(&stage).map_err(object_unavailable)?;
+            let referenced: bool = connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
+                    [&id],
+                    |r| r.get(0),
+                )
+                .map_err(object_unavailable)?;
+            if !referenced {
+                reclaim(connection, &data_dir, &id)?;
+            }
+            Ok(())
+        })
+        .await
     }
 
     #[cfg(test)]

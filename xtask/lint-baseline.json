@@ -1,11 +1,6 @@
 {
   "schema_version": 1,
   "counts": {
-    "clippy::too_many_lines": {
-      "src/storage/catalog.rs": 2,
-      "src/storage/catalog/objects.rs": 1,
-      "src/storage/catalog/sync_state/writeback/live_export.rs": 1
-    },
     "text::unavailable_helper": {
       "(all files)": 1
     }
