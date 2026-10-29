@@ -112,19 +112,29 @@ fn obj_route_002_namespace_and_method_boundaries() {
         (
             "/storage/v1/b/abc/o/file",
             Method::POST,
-            "GET, DELETE, PATCH, PUT",
+            "GET, HEAD, DELETE, PATCH, PUT",
         ),
         ("/download/storage/v1/b/abc/o/file", Method::DELETE, "GET"),
-        (
-            "/storage/v1/b/abc/o/file",
-            Method::HEAD,
-            "GET, DELETE, PATCH, PUT",
-        ),
+        ("/storage/v1/b/abc/o", Method::HEAD, "GET"),
+        ("/download/storage/v1/b/abc/o/file", Method::HEAD, "GET"),
     ] {
         let error = request(method, path).unwrap_err();
         assert_eq!(error.status, StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(error.into_response().headers()["allow"], allow);
     }
+    assert!(matches!(
+        request(Method::HEAD, "/storage/v1/b/abc/o/file").unwrap(),
+        ObjectRequest::Get {
+            params: ObjectGetParams { media: false, .. },
+            ..
+        }
+    ));
+    assert_eq!(
+        request(Method::HEAD, "/storage/v1/b/abc/o/file?alt=media")
+            .unwrap_err()
+            .status,
+        StatusCode::BAD_REQUEST
+    );
     assert!(matches!(
         request(Method::GET, "/storage/v1/b/abc/o").unwrap(),
         ObjectRequest::List(_)
