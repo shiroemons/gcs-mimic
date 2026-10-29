@@ -1,22 +1,13 @@
 {
   "schema_version": 1,
   "counts": {
-    "clippy::allow_attributes_without_reason": {
-      "src/grpc/mod.rs": 1,
-      "src/grpc/v1/mod.rs": 2,
-      "src/grpc/v2/bidi_read.rs": 1,
-      "src/lib.rs": 1
-    },
     "clippy::expect_used": {
-      "src/grpc/v2/buckets.rs": 1,
-      "src/grpc/v2/object_io.rs": 1,
       "src/json/buckets.rs": 1,
       "src/json/csek.rs": 1,
       "src/json/fields.rs": 1,
       "src/json/objects.rs": 3,
       "src/json/page_token.rs": 1,
       "src/json/resumable.rs": 1,
-      "src/seed.rs": 1,
       "src/server.rs": 2,
       "src/server/acl.rs": 1,
       "src/server/resumable.rs": 1,
@@ -28,15 +19,6 @@
     "clippy::fn_params_excessive_bools": {
       "src/auth/policy.rs": 1,
       "src/bucket.rs": 1,
-      "src/bucket_init.rs": 1,
-      "src/config_input.rs": 1,
-      "src/fsutil.rs": 1,
-      "src/grpc/v1/mod.rs": 2,
-      "src/grpc/v2/append.rs": 2,
-      "src/grpc/v2/object_io.rs": 2,
-      "src/http_conditions.rs": 1,
-      "src/import/filesystem.rs": 3,
-      "src/import/mod.rs": 4,
       "src/json/buckets.rs": 2,
       "src/json/cors.rs": 1,
       "src/json/derived_metadata.rs": 1,
@@ -45,7 +27,6 @@
       "src/json/object_retention.rs": 1,
       "src/json/objects.rs": 1,
       "src/json/projects.rs": 1,
-      "src/match_glob.rs": 1,
       "src/object/retention.rs": 2,
       "src/server.rs": 1,
       "src/server/acl.rs": 1,
@@ -58,14 +39,11 @@
       "src/storage/catalog/objects.rs": 6,
       "src/storage/catalog/sync_state/writeback.rs": 1,
       "src/storage/catalog/sync_state/writeback/unpublished.rs": 1,
-      "src/sync/mirror.rs": 2,
       "src/xml/cors.rs": 2,
       "src/xml/mod.rs": 3,
       "src/xml/put.rs": 1
     },
     "clippy::needless_pass_by_value": {
-      "src/import/mod.rs": 1,
-      "src/import/reader.rs": 1,
       "src/json/query.rs": 1,
       "src/server/resumable.rs": 1,
       "src/storage/catalog/admin/publication.rs": 2,
@@ -73,22 +51,11 @@
       "src/storage/catalog/sync_state/root.rs": 1
     },
     "clippy::too_many_lines": {
-      "src/auth/mod.rs": 1,
-      "src/bucket/lifecycle.rs": 1,
-      "src/bucket_init.rs": 2,
-      "src/config.rs": 1,
-      "src/grpc/v1/upload.rs": 1,
-      "src/grpc/v2/buckets.rs": 1,
-      "src/grpc/v2/object_io.rs": 2,
-      "src/grpc/v2/update_copy.rs": 1,
-      "src/import/reader.rs": 2,
       "src/json/buckets.rs": 2,
       "src/json/compose.rs": 1,
       "src/json/object_metadata.rs": 1,
       "src/json/objects.rs": 1,
       "src/json/query.rs": 1,
-      "src/main.rs": 1,
-      "src/seed.rs": 1,
       "src/server.rs": 4,
       "src/server/resumable.rs": 1,
       "src/storage/catalog.rs": 3,
@@ -99,13 +66,8 @@
       "src/storage/catalog/resumable_transfer.rs": 1,
       "src/storage/catalog/rewrite.rs": 1,
       "src/storage/catalog/sync_state/writeback/live_export.rs": 1,
-      "src/sync/ingest.rs": 1,
-      "src/sync/mirror.rs": 2,
       "src/xml/post.rs": 3,
       "src/xml/put.rs": 1
-    },
-    "text::allow_too_many_arguments": {
-      "src/grpc/v1/mod.rs": 1
     },
     "text::format_sql": {
       "src/storage/catalog.rs": 3,
@@ -117,8 +79,6 @@
       "src/storage/catalog/sync_state/writeback/live_export.rs": 1
     },
     "text::string_error_result": {
-      "src/config.rs": 1,
-      "src/main.rs": 3,
       "src/storage/catalog/objects/retention.rs": 1,
       "src/storage/catalog/resumable.rs": 1
     },
@@ -146,8 +106,6 @@
       "src/storage/catalog/upload_replay.rs": 1
     },
     "unreachable_pub": {
-      "src/config_input.rs": 5,
-      "src/import/mod.rs": 6,
       "src/json/projects.rs": 1,
       "src/json/rewrite.rs": 2,
       "src/storage/catalog/resumable.rs": 2,
