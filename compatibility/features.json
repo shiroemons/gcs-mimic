@@ -33549,25 +33549,90 @@
       "interface": "XML POST Object",
       "phase": "P3",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/xml-api/post-object-forms"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Validate signatures, expiration, field constraints, content length and success response; different from multipart/related JSON upload.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "notes": "POST /BUCKET (path-style, or POST / on an opt-in virtual-host bucket) with multipart/form-data streams the file part through the shared XML PUT write path. Supported fields: key with ${filename}, bucket, policy, x-goog-algorithm/credential/date/signature, success_action_status 200/201/204, success_action_redirect, Content-Type, Cache-Control, Content-Disposition, Content-Encoding, Content-Length, x-goog-custom-time and x-goog-meta-*. Policy validation is tracked by DESIGN-041. Usage: docs/en/signed-urls.md#signed-post-policy-form-uploads.",
+      "dependencies": ["DESIGN-041"],
+      "dependency_status": "REFINED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "POST-FORM-FRAMING",
+          "description": "Bounded multipart/form-data parsing: Content-Disposition names and quoted filenames, duplicate fields, 64 KiB per field and 256 KiB before the file, a required file part that must be last; query options and non-form content types are 400 and write nothing.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::post::tests::form_reader_stops_at_the_file_part_and_bounds_fields",
+            "xml::post::tests::disposition_reads_quoted_names_and_filenames_case_insensitively",
+            "json::multipart::tests::form_data_boundary_accepts_utf8_forms_and_rejects_other_types_and_parameters",
+            "signing::post::post_object_framing_errors_and_other_routes_stay_rejected"
+          ]
+        },
+        {
+          "id": "POST-FORM-FIELDS",
+          "description": "Documented fields map to stored object metadata and are read back; ${filename} substitution; acl, Expires, V2 credentials and unknown fields fail with 400 instead of being ignored.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::post::tests::plan_maps_documented_fields_and_rejects_unsupported_ones",
+            "signing::post::v4_policy_upload_streams_through_the_shared_write_path_with_signer_permissions"
+          ]
+        },
+        {
+          "id": "POST-FORM-SUCCESS",
+          "description": "Default 204, empty 200, 201 PostResponse XML with escaped Location/Bucket/Key/ETag, and 303 to success_action_redirect; generation and ETag headers match the stored object.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::post::v4_policy_success_status_201_xml_200_and_redirect",
+            "signing::post::v4_policy_upload_streams_through_the_shared_write_path_with_signer_permissions"
+          ]
+        },
+        {
+          "id": "POST-FORM-VIRTUAL-HOST",
+          "description": "POST / on a configured virtual-host bucket uploads to that bucket.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::post::v4_policy_upload_targets_a_virtual_host_bucket_root"
+          ]
+        },
+        {
+          "id": "POST-FORM-SDK",
+          "description": "Unchanged Go and Ruby SDK policy forms upload through POST Object.",
+          "result": "PASS",
+          "test_ids": [
+            "sdk-scorecard signed.post_policy_v4 (Go)",
+            "sdk-scorecard signed.post_policy_v4 (Ruby)"
+          ]
+        }
+      ],
+      "test_ids": [
+        "xml::post::tests::form_reader_stops_at_the_file_part_and_bounds_fields",
+        "xml::post::tests::disposition_reads_quoted_names_and_filenames_case_insensitively",
+        "xml::post::tests::plan_maps_documented_fields_and_rejects_unsupported_ones",
+        "json::multipart::tests::form_data_boundary_accepts_utf8_forms_and_rejects_other_types_and_parameters",
+        "signing::post::post_object_framing_errors_and_other_routes_stay_rejected",
+        "signing::post::v4_policy_success_status_201_xml_200_and_redirect",
+        "signing::post::v4_policy_upload_targets_a_virtual_host_bucket_root",
+        "signing::post::v4_policy_upload_streams_through_the_shared_write_path_with_signer_permissions",
+        "sdk-scorecard signed.post_policy_v4 (Go)",
+        "sdk-scorecard signed.post_policy_v4 (Ruby)"
+      ],
+      "verification": [
+        {"command": "cargo test --lib --locked xml::post json::multipart", "result": "PASS", "verified_at": "2026-10-29", "artifact": "docs/en/signed-urls.md", "test_ids": ["xml::post::tests::form_reader_stops_at_the_file_part_and_bounds_fields", "xml::post::tests::disposition_reads_quoted_names_and_filenames_case_insensitively", "xml::post::tests::plan_maps_documented_fields_and_rejects_unsupported_ones", "json::multipart::tests::form_data_boundary_accepts_utf8_forms_and_rejects_other_types_and_parameters"]},
+        {"command": "cargo test --locked --test auth_http signing::post", "result": "PASS", "verified_at": "2026-10-29", "artifact": "docs/en/signed-urls.md", "test_ids": ["signing::post::post_object_framing_errors_and_other_routes_stay_rejected", "signing::post::v4_policy_success_status_201_xml_200_and_redirect", "signing::post::v4_policy_upload_targets_a_virtual_host_bucket_root", "signing::post::v4_policy_upload_streams_through_the_shared_write_path_with_signer_permissions"]},
+        {"command": "bash sdk-scorecard/run.sh --out $TMPDIR/scorecard-post-policy gcs-mimic", "result": "PASS", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/README.md", "test_ids": ["sdk-scorecard signed.post_policy_v4 (Go)", "sdk-scorecard signed.post_policy_v4 (Ruby)"]}
+      ],
+      "sdk_evidence": [
+        {"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "transport": "HTTP XML POST Object; unchanged GenerateSignedPostPolicyV4 path-style form; permissive profile", "command": "bash sdk-scorecard/run.sh --out $TMPDIR/scorecard-post-policy gcs-mimic", "result": "PASS", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/README.md", "test_ids": ["sdk-scorecard signed.post_policy_v4 (Go)"]},
+        {"language": "Ruby", "toolchain": "4.0.9", "sdk": "google-cloud-storage", "version": "1.62.1", "transport": "HTTP XML POST Object; unchanged generate_signed_post_policy_v4 fields posted to the path-style bucket URL; permissive profile", "command": "bash sdk-scorecard/run.sh --out $TMPDIR/scorecard-post-policy gcs-mimic", "result": "PASS", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/README.md", "test_ids": ["sdk-scorecard signed.post_policy_v4 (Ruby)"]}
+      ],
+      "known_deviations": ["The file part's own Content-Type is not stored; only the Content-Type field is. Redirects use the success_action_redirect URL unchanged (no bucket/key/etag query parameters) with 303. Cache-Control is stored without the documented public-ACL restriction. acl, Expires and Expect: 100-continue rejection (417) are not implemented. Browser CORS preflight and response headers are not applied to POST /BUCKET. Exact provider error codes and wording are unverified."],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "EXT-BEH-005",
@@ -41022,25 +41087,107 @@
       "interface": "XML HTML form upload",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/authentication/signatures"
+        "https://docs.cloud.google.com/storage/docs/authentication/signatures",
+        "https://docs.cloud.google.com/storage/docs/xml-api/post-object-forms"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Verify policy signature, expiry, field constraints and content-length ranges; not the same flow as signed PUT.",
+      "notes": "V4 RSA policy documents (GOOG4-RSA-SHA256 over the exact base64 policy field) reuse the registered signer keys of V4 signed URLs. Supported subset: expiration in ISO 8601 basic or RFC 3339 with any offset; {field:value}, eq, starts-with and one inclusive content-length-range; a required bucket condition bound to the request bucket; every form field except policy and x-goog-signature must be conditioned and every condition must name a submitted field. Strict verifies the signer and authorizes with its IAM permissions (PAP-compatible); permissive ignores credentials but enforces conditions and expiration. Usage: docs/en/signed-urls.md#signed-post-policy-form-uploads.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "REFINED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "POST-POLICY-CONDITIONS",
+          "description": "eq, starts-with, bucket target, case-insensitive field names, missing condition fields and unconditioned form fields; violations are XML 400 InvalidPolicyDocument and write nothing.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::post::tests::policy_enforces_eq_starts_with_bucket_and_field_coverage",
+            "signing::post::v4_policy_rejects_tampering_unknown_signers_expiry_and_condition_violations"
+          ]
+        },
+        {
+          "id": "POST-POLICY-EXPIRY",
+          "description": "Go RFC 3339 offsets, Ruby UTC and ISO basic expirations; expiry at the exact instant and malformed documents are 400 InvalidPolicyDocument.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::post::tests::policy_accepts_go_and_ruby_sdk_documents_with_any_utc_offset",
+            "xml::post::tests::policy_rejects_expiry_at_the_exact_instant_and_malformed_documents"
+          ]
+        },
+        {
+          "id": "POST-CONTENT-LENGTH-RANGE",
+          "description": "One inclusive content-length-range covers Content-Length; streamed sizes below or above it are 400 EntityTooSmall/EntityTooLarge and leave no object.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::post::tests::policy_reads_one_content_length_range_and_it_covers_content_length",
+            "signing::post::v4_policy_content_length_range_bounds_are_inclusive_and_leave_no_object"
+          ]
+        },
+        {
+          "id": "POST-SIGNATURE-STRICT",
+          "description": "Registered RSA signer verification over the base64 policy; tampered policy or signature is 403 SignatureDoesNotMatch, an unknown signer 403 InvalidAccessKeyId, HMAC or a credential scope that differs from x-goog-date 400.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::post::v4_policy_rejects_tampering_unknown_signers_expiry_and_condition_violations"
+          ]
+        },
+        {
+          "id": "POST-PERMISSIONS",
+          "description": "Signer IAM authorizes create and overwrite (objectCreator cannot overwrite, viewer cannot create); a form without policy is anonymous; signer uploads work under enforced PAP.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::post::v4_policy_upload_streams_through_the_shared_write_path_with_signer_permissions",
+            "signing::post::v4_policy_signer_uploads_under_public_access_prevention"
+          ]
+        },
+        {
+          "id": "POST-PERMISSIVE",
+          "description": "Permissive mode ignores policy credentials like signed URLs but still rejects expired or violated policies.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::post::permissive_profile_ignores_policy_credentials_but_enforces_conditions"
+          ]
+        },
+        {
+          "id": "POST-SDK",
+          "description": "Unchanged Go GenerateSignedPostPolicyV4 and Ruby generate_signed_post_policy_v4 forms upload and read back the same bytes.",
+          "result": "PASS",
+          "test_ids": [
+            "sdk-scorecard signed.post_policy_v4 (Go)",
+            "sdk-scorecard signed.post_policy_v4 (Ruby)"
+          ]
+        }
+      ],
+      "test_ids": [
+        "xml::post::tests::policy_enforces_eq_starts_with_bucket_and_field_coverage",
+        "xml::post::tests::policy_accepts_go_and_ruby_sdk_documents_with_any_utc_offset",
+        "xml::post::tests::policy_rejects_expiry_at_the_exact_instant_and_malformed_documents",
+        "xml::post::tests::policy_reads_one_content_length_range_and_it_covers_content_length",
+        "signing::post::v4_policy_rejects_tampering_unknown_signers_expiry_and_condition_violations",
+        "signing::post::v4_policy_content_length_range_bounds_are_inclusive_and_leave_no_object",
+        "signing::post::v4_policy_upload_streams_through_the_shared_write_path_with_signer_permissions",
+        "signing::post::v4_policy_signer_uploads_under_public_access_prevention",
+        "signing::post::permissive_profile_ignores_policy_credentials_but_enforces_conditions",
+        "sdk-scorecard signed.post_policy_v4 (Go)",
+        "sdk-scorecard signed.post_policy_v4 (Ruby)"
+      ],
+      "verification": [
+        {"command": "cargo test --lib --locked xml::post", "result": "PASS", "verified_at": "2026-10-29", "artifact": "docs/en/signed-urls.md", "test_ids": ["xml::post::tests::policy_enforces_eq_starts_with_bucket_and_field_coverage", "xml::post::tests::policy_accepts_go_and_ruby_sdk_documents_with_any_utc_offset", "xml::post::tests::policy_rejects_expiry_at_the_exact_instant_and_malformed_documents", "xml::post::tests::policy_reads_one_content_length_range_and_it_covers_content_length"]},
+        {"command": "cargo test --locked --test auth_http signing::post", "result": "PASS", "verified_at": "2026-10-29", "artifact": "docs/en/signed-urls.md", "test_ids": ["signing::post::v4_policy_rejects_tampering_unknown_signers_expiry_and_condition_violations", "signing::post::v4_policy_content_length_range_bounds_are_inclusive_and_leave_no_object", "signing::post::v4_policy_upload_streams_through_the_shared_write_path_with_signer_permissions", "signing::post::v4_policy_signer_uploads_under_public_access_prevention", "signing::post::permissive_profile_ignores_policy_credentials_but_enforces_conditions"]},
+        {"command": "bash sdk-scorecard/run.sh --out $TMPDIR/scorecard-post-policy gcs-mimic", "result": "PASS", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/README.md", "test_ids": ["sdk-scorecard signed.post_policy_v4 (Go)", "sdk-scorecard signed.post_policy_v4 (Ruby)"]}
+      ],
+      "sdk_evidence": [
+        {"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "transport": "HTTP XML POST Object; unchanged GenerateSignedPostPolicyV4 path-style form; permissive profile", "command": "bash sdk-scorecard/run.sh --out $TMPDIR/scorecard-post-policy gcs-mimic", "result": "PASS", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/README.md", "test_ids": ["sdk-scorecard signed.post_policy_v4 (Go)"]},
+        {"language": "Ruby", "toolchain": "4.0.9", "sdk": "google-cloud-storage", "version": "1.62.1", "transport": "HTTP XML POST Object; unchanged generate_signed_post_policy_v4 fields posted to the path-style bucket URL; permissive profile", "command": "bash sdk-scorecard/run.sh --out $TMPDIR/scorecard-post-policy gcs-mimic", "result": "PASS", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/README.md", "test_ids": ["sdk-scorecard signed.post_policy_v4 (Ruby)"]}
+      ],
+      "known_deviations": ["Provider error codes, wording and precedence are local choices without cloud differential evidence: condition, expiry and document failures use 400 InvalidPolicyDocument (matching one public provider report), size-range failures 400 EntityTooSmall/EntityTooLarge. GOOG4-HMAC-SHA256 and V2 GoogleAccessId/signature policies are rejected with 400. The key condition matches the submitted value before ${filename} substitution. SDK evidence runs in the permissive profile; strict RSA verification is covered by the Rust HTTP tests."],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "DESIGN-042",

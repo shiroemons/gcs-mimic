@@ -292,3 +292,52 @@ for a matching body; no object is changed. To bind SHA256 locally, use
 `gcs-mimic url sign --header 'x-goog-content-sha256:LOWERCASE_HEX_DIGEST'` and send
 the same header. The helper keeps the official query UNSIGNED-PAYLOAD rule and
 the server checks the streamed bytes. See SPEC-SIGNED-PAYLOAD.
+
+## Signed POST policy form uploads
+
+`POST /BUCKET` with `multipart/form-data` accepts HTML form uploads (DESIGN-041,
+EXT-BEH-004). Virtual-host routing uses `POST /` on the bucket host. Generate the
+form with the official SDK helpers, for example Go
+`storage.GenerateSignedPostPolicyV4(bucket, key, &storage.PostPolicyV4Options{...,
+Insecure: true, Hostname: "127.0.0.1:4443", Style: storage.PathStyle()})` or Ruby
+`bucket.generate_signed_post_policy_v4(key, issuer:, signing_key:)`. Post every
+returned field, then the `file` part last. A policy signs the base64 policy
+document, not the host, so the form can target the emulator's path-style URL
+without re-signing.
+
+Supported fields: `key` (including `${filename}`), `bucket`, `policy`,
+`x-goog-algorithm` (`GOOG4-RSA-SHA256`), `x-goog-credential`, `x-goog-date`,
+`x-goog-signature`, `success_action_status`, `success_action_redirect`,
+`Content-Type`, `Cache-Control`, `Content-Disposition`, `Content-Encoding`,
+`Content-Length`, `x-goog-custom-time` and `x-goog-meta-*`. Field names are
+case-insensitive. Other fields fail with 400 instead of being ignored: `acl`,
+`Expires`, V2 `GoogleAccessId`/`signature`, `GOOG4-HMAC-SHA256` and unknown
+names. The file part's own Content-Type is not stored; send a `Content-Type`
+field.
+
+The policy document must contain `expiration` (ISO 8601 basic or RFC 3339 with
+any UTC offset) and `conditions`. Supported conditions are `{"field": "value"}`,
+`["eq", "$field", "value"]`, `["starts-with", "$field", "prefix"]` and one
+`["content-length-range", min, max]` (inclusive file size). A bucket condition is
+required and binds the request bucket. Every form field except `policy` and
+`x-goog-signature` needs a condition, and every condition must name a submitted
+field. The `key` condition matches the submitted value before `${filename}`
+substitution. Violations, expiry and malformed documents return 400
+`InvalidPolicyDocument`; the file size outside the range returns 400
+`EntityTooSmall` or `EntityTooLarge` and leaves no object.
+
+In strict mode the registered signer's RSA public key verifies the signature
+(403 `SignatureDoesNotMatch` or `InvalidAccessKeyId`), and the signer's IAM
+permissions authorize the write: create for new objects, delete as well for
+overwrites. Valid signer uploads work under public access prevention. A form
+without `policy` is anonymous and needs a public create grant. The permissive
+profile ignores policy credentials as it does for signed URLs, but still
+enforces the policy conditions and expiration.
+
+Uploads use the same streaming write path as XML PUT. Success returns 204 by
+default, an empty 200, a 201 `PostResponse` XML document with `Location`,
+`Bucket`, `Key` and `ETag`, or 303 to `success_action_redirect` (the redirect URL
+is used unchanged). Fields before the file are limited to 64 KiB each and
+256 KiB in total. Exact provider error wording, redirect query parameters and
+browser CORS for `POST /BUCKET` are not verified; see
+`compatibility/features.json`.

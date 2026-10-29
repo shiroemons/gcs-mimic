@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 250 | 0 | 59 | 1 | 0 | 0 |
-| behavior | 201 | 112 | 0 | 51 | 38 | 0 | 0 |
+| behavior | 201 | 110 | 0 | 53 | 38 | 0 | 0 |
 | project_requirement | 95 | 35 | 0 | 30 | 30 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 250 | 29 | 31 | 0 | 0 | 0 |
-| behavior | 113 | 53 | 32 | 3 | 0 | 0 |
+| behavior | 111 | 53 | 34 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 60 |
 
 ## api_operation
@@ -773,7 +773,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-038 | 署名対象メソッド・リソースの制限 | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-039 | V4 Authorizationヘッダー署名 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-040 | 従来のV2署名付きURL | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
-| DESIGN-041 | 署名付きPOSTフォームポリシーの検証 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| DESIGN-041 | 署名付きPOSTフォームポリシーの検証 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-042 | 署名による再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-043 | 再開可能アップロードのセッションURI権限 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-044 | 署名失敗時のXMLエラー応答 | PARTIAL | P2 | EXACT | EXACT | 0 |
@@ -811,7 +811,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-BEH-001 | XML一覧のページング | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-BEH-002 | XML名前空間・エラー形式 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-BEH-003 | 再開可能アップロード継続・状態確認・中止 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-BEH-004 | 署名付きフォームのポリシー検証 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-BEH-004 | 署名付きフォームのポリシー検証 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | EXT-BEH-005 | 独自ドメインの静的サイト挙動 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 
 ## project_requirement

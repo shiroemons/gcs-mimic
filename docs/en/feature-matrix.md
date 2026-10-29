@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 250 | 0 | 59 | 1 | 0 | 0 |
-| behavior | 201 | 112 | 0 | 51 | 38 | 0 | 0 |
+| behavior | 201 | 110 | 0 | 53 | 38 | 0 | 0 |
 | project_requirement | 95 | 35 | 0 | 30 | 30 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 250 | 29 | 31 | 0 | 0 | 0 |
-| behavior | 113 | 53 | 32 | 3 | 0 | 0 |
+| behavior | 111 | 53 | 34 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 60 |
 
 ## api_operation
@@ -773,7 +773,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-038 | Signed method and resource restrictions | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-039 | V4 Authorization header signatures | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-040 | Legacy V2 signed URLs | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
-| DESIGN-041 | Signed POST form policy validation | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| DESIGN-041 | Signed POST form policy validation | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-042 | Signed resumable initiation | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-043 | Resumable session capability semantics | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-044 | Signature failure wire errors | PARTIAL | P2 | EXACT | EXACT | 0 |
@@ -811,7 +811,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-BEH-001 | XML pagination and markers | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-BEH-002 | XML namespace and error envelopes | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-BEH-003 | Resumable continuation, probing and cancellation | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-BEH-004 | Signed form policy validation | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-BEH-004 | Signed form policy validation | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | EXT-BEH-005 | Custom-domain website routing | NOT_STARTED | P3 | EXACT | NONE | 0 |
 
 ## project_requirement
