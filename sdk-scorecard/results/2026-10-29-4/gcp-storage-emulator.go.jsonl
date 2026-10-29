@@ -1,0 +1,57 @@
+{"sdk":"go","id":"bucket.create_get_delete","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.list_prefix_paging","area":"bucket","pass":false,"detail":"page size 3 exceeds 2"}
+{"sdk":"go","id":"bucket.update_labels","area":"bucket","pass":false,"detail":"labels map[a: c:3]"}
+{"sdk":"go","id":"bucket.metageneration_precondition","area":"bucket","pass":false,"detail":"want HTTP 412, got \u003cnil\u003e"}
+{"sdk":"go","id":"bucket.versioning_history","area":"bucket","pass":false,"detail":"versions listed 1, want 2"}
+{"sdk":"go","id":"bucket.lifecycle","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.cors","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.retention_policy","area":"bucket","pass":false,"detail":"want HTTP 403, got \u003cnil\u003e"}
+{"sdk":"go","id":"bucket.retention_lock","area":"bucket","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"bucket.uniform_bucket_level_access","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.public_access_prevention","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.iam_policy","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.iam_test_permissions","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.soft_delete_policy","area":"bucket","pass":false,"detail":"soft delete policy \u0026{EffectiveTime:2026-10-29 09:58:57.181658 +0000 UTC RetentionDuration:168h0m0s}"}
+{"sdk":"go","id":"bucket.autoclass","area":"bucket","pass":false,"detail":"autoclass \u003cnil\u003e"}
+{"sdk":"go","id":"bucket.acl","area":"bucket","pass":false,"detail":"googleapi: got HTTP response code 502 with body: scorecard TLS frontend rejected backend response\n"}
+{"sdk":"go","id":"bucket.default_object_acl","area":"bucket","pass":false,"detail":"googleapi: got HTTP response code 502 with body: scorecard TLS frontend rejected backend response\n"}
+{"sdk":"go","id":"bucket.notifications","area":"bucket","pass":false,"detail":"googleapi: got HTTP response code 501 with body: "}
+{"sdk":"go","id":"project.hmac_keys","area":"bucket","pass":false,"detail":"googleapi: got HTTP response code 501 with body: "}
+{"sdk":"go","id":"project.service_account","area":"bucket","pass":false,"detail":"googleapi: got HTTP response code 404 with body: "}
+{"sdk":"go","id":"object.write_read_small","area":"object","pass":true}
+{"sdk":"go","id":"object.resumable_large","area":"object","pass":false,"detail":"unexpected 308 response status code"}
+{"sdk":"go","id":"object.metadata_on_write","area":"object","pass":true}
+{"sdk":"go","id":"object.checksum_rejected","area":"object","pass":true}
+{"sdk":"go","id":"object.md5_accepted","area":"object","pass":true}
+{"sdk":"go","id":"object.range_reads","area":"object","pass":false,"detail":"bytes differ: got \"0123456789\" want \"789\""}
+{"sdk":"go","id":"object.update_metadata","area":"object","pass":false,"detail":"merged attrs \u0026{Bucket:sc-go-7c19f8ffc0da Name:u.txt ContentType:text/csv ContentLanguage: CacheControl: EventBasedHold:false TemporaryHold:false RetentionExpirationTime:0001-01-01 00:00:00 +0000 UTC ACL:[] PredefinedACL: Owner: Size:1 ContentEncoding: ContentDisposition: MD5:[157 212 228 97 38 140 1..."}
+{"sdk":"go","id":"object.delete_not_found","area":"object","pass":true}
+{"sdk":"go","id":"object.does_not_exist_precondition","area":"object","pass":false,"detail":"want HTTP 412, got \u003cnil\u003e"}
+{"sdk":"go","id":"object.generation_match_precondition","area":"object","pass":false,"detail":"want HTTP 412, got \u003cnil\u003e"}
+{"sdk":"go","id":"object.metageneration_match_precondition","area":"object","pass":false,"detail":"want HTTP 412, got \u003cnil\u003e"}
+{"sdk":"go","id":"object.list_prefix_delimiter","area":"object","pass":true}
+{"sdk":"go","id":"object.list_paging","area":"object","pass":false,"detail":"page size 5 exceeds 2"}
+{"sdk":"go","id":"object.list_offsets","area":"object","pass":false,"detail":"list: got [a b c d] want [b c]"}
+{"sdk":"go","id":"object.list_match_glob","area":"object","pass":true}
+{"sdk":"go","id":"object.copy_with_metadata","area":"object","pass":false,"detail":"copy attrs \u0026{Bucket:sc-go-d214564155f5 Name:dst ContentType:text/plain ContentLanguage: CacheControl: EventBasedHold:false TemporaryHold:false RetentionExpirationTime:0001-01-01 00:00:00 +0000 UTC ACL:[] PredefinedACL: Owner: Size:7 ContentEncoding: ContentDisposition: MD5:[86 254 11 20 9 165 102 45..."}
+{"sdk":"go","id":"object.rewrite_storage_class","area":"object","pass":false,"detail":"storage class \"STANDARD\""}
+{"sdk":"go","id":"object.compose","area":"object","pass":false,"detail":"json: cannot unmarshal number into Go struct field .size of type uint64"}
+{"sdk":"go","id":"object.move","area":"object","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"object.acl","area":"object","pass":false,"detail":"googleapi: got HTTP response code 501 with body: "}
+{"sdk":"go","id":"object.holds","area":"object","pass":false,"detail":"want HTTP 403, got \u003cnil\u003e"}
+{"sdk":"go","id":"object.retention","area":"object","pass":false,"detail":"retention \u003cnil\u003e"}
+{"sdk":"go","id":"object.custom_time","area":"object","pass":true}
+{"sdk":"go","id":"object.storage_class_on_write","area":"object","pass":true}
+{"sdk":"go","id":"object.gzip_transcoding","area":"object","pass":false,"detail":"decompressed read: bytes differ: got \"\\x1f\\x8b\\b\\x00\\x00\\x00\\x00\\x00\\x00\\xffJ\\xce\\xcf-(J-.V\\xc8MU\\x18e\\x8f\\xb2\\xa9\\xc5\\x06\\f\\x00\\xaebq\\x8dX\\x02\\x00\\x00\" want \"compress me compress me compress me comp...\""}
+{"sdk":"go","id":"object.customer_supplied_key","area":"object","pass":false,"detail":"read without key succeeded"}
+{"sdk":"go","id":"object.soft_delete_restore","area":"object","pass":true}
+{"sdk":"go","id":"signed.v4_get","area":"signed","pass":true}
+{"sdk":"go","id":"signed.v4_put","area":"signed","pass":true}
+{"sdk":"go","id":"signed.v2_get","area":"signed","pass":true}
+{"sdk":"go","id":"signed.post_policy_v4","area":"signed","pass":false,"detail":"status 501 err \u003cnil\u003e body "}
+{"sdk":"go","id":"grpc.bucket_create_get_delete","area":"grpc","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"grpc.write_read","area":"grpc","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"grpc.list","area":"grpc","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"grpc.update_delete","area":"grpc","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"grpc.multi_range_downloader","area":"grpc","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"grpc.appendable_object","area":"grpc","pass":false,"detail":"timeout"}
