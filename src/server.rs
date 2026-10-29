@@ -56,6 +56,30 @@ pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
 #[cfg(test)]
 tokio::task_local! { static FORCE_LISTENER_ERROR: bool; }
+#[cfg(test)]
+tokio::task_local! { static FORCE_HANDLER_PANIC: Arc<AtomicBool>; }
+
+/// A connection task ends with an error only when it panicked or was aborted.
+/// hyper polls request handlers inside that task, so one faulty request must
+/// close only its own connection; the accept loop keeps serving the others.
+fn report_connection_task_failure(error: &tokio::task::JoinError) {
+    let (event, message) = if error.is_panic() {
+        (
+            "connection_task_panicked",
+            "a request handler panicked; its connection was closed and the server keeps serving",
+        )
+    } else {
+        (
+            "connection_task_cancelled",
+            "a connection task was cancelled",
+        )
+    };
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Error,
+        event,
+        serde_json::json!({"message": message}),
+    );
+}
 
 mod acl;
 #[path = "server/copy.rs"]
@@ -337,9 +361,9 @@ pub async fn serve_with_grpc_and_drain(
     let signal_result = loop {
         tokio::select! {
             result = &mut shutdown => break result,
-            result = connections.join_next(), if !connections.is_empty() => {
-                if let Err(error) = result.expect("nonempty task set") {
-                    break Err(io::Error::other(error));
+            Some(result) = connections.join_next(), if !connections.is_empty() => {
+                if let Err(error) = result {
+                    report_connection_task_failure(&error);
                 }
                 full.send_replace(connections.len() >= max_connections);
             }
@@ -366,7 +390,7 @@ pub async fn serve_with_grpc_and_drain(
                 let saturated = full.subscribe();
                 let config = config.clone();
                 let acceptor = listeners[index].1.clone();
-                connections.spawn(async move {
+                let connection = async move {
                     if grpc_index == Some(index) {
                         crate::grpc::serve_connection(stream, &config, state, stopping).await;
                     } else if let Some(acceptor) = acceptor {
@@ -387,7 +411,19 @@ pub async fn serve_with_grpc_and_drain(
                     } else {
                         serve_connection(stream, state, config, stopping, saturated).await;
                     }
-                });
+                };
+                // Task-locals do not cross spawn, so the test hook is carried into the task.
+                #[cfg(test)]
+                let connection = {
+                    let hook = FORCE_HANDLER_PANIC.try_with(Arc::clone).ok();
+                    async move {
+                        match hook {
+                            Some(hook) => FORCE_HANDLER_PANIC.scope(hook, connection).await,
+                            None => connection.await,
+                        }
+                    }
+                };
+                connections.spawn(connection);
                 full.send_replace(connections.len() >= max_connections);
             }
         }
@@ -402,7 +438,9 @@ pub async fn serve_with_grpc_and_drain(
     stop.send_replace(true);
     let drain = async {
         while let Some(result) = connections.join_next().await {
-            result.map_err(io::Error::other)?;
+            if let Err(error) = result {
+                report_connection_task_failure(&error);
+            }
         }
         Ok::<_, io::Error>(())
     };
@@ -480,6 +518,13 @@ async fn serve_connection(
             let mut expired = expired.clone();
             service_served.store(true, Ordering::Release);
             Box::pin(async move {
+                #[cfg(test)]
+                if FORCE_HANDLER_PANIC
+                    .try_with(|armed| armed.swap(false, Ordering::AcqRel))
+                    .unwrap_or(false)
+                {
+                    panic!("injected handler panic");
+                }
                 responded.store(false, Ordering::Release);
                 active.store(true, Ordering::Release);
                 // Each request starts its own deadline without an earlier transfer's state.
