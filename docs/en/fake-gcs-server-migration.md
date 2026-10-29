@@ -112,7 +112,10 @@ For `data/assets/` and `data/exports/`, write `buckets.json` before startup:
 {"version":1,"project":"local-project","buckets":[{"name":"assets"},{"name":"exports"}]}
 ```
 
-Remove the empty-directory seed mount and add this file instead. Restart creates
+Keeping the `./data:/data:ro` mount alone also works: the image seeds it on every
+startup, so empty directories, including ones added later, become buckets. This
+walkthrough removes that mount and uses the file instead, which can also carry
+bucket settings such as CORS and versioning. Restart creates
 only missing entries, preserves existing objects and API settings, and does not
 delete buckets removed from the file. Add future bucket names to this file and
 restart. Object fixtures use a separate [seed directory](container-usage.md#load-local-files).
