@@ -1,0 +1,40 @@
+Checkout path prefixes are redacted as <checkout>; other output is unchanged.
+   Compiling gcs-mimic v0.3.0 (<checkout>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.27s
+     Running tests/acl_http.rs (target/debug/deps/acl_http-4f87763f3fb334d0)
+
+running 8 tests
+test bucket_acl_crud_round_trips_and_advances_metageneration ... ok
+{"event":"stopping","level":"info"}
+test acl_requests_reject_invalid_inputs_without_mutation ... ok
+test uniform_access_and_public_access_prevention_restrict_acls ... ok
+test strict_profile_requires_iam_policy_permissions ... ok
+test metadata_updates_accept_only_echoed_acls ... ok
+test object_acl_targets_a_generation_and_renders_with_full_projection ... ok
+test default_object_acl_applies_only_to_objects_created_afterwards ... ok
+test acl_entry_limit_is_enforced ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.33s
+
+     Running tests/unsupported_http.rs (target/debug/deps/unsupported_http-0b7f8c2409468cef)
+
+running 1 test
+test unsupported_google_routes_and_inputs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-1dcbbcb4ef41a070)
+
+running 8 tests
+test acl::tests::entities_follow_the_discovery_forms ... ok
+test acl::tests::roles_depend_on_the_resource_kind ... ok
+test acl::tests::project_private_uses_the_rendered_project_number ... ok
+test server::unsupported::tests::pinned_discovery_routes_are_explicit_and_do_not_shadow_objects ... ok
+test json::acl::tests::bodies_require_entity_and_role_per_operation ... ok
+test json::acl::tests::resources_follow_the_discovery_schemas ... ok
+test json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths ... ok
+test json::acl::tests::route_errors_follow_query_and_name_validation ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 540 filtered out; finished in 0.04s
+

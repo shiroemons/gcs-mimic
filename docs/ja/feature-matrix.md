@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 240 | 0 | 69 | 1 | 0 | 0 |
-| behavior | 201 | 107 | 0 | 56 | 38 | 0 | 0 |
+| api_operation | 310 | 222 | 0 | 87 | 1 | 0 | 0 |
+| behavior | 201 | 105 | 0 | 58 | 38 | 0 | 0 |
 | project_requirement | 95 | 34 | 0 | 30 | 31 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 240 | 38 | 32 | 0 | 0 | 0 |
-| behavior | 108 | 55 | 35 | 3 | 0 | 0 |
+| api_operation | 222 | 38 | 32 | 18 | 0 | 0 |
+| behavior | 106 | 56 | 35 | 4 | 0 | 0 |
 | project_requirement | 34 | 0 | 0 | 0 | 0 | 61 |
 
 ## api_operation
@@ -81,12 +81,12 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-BUCKETACCESSCONTROLS-001 | bucketAccessControls.delete | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-BUCKETACCESSCONTROLS-002 | bucketAccessControls.get | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-BUCKETACCESSCONTROLS-003 | bucketAccessControls.insert | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-BUCKETACCESSCONTROLS-004 | bucketAccessControls.list | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-BUCKETACCESSCONTROLS-005 | bucketAccessControls.patch | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-BUCKETACCESSCONTROLS-006 | bucketAccessControls.update | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| JSON-BUCKETACCESSCONTROLS-001 | bucketAccessControls.delete | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-BUCKETACCESSCONTROLS-002 | bucketAccessControls.get | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-BUCKETACCESSCONTROLS-003 | bucketAccessControls.insert | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-BUCKETACCESSCONTROLS-004 | bucketAccessControls.list | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-BUCKETACCESSCONTROLS-005 | bucketAccessControls.patch | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-BUCKETACCESSCONTROLS-006 | bucketAccessControls.update | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
 
 ### JSON API / buckets
 
@@ -110,12 +110,12 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-DEFAULTOBJECTACCESSCONTROLS-001 | defaultObjectAccessControls.delete | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-DEFAULTOBJECTACCESSCONTROLS-002 | defaultObjectAccessControls.get | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-DEFAULTOBJECTACCESSCONTROLS-003 | defaultObjectAccessControls.insert | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-DEFAULTOBJECTACCESSCONTROLS-004 | defaultObjectAccessControls.list | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-DEFAULTOBJECTACCESSCONTROLS-005 | defaultObjectAccessControls.patch | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-DEFAULTOBJECTACCESSCONTROLS-006 | defaultObjectAccessControls.update | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| JSON-DEFAULTOBJECTACCESSCONTROLS-001 | defaultObjectAccessControls.delete | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-DEFAULTOBJECTACCESSCONTROLS-002 | defaultObjectAccessControls.get | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-DEFAULTOBJECTACCESSCONTROLS-003 | defaultObjectAccessControls.insert | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-DEFAULTOBJECTACCESSCONTROLS-004 | defaultObjectAccessControls.list | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-DEFAULTOBJECTACCESSCONTROLS-005 | defaultObjectAccessControls.patch | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-DEFAULTOBJECTACCESSCONTROLS-006 | defaultObjectAccessControls.update | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
 
 ### JSON API / folders
 
@@ -154,12 +154,12 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-OBJECTACCESSCONTROLS-001 | objectAccessControls.delete | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTACCESSCONTROLS-002 | objectAccessControls.get | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTACCESSCONTROLS-003 | objectAccessControls.insert | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTACCESSCONTROLS-004 | objectAccessControls.list | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTACCESSCONTROLS-005 | objectAccessControls.patch | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTACCESSCONTROLS-006 | objectAccessControls.update | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| JSON-OBJECTACCESSCONTROLS-001 | objectAccessControls.delete | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-OBJECTACCESSCONTROLS-002 | objectAccessControls.get | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-OBJECTACCESSCONTROLS-003 | objectAccessControls.insert | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-OBJECTACCESSCONTROLS-004 | objectAccessControls.list | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-OBJECTACCESSCONTROLS-005 | objectAccessControls.patch | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
+| JSON-OBJECTACCESSCONTROLS-006 | objectAccessControls.update | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
 
 ### JSON API / objects
 
@@ -652,9 +652,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-014 | バケットIAMの実アクセス制御 | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 | DESIGN-016 | 継承ポリシーとバケットポリシーの評価 | PARTIAL | P2 | EXACT | EXACT | 1 |
 | DESIGN-017 | オブジェクトACLとバケットIAMの併用評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-018 | 作成時のデフォルトオブジェクトACL適用 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-018 | 作成時のデフォルトオブジェクトACL適用 | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
 | DESIGN-019 | 定義済みACLの権限への反映 | PARTIAL | P2 | EXACT | EXACT | 0 |
-| DESIGN-020 | UBLAによるACL操作・権限の無効化 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-020 | UBLAによるACL操作・権限の無効化 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-021 | UBLAの90日経過後の解除不可制約 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-022 | 公開アクセス防止の継承・強制状態の評価 | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
 | DESIGN-023 | 公開アクセス防止による既存公開権限の抑止 | IMPLEMENTED | P2 | EXACT | EXACT | 2 |

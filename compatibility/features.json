@@ -3183,26 +3183,92 @@
       "interface": "storage.bucketAccessControls.delete",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. DELETE removes one stored or projectPrivate entry (204), returns 404 for an unknown entity and advances bucket metageneration; requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, upsert/delete semantics, metageneration advance, persistence and the 100-entry limit follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400, public access prevention 412 for public entities and strict getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bucket_acl_crud_round_trips_and_advances_metageneration",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "acl_entry_limit_is_enforced",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "DELETE",
       "path": "b/{bucket}/acl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -3229,26 +3295,92 @@
       "interface": "storage.bucketAccessControls.get",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one BucketAccessControl (stored or projectPrivate) and 404 for an unknown entity; requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, upsert/delete semantics, metageneration advance, persistence and the 100-entry limit follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400, public access prevention 412 for public entities and strict getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bucket_acl_crud_round_trips_and_advances_metageneration",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "acl_entry_limit_is_enforced",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "GET",
       "path": "b/{bucket}/acl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -3275,26 +3407,92 @@
       "interface": "storage.bucketAccessControls.insert",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. POST requires entity and role (OWNER/WRITER/READER), upserts the entity, advances bucket metageneration and returns the entry; Ruby add_reader passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket. Query parameters: userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, upsert/delete semantics, metageneration advance, persistence and the 100-entry limit follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400, public access prevention 412 for public entities and strict getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bucket_acl_crud_round_trips_and_advances_metageneration",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "acl_entry_limit_is_enforced",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "POST",
       "path": "b/{bucket}/acl",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -3317,26 +3515,92 @@
       "interface": "storage.bucketAccessControls.list",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns storage#bucketAccessControls with stored entries or the projectPrivate default and supports fields; Go ACL().List and Ruby acl.reload! pass in the SDK scorecard. Requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket. Query parameters: userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, upsert/delete semantics, metageneration advance, persistence and the 100-entry limit follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400, public access prevention 412 for public entities and strict getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bucket_acl_crud_round_trips_and_advances_metageneration",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "acl_entry_limit_is_enforced",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "GET",
       "path": "b/{bucket}/acl",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -3359,26 +3623,92 @@
       "interface": "storage.bucketAccessControls.patch",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PATCH changes the role of the path entity, keeps an existing role when role is omitted, adds a new entity only with a role (400 required otherwise) and advances bucket metageneration. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, upsert/delete semantics, metageneration advance, persistence and the 100-entry limit follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400, public access prevention 412 for public entities and strict getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bucket_acl_crud_round_trips_and_advances_metageneration",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "acl_entry_limit_is_enforced",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "PATCH",
       "path": "b/{bucket}/acl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -3405,26 +3735,92 @@
       "interface": "storage.bucketAccessControls.update",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/bucketAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PUT requires role, rejects a different body entity and upserts the path entity, advancing bucket metageneration; Go ACL().Set passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, upsert/delete semantics, metageneration advance, persistence and the 100-entry limit follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400, public access prevention 412 for public entities and strict getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bucket_acl_crud_round_trips_and_advances_metageneration",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "acl_entry_limit_is_enforced",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "bucket_acl_crud_round_trips_and_advances_metageneration",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "acl_entry_limit_is_enforced",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "PUT",
       "path": "b/{bucket}/acl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -8881,26 +9277,92 @@
       "interface": "storage.defaultObjectAccessControls.delete",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. DELETE removes one default entry (204), returns 404 for an unknown entity, advances bucket metageneration and leaves existing objects unchanged. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, upsert/delete semantics, metageneration advance, inheritance only by later generations and persistence follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400, public access prevention 412 for public entities and strict getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Inherited ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "metadata_updates_accept_only_echoed_acls",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "DELETE",
       "path": "b/{bucket}/defaultObjectAcl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -8927,26 +9389,92 @@
       "interface": "storage.defaultObjectAccessControls.get",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one ObjectAccessControl without id/selfLink/bucket (stored or projectPrivate) and 404 for an unknown entity. Requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, upsert/delete semantics, metageneration advance, inheritance only by later generations and persistence follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400, public access prevention 412 for public entities and strict getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Inherited ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "metadata_updates_accept_only_echoed_acls",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "GET",
       "path": "b/{bucket}/defaultObjectAcl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -8973,26 +9501,92 @@
       "interface": "storage.defaultObjectAccessControls.insert",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. POST requires entity and role (OWNER/READER; WRITER fails 400), upserts the entity and advances bucket metageneration; later object generations copy the stored default. Ruby default_acl.add_reader passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket. Query parameters: userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, upsert/delete semantics, metageneration advance, inheritance only by later generations and persistence follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400, public access prevention 412 for public entities and strict getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Inherited ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "metadata_updates_accept_only_echoed_acls",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "POST",
       "path": "b/{bucket}/defaultObjectAcl",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -9015,26 +9609,92 @@
       "interface": "storage.defaultObjectAccessControls.list",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: ifMetagenerationMatch, ifMetagenerationNotMatch, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns storage#objectAccessControls with stored or projectPrivate entries; bucket ifMetagenerationMatch mismatch returns 412 and ifMetagenerationNotMatch equality returns 304. Go DefaultObjectACL().List and Ruby default_acl.reload! pass in the SDK scorecard. Requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket. Query parameters: ifMetagenerationMatch, ifMetagenerationNotMatch, userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, metageneration conditions, inheritance only by later generations and persistence follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::route_errors_follow_query_and_name_validation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400 and strict getIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Inherited ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, condition responses, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "metadata_updates_accept_only_echoed_acls",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::route_errors_follow_query_and_name_validation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::route_errors_follow_query_and_name_validation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, condition responses, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "GET",
       "path": "b/{bucket}/defaultObjectAcl",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -9065,26 +9725,92 @@
       "interface": "storage.defaultObjectAccessControls.patch",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PATCH changes a default entry role, keeps an existing role when role is omitted, adds a new entity only with a role and advances bucket metageneration. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, upsert/delete semantics, metageneration advance, inheritance only by later generations and persistence follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400, public access prevention 412 for public entities and strict getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Inherited ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "metadata_updates_accept_only_echoed_acls",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "PATCH",
       "path": "b/{bucket}/defaultObjectAcl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -9111,26 +9837,92 @@
       "interface": "storage.defaultObjectAccessControls.update",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/defaultObjectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PUT requires role (OWNER/READER), rejects a different body entity and upserts the path entity, advancing bucket metageneration; Go DefaultObjectACL().Set passes in the SDK scorecard. Requires storage.buckets.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, query, body and Discovery resource fields, projectPrivate defaults, upsert/delete semantics, metageneration advance, inheritance only by later generations and persistence follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket 404, uniform access 400, public access prevention 412 for public entities and strict getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Inherited ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "metadata_updates_accept_only_echoed_acls",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "metadata_updates_accept_only_echoed_acls",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "Provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "PUT",
       "path": "b/{bucket}/defaultObjectAcl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -10619,26 +11411,92 @@
       "interface": "storage.objectAccessControls.delete",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. DELETE removes one entry of the live or selected generation (204), returns 404 for an unknown entity, object or generation and advances object metageneration. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, generation query, body and Discovery resource fields, inherited or projectPrivate defaults, upsert/delete semantics, object metageneration advance, persistence and deletion with the generation follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket, object or generation 404, uniform access 400, public access prevention 412 for public entities and strict objects getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Object ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding, uploader OWNER entry and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "object_acl_targets_a_generation_and_renders_with_full_projection",
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "DELETE",
       "path": "b/{bucket}/o/{object}/acl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -10673,26 +11531,92 @@
       "interface": "storage.objectAccessControls.get",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one ObjectAccessControl of the live or selected generation and 404 for an unknown entity, object or generation. Requires storage.objects.getIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, generation query, body and Discovery resource fields, inherited or projectPrivate defaults, upsert/delete semantics, object metageneration advance, persistence and deletion with the generation follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket, object or generation 404, uniform access 400, public access prevention 412 for public entities and strict objects getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Object ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding, uploader OWNER entry and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "object_acl_targets_a_generation_and_renders_with_full_projection",
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "GET",
       "path": "b/{bucket}/o/{object}/acl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -10727,26 +11651,92 @@
       "interface": "storage.objectAccessControls.insert",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. POST requires entity and role (OWNER/READER), upserts the entity on the live or selected generation and advances object metageneration; Ruby file.acl.add_reader passes in the SDK scorecard. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, object. Query parameters: generation, userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, generation query, body and Discovery resource fields, inherited or projectPrivate defaults, upsert/delete semantics, object metageneration advance, persistence and deletion with the generation follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket, object or generation 404, uniform access 400, public access prevention 412 for public entities and strict objects getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Object ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding, uploader OWNER entry and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "object_acl_targets_a_generation_and_renders_with_full_projection",
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "POST",
       "path": "b/{bucket}/o/{object}/acl",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -10777,26 +11767,92 @@
       "interface": "storage.objectAccessControls.list",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns storage#objectAccessControls for the live or selected generation (inherited, stored or projectPrivate entries); Go ACL().List and Ruby acl.reload! pass in the SDK scorecard. Requires storage.objects.getIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, object. Query parameters: generation, userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, generation query, body and Discovery resource fields, inherited or projectPrivate defaults, upsert/delete semantics, object metageneration advance, persistence and deletion with the generation follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket, object or generation 404, uniform access 400, public access prevention 412 for public entities and strict objects getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Object ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding, uploader OWNER entry and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "object_acl_targets_a_generation_and_renders_with_full_projection",
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "GET",
       "path": "b/{bucket}/o/{object}/acl",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -10827,26 +11883,92 @@
       "interface": "storage.objectAccessControls.patch",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PATCH changes an entry role on the live or selected generation, keeps an existing role when role is omitted, adds a new entity only with a role and advances object metageneration. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, generation query, body and Discovery resource fields, inherited or projectPrivate defaults, upsert/delete semantics, object metageneration advance, persistence and deletion with the generation follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket, object or generation 404, uniform access 400, public access prevention 412 for public entities and strict objects getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Object ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding, uploader OWNER entry and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "object_acl_targets_a_generation_and_renders_with_full_projection",
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "PATCH",
       "path": "b/{bucket}/o/{object}/acl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -10881,26 +12003,92 @@
       "interface": "storage.objectAccessControls.update",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objectAccessControls"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. PUT requires role (OWNER/READER), rejects a different body entity and upserts the path entity on the live or selected generation, advancing object metageneration; Go ObjectHandle.ACL().Set passes in the SDK scorecard. Requires storage.objects.setIamPolicy in strict mode and fails with 400 under uniform access. Entries grant nothing (DESIGN-017); userProject keeps the shared unsupported response. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "WIRE-CONTRACT",
+          "description": "Route, generation query, body and Discovery resource fields, inherited or projectPrivate defaults, upsert/delete semantics, object metageneration advance, persistence and deletion with the generation follow docs/en/slices/json-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas"
+          ]
+        },
+        {
+          "id": "ERRORS-AND-POLICY",
+          "description": "Missing bucket, object or generation 404, uniform access 400, public access prevention 412 for public entities and strict objects getIamPolicy/setIamPolicy checks with anonymous 401.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Object ACL entries grant or deny access together with IAM (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PROVIDER-PARITY",
+          "description": "Provider error reasons/messages, upsert of new entities, etag encoding, uploader OWNER entry and entity normalization need authorized provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "object_acl_targets_a_generation_and_renders_with_full_projection",
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "acl_requests_reject_invalid_inputs_without_mutation",
+        "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+        "json::acl::tests::bodies_require_entity_and_role_per_operation",
+        "json::acl::tests::resources_follow_the_discovery_schemas",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "strict_profile_requires_iam_policy_permissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "acl_requests_reject_invalid_inputs_without_mutation",
+            "json::acl::tests::routes_cover_the_three_collections_and_leave_other_paths",
+            "json::acl::tests::bodies_require_entity_and_role_per_operation",
+            "json::acl::tests::resources_follow_the_discovery_schemas",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "strict_profile_requires_iam_policy_permissions"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "ACL entries do not grant or deny access (DESIGN-017).",
+        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-29",
       "http_method": "PUT",
       "path": "b/{bucket}/o/{object}/acl/{entity}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -21113,7 +22301,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Bucket and object noAcl/full return modeled metadata; ACL/owner fields are omitted in the local subset. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md.",
+      "notes": "Bucket and object noAcl/full return modeled metadata. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. ACL extension (docs/en/slices/json-acl.md, docs/en/evidence/json-acl.md): projection=full, including the PUT default, adds bucket acl/defaultObjectAcl/owner and object acl on get/list/insert/patch/update/copy/compose/move/restore; strict callers without getIamPolicy and uniform-access buckets receive the resource without ACL fields; echoed ACLs are accepted in metadata PATCH/PUT. Object owner, resumable-completion and rewrite ACL fields remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -21137,8 +22325,19 @@
           ]
         },
         {
+          "id": "BEHAVIOR-COMMON-005-ACL",
+          "description": "Full projection renders permission-aware bucket acl/defaultObjectAcl/owner and object acl, hides them under uniform access, and metadata PATCH/PUT accept only echoed ACLs.",
+          "result": "PASS",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "strict_profile_requires_iam_policy_permissions",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "metadata_updates_accept_only_echoed_acls"
+          ]
+        },
+        {
           "id": "BEHAVIOR-COMMON-005-PENDING",
-          "description": "Implement permission-aware ACL/default ACL/owner projections and all field interactions.",
+          "description": "Render the object owner and ACL fields on resumable completion and rewrite responses; establish provider parity for projection permission handling.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -21147,7 +22346,11 @@
         "bkt_http_crud_metadata_conditions_and_errors",
         "bkt_http_list_clamps_to_1000_with_lookahead",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
-        "json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links"
+        "json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links",
+        "object_acl_targets_a_generation_and_renders_with_full_projection",
+        "strict_profile_requires_iam_policy_permissions",
+        "uniform_access_and_public_access_prevention_restrict_acls",
+        "metadata_updates_accept_only_echoed_acls"
       ],
       "verification": [
         {
@@ -21169,11 +22372,23 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links"
           ]
+        },
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "object_acl_targets_a_generation_and_renders_with_full_projection",
+            "strict_profile_requires_iam_policy_permissions",
+            "uniform_access_and_public_access_prevention_restrict_acls",
+            "metadata_updates_accept_only_echoed_acls"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "full omits bucket acl/defaultObjectAcl/owner and object acl/owner; no IAM enforcement or production projection parity."
+        "full omits object owner and the ACL fields of resumable completion and rewrite responses; strict callers without getIamPolicy get no ACL fields instead of an error, a local choice without production projection parity."
       ],
       "implemented_in": "39ea714194c25fa06b1a6c6a933f0d946bb2db9e",
       "last_verified": "2026-10-21"
@@ -39798,11 +41013,30 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Evaluate actual permission effects, including an object ACL granting access independently of absent bucket grants.",
+      "notes": "Evaluate actual permission effects, including an object ACL granting access independently of absent bucket grants. ACL CRUD, inheritance and full projection exist (docs/en/slices/json-acl.md), but authorization is still IAM-only: stored entries grant and deny nothing in permissive or strict mode.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "OBJECT-ACL-READ-GRANT",
+          "description": "A READER/OWNER object ACL entry for allUsers, allAuthenticatedUsers or a matching user- entity authorizes object metadata and media reads without bucket IAM, rechecked inside the read transaction.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BUCKET-ACL-GRANTS",
+          "description": "Bucket READER/WRITER/OWNER entries authorize listing, object creation/deletion and ACL management as documented.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "GROUP-DOMAIN-PROJECT-ENTITIES",
+          "description": "Group, domain and project-team entities match local principals, with public access prevention suppressing public entries.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
       "test_ids": [],
       "verification": [],
       "sdk_evidence": [],
@@ -39818,26 +41052,65 @@
       "interface": "Object creation authorization",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control",
-        "https://docs.cloud.google.com/storage/docs/public-access-prevention"
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/access-control/lists"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Default ACLs affect newly created objects; verify overwrite and explicit/predefined ACL interactions.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. Every publication path copies a stored default object ACL to the new generation in the publishing transaction; without a stored default the generation keeps the projectPrivate ACL. Later default changes never rewrite existing objects and a replacement generation receives the current default, not the replaced object's ACL. Inherited entries grant nothing (DESIGN-017); predefinedAcl/destinationPredefinedAcl, explicit acl bodies, copySourceAcl and the uploader OWNER entry remain pending.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "INHERIT-ON-CREATE",
+          "description": "New generations from media, multipart and copy uploads copy the stored default object ACL atomically; earlier objects and replacement generations follow the default at their creation.",
+          "result": "PASS",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "object_acl_targets_a_generation_and_renders_with_full_projection"
+          ]
+        },
+        {
+          "id": "EXPLICIT-AND-PREDEFINED",
+          "description": "predefinedAcl, destinationPredefinedAcl, explicit acl resources, copySourceAcl on restore and the uploader OWNER entry override or extend the default.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "PERMISSION-EFFECTS",
+          "description": "Inherited entries grant access together with IAM and public access prevention (DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "default_object_acl_applies_only_to_objects_created_afterwards",
+        "object_acl_targets_a_generation_and_renders_with_full_projection"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "default_object_acl_applies_only_to_objects_created_afterwards",
+            "object_acl_targets_a_generation_and_renders_with_full_projection"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Predefined and explicit ACLs on creation, copySourceAcl and the uploader OWNER entry are not modeled; inherited entries grant nothing."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "DESIGN-019",
@@ -39882,25 +41155,54 @@
       "interface": "Uniform bucket-level access",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Reject ACL-dependent operations as documented and prevent object ACLs from granting access.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. With uniform access enabled every bucket, default object and object ACL method returns 400 invalid without mutation, full projection omits acl/defaultObjectAcl (bucket owner remains) and stored entries reappear after disabling. Predefined ACL rejection stays under DESIGN-019. Because ACLs never grant access locally (DESIGN-017), object ACLs cannot bypass uniform access; that interaction becomes testable only with ACL permission effects. Exact provider reason/message is unverified.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "ACL-OPERATIONS-REJECTED",
+          "description": "All ACL methods return 400 under uniform access without changing entries or bucket metageneration; full projection hides ACL fields; disabling restores the retained entries.",
+          "result": "PASS",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls"
+          ]
+        },
+        {
+          "id": "ACL-GRANTS-DISABLED",
+          "description": "Object ACL grants stop authorizing access while uniform access is enabled and resume afterwards (requires DESIGN-017).",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "uniform_access_and_public_access_prevention_restrict_acls"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test acl_http --test unsupported_http && cargo test --locked --offline --lib -- acl:: unsupported::",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/json-acl-tests.txt",
+          "test_ids": [
+            "uniform_access_and_public_access_prevention_restrict_acls"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Provider error reason/message for ACL methods under uniform access is unverified; ACL grant suppression awaits DESIGN-017."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "DESIGN-021",
