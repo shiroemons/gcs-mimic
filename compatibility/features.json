@@ -5456,7 +5456,7 @@
         {"id":"LIFECYCLE-INSERT-STORE","description":"Validated lifecycle metadata round-trips through insert/get/list; configuration only, no execution. Contract and limits: docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation","lifecycle_insert_defaults_and_unknown_resource_fields"]},
         {
           "id": "RUBY-DEFAULT-CREATE-BUCKET",
-          "description": "Ruby high-level create_bucket with no optional arguments accepts no-op Autoclass defaults, omits Autoclass in responses and rejects enabled/additional semantics; docs/en/slices/sdk-ruby-defaults.md.",
+          "description": "Ruby high-level create_bucket with no optional arguments accepts no-op Autoclass defaults, omits Autoclass in responses for those defaults; enabled Autoclass follows BEHAVIOR-BUCKET-019 and malformed settings still fail; docs/en/slices/sdk-ruby-defaults.md.",
           "result": "PASS",
           "test_ids": ["ruby_default_create_bucket", "ruby-default-create-bucket"]
         },
@@ -17801,7 +17801,7 @@
         },
         {
           "id": "grpc_bucket_create_remaining",
-          "description": "Nonempty lifecycle, ACL, requester-pays, encryption, logging, Autoclass, custom placement, hierarchical namespace, object retention and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted.",
+          "description": "Nonempty lifecycle, ACL, requester-pays, encryption, logging, custom placement, hierarchical namespace, object retention and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -17847,7 +17847,7 @@
         }
       ],
       "known_deviations": [
-        "Nonempty lifecycle, ACL, requester-pays, encryption, logging, Autoclass, custom placement, hierarchical namespace, object retention and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted."
+        "Nonempty lifecycle, ACL, requester-pays, encryption, logging, custom placement, hierarchical namespace, object retention and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted."
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"
@@ -21908,8 +21908,19 @@
           ]
         },
         {
+          "id": "OBJECT-CLASS-ON-WRITE",
+          "description": "JSON multipart/resumable storageClass, XML PUT x-goog-storage-class and gRPC WriteObjectSpec storage_class store STANDARD/NEARLINE/COLDLINE/ARCHIVE and read it back; null/omitted uses the bucket default; unknown/lowercase/empty/non-string classes are 400 and REGIONAL/RAPID keep the unsupported error; rewrite class changes still apply; Autoclass buckets store STANDARD; object PATCH keeps storageClass output-only. docs/en/slices/bucket-autoclass-storage-class.md.",
+          "result": "PASS",
+          "test_ids": [
+            "object_storage_class_on_write_json_xml_and_autoclass",
+            "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation",
+            "xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
+            "grpc_io_write_spec_storage_class"
+          ]
+        },
+        {
           "id": "BEHAVIOR-BUCKET-004-PENDING",
-          "description": "Apply storage classes to object behavior, transitions and supported region/zone interactions.",
+          "description": "Apply storage classes to transitions (lifecycle SetStorageClass, Autoclass) and supported region/zone interactions; classes remain metadata without placement, billing or minimum-duration effects.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -21938,9 +21949,25 @@
         "bucket_patch_label_boundaries_and_classes",
         "bucket_patch_merges_labels_class_and_preserves_resources",
         "bucket_put_label_boundaries_and_classes",
-        "bucket_put_replaces_omitted_fields_and_preserves_resources"
+        "bucket_put_replaces_omitted_fields_and_preserves_resources",
+        "object_storage_class_on_write_json_xml_and_autoclass",
+        "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation",
+        "xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
+        "grpc_io_write_spec_storage_class"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib && cargo test --locked --test bucket_autoclass_http --test object_multipart_http --test auth_http",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-autoclass-storage-class.md",
+          "test_ids": [
+            "object_storage_class_on_write_json_xml_and_autoclass",
+            "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation",
+            "xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
+            "grpc_io_write_spec_storage_class"
+          ]
+        },
         {
           "command": "cargo test --workspace --locked",
           "result": "PASS",
@@ -21972,12 +21999,28 @@
           ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "JSON; sdk-scorecard object.storage_class_on_write",
+          "result": "PASS",
+          "test_ids": ["object.storage_class_on_write"]
+        },
+        {
+          "sdk": "google-cloud-storage (Ruby)",
+          "version": "1.62.1",
+          "transport": "JSON; sdk-scorecard object.storage_class_on_write",
+          "result": "PASS",
+          "test_ids": ["object.storage_class_on_write"]
+        }
+      ],
       "known_deviations": [
-        "Bucket class is metadata only; no object placement, class transitions, billing or retention effects."
+        "Bucket and object classes are metadata only; no object placement, class transitions, billing, minimum storage duration or retrieval-fee effects.",
+        "XML x-goog-storage-class accepts only exact uppercase class names; provider case handling is unverified."
       ],
       "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
-      "last_verified": "2026-10-23"
+      "last_verified": "2026-10-29"
     },
     {
       "id": "BEHAVIOR-BUCKET-005",
@@ -23006,26 +23049,134 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/autoclass",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "SPEC_BASED",
-      "notes": "enabled, terminalStorageClass and transition timestamps.",
+      "notes": "Supported subset: JSON insert/get/patch/PUT and gRPC CreateBucket/GetBucket/UpdateBucket store enabled and terminalStorageClass (NEARLINE default, ARCHIVE), compute toggleTime and terminalStorageClassUpdateTime, enforce the STANDARD bucket class, lifecycle SetStorageClass/matchesStorageClass exclusion and the one-day re-enable delay, move objects to STANDARD on enable and store new objects as STANDARD. Contract: docs/en/slices/bucket-autoclass-storage-class.md; evidence: docs/en/evidence/bucket-autoclass-storage-class.md. Access-driven transitions belong to BEHAVIOR-BUCKET-020.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "AUTOCLASS-CREATE",
+          "description": "JSON insert and gRPC CreateBucket store enabled Autoclass with server-computed create-time timestamps and NEARLINE default or ARCHIVE; JSON output-only times are ignored, gRPC output-only times are rejected; GET, read masks and restart read it back.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_autoclass_create_get_patch_and_restrictions",
+            "grpc_buckets_create_autoclass_shares_json_rules",
+            "autoclass_schema_migration_preserves_buckets_and_persists_configuration"
+          ]
+        },
+        {
+          "id": "AUTOCLASS-VALIDATION",
+          "description": "Invalid terminal class, non-boolean enabled, unknown properties, terminal class while disabled, non-STANDARD bucket class and lifecycle SetStorageClass/matchesStorageClass rules with Autoclass return 400 without mutation; Ruby's disabled default stays unconfigured.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_autoclass_create_get_patch_and_restrictions",
+            "autoclass_json_parsing_validates_fields",
+            "autoclass_bucket_restrictions",
+            "ruby_default_create_bucket"
+          ]
+        },
+        {
+          "id": "AUTOCLASS-UPDATE",
+          "description": "PATCH, PUT and gRPC UpdateBucket merge Autoclass: terminal class changes set their update time, disabling records toggleTime and removes the terminal class, re-enabling within 24 hours fails, omission preserves the configuration.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_autoclass_create_get_patch_and_restrictions",
+            "grpc_update_bucket_autoclass_masks",
+            "autoclass_enable_sets_server_times_and_default_terminal_class",
+            "autoclass_disable_and_reenable_boundary"
+          ]
+        },
+        {
+          "id": "AUTOCLASS-ENABLE-EXISTING",
+          "description": "Enabling on an existing bucket sets its class to STANDARD and moves non-soft-deleted objects to STANDARD atomically; an explicit non-STANDARD class in the request fails without mutation.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_autoclass_enable_moves_bucket_and_objects_to_standard"
+          ]
+        },
+        {
+          "id": "AUTOCLASS-OBJECT-CLASS",
+          "description": "Uploads, copy, rewrite and compose into an enabled bucket store STANDARD regardless of the requested class.",
+          "result": "PASS",
+          "test_ids": [
+            "object_storage_class_on_write_json_xml_and_autoclass"
+          ]
+        },
+        {
+          "id": "AUTOCLASS-PROVIDER-PARITY",
+          "description": "Confirm provider error status/reason for restriction violations and early re-enabling, and whether toggleTime equals the bucket updated time, with opted-in real-bucket evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bucket_autoclass_create_get_patch_and_restrictions",
+        "bucket_autoclass_enable_moves_bucket_and_objects_to_standard",
+        "object_storage_class_on_write_json_xml_and_autoclass",
+        "grpc_buckets_create_autoclass_shares_json_rules",
+        "grpc_update_bucket_autoclass_masks",
+        "autoclass_schema_migration_preserves_buckets_and_persists_configuration",
+        "autoclass_json_parsing_validates_fields",
+        "autoclass_enable_sets_server_times_and_default_terminal_class",
+        "autoclass_disable_and_reenable_boundary",
+        "autoclass_bucket_restrictions",
+        "ruby_default_create_bucket"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --lib && cargo test --locked --test bucket_autoclass_http --test sdk_ruby_defaults_http",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/bucket-autoclass-storage-class.md",
+          "test_ids": [
+            "bucket_autoclass_create_get_patch_and_restrictions",
+            "bucket_autoclass_enable_moves_bucket_and_objects_to_standard",
+            "object_storage_class_on_write_json_xml_and_autoclass",
+            "grpc_buckets_create_autoclass_shares_json_rules",
+            "grpc_update_bucket_autoclass_masks",
+            "autoclass_schema_migration_preserves_buckets_and_persists_configuration",
+            "autoclass_json_parsing_validates_fields",
+            "autoclass_enable_sets_server_times_and_default_terminal_class",
+            "autoclass_disable_and_reenable_boundary",
+            "autoclass_bucket_restrictions",
+            "ruby_default_create_bucket"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "JSON; sdk-scorecard bucket.autoclass",
+          "result": "PASS",
+          "test_ids": ["bucket.autoclass"]
+        },
+        {
+          "sdk": "google-cloud-storage (Ruby)",
+          "version": "1.62.1",
+          "transport": "JSON; sdk-scorecard bucket.autoclass",
+          "result": "PASS",
+          "test_ids": ["bucket.autoclass"]
+        }
+      ],
+      "known_deviations": [
+        "Restriction violations and early re-enabling return local 400 invalidArgument; the provider error status/reason is undocumented.",
+        "PUT preserves an omitted autoclass under the local PUT rule; Ruby Bucket#update sends only changed attributes.",
+        "Autoclass timestamps are computed when the change is applied and fall within the request, but may differ from the bucket updated time by microseconds.",
+        "No access/age-driven class transitions, pricing, 128 KiB rule or relocation pause (BEHAVIOR-BUCKET-020); changing the terminal class moves no objects."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "BEHAVIOR-BUCKET-020",
@@ -23044,7 +23195,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Clock-driven local access/age model; no reproduction of pricing/backend service timing.",
+      "notes": "Clock-driven local access/age model; no reproduction of pricing/backend service timing. Not started: BEHAVIOR-BUCKET-019 stores the configuration, keeps every object in an enabled bucket STANDARD and moves objects to STANDARD on enable, but no access/age transition to NEARLINE/COLDLINE/ARCHIVE or terminal-class change migration runs.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "NEEDS_DECOMPOSITION",

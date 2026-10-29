@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 246 | 0 | 63 | 1 | 0 | 0 |
-| behavior | 201 | 108 | 0 | 55 | 38 | 0 | 0 |
+| behavior | 201 | 107 | 0 | 56 | 38 | 0 | 0 |
 | project_requirement | 95 | 34 | 0 | 30 | 31 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 246 | 33 | 31 | 0 | 0 | 0 |
-| behavior | 109 | 54 | 35 | 3 | 0 | 0 |
+| behavior | 108 | 55 | 35 | 3 | 0 | 0 |
 | project_requirement | 34 | 0 | 0 | 0 | 0 | 61 |
 
 ## api_operation
@@ -519,7 +519,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-001 | バケット識別子と時刻 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-BUCKET-002 | バケットラベル | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-BUCKET-003 | ロケーションと配置設定 | PARTIAL | P7 | LOCAL_SIMULATION | METADATA_ONLY | 0 |
-| BEHAVIOR-BUCKET-004 | ストレージクラス | PARTIAL | P1 | EXACT | METADATA_ONLY | 0 |
+| BEHAVIOR-BUCKET-004 | ストレージクラス | PARTIAL | P1 | EXACT | METADATA_ONLY | 2 |
 | BEHAVIOR-BUCKET-005 | RPO・レプリケーション設定 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
 | BEHAVIOR-BUCKET-006 | バケット既定暗号鍵 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-007 | 暗号方式の強制設定 | NOT_STARTED | P7 | EXACT | NONE | 0 |
@@ -534,7 +534,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-016 | 恒久削除一時停止フィールド | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-017 | バケットのSoft deleteと復元 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-018 | 階層名前空間設定 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-019 | Autoclass設定 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-019 | Autoclass設定 | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-BUCKET-020 | Autoclassの状態遷移 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 
 ### Batch semantics

@@ -10,13 +10,13 @@ No storage, startup, authentication or dependency changes are required.
 | Case | Required behavior |
 | --- | --- |
 | RUBY-DEFAULT-CREATE-FILE-CONTENT-TYPE | High-level `create_file(StringIO, extensionless_name)` without `content_type` accepts the SDK's empty X-Upload-Content-Type as absent; the existing absent-header fallback remains application/octet-stream. Nonempty invalid MIME values still return 400. |
-| RUBY-DEFAULT-CREATE-BUCKET | High-level `create_bucket(name)` without optional arguments accepts autoclass enabled:false as absent. Empty/null Autoclass settings are also absent. Any other Autoclass meaning returns 400 badRequest, and responses never advertise Autoclass. |
+| RUBY-DEFAULT-CREATE-BUCKET | High-level `create_bucket(name)` without optional arguments accepts autoclass enabled:false as absent. Empty/null Autoclass settings are also absent. Responses for these defaults do not advertise Autoclass; enabled Autoclass is now handled by [bucket-autoclass-storage-class](bucket-autoclass-storage-class.md) and malformed settings return 400 invalidArgument. |
 | RUBY-DEFAULT-COMPOSE | High-level `compose(sources, name)` without optional arguments accepts deleteSourceObjects:null as false and destination:null as an omitted destination. Sources survive, bytes concatenate and existing destination defaults apply. True retains hard deletion; malformed and unsupported inputs retain their existing errors. |
 | RUBY-DEFAULT-SUITE | The pinned Ruby suite uses these high-level default calls, including migration create_file, without the three workarounds. Existing checksum, cleanup and origin guards remain enabled. |
 
-The JSON adapter normalizes only these no-op defaults. Enabled Autoclass,
-additional Autoclass properties and unsupported locations still fail rather than
-silently succeeding. Bucket PATCH/PUT Autoclass support is outside this slice.
+The JSON adapter normalizes only these no-op defaults. Malformed Autoclass
+properties and unsupported locations still fail rather than
+silently succeeding. Bucket PATCH/PUT Autoclass is covered by the Autoclass slice.
 Duplicate upload headers remain invalid. Body streaming, publication conditions
 and strict permission checks use their existing paths.
 
@@ -32,7 +32,7 @@ method documents false as the deletion default. Neither establishes explicit-nul
 acceptance for this legacy JSON API. Treating these nulls as absent is a local
 SDK compatibility decision recorded in SPEC-RUBY-DEFAULTS, not provider evidence.
 Empty upload MIME and disabled/empty Autoclass are likewise normalized only at
-the adapter boundary; Autoclass remains unimplemented.
+the adapter boundary for buckets that never enabled Autoclass.
 This supersedes the explicit-null rejection in the original
 [compose contract's request table](object-compose.md#supported-request-and-metadata-subset).
 An omitted/null destination still omits contentType from JSON metadata and serves

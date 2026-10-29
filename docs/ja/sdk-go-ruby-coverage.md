@@ -52,7 +52,7 @@ SDK スイートに加えて、スイート外の SDK メソッドを呼ぶ一�
 | 事前定義 ACL・既定オブジェクト ACL 付きで作成 | 501⏳ | 501 | |
 | UBLA 付きで作成 | 501⏳ | — | Ruby は更新でも 501 |
 | 階層型名前空間付きで作成 | 501⏳ | — | |
-| website・requester pays・autoclass・オブジェクト保持付きで作成 | 501⏳（オブジェクト保持） | 501 | |
+| website・requester pays・autoclass・オブジェクト保持付きで作成 | 501⏳（オブジェクト保持） | 501 | 調査時点の結果。[Autoclass](../en/slices/bucket-autoclass-storage-class.md)は両SDKで成功するようになった |
 | 重複作成で 409 | ✅ | ✅ | |
 | 取得・存在しないバケット・`exists?` | ✅ | ✅ | |
 | 一覧（プロジェクト、prefix） | ✅ | ✅ | |
@@ -62,7 +62,7 @@ SDK スイートに加えて、スイート外の SDK メソッドを呼ぶ一�
 | 保持ポリシーのロック | 501⏳ | 501 | Go は前段の保持ポリシー作成で失敗 |
 | UBLA の更新 | 501 | 501 | |
 | website・logging・requester pays の更新 | 501 | 501 | |
-| soft delete ポリシー・autoclass・既定 KMS 鍵の更新 | 501 | 501 | |
+| soft delete ポリシー・autoclass・既定 KMS 鍵の更新 | 501 | 501 | 調査時点の結果。[Autoclass](../en/slices/bucket-autoclass-storage-class.md)の PATCH/PUT は対応済み |
 | RPO の更新 | — | 501 | |
 | 古い metageneration の前提条件で 412 | ✅ | ✅ | |
 | IAM の取得・設定・testIamPermissions | ✅ | ✅ | |

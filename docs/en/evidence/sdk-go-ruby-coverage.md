@@ -56,7 +56,7 @@ Japanese companion: [SDK coverage (ja)](../../ja/sdk-go-ruby-coverage.md).
 | Create with predefined ACL / default object ACL | 501⏳ | 501 | |
 | Create with uniform bucket-level access | 501⏳ | — | Ruby update also returns 501 |
 | Create with hierarchical namespace | 501⏳ | — | |
-| Create with website, requester pays, autoclass, object retention | 501⏳ (object retention) | 501 | |
+| Create with website, requester pays, autoclass, object retention | 501⏳ (object retention) | 501 | Historical probe result; [Autoclass now passes](../slices/bucket-autoclass-storage-class.md) in both SDKs |
 | Duplicate create returns 409 | ✅ | ✅ | |
 | Get, missing bucket, `exists?` | ✅ | ✅ | |
 | List (project, prefix) | ✅ | ✅ | |
@@ -66,7 +66,7 @@ Japanese companion: [SDK coverage (ja)](../../ja/sdk-go-ruby-coverage.md).
 | Lock retention policy | 501⏳ | 501 | Go call depends on a retention policy, which fails first |
 | Update uniform bucket-level access | 501 | 501 | |
 | Update website, logging, requester pays | 501 | 501 | |
-| Update soft delete policy, autoclass, default KMS key | 501 | 501 | |
+| Update soft delete policy, autoclass, default KMS key | 501 | 501 | Historical probe result; [Autoclass PATCH/PUT is now supported](../slices/bucket-autoclass-storage-class.md) |
 | Update RPO | — | 501 | |
 | Stale metageneration precondition returns 412 | ✅ | ✅ | |
 | IAM get, set, testIamPermissions | ✅ | ✅ | |

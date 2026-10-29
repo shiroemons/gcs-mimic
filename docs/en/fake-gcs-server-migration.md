@@ -49,11 +49,11 @@ The Ruby SDK's ordinary high-level calls now accept no-op wire defaults:
 | Ruby call | gcs-mimic behavior |
 | --- | --- |
 | `create_file(StringIO, extensionless_name)` without content_type | Empty upload MIME is treated as absent; contentType defaults to application/octet-stream. Nonempty invalid MIME still returns 400. |
-| `create_bucket(name)` without optional arguments | Disabled, empty or null Autoclass is treated as absent, with no Autoclass response property. Enabled or additional Autoclass settings return 400 badRequest; omit them or use enabled:false. |
+| `create_bucket(name)` without optional arguments | Disabled, empty or null Autoclass is treated as absent, with no Autoclass response property. `autoclass_enabled: true` creates an [Autoclass bucket](slices/bucket-autoclass-storage-class.md); malformed Autoclass settings return 400 invalidArgument. |
 | `compose(sources, name)` without optional arguments | Null deletion/destination uses ordinary non-destructive composition and destination defaults. Explicit true retains hard source deletion. |
 
-These are the scoped [Ruby defaults](slices/sdk-ruby-defaults.md), not Autoclass
-implementation or proof of provider null-input parity. No extra server setting is
+These are the scoped [Ruby defaults](slices/sdk-ruby-defaults.md), not proof
+of provider null-input parity. No extra server setting is
 required.
 
 | Listing call | gcs-mimic behavior |
