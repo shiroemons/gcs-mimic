@@ -59,17 +59,7 @@ pub fn directory_names_after(
         let mut names = std::collections::BTreeSet::new();
         let mut inspected = 0;
         loop {
-            // SAFETY: errno is thread-local and the pointer is valid on supported Unix hosts.
-            unsafe {
-                #[cfg(target_os = "linux")]
-                {
-                    *libc::__errno_location() = 0;
-                }
-                #[cfg(target_os = "macos")]
-                {
-                    *libc::__error() = 0;
-                }
-            }
+            clear_errno();
             // SAFETY: stream remains live and iteration is confined to this thread.
             let entry = unsafe { libc::readdir(stream.0) };
             if entry.is_null() {
@@ -102,6 +92,38 @@ pub fn directory_names_after(
     {
         let _ = (directory, after);
         Err(io::ErrorKind::Unsupported.into())
+    }
+}
+
+/// `readdir` signals both the end of the stream and a failure with a null entry and sets
+/// errno only on failure, so errno must be cleared before each call; a stale value would
+/// turn a clean end into an error. Each libc names its thread-local errno accessor
+/// differently, and a Unix target without a known accessor must not build.
+#[cfg(unix)]
+fn clear_errno() {
+    #[cfg(any(target_os = "solaris", target_os = "illumos"))]
+    use libc::___errno as errno;
+    #[cfg(any(target_os = "android", target_os = "openbsd", target_os = "netbsd"))]
+    use libc::__errno as errno;
+    #[cfg(any(target_os = "linux", target_os = "dragonfly"))]
+    use libc::__errno_location as errno;
+    #[cfg(any(target_vendor = "apple", target_os = "freebsd"))]
+    use libc::__error as errno;
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "android",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "solaris",
+        target_os = "illumos",
+    )))]
+    compile_error!("directory listing needs this target's errno accessor; add it to clear_errno");
+    // SAFETY: the accessor returns a valid pointer to the calling thread's errno.
+    unsafe {
+        *errno() = 0;
     }
 }
 
