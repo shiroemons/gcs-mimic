@@ -252,6 +252,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
                 "tls_handshake_timeout_ms",
                 "public_base_url",
                 "public_virtual_host_enabled",
+                "cors_fallback",
                 "api_base_url",
             ])
         );
@@ -623,6 +624,7 @@ fn api_origin_ready_and_resumable_locations_use_bound_addresses() {
         assert_eq!(ready["api_base_url"], base);
         assert!(ready["public_base_url"].is_null());
         assert_eq!(ready["public_virtual_host_enabled"], false);
+        assert_eq!(ready["cors_fallback"], "none");
         let response = request(
             address,
             "POST /storage/v1/b?project=local-project HTTP/1.1\r\nHost: attacker.invalid\r\nForwarded: host=attacker.invalid;proto=https\r\nContent-Type: application/json\r\nContent-Length: 21\r\n\r\n{\"name\":\"api-origin\"}",

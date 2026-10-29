@@ -390,3 +390,123 @@ fn mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently(
     );
     restarted.stop();
 }
+
+fn stderr_events(server: &mut Server) -> Vec<Value> {
+    server.stop();
+    let mut stderr = String::new();
+    server
+        .child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    stderr
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json() {
+    let data = TestDir::new();
+    let (mut server, ready) =
+        Server::start_with_stderr(&data, &["--cors-fallback", "allow-all"], Stdio::piped());
+    assert_eq!(ready["cors_fallback"], "allow-all");
+    for bucket in ["open-bucket", "ruled-bucket"] {
+        server.create_bucket("", "project-a", bucket).ok();
+        server.upload("", bucket, "item", b"hello").ok();
+    }
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/ruled-bucket",
+            "Content-Type: application/json\r\n",
+            json!({"cors":[{"origin":[ORIGIN],"method":["GET"]}]})
+                .to_string()
+                .as_bytes(),
+        )
+        .ok();
+    let other = "Origin: https://other.example.invalid\r\n";
+    let preflight = server.request(
+        "OPTIONS",
+        "/open-bucket/item",
+        &format!("{other}Access-Control-Request-Method: PUT\r\nAccess-Control-Request-Headers: authorization, x-goog-meta-owner\r\n"),
+        b"",
+    );
+    assert_eq!(preflight.status, 200);
+    assert_eq!(preflight.headers["access-control-allow-origin"], "*");
+    assert_eq!(
+        preflight.headers["access-control-allow-headers"],
+        "authorization, x-goog-meta-owner"
+    );
+    assert_eq!(
+        preflight.headers["access-control-allow-methods"],
+        "HEAD, GET, POST, PUT, DELETE"
+    );
+    assert!(
+        !preflight
+            .headers
+            .contains_key("access-control-allow-credentials")
+    );
+    for method in ["GET", "HEAD"] {
+        let reply = server.request(method, "/open-bucket/item", other, b"");
+        assert_eq!(reply.status, 200);
+        assert_eq!(reply.headers["access-control-allow-origin"], "*");
+        assert_eq!(reply.headers["access-control-expose-headers"], "Location");
+        if method == "GET" {
+            assert_eq!(reply.body, b"hello");
+        }
+    }
+    let missing = server.request("GET", "/missing-bucket/item", other, b"");
+    assert_eq!(missing.status, 404);
+    assert_eq!(missing.headers["access-control-allow-origin"], "*");
+    // Stored rules keep their exact XML behavior: the fallback never widens them.
+    let denied = server.request("GET", "/ruled-bucket/item", other, b"");
+    assert_eq!(denied.status, 200);
+    assert!(!denied.headers.contains_key("access-control-allow-origin"));
+    let allowed = cors_request(&server, "GET", "/ruled-bucket/item", "", b"");
+    assert_eq!(allowed.headers["access-control-allow-origin"], ORIGIN);
+    let json = server.request(
+        "GET",
+        "/storage/v1/b/open-bucket/o/item?alt=media",
+        other,
+        b"",
+    );
+    assert_eq!(
+        json.headers["access-control-allow-origin"],
+        "https://other.example.invalid"
+    );
+    assert_eq!(json.headers["access-control-allow-credentials"], "true");
+    let events = stderr_events(&mut server);
+    assert!(!events.iter().any(|e| e["event"] == "cors_unconfigured"));
+}
+
+#[test]
+fn unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback() {
+    let data = TestDir::new();
+    let (mut server, ready) = Server::start_with_stderr(&data, &[], Stdio::piped());
+    assert_eq!(ready["cors_fallback"], "none");
+    server.create_bucket("", "project-a", "plain-bucket").ok();
+    server.upload("", "plain-bucket", "item", b"hello").ok();
+    // Requests without Origin are not browser CORS failures and stay silent.
+    server.get("", "/plain-bucket/item");
+    for _ in 0..2 {
+        let reply = cors_request(&server, "GET", "/plain-bucket/item", "", b"");
+        assert_eq!(reply.status, 200);
+        assert!(!reply.headers.contains_key("access-control-allow-origin"));
+    }
+    let warnings: Vec<_> = stderr_events(&mut server)
+        .into_iter()
+        .filter(|e| e["event"] == "cors_unconfigured")
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0]["level"], "warn");
+    assert_eq!(warnings[0]["bucket"], "plain-bucket");
+    assert!(
+        warnings[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("GCS_MIMIC_CORS_FALLBACK=allow-all")
+    );
+}

@@ -43,6 +43,7 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "shutdown_timeout_ms",
     "auth_mode",
     "compat_profile",
+    "cors_fallback",
     "identity_file",
 ];
 
@@ -150,6 +151,12 @@ impl Inputs {
                 }
             });
             let valid_syntax = hyphens == 2 && inline.is_none() && separate;
+            // fake-gcs-server users expect a valueless switch here, so name the value they need.
+            let example = if native_name && normalized == "cors_fallback" {
+                "--cors-fallback allow-all"
+            } else {
+                "--scheme http"
+            };
             let input = Input {
                 source: DiagnosticSource::Cli,
                 key: key.into(),
@@ -175,7 +182,7 @@ impl Inputs {
                 && let Some(key) = saved_key
             {
                 self.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Cli, key,
-                    "Options require --name VALUE pairs; for example --scheme http. Use --help for supported options."));
+                    format!("Options require --name VALUE pairs; for example {example}. Use --help for supported options.")));
                 if !native_name {
                     self.entries.pop();
                 }
@@ -367,7 +374,8 @@ fn legacy_fix(name: &str, values: &BTreeMap<&str, &str>) -> String {
         "filesystem_root" => "use GCS_MIMIC_DATA_DIR=data only for native storage; the source format differs. Retain the old root for the separately delivered Import conversion; never mount it as native data".into(),
         "backend" => "the backend selector and memory mode are unsupported; remove this setting and use the default disk-backed native catalog".into(),
         "cert_location" | "private_key_location" => "supply both GCS_MIMIC_TLS_CERT=certs/server.pem and GCS_MIMIC_TLS_KEY=certs/server-key.pem; one-sided overrides fail".into(),
-        "cors_headers" => "global CORS headers are unsupported. JSON preflight already echoes valid requested headers, so JSON-only callers can remove this setting. For XML/public URLs configure each bucket CORS responseHeader (for example X-Example) with its origins and methods; there is no global native replacement".into(),
+        // Removal comes first: JSON-only callers need nothing else, and allow-all departs from Cloud Storage.
+        "cors_headers" => "remove this setting; JSON preflight already allows every valid requested header. Only if browsers read XML/public URLs of buckets without stored CORS rules, also set GCS_MIMIC_CORS_FALLBACK=allow-all or --cors-fallback allow-all".into(),
         "location" => match bucket_location(value) {
             Ok((location, _)) => format!("use GCS_MIMIC_COMPAT_PROFILE=native with GCS_MIMIC_DEFAULT_LOCATION={location} or --default-location {location}; applies only to new buckets without a nonempty location; legacy-emulator global location defaults remain unsupported"),
             Err(_) => "remove this setting; native defaults use GCS_MIMIC_COMPAT_PROFILE=native with a supported GCS_MIMIC_DEFAULT_LOCATION, for example US or ASIA-NORTHEAST1; legacy-emulator global location defaults remain unsupported".into(),
@@ -629,14 +637,23 @@ mod tests {
         for expected in [
             "<IP_ADDRESS>:<PORT_0_TO_65535>",
             "GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1",
-            "JSON preflight",
-            "XML/public",
-            "responseHeader",
-            "no global native replacement",
+            "GCS_MIMIC_CORS_FALLBACK=allow-all",
+            "--cors-fallback allow-all",
+            "without stored CORS rules",
         ] {
             assert!(text.contains(expected), "{text}");
         }
         assert!(!text.contains("secret"));
+        // JSON-only callers must learn first that removal alone suffices.
+        let cors = &report
+            .diagnostics
+            .errors
+            .iter()
+            .find(|d| d.key == "-cors-headers")
+            .unwrap()
+            .fix;
+        assert!(cors.starts_with("Legacy input is unsupported; remove this setting;"));
+        assert!(cors.find("JSON").unwrap() < cors.find("allow-all").unwrap());
     }
 
     #[test]

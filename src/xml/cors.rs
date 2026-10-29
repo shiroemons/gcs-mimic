@@ -1,14 +1,53 @@
-use crate::bucket::CorsRule;
+use crate::{bucket::CorsRule, config::CorsFallback};
 use hyper::{
     HeaderMap, Method,
     header::{HeaderName, HeaderValue},
 };
+use std::{collections::BTreeSet, sync::Mutex};
 
+/// Methods the allow-all fallback grants; PATCH is omitted because no XML route accepts it.
+const ALLOW_ALL_METHODS: &str = "HEAD, GET, POST, PUT, DELETE";
+/// Bounds the remembered bucket names so the warning memory does not grow with the catalog.
+const WARNED_BUCKET_LIMIT: usize = 64;
+
+static WARNED_BUCKETS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Browsers only report a generic CORS failure, so the server log is the one place that can say
+/// a migrated fake-gcs-server caller now needs the fallback or bucket rules.
+pub(crate) fn warn_unconfigured_cors(bucket: &str, headers: &HeaderMap) {
+    if crate::json::cors::origin(headers).is_none() {
+        return;
+    }
+    let first = first_warning(
+        &mut WARNED_BUCKETS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        bucket,
+    );
+    if first {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Warn,
+            "cors_unconfigured",
+            serde_json::json!({
+                "bucket": bucket,
+                "message": "XML/public browser request reached a bucket without CORS rules; set GCS_MIMIC_CORS_FALLBACK=allow-all or configure the bucket cors field",
+            }),
+        );
+    }
+}
+
+fn first_warning(warned: &mut BTreeSet<String>, bucket: &str) -> bool {
+    warned.len() < WARNED_BUCKET_LIMIT && warned.insert(bucket.to_owned())
+}
+
+/// `fallback` applies only when `rules` is empty, so stored bucket rules keep their exact XML
+/// behavior, including denials.
 pub(crate) fn cors(
     headers: &HeaderMap,
     method: &Method,
     rules: &[CorsRule],
     preflight: bool,
+    fallback: CorsFallback,
 ) -> HeaderMap {
     let mut result = HeaderMap::new();
     let one = |name: &str| {
@@ -32,6 +71,9 @@ pub(crate) fn cors(
     };
     if !matches!(requested_method, "DELETE" | "GET" | "HEAD" | "POST" | "PUT") {
         return result;
+    }
+    if rules.is_empty() && fallback == CorsFallback::AllowAll {
+        return allow_all(headers, preflight, one("access-control-request-headers"));
     }
     // The first origin/method match determines the policy, even if its headers deny preflight.
     let Some(rule) = rules.iter().find(|rule| {
@@ -97,6 +139,46 @@ pub(crate) fn cors(
         "access-control-allow-origin",
         HeaderValue::from_str(origin).unwrap(),
     );
+    result
+}
+
+/// Mirrors fake-gcs-server's wildcard middleware for valid origins without its credential grant:
+/// browsers reject credentials with a wildcard origin, so omitting it changes no allowed request.
+/// Every valid requested header is allowed, which also covers its `-cors-headers` additions.
+fn allow_all(headers: &HeaderMap, preflight: bool, requested_headers: Option<&str>) -> HeaderMap {
+    let mut result = HeaderMap::new();
+    if preflight {
+        if headers.contains_key("access-control-request-headers") {
+            let Some(value) = requested_headers.filter(|value| {
+                value
+                    .split(',')
+                    .all(|name| HeaderName::from_bytes(name.trim().as_bytes()).is_ok())
+            }) else {
+                return result;
+            };
+            result.insert(
+                "access-control-allow-headers",
+                HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        result.insert(
+            "access-control-allow-methods",
+            HeaderValue::from_static(ALLOW_ALL_METHODS),
+        );
+        result.insert(
+            "vary",
+            HeaderValue::from_static(
+                "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+            ),
+        );
+    } else {
+        result.insert(
+            "access-control-expose-headers",
+            HeaderValue::from_static("Location"),
+        );
+        result.insert("vary", HeaderValue::from_static("Origin"));
+    }
+    result.insert("access-control-allow-origin", HeaderValue::from_static("*"));
     result
 }
 
@@ -171,6 +253,25 @@ mod tests {
             response_header: vec!["X-Example".into(), "ETag".into()],
             max_age_seconds: None,
         }
+    }
+
+    /// Bucket-rule cases run without a fallback, as in the default configuration.
+    fn cors(
+        headers: &HeaderMap,
+        method: &Method,
+        rules: &[CorsRule],
+        preflight: bool,
+    ) -> HeaderMap {
+        super::cors(headers, method, rules, preflight, CorsFallback::None)
+    }
+
+    fn allow_all(
+        headers: &HeaderMap,
+        method: &Method,
+        rules: &[CorsRule],
+        preflight: bool,
+    ) -> HeaderMap {
+        super::cors(headers, method, rules, preflight, CorsFallback::AllowAll)
     }
 
     fn request(origin: &str, method: Option<&str>, names: Option<&str>) -> HeaderMap {
@@ -330,5 +431,60 @@ mod tests {
         ] {
             assert!(!origin_matches(allowed, request), "{allowed} {request}");
         }
+    }
+
+    #[test]
+    fn allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules() {
+        let preflight = request(
+            "https://other.example",
+            Some("PUT"),
+            Some("authorization, x-goog-meta-owner"),
+        );
+        let headers = allow_all(&preflight, &Method::OPTIONS, &[], true);
+        assert_eq!(headers["access-control-allow-origin"], "*");
+        assert_eq!(
+            headers["access-control-allow-methods"],
+            "HEAD, GET, POST, PUT, DELETE"
+        );
+        assert_eq!(
+            headers["access-control-allow-headers"],
+            "authorization, x-goog-meta-owner"
+        );
+        assert!(!headers.contains_key("access-control-allow-credentials"));
+        assert!(!headers.contains_key("access-control-max-age"));
+        let actual = allow_all(&request("null", None, None), &Method::GET, &[], false);
+        assert_eq!(actual["access-control-allow-origin"], "*");
+        assert_eq!(actual["access-control-expose-headers"], "Location");
+        assert!(!actual.contains_key("access-control-allow-credentials"));
+        // Stored rules stay authoritative, including their denials.
+        let denied = request("https://other.example", Some("GET"), None);
+        assert!(allow_all(&denied, &Method::OPTIONS, &[rule()], true).is_empty());
+        let allowed = request("https://app.example", None, None);
+        assert_eq!(
+            allow_all(&allowed, &Method::GET, &[rule()], false)["access-control-allow-origin"],
+            "https://app.example"
+        );
+        for headers in [
+            request("https://app.example", Some("PATCH"), None),
+            request("https://app.example", None, None),
+            request("https://app.example", Some("GET"), Some("invalid header")),
+            request("https://app.example", Some("GET"), Some("x-example,")),
+            request("https://app.example/path", Some("GET"), None),
+        ] {
+            assert!(allow_all(&headers, &Method::OPTIONS, &[], true).is_empty());
+        }
+        assert!(cors(&preflight, &Method::OPTIONS, &[], true).is_empty());
+    }
+
+    #[test]
+    fn unconfigured_warning_is_once_per_bucket_and_bounded() {
+        let mut warned = BTreeSet::new();
+        assert!(first_warning(&mut warned, "bucket-a"));
+        assert!(!first_warning(&mut warned, "bucket-a"));
+        for index in 1..WARNED_BUCKET_LIMIT {
+            assert!(first_warning(&mut warned, &format!("bucket-{index}")));
+        }
+        assert!(!first_warning(&mut warned, "bucket-over-limit"));
+        assert_eq!(warned.len(), WARNED_BUCKET_LIMIT);
     }
 }

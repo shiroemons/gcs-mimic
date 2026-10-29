@@ -14,7 +14,7 @@ use hyper::{
 use std::time::UNIX_EPOCH;
 
 mod cors;
-pub(crate) use cors::cors;
+pub(crate) use cors::{cors, warn_unconfigured_cors};
 pub(crate) mod put;
 
 pub(crate) fn authenticate<'a>(

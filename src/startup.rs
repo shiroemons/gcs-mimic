@@ -68,6 +68,7 @@ pub(crate) struct ReadyEvent {
     tls_handshake_timeout_ms: u64,
     public_base_url: Option<String>,
     public_virtual_host_enabled: bool,
+    cors_fallback: &'static str,
     api_base_url: String,
 }
 
@@ -121,6 +122,7 @@ impl ReadyEvent {
                 .as_ref()
                 .map(|origin| origin.as_str().to_owned()),
             public_virtual_host_enabled: config.public_virtual_host_enabled(),
+            cors_fallback: config.cors_fallback.as_str(),
             api_base_url,
         }
     }

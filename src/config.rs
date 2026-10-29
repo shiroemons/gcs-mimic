@@ -35,6 +35,36 @@ impl std::str::FromStr for CompatProfile {
     }
 }
 
+/// How XML/public CORS treats a bucket without stored rules. Cloud Storage has no server-wide
+/// rules, so `AllowAll` exists only as a fake-gcs-server migration aid.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CorsFallback {
+    #[default]
+    None,
+    AllowAll,
+}
+
+impl CorsFallback {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::AllowAll => "allow-all",
+        }
+    }
+}
+
+impl std::str::FromStr for CorsFallback {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "none" => Ok(Self::None),
+            "allow-all" => Ok(Self::AllowAll),
+            _ => Err("cors_fallback must be none or allow-all".into()),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Scheme {
     Http,
@@ -101,6 +131,7 @@ pub struct Config {
     pub shutdown_timeout_ms: u64,
     pub auth_mode: AuthMode,
     pub compat_profile: CompatProfile,
+    pub cors_fallback: CorsFallback,
     /// Strict-mode identity registry; loaded once at startup, never in permissive mode.
     pub identity_file: Option<PathBuf>,
 }
@@ -140,6 +171,7 @@ impl Default for Config {
             shutdown_timeout_ms: 5_000,
             auth_mode: AuthMode::Permissive,
             compat_profile: CompatProfile::Native,
+            cors_fallback: CorsFallback::None,
             identity_file: None,
         }
     }
@@ -519,6 +551,7 @@ impl Config {
                     }
                     "auth_mode" => config.auth_mode = value.parse()?,
                     "compat_profile" => config.compat_profile = value.parse()?,
+                    "cors_fallback" => config.cors_fallback = value.parse()?,
                     "identity_file" => {
                         if value.is_empty() {
                             return Err("identity_file must not be empty".into());
@@ -920,6 +953,38 @@ mod tests {
                 "{error}"
             );
         }
+    }
+
+    #[test]
+    fn cors_fallback_defaults_to_none_with_precedence_in_both_profiles() {
+        let empty = BTreeMap::new();
+        let load = |args: &[String], env| Config::load(args, env).unwrap().cors_fallback;
+        assert_eq!(load(&[], &empty), CorsFallback::None);
+        let dir = PublicConfigDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(&file, r#"{"cors_fallback":"allow-all"}"#).unwrap();
+        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        assert_eq!(load(&args, &empty), CorsFallback::AllowAll);
+        let env = BTreeMap::from([("GCS_MIMIC_CORS_FALLBACK".into(), "none".into())]);
+        assert_eq!(load(&args, &env), CorsFallback::None);
+        args.extend(["--cors-fallback".into(), "allow-all".into()]);
+        assert_eq!(load(&args, &env), CorsFallback::AllowAll);
+        for profile in ["native", "legacy-emulator"] {
+            let args =
+                ["--cors-fallback", "allow-all", "--compat-profile", profile].map(str::to_owned);
+            assert_eq!(load(&args, &empty), CorsFallback::AllowAll);
+        }
+        for value in ["", "true", "allow_all", "ALLOW-ALL", "*"] {
+            let env = BTreeMap::from([("GCS_MIMIC_CORS_FALLBACK".into(), value.into())]);
+            let errors = Config::load(&[], &env).unwrap_err();
+            assert_eq!(errors.errors[0].key, "GCS_MIMIC_CORS_FALLBACK");
+            assert!(errors.to_string().contains("none or allow-all"));
+        }
+        std::fs::write(&file, r#"{"cors_fallback":true}"#).unwrap();
+        assert!(Config::load(&args[..2], &empty).is_err());
+        // A bare flag names the accepted value instead of an unrelated example.
+        let errors = Config::load(&["--cors-fallback".into()], &empty).unwrap_err();
+        assert!(errors.to_string().contains("--cors-fallback allow-all"));
     }
 
     #[test]

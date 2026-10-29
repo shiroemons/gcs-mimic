@@ -2,7 +2,7 @@ use crate::{
     auth::{self, Auth, Caller},
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
-    config::{CompatProfile, Config},
+    config::{CompatProfile, Config, CorsFallback},
     http_conditions::{EtagError, etag_not_modified},
     json::{self, BucketRequest, JsonError, ObjectRequest},
     object::{ObjectConditions, ObjectError, UploadChunk},
@@ -654,9 +654,25 @@ async fn respond(
         let cors = if has_origin {
             match state.catalog.get_bucket(&object.bucket).await {
                 Ok(Some(bucket)) => {
-                    xml::cors(request.headers(), request.method(), &bucket.cors, preflight)
+                    if bucket.cors.is_empty() && config.cors_fallback == CorsFallback::None {
+                        xml::warn_unconfigured_cors(&object.bucket, request.headers());
+                    }
+                    xml::cors(
+                        request.headers(),
+                        request.method(),
+                        &bucket.cors,
+                        preflight,
+                        config.cors_fallback,
+                    )
                 }
-                Ok(None) => hyper::HeaderMap::new(),
+                // A missing bucket has no stored rules, so the fallback lets browsers read the 404.
+                Ok(None) => xml::cors(
+                    request.headers(),
+                    request.method(),
+                    &[],
+                    preflight,
+                    config.cors_fallback,
+                ),
                 Err(error) => {
                     return boxed(
                         xml::Error::from(JsonError::from(error))
