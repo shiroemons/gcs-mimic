@@ -5,8 +5,8 @@
 This slice changes the optional comparison harness, not the emulator's transport
 or implementation statuses. Related rows remain owned by the feature ledger:
 DESIGN-065, DESIGN-082, DESIGN-083, DESIGN-085, DESIGN-086, AUDIT-004 and
-BEHAVIOR-OBJECT-005. Full SDK scores require the separately integrated server
-changes and a new complete run; these transport checks do not establish 51/51.
+BEHAVIOR-OBJECT-005. These transport checks alone do not establish SDK scores;
+the complete final-source result belongs to [SDK integration](sdk-scorecard-integration.md).
 
 ## Shared comparison transport
 
@@ -35,6 +35,27 @@ absolute response Locations only from the explicit backend or frontend origin
 to the public HTTPS origin, and rejects external or network-path authorities.
 Signed URLs themselves are sent unchanged, including Go and PHP V2 URLs whose
 SDKs require HTTPS. Returned object JSON is not rewritten.
+
+For HTTP/1, the product-neutral frontend flushes an early backend error and
+allows up to 32 MiB of remaining request input to drain within two seconds.
+This prevents a client that finishes writing before reading from losing a
+checksum-specific 400 to a connection reset. The body remains streamed, with
+serialized reads and no payload collection. A shallow proxy request copy
+preserves net/http's original body ownership. HTTP/2 retains its independent
+stream behavior. Raw TLS tests cover an early 400 during an 8 MiB plus one byte
+upload and a subsequent request on the same connection; slow or larger trailing
+input can still exhaust the explicit local bound.
+
+PHP V4 signing supplies the origin scheme and host before signing and includes
+the bucket in the signing object's path; V2 uses the ordinary object name with
+the bucket-bound origin/path. The probe independently verifies RSA signatures
+against the actual final request path and host/port before sending unchanged
+URLs, and rejects altered path/method self-checks. These public signer inputs
+do not rewrite a signed URL. The pinned Node.js V4 signer omits a nondefault
+port from its canonical host, so strict signature verification for that SDK
+at the scorecard origin remains unsupported. All products use permissive
+authentication here: signed cases establish routing, parameters and bytes,
+not emulator-side cryptographic verification or strict SDK authorization.
 
 New result metadata records HTTPS, the standard-library frontend and the
 temporary CA certificate SHA256. The scorer rejects differing transport inputs
@@ -78,7 +99,8 @@ The documentation HTML checked on 2026-10-29 has SHA256
 
 ## Executed lightweight checks
 
-On 2026-10-29, without a Docker build or a full SDK scorecard run:
+The initial transport-only checks on 2026-10-29 ran without a Docker build or a
+full SDK scorecard run. Final integration results are linked above:
 
 - `go build ./...`, `go test ./...` and `go vet ./...` in `sdk-scorecard/go`
   passed. Tests cover CA trust, wrong SAN, external origins, raw paths/queries,

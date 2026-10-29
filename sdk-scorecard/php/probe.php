@@ -59,6 +59,29 @@ function seed($bucket, array $names): void {
 function bytes($object, string $want, array $options = []): void {
     check($object->downloadAsString($options) === $want, 'bytes differ');
 }
+function v4MatchesRequest(string $url, string $method, string $publicKey): bool {
+    $parts = parse_url($url);
+    parse_str($parts['query'], $query);
+    $signature = hex2bin($query['X-Goog-Signature']);
+    unset($query['X-Goog-Signature']);
+    check($query['X-Goog-SignedHeaders'] === 'host', 'unexpected signed headers');
+    $encoded = [];
+    foreach ($query as $name => $value) $encoded[rawurlencode($name)] = rawurlencode($value);
+    ksort($encoded, SORT_STRING);
+    $parameters = [];
+    foreach ($encoded as $name => $value) $parameters[] = "$name=$value";
+    $host = $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
+    $canonical = "$method\n{$parts['path']}\n" . implode('&', $parameters) . "\nhost:$host\n\nhost\nUNSIGNED-PAYLOAD";
+    $scope = explode('/', $query['X-Goog-Credential'], 2)[1];
+    $stringToSign = "GOOG4-RSA-SHA256\n{$query['X-Goog-Date']}\n$scope\n" . hash('sha256', $canonical);
+    return openssl_verify($stringToSign, $signature, $publicKey, OPENSSL_ALGO_SHA256) === 1;
+}
+function v2MatchesRequest(string $url, string $method, string $publicKey): bool {
+    $parts = parse_url($url);
+    parse_str($parts['query'], $query);
+    $canonical = "$method\n\n\n{$query['Expires']}\n{$parts['path']}";
+    return openssl_verify($canonical, base64_decode($query['Signature'], true), $publicKey, OPENSSL_ALGO_SHA256) === 1;
+}
 
 $origin = rtrim(getenv('SCORECARD_ENDPOINT') ?: '', '/');
 $parts = parse_url($origin);
@@ -69,6 +92,7 @@ $project = getenv('SCORECARD_PROJECT') ?: 'local-project';
 $key = file_get_contents(getenv('SCORECARD_SIGNING_KEY') ?: __DIR__ . '/../../fixtures/signing/test-only-private.pem');
 $signer = new ServiceAccountCredentials(null, ['type' => 'service_account',
     'client_email' => 'local-admin@example.invalid', 'private_key' => $key]);
+$publicKey = openssl_pkey_get_details(openssl_pkey_get_private($key))['key'];
 $stack = HandlerStack::create();
 $stack->push(Middleware::mapRequest(function ($request) use ($origin) {
     $uri = $request->getUri();
@@ -87,6 +111,17 @@ $storage = new StorageClient(['projectId' => $project, 'apiEndpoint' => $origin,
     'credentialsFetcher' => new AnonymousCredentials(), 'retries' => 0, 'requestTimeout' => 20,
     'httpHandler' => HttpHandlerFactory::build($http)]);
 if (($argv[1] ?? '') === '--transport-check') {
+    $url = $storage->bucket('signing-check')->object('signing-check/object')->signedUrl(
+        new DateTimeImmutable('+5 minutes'), ['version' => 'v4', 'credentialsFetcher' => $signer,
+            'bucketBoundHostname' => $origin, 'scheme' => $parts['scheme']]);
+    check(v4MatchesRequest($url, 'GET', $publicKey), 'V4 does not sign the actual host/path');
+    check(!v4MatchesRequest(str_replace('/signing-check/object?', '/signing-check/changed?', $url), 'GET', $publicKey),
+        'V4 accepted a changed object path');
+    $url = $storage->bucket('signing-check')->object('object')->signedUrl(
+        new DateTimeImmutable('+5 minutes'), ['version' => 'v2', 'credentialsFetcher' => $signer,
+            'bucketBoundHostname' => $origin . '/signing-check']);
+    check(v2MatchesRequest($url, 'GET', $publicKey), 'V2 does not sign the actual object path');
+    check(!v2MatchesRequest($url, 'PUT', $publicKey), 'V2 accepted a changed method');
     $detail = failureDetail(new ServiceException('Resume at https://127.0.0.1/upload?upload_id=redact-me', 400, null,
         ['error' => ['code' => 400, 'message' => 'Final metadata requires a final request',
             'location' => 'https://127.0.0.1/upload?upload_id=redact-me']]));
@@ -387,13 +422,17 @@ probe('object.soft_delete_restore', function () {
     bytes($b->object('sd.txt'), 'restore me');
 });
 foreach ([['v4_get', 'v4', 'GET'], ['v4_put', 'v4', 'PUT'], ['v2_get', 'v2', 'GET']] as [$id, $version, $method]) {
-    probe("signed.$id", function () use ($http, $origin, $signer, $version, $method) {
+    probe("signed.$id", function () use ($http, $origin, $signer, $publicKey, $version, $method) {
         $b = newBucket();
         if ($method === 'GET') upload($b, 'signed.txt', 'signed');
         $file = $b->object('signed.txt');
-        $url = $file->signedUrl(new DateTimeImmutable('+5 minutes'), ['version' => $version, 'method' => $method,
-            'credentialsFetcher' => $signer, 'bucketBoundHostname' => "$origin/{$b->name()}",
+        $signingObject = $version === 'v4' ? $b->object($b->name() . '/signed.txt') : $file;
+        $signingHost = $version === 'v4' ? $origin : "$origin/{$b->name()}";
+        $url = $signingObject->signedUrl(new DateTimeImmutable('+5 minutes'), ['version' => $version, 'method' => $method,
+            'credentialsFetcher' => $signer, 'bucketBoundHostname' => $signingHost,
             'scheme' => parse_url($origin, PHP_URL_SCHEME)]);
+        if ($version === 'v4') check(v4MatchesRequest($url, $method, $publicKey), 'V4 does not sign the actual host/path');
+        else check(v2MatchesRequest($url, $method, $publicKey), 'V2 does not sign the actual object path');
         $response = $http->request($method, $url, ['body' => $method === 'PUT' ? 'uploaded' : '']);
         check($response->getStatusCode() === 200, 'signed status');
         if ($method === 'GET') check((string)$response->getBody() === 'signed', 'signed bytes');

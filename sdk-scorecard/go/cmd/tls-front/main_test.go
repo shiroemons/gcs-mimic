@@ -1,14 +1,79 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
+	"crypto/tls"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 )
+
+func TestFrontendDeliversEarlyErrorAfterClientFinishesUpload(t *testing.T) {
+	answered := make(chan struct{})
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/after" {
+			_, _ = w.Write([]byte("next request"))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("checksum rejected"))
+		close(answered)
+	}))
+	defer backend.Close()
+	target, _ := url.Parse(backend.URL)
+	proxy := httptest.NewUnstartedServer(nil)
+	origin, _ := url.Parse("https://" + proxy.Listener.Addr().String())
+	proxy.Config.Handler = frontendHandler(target, origin)
+	proxy.StartTLS()
+	defer proxy.Close()
+	trust := proxy.Client().Transport.(*http.Transport).TLSClientConfig
+	conn, err := tls.Dial("tcp", origin.Host, trust)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	const length = 8*1024*1024 + 1
+	if _, err := fmt.Fprintf(conn, "PUT /upload HTTP/1.1\r\nHost: %s\r\nContent-Length: %d\r\n\r\n", origin.Host, length); err != nil {
+		t.Fatal(err)
+	}
+	<-answered
+	// net/http otherwise closes an unread large body after its 500 ms reset delay.
+	time.Sleep(750 * time.Millisecond)
+	if _, err := io.CopyN(conn, bytes.NewReader(bytes.Repeat([]byte("a"), length)), length); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(conn)
+	response, err := http.ReadResponse(reader, &http.Request{Method: "PUT"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || response.StatusCode != 400 || string(body) != "checksum rejected" {
+		t.Fatalf("lost early checksum response: status=%d body=%q error=%v", response.StatusCode, body, err)
+	}
+	if _, err := fmt.Fprintf(conn, "GET /after HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", origin.Host); err != nil {
+		t.Fatal(err)
+	}
+	next, err := http.ReadResponse(reader, &http.Request{Method: "GET"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Body.Close()
+	body, err = io.ReadAll(next.Body)
+	if err != nil || next.StatusCode != 200 || string(body) != "next request" {
+		t.Fatalf("upload drain desynchronized keep-alive: status=%d body=%q error=%v", next.StatusCode, body, err)
+	}
+}
 
 func TestFrontendPreservesWireAndBoundsLocations(t *testing.T) {
 	var compressed bytes.Buffer

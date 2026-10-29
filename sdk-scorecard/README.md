@@ -130,9 +130,19 @@ SDK-specific public options are part of the probe contract:
   `Blob.rewrite`, which exposes destination metadata.
 - PHP uses `apiEndpoint` and explicit anonymous credentials. Compose supplies
   `contentType`, which this SDK requires for extensionless destination names.
-  V4 URLs use the SDK's custom-host option with the bucket path. Its V2 signer
+  V4 URLs use separate public scheme/host options and a signing object whose
+  path includes the bucket; V2 uses the ordinary object with a bucket-bound URL.
+  Both signatures are independently verified against the final request URL.
+  Its V2 signer
   hardcodes HTTPS, which matches the shared TLS frontend. Neither PHP nor Go
   rewrites signed URL schemes after signing.
+
+The common HTTP/1 frontend uses a two-second, 32 MiB bounded drain after early
+errors, so clients that finish writing before reading retain the backend's
+checksum-specific response. HTTP/2 uses its normal stream handling. Signed
+cases run in permissive profiles and do not establish server-side signature
+verification. `@google-cloud/storage` 8.4.0's V4 canonical host drops a nondefault port; strict
+use at this origin remains unsupported. See the transport contract for limits.
 
 Ordinary SDK headers and query values are preserved. A failure during setup
 (for example, upload rejected before a subsequent range read) fails that
