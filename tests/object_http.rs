@@ -2,6 +2,8 @@ mod common;
 
 #[path = "object_http/upload_admission.rs"]
 mod upload_admission;
+#[path = "object_http/upload_replay.rs"]
+mod upload_replay;
 
 use common::{TestDir, closed_by_server};
 use serde_json::{Value, json};
@@ -551,20 +553,24 @@ fn obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite()
     let token = "X-Goog-Gcs-Idempotency-Token: opaque, retry=token\r\n";
     let create = "name=token&ifGenerationMatch=0";
     let original = server.upload(create, token, b"original").json();
-    server
-        .upload(create, token, b"original")
-        .error(412, "conditionNotMet");
+    assert_eq!(server.upload(create, token, b"original").json(), original);
     assert_eq!(server.get("token").json(), original);
     assert_eq!(server.get("token?alt=media").body, b"original");
     let overwrite = format!(
         "name=token&ifGenerationMatch={}",
         original["generation"].as_str().unwrap()
     );
-    let replaced = server.upload(&overwrite, token, b"replacement").json();
+    let overwrite_token = "X-Goog-Gcs-Idempotency-Token: overwrite-token\r\n";
+    let replaced = server
+        .upload(&overwrite, overwrite_token, b"replacement")
+        .json();
     assert_ne!(replaced["generation"], original["generation"]);
-    server
-        .upload(&overwrite, token, b"replacement")
-        .error(412, "conditionNotMet");
+    assert_eq!(
+        server
+            .upload(&overwrite, overwrite_token, b"replacement")
+            .json(),
+        replaced
+    );
     assert_eq!(server.get("token").json(), replaced);
     assert_eq!(server.get("token?alt=media").body, b"replacement");
     assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
@@ -576,21 +582,13 @@ fn obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite()
 }
 
 #[test]
-fn obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body() {
+fn obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 5000);
     server.bucket();
     let token = "X-Goog-Gcs-Idempotency-Token: retry-token\r\n";
     let original = server.upload("name=existing", "", b"original").json();
     for name in ["absent", "existing"] {
-        for query in [
-            "",
-            "&ifGenerationNotMatch=0",
-            "&ifMetagenerationMatch=1",
-            "&ifMetagenerationNotMatch=2",
-        ] {
-            server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name={name}{query} HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{token}\r\n").as_bytes()).error(400, "badRequest");
-        }
         for headers in [
             "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),
             format!("{token}{token}"),
@@ -607,13 +605,20 @@ fn obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body() {
 }
 
 #[test]
-fn obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection() {
+fn obj_http_idempotency_token_local_read_delete_rule_and_upload_replay() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 5000);
     server.bucket();
     let token = "X-Goog-Gcs-Idempotency-Token: retry-token\r\n";
-    server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=unsupported-token HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{token}\r\n").as_bytes()).error(400, "badRequest");
-    server.get("unsupported-token").error(404, "notFound");
+    let replay = server
+        .upload("name=replayed-token", token, b"payload")
+        .json();
+    assert_eq!(
+        server
+            .upload("name=replayed-token", token, b"payload")
+            .json(),
+        replay
+    );
     let original = server.upload("name=token", "", b"payload").json();
     let path = "/storage/v1/b/test-bucket/o/token";
     let metadata = server.request("GET", path, token, b"");

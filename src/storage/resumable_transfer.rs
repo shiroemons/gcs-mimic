@@ -111,7 +111,7 @@ impl Catalog {
             let offset = lease.session.offset.max(chunk.start + chunk.length);
             chunk.catalog_wait.send_replace(true);
             catalog
-                .checkpoint_resumable_session(&mut lease, offset, chunk.total)
+                .checkpoint_resumable_options(&mut lease, offset, chunk.total, Some(&chunk.options))
                 .await?;
             chunk.catalog_wait.send_replace(false);
             if !chunk.finalize {

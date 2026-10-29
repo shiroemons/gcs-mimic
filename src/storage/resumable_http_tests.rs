@@ -7,6 +7,8 @@ mod object_retention;
 mod retention;
 #[path = "soft_delete_http_tests.rs"]
 mod soft_delete;
+#[path = "upload_replay_http_tests.rs"]
+mod upload_replay;
 use crate as gcs_mimic;
 use crate::test_support::TestDir;
 use gcs_mimic::storage::admin::{BucketDefinition, BucketName, ObjectName, Origin};

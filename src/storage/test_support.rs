@@ -31,8 +31,16 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
 
 /// Restores the schema 33 layout, which predates Rapid appendable objects.
 pub fn downgrade_appendable_schema(connection: &rusqlite::Connection) {
+    downgrade_upload_replay_schema(connection);
     connection
         .execute_batch("DROP TABLE IF EXISTS appendable_objects;")
+        .unwrap();
+}
+
+/// Restores the schema 34 layout, which predates upload response replay.
+pub fn downgrade_upload_replay_schema(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch("DROP TABLE IF EXISTS upload_replays;")
         .unwrap();
 }
 

@@ -462,23 +462,26 @@ fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), JsonErr
 /// destination customer-supplied key separately with [`super::request_key`].
 pub fn parse_object_upload_headers(
     headers: &HeaderMap,
-    conditions: ObjectConditions,
+    _conditions: ObjectConditions,
 ) -> Result<(String, ExpectedHashes), JsonError> {
     unsupported_headers(headers, &[crate::csek::DESTINATION_PREFIX])?;
     validate_read_condition_headers(headers, false)?;
-    // shortcut: tokens rely on generation checks; add response replay for strict retry fidelity.
-    if headers.contains_key("x-goog-gcs-idempotency-token")
-        && conditions.if_generation_match.is_none()
+    if let Some(mime) = super::resumable::single(headers, "x-upload-content-type")?
+        && !mime.is_empty()
     {
-        return Err(JsonError::unsupported_object(
-            "x-goog-gcs-idempotency-token without ifGenerationMatch",
-        ));
+        crate::object::validate_fixed_metadata("contentType", mime)?;
+        let mut advisory = HeaderMap::new();
+        advisory.insert(
+            "content-type",
+            mime.parse()
+                .map_err(|_| JsonError::invalid_parameter("Invalid upload content type"))?,
+        );
+        parse_object_upload_headers(&advisory, ObjectConditions::default())?;
     }
     for name in [
         "content-encoding",
         "content-md5",
         "content-range",
-        "x-upload-content-type",
         "x-upload-content-length",
     ] {
         if headers.contains_key(name) {

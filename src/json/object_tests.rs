@@ -392,20 +392,18 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
             .status,
         StatusCode::BAD_REQUEST
     );
-    for header in ["x-goog-meta-example", "x-goog-gcs-idempotency-token"] {
-        let mut headers = HeaderMap::new();
-        headers.insert(header, HeaderValue::from_static("value"));
-        assert_eq!(
-            parse_object_upload_headers(&headers, Default::default())
-                .unwrap_err()
-                .status,
-            StatusCode::BAD_REQUEST
-        );
-    }
+    let mut headers = HeaderMap::new();
+    headers.insert("x-goog-meta-example", HeaderValue::from_static("value"));
+    assert_eq!(
+        parse_object_upload_headers(&headers, Default::default())
+            .unwrap_err()
+            .status,
+        StatusCode::BAD_REQUEST
+    );
 }
 
 #[test]
-fn obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value() {
+fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions() {
     let mut headers = HeaderMap::new();
     headers.insert(
         "x-goog-gcs-idempotency-token",
@@ -438,12 +436,7 @@ fn obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value() {
             ..Default::default()
         },
     ] {
-        assert_eq!(
-            parse_object_upload_headers(&headers, conditions)
-                .unwrap_err()
-                .status,
-            StatusCode::BAD_REQUEST
-        );
+        assert!(parse_object_upload_headers(&headers, conditions).is_ok());
     }
     for values in [
         vec![""],

@@ -608,6 +608,7 @@ impl Catalog {
         Ok(UploadGuard {
             catalog: Some(self.clone()),
             _admin: None,
+            replay: None,
         })
     }
 
@@ -660,7 +661,7 @@ impl Catalog {
         conditions: ObjectConditions,
         max_bytes: u64,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
-        permit: UploadGuard,
+        mut permit: UploadGuard,
         metadata: ObjectMetadataUpdate,
         access: BucketAccess,
         mode: super::admin::PublishMode,
@@ -672,6 +673,8 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let (_request, cancellation) = oneshot::channel::<()>();
+        let replay = permit.replay.take();
+        let has_replay = replay.is_some();
         // Cancellation must not release directory ownership during publication or cleanup.
         tokio::spawn(async move {
             let _permit = permit;
@@ -697,7 +700,7 @@ impl Catalog {
             .map_err(object_unavailable)?
             .map_err(object_unavailable)?;
             let result = async {
-                let (size, md5, crc32c) = write_body(
+                let (size, md5, crc32c, sha256) = write_body(
                     tokio::fs::File::from_std(file),
                     expected,
                     max_bytes,
@@ -720,6 +723,25 @@ impl Catalog {
                             .map_err(object_unavailable)?;
                         let (storage_class, allow_overwrite) =
                             authorized_bucket(&transaction, &bucket, &access)?;
+                        let fingerprint = super::upload_replay::fingerprint(&(
+                            &bucket,
+                            &name,
+                            &content_type,
+                            &metadata,
+                            conditions,
+                            size,
+                            sha256,
+                        ));
+                        let replay_now = unix_micros(clock.now()).map_err(object_unavailable)?;
+                        if let Some(replay) = &replay {
+                            replay.check_incarnation(&transaction, &bucket)?;
+                            if let Some(record) =
+                                replay.replay(&transaction, replay_now, &fingerprint)?
+                            {
+                                return Ok(record);
+                            }
+                            super::upload_replay::capacity(&transaction, replay_now)?;
+                        }
                         let storage_class = super::bucket_autoclass::object_storage_class(
                             &transaction,
                             &bucket,
@@ -798,6 +820,15 @@ impl Catalog {
                                 Ok((record, ()))
                             },
                         )?;
+                        if let Some(replay) = &replay {
+                            replay.store(
+                                &transaction,
+                                replay_now,
+                                &fingerprint,
+                                &record,
+                                &access,
+                            )?;
+                        }
                         transaction.commit().map_err(object_unavailable)?;
                         Ok(record)
                     })
@@ -808,6 +839,7 @@ impl Catalog {
                 catalog.reclaim_after_commit().await;
             }
             if result.is_err()
+                || has_replay
                 || matches!(
                     mode,
                     super::admin::PublishMode::SkipIfSameHash
@@ -1188,9 +1220,10 @@ async fn write_body(
     max_bytes: u64,
     mut body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     mut cancellation: oneshot::Receiver<()>,
-) -> Result<(u64, [u8; 16], u32), ObjectError> {
+) -> Result<(u64, [u8; 16], u32, [u8; 32]), ObjectError> {
     let mut size = 0_u64;
     let mut hasher = Hasher::default();
+    let mut sha256 = ring::digest::Context::new(&ring::digest::SHA256);
     loop {
         let chunk = tokio::select! {
             biased;
@@ -1229,6 +1262,7 @@ async fn write_body(
             .ok_or(ObjectError::TooLarge)?;
         for part in chunk.chunks(CHUNK_SIZE) {
             hasher.update(part);
+            sha256.update(part);
             file.write_all(part).await.map_err(object_unavailable)?;
         }
     }
@@ -1239,7 +1273,16 @@ async fn write_body(
         return Err(ObjectError::ChecksumMismatch);
     }
     file.sync_all().await.map_err(object_unavailable)?;
-    Ok((size, md5, crc32c))
+    Ok((
+        size,
+        md5,
+        crc32c,
+        sha256
+            .finish()
+            .as_ref()
+            .try_into()
+            .map_err(object_unavailable)?,
+    ))
 }
 
 pub(super) fn object_unavailable(error: impl std::fmt::Display + std::any::Any) -> ObjectError {

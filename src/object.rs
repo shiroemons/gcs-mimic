@@ -13,7 +13,7 @@ pub enum UploadChunk {
 }
 
 /// Immutable generation metadata persisted for live and noncurrent objects.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ObjectRecord {
     pub bucket: String,
     pub name: String,

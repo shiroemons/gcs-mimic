@@ -133,12 +133,12 @@ async fn schema_33_catalog_migrates_to_appendable_objects() {
     );
     catalog.close().await.unwrap();
     let connection = Connection::open(&path).unwrap();
-    super::super::validate_schema(&connection, 34).unwrap();
+    super::super::validate_schema(&connection, 35).unwrap();
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        34
+        35
     );
 }
 
