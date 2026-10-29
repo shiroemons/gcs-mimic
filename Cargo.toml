@@ -21,6 +21,13 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# Panics stay unwinding: the server isolates a panic to its connection or task
+# instead of aborting the whole process.
+panic = "unwind"
+
 [package]
 name = "gcs-mimic"
 version = "0.5.0"
