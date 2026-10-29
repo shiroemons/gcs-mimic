@@ -16,6 +16,7 @@ pub mod import;
 pub mod json;
 pub mod match_glob;
 pub mod mime;
+pub mod notification;
 pub mod object;
 pub mod seed;
 pub mod server;

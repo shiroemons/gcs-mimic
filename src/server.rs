@@ -59,6 +59,8 @@ tokio::task_local! { static FORCE_LISTENER_ERROR: bool; }
 
 #[path = "server/copy.rs"]
 mod copy;
+#[path = "server/notifications.rs"]
+mod notifications;
 #[path = "server/resumable.rs"]
 mod resumable;
 #[path = "server/rewrite.rs"]
@@ -750,6 +752,20 @@ async fn respond_routed(
         let result = xml::post::respond(request, object, state, config, activity, deadline).await;
         activity.send_replace(ObjectActivity::default());
         return result.unwrap_or_else(|error| boxed(error.response(false)));
+    }
+    if selected.is_none()
+        && let Some(parsed) =
+            json::notifications::route(request.method(), request.uri(), config.compat_profile)
+    {
+        let result = match authenticate().and_then(|caller| parsed.map(|op| (op, caller))) {
+            Ok(((operation, fields), caller)) => {
+                notifications::respond(request, operation, fields, caller, state)
+                    .await
+                    .map_err(|error| anonymous_error(error, caller))
+            }
+            Err(error) => Err(error),
+        };
+        return boxed(result.unwrap_or_else(JsonError::into_response));
     }
     if let Some(parsed) = xml::route(request.method(), config, selected) {
         let head = request.method() == Method::HEAD;

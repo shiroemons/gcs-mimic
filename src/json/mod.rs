@@ -17,6 +17,7 @@ mod error;
 mod fields;
 mod iam;
 mod multipart;
+pub mod notifications;
 mod object_copy;
 mod object_list;
 mod object_metadata;

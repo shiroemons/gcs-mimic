@@ -79,6 +79,8 @@ pub(crate) use derived::{
 
 #[path = "admin.rs"]
 pub mod admin;
+#[path = "notifications.rs"]
+mod notifications;
 #[path = "policies.rs"]
 mod policies;
 use policies::{check_access, insert_policy};
@@ -95,7 +97,7 @@ pub mod sync_state;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 27;
+const CATALOG_SCHEMA_VERSION: i64 = 28;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -363,6 +365,12 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
         expected
             .execute_batch(sync_state::buckets::SCHEMA)
             .map_err(unavailable)?;
+    }
+    if version >= 28 {
+        expected
+            .execute_batch(notifications::SCHEMA)
+            .map_err(unavailable)?;
+        notifications::validate(connection)?;
     }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
@@ -675,6 +683,9 @@ impl Catalog {
             }
             if version < 27 {
                 sync_state::buckets::migrate(&mut connection)?;
+            }
+            if version < 28 {
+                notifications::migrate(&mut connection)?;
             }
             // Migrations are one-way, so operators need to see which upgrade ended older-release compatibility.
             if (1..CATALOG_SCHEMA_VERSION).contains(&stored_version) {
