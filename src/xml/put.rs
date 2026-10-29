@@ -1,21 +1,17 @@
 use super::{Error, ReadRequest, number};
 use crate::{
     auth::{self, Caller},
-    config::Config,
     json,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, UploadChunk},
-    server::{
-        ObjectActivity, ResponseBody, State, anonymous_error, authorize_bucket,
-        await_upload_catalog, boxed, stream_upload,
-    },
+    server::{ObjectCtx, ResponseBody, anonymous_error, boxed, stream_upload},
 };
 use http_body_util::Full;
 use hyper::{
     HeaderMap, Request, Response, StatusCode,
     body::{Bytes, Incoming},
 };
-use std::{collections::BTreeMap, io, time::Duration};
-use tokio::sync::{mpsc, watch};
+use std::{collections::BTreeMap, io};
+use tokio::sync::mpsc;
 
 struct Headers {
     content_type: String,
@@ -271,20 +267,20 @@ pub(super) fn storage_error(error: ObjectError, caller: Option<Caller<'_>>) -> E
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "The XML adapter reuses the shared request and streaming deadline context"
-)]
 pub(crate) async fn respond(
     request: Request<Incoming>,
     operation: ReadRequest,
-    caller: Option<Caller<'_>>,
-    state: &State,
-    config: &Config,
-    activity: &watch::Sender<ObjectActivity>,
-    deadline: tokio::time::Instant,
+    ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
-    let access = authorize_bucket(state, caller, auth::OBJECTS_CREATE, &operation.bucket)
+    let ObjectCtx {
+        state,
+        config,
+        activity,
+        caller,
+        ..
+    } = ctx;
+    let access = ctx
+        .authorize(auth::OBJECTS_CREATE, &operation.bucket)
         .await
         .map_err(|error| anonymous_error(error, caller))?;
     let Headers {
@@ -298,20 +294,15 @@ pub(crate) async fn respond(
         config.max_object_bytes,
         auth::signature::is_signed(request.uri().query()),
     )?;
-    let timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
-    let permit = await_upload_catalog(
-        state.catalog.prepare_object_upload(
+    let permit = ctx
+        .await_catalog(state.catalog.prepare_object_upload(
             &operation.bucket,
             &operation.name,
             conditions,
             &access,
-        ),
-        timeout,
-        deadline,
-        activity,
-    )
-    .await
-    .map_err(|error| storage_error(error, caller))?;
+        ))
+        .await
+        .map_err(|error| storage_error(error, caller))?;
     let (sender, body) = mpsc::channel(2);
     let upload = state.catalog.put_object_prechecked(
         &operation.bucket,
@@ -335,11 +326,11 @@ pub(crate) async fn respond(
                 }
                 return Err(storage_error(error, caller));
             }
-            await_upload_catalog(async {
+            ctx.await_catalog(async {
                 let _ = sender.send(Ok(UploadChunk::End)).await;
                 drop(sender);
                 upload.await
-            }, timeout, deadline, activity).await
+            }).await
         }
     }
     .map_err(|error| storage_error(error, caller))?;

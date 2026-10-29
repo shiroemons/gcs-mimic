@@ -10,15 +10,14 @@ use crate::{
         self,
         signature::{self, Failure, MAX_EXPIRES},
     },
-    config::Config,
     json::{self, JsonError},
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, UploadChunk,
         custom_time_key,
     },
     server::{
-        ObjectActivity, ResponseBody, State, anonymous_error, authorize_bucket,
-        await_upload_catalog, body_progress, boxed,
+        RequestCtx, ResponseBody, anonymous_error, authorize_bucket, await_upload_catalog,
+        body_progress, boxed,
     },
 };
 use http_body_util::{BodyExt, Full};
@@ -32,7 +31,7 @@ use std::{
     io,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 
 /// One form field value, which bounds the policy document as well.
 const FIELD_CAP: usize = 64 * 1024;
@@ -580,11 +579,14 @@ fn escape(value: &str) -> String {
 pub(crate) async fn respond(
     request: Request<Incoming>,
     object: &ObjectPath,
-    state: &State,
-    config: &Config,
-    activity: &watch::Sender<ObjectActivity>,
+    ctx: RequestCtx<'_>,
     deadline: tokio::time::Instant,
 ) -> Result<Response<ResponseBody>, Error> {
+    let RequestCtx {
+        state,
+        config,
+        activity,
+    } = ctx;
     let bucket = object.bucket.clone();
     json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
     // POST Object takes every option from the form; query options belong to other operations.

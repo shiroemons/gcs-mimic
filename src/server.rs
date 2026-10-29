@@ -2,10 +2,10 @@ use crate::{
     auth::{self, Auth, Caller},
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
-    config::{CompatProfile, Config, CorsFallback},
+    config::Config,
     http_conditions::{EtagError, etag_not_modified},
-    json::{self, BucketRequest, JsonError, ObjectRequest},
-    object::{ObjectConditions, ObjectError, UploadChunk},
+    json::{self, JsonError},
+    object::{ObjectError, UploadChunk},
     storage::Catalog,
     tls, xml,
 };
@@ -14,7 +14,6 @@ use hyper::{
     Method, Request, Response, StatusCode,
     body::{Bytes, Incoming},
     server::conn::http1,
-    service::service_fn,
 };
 use hyper_util::rt::TokioIo;
 use std::{
@@ -53,6 +52,13 @@ impl State {
 }
 
 pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
+
+mod buckets;
+mod context;
+mod objects;
+mod routing;
+mod xml_read;
+pub(crate) use context::{DeadlineWatch, ObjectCtx, RequestCtx};
 
 #[cfg(test)]
 tokio::task_local! { static FORCE_LISTENER_ERROR: bool; }
@@ -300,17 +306,18 @@ pub(crate) struct ObjectActivity {
 
 pub async fn serve(
     listener: TcpListener,
-    config: Config,
+    config: impl Into<Arc<Config>>,
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
+    let config = config.into();
     let acceptor = tls::load_server(&config)?;
     serve_with_tls(vec![(listener, acceptor)], config, state, shutdown).await
 }
 
 pub async fn serve_with_tls(
     listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
-    config: Config,
+    config: impl Into<Arc<Config>>,
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
@@ -319,7 +326,7 @@ pub async fn serve_with_tls(
 
 pub async fn serve_with_tls_and_drain(
     listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
-    config: Config,
+    config: impl Into<Arc<Config>>,
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
     background_drain: impl Future<Output = io::Result<()>>,
@@ -330,11 +337,13 @@ pub async fn serve_with_tls_and_drain(
 pub async fn serve_with_grpc_and_drain(
     mut listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
     grpc: Option<TcpListener>,
-    config: Config,
+    config: impl Into<Arc<Config>>,
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
     background_drain: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
+    // Connections and requests share one configuration instead of cloning it per request.
+    let config: Arc<Config> = config.into();
     if listeners.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -478,13 +487,13 @@ mod drain_tests;
 async fn serve_connection(
     stream: impl AsyncRead + AsyncWrite + Unpin,
     state: Arc<State>,
-    config: Config,
+    config: Arc<Config>,
     mut stopping: watch::Receiver<bool>,
     mut saturated: watch::Receiver<bool>,
 ) {
     let timeout = Duration::from_millis(config.connection_timeout_ms);
     let keep_alive = Duration::from_millis(config.keep_alive_timeout_ms);
-    let (activity, mut progress) = watch::channel(ObjectActivity::default());
+    let (activity, progress) = watch::channel(ObjectActivity::default());
     // A request is active from dispatch until hyper drops its response body after
     // the last byte. Request deadlines apply only then. Between keep-alive requests
     // the connection waits for the next byte for keep_alive_timeout_ms; once one
@@ -498,139 +507,36 @@ async fn serve_connection(
     let (expire, expired) = watch::channel(false);
     let mut builder = http1::Builder::new();
     builder.max_headers(64).max_buf_size(16 * 1024);
-    let (service_active, service_served, service_responded, service_reads) = (
-        active.clone(),
-        served.clone(),
-        responded.clone(),
-        reads.clone(),
-    );
+    let service = ConnectionService {
+        state,
+        config,
+        activity,
+        active: active.clone(),
+        served: served.clone(),
+        responded: responded.clone(),
+        reads: reads.clone(),
+        expired,
+    };
     let mut connection = builder.serve_connection(
         TokioIo::new(CountingIo {
             inner: stream,
             reads: reads.clone(),
         }),
-        service_fn(move |request| {
-            let state = state.clone();
-            let activity = activity.clone();
-            let config = config.clone();
-            let active = service_active.clone();
-            let responded = service_responded.clone();
-            let reads = service_reads.clone();
-            let mut expired = expired.clone();
-            service_served.store(true, Ordering::Release);
-            Box::pin(async move {
-                #[cfg(test)]
-                if FORCE_HANDLER_PANIC
-                    .try_with(|armed| armed.swap(false, Ordering::AcqRel))
-                    .unwrap_or(false)
-                {
-                    panic!("injected handler panic");
-                }
-                responded.store(false, Ordering::Release);
-                active.store(true, Ordering::Release);
-                // Each request starts its own deadline without an earlier transfer's state.
-                activity.send_replace(ObjectActivity::default());
-                let finished = RequestFinished {
-                    active,
-                    activity: activity.clone(),
-                    reads,
-                };
-                let expiry = DeadlineReply::new(&request, &config);
-                let sent_body = has_body(&request);
-                // Dropping the handler cancels its work exactly as closing the
-                // connection did, so an unfinished upload is still never published.
-                let mut response = tokio::select! {
-                    biased;
-                    response = respond(request, &state, &config, &activity) => response,
-                    _ = expired.wait_for(|expired| *expired) => expiry.response(),
-                };
-                // Handlers stop reading a body early only to reject it, and hyper then
-                // closes the connection. Announcing the close keeps a pooled client from
-                // sending its next request into the closing socket.
-                if sent_body && response.status().as_u16() >= 400 {
-                    response.headers_mut().insert(
-                        "connection",
-                        hyper::header::HeaderValue::from_static("close"),
-                    );
-                }
-                responded.store(true, Ordering::Release);
-                Ok::<_, Infallible>(response.map(|body| finished.track(body)))
-            })
-        }),
+        service,
     );
-    let deadline = tokio::time::sleep(timeout);
-    tokio::pin!(deadline);
-    let mut current = ObjectActivity::default();
-    let mut draining = false;
-    let mut expiring = false;
-    let mut next_head = false;
-    // An idle connection has no unread request bytes to discard before closing.
-    let mut lingering = true;
-    loop {
-        let requesting = active.load(Ordering::Acquire);
-        let idle = served.load(Ordering::Acquire) && !requesting;
-        tokio::select! {
-            biased;
-            Ok(()) = progress.changed(), if !expiring => {
-                current = *progress.borrow_and_update();
-                next_head = false;
-                // A finished request leaves the connection waiting for the next one.
-                let idle = served.load(Ordering::Acquire) && !active.load(Ordering::Acquire);
-                deadline.as_mut().reset(tokio::time::Instant::now() + if idle { keep_alive } else { timeout });
-            },
-            _ = reads.arrived.notified(), if idle && !next_head && !expiring => {
-                if reads.arrived_since_idle() {
-                    next_head = true;
-                    deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
-                }
-            },
-            _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if requesting && current.deadline.is_some() && !current.awaiting_catalog && !expiring => {
-                crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "object_request_timeout", serde_json::json!({"message":"object request deadline exceeded"}));
-                if responded.load(Ordering::Acquire) { break; }
-                expire.send_replace(true);
-                deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
-                expiring = true;
-            },
-            result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
-                // hyper's Display names only the failure kind (body stream, write, parse), never the wrapped I/O detail.
-                if let Err(error) = result { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport","cause":error.to_string()})); }
-                break;
-            }
-            _ = &mut deadline, if !requesting || !current.awaiting_catalog || expiring => {
-                // After an expiry the same budget bounds writing its error response to a client that does not read.
-                if expiring { break; }
-                if !requesting {
-                    // An idle keep-alive connection closes quietly; a request head that
-                    // stalls after it started, or never arrives, is a client fault.
-                    if !idle || next_head {
-                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"request headers were not received before connection_timeout_ms"}));
-                    }
-                    lingering = !idle || reads.arrived_since_idle();
-                    break;
-                }
-                crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"connection deadline or object body inactivity timeout exceeded"}));
-                if responded.load(Ordering::Acquire) { break; }
-                expire.send_replace(true);
-                deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
-                expiring = true;
-            },
-            _ = saturated.wait_for(|full| *full), if idle && !next_head && !expiring => {
-                // A full server takes the slot back for a waiting client unless the
-                // next request has already started arriving.
-                if reads.arrived_since_idle() {
-                    next_head = true;
-                    deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
-                } else {
-                    lingering = false;
-                    break;
-                }
-            },
-            _ = stopping.changed(), if !draining => {
-                std::pin::Pin::new(&mut connection).graceful_shutdown();
-                draining = true;
-            }
-        }
-    }
+    let watch = ConnectionWatch {
+        progress,
+        active,
+        served,
+        reads,
+        responded,
+        expire,
+        timeout,
+        keep_alive,
+    };
+    let lingering = watch
+        .run(&mut connection, &mut stopping, &mut saturated)
+        .await;
     // Send FIN after the response, then read and discard what the client still sends,
     // like an HTTP server's lingering close: closing with unread input sends a reset
     // that can discard an early rejection before the client reads it. The phase ends
@@ -638,16 +544,7 @@ async fn serve_connection(
     let mut stream = connection.into_parts().io.into_inner();
     let _ = tokio::time::timeout(timeout, stream.shutdown()).await;
     if lingering {
-        let linger = async {
-            let mut discarded = vec![0; 16 * 1024];
-            while let Ok(Ok(1..)) =
-                tokio::time::timeout(LINGER_IDLE, stream.read(&mut discarded)).await
-            {}
-        };
-        tokio::select! {
-            _ = tokio::time::timeout(LINGER_TIME, linger) => {},
-            _ = stopping.wait_for(|stopping| *stopping) => {},
-        }
+        discard_lingering_input(&mut stream, &mut stopping).await;
     }
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Debug,
@@ -656,355 +553,222 @@ async fn serve_connection(
     );
 }
 
+/// The per-request half of a connection: hyper calls it once for every request head.
+#[derive(Clone)]
+struct ConnectionService {
+    state: Arc<State>,
+    config: Arc<Config>,
+    activity: watch::Sender<ObjectActivity>,
+    active: Arc<AtomicBool>,
+    served: Arc<AtomicBool>,
+    responded: Arc<AtomicBool>,
+    reads: Arc<ReadActivity>,
+    expired: watch::Receiver<bool>,
+}
+
+type ServiceFuture =
+    std::pin::Pin<Box<dyn Future<Output = Result<Response<ResponseBody>, Infallible>> + Send>>;
+
+impl hyper::service::Service<Request<Incoming>> for ConnectionService {
+    type Response = Response<ResponseBody>;
+    type Error = Infallible;
+    type Future = ServiceFuture;
+
+    fn call(&self, request: Request<Incoming>) -> Self::Future {
+        self.served.store(true, Ordering::Release);
+        Box::pin(self.clone().respond(request))
+    }
+}
+
+impl ConnectionService {
+    async fn respond(
+        self,
+        request: Request<Incoming>,
+    ) -> Result<Response<ResponseBody>, Infallible> {
+        let Self {
+            state,
+            config,
+            activity,
+            active,
+            responded,
+            reads,
+            mut expired,
+            ..
+        } = self;
+        #[cfg(test)]
+        if FORCE_HANDLER_PANIC
+            .try_with(|armed| armed.swap(false, Ordering::AcqRel))
+            .unwrap_or(false)
+        {
+            panic!("injected handler panic");
+        }
+        responded.store(false, Ordering::Release);
+        active.store(true, Ordering::Release);
+        // Each request starts its own deadline without an earlier transfer's state.
+        activity.send_replace(ObjectActivity::default());
+        let finished = RequestFinished {
+            active,
+            activity: activity.clone(),
+            reads,
+        };
+        let expiry = DeadlineReply::new(&request, &config);
+        let sent_body = has_body(&request);
+        let ctx = RequestCtx {
+            state: &state,
+            config: &config,
+            activity: &activity,
+        };
+        // Dropping the handler cancels its work exactly as closing the
+        // connection did, so an unfinished upload is still never published.
+        let mut response = tokio::select! {
+            biased;
+            response = routing::respond(request, ctx) => response,
+            _ = expired.wait_for(|expired| *expired) => expiry.response(),
+        };
+        // Handlers stop reading a body early only to reject it, and hyper then
+        // closes the connection. Announcing the close keeps a pooled client from
+        // sending its next request into the closing socket.
+        if sent_body && response.status().as_u16() >= 400 {
+            response.headers_mut().insert(
+                "connection",
+                hyper::header::HeaderValue::from_static("close"),
+            );
+        }
+        responded.store(true, Ordering::Release);
+        Ok(response.map(|body| finished.track(body)))
+    }
+}
+
+/// The connection half that enforces connection, keep-alive and request deadlines.
+struct ConnectionWatch {
+    progress: watch::Receiver<ObjectActivity>,
+    active: Arc<AtomicBool>,
+    served: Arc<AtomicBool>,
+    reads: Arc<ReadActivity>,
+    responded: Arc<AtomicBool>,
+    expire: watch::Sender<bool>,
+    timeout: Duration,
+    keep_alive: Duration,
+}
+
+impl ConnectionWatch {
+    /// Drives `connection` until it ends or a deadline closes it. Returns whether unread
+    /// client input may remain, which the lingering close then discards.
+    async fn run<S: AsyncRead + AsyncWrite + Unpin>(
+        self,
+        connection: &mut http1::Connection<TokioIo<CountingIo<S>>, ConnectionService>,
+        stopping: &mut watch::Receiver<bool>,
+        saturated: &mut watch::Receiver<bool>,
+    ) -> bool {
+        let Self {
+            mut progress,
+            active,
+            served,
+            reads,
+            responded,
+            expire,
+            timeout,
+            keep_alive,
+        } = self;
+        let deadline = tokio::time::sleep(timeout);
+        tokio::pin!(deadline);
+        let mut current = ObjectActivity::default();
+        let mut draining = false;
+        let mut expiring = false;
+        let mut next_head = false;
+        // An idle connection has no unread request bytes to discard before closing.
+        let mut lingering = true;
+        loop {
+            let requesting = active.load(Ordering::Acquire);
+            let idle = served.load(Ordering::Acquire) && !requesting;
+            tokio::select! {
+                biased;
+                Ok(()) = progress.changed(), if !expiring => {
+                    current = *progress.borrow_and_update();
+                    next_head = false;
+                    // A finished request leaves the connection waiting for the next one.
+                    let idle = served.load(Ordering::Acquire) && !active.load(Ordering::Acquire);
+                    deadline.as_mut().reset(tokio::time::Instant::now() + if idle { keep_alive } else { timeout });
+                },
+                _ = reads.arrived.notified(), if idle && !next_head && !expiring => {
+                    if reads.arrived_since_idle() {
+                        next_head = true;
+                        deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+                    }
+                },
+                _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if requesting && current.deadline.is_some() && !current.awaiting_catalog && !expiring => {
+                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "object_request_timeout", serde_json::json!({"message":"object request deadline exceeded"}));
+                    if responded.load(Ordering::Acquire) { break; }
+                    expire.send_replace(true);
+                    deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+                    expiring = true;
+                },
+                result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
+                    // hyper's Display names only the failure kind (body stream, write, parse), never the wrapped I/O detail.
+                    if let Err(error) = result { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport","cause":error.to_string()})); }
+                    break;
+                }
+                _ = &mut deadline, if !requesting || !current.awaiting_catalog || expiring => {
+                    // After an expiry the same budget bounds writing its error response to a client that does not read.
+                    if expiring { break; }
+                    if !requesting {
+                        // An idle keep-alive connection closes quietly; a request head that
+                        // stalls after it started, or never arrives, is a client fault.
+                        if !idle || next_head {
+                            crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"request headers were not received before connection_timeout_ms"}));
+                        }
+                        lingering = !idle || reads.arrived_since_idle();
+                        break;
+                    }
+                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"connection deadline or object body inactivity timeout exceeded"}));
+                    if responded.load(Ordering::Acquire) { break; }
+                    expire.send_replace(true);
+                    deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+                    expiring = true;
+                },
+                _ = saturated.wait_for(|full| *full), if idle && !next_head && !expiring => {
+                    // A full server takes the slot back for a waiting client unless the
+                    // next request has already started arriving.
+                    if reads.arrived_since_idle() {
+                        next_head = true;
+                        deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+                    } else {
+                        lingering = false;
+                        break;
+                    }
+                },
+                _ = stopping.changed(), if !draining => {
+                    std::pin::Pin::new(&mut *connection).graceful_shutdown();
+                    draining = true;
+                }
+            }
+        }
+        lingering
+    }
+}
+
+/// Reads and discards client input until the client closes or pauses, the lingering
+/// time ends, or the server shuts down.
+async fn discard_lingering_input(
+    stream: &mut (impl AsyncRead + Unpin),
+    stopping: &mut watch::Receiver<bool>,
+) {
+    let linger = async {
+        let mut discarded = vec![0; 16 * 1024];
+        while let Ok(Ok(1..)) = tokio::time::timeout(LINGER_IDLE, stream.read(&mut discarded)).await
+        {
+        }
+    };
+    tokio::select! {
+        _ = tokio::time::timeout(LINGER_TIME, linger) => {},
+        _ = stopping.wait_for(|stopping| *stopping) => {},
+    }
+}
+
 pub(crate) type ResponseBody = UnsyncBoxBody<Bytes, io::Error>;
 
 pub(crate) fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
     response.map(|body| body.map_err(|never| match never {}).boxed_unsync())
-}
-
-async fn respond(
-    request: Request<Incoming>,
-    state: &State,
-    config: &Config,
-    activity: &watch::Sender<ObjectActivity>,
-) -> Response<ResponseBody> {
-    let selected = match xml::select_object(request.uri(), request.headers(), config) {
-        Ok(selected) => selected,
-        Err(error) => return boxed(error.response(request.method() == Method::HEAD)),
-    };
-    if selected.is_none() && json::cors::is_route(request.uri()) {
-        let preflight = json::cors::is_preflight(request.method(), request.headers());
-        let mut headers = match json::cors::response_headers(request.headers(), preflight) {
-            Ok(headers) => headers,
-            Err(error) => return boxed(error.into_response()),
-        };
-        let mut response = if preflight {
-            let status = json::cors::preflight_status(request.headers());
-            if status == StatusCode::NOT_FOUND {
-                headers.insert(
-                    "access-control-allow-credentials",
-                    hyper::header::HeaderValue::from_static("true"),
-                );
-                boxed(
-                    JsonError::new(
-                        StatusCode::NOT_FOUND,
-                        "notFound",
-                        "Missing CORS request method",
-                    )
-                    .into_response(),
-                )
-            } else {
-                boxed(Response::new(Full::new(Bytes::new())))
-            }
-        } else {
-            respond_routed(request, state, config, activity, selected).await
-        };
-        response.headers_mut().extend(headers);
-        return response;
-    }
-    // CORS must also wrap invalid object names and signed queries without authorizing them.
-    if let Some(object) = selected.as_ref().filter(|object| {
-        !object.name().is_empty()
-            && json::validate_bucket_name_for_profile(&object.bucket, config.compat_profile).is_ok()
-    }) {
-        let has_origin = request.headers().contains_key("origin");
-        let preflight = request.method() == Method::OPTIONS && has_origin;
-        let cors = if has_origin {
-            match state.catalog.get_bucket(&object.bucket).await {
-                Ok(Some(bucket)) => {
-                    if bucket.cors.is_empty() && config.cors_fallback == CorsFallback::None {
-                        xml::warn_unconfigured_cors(&object.bucket, request.headers());
-                    }
-                    xml::cors(
-                        request.headers(),
-                        request.method(),
-                        &bucket.cors,
-                        preflight,
-                        config.cors_fallback,
-                    )
-                }
-                // A missing bucket has no stored rules, so the fallback lets browsers read the 404.
-                Ok(None) => xml::cors(
-                    request.headers(),
-                    request.method(),
-                    &[],
-                    preflight,
-                    config.cors_fallback,
-                ),
-                Err(error) => {
-                    return boxed(
-                        xml::Error::from(JsonError::from(error))
-                            .response(request.method() == Method::HEAD),
-                    );
-                }
-            }
-        } else {
-            hyper::HeaderMap::new()
-        };
-        let mut response = if preflight {
-            boxed(Response::new(Full::new(Bytes::new())))
-        } else {
-            respond_routed(request, state, config, activity, selected).await
-        };
-        response.headers_mut().extend(cors);
-        if !response.headers().contains_key("vary") {
-            response.headers_mut().insert(
-                "vary",
-                hyper::header::HeaderValue::from_static(if preflight {
-                    "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
-                } else {
-                    "Origin"
-                }),
-            );
-        }
-        return response;
-    }
-    respond_routed(request, state, config, activity, selected).await
-}
-
-async fn respond_routed(
-    request: Request<Incoming>,
-    state: &State,
-    config: &Config,
-    activity: &watch::Sender<ObjectActivity>,
-    selected: Option<xml::ObjectPath>,
-) -> Response<ResponseBody> {
-    // Preflight and CORS metadata do not authorize access; actual API dispatch authenticates
-    // before operation validation, body reads and authorized catalog operations.
-    let authenticate = || {
-        state
-            .auth
-            .authenticate(request.headers(), request.uri().query())
-            .map_err(JsonError::from)
-    };
-    if selected.is_none()
-        && let Some(parsed) =
-            json::acl::route_acl(request.method(), request.uri(), config.compat_profile)
-    {
-        let result = match authenticate().and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok((operation, caller)) => acl::respond(request, operation, caller, state)
-                .await
-                .map_err(|error| anonymous_error(error, caller)),
-            Err(error) => Err(error),
-        };
-        return boxed(result.unwrap_or_else(JsonError::into_response));
-    }
-    if selected.is_none()
-        && let Some(route) = unsupported::route(request.method(), request.uri())
-    {
-        return boxed(
-            authenticate()
-                .and_then(|_| {
-                    Err(JsonError::new(
-                        StatusCode::BAD_REQUEST,
-                        "badRequest",
-                        format!("gcs-mimic does not support Google JSON API route {route}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."),
-                    ))
-                })
-                .unwrap_or_else(JsonError::into_response),
-        );
-    }
-    // POST Object targets the bucket itself and authenticates from form fields in the body.
-    if let Some(object) = selected
-        .as_ref()
-        .filter(|object| request.method() == Method::POST && object.name().is_empty())
-    {
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
-        activity.send_replace(ObjectActivity {
-            awaiting_catalog: false,
-            deadline: Some(deadline),
-        });
-        let result = xml::post::respond(request, object, state, config, activity, deadline).await;
-        activity.send_replace(ObjectActivity::default());
-        return result.unwrap_or_else(|error| boxed(error.response(false)));
-    }
-    if selected.is_none()
-        && let Some(parsed) =
-            json::notifications::route(request.method(), request.uri(), config.compat_profile)
-    {
-        let result = match authenticate().and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok(((operation, fields), caller)) => {
-                notifications::respond(request, operation, fields, caller, state)
-                    .await
-                    .map_err(|error| anonymous_error(error, caller))
-            }
-            Err(error) => Err(error),
-        };
-        return boxed(result.unwrap_or_else(JsonError::into_response));
-    }
-    if let Some(parsed) = xml::route(request.method(), config, selected) {
-        let head = request.method() == Method::HEAD;
-        let put = request.method() == Method::PUT;
-        let delete = request.method() == Method::DELETE;
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
-        activity.send_replace(ObjectActivity {
-            awaiting_catalog: false,
-            deadline: Some(deadline),
-        });
-        let result = match xml::authenticate(
-            &state.auth,
-            request.method(),
-            request.uri(),
-            request.headers(),
-            state.clock.as_ref(),
-        ) {
-            Ok(caller) => match parsed {
-                Ok(operation) if put => {
-                    xml::put::respond(
-                        request, operation, caller, state, config, activity, deadline,
-                    )
-                    .await
-                }
-                Ok(operation) => xml_response(request, operation, caller, state, activity).await,
-                Err(error) => Err(error),
-            },
-            Err(error) => Err(error),
-        };
-        if head || put || delete || result.is_err() {
-            activity.send_replace(ObjectActivity::default());
-        }
-        return result.unwrap_or_else(|error| boxed(error.response(head)));
-    }
-    if let Some(parsed) =
-        json::resumable::session_route(request.method(), request.uri(), config.compat_profile)
-    {
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
-        activity.send_replace(ObjectActivity {
-            awaiting_catalog: false,
-            deadline: Some(deadline),
-        });
-        let result = match parsed {
-            Ok((bucket, id)) => {
-                resumable::session_response(
-                    request, &bucket, &id, state, config, activity, deadline,
-                )
-                .await
-            }
-            Err(error) => Err(error),
-        };
-        activity.send_replace(ObjectActivity::default());
-        return result.unwrap_or_else(|error| boxed(error.into_response()));
-    }
-    if let Some(parsed) =
-        json::rewrite::route(request.method(), request.uri(), config.compat_profile)
-    {
-        let parsed = authenticate().and_then(|caller| parsed.map(|operation| (operation, caller)));
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
-        activity.send_replace(ObjectActivity {
-            awaiting_catalog: false,
-            deadline: Some(deadline),
-        });
-        let result = match parsed {
-            Ok((operation, caller)) => rewrite::respond(
-                request, operation, caller, state, config, activity, deadline,
-            )
-            .await
-            .map_err(|error| anonymous_error(error, caller)),
-            Err(error) => Err(error),
-        };
-        activity.send_replace(ObjectActivity::default());
-        return result.unwrap_or_else(|error| boxed(error.into_response()));
-    }
-    if let Some(parsed) =
-        json::route_object_with_profile(request.method(), request.uri(), config.compat_profile)
-    {
-        let parsed = authenticate().and_then(|caller| parsed.map(|operation| (operation, caller)));
-        let media = matches!(&parsed, Ok((ObjectRequest::Get { params, .. }, _)) if params.media);
-        let transfer = media
-            || matches!(
-                &parsed,
-                Ok((
-                    ObjectRequest::Insert { .. }
-                        | ObjectRequest::Copy(_)
-                        | ObjectRequest::Compose { .. }
-                        | ObjectRequest::Multipart { .. }
-                        | ObjectRequest::Resumable { .. },
-                    _
-                ))
-            );
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
-        activity.send_replace(ObjectActivity {
-            awaiting_catalog: false,
-            deadline: transfer.then_some(deadline),
-        });
-        let result = match parsed {
-            Ok((operation, caller)) => object_response(
-                request, operation, caller, state, config, activity, deadline,
-            )
-            .await
-            .map_err(|error| anonymous_error(error, caller)),
-            Err(error) => Err(error),
-        };
-        if !media || result.is_err() {
-            activity.send_replace(ObjectActivity::default());
-        }
-        return result.unwrap_or_else(|error| boxed(error.into_response()));
-    }
-    if let Some(parsed) = json::route_project(request.method(), request.uri()) {
-        let result = match authenticate().and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok(((operation, fields), caller)) => {
-                project_resources::respond(request, operation, fields, caller, state)
-                    .await
-                    .map_err(|error| anonymous_error(error, caller))
-            }
-            Err(error) => Err(error),
-        };
-        return boxed(result.unwrap_or_else(JsonError::into_response));
-    }
-    if let Some(parsed) = json::route_with_profile(
-        request.method(),
-        request.uri(),
-        config.compat_profile,
-        &config.seed_project,
-    ) {
-        let result = match authenticate().and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok((operation, caller)) => {
-                bucket_response(request, operation, caller, state, config.compat_profile)
-                    .await
-                    .map_err(|error| anonymous_error(error, caller))
-            }
-            Err(error) => Err(error),
-        };
-        let mut response = result
-            .map_err(|mut error| {
-                if config.compat_profile == CompatProfile::LegacyEmulator
-                    && error.status == StatusCode::BAD_REQUEST
-                    && matches!(error.reason, "invalidArgument" | "parseError")
-                {
-                    error.reason = "invalid";
-                }
-                if config.compat_profile == CompatProfile::LegacyEmulator
-                    && error.status == StatusCode::NOT_FOUND
-                    && error.reason == "notFound"
-                {
-                    error.message = "Not Found".into();
-                }
-                error
-            })
-            .unwrap_or_else(JsonError::into_response);
-        if config.compat_profile == CompatProfile::LegacyEmulator
-            && response.status() != StatusCode::NOT_MODIFIED
-        {
-            let (mut parts, body) = response.into_parts();
-            let Ok(collected) = body.collect().await;
-            let mut bytes = collected.to_bytes().to_vec();
-            if !bytes.ends_with(b"\n") {
-                bytes.push(b'\n');
-            }
-            parts.headers.insert(
-                "content-type",
-                hyper::header::HeaderValue::from_static("application/json"),
-            );
-            response = Response::from_parts(parts, Full::new(Bytes::from(bytes)));
-        }
-        return boxed(response);
-    }
-    boxed(probe_or_unknown(&request, state))
 }
 
 pub(crate) fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> JsonError {
@@ -1052,808 +816,6 @@ fn authorize_project(
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Each request owns its transport, caller, state and deadline context"
-)]
-async fn object_response(
-    request: Request<Incoming>,
-    operation: ObjectRequest,
-    caller: Option<Caller<'_>>,
-    state: &State,
-    config: &Config,
-    activity: &watch::Sender<ObjectActivity>,
-    deadline: tokio::time::Instant,
-) -> Result<Response<ResponseBody>, JsonError> {
-    let max_bytes = config.max_object_bytes;
-    let fields = if matches!(operation, ObjectRequest::Delete { .. }) {
-        json::Fields::from_query(None, "Object")?
-    } else {
-        json::Fields::from_query(
-            request.uri().query(),
-            if matches!(operation, ObjectRequest::List(_)) {
-                "Objects"
-            } else {
-                "Object"
-            },
-        )?
-    };
-    let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
-    let (permission, bucket) = match &operation {
-        ObjectRequest::Restore { bucket, .. } => (auth::OBJECTS_RESTORE, bucket),
-        ObjectRequest::Move(params) => (auth::OBJECTS_CREATE, &params.bucket),
-        ObjectRequest::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
-        ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
-        ObjectRequest::Update { bucket, .. } => (auth::OBJECTS_UPDATE, bucket),
-        ObjectRequest::Compose { bucket, .. }
-        | ObjectRequest::Insert { bucket, .. }
-        | ObjectRequest::Multipart { bucket, .. }
-        | ObjectRequest::Resumable { bucket, .. } => (auth::OBJECTS_CREATE, bucket),
-        ObjectRequest::Get { bucket, .. } => (auth::OBJECTS_GET, bucket),
-        ObjectRequest::Delete { bucket, .. } => (auth::OBJECTS_DELETE, bucket),
-    };
-    // Authorization precedes header/body validation, conditions and existence checks.
-    // Replacing a live object additionally needs storage.objects.delete. The access carries
-    // that decision, and publication enforces it inside the catalog transaction if the name is
-    // live, so a concurrent create cannot be overwritten.
-    let access = authorize_bucket(state, caller, permission, bucket).await?;
-    let query = json::parse_query(request.uri().query().unwrap_or_default())?;
-    let acl_full = acl::full_projection(request.method(), request.uri().query());
-    if query.contains_key("predefinedAcl") || query.contains_key("destinationPredefinedAcl") {
-        let record = state
-            .catalog
-            .get_bucket(bucket)
-            .await?
-            .ok_or(CatalogError::NotFound)?;
-        json::reject_predefined_acl(
-            request.uri().query(),
-            record.uniform_bucket_level_access_locked_time.is_some(),
-            true,
-        )?;
-    }
-    json::validate_read_condition_headers(
-        request.headers(),
-        matches!(operation, ObjectRequest::Get { .. }),
-    )?;
-    if !matches!(
-        operation,
-        ObjectRequest::Insert { .. }
-            | ObjectRequest::Compose { .. }
-            | ObjectRequest::Multipart { .. }
-            | ObjectRequest::Resumable { .. }
-            | ObjectRequest::Update { .. }
-            | ObjectRequest::Copy(_)
-            | ObjectRequest::Restore { .. }
-            | ObjectRequest::Move(_)
-    ) && (request.headers().contains_key("transfer-encoding")
-        || request
-            .headers()
-            .get("content-length")
-            .is_some_and(|v| v != "0"))
-    {
-        return Err(JsonError::invalid_argument(
-            "This method requires an empty body",
-        ));
-    }
-    let mut upload_acl_snapshot = None;
-    let mut value = match operation {
-        ObjectRequest::Restore {
-            bucket,
-            name,
-            generation,
-            conditions,
-            projection,
-        } => {
-            json::validate_object_get_headers(request.headers(), json::ObjectRead::Metadata)?;
-            validate_bodyless_post(request, &query).await?;
-            let create_access =
-                authorize_bucket(state, caller, auth::OBJECTS_CREATE, &bucket).await?;
-            let record = state
-                .catalog
-                .restore_object_authorized(
-                    &bucket,
-                    &name,
-                    generation,
-                    conditions,
-                    &access,
-                    &create_access,
-                )
-                .await?;
-            json::object_resource(&record, &state.api_base_url, projection)?
-        }
-        ObjectRequest::Move(params) => {
-            json::validate_object_get_headers(request.headers(), json::ObjectRead::Metadata)?;
-            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            // The Node SDK serializes empty options as {}, without move semantics.
-            if !bytes.is_empty()
-                && serde_json::from_slice::<serde_json::Value>(&bytes).ok()
-                    != Some(serde_json::json!({}))
-            {
-                return Err(JsonError::invalid_argument(
-                    "Move requires an empty body or an empty JSON object",
-                ));
-            }
-            let source_read =
-                authorize_bucket(state, caller, auth::OBJECTS_GET, &params.bucket).await?;
-            let source_delete =
-                authorize_bucket(state, caller, auth::OBJECTS_DELETE, &params.bucket).await?;
-            let record = state
-                .catalog
-                .move_object_authorized(
-                    &params.bucket,
-                    &params.source,
-                    &params.destination,
-                    params.source_conditions,
-                    params.conditions,
-                    &source_read,
-                    &source_delete,
-                    &access,
-                )
-                .await?;
-            json::object_resource(&record, &state.api_base_url, params.projection)?
-        }
-        ObjectRequest::Copy(params) => {
-            json::validate_keyed_object_headers(
-                request.headers(),
-                json::ObjectRead::Metadata,
-                &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
-            )?;
-            let destination_key = json::request_key(request.headers())?;
-            let source_key = json::source_key(request.headers())?;
-            let token = json::resumable::single(request.headers(), "x-goog-gcs-idempotency-token")?
-                .map(str::to_owned);
-            for name in [
-                "content-md5",
-                "x-goog-hash",
-                "range",
-                "if-range",
-                "if-modified-since",
-                "if-unmodified-since",
-            ] {
-                if request.headers().contains_key(name) {
-                    return Err(JsonError::unsupported_object(name));
-                }
-            }
-            let source_access =
-                authorize_bucket(state, caller, auth::OBJECTS_GET, &params.source_bucket).await?;
-            let method = request.method().clone();
-            let uri = request.uri().clone();
-            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let request_binding = format!(
-                "copy-v1:{method}|{uri}|{}|{:?}|{:?}|{:?}",
-                state.api_base_url,
-                destination_key.map(crate::csek::CustomerKey::sha256),
-                source_key.map(crate::csek::CustomerKey::sha256),
-                ring::digest::digest(&ring::digest::SHA256, &bytes).as_ref()
-            );
-            let replay = await_upload_catalog(
-                state.catalog.prepare_copy_replay(
-                    &params.bucket,
-                    &params.name,
-                    params.conditions,
-                    &access,
-                    &params.source_bucket,
-                    &source_access,
-                    token.as_deref(),
-                    &request_binding,
-                ),
-                catalog_timeout,
-                deadline,
-                activity,
-            )
-            .await?;
-            upload_acl_snapshot = replay
-                .as_ref()
-                .map(crate::storage::CopyReplay::acl_snapshot);
-            let cached = if let Some(replay) = &replay {
-                await_upload_catalog(
-                    state.catalog.copy_replay_record(replay),
-                    catalog_timeout,
-                    deadline,
-                    activity,
-                )
-                .await?
-            } else {
-                None
-            };
-            let projection = params.projection;
-            let record = if let Some(record) = cached {
-                record
-            } else {
-                let source = state
-                    .catalog
-                    .resolve_derived_source_keyed(
-                        &params.source_bucket,
-                        &params.source_name,
-                        params.source_generation,
-                        params.source_conditions,
-                        &source_access,
-                        source_key,
-                    )
-                    .await?;
-                let (mut metadata, storage_class, expected) =
-                    json::derived_metadata(&bytes, &source.object)?;
-                metadata.customer_key_sha256 =
-                    destination_key.map(crate::csek::CustomerKey::sha256);
-                let source_location = if source.object.component_count.is_some() {
-                    Some(
-                        state
-                            .catalog
-                            .get_bucket(&params.source_bucket)
-                            .await?
-                            .ok_or(ObjectError::BucketNotFound)?
-                            .location,
-                    )
-                } else {
-                    None
-                };
-                copy::execute(
-                    &state.catalog,
-                    source,
-                    source_access,
-                    crate::storage::DerivedDestination {
-                        bucket: params.bucket,
-                        name: params.name,
-                        content_type: String::new(),
-                        metadata,
-                        storage_class,
-                        expected,
-                        conditions: params.conditions,
-                        access,
-                        component_count: None,
-                    },
-                    source_location,
-                    replay,
-                    config,
-                    deadline,
-                    activity,
-                    #[cfg(test)]
-                    None,
-                )
-                .await?
-            };
-            json::object_resource_keyed(&record, &state.api_base_url, projection, destination_key)?
-        }
-        ObjectRequest::Compose {
-            bucket,
-            name,
-            conditions,
-        } => {
-            json::validate_keyed_object_headers(
-                request.headers(),
-                json::ObjectRead::Metadata,
-                &[crate::csek::DESTINATION_PREFIX],
-            )?;
-            let key = json::request_key(request.headers())?;
-            for header in [
-                "if-range",
-                "if-modified-since",
-                "if-unmodified-since",
-                "range",
-                "content-md5",
-                "x-goog-hash",
-            ] {
-                if request.headers().contains_key(header) {
-                    return Err(JsonError::unsupported_object(header));
-                }
-            }
-            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let mut body = json::compose::parse_compose(&bytes, &bucket, &name)?;
-            body.destination.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
-            activity.send_modify(|progress| progress.awaiting_catalog = true);
-            let record = state
-                .catalog
-                .compose_object(
-                    crate::storage::DerivedDestination {
-                        bucket,
-                        name,
-                        conditions,
-                        access,
-                        metadata: body.destination,
-                        content_type: String::new(),
-                        storage_class: None,
-                        expected: Default::default(),
-                        component_count: None,
-                    },
-                    body.sources,
-                    body.delete_sources,
-                    max_bytes,
-                )
-                .await?;
-            json::object_resource_keyed(&record, &state.api_base_url, json::Projection::NoAcl, key)?
-        }
-        ObjectRequest::Resumable {
-            bucket,
-            name,
-            params,
-            content_encoding,
-        } => {
-            return resumable::initiate(
-                request,
-                &bucket,
-                name,
-                params,
-                content_encoding,
-                access,
-                state,
-                config,
-                activity,
-                deadline,
-            )
-            .await;
-        }
-        ObjectRequest::List(params) => {
-            json::validate_object_get_headers(request.headers(), json::ObjectRead::Metadata)?;
-            let page = state
-                .catalog
-                .list_objects_authorized(params.query.clone(), params.max_results, &access)
-                .await?;
-            if config.log_level == crate::diagnostics::LogLevel::Debug
-                && params.empty_soft_deleted_message(&page, None).is_some()
-            {
-                // Diagnostic reads must not change the successful listing response.
-                match state
-                    .catalog
-                    .get_bucket_authorized(&params.query.bucket, &access)
-                    .await
-                {
-                    Ok(Some(bucket)) => {
-                        if let Some(message) = params
-                            .empty_soft_deleted_message(&page, bucket.soft_delete_policy.as_ref())
-                        {
-                            crate::diagnostics::emit(
-                                crate::diagnostics::LogLevel::Debug,
-                                "soft_deleted_listing_empty",
-                                serde_json::json!({"message":message}),
-                            );
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(error) => crate::diagnostics::emit(
-                        crate::diagnostics::LogLevel::Debug,
-                        "soft_deleted_listing_diagnostic_failed",
-                        serde_json::json!({"message":"Cannot inspect softDeletePolicy after listing; retry the bucket metadata request", "cause":error.to_string()}),
-                    ),
-                }
-            }
-            json::object_list(&page, &params, &state.api_base_url)?
-        }
-        ObjectRequest::Update {
-            bucket,
-            name,
-            params,
-            replace,
-            override_unlocked_retention,
-        } => {
-            json::validate_keyed_object_headers(
-                request.headers(),
-                json::ObjectRead::Metadata,
-                &[crate::csek::DESTINATION_PREFIX],
-            )?;
-            let key = json::request_key(request.headers())?;
-            // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
-            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let mut update = json::parse_object_metadata_mutation(&bytes, replace)?;
-            retention_access::authorize_update(
-                state,
-                &access,
-                &bucket,
-                &mut update.update,
-                override_unlocked_retention,
-            )
-            .await?;
-            let base = state.api_base_url.clone();
-            let record = state
-                .catalog
-                .update_object_metadata_authorized(
-                    &bucket,
-                    &name,
-                    params.generation,
-                    params.conditions,
-                    update.update,
-                    move |record| {
-                        // A wrong key fails before the metadata change commits.
-                        crate::csek::check_metadata(record.customer_key_sha256, key)
-                            .map_err(ObjectError::CustomerEncryption)?;
-                        json::ObjectMetadataRequest::validate_unchanged(
-                            &update.unchanged,
-                            record,
-                            &base,
-                        )
-                    },
-                    &access,
-                )
-                .await?;
-            json::object_resource_keyed(&record, &state.api_base_url, params.projection, key)?
-        }
-        ObjectRequest::Multipart {
-            bucket,
-            name,
-            params,
-        } => {
-            let (_, expected) =
-                json::parse_object_upload_headers(request.headers(), params.conditions)?;
-            let key = json::request_key(request.headers())?;
-            let boundary = json::multipart_boundary(request.headers())?;
-            let token = json::resumable::single(request.headers(), "x-goog-gcs-idempotency-token")?
-                .map(str::to_owned);
-            let replay_request = format!(
-                "{}|{}|{:?}",
-                request.uri(),
-                state.api_base_url,
-                key.map(crate::csek::CustomerKey::sha256)
-            );
-            // The parser's JSON, header, delimiter-padding and discard caps total less than 256 KiB.
-            if request
-                .headers()
-                .get("content-length")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.parse::<u64>().ok())
-                .is_some_and(|length| length > max_bytes.saturating_add(256 * 1024))
-            {
-                return Err(ObjectError::TooLarge.into());
-            }
-            let mut permit = state.catalog.admit_object_upload()?;
-            // The final name may be in metadata; check the bucket before reading any body.
-            await_upload_catalog(
-                state.catalog.check_upload_replay(
-                    &bucket,
-                    name.as_deref().unwrap_or(""),
-                    if name.is_some() {
-                        params.conditions
-                    } else {
-                        Default::default()
-                    },
-                    &access,
-                    token.as_deref(),
-                    &replay_request,
-                    &mut permit,
-                ),
-                catalog_timeout,
-                deadline,
-                activity,
-            )
-            .await?;
-            let body = request.into_body().map_frame(|frame| {
-                activity.send_modify(|progress| progress.awaiting_catalog = false);
-                frame
-            });
-            let mut multipart = json::Multipart::new(body, &boundary);
-            let bytes = multipart.metadata().await?;
-            let name_known = name.is_some();
-            let (name, mut metadata, expected) = json::multipart_metadata(&bytes, name, expected)?;
-            retention_access::authorize_upload(state, &access, &bucket, &metadata).await?;
-            metadata.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
-            if !name_known {
-                await_upload_catalog(
-                    state.catalog.check_upload_replay(
-                        &bucket,
-                        &name,
-                        params.conditions,
-                        &access,
-                        token.as_deref(),
-                        &replay_request,
-                        &mut permit,
-                    ),
-                    catalog_timeout,
-                    deadline,
-                    activity,
-                )
-                .await?;
-            }
-            let content_type = multipart
-                .headers(false)
-                .await?
-                .unwrap_or_else(|| "application/octet-stream".into());
-            let (sender, body) = mpsc::channel(2);
-            upload_acl_snapshot = permit.replay_acl_snapshot();
-            let upload = state.catalog.put_object_prechecked(
-                &bucket,
-                &name,
-                content_type,
-                expected,
-                params.conditions,
-                max_bytes,
-                body,
-                permit,
-                metadata,
-                access,
-            );
-            tokio::pin!(upload);
-            let streaming = async {
-                let mut size = 0_u64;
-                while let Some(bytes) = multipart.next_chunk().await? {
-                    size = size
-                        .checked_add(bytes.len() as u64)
-                        .filter(|size| *size <= max_bytes)
-                        .ok_or_else(|| JsonError::from(ObjectError::TooLarge))?;
-                    if sender.send(Ok(UploadChunk::Data(bytes))).await.is_err() {
-                        return Ok::<_, JsonError>(expected);
-                    }
-                }
-                let expected = multipart.checksums(expected).await?;
-                multipart.finish().await?;
-                Ok(expected)
-            };
-            let record = tokio::select! {
-                result = &mut upload => result?,
-                result = streaming => {
-                    let expected = match result {
-                        Ok(expected) => expected,
-                        Err(error) => {
-                            let _ = sender.send(Err(io::Error::other(error.to_string()))).await;
-                            drop(sender);
-                            // Await cleanup before returning a framing error to the client.
-                            match await_upload_catalog(upload, catalog_timeout, deadline, activity).await {
-                                Ok(_) | Err(ObjectError::BodyAborted(_)) => {},
-                                Err(storage_error) => return Err(storage_error.into()),
-                            }
-                            return Err(error);
-                        }
-                    };
-                    await_upload_catalog(async {
-                        let _ = sender.send(Ok(UploadChunk::EndWithHashes(expected))).await;
-                        drop(sender);
-                        upload.await
-                    }, catalog_timeout, deadline, activity).await?
-                }
-            };
-            json::object_resource_keyed(&record, &state.api_base_url, params.projection, key)?
-        }
-        ObjectRequest::Insert {
-            bucket,
-            name,
-            params,
-        } => {
-            let (content_type, expected) =
-                json::parse_object_upload_headers(request.headers(), params.conditions)?;
-            let key = json::request_key(request.headers())?;
-            let token = json::resumable::single(request.headers(), "x-goog-gcs-idempotency-token")?
-                .map(str::to_owned);
-            let replay_request = format!(
-                "{}|{}|{:?}",
-                request.uri(),
-                state.api_base_url,
-                key.map(crate::csek::CustomerKey::sha256)
-            );
-            if request
-                .headers()
-                .get("content-length")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.parse::<u64>().ok())
-                .is_some_and(|length| length > max_bytes)
-            {
-                return Err(ObjectError::TooLarge.into());
-            }
-            // Complete the advisory check before body-derived errors can race its result.
-            let mut permit = state.catalog.admit_object_upload()?;
-            await_upload_catalog(
-                state.catalog.check_upload_replay(
-                    &bucket,
-                    &name,
-                    params.conditions,
-                    &access,
-                    token.as_deref(),
-                    &replay_request,
-                    &mut permit,
-                ),
-                catalog_timeout,
-                deadline,
-                activity,
-            )
-            .await?;
-            let (sender, body) = mpsc::channel(2);
-            upload_acl_snapshot = permit.replay_acl_snapshot();
-            let upload = state.catalog.put_object_prechecked(
-                &bucket,
-                &name,
-                content_type,
-                expected,
-                params.conditions,
-                max_bytes,
-                body,
-                permit,
-                crate::object::ObjectMetadataUpdate {
-                    customer_key_sha256: key.map(crate::csek::CustomerKey::sha256),
-                    ..Default::default()
-                },
-                access,
-            );
-            tokio::pin!(upload);
-            let record = tokio::select! {
-                result = &mut upload => result?,
-                result = stream_upload(request.into_body(), &sender, max_bytes, activity, None) => {
-                    if let Err(error) = result {
-                        if sender.send(Err(io::Error::other(error.to_string()))).await.is_err() {
-                            return Err(upload.await.err().unwrap_or(error).into());
-                        }
-                        return Err(error.into());
-                    }
-                    await_upload_catalog(async {
-                        let _ = sender.send(Ok(UploadChunk::End)).await;
-                        drop(sender);
-                        upload.await
-                    }, catalog_timeout, deadline, activity).await?
-                }
-            };
-            json::object_resource_keyed(&record, &state.api_base_url, params.projection, key)?
-        }
-        ObjectRequest::Get {
-            bucket,
-            name,
-            params,
-        } => {
-            // Match failures precede both query and HTTP cache validators on one snapshot.
-            let mixed = request.headers().contains_key("if-match")
-                || request.headers().contains_key("if-none-match");
-            let conditions = if mixed {
-                ObjectConditions {
-                    if_generation_not_match: None,
-                    if_metageneration_not_match: None,
-                    ..params.conditions
-                }
-            } else {
-                params.conditions
-            };
-            if params.media {
-                json::validate_keyed_object_headers(
-                    request.headers(),
-                    json::ObjectRead::Media,
-                    &[crate::csek::DESTINATION_PREFIX],
-                )?;
-                let key = json::request_key(request.headers())?;
-                let (record, mut reader) = state
-                    .catalog
-                    .open_object_keyed(&bucket, &name, params.generation, conditions, &access, key)
-                    .await?;
-                let mut headers = json::object_media_headers(&record)?;
-                json::insert_response_headers(&record, &mut headers);
-                if reader.publicly_readable {
-                    headers.insert(
-                        "cache-control",
-                        record
-                            .cache_control
-                            .as_deref()
-                            .unwrap_or("public, max-age=3600")
-                            .parse()
-                            .map_err(|_| {
-                                JsonError::new(
-                                    StatusCode::SERVICE_UNAVAILABLE,
-                                    "backendError",
-                                    "Invalid stored Cache-Control",
-                                )
-                            })?,
-                    );
-                }
-                let transcode = json::object_media_transcoding(request.headers(), &record)?;
-                if read_etag_not_modified(request.headers(), &json::object_etag(&record))?
-                    || params.conditions.if_generation_not_match == Some(record.generation)
-                    || params.conditions.if_metageneration_not_match == Some(record.metageneration)
-                {
-                    return Ok(boxed(not_modified_response(
-                        &headers["etag"],
-                        &headers["cache-control"],
-                    )));
-                }
-                if transcode {
-                    for name in ["content-encoding", "content-length", "accept-ranges"] {
-                        headers.remove(name);
-                    }
-                    let mut response = Response::new(gzip::body(
-                        reader,
-                        record.size,
-                        config.max_object_bytes,
-                        activity,
-                    ));
-                    *response.headers_mut() = headers;
-                    return Ok(response);
-                }
-                let range = match json::object_media_range(request.headers(), record.size) {
-                    Ok(range) => range,
-                    Err(error) => {
-                        let mut response = error
-                            .into_response()
-                            .map(|body| body.map_err(|never| match never {}).boxed_unsync());
-                        insert_unsatisfied_content_range(response.headers_mut(), record.size);
-                        return Ok(response);
-                    }
-                };
-                if let Some((offset, length)) = range {
-                    reader.set_range(offset, length).await.map_err(|_| {
-                        JsonError::new(
-                            StatusCode::SERVICE_UNAVAILABLE,
-                            "backendError",
-                            "Cannot seek object data",
-                        )
-                    })?;
-                    headers.insert("content-length", length.into());
-                    insert_content_range(&mut headers, offset, length, record.size);
-                }
-                let mut response = Response::new(object_body(reader, activity));
-                if range.is_some() {
-                    *response.status_mut() = StatusCode::PARTIAL_CONTENT;
-                }
-                *response.headers_mut() = headers;
-                return Ok(response);
-            }
-            json::validate_keyed_object_headers(
-                request.headers(),
-                json::ObjectRead::Metadata,
-                &[crate::csek::DESTINATION_PREFIX],
-            )?;
-            let key = json::request_key(request.headers())?;
-            let record = if params.soft_deleted {
-                state
-                    .catalog
-                    .get_soft_deleted_object_authorized(
-                        &bucket,
-                        &name,
-                        params.generation.ok_or_else(|| {
-                            JsonError::invalid_argument("softDeleted=true requires generation")
-                        })?,
-                        conditions,
-                        &access,
-                    )
-                    .await?
-            } else {
-                state
-                    .catalog
-                    .get_object_authorized(&bucket, &name, params.generation, conditions, &access)
-                    .await?
-            };
-            // Metadata needs no key; a supplied key must match and then reveals hashes.
-            crate::csek::check_metadata(record.customer_key_sha256, key)
-                .map_err(ObjectError::CustomerEncryption)?;
-            let mut resource =
-                json::object_resource_keyed(&record, &state.api_base_url, params.projection, key)?;
-            if params.projection == json::Projection::Full {
-                acl::add_full_projection(state, caller, &mut resource).await?;
-            }
-            return Ok(boxed(read_metadata_response(
-                request.headers(),
-                &json::object_etag(&record),
-                resource,
-                &fields,
-                params.conditions.if_generation_not_match == Some(record.generation)
-                    || params.conditions.if_metageneration_not_match == Some(record.metageneration),
-            )?));
-        }
-        ObjectRequest::Delete {
-            bucket,
-            name,
-            generation,
-            conditions,
-        } => {
-            json::validate_object_get_headers(request.headers(), json::ObjectRead::Metadata)?;
-            state
-                .catalog
-                .delete_object_authorized(&bucket, &name, generation, conditions, &access)
-                .await?;
-            return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
-        }
-    };
-    if acl_full {
-        if let Some(snapshot) = upload_acl_snapshot {
-            if let Some(entries) = snapshot.get().ok_or_else(|| {
-                JsonError::from(ObjectError::Unavailable(
-                    "Missing upload replay snapshot".into(),
-                ))
-            })? {
-                let bucket = value["bucket"]
-                    .as_str()
-                    .ok_or_else(|| JsonError::from(ObjectError::InvalidMetadata))?;
-                if acl::may_read(state, caller, crate::acl::AclKind::Object, bucket).await? {
-                    json::acl::add_object_acl_fields(&mut value, &state.api_base_url, entries);
-                }
-            }
-        } else {
-            acl::add_full_projection(state, caller, &mut value).await?;
-        }
-    }
-    fields.apply(&mut value);
-    Ok(boxed(json_response(&value)))
-}
-
 fn object_body(
     mut reader: crate::storage::ObjectReader,
     activity: &watch::Sender<ObjectActivity>,
@@ -1887,125 +849,6 @@ fn object_body(
         }
     });
     body.boxed_unsync()
-}
-
-async fn xml_response(
-    request: Request<Incoming>,
-    mut operation: xml::ReadRequest,
-    caller: Option<Caller<'_>>,
-    state: &State,
-    activity: &watch::Sender<ObjectActivity>,
-) -> Result<Response<ResponseBody>, xml::Error> {
-    let delete = request.method() == Method::DELETE;
-    let access = authorize_bucket(
-        state,
-        caller,
-        if delete {
-            auth::OBJECTS_DELETE
-        } else {
-            auth::OBJECTS_GET
-        },
-        &operation.bucket,
-    )
-    .await
-    .map_err(|error| anonymous_error(error, caller))?;
-    xml::headers(request.headers(), &mut operation)?;
-    if delete
-        && let Some(name) =
-            crate::csek::has_headers(request.headers(), crate::csek::DESTINATION_PREFIX)
-    {
-        return Err(xml::Error::unsupported(&name));
-    }
-    let key = json::request_key(request.headers())?;
-    if delete {
-        state
-            .catalog
-            .delete_object_authorized(
-                &operation.bucket,
-                &operation.name,
-                operation.generation,
-                operation.conditions,
-                &access,
-            )
-            .await
-            .map_err(|error| anonymous_error(error.into(), caller))?;
-        return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
-    }
-    let head = request.method() == Method::HEAD;
-    // HEAD returns only metadata, which an encrypted object exposes without its key.
-    let (record, mut reader, reveal) = if head {
-        state
-            .catalog
-            .open_object_metadata_keyed(
-                &operation.bucket,
-                &operation.name,
-                operation.generation,
-                operation.conditions,
-                &access,
-                key,
-            )
-            .await
-    } else {
-        state
-            .catalog
-            .open_object_keyed(
-                &operation.bucket,
-                &operation.name,
-                operation.generation,
-                operation.conditions,
-                &access,
-                key,
-            )
-            .await
-            .map(|(record, reader)| (record, reader, true))
-    }
-    .map_err(|error| anonymous_error(error.into(), caller))?;
-    let mut headers = xml::media_headers(
-        &record,
-        xml::CacheScope::for_public_read(reader.publicly_readable),
-    )?;
-    json::insert_response_headers(&record, &mut headers);
-    if !reveal {
-        headers.remove("x-goog-hash");
-    }
-    headers.extend(operation.response_overrides);
-    json::validate_object_media_encoding(request.headers(), &record)?;
-    let range = match json::object_media_range(request.headers(), record.size) {
-        Ok(range) => range,
-        Err(_) if head => {
-            // HEAD's Range only adds Content-Range; status and representation length stay unchanged.
-            insert_unsatisfied_content_range(&mut headers, record.size);
-            None
-        }
-        Err(error) => {
-            let mut response = boxed(xml::Error::from(error).response(head));
-            insert_unsatisfied_content_range(response.headers_mut(), record.size);
-            return Ok(response);
-        }
-    };
-    if let Some((offset, length)) = range {
-        if !head {
-            reader.set_range(offset, length).await.map_err(|_| {
-                xml::Error::from(JsonError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "Cannot seek object data",
-                ))
-            })?;
-            headers.insert("content-length", length.into());
-        }
-        insert_content_range(&mut headers, offset, length, record.size);
-    }
-    let mut response = if head {
-        boxed(empty_response(StatusCode::OK))
-    } else {
-        Response::new(object_body(reader, activity))
-    };
-    if range.is_some() && !head {
-        *response.status_mut() = StatusCode::PARTIAL_CONTENT;
-    }
-    *response.headers_mut() = headers;
-    Ok(response)
 }
 
 async fn validate_bodyless_post(
@@ -2106,366 +949,6 @@ pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(
     });
     activity.send_modify(|progress| progress.awaiting_catalog = false);
     result
-}
-
-async fn bucket_response(
-    request: Request<Incoming>,
-    operation: BucketRequest,
-    caller: Option<Caller<'_>>,
-    state: &State,
-    profile: CompatProfile,
-) -> Result<Response<Full<Bytes>>, JsonError> {
-    let access = match &operation {
-        BucketRequest::Insert(params) => {
-            authorize_project(caller, auth::BUCKETS_CREATE, &params.project)?;
-            if params.enable_object_retention {
-                authorize_project(
-                    caller,
-                    auth::BUCKETS_ENABLE_OBJECT_RETENTION,
-                    &params.project,
-                )?;
-            }
-            BucketAccess::Permissive
-        }
-        BucketRequest::List(params) => {
-            authorize_project(caller, auth::BUCKETS_LIST, &params.project)?;
-            BucketAccess::Permissive
-        }
-        BucketRequest::Get { bucket, .. } => {
-            authorize_bucket(state, caller, auth::BUCKETS_GET, bucket).await?
-        }
-        BucketRequest::Patch { bucket, .. }
-        | BucketRequest::Update { bucket, .. }
-        | BucketRequest::LockRetentionPolicy { bucket, .. } => {
-            authorize_bucket(state, caller, auth::BUCKETS_UPDATE, bucket).await?
-        }
-        BucketRequest::Delete { bucket, .. } => {
-            authorize_bucket(state, caller, auth::BUCKETS_DELETE, bucket).await?
-        }
-        BucketRequest::GetIam { bucket } => {
-            authorize_bucket(state, caller, auth::BUCKETS_GET_IAM, bucket).await?
-        }
-        BucketRequest::SetIam { bucket } => {
-            authorize_bucket(state, caller, auth::BUCKETS_SET_IAM, bucket).await?
-        }
-        BucketRequest::TestIam { .. } => BucketAccess::Permissive,
-    };
-    json::validate_read_condition_headers(
-        request.headers(),
-        matches!(
-            operation,
-            BucketRequest::Get { .. } | BucketRequest::GetIam { .. }
-        ),
-    )?;
-    if !matches!(
-        operation,
-        BucketRequest::Insert(_)
-            | BucketRequest::SetIam { .. }
-            | BucketRequest::Patch { .. }
-            | BucketRequest::Update { .. }
-            | BucketRequest::LockRetentionPolicy { .. }
-    ) && (request.headers().contains_key("transfer-encoding")
-        || request
-            .headers()
-            .get("content-length")
-            .is_some_and(|v| v != "0"))
-    {
-        return Err(JsonError::invalid_argument(
-            "This method requires an empty body",
-        ));
-    }
-    let fields = if matches!(operation, BucketRequest::TestIam { .. }) {
-        json::test_permissions_query(request.uri().query())?.1
-    } else if matches!(operation, BucketRequest::Delete { .. }) {
-        json::Fields::from_query(None, "Bucket")?
-    } else {
-        let schema = match operation {
-            BucketRequest::List(_) => "Buckets",
-            BucketRequest::GetIam { .. } | BucketRequest::SetIam { .. } => "Policy",
-            _ => "Bucket",
-        };
-        json::Fields::from_query(request.uri().query(), schema)?
-    };
-    let replace = matches!(operation, BucketRequest::Update { .. });
-    let acl_query = request.uri().query().map(str::to_owned);
-    let acl_full = acl::full_projection(request.method(), request.uri().query());
-    let mut value = match operation {
-        BucketRequest::LockRetentionPolicy {
-            bucket,
-            metageneration,
-        } => {
-            validate_bodyless_post(
-                request,
-                &[("ifMetagenerationMatch".into(), metageneration.to_string())].into(),
-            )
-            .await?;
-            let record = state
-                .catalog
-                .patch_bucket(
-                    &bucket,
-                    crate::bucket::BucketMetadataUpdate {
-                        lock_retention_policy: true,
-                        ..Default::default()
-                    },
-                    Some(metageneration),
-                    None,
-                    &access,
-                )
-                .await?;
-            json::bucket_resource_with_profile(
-                &record,
-                &state.api_base_url,
-                json::Projection::NoAcl,
-                profile,
-            )?
-        }
-        BucketRequest::TestIam {
-            bucket,
-            permissions,
-        } => {
-            // This method requires no permission; existence is independent of policy visibility.
-            state
-                .catalog
-                .get_policy(&bucket, &BucketAccess::Permissive)
-                .await?;
-            let mut granted = Vec::new();
-            for permission in permissions {
-                match authorize_bucket(state, caller, &permission, &bucket).await {
-                    Ok(_) => granted.push(permission),
-                    Err(error) if error.status == StatusCode::FORBIDDEN => {}
-                    Err(error) => return Err(error),
-                }
-            }
-            serde_json::json!({"kind": "storage#testIamPermissionsResponse", "permissions": granted})
-        }
-        BucketRequest::Patch { bucket, params } | BucketRequest::Update { bucket, params } => {
-            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let update = if replace {
-                json::parse_bucket_replacement(&bytes, profile)?
-            } else {
-                json::parse_bucket_patch(&bytes, profile)?
-            };
-            let record = state
-                .catalog
-                .get_bucket_authorized(&bucket, &access)
-                .await?
-                .ok_or(CatalogError::NotFound)?;
-            json::reject_predefined_acl(
-                acl_query.as_deref(),
-                record.uniform_bucket_level_access_locked_time.is_some()
-                    || update.uniform_bucket_level_access_enabled == Some(true),
-                false,
-            )?;
-            let record = if replace {
-                state
-                    .catalog
-                    .replace_bucket(
-                        &bucket,
-                        update,
-                        params.conditions.if_metageneration_match,
-                        params.conditions.if_metageneration_not_match,
-                        &access,
-                    )
-                    .await
-            } else {
-                state
-                    .catalog
-                    .patch_bucket(
-                        &bucket,
-                        update,
-                        params.conditions.if_metageneration_match,
-                        params.conditions.if_metageneration_not_match,
-                        &access,
-                    )
-                    .await
-            }
-            .map_err(|error| bucket_catalog_error(error, profile, None))?;
-            json::bucket_resource_with_profile(
-                &record,
-                &state.api_base_url,
-                params.projection,
-                profile,
-            )?
-        }
-        BucketRequest::GetIam { bucket } => {
-            let policy = state.catalog.get_policy(&bucket, &access).await?;
-            return read_metadata_response(
-                request.headers(),
-                &format!(
-                    "\"{}\"",
-                    policy.etag.as_deref().expect("stored policy etag")
-                ),
-                json::policy_resource(&policy, &bucket),
-                &fields,
-                false,
-            );
-        }
-        BucketRequest::SetIam { bucket } => {
-            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let policy = json::parse_policy(&bytes)?;
-            let policy = state.catalog.set_policy(&bucket, policy, &access).await?;
-            json::policy_resource(&policy, &bucket)
-        }
-        BucketRequest::Insert(params) => {
-            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let mut record = json::parse_insert_with_profile(
-                &bytes,
-                &params.project,
-                state.clock.now(),
-                profile,
-                &state.default_location,
-            )?;
-            if record.object_retention_enabled && !params.enable_object_retention {
-                return Err(JsonError::invalid_argument(
-                    "objectRetention is output-only; add the enableObjectRetention=true query parameter to enable object retention",
-                ));
-            }
-            record.object_retention_enabled = params.enable_object_retention;
-            let name = record.name.clone();
-            json::reject_predefined_acl(
-                acl_query.as_deref(),
-                record.uniform_bucket_level_access_locked_time.is_some(),
-                false,
-            )?;
-            let record = state
-                .catalog
-                .insert_bucket(record)
-                .await
-                .map_err(|error| bucket_catalog_error(error, profile, Some(&name)))?;
-            json::bucket_resource_with_profile(
-                &record,
-                &state.api_base_url,
-                params.projection,
-                profile,
-            )?
-        }
-        BucketRequest::Get { bucket, params } => {
-            let record = state
-                .catalog
-                .get_bucket_authorized(&bucket, &access)
-                .await?
-                .ok_or_else(|| bucket_catalog_error(CatalogError::NotFound, profile, None))?;
-            let conditions = params.conditions;
-            if conditions
-                .if_metageneration_match
-                .is_some_and(|v| v != record.metageneration)
-            {
-                return Err(CatalogError::PreconditionFailed.into());
-            }
-            let query_not_modified =
-                conditions.if_metageneration_not_match == Some(record.metageneration);
-            if query_not_modified
-                && !request.headers().contains_key("if-match")
-                && !request.headers().contains_key("if-none-match")
-            {
-                return Ok(empty_response(StatusCode::NOT_MODIFIED));
-            }
-            let mut resource = json::bucket_resource_with_profile(
-                &record,
-                &state.api_base_url,
-                params.projection,
-                profile,
-            )?;
-            if params.projection == json::Projection::Full {
-                acl::add_full_projection(state, caller, &mut resource).await?;
-            }
-            return read_metadata_response(
-                request.headers(),
-                &json::bucket_etag(&record),
-                resource,
-                &fields,
-                query_not_modified,
-            );
-        }
-        BucketRequest::List(params) => {
-            let limit = params.max_results as usize;
-            let page = state
-                .catalog
-                .list_buckets_page(
-                    &params.project,
-                    Some(&params.prefix),
-                    params.start_after.as_deref(),
-                    limit,
-                )
-                .await?;
-            let token = if page.has_more {
-                Some(json::encode_page_token(
-                    &params.project,
-                    &params.prefix,
-                    &page.items.last().expect("nonempty continuation page").name,
-                )?)
-            } else {
-                None
-            };
-            json::bucket_list_with_profile(
-                &page.items,
-                token.as_deref(),
-                &state.api_base_url,
-                params.projection,
-                profile,
-            )?
-        }
-        BucketRequest::Delete { bucket, conditions } => {
-            state
-                .catalog
-                .delete_bucket_authorized(
-                    &bucket,
-                    conditions.if_metageneration_match,
-                    conditions.if_metageneration_not_match,
-                    &access,
-                )
-                .await
-                .map_err(|error| bucket_catalog_error(error, profile, None))?;
-            return Ok(if profile == CompatProfile::LegacyEmulator {
-                let mut response = Response::new(Full::new(Bytes::from_static(b"null\n")));
-                response.headers_mut().insert(
-                    "content-type",
-                    hyper::header::HeaderValue::from_static("application/json"),
-                );
-                response
-            } else {
-                empty_response(StatusCode::NO_CONTENT)
-            });
-        }
-    };
-    if acl_full {
-        acl::add_full_projection(state, caller, &mut value).await?;
-    }
-    fields.apply(&mut value);
-    Ok(json_response(&value))
-}
-
-fn bucket_catalog_error(
-    error: CatalogError,
-    profile: CompatProfile,
-    name: Option<&str>,
-) -> JsonError {
-    if profile == CompatProfile::LegacyEmulator {
-        match error {
-            CatalogError::NotFound => {
-                return JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found");
-            }
-            CatalogError::NotEmpty => {
-                return JsonError::new(
-                    StatusCode::PRECONDITION_FAILED,
-                    "conditionNotMet",
-                    "bucket must be empty prior to deletion",
-                );
-            }
-            CatalogError::AlreadyExists => {
-                return JsonError::new(
-                    StatusCode::CONFLICT,
-                    "conflict",
-                    format!(
-                        "A Cloud Storage bucket named '{}' already exists. Try another name. Bucket names must be globally unique across all Google Cloud projects, including those outside of your organization.",
-                        name.unwrap_or_default()
-                    ),
-                );
-            }
-            _ => {}
-        }
-    }
-    error.into()
 }
 
 fn read_etag_not_modified(headers: &hyper::HeaderMap, etag: &str) -> Result<bool, JsonError> {

@@ -25,16 +25,18 @@ fn error(error: RewriteError) -> JsonError {
 pub(super) async fn respond(
     request: Request<Incoming>,
     operation: RewriteRequest,
-    caller: Option<Caller<'_>>,
-    state: &State,
-    config: &Config,
-    activity: &watch::Sender<ObjectActivity>,
-    _deadline: tokio::time::Instant,
+    ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, JsonError> {
-    let source_access =
-        authorize_bucket(state, caller, auth::OBJECTS_GET, &operation.path[0]).await?;
-    let destination_access =
-        authorize_bucket(state, caller, auth::OBJECTS_CREATE, &operation.path[2]).await?;
+    let ObjectCtx {
+        state,
+        config,
+        activity,
+        ..
+    } = ctx;
+    let source_access = ctx.authorize(auth::OBJECTS_GET, &operation.path[0]).await?;
+    let destination_access = ctx
+        .authorize(auth::OBJECTS_CREATE, &operation.path[2])
+        .await?;
     if operation
         .parameters
         .contains_key("destinationPredefinedAcl")

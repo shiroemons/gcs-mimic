@@ -40,22 +40,42 @@ async fn checkpoint_at(
     Ok(())
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "One copy owns its source, destination and request deadline context"
-)]
+/// What one copy reads, where it writes, and the replay record of an idempotent retry.
+pub(crate) struct CopyJob {
+    pub(crate) source: DerivedSource,
+    pub(crate) source_access: BucketAccess,
+    pub(crate) destination: DerivedDestination,
+    /// The source bucket's location, read only for a composite source.
+    pub(crate) source_location: Option<String>,
+    pub(crate) replay: Option<CopyReplay>,
+}
+
+/// The request limits a copy runs under.
+#[derive(Clone, Copy)]
+pub(crate) struct CopyBudget<'a> {
+    pub(crate) config: &'a Config,
+    pub(crate) deadline: Instant,
+    pub(crate) activity: &'a watch::Sender<ObjectActivity>,
+}
+
 pub(super) async fn execute(
     catalog: &Catalog,
-    source: DerivedSource,
-    source_access: BucketAccess,
-    destination: DerivedDestination,
-    source_location: Option<String>,
-    replay: Option<CopyReplay>,
-    config: &Config,
-    deadline: Instant,
-    activity: &watch::Sender<ObjectActivity>,
+    job: CopyJob,
+    budget: CopyBudget<'_>,
     #[cfg(test)] mut checkpoint: Option<Checkpoint>,
 ) -> Result<ObjectRecord, ObjectError> {
+    let CopyJob {
+        source,
+        source_access,
+        destination,
+        source_location,
+        replay,
+    } = job;
+    let CopyBudget {
+        config,
+        deadline,
+        activity,
+    } = budget;
     let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
     if replay.is_none() {
         await_upload_catalog(
@@ -263,14 +283,18 @@ mod tests {
             let (activity, _updates) = watch::channel(ObjectActivity::default());
             execute(
                 &catalog,
-                source,
-                source_access,
-                destination,
-                Some("US".into()),
-                None,
-                &config,
-                Instant::now() + Duration::from_secs(15),
-                &activity,
+                CopyJob {
+                    source,
+                    source_access,
+                    destination,
+                    source_location: Some("US".into()),
+                    replay: None,
+                },
+                CopyBudget {
+                    config: &config,
+                    deadline: Instant::now() + Duration::from_secs(15),
+                    activity: &activity,
+                },
                 Some(Checkpoint {
                     after_bytes,
                     reached,

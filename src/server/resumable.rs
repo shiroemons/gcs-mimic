@@ -1,26 +1,18 @@
-use super::{
-    ObjectActivity, ResponseBody, await_upload_catalog, boxed, empty_response, stream_upload,
-};
+use super::{ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response, stream_upload};
 use crate::{
     bucket::BucketAccess,
-    config::Config,
     json::{
         self, JsonError, ObjectInsertParams,
         resumable::{self, Range},
     },
-    object::{ObjectError, UploadChunk},
-    server::State,
-    storage::{ResumableChunk, SessionState},
+    object::{ObjectError, ObjectRecord, UploadChunk},
+    storage::{ResumableChunk, ResumableOptions, SessionState},
 };
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Incoming, header::HeaderValue};
 use tokio::sync::{mpsc, watch};
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "The upload adapter receives the existing request context"
-)]
 pub(super) async fn initiate(
     request: Request<Incoming>,
     bucket: &str,
@@ -28,11 +20,9 @@ pub(super) async fn initiate(
     params: ObjectInsertParams,
     encoding: Option<String>,
     access: BucketAccess,
-    state: &State,
-    config: &Config,
-    activity: &watch::Sender<ObjectActivity>,
-    deadline: tokio::time::Instant,
+    ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, JsonError> {
+    let ObjectCtx { state, config, .. } = ctx;
     let response_fields =
         json::parse_query(request.uri().query().unwrap_or_default())?.remove("fields");
     let (mime, expected, total) =
@@ -78,15 +68,13 @@ pub(super) async fn initiate(
     options.response_fields = response_fields;
     // The session binds the key fingerprint; later chunks cannot change it.
     options.metadata.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
-    let session = await_upload_catalog(
-        state
-            .catalog
-            .create_resumable_session(bucket, &name, options, total),
-        std::time::Duration::from_millis(config.catalog_wait_timeout_ms),
-        deadline,
-        activity,
-    )
-    .await?;
+    let session = ctx
+        .await_catalog(
+            state
+                .catalog
+                .create_resumable_session(bucket, &name, options, total),
+        )
+        .await?;
     let location = format!("{location_prefix}{}", session.id);
     let mut response = empty_response(StatusCode::OK);
     response.headers_mut().insert(
@@ -129,7 +117,7 @@ pub(super) fn incomplete(
     Ok(boxed(response))
 }
 
-pub(super) fn completed(value: serde_json::Value) -> Response<ResponseBody> {
+fn completed(value: &serde_json::Value) -> Response<ResponseBody> {
     let mut response = Response::new(Full::new(Bytes::from(value.to_string())));
     response.headers_mut().insert(
         "content-type",
@@ -141,37 +129,49 @@ pub(super) fn completed(value: serde_json::Value) -> Response<ResponseBody> {
     boxed(response)
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Session operations share the server request context"
-)]
-pub(super) async fn session_response(
-    request: Request<Incoming>,
-    bucket: &str,
-    id: &str,
-    state: &State,
-    config: &Config,
-    activity: &watch::Sender<ObjectActivity>,
-    deadline: tokio::time::Instant,
-) -> Result<Response<ResponseBody>, JsonError> {
-    if request.method() == hyper::Method::DELETE {
-        return json::resumable_cancel::cancel_response(request, bucket, id, &state.catalog)
-            .await
-            .map(boxed);
-    }
-    let range = resumable::range(request.headers())?;
-    let headers = request.headers().clone();
-    let length = resumable::single(&headers, "content-length")?
+/// Whether a chunk request only queries the upload status or carries data.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ChunkKind {
+    Status,
+    Data,
+}
+
+/// Where a chunk request places its bytes in the upload, derived from its headers and the
+/// session's acknowledged offset.
+struct ChunkPlan {
+    start: u64,
+    length: u64,
+    end: u64,
+    total: Option<u64>,
+    kind: ChunkKind,
+    finalize: bool,
+}
+
+/// The session state a chunk is planned against.
+struct SessionPosition {
+    offset: u64,
+    total: Option<u64>,
+    state: SessionState,
+}
+
+/// Validates a chunk's framing headers against the object size limit before the session is
+/// locked, and returns its Content-Range and Content-Length.
+fn chunk_framing(
+    headers: &hyper::HeaderMap,
+    max_bytes: u64,
+) -> Result<(Option<Range>, Option<u64>), JsonError> {
+    let range = resumable::range(headers)?;
+    let length = resumable::single(headers, "content-length")?
         .map(resumable::unsigned)
         .transpose()?;
-    if length.is_some_and(|n| n > config.max_object_bytes) {
+    if length.is_some_and(|n| n > max_bytes) {
         return Err(ObjectError::TooLarge.into());
     }
     let oversized = match range {
         Some(Range::Data { end, total, .. }) => {
-            end >= config.max_object_bytes || total.is_some_and(|n| n > config.max_object_bytes)
+            end >= max_bytes || total.is_some_and(|n| n > max_bytes)
         }
-        Some(Range::Status(total)) => total.is_some_and(|n| n > config.max_object_bytes),
+        Some(Range::Status(total)) => total.is_some_and(|n| n > max_bytes),
         None => false,
     };
     if oversized {
@@ -184,29 +184,26 @@ pub(super) async fn session_response(
             "Content-Length does not match Content-Range",
         ));
     }
-    let mut lease = await_upload_catalog(
-        state.catalog.lock_resumable_session(id, bucket),
-        std::time::Duration::from_millis(config.catalog_wait_timeout_ms),
-        deadline,
-        activity,
-    )
-    .await?;
-    let session = &lease.session;
-    // Chunks may repeat the initiation key (as SDKs do) but never introduce or replace one;
-    // a mismatch rejects only this request and leaves the session usable.
-    if let Some(key) = json::request_key(&headers)? {
-        crate::csek::check_data(session.options.metadata.customer_key_sha256, Some(key))?;
-    }
-    let (start, length, total, status) = match range {
+    Ok((range, length))
+}
+
+fn plan_chunk(
+    headers: &hyper::HeaderMap,
+    range: Option<Range>,
+    length: Option<u64>,
+    session: &SessionPosition,
+    max_bytes: u64,
+) -> Result<ChunkPlan, JsonError> {
+    let (start, length, total, kind) = match range {
         Some(Range::Status(total)) => {
             if length != Some(0) || headers.contains_key("transfer-encoding") {
                 return Err(JsonError::invalid_parameter(
                     "Status requires an empty body",
                 ));
             }
-            (session.offset, 0, total, true)
+            (session.offset, 0, total, ChunkKind::Status)
         }
-        Some(Range::Data { start, end, total }) => (start, end - start + 1, total, false),
+        Some(Range::Data { start, end, total }) => (start, end - start + 1, total, ChunkKind::Data),
         None => {
             if session.offset != 0 && session.state != SessionState::Complete {
                 return Err(JsonError::invalid_parameter(
@@ -216,7 +213,7 @@ pub(super) async fn session_response(
             let length = length.ok_or_else(|| {
                 JsonError::invalid_parameter("Content-Length required without Content-Range")
             })?;
-            (0, length, Some(length), false)
+            (0, length, Some(length), ChunkKind::Data)
         }
     };
     if start > session.offset {
@@ -225,7 +222,7 @@ pub(super) async fn session_response(
     let end = start
         .checked_add(length)
         .ok_or_else(|| JsonError::invalid_parameter("Upload offset overflow"))?;
-    if end > config.max_object_bytes || total.is_some_and(|n| n > config.max_object_bytes) {
+    if end > max_bytes || total.is_some_and(|n| n > max_bytes) {
         return Err(ObjectError::TooLarge.into());
     }
     if total.is_some_and(|n| session.total.is_some_and(|t| n != t) || n < session.offset)
@@ -234,29 +231,68 @@ pub(super) async fn session_response(
         return Err(JsonError::invalid_parameter("Inconsistent upload total"));
     }
     let total = total.or(session.total);
-    let finalize = if status {
-        matches!(range,Some(Range::Status(Some(n))) if n==session.offset)
-    } else {
-        total == Some(end)
+    let finalize = match kind {
+        ChunkKind::Status => matches!(range, Some(Range::Status(Some(n))) if n == session.offset),
+        ChunkKind::Data => total == Some(end),
     };
-    if !status && !finalize && !length.is_multiple_of(256 * 1024) {
+    if kind == ChunkKind::Data && !finalize && !length.is_multiple_of(256 * 1024) {
         return Err(JsonError::invalid_parameter(
             "Nonfinal chunk must be a multiple of 256 KiB",
         ));
     }
+    Ok(ChunkPlan {
+        start,
+        length,
+        end,
+        total,
+        kind,
+        finalize,
+    })
+}
+
+pub(super) async fn session_response(
+    request: Request<Incoming>,
+    bucket: &str,
+    id: &str,
+    ctx: ObjectCtx<'_>,
+) -> Result<Response<ResponseBody>, JsonError> {
+    let ObjectCtx { state, config, .. } = ctx;
+    if request.method() == hyper::Method::DELETE {
+        return json::resumable_cancel::cancel_response(request, bucket, id, &state.catalog)
+            .await
+            .map(boxed);
+    }
+    let headers = request.headers().clone();
+    let (range, length) = chunk_framing(&headers, config.max_object_bytes)?;
+    let mut lease = ctx
+        .await_catalog(state.catalog.lock_resumable_session(id, bucket))
+        .await?;
+    let session = &lease.session;
+    // Chunks may repeat the initiation key (as SDKs do) but never introduce or replace one;
+    // a mismatch rejects only this request and leaves the session usable.
+    if let Some(key) = json::request_key(&headers)? {
+        crate::csek::check_data(session.options.metadata.customer_key_sha256, Some(key))?;
+    }
+    let position = SessionPosition {
+        offset: session.offset,
+        total: session.total,
+        state: session.state,
+    };
+    let plan = plan_chunk(&headers, range, length, &position, config.max_object_bytes)?;
+    let status_only = plan.kind == ChunkKind::Status && !plan.finalize;
     // Validate the override before any bytes can be acknowledged.
     resumable::single(&headers, "x-guploader-no-308")?;
     // PHP repeats whole-object hashes on every data chunk; checkpoint them for completion.
     let options = match resumable::final_options(&headers, session.options.clone()) {
         Ok(options) => options,
         Err(error) => {
-            if finalize && session.state != SessionState::Complete {
+            if plan.finalize && session.state != SessionState::Complete {
                 state.catalog.invalidate_resumable_session(&lease).await?;
             }
             return Err(error);
         }
     };
-    if !finalize
+    if !plan.finalize
         && headers
             .keys()
             .any(|k| k.as_str().starts_with("x-goog-meta-"))
@@ -265,7 +301,7 @@ pub(super) async fn session_response(
             "Final metadata requires a final request",
         ));
     }
-    if (session.state == SessionState::Complete || (status && !finalize))
+    if (session.state == SessionState::Complete || status_only)
         && options.expected != session.options.expected
     {
         return Err(JsonError::invalid_parameter(
@@ -273,93 +309,126 @@ pub(super) async fn session_response(
         ));
     }
     if session.state == SessionState::Complete {
-        return Ok(completed(
-            session.completion.clone().expect("validated completion"),
-        ));
+        // Completing a session stores its response in the same transaction.
+        let completion = session.completion.as_ref().ok_or_else(|| {
+            ObjectError::Unavailable("Completed upload session has no stored response".into())
+        })?;
+        return Ok(completed(completion));
     }
-    if status && !finalize {
+    if status_only {
         json::read_body(request.into_body(), 0).await?;
-        let file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .open(lease.staging_path())
-            .await
-            .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
-        if file
-            .metadata()
-            .await
-            .map_err(|e| ObjectError::Unavailable(e.to_string()))?
-            .len()
-            < session.offset
-        {
-            return Err(
-                ObjectError::Unavailable("Acknowledged upload prefix is missing".into()).into(),
-            );
-        }
-        file.set_len(session.offset)
-            .await
-            .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
         let offset = session.offset;
-        if total != session.total {
-            await_upload_catalog(
+        truncate_staging(&lease.staging_path(), offset).await?;
+        if plan.total != session.total {
+            ctx.await_catalog(
                 state
                     .catalog
-                    .checkpoint_resumable_session(&mut lease, offset, total),
-                std::time::Duration::from_millis(config.catalog_wait_timeout_ms),
-                deadline,
-                activity,
+                    .checkpoint_resumable_session(&mut lease, offset, plan.total),
             )
             .await?;
         }
         return incomplete(offset, &headers);
     }
     let permit = state.catalog.admit_object_upload()?;
-    let offset = session.offset.max(end);
+    let offset = session.offset.max(plan.end);
+    let render = completion_renderer(&session.options, state.api_base_url.clone())?;
     let (catalog_wait, progress) = watch::channel(false);
     let chunk = ResumableChunk {
-        start,
-        length,
-        total,
-        finalize,
+        start: plan.start,
+        length: plan.length,
+        total: plan.total,
+        finalize: plan.finalize,
         options,
         catalog_wait,
     };
     let (sender, body) = mpsc::channel(2);
-    let base = state.api_base_url.clone();
-    let fields = lease
-        .session
-        .options
+    let upload = state
+        .catalog
+        .write_resumable_session(lease, chunk, body, permit, render);
+    let upload = async { upload.await.map_err(JsonError::from) };
+    match stream_chunk(request.into_body(), ctx, upload, sender, progress).await? {
+        Some(value) => Ok(completed(&value)),
+        None => incomplete(offset, &headers),
+    }
+}
+
+/// Drops staged bytes past the acknowledged offset, so the next chunk resumes there.
+async fn truncate_staging(path: &std::path::Path, offset: u64) -> Result<(), JsonError> {
+    let file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .await
+        .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
+    if file
+        .metadata()
+        .await
+        .map_err(|e| ObjectError::Unavailable(e.to_string()))?
+        .len()
+        < offset
+    {
+        return Err(
+            ObjectError::Unavailable("Acknowledged upload prefix is missing".into()).into(),
+        );
+    }
+    file.set_len(offset)
+        .await
+        .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
+    Ok(())
+}
+
+/// Renders the completion response, which the session caches for retries. The uploader
+/// supplied any customer key at initiation, so the response is rendered with that key.
+fn completion_renderer(
+    options: &ResumableOptions,
+    base: String,
+) -> Result<
+    impl FnOnce(&ObjectRecord) -> Result<serde_json::Value, ObjectError> + Send + 'static,
+    JsonError,
+> {
+    let fields = options
         .response_fields
         .as_deref()
         .map(json::Fields::parse_syntax)
         .transpose()?;
-    let projection = if lease.session.options.projection_full {
+    let projection = if options.projection_full {
         json::Projection::Full
     } else {
         json::Projection::NoAcl
     };
-    // The completion response is cached for retries; the uploader supplied the key at initiation.
-    let key = lease
-        .session
-        .options
+    let key = options
         .metadata
         .customer_key_sha256
         .map(crate::csek::CustomerKey::from_sha256);
-    let upload = state
-        .catalog
-        .write_resumable_session(lease, chunk, body, permit, move |record| {
-            let mut value = json::object_resource_keyed(record, &base, projection, key)
-                .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
-            if let Some(fields) = &fields {
-                fields.apply(&mut value);
-            }
-            Ok(value)
-        });
-    let upload = async { upload.await.map_err(JsonError::from) };
+    Ok(move |record: &ObjectRecord| {
+        let mut value = json::object_resource_keyed(record, &base, projection, key)
+            .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
+        if let Some(fields) = &fields {
+            fields.apply(&mut value);
+        }
+        Ok(value)
+    })
+}
+
+/// Streams the chunk body into the session write and returns its completion response, or
+/// `None` while the upload stays incomplete.
+async fn stream_chunk(
+    body: Incoming,
+    ctx: ObjectCtx<'_>,
+    upload: impl std::future::Future<Output = Result<Option<serde_json::Value>, JsonError>>,
+    sender: mpsc::Sender<Result<UploadChunk, std::io::Error>>,
+    progress: watch::Receiver<bool>,
+) -> Result<Option<serde_json::Value>, JsonError> {
+    let ObjectCtx {
+        config,
+        activity,
+        deadline,
+        ..
+    } = ctx;
     tokio::pin!(upload);
-    let timeout = std::time::Duration::from_millis(config.catalog_wait_timeout_ms);
+    let timeout = ctx.catalog_timeout();
     let result = tokio::select! {
         result=&mut upload=>result?,
-        result=stream_upload(request.into_body(),&sender,config.max_object_bytes,activity,None)=>{
+        result=stream_upload(body,&sender,config.max_object_bytes,activity,None)=>{
             if let Err(error)=result {
                 let _=sender.send(Err(std::io::Error::other(error.to_string()))).await;
                 drop(sender);
@@ -369,10 +438,7 @@ pub(super) async fn session_response(
             await_session_upload(async{let _=sender.send(Ok(UploadChunk::End)).await;drop(sender);upload.await},progress,timeout,deadline,activity).await?
         }
     };
-    match result {
-        Some(value) => Ok(completed(value)),
-        None => incomplete(offset, &headers),
-    }
+    Ok(result)
 }
 
 async fn await_session_upload<T>(
