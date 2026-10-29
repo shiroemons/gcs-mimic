@@ -540,7 +540,8 @@ impl Catalog {
                 if validate_session.deadline<=unix_millis(clock.now()).map_err(object_unclassified)? {return Err(ObjectError::DerivedTransferExpired);}
                 let source = check_source(connection,&validate_session,&source_access)?;
                 let same_location: bool = connection.query_row("SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1",params![source.bucket,record.bucket],|row|row.get(0)).map_err(object_unclassified)?;
-                record.component_count = crate::json::derived_component_count(&source,&record.storage_class,same_location);
+                let location = if same_location { crate::json::DestinationLocation::Same } else { crate::json::DestinationLocation::Different };
+                record.component_count = crate::json::derived_component_count(&source,&record.storage_class,location);
                 Ok(())
             },move |connection,record| {
                 let response=json!({"offset":record.size,"resource":render(record)?});

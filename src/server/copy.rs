@@ -143,7 +143,7 @@ pub(super) async fn execute(
                     destination.component_count = json::derived_component_count(
                         &source_record,
                         &destination.storage_class,
-                        source_location.as_deref() == Some(&location),
+                        json::DestinationLocation::of(source_location.as_deref(), &location),
                     );
                 }
                 Ok(())

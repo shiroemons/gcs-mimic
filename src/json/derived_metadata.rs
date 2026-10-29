@@ -3,13 +3,30 @@ use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord};
 
 /// Rewrite preserves composite identity in the same location/class and collapses its component
 /// count to one when either changes; adapters retain the source snapshot for this decision.
+/// Whether a copy's destination bucket shares the source bucket's location.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DestinationLocation {
+    Same,
+    Different,
+}
+
+impl DestinationLocation {
+    pub fn of(source: Option<&str>, destination: &str) -> Self {
+        if source == Some(destination) {
+            Self::Same
+        } else {
+            Self::Different
+        }
+    }
+}
+
 pub fn derived_component_count(
     source: &ObjectRecord,
     destination_class: &str,
-    same_location: bool,
+    location: DestinationLocation,
 ) -> Option<i64> {
     source.component_count.map(|count| {
-        if same_location && destination_class == source.storage_class {
+        if location == DestinationLocation::Same && destination_class == source.storage_class {
             count
         } else {
             1
@@ -126,12 +143,19 @@ mod tests {
         );
         source.component_count = Some(3);
         assert_eq!(
-            derived_component_count(&source, &source.storage_class, true),
+            derived_component_count(&source, &source.storage_class, DestinationLocation::Same),
             Some(3)
         );
-        assert_eq!(derived_component_count(&source, "NEARLINE", true), Some(1));
         assert_eq!(
-            derived_component_count(&source, &source.storage_class, false),
+            derived_component_count(&source, "NEARLINE", DestinationLocation::Same),
+            Some(1)
+        );
+        assert_eq!(
+            derived_component_count(
+                &source,
+                &source.storage_class,
+                DestinationLocation::Different
+            ),
             Some(1)
         );
         assert_eq!(class, Some(source.storage_class.clone()));

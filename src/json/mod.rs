@@ -45,7 +45,7 @@ pub use buckets::{
     validate_bucket_name,
 };
 pub use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
-pub use derived_metadata::{derived_component_count, derived_metadata};
+pub use derived_metadata::{DestinationLocation, derived_component_count, derived_metadata};
 pub use error::JsonError;
 pub use fields::Fields;
 pub(crate) use iam::policy_etag;
