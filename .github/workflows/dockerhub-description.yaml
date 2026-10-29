@@ -1,0 +1,39 @@
+name: Sync Docker Hub overview
+on:
+  push:
+    branches: [main]
+    paths:
+      - distribution/dockerhub-overview.md
+      - scripts/dockerhub-description.sh
+      - .github/workflows/dockerhub-description.yaml
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  sync:
+    # The overview carries no version numbers, so it changes only when its source
+    # does; releases do not need to touch it.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # The overview route is documented as needing a Read, Write & Delete token.
+    # A separate environment keeps that wider scope away from image mirroring.
+    environment: dockerhub-description
+    concurrency:
+      group: dockerhub-description
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Update and verify the overview
+        env:
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
+          HUB_USER: ${{ vars.DOCKERHUB_USERNAME }}
+        run: bash scripts/dockerhub-description.sh distribution/dockerhub-overview.md

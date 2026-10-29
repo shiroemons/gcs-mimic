@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 250 | 0 | 59 | 1 | 0 | 0 |
 | behavior | 201 | 112 | 0 | 51 | 38 | 0 | 0 |
-| project_requirement | 94 | 35 | 0 | 29 | 30 | 0 | 0 |
+| project_requirement | 95 | 35 | 0 | 30 | 30 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 250 | 29 | 31 | 0 | 0 | 0 |
 | behavior | 113 | 53 | 32 | 3 | 0 | 0 |
-| project_requirement | 35 | 0 | 0 | 0 | 0 | 59 |
+| project_requirement | 35 | 0 | 0 | 0 | 0 | 60 |
 
 ## api_operation
 
@@ -839,6 +839,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | DIST-003 | 検証・証跡付きのGHCR複数CPU公開と不変バージョン | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DIST-004 | 検証済みGHCRイメージのDocker Hubへの複製 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DIST-005 | バージョン番号を含まないファイルからのDocker Hub概要の同期 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### Dependency freshness
 

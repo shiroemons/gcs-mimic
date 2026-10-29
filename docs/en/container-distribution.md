@@ -139,6 +139,36 @@ to Docker Hub** manually from `main` with that version. Manual runs from other
 refs are skipped. Docker Hub permits any token holder to move tags; the workflow
 alone enforces exact-version immutability, so keep the token in the environment.
 
+### Docker Hub overview
+
+The Docker Hub repository page shows
+`distribution/dockerhub-overview.md`, not the GitHub README. It names no
+versions and uses only absolute `https://` links, because Docker Hub resolves no
+repository-relative links. It therefore changes only when its text does, and
+releases leave it alone.
+
+When a push to `main` changes that file, its script or its workflow,
+`.github/workflows/dockerhub-description.yaml` runs
+`scripts/dockerhub-description.sh`. The script rejects empty overviews,
+overviews over Docker Hub's 25,000-byte limit and non-absolute links before any
+request. It then exchanges the token for a short-lived access token, replaces
+the repository's full description, and reads the repository anonymously to
+confirm that Docker Hub serves the submitted text. The short description is not
+managed. Docker Hub's published API reference documents no update route for
+repositories; the script uses the route that
+`peter-evans/dockerhub-description` v5.0.0 uses, so the read-back check is what
+establishes success. To resend the overview, run **Sync Docker Hub overview**
+manually from `main`.
+
+One-time setup by the repository owner:
+
+1. Create a separate Docker Hub personal access token with **Read, Write &
+   Delete** access, the scope `peter-evans/dockerhub-description` documents for
+   this route. The mirroring token keeps **Read & Write**.
+2. Create the GitHub environment `dockerhub-description` with the secret
+   `DOCKERHUB_DESCRIPTION_TOKEN` and the variable `DOCKERHUB_USERNAME`. Restrict
+   its deployment refs to the `main` branch.
+
 ## Notices, SBOM and provenance
 
 Images include both project license texts and Cargo/Rust/SQLite/crc32c/GCC

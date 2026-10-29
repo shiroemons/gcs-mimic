@@ -14,7 +14,7 @@
   "counts_by_kind": {
     "api_operation": 310,
     "behavior": 201,
-    "project_requirement": 94
+    "project_requirement": 95
   },
   "api_counts_by_category": {
     "JSON API / anywhereCaches": 7,
@@ -2396,6 +2396,66 @@
       "sdk_evidence": [],
       "known_deviations": [
         "The tag-triggered release path failed for v0.3.0 because the reusable workflow received no secrets; the secrets: inherit fix is unverified until the next tag release. Docker Hub permits a token holder to move tags; immutability is enforced by the workflow."
+      ],
+      "implemented_in": null,
+      "last_verified": "2026-10-29"
+    },
+    {
+      "id": "DIST-005",
+      "kind": "project_requirement",
+      "category": "Container distribution",
+      "title": "Docker Hub overview synced from a version-free repository file",
+      "interface": "Project distribution",
+      "phase": "P0",
+      "priority": "LOW",
+      "status": "PARTIAL",
+      "target_fidelity": "PROJECT",
+      "actual_fidelity": "PROJECT",
+      "source_urls": [
+        "https://docs.docker.com/reference/api/hub/latest/",
+        "https://github.com/peter-evans/dockerhub-description/tree/v5.0.0"
+      ],
+      "source_checked_at": "2026-10-29",
+      "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
+      "notes": "distribution/dockerhub-overview.md is the Docker Hub repository overview. It names no versions and links only to absolute https:// URLs, so releases do not change it. A push to main that changes it, its script or its workflow runs .github/workflows/dockerhub-description.yaml, which exchanges a dedicated token from the dockerhub-description environment for an access token, replaces the full description and confirms the anonymous repository read serves the submitted text. The short description is not managed.",
+      "dependencies": [
+        "DIST-004"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DIST-005-OFFLINE",
+          "description": "Reject empty overviews, overviews over 25,000 bytes and non-https or repository-relative links before any request; fail on authentication errors, empty access tokens, update errors and a served overview that differs from the submitted one; keep the token and access token out of output and command-line arguments; send the overview unchanged as full_description.",
+          "result": "PASS",
+          "test_ids": [
+            "dockerhub-overview-offline"
+          ]
+        },
+        {
+          "id": "DIST-005-PUBLICATION",
+          "description": "Observe an authorized sync run from main update docker.io/shiroemons/gcs-mimic and its anonymous repository read serve distribution/dockerhub-overview.md.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "dockerhub-overview-offline"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/test-dockerhub-description.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/dockerhub.md",
+          "test_ids": [
+            "dockerhub-overview-offline"
+          ]
+        }
+      ],
+      "sdk_evidence": [],
+      "known_deviations": [
+        "No sync has run against Docker Hub. The update route is absent from Docker Hub's published API reference, so the read-back check, not the update response, establishes success."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29"

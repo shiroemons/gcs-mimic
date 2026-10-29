@@ -108,3 +108,27 @@ The tag-triggered path from **Release binaries** through GHCR publication to the
 Docker Hub job has not run; the next version tag exercises it. An identical-input
 rerun against Docker Hub has not run. Docker Hub permits a token holder to move
 tags, so exact-version immutability depends on the workflow and token custody.
+
+## Docker Hub overview sync
+
+Scope: `DIST-005`, on 2026-10-29. Status is PARTIAL: the offline checks pass,
+and no sync has run against Docker Hub.
+
+`bash scripts/test-dockerhub-description.sh`: PASS without Docker Hub requests.
+A mocked `curl` covers:
+
+- an empty overview and one over 25,000 bytes;
+- a repository-relative link, an `http://` link and a relative image;
+- an authentication failure and an empty access token, neither of which sends
+  an update;
+- an update failure, which skips the read-back;
+- a read-back that serves a different overview;
+- a successful sync of `distribution/dockerhub-overview.md` that sends the file
+  unchanged as `full_description`, in the order authenticate, update, read.
+
+No case prints the mocked token or access token or passes either as a `curl`
+argument. Docker Hub's published API reference, checked on 2026-10-29, documents
+`POST /v2/auth/token` and the anonymous repository read but no update route;
+the script uses the `PATCH /v2/repositories/{namespace}/{repository}` route of
+`peter-evans/dockerhub-description` v5.0.0. `actionlint` on the new workflow and
+`shellcheck` on both scripts: PASS.
