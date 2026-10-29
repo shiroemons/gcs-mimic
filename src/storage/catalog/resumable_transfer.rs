@@ -82,6 +82,8 @@ async fn receive_chunk(
                 }
             }
         }
+        // sync_all drops the error of tokio's background tail write; flush reports it.
+        file.flush().await.map_err(unavailable)?;
         file.sync_all().await.map_err(unavailable)
     }
     .await;

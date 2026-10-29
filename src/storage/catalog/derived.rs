@@ -622,6 +622,8 @@ impl Catalog {
                     remaining -= length as u64;
                 }
             }
+            // sync_all drops the error of tokio's background tail write; flush reports it.
+            output.flush().await.map_err(unavailable)?;
             output.sync_all().await.map_err(unavailable)?;
             catalog.run_upload(move |connection| {
                 let (md5_state, crc) = hasher.md5_state();

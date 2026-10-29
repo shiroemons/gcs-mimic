@@ -1325,6 +1325,9 @@ async fn write_body(
     {
         return Err(ObjectError::ChecksumMismatch);
     }
+    // tokio finishes the last write in the background, and sync_all drops its error;
+    // flush reports it, so a failed tail cannot publish a short blob at the full size.
+    file.flush().await.map_err(object_unavailable)?;
     file.sync_all().await.map_err(object_unavailable)?;
     Ok((
         size,
@@ -2195,6 +2198,37 @@ mod tests {
             io::ErrorKind::UnexpectedEof
         );
         drop(reader);
+    }
+
+    #[tokio::test]
+    async fn upload_reports_a_failed_final_write_instead_of_a_short_blob() {
+        struct Blob(PathBuf);
+        impl Drop for Blob {
+            fn drop(&mut self) {
+                fs::remove_file(&self.0).unwrap();
+            }
+        }
+        let blob = Blob(temp_catalog_dir("final-write"));
+        fs::write(&blob.0, b"").unwrap();
+        // tokio completes a write in the background after write_all returns, so a
+        // read-only handle makes exactly that final, unreported write fail.
+        let file = tokio::fs::File::open(&blob.0).await.unwrap();
+        let (sender, body) = mpsc::channel(2);
+        sender
+            .send(Ok(UploadChunk::Data(Bytes::from_static(b"tail"))))
+            .await
+            .unwrap();
+        sender.send(Ok(UploadChunk::End)).await.unwrap();
+        let (_cancel, cancellation) = oneshot::channel();
+        let result = write_body(file, ExpectedHashes::default(), 1024, body, cancellation).await;
+        assert!(
+            matches!(
+                result,
+                Err(ObjectError::Unavailable(_) | ObjectError::Io(_))
+            ),
+            "{result:?}"
+        );
+        assert_eq!(fs::metadata(&blob.0).unwrap().len(), 0);
     }
 
     #[test]
