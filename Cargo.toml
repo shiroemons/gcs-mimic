@@ -39,10 +39,6 @@ license.workspace = true
 [lints]
 workspace = true
 
-[[test]]
-name = "grpc_foundation"
-path = "src/grpc/process_tests.rs"
-
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 rusqlite = { version = "0.41.1", default-features = false, features = ["bundled", "cache"] }

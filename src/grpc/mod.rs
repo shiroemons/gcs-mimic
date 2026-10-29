@@ -235,5 +235,4 @@ async fn serve_with_service<S, F>(
 }
 
 #[cfg(test)]
-#[path = "../../tests/grpc/connection.rs"]
 mod tests;
