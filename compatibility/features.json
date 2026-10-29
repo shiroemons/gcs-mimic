@@ -2417,12 +2417,12 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "distribution/dockerhub-overview.md is the Docker Hub repository overview. It names no versions and links only to absolute https:// URLs, so releases do not change it. A push to main that changes it, its script or its workflow runs .github/workflows/dockerhub-description.yaml, which exchanges a dedicated token from the dockerhub-description environment for an access token, replaces the full description and confirms the anonymous repository read serves the submitted text. The short description is not managed.",
+      "notes": "distribution/dockerhub-overview.md is the Docker Hub repository overview. It names no versions and links only to absolute https:// URLs, so releases do not change it. A push to main that changes it, its script or its workflow runs .github/workflows/dockerhub-description.yaml, which exchanges a dedicated token from the dockerhub-description environment for an access token, replaces the full description and confirms the anonymous repository read serves the submitted text. The short description is not managed. Docker Hub's published API reference documents no repository update route, so the read-back check, not the update response, establishes success. Run 40808482187 performed the first sync.",
       "dependencies": [
         "DIST-004"
       ],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DIST-005-OFFLINE",
@@ -2434,13 +2434,16 @@
         },
         {
           "id": "DIST-005-PUBLICATION",
-          "description": "Observe an authorized sync run from main update docker.io/shiroemons/gcs-mimic and its anonymous repository read serve distribution/dockerhub-overview.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Observe an authorized sync run from main update docker.io/shiroemons/gcs-mimic and its anonymous repository read serve distribution/dockerhub-overview.md. The push of 88ed165 started run 40808482187, which passed its read-back; an independent anonymous read afterwards returned a full_description byte-identical to the 2,370-byte file.",
+          "result": "PASS",
+          "test_ids": [
+            "dockerhub-overview-publication"
+          ]
         }
       ],
       "test_ids": [
-        "dockerhub-overview-offline"
+        "dockerhub-overview-offline",
+        "dockerhub-overview-publication"
       ],
       "verification": [
         {
@@ -2451,11 +2454,20 @@
           "test_ids": [
             "dockerhub-overview-offline"
           ]
+        },
+        {
+          "command": "gh run view 40808482187 (Sync Docker Hub overview, push of 88ed165); curl https://hub.docker.com/v2/namespaces/shiroemons/repositories/gcs-mimic | jq --rawfile e distribution/dockerhub-overview.md '.full_description == $e'",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/evidence/dockerhub.md",
+          "test_ids": [
+            "dockerhub-overview-publication"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No sync has run against Docker Hub. The update route is absent from Docker Hub's published API reference, so the read-back check, not the update response, establishes success."
+        "Every acceptance case passes, but the row stays PARTIAL until its DIST-004 dependency completes."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29"

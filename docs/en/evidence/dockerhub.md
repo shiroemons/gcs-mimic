@@ -111,8 +111,25 @@ tags, so exact-version immutability depends on the workflow and token custody.
 
 ## Docker Hub overview sync
 
-Scope: `DIST-005`, on 2026-10-29. Status is PARTIAL: the offline checks pass,
-and no sync has run against Docker Hub.
+Scope: `DIST-005`, on 2026-10-29. Every acceptance case passes: the offline
+checks and the first authorized sync. Status remains PARTIAL until its
+dependency `DIST-004` completes.
+
+The owner created the `dockerhub-description` environment, restricted to the
+`main` branch, with the `DOCKERHUB_USERNAME` variable and a separate
+`DOCKERHUB_DESCRIPTION_TOKEN` secret, and authorized the push of `88ed165` to
+`main`. That push started
+[run 40808482187](https://github.com/shiroemons/gcs-mimic/actions/runs/40808482187)
+(**Sync Docker Hub overview**), which passed. Its log ends with:
+
+```text
+PASS: docker.io/shiroemons/gcs-mimic overview matches distribution/dockerhub-overview.md (2370 bytes)
+```
+
+An independent anonymous read of
+`https://hub.docker.com/v2/namespaces/shiroemons/repositories/gcs-mimic`
+afterwards returned a `full_description` equal to the file, including its
+trailing newline.
 
 `bash scripts/test-dockerhub-description.sh`: PASS without Docker Hub requests.
 A mocked `curl` covers:
