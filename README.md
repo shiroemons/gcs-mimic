@@ -41,8 +41,19 @@ only, because the default profile accepts unauthenticated requests. Quote URLs
 so that shells such as zsh do not expand `?`. Data stays in the container until
 it is removed; add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep it.
 
-The image is published for `linux/amd64` and `linux/arm64`. Docker Hub serves
-the same digest as `shiroemons/gcs-mimic:0.5.0`. See the
+The image is published for `linux/amd64` and `linux/arm64` on
+[GHCR](https://github.com/shiroemons/gcs-mimic/pkgs/container/gcs-mimic) and
+[Docker Hub](https://hub.docker.com/r/shiroemons/gcs-mimic) with the same
+digest, so either name works in every example. The quick start from Docker Hub:
+
+```sh
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 shiroemons/gcs-mimic:0.5.0
+curl -k 'https://localhost:4443/storage/v1/b?project=local-project'
+```
+
+In Compose, use `image: shiroemons/gcs-mimic:0.5.0`.
+
+See the
 [0.5.0 release notes](docs/en/releases/0.5.0.md), the
 [0.1.0 features and known limitations](docs/en/releases/0.1.0.md), or the
 [source-build guide](docs/en/getting-started.md).
@@ -194,6 +205,26 @@ Seed loading excludes migration of existing backend metadata and history.
 See the [detailed comparison](docs/en/feature-comparison.md) for criteria,
 sources and verification limits, and the generated
 [feature matrix](docs/en/feature-matrix.md) for implementation status.
+
+### SDK scorecard
+
+The [SDK scorecard](sdk-scorecard/README.md) runs the same workflow probes with
+the official Cloud Storage SDKs against each emulator. Passed cases:
+
+| SDK | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
+| --- | --- | --- | --- |
+| Go | 57/57 | 24/57 | 20/57 |
+| Ruby | 51/51 | 24/51 | 22/51 |
+| Node.js | 51/51 | 25/51 | 22/51 |
+| PHP | 51/51 | 25/51 | 20/51 |
+| Python | 51/51 | 19/51 | 24/51 |
+| Score (/100) | 100 | 44.9 | 41.5 |
+
+Recorded on 2026-10-29 at gcs-mimic commit `e7fb384` over shared HTTPS with
+permissive authentication; see the
+[full results](sdk-scorecard/results/2026-10-29-5/summary.md). A passing probe
+shows that an ordinary SDK workflow works; it does not mark the underlying API
+method complete, and cross-SDK weighting is provisional.
 
 ## More information
 

@@ -42,8 +42,18 @@ curl --fail 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=medi
 例ではポートを`127.0.0.1`だけに公開しています。zshなどで`?`が展開されないよう、URLは引用符で囲みます。
 データはコンテナを削除するまで残ります。削除後も残すには`-v gcs-mimic-data:/var/lib/gcs-mimic`を追加します。
 
-イメージは`linux/amd64`と`linux/arm64`向けに公開しています。
-Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.5.0`として取得できます。
+イメージは`linux/amd64`と`linux/arm64`向けに、
+[GHCR](https://github.com/shiroemons/gcs-mimic/pkgs/container/gcs-mimic)と
+[Docker Hub](https://hub.docker.com/r/shiroemons/gcs-mimic)で同じdigestを公開しています。
+どの例でも、どちらの名前を使っても構いません。Docker Hubから起動する場合は次のとおりです。
+
+```sh
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 shiroemons/gcs-mimic:0.5.0
+curl -k 'https://localhost:4443/storage/v1/b?project=local-project'
+```
+
+Composeでは`image: shiroemons/gcs-mimic:0.5.0`を指定します。
+
 [0.5.0のリリースノート（英語）](../en/releases/0.5.0.md)、
 [0.1.0の機能と既知の制限（英語）](../en/releases/0.1.0.md)、
 [ソースからの導入手順（英語）](../en/getting-started.md)も参照してください。
@@ -183,6 +193,25 @@ gRPCの行は通常バケットでの記載範囲で、台帳の個々のRPCは`
 初期ファイルの読み込みは、既存バックエンドのメタデータや履歴の移行を含みません。
 基準・出典・検証の範囲は[機能比較](feature-comparison.md)、
 実装状態は[詳細な機能表](feature-matrix.md)を参照してください。
+
+### SDKスコアカード
+
+[SDKスコアカード（英語）](../../sdk-scorecard/README.md)では、公式のCloud Storage SDKで
+同じ操作のプローブを各エミュレーターに実行します。通過したケース数は次のとおりです。
+
+| SDK | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
+| --- | --- | --- | --- |
+| Go | 57/57 | 24/57 | 20/57 |
+| Ruby | 51/51 | 24/51 | 22/51 |
+| Node.js | 51/51 | 25/51 | 22/51 |
+| PHP | 51/51 | 25/51 | 20/51 |
+| Python | 51/51 | 19/51 | 24/51 |
+| スコア（/100） | 100 | 44.9 | 41.5 |
+
+2026-10-29に、gcs-mimicのコミット`e7fb384`で、共通のHTTPSとpermissive認証を使って記録しました。
+[全結果](../../sdk-scorecard/results/2026-10-29-5/summary.md)を参照してください。
+プローブの通過は通常のSDKの操作が動くことを示すもので、APIメソッドの完成を意味しません。
+SDK間の重み付けも暫定です。
 
 ## 次に読む
 
