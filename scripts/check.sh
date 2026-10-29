@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 cargo fetch --locked
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
+cargo xtask lint
 bash scripts/check-cross.sh
 bash scripts/test-rust.sh
 bash scripts/check-docs.sh

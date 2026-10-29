@@ -61,6 +61,7 @@ cat >"$work/expected" <<'TEXT'
 fetch --locked
 fmt --all --check
 clippy --workspace --all-targets --locked --offline -- -D warnings
+xtask lint
 clippy --workspace --all-targets --locked --offline --target x86_64-pc-windows-msvc -- -D warnings
 clippy --workspace --all-targets --locked --offline --target x86_64-unknown-linux-musl -- -D warnings
 test --workspace --locked --offline --no-run --message-format=json-render-diagnostics
