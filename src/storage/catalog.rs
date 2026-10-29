@@ -482,9 +482,63 @@ struct Resources {
 }
 
 /// Why an operation could not run on the shared catalog connection.
+#[derive(Debug)]
 enum ConnectionUnavailable {
     Closed,
-    Failed(String),
+    /// The operation panicked; its changes were rolled back.
+    Panicked,
+    /// An earlier panic left a transaction that still cannot be rolled back.
+    Unrecovered(RollbackError),
+}
+
+impl std::fmt::Display for ConnectionUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Closed => f.write_str("catalog is closed"),
+            Self::Panicked => {
+                f.write_str("catalog operation panicked; its changes were rolled back")
+            }
+            Self::Unrecovered(error) => write!(f, "catalog connection is unusable: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for ConnectionUnavailable {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Unrecovered(error) => Some(error),
+            Self::Closed | Self::Panicked => None,
+        }
+    }
+}
+
+/// Why a transaction abandoned by a panic could not be confirmed as rolled back.
+#[derive(Debug)]
+enum RollbackError {
+    Rollback(rusqlite::Error),
+    StillOpen,
+    #[cfg(test)]
+    Injected,
+}
+
+impl std::fmt::Display for RollbackError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rollback(error) => write!(f, "transaction could not be rolled back: {error}"),
+            Self::StillOpen => f.write_str("connection is still inside a transaction"),
+            #[cfg(test)]
+            Self::Injected => f.write_str("injected rollback failure"),
+        }
+    }
+}
+
+impl std::error::Error for RollbackError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Rollback(error) => Some(error),
+            _ => None,
+        }
+    }
 }
 
 impl Inner {
@@ -502,7 +556,7 @@ impl Inner {
                 let resources = poisoned.into_inner();
                 if let Some(resources) = resources.as_ref() {
                     self.end_abandoned_transaction(&resources.connection)
-                        .map_err(ConnectionUnavailable::Failed)?;
+                        .map_err(ConnectionUnavailable::Unrecovered)?;
                 }
                 self.resources.clear_poison();
                 resources
@@ -524,39 +578,37 @@ impl Inner {
                     // Unwinding with the guard held poisons the mutex on purpose.
                     std::panic::resume_unwind(payload);
                 }
-                Err(ConnectionUnavailable::Failed(
-                    "catalog operation panicked; its changes were rolled back".into(),
-                ))
+                Err(ConnectionUnavailable::Panicked)
             }
         }
     }
 
     /// rusqlite rolls a `Transaction` back when it drops, including during a
     /// panic, but a raw `BEGIN` or a failed drop-time rollback can leave one open.
-    fn end_abandoned_transaction(&self, connection: &Connection) -> Result<(), String> {
+    fn end_abandoned_transaction(&self, connection: &Connection) -> Result<(), RollbackError> {
         #[cfg(test)]
         if self
             .fail_rollback
             .load(std::sync::atomic::Ordering::Acquire)
         {
-            return Err("injected rollback failure".into());
+            return Err(RollbackError::Injected);
         }
         if !connection.is_autocommit() {
-            connection.execute_batch("ROLLBACK").map_err(|error| {
-                format!("catalog transaction could not be rolled back: {error}")
-            })?;
+            connection
+                .execute_batch("ROLLBACK")
+                .map_err(RollbackError::Rollback)?;
         }
         if connection.is_autocommit() {
             Ok(())
         } else {
-            Err("catalog connection is still inside a transaction".into())
+            Err(RollbackError::StillOpen)
         }
     }
 }
 
 /// A blocking catalog task fails as a whole only by panicking or when the
 /// runtime shuts down; either way the request gets a retryable error.
-fn join_unavailable(error: tokio::task::JoinError) -> CatalogError {
+fn join_unavailable(error: &tokio::task::JoinError) -> CatalogError {
     if error.is_panic() {
         CatalogError::Unavailable("catalog operation panicked".into())
     } else {
@@ -1049,14 +1101,14 @@ impl Catalog {
                 Err(ConnectionUnavailable::Closed) => {
                     Err(CatalogError::Unavailable("catalog is closed".into()))
                 }
-                Err(ConnectionUnavailable::Failed(reason)) => Err(unavailable(reason)),
+                Err(error) => Err(unavailable(error)),
             };
             // Release ownership before Tokio publishes completion to an immediate reopen.
             drop(inner);
             result
         })
         .await
-        .map_err(join_unavailable)?
+        .map_err(|error| join_unavailable(&error))?
     }
 
     pub(crate) async fn insert_bucket(

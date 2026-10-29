@@ -431,9 +431,7 @@ impl Catalog {
             let result = match inner.with_connection(operation) {
                 Ok(result) => result.map_err(AdminError::from),
                 Err(super::ConnectionUnavailable::Closed) => Err(AdminError::Closed),
-                Err(super::ConnectionUnavailable::Failed(reason)) => {
-                    Err(AdminError::Backend(reason))
-                }
+                Err(error) => Err(AdminError::Backend(error.to_string())),
             };
             drop(inner);
             result

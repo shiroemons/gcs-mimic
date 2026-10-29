@@ -412,18 +412,7 @@ pub async fn serve_with_grpc_and_drain(
                         serve_connection(stream, state, config, stopping, saturated).await;
                     }
                 };
-                // Task-locals do not cross spawn, so the test hook is carried into the task.
-                #[cfg(test)]
-                let connection = {
-                    let hook = FORCE_HANDLER_PANIC.try_with(Arc::clone).ok();
-                    async move {
-                        match hook {
-                            Some(hook) => FORCE_HANDLER_PANIC.scope(hook, connection).await,
-                            None => connection.await,
-                        }
-                    }
-                };
-                connections.spawn(connection);
+                connections.spawn(with_test_hooks(connection));
                 full.send_replace(connections.len() >= max_connections);
             }
         }
@@ -436,30 +425,11 @@ pub async fn serve_with_grpc_and_drain(
     state.ready.store(false, Ordering::Release);
     drop(listeners);
     stop.send_replace(true);
-    let drain = async {
-        while let Some(result) = connections.join_next().await {
-            if let Err(error) = result {
-                report_connection_task_failure(&error);
-            }
-        }
-        Ok::<_, io::Error>(())
-    };
-    let drain_result = match tokio::time::timeout(
+    let drain_result = drain_connections(
+        &mut connections,
         Duration::from_millis(config.shutdown_timeout_ms),
-        drain,
     )
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => Err(io::Error::new(
-            io::ErrorKind::TimedOut,
-            "shutdown drain deadline exceeded",
-        )),
-    };
-    if drain_result.is_err() {
-        connections.abort_all();
-        while connections.join_next().await.is_some() {}
-    }
+    .await;
     let background_result = background_drain.await;
     crate::diagnostics::combine_shutdown_results(
         crate::diagnostics::combine_shutdown_results(
@@ -468,6 +438,43 @@ pub async fn serve_with_grpc_and_drain(
         ),
         state.catalog.close().await.map_err(io::Error::other),
     )
+}
+
+/// Task-locals do not cross spawn, so test hooks are carried into the connection task.
+#[cfg(test)]
+fn with_test_hooks(connection: impl Future<Output = ()>) -> impl Future<Output = ()> {
+    let hook = FORCE_HANDLER_PANIC.try_with(Arc::clone).ok();
+    async move {
+        match hook {
+            Some(hook) => FORCE_HANDLER_PANIC.scope(hook, connection).await,
+            None => connection.await,
+        }
+    }
+}
+
+#[cfg(not(test))]
+fn with_test_hooks<F: Future<Output = ()>>(connection: F) -> F {
+    connection
+}
+
+/// Waits for every connection to finish within `deadline`, then aborts the rest.
+/// A panicked connection is reported and does not stop draining the others.
+async fn drain_connections(connections: &mut JoinSet<()>, deadline: Duration) -> io::Result<()> {
+    let drain = async {
+        while let Some(result) = connections.join_next().await {
+            if let Err(error) = result {
+                report_connection_task_failure(&error);
+            }
+        }
+    };
+    let result = tokio::time::timeout(deadline, drain)
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "shutdown drain deadline exceeded"));
+    if result.is_err() {
+        connections.abort_all();
+        while connections.join_next().await.is_some() {}
+    }
+    result
 }
 
 #[cfg(test)]

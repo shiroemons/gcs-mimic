@@ -181,11 +181,15 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
         #[cfg(unix)]
         let unwound = creation.is_err();
         let _creation = creation.unwrap_or_else(std::sync::PoisonError::into_inner);
+        #[cfg(unix)]
+        let blobs = shard
+            .parent()
+            .ok_or_else(|| io::Error::other("blob shard has no parent directory"))?;
         match fs::create_dir(shard) {
             Ok(()) =>
             {
                 #[cfg(unix)]
-                if let Err(error) = sync_dir(shard.parent().expect("blobs directory")) {
+                if let Err(error) = sync_dir(blobs) {
                     fs::remove_dir(shard)?;
                     return Err(error);
                 }
@@ -196,7 +200,7 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
                 }
                 #[cfg(unix)]
                 if unwound {
-                    sync_dir(shard.parent().expect("blobs directory"))?;
+                    sync_dir(blobs)?;
                 }
             }
             Err(error) => return Err(error),
@@ -512,13 +516,11 @@ impl Catalog {
                 Err(super::ConnectionUnavailable::Closed) => {
                     Err(object_unavailable("catalog is closed"))
                 }
-                Err(super::ConnectionUnavailable::Failed(reason)) => {
-                    Err(object_unavailable(reason))
-                }
+                Err(error) => Err(object_unavailable(error)),
             }
         })
         .await
-        .map_err(|error| ObjectError::from(super::join_unavailable(error)))?
+        .map_err(|error| ObjectError::from(super::join_unavailable(&error)))?
     }
 
     pub(super) async fn run_object<T: Send + 'static>(
