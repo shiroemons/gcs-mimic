@@ -168,14 +168,19 @@ pub(super) fn sync_dir(path: &Path) -> io::Result<()> {
     crate::fsutil::sync_dir(path)
 }
 
+static SHARD_CREATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> {
-    static SHARD_CREATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let shard = destination.parent().expect("blob parent");
     {
         // A concurrent publisher must not pass a creator whose parent fsync is unfinished.
-        let _creation = SHARD_CREATION
-            .lock()
-            .map_err(|error| io::Error::other(error.to_string()))?;
+        let creation = SHARD_CREATION.lock();
+        // The lock guards no data, so a creator that unwound must not stop all
+        // later publishing. It may have left a shard whose parent entry was never
+        // synced, so the next publisher syncs the parent before clearing the poison.
+        #[cfg(unix)]
+        let unwound = creation.is_err();
+        let _creation = creation.unwrap_or_else(std::sync::PoisonError::into_inner);
         match fs::create_dir(shard) {
             Ok(()) =>
             {
@@ -189,9 +194,14 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
                 if !fs::symlink_metadata(shard)?.is_dir() {
                     return Err(io::Error::other("blob shard is not a directory"));
                 }
+                #[cfg(unix)]
+                if unwound {
+                    sync_dir(shard.parent().expect("blobs directory"))?;
+                }
             }
             Err(error) => return Err(error),
         }
+        SHARD_CREATION.clear_poison();
     }
     #[cfg(unix)]
     {
@@ -2003,6 +2013,25 @@ mod tests {
         // SAFETY: The caller guarantees a live, aligned AtomicUsize whenever SQLite can call us.
         let counter = unsafe { &*counter.cast::<AtomicUsize>() };
         i32::from(counter.fetch_add(1, Ordering::Relaxed) >= 100)
+    }
+
+    #[test]
+    fn publishing_recovers_after_a_shard_creator_panicked() {
+        let data = crate::test_support::TestDir::new();
+        let _ = std::thread::spawn(|| {
+            let _creation = SHARD_CREATION.lock();
+            panic!("injected shard creation panic");
+        })
+        .join();
+        let blob = crate::storage::blob_id::BlobId::generate().unwrap();
+        let stage = blob.staging_path(&data.0);
+        let published = blob.blob_path(&data.0);
+        fs::create_dir_all(stage.parent().unwrap()).unwrap();
+        fs::create_dir_all(published.parent().unwrap().parent().unwrap()).unwrap();
+        fs::write(&stage, b"bytes").unwrap();
+        publish_blob(&stage, &published).unwrap();
+        assert_eq!(fs::read(&published).unwrap(), b"bytes");
+        assert!(!SHARD_CREATION.is_poisoned());
     }
 
     #[test]
