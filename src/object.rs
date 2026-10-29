@@ -2,7 +2,6 @@
 
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 
-#[path = "object_retention.rs"]
 pub mod retention;
 
 /// Only a transport-confirmed EOF permits publication; a dropped producer is an abort.

@@ -6,10 +6,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-#[path = "bucket_lifecycle.rs"]
 pub mod lifecycle;
 
-#[path = "bucket_autoclass.rs"]
 pub mod autoclass;
 
 pub(crate) const UNIFORM_ACCESS_LOCK_PERIOD: Duration = Duration::from_secs(90 * 24 * 60 * 60);

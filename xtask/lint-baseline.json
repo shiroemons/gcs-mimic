@@ -46,7 +46,7 @@
       "src/json/objects.rs": 1,
       "src/json/projects.rs": 1,
       "src/match_glob.rs": 1,
-      "src/object_retention.rs": 2,
+      "src/object/retention.rs": 2,
       "src/server.rs": 1,
       "src/server/acl.rs": 1,
       "src/server/retention_access.rs": 1,
@@ -74,8 +74,8 @@
     },
     "clippy::too_many_lines": {
       "src/auth/mod.rs": 1,
+      "src/bucket/lifecycle.rs": 1,
       "src/bucket_init.rs": 2,
-      "src/bucket_lifecycle.rs": 1,
       "src/config.rs": 1,
       "src/grpc/v1/upload.rs": 1,
       "src/grpc/v2/buckets.rs": 1,
@@ -117,8 +117,6 @@
       "src/storage/catalog/sync_state/writeback/live_export.rs": 1
     },
     "text::path_attribute": {
-      "src/bucket.rs": 2,
-      "src/object.rs": 1,
       "src/server.rs": 6
     },
     "text::string_error_result": {
