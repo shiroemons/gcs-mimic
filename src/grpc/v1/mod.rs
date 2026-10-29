@@ -4,7 +4,11 @@ mod convert;
 mod tests;
 mod upload;
 
-#[allow(clippy::all, rustdoc::broken_intra_doc_links)]
+#[allow(
+    clippy::all,
+    rustdoc::broken_intra_doc_links,
+    reason = "generated upstream code keeps its own style and documentation links"
+)]
 pub mod pb {
     include!("../generated/google.storage.v1.rs");
 }
@@ -139,7 +143,25 @@ fn limit(value: i32) -> Result<usize, Status> {
     })
 }
 
-fn metadata(mut object: pb::Object, replace: bool) -> Result<ObjectMetadataUpdate, Status> {
+/// Whether supplied object metadata replaces every writable field or only the supplied ones.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MetadataWrite {
+    Replace,
+    Merge,
+}
+
+/// One UpdateObject or PatchObject request after common parameter validation.
+struct ObjectUpdate<'a> {
+    bucket: &'a str,
+    name: &'a str,
+    selected: i64,
+    conditions: ObjectConditions,
+    object: pb::Object,
+    write: MetadataWrite,
+}
+
+fn metadata(mut object: pb::Object, write: MetadataWrite) -> Result<ObjectMetadataUpdate, Status> {
+    let replace = write == MetadataWrite::Replace;
     if object.encoded_len() > 8192 {
         return Err(Status::resource_exhausted(
             "Object metadata exceeds 8 KiB; reduce metadata",
@@ -236,17 +258,19 @@ impl Storage {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn update(
         &self,
         caller: Option<Caller<'_>>,
-        bucket: &str,
-        name: &str,
-        selected: i64,
-        conditions: ObjectConditions,
-        mut object: pb::Object,
-        replace: bool,
+        update: ObjectUpdate<'_>,
     ) -> Result<Response<pb::Object>, Status> {
+        let ObjectUpdate {
+            bucket,
+            name,
+            selected,
+            conditions,
+            mut object,
+            write,
+        } = update;
         json::validate_object_name(name).map_err(from_json)?;
         let access = self
             .access(caller, bucket, "storage.objects.update")
@@ -260,7 +284,7 @@ impl Storage {
         }
         let mut supplied = object.clone();
         convert::object_outputs(&mut object, None).map_err(object_error)?;
-        let update = metadata(object, replace)?;
+        let update = metadata(object, write)?;
         let record = self
             .state
             .catalog
@@ -595,21 +619,20 @@ impl pb::storage_server::Storage for Storage {
         if r.predefined_acl != 0 {
             return Err(unsupported("legacy predefined ACL; omit predefined_acl"));
         }
-        self.update(
-            caller,
-            &r.bucket,
-            &r.object,
-            r.generation,
-            conditions(
+        let update = ObjectUpdate {
+            bucket: &r.bucket,
+            name: &r.object,
+            selected: r.generation,
+            conditions: conditions(
                 r.if_generation_match,
                 r.if_generation_not_match,
                 r.if_metageneration_match,
                 r.if_metageneration_not_match,
             )?,
-            r.metadata.unwrap_or_default(),
-            true,
-        )
-        .await
+            object: r.metadata.unwrap_or_default(),
+            write: MetadataWrite::Replace,
+        };
+        self.update(caller, update).await
     }
 
     async fn patch_object(
@@ -628,21 +651,20 @@ impl pb::storage_server::Storage for Storage {
                 "legacy PatchObject predefined ACL or update_mask; omit them for the reference merge profile",
             ));
         }
-        self.update(
-            caller,
-            &r.bucket,
-            &r.object,
-            r.generation,
-            conditions(
+        let update = ObjectUpdate {
+            bucket: &r.bucket,
+            name: &r.object,
+            selected: r.generation,
+            conditions: conditions(
                 r.if_generation_match,
                 r.if_generation_not_match,
                 r.if_metageneration_match,
                 r.if_metageneration_not_match,
             )?,
-            r.metadata.unwrap_or_default(),
-            false,
-        )
-        .await
+            object: r.metadata.unwrap_or_default(),
+            write: MetadataWrite::Merge,
+        };
+        self.update(caller, update).await
     }
 
     async fn list_objects(
@@ -712,7 +734,7 @@ impl pb::storage_server::Storage for Storage {
             ));
         }
         let content_type = object.content_type.clone();
-        let metadata = metadata(object, true)?;
+        let metadata = metadata(object, MetadataWrite::Replace)?;
         let sources = r
             .source_objects
             .into_iter()

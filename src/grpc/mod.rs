@@ -3,7 +3,11 @@ pub mod v1;
 pub mod v2;
 
 // Generated upstream code retains its own field names and documentation.
-#[allow(clippy::all, rustdoc::broken_intra_doc_links)]
+#[allow(
+    clippy::all,
+    rustdoc::broken_intra_doc_links,
+    reason = "generated upstream code keeps its own style and documentation links"
+)]
 pub mod generated {
     include!("generated/mod.rs");
 }

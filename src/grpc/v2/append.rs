@@ -30,10 +30,26 @@ pub(super) fn is_append(first: &pb::BidiWriteObjectRequest) -> bool {
     }
 }
 
+/// Whether a readable generation is a finalized object or a Rapid appendable one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Finality {
+    Finalized,
+    Unfinalized,
+}
+
+/// What a BidiWriteObject acknowledgement reports in its write status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Acknowledgement {
+    Resource,
+    PersistedSize,
+}
+
 /// Unfinalized generations have no MD5 and no finalize time.
-pub(super) fn object(record: &ObjectRecord, unfinalized: bool) -> Result<pb::Object, Status> {
+pub(super) fn object(record: &ObjectRecord, finality: Finality) -> Result<pb::Object, Status> {
     let mut object = convert::object(record)?;
-    if unfinalized && let Some(checksums) = object.checksums.as_mut() {
+    if finality == Finality::Unfinalized
+        && let Some(checksums) = object.checksums.as_mut()
+    {
         checksums.md5_hash.clear();
     }
     Ok(object)
@@ -60,15 +76,16 @@ fn append_status(error: AppendError, caller: Option<Caller<'_>>) -> Status {
 
 fn status_response(
     writer: &AppendWriter,
-    resource: bool,
+    acknowledgement: Acknowledgement,
 ) -> Result<pb::BidiWriteObjectResponse, Status> {
     use pb::bidi_write_object_response::WriteStatus;
     let record = writer.record();
+    let resource = acknowledgement == Acknowledgement::Resource;
     Ok(pb::BidiWriteObjectResponse {
         // The first acknowledgement of a new object carries its generation, which the client
         // needs for AppendObjectSpec on reconnect.
         write_status: Some(if resource {
-            WriteStatus::Resource(object(record, true)?)
+            WriteStatus::Resource(object(record, Finality::Unfinalized)?)
         } else {
             WriteStatus::PersistedSize(writer.persisted_size() as i64)
         }),
@@ -172,7 +189,11 @@ impl Storage {
     {
         common(message.common_object_request_params.as_ref())?;
         let (mut writer, access, takeover) = self.open_writer(&mut message, caller).await?;
-        let mut resource_pending = !takeover;
+        let mut acknowledgement = if takeover {
+            Acknowledgement::PersistedSize
+        } else {
+            Acknowledgement::Resource
+        };
         let mut first = true;
         loop {
             common(message.common_object_request_params.as_ref())?;
@@ -237,8 +258,8 @@ impl Storage {
                 writer.flush().await.map_err(|e| append_status(e, caller))?;
             }
             if message.flush || message.state_lookup || (first && takeover) {
-                send(tx, status_response(&writer, resource_pending)?).await?;
-                resource_pending = false;
+                send(tx, status_response(&writer, acknowledgement)?).await?;
+                acknowledgement = Acknowledgement::PersistedSize;
             }
             first = false;
             match stream.next().await.transpose()? {
@@ -247,14 +268,14 @@ impl Storage {
                     // Closing the stream without finish_write leaves the object appendable; the
                     // service still reports the persisted size for a clean close.
                     writer.flush().await.map_err(|e| append_status(e, caller))?;
-                    return send(tx, status_response(&writer, resource_pending)?).await;
+                    return send(tx, status_response(&writer, acknowledgement)?).await;
                 }
             }
         }
     }
 
     /// Finalized objects come from the catalog; an absent name falls back to an unfinalized
-    /// appendable generation. The flag reports which one was selected.
+    /// appendable generation. The finality reports which one was selected.
     pub(super) async fn open_readable(
         &self,
         bucket: &str,
@@ -262,7 +283,7 @@ impl Storage {
         generation: Option<i64>,
         conditions: ObjectConditions,
         access: &BucketAccess,
-    ) -> Result<(ObjectRecord, ObjectReader, bool), ObjectError> {
+    ) -> Result<(ObjectRecord, ObjectReader, Finality), ObjectError> {
         let catalog = &self.state.catalog;
         match catalog
             .open_object_authorized(bucket, name, generation, conditions, access)
@@ -271,8 +292,8 @@ impl Storage {
             Err(ObjectError::ObjectNotFound) => catalog
                 .open_appendable(bucket, name, generation, conditions, access)
                 .await
-                .map(|(record, reader)| (record, reader, true)),
-            other => other.map(|(record, reader)| (record, reader, false)),
+                .map(|(record, reader)| (record, reader, Finality::Unfinalized)),
+            other => other.map(|(record, reader)| (record, reader, Finality::Finalized)),
         }
     }
 
@@ -285,7 +306,7 @@ impl Storage {
         generation: Option<i64>,
         conditions: ObjectConditions,
         access: &BucketAccess,
-    ) -> Result<(ObjectRecord, bool), ObjectError> {
+    ) -> Result<(ObjectRecord, Finality), ObjectError> {
         let catalog = &self.state.catalog;
         match catalog
             .get_object_authorized(bucket, name, generation, conditions, access)
@@ -294,8 +315,8 @@ impl Storage {
             Err(ObjectError::ObjectNotFound) => catalog
                 .open_appendable(bucket, name, generation, conditions, access)
                 .await
-                .map(|(record, _)| (record, true)),
-            other => other.map(|record| (record, false)),
+                .map(|(record, _)| (record, Finality::Unfinalized)),
+            other => other.map(|record| (record, Finality::Finalized)),
         }
     }
 

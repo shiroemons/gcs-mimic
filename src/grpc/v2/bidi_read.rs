@@ -1,5 +1,7 @@
 use super::{
-    ResponseStream, Storage, names, pb,
+    ResponseStream, Storage,
+    append::Finality,
+    names, pb,
     status::{self, unsupported},
 };
 use crate::{
@@ -25,7 +27,7 @@ struct Selected {
     record: ObjectRecord,
     reader: Mutex<ObjectReader>,
     /// An appendable generation snapshot: reads stop at the size persisted when it was opened.
-    unfinalized: bool,
+    finality: Finality,
 }
 
 struct Handle {
@@ -60,7 +62,10 @@ fn error(error: impl Into<JsonError>, caller: Option<Caller<'_>>) -> Status {
     status::from_json(anonymous_error(error.into(), caller))
 }
 
-#[allow(deprecated)]
+#[expect(
+    deprecated,
+    reason = "the deprecated read_mask field must still be rejected when a client sets it"
+)]
 fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<(), Status> {
     if spec.generation < 0
         || [
@@ -166,7 +171,7 @@ impl Storage {
                 if_metageneration_match: spec.if_metageneration_match,
                 if_metageneration_not_match: spec.if_metageneration_not_match,
             };
-            let (record, reader, unfinalized) = self
+            let (record, reader, finality) = self
                 .open_readable(
                     bucket,
                     object,
@@ -179,7 +184,7 @@ impl Storage {
             let selected = Arc::new(Selected {
                 record,
                 reader: Mutex::new(reader),
-                unfinalized,
+                finality,
             });
             let mut token = vec![0; 32];
             getrandom::fill(&mut token)
@@ -203,10 +208,7 @@ impl Storage {
             metadata: if resumed {
                 None
             } else {
-                Some(super::append::object(
-                    &selected.record,
-                    selected.unfinalized,
-                )?)
+                Some(super::append::object(&selected.record, selected.finality)?)
             },
             read_handle: Some(pb::BidiReadHandle { handle: token }),
             ..Default::default()

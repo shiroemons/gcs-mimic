@@ -109,27 +109,15 @@ fn bucket_mask(
     Ok(selected)
 }
 
-fn create_metadata(
-    bucket: &pb::Bucket,
-    name: &str,
-    project: &str,
-    state: &crate::server::State,
-) -> Result<crate::bucket::BucketRecord, Status> {
-    let mut remaining = bucket.clone();
-    let mut body = json!({"name": name, "defaultEventBasedHold": bucket.default_event_based_hold});
-    for (field, value) in [
-        ("location", &bucket.location),
-        ("storageClass", &bucket.storage_class),
-    ] {
-        if !value.is_empty() {
-            body[field] = json!(value);
-        }
+/// Clears a message field that a client sent empty, which carries no supported setting.
+fn clear_default<T: Default + PartialEq>(field: &mut Option<T>) {
+    if field.as_ref().is_some_and(|v| v == &T::default()) {
+        *field = None;
     }
-    body["labels"] = json!(bucket.labels);
-    body["cors"] = json!(bucket.cors.iter().map(|cors| json!({"origin": cors.origin, "method": cors.method, "responseHeader": cors.response_header, "maxAgeSeconds": cors.max_age_seconds})).collect::<Vec<_>>());
-    if let Some(versioning) = &bucket.versioning {
-        body["versioning"] = json!({"enabled": versioning.enabled});
-    }
+}
+
+/// Adds the retention, soft-delete and IAM settings of a CreateBucket request to `body`.
+fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<(), Status> {
     for (field, policy) in [
         (
             "retentionPolicy",
@@ -182,6 +170,31 @@ fn create_metadata(
                 json!({"enabled": uniform.enabled});
         }
     }
+    Ok(())
+}
+
+fn create_metadata(
+    bucket: &pb::Bucket,
+    name: &str,
+    project: &str,
+    state: &crate::server::State,
+) -> Result<crate::bucket::BucketRecord, Status> {
+    let mut remaining = bucket.clone();
+    let mut body = json!({"name": name, "defaultEventBasedHold": bucket.default_event_based_hold});
+    for (field, value) in [
+        ("location", &bucket.location),
+        ("storageClass", &bucket.storage_class),
+    ] {
+        if !value.is_empty() {
+            body[field] = json!(value);
+        }
+    }
+    body["labels"] = json!(bucket.labels);
+    body["cors"] = json!(bucket.cors.iter().map(|cors| json!({"origin": cors.origin, "method": cors.method, "responseHeader": cors.response_header, "maxAgeSeconds": cors.max_age_seconds})).collect::<Vec<_>>());
+    if let Some(versioning) = &bucket.versioning {
+        body["versioning"] = json!({"enabled": versioning.enabled});
+    }
+    create_policies(bucket, &mut body)?;
     remaining.project.clear();
     remaining.location.clear();
     remaining.storage_class.clear();
@@ -207,62 +220,14 @@ fn create_metadata(
             body["autoclass"]["terminalStorageClass"] = class.into();
         }
     }
-    if remaining
-        .billing
-        .as_ref()
-        .is_some_and(|v| v == &Default::default())
-    {
-        remaining.billing = None;
-    }
-    if remaining
-        .hierarchical_namespace
-        .as_ref()
-        .is_some_and(|v| v == &Default::default())
-    {
-        remaining.hierarchical_namespace = None;
-    }
-    if remaining
-        .custom_placement_config
-        .as_ref()
-        .is_some_and(|v| v == &Default::default())
-    {
-        remaining.custom_placement_config = None;
-    }
-    if remaining
-        .object_retention
-        .as_ref()
-        .is_some_and(|v| v == &Default::default())
-    {
-        remaining.object_retention = None;
-    }
-    if remaining
-        .lifecycle
-        .as_ref()
-        .is_some_and(|v| v == &Default::default())
-    {
-        remaining.lifecycle = None;
-    }
-    if remaining
-        .encryption
-        .as_ref()
-        .is_some_and(|v| v == &Default::default())
-    {
-        remaining.encryption = None;
-    }
-    if remaining
-        .logging
-        .as_ref()
-        .is_some_and(|v| v == &Default::default())
-    {
-        remaining.logging = None;
-    }
-    if remaining
-        .ip_filter
-        .as_ref()
-        .is_some_and(|v| v == &Default::default())
-    {
-        remaining.ip_filter = None;
-    }
+    clear_default(&mut remaining.billing);
+    clear_default(&mut remaining.hierarchical_namespace);
+    clear_default(&mut remaining.custom_placement_config);
+    clear_default(&mut remaining.object_retention);
+    clear_default(&mut remaining.lifecycle);
+    clear_default(&mut remaining.encryption);
+    clear_default(&mut remaining.logging);
+    clear_default(&mut remaining.ip_filter);
     if remaining != pb::Bucket::default() {
         return Err(super::status::unsupported(
             "CreateBucket fields outside the supported metadata subset",
@@ -429,15 +394,12 @@ impl Storage {
             .list_buckets_page(project, Some(&request.prefix), start.as_deref(), limit)
             .await
             .map_err(|error| catalog_error(error, caller))?;
-        let next_page_token = if page.has_more {
-            json::encode_page_token(
-                project,
-                &request.prefix,
-                &page.items.last().expect("nonempty continuation page").name,
-            )
-            .map_err(json_error)?
-        } else {
-            String::new()
+        // A continuation page is never empty, so its last bucket always names the next start.
+        let next_page_token = match page.items.last() {
+            Some(last) if page.has_more => {
+                json::encode_page_token(project, &request.prefix, &last.name).map_err(json_error)?
+            }
+            _ => String::new(),
         };
         let buckets = page
             .items

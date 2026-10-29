@@ -1,5 +1,6 @@
 use super::{
-    Storage, common, conditions, convert, metadata, object_error, pb, projection, unsupported,
+    MetadataWrite, Storage, common, conditions, convert, metadata, object_error, pb, projection,
+    unsupported,
 };
 use crate::{
     auth::Caller,
@@ -73,7 +74,7 @@ impl Storage {
         let name = object.name.clone();
         let content_type = object.content_type.clone();
         crate::json::validate_object_name(&name).map_err(super::from_json)?;
-        let metadata = metadata(object, false)?;
+        let metadata = metadata(object, MetadataWrite::Merge)?;
         let conditions = conditions(
             spec.if_generation_match,
             spec.if_generation_not_match,
@@ -102,102 +103,108 @@ impl Storage {
             metadata,
             access,
         );
-        let receive = async {
-            let mut next = Some(first);
-            let mut offset = 0_u64;
-            let mut finished = false;
-            let mut expected = ExpectedHashes::default();
-            let mut hasher = Hasher::default();
-            while let Some(message) = next {
-                if finished {
-                    return Err(Status::invalid_argument(
-                        "Messages after finish_write are invalid; close the send stream",
-                    ));
-                }
-                common(
-                    message.common_request_params.as_ref(),
-                    message.common_object_request_params.as_ref(),
-                )?;
-                if message.first_message.is_some() {
-                    return Err(Status::invalid_argument(
-                        "insert_object_spec is only allowed in the first message",
-                    ));
-                }
-                if message.write_offset < 0 || message.write_offset as u64 != offset {
-                    return Err(Status::invalid_argument(
-                        "write_offset must equal bytes already sent",
-                    ));
-                }
-                if message.object_checksums.is_some() && offset != 0 && !message.finish_write {
-                    return Err(Status::invalid_argument(
-                        "object_checksums belong in the first or final message",
-                    ));
-                }
-                let hashes = checksums(message.object_checksums)?;
-                if matches!((expected.md5,hashes.md5),(Some(a),Some(b)) if a!=b)
-                    || matches!((expected.crc32c,hashes.crc32c),(Some(a),Some(b)) if a!=b)
-                {
-                    return Err(Status::invalid_argument("Conflicting object checksums"));
-                }
-                expected.md5 = hashes.md5.or(expected.md5);
-                expected.crc32c = hashes.crc32c.or(expected.crc32c);
-                if let Some(data) = message.data {
-                    let data = match data {
-                        pb::insert_object_request::Data::ChecksummedData(data) => data,
-                        _ => {
-                            return Err(unsupported(
-                                "legacy reference upload data; send checksummed_data",
-                            ));
-                        }
-                    };
-                    if data
-                        .crc32c
-                        .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
-                    {
-                        return Err(Status::invalid_argument(
-                            "Chunk CRC32C mismatch; recompute checksummed_data.crc32c",
-                        ));
-                    }
-                    offset = offset
-                        .checked_add(data.content.len() as u64)
-                        .filter(|v| *v <= self.max_object_bytes)
-                        .ok_or_else(|| {
-                            Status::resource_exhausted(
-                                "Upload exceeds max_object_bytes; reduce the body",
-                            )
-                        })?;
-                    hasher.update(&data.content);
-                    for part in crate::grpc::upload_chunks(&data.content) {
-                        sender
-                            .send(Ok(UploadChunk::Data(part)))
-                            .await
-                            .map_err(|_| Status::cancelled("Upload staging stopped"))?;
-                    }
-                }
-                finished = message.finish_write;
-                next = stream.message().await?;
-            }
-            if !finished {
-                return Err(Status::invalid_argument(
-                    "Final message requires finish_write=true; resend the complete object",
-                ));
-            }
-            let actual = hasher.finish();
-            if expected.md5.is_some_and(|v| v != actual.md5)
-                || expected.crc32c.is_some_and(|v| v != actual.crc32c)
-            {
-                return Err(Status::invalid_argument(
-                    "Object checksum mismatch; recompute object_checksums",
-                ));
-            }
-            sender
-                .send(Ok(UploadChunk::EndWithHashes(expected)))
-                .await
-                .map_err(|_| Status::cancelled("Upload staging stopped"))?;
-            drop(sender);
-            Ok::<_, Status>(())
-        };
+        let receive = receive_upload(first, stream, sender, self.max_object_bytes);
         let result = tokio::try_join!(async { write.await.map_err(object_error) }, receive)?;
         convert::object(&result.0)
     }
+}
+
+/// Streams InsertObject messages into the staging channel, validating offsets and checksums.
+async fn receive_upload(
+    first: pb::InsertObjectRequest,
+    mut stream: Streaming<pb::InsertObjectRequest>,
+    sender: mpsc::Sender<Result<UploadChunk, std::io::Error>>,
+    max_object_bytes: u64,
+) -> Result<(), Status> {
+    let mut next = Some(first);
+    let mut offset = 0_u64;
+    let mut finished = false;
+    let mut expected = ExpectedHashes::default();
+    let mut hasher = Hasher::default();
+    while let Some(message) = next {
+        if finished {
+            return Err(Status::invalid_argument(
+                "Messages after finish_write are invalid; close the send stream",
+            ));
+        }
+        common(
+            message.common_request_params.as_ref(),
+            message.common_object_request_params.as_ref(),
+        )?;
+        if message.first_message.is_some() {
+            return Err(Status::invalid_argument(
+                "insert_object_spec is only allowed in the first message",
+            ));
+        }
+        if message.write_offset < 0 || message.write_offset as u64 != offset {
+            return Err(Status::invalid_argument(
+                "write_offset must equal bytes already sent",
+            ));
+        }
+        if message.object_checksums.is_some() && offset != 0 && !message.finish_write {
+            return Err(Status::invalid_argument(
+                "object_checksums belong in the first or final message",
+            ));
+        }
+        let hashes = checksums(message.object_checksums)?;
+        if matches!((expected.md5,hashes.md5),(Some(a),Some(b)) if a!=b)
+            || matches!((expected.crc32c,hashes.crc32c),(Some(a),Some(b)) if a!=b)
+        {
+            return Err(Status::invalid_argument("Conflicting object checksums"));
+        }
+        expected.md5 = hashes.md5.or(expected.md5);
+        expected.crc32c = hashes.crc32c.or(expected.crc32c);
+        if let Some(data) = message.data {
+            let data = match data {
+                pb::insert_object_request::Data::ChecksummedData(data) => data,
+                _ => {
+                    return Err(unsupported(
+                        "legacy reference upload data; send checksummed_data",
+                    ));
+                }
+            };
+            if data
+                .crc32c
+                .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
+            {
+                return Err(Status::invalid_argument(
+                    "Chunk CRC32C mismatch; recompute checksummed_data.crc32c",
+                ));
+            }
+            offset = offset
+                .checked_add(data.content.len() as u64)
+                .filter(|v| *v <= max_object_bytes)
+                .ok_or_else(|| {
+                    Status::resource_exhausted("Upload exceeds max_object_bytes; reduce the body")
+                })?;
+            hasher.update(&data.content);
+            for part in crate::grpc::upload_chunks(&data.content) {
+                sender
+                    .send(Ok(UploadChunk::Data(part)))
+                    .await
+                    .map_err(|_| Status::cancelled("Upload staging stopped"))?;
+            }
+        }
+        finished = message.finish_write;
+        next = stream.message().await?;
+    }
+    if !finished {
+        return Err(Status::invalid_argument(
+            "Final message requires finish_write=true; resend the complete object",
+        ));
+    }
+    let actual = hasher.finish();
+    if expected.md5.is_some_and(|v| v != actual.md5)
+        || expected.crc32c.is_some_and(|v| v != actual.crc32c)
+    {
+        return Err(Status::invalid_argument(
+            "Object checksum mismatch; recompute object_checksums",
+        ));
+    }
+    sender
+        .send(Ok(UploadChunk::EndWithHashes(expected)))
+        .await
+        .map_err(|_| Status::cancelled("Upload staging stopped"))?;
+    drop(sender);
+    Ok::<_, Status>(())
 }

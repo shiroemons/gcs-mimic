@@ -6,7 +6,7 @@ use crate::{
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError},
     server::authorize_bucket,
     storage::{
-        DerivedDestination,
+        DerivedDestination, DerivedRequestGuard,
         rewrite::{RewriteBinding, RewriteError, RewriteStart},
     },
 };
@@ -324,100 +324,82 @@ fn rewrite_error(e: RewriteError) -> Status {
     }
 }
 
-impl Storage {
-    pub(super) async fn rewrite_object(
-        &self,
-        request: Request<pb::RewriteObjectRequest>,
-        caller: Option<Caller<'_>>,
-    ) -> Result<Response<pb::RewriteResponse>, Status> {
-        let r = request.into_inner();
-        common(&r.common_object_request_params)?;
-        if !r.destination_kms_key.is_empty()
-            || !r.destination_predefined_acl.is_empty()
-            || !r.copy_source_encryption_algorithm.is_empty()
-            || !r.copy_source_encryption_key_bytes.is_empty()
-            || !r.copy_source_encryption_key_sha256_bytes.is_empty()
-            || r.object_checksums
-                .as_ref()
-                .is_some_and(|c| c.crc32c.is_some() || !c.md5_hash.is_empty())
-        {
-            return Err(unsupported(
-                "RewriteObject encryption/ACL/checksums; omit these options",
-            ));
-        }
-        if r.source_generation < 0
-            || r.max_bytes_rewritten_per_call < 0
-            || r.max_bytes_rewritten_per_call % 1_048_576 != 0
-        {
-            return Err(Status::invalid_argument(
-                "source_generation must be positive or omitted; max_bytes_rewritten_per_call must be a multiple of 1048576",
-            ));
-        }
-        let sc = conditions(
-            r.if_source_generation_match,
-            r.if_source_generation_not_match,
-            r.if_source_metageneration_match,
-            r.if_source_metageneration_not_match,
-        )?;
-        let dc = conditions(
-            r.if_generation_match,
-            r.if_generation_not_match,
-            r.if_metageneration_match,
-            r.if_metageneration_not_match,
-        )?;
-        let body = r.destination.as_ref().map(derived_fields).transpose()?;
-        if r.destination
+fn check_rewrite_request(r: &pb::RewriteObjectRequest) -> Result<(), Status> {
+    common(&r.common_object_request_params)?;
+    if !r.destination_kms_key.is_empty()
+        || !r.destination_predefined_acl.is_empty()
+        || !r.copy_source_encryption_algorithm.is_empty()
+        || !r.copy_source_encryption_key_bytes.is_empty()
+        || !r.copy_source_encryption_key_sha256_bytes.is_empty()
+        || r.object_checksums
             .as_ref()
-            .is_some_and(|o| !o.name.is_empty() || !o.bucket.is_empty())
-        {
-            return Err(Status::invalid_argument(
-                "Rewrite destination metadata must omit name and bucket; use destination_name and destination_bucket",
-            ));
+            .is_some_and(|c| c.crc32c.is_some() || !c.md5_hash.is_empty())
+    {
+        return Err(unsupported(
+            "RewriteObject encryption/ACL/checksums; omit these options",
+        ));
+    }
+    if r.source_generation < 0
+        || r.max_bytes_rewritten_per_call < 0
+        || r.max_bytes_rewritten_per_call % 1_048_576 != 0
+    {
+        return Err(Status::invalid_argument(
+            "source_generation must be positive or omitted; max_bytes_rewritten_per_call must be a multiple of 1048576",
+        ));
+    }
+    Ok(())
+}
+
+/// The request parameters a rewrite token binds, in their JSON API names.
+fn rewrite_parameters(r: &pb::RewriteObjectRequest) -> Map<String, Value> {
+    let mut parameters = Map::new();
+    for (key, v) in [
+        (
+            "sourceGeneration",
+            (r.source_generation != 0).then_some(r.source_generation),
+        ),
+        (
+            "maxBytesRewrittenPerCall",
+            (r.max_bytes_rewritten_per_call != 0).then_some(r.max_bytes_rewritten_per_call),
+        ),
+        ("ifGenerationMatch", r.if_generation_match),
+        ("ifGenerationNotMatch", r.if_generation_not_match),
+        ("ifMetagenerationMatch", r.if_metageneration_match),
+        ("ifMetagenerationNotMatch", r.if_metageneration_not_match),
+        ("ifSourceGenerationMatch", r.if_source_generation_match),
+        (
+            "ifSourceGenerationNotMatch",
+            r.if_source_generation_not_match,
+        ),
+        (
+            "ifSourceMetagenerationMatch",
+            r.if_source_metageneration_match,
+        ),
+        (
+            "ifSourceMetagenerationNotMatch",
+            r.if_source_metageneration_not_match,
+        ),
+    ] {
+        if let Some(v) = v {
+            parameters.insert(key.to_owned(), json!(v.to_string()));
         }
-        let mut parameters = Map::new();
-        for (key, v) in [
-            (
-                "sourceGeneration",
-                (r.source_generation != 0).then_some(r.source_generation),
-            ),
-            (
-                "maxBytesRewrittenPerCall",
-                (r.max_bytes_rewritten_per_call != 0).then_some(r.max_bytes_rewritten_per_call),
-            ),
-            ("ifGenerationMatch", r.if_generation_match),
-            ("ifGenerationNotMatch", r.if_generation_not_match),
-            ("ifMetagenerationMatch", r.if_metageneration_match),
-            ("ifMetagenerationNotMatch", r.if_metageneration_not_match),
-            ("ifSourceGenerationMatch", r.if_source_generation_match),
-            (
-                "ifSourceGenerationNotMatch",
-                r.if_source_generation_not_match,
-            ),
-            (
-                "ifSourceMetagenerationMatch",
-                r.if_source_metageneration_match,
-            ),
-            (
-                "ifSourceMetagenerationNotMatch",
-                r.if_source_metageneration_not_match,
-            ),
-        ] {
-            if let Some(v) = v {
-                parameters.insert(key.to_owned(), json!(v.to_string()));
-            }
-        }
-        let session = if r.rewrite_token.is_empty() {
-            None
-        } else {
-            Some(
-                self.state
-                    .catalog
-                    .rewrite_session(&r.rewrite_token)
-                    .await
-                    .map_err(rewrite_error)?,
-            )
-        };
-        let binding = session.as_ref().map(|s| &s.binding);
+    }
+    parameters
+}
+
+/// Source and destination of a rewrite; names a request omits come from its token's binding.
+struct RewriteTarget<'a> {
+    source_bucket: &'a str,
+    source_object: &'a str,
+    destination_bucket: &'a str,
+    destination_object: &'a str,
+}
+
+impl<'a> RewriteTarget<'a> {
+    fn resolve(
+        r: &'a pb::RewriteObjectRequest,
+        binding: Option<&'a RewriteBinding>,
+    ) -> Result<Self, Status> {
         let sb = if r.source_bucket.is_empty() {
             binding.map_or("", |b| b.source_bucket.as_str())
         } else {
@@ -440,27 +422,103 @@ impl Storage {
         };
         names::object_name(&format!("projects/_/buckets/{sb}"), sn)?;
         names::object_name(&format!("projects/_/buckets/{db}"), dn)?;
-        let read = authorize_bucket(&self.state, caller, auth::OBJECTS_GET, sb)
+        Ok(Self {
+            source_bucket: sb,
+            source_object: sn,
+            destination_bucket: db,
+            destination_object: dn,
+        })
+    }
+
+    fn matches(&self, binding: &RewriteBinding) -> bool {
+        [
+            self.source_bucket,
+            self.source_object,
+            self.destination_bucket,
+            self.destination_object,
+        ] == [
+            binding.source_bucket.as_str(),
+            binding.source_object.as_str(),
+            binding.destination_bucket.as_str(),
+            binding.destination_object.as_str(),
+        ]
+    }
+}
+
+/// A rewrite request without a token, after validation and name resolution.
+struct NewRewrite<'a> {
+    target: RewriteTarget<'a>,
+    source_generation: i64,
+    max_bytes_rewritten_per_call: i64,
+    source_conditions: ObjectConditions,
+    destination_conditions: ObjectConditions,
+    parameters: Map<String, Value>,
+    metadata: Option<Value>,
+}
+
+impl Storage {
+    pub(super) async fn rewrite_object(
+        &self,
+        request: Request<pb::RewriteObjectRequest>,
+        caller: Option<Caller<'_>>,
+    ) -> Result<Response<pb::RewriteResponse>, Status> {
+        let r = request.into_inner();
+        check_rewrite_request(&r)?;
+        let sc = conditions(
+            r.if_source_generation_match,
+            r.if_source_generation_not_match,
+            r.if_source_metageneration_match,
+            r.if_source_metageneration_not_match,
+        )?;
+        let dc = conditions(
+            r.if_generation_match,
+            r.if_generation_not_match,
+            r.if_metageneration_match,
+            r.if_metageneration_not_match,
+        )?;
+        let body = r.destination.as_ref().map(derived_fields).transpose()?;
+        if r.destination
+            .as_ref()
+            .is_some_and(|o| !o.name.is_empty() || !o.bucket.is_empty())
+        {
+            return Err(Status::invalid_argument(
+                "Rewrite destination metadata must omit name and bucket; use destination_name and destination_bucket",
+            ));
+        }
+        let parameters = rewrite_parameters(&r);
+        let session = if r.rewrite_token.is_empty() {
+            None
+        } else {
+            Some(
+                self.state
+                    .catalog
+                    .rewrite_session(&r.rewrite_token)
+                    .await
+                    .map_err(rewrite_error)?,
+            )
+        };
+        let binding = session.as_ref().map(|s| &s.binding);
+        let target = RewriteTarget::resolve(&r, binding)?;
+        let read = authorize_bucket(&self.state, caller, auth::OBJECTS_GET, target.source_bucket)
             .await
             .map_err(|e| access_error(e, caller))?;
-        let create = authorize_bucket(&self.state, caller, auth::OBJECTS_CREATE, db)
-            .await
-            .map_err(|e| access_error(e, caller))?;
+        let create = authorize_bucket(
+            &self.state,
+            caller,
+            auth::OBJECTS_CREATE,
+            target.destination_bucket,
+        )
+        .await
+        .map_err(|e| access_error(e, caller))?;
         let mut owner = None;
-        let token = if let Some(s) = session.as_ref() {
-            if [sb, sn, db, dn]
-                != [
-                    s.binding.source_bucket.as_str(),
-                    s.binding.source_object.as_str(),
-                    s.binding.destination_bucket.as_str(),
-                    s.binding.destination_object.as_str(),
-                ]
+        let token = if let Some(binding) = binding {
+            if !target.matches(binding)
                 || parameters
                     .iter()
-                    .any(|(k, v)| s.binding.parameters.get(k) != Some(v))
+                    .any(|(k, v)| binding.parameters.get(k) != Some(v))
                 || body
                     .as_ref()
-                    .is_some_and(|v| s.binding.metadata.as_ref() != Some(v))
+                    .is_some_and(|v| binding.metadata.as_ref() != Some(v))
             {
                 return Err(Status::invalid_argument(
                     "rewrite_token does not match the request; repeat the original parameters",
@@ -468,96 +526,16 @@ impl Storage {
             }
             r.rewrite_token.clone()
         } else {
-            let source = self
-                .state
-                .catalog
-                .resolve_derived_source(
-                    sb,
-                    sn,
-                    (r.source_generation != 0).then_some(r.source_generation),
-                    sc,
-                    &read,
-                )
-                .await
-                .map_err(error)?;
-            let bytes = body.as_ref().map(Value::to_string).unwrap_or_default();
-            let (metadata, class, _) =
-                json::derived_metadata(bytes.as_bytes(), &source.object).map_err(error)?;
-            self.state
-                .catalog
-                .check_upload(db, dn, dc, &create)
-                .await
-                .map_err(error)?;
-            let source_bucket = self
-                .state
-                .catalog
-                .get_bucket(sb)
-                .await
-                .map_err(error)?
-                .ok_or_else(|| Status::not_found("Source bucket not found"))?;
-            let destination_bucket = self
-                .state
-                .catalog
-                .get_bucket(db)
-                .await
-                .map_err(error)?
-                .ok_or_else(|| Status::not_found("Destination bucket not found"))?;
-            let multiple = source_bucket.location != destination_bucket.location
-                || class
-                    .as_deref()
-                    .unwrap_or(&destination_bucket.storage_class)
-                    != source.object.storage_class;
-            let budget = if multiple {
-                if r.max_bytes_rewritten_per_call == 0 {
-                    8 * 1024 * 1024
-                } else {
-                    r.max_bytes_rewritten_per_call as u64
-                }
-            } else {
-                u64::MAX
-            };
-            let content_type = metadata
-                .content_type
-                .as_ref()
-                .and_then(|v| v.clone())
-                .unwrap_or_else(|| "application/octet-stream".into());
-            let destination = DerivedDestination {
-                bucket: db.into(),
-                name: dn.into(),
-                content_type,
-                metadata,
-                storage_class: class,
-                expected: ExpectedHashes {
-                    md5: Some(source.object.md5),
-                    crc32c: Some(source.object.crc32c),
-                },
-                conditions: dc,
-                access: create.clone(),
-                component_count: source.object.component_count,
-            };
-            let start = RewriteStart {
-                binding: RewriteBinding {
-                    source_bucket: sb.into(),
-                    source_object: sn.into(),
-                    source_generation: source.object.generation,
-                    destination_bucket: db.into(),
-                    destination_object: dn.into(),
-                    parameters,
-                    metadata: body,
-                },
-                destination,
+            let new = NewRewrite {
+                target,
+                source_generation: r.source_generation,
+                max_bytes_rewritten_per_call: r.max_bytes_rewritten_per_call,
                 source_conditions: sc,
-                source_metageneration: source.object.metageneration,
-                source_access: read.clone(),
-                source_key_sha256: None,
-                budget,
+                destination_conditions: dc,
+                parameters,
+                metadata: body,
             };
-            let (token, guard) = self
-                .state
-                .catalog
-                .begin_rewrite_session(vec![source.whole()], self.max_object_bytes, start)
-                .await
-                .map_err(rewrite_error)?;
+            let (token, guard) = self.begin_rewrite(new, &read, &create).await?;
             owner = Some(guard);
             token
         };
@@ -581,6 +559,119 @@ impl Storage {
             rewrite_token: progress.token.unwrap_or_default(),
             resource,
         }))
+    }
+
+    /// Resolves the source and destination of a rewrite without a token and opens its session.
+    async fn begin_rewrite(
+        &self,
+        new: NewRewrite<'_>,
+        read: &BucketAccess,
+        create: &BucketAccess,
+    ) -> Result<(String, DerivedRequestGuard), Status> {
+        let NewRewrite {
+            target:
+                RewriteTarget {
+                    source_bucket: sb,
+                    source_object: sn,
+                    destination_bucket: db,
+                    destination_object: dn,
+                },
+            source_generation,
+            max_bytes_rewritten_per_call,
+            source_conditions: sc,
+            destination_conditions: dc,
+            parameters,
+            metadata: body,
+        } = new;
+        let source = self
+            .state
+            .catalog
+            .resolve_derived_source(
+                sb,
+                sn,
+                (source_generation != 0).then_some(source_generation),
+                sc,
+                read,
+            )
+            .await
+            .map_err(error)?;
+        let bytes = body.as_ref().map(Value::to_string).unwrap_or_default();
+        let (metadata, class, _) =
+            json::derived_metadata(bytes.as_bytes(), &source.object).map_err(error)?;
+        self.state
+            .catalog
+            .check_upload(db, dn, dc, create)
+            .await
+            .map_err(error)?;
+        let source_bucket = self
+            .state
+            .catalog
+            .get_bucket(sb)
+            .await
+            .map_err(error)?
+            .ok_or_else(|| Status::not_found("Source bucket not found"))?;
+        let destination_bucket = self
+            .state
+            .catalog
+            .get_bucket(db)
+            .await
+            .map_err(error)?
+            .ok_or_else(|| Status::not_found("Destination bucket not found"))?;
+        let multiple = source_bucket.location != destination_bucket.location
+            || class
+                .as_deref()
+                .unwrap_or(&destination_bucket.storage_class)
+                != source.object.storage_class;
+        let budget = if multiple {
+            if max_bytes_rewritten_per_call == 0 {
+                8 * 1024 * 1024
+            } else {
+                max_bytes_rewritten_per_call as u64
+            }
+        } else {
+            u64::MAX
+        };
+        let content_type = metadata
+            .content_type
+            .as_ref()
+            .and_then(|v| v.clone())
+            .unwrap_or_else(|| "application/octet-stream".into());
+        let destination = DerivedDestination {
+            bucket: db.into(),
+            name: dn.into(),
+            content_type,
+            metadata,
+            storage_class: class,
+            expected: ExpectedHashes {
+                md5: Some(source.object.md5),
+                crc32c: Some(source.object.crc32c),
+            },
+            conditions: dc,
+            access: create.clone(),
+            component_count: source.object.component_count,
+        };
+        let start = RewriteStart {
+            binding: RewriteBinding {
+                source_bucket: sb.into(),
+                source_object: sn.into(),
+                source_generation: source.object.generation,
+                destination_bucket: db.into(),
+                destination_object: dn.into(),
+                parameters,
+                metadata: body,
+            },
+            destination,
+            source_conditions: sc,
+            source_metageneration: source.object.metageneration,
+            source_access: read.clone(),
+            source_key_sha256: None,
+            budget,
+        };
+        self.state
+            .catalog
+            .begin_rewrite_session(vec![source.whole()], self.max_object_bytes, start)
+            .await
+            .map_err(rewrite_error)
     }
     pub(super) async fn lock_bucket_retention_policy(
         &self,

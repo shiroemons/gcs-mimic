@@ -299,7 +299,7 @@ impl Storage {
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_GET, bucket)
             .await
             .map_err(|e| access_status(e, caller))?;
-        let (record, unfinalized) = self
+        let (record, finality) = self
             .get_readable(
                 bucket,
                 name,
@@ -315,7 +315,7 @@ impl Storage {
             .await
             .map_err(object_status)?;
         Ok(Response::new(mask_object(
-            super::append::object(&record, unfinalized)?,
+            super::append::object(&record, finality)?,
             r.read_mask.as_ref(),
         )?))
     }
@@ -330,7 +330,7 @@ impl Storage {
         let access = crate::server::authorize_bucket(&self.state, caller, OBJECTS_GET, bucket)
             .await
             .map_err(|e| access_status(e, caller))?;
-        let (record, mut reader, unfinalized) = self
+        let (record, mut reader, finality) = self
             .open_readable(
                 bucket,
                 name,
@@ -349,7 +349,7 @@ impl Storage {
         reader.set_range(start, length).await.map_err(|_| {
             Status::internal("Cannot seek object data; restore a valid data directory")
         })?;
-        let object = super::append::object(&record, unfinalized)?;
+        let object = super::append::object(&record, finality)?;
         let mut first = pb::ReadObjectResponse {
             metadata: Some(object.clone()),
             object_checksums: object.checksums,
@@ -384,10 +384,13 @@ impl Storage {
                 first.metadata = if paths.is_empty() {
                     None
                 } else {
-                    Some(mask_object(
-                        first.metadata.take().expect("first metadata"),
-                        Some(&prost_types::FieldMask { paths }),
-                    )?)
+                    first
+                        .metadata
+                        .take()
+                        .map(|metadata| {
+                            mask_object(metadata, Some(&prost_types::FieldMask { paths }))
+                        })
+                        .transpose()?
                 };
             }
             if !mask.paths.iter().any(|p| p == "object_checksums") {
@@ -454,7 +457,9 @@ impl Storage {
                 ..Default::default()
             })
         });
-        let result = self.receive_write(&mut stream, caller, None, true).await?;
+        let result = self
+            .receive_write(&mut stream, caller, None, EndOfStream::Required)
+            .await?;
         Ok(Response::new(pb::WriteObjectResponse {
             write_status: Some(match result {
                 pb::bidi_write_object_response::WriteStatus::PersistedSize(n) => {
@@ -501,7 +506,7 @@ impl Storage {
             } else {
                 let mut input = tonic::codegen::tokio_stream::once(Ok(first)).chain(stream);
                 storage
-                    .receive_write(&mut input, caller, Some(&tx), false)
+                    .receive_write(&mut input, caller, Some(&tx), EndOfStream::NotChecked)
                     .await
                     .map(|_| ())
             };
@@ -763,24 +768,30 @@ impl Storage {
         &self,
         stream: &mut S,
         caller: Option<Caller<'_>>,
-        responses: Option<&mpsc::Sender<Result<pb::BidiWriteObjectResponse, Status>>>,
-        require_eof: bool,
+        responses: Option<&Responses>,
+        end: EndOfStream,
     ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
         use pb::bidi_write_object_request::FirstMessage;
-        use pb::bidi_write_object_response::WriteStatus;
         let mut message = stream.next().await.transpose()?.ok_or_else(|| {
             Status::invalid_argument("First message must contain write_object_spec or upload_id")
         })?;
         common(message.common_object_request_params.as_ref())?;
-        let (bucket, id) = match message.first_message.take() {
+        let session = match message.first_message.take() {
             Some(FirstMessage::WriteObjectSpec(spec)) => {
-                return self
-                    .receive_single_write(stream, message, spec, caller, responses, require_eof)
-                    .await;
+                let write = SingleWrite {
+                    spec,
+                    caller,
+                    responses,
+                    end,
+                };
+                return self.receive_single_write(stream, message, write).await;
             }
             Some(FirstMessage::UploadId(upload)) => {
                 let (bucket, id) = parse_upload_id(&upload)?;
-                (bucket.to_owned(), id.to_owned())
+                ResumableTarget {
+                    bucket: bucket.to_owned(),
+                    id: id.to_owned(),
+                }
             }
             Some(FirstMessage::AppendObjectSpec(_)) => {
                 return Err(unsupported("Rapid append", caller));
@@ -791,29 +802,35 @@ impl Storage {
                 ));
             }
         };
-        let mut first = true;
+        self.receive_resumable_write(stream, message, &session, caller, responses, end)
+            .await
+    }
+
+    async fn receive_resumable_write<
+        S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
+    >(
+        &self,
+        stream: &mut S,
+        mut message: pb::BidiWriteObjectRequest,
+        session: &ResumableTarget,
+        caller: Option<Caller<'_>>,
+        responses: Option<&Responses>,
+        end: EndOfStream,
+    ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
+        use pb::bidi_write_object_response::WriteStatus;
+        let ResumableTarget { bucket, id } = session;
+        let mut position = MessagePosition::First;
         let mut result;
         loop {
-            common(message.common_object_request_params.as_ref())?;
-            if message.first_message.is_some() {
-                return Err(Status::invalid_argument(
-                    "Only the first message may contain write_object_spec or upload_id",
-                ));
-            }
-            if message.object_checksums.is_some() && !message.finish_write {
-                return Err(unsupported(
-                    "object_checksums before resumable finish; set StartResumableWrite.object_checksums or send them with finish_write=true",
-                    caller,
-                ));
-            }
+            check_resumable_message(&message, caller)?;
             let access =
-                crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, &bucket)
+                crate::server::authorize_bucket(&self.state, caller, OBJECTS_CREATE, bucket)
                     .await
                     .map_err(|e| access_status(e, caller))?;
             let lease = self
                 .state
                 .catalog
-                .lock_resumable_session(&id, &bucket)
+                .lock_resumable_session(id, bucket)
                 .await
                 .map_err(session_status)?;
             if lease.session.state == SessionState::Complete {
@@ -826,7 +843,7 @@ impl Storage {
             self.state
                 .catalog
                 .check_upload(
-                    &bucket,
+                    bucket,
                     &lease.session.name,
                     options.conditions,
                     &options.access,
@@ -835,45 +852,16 @@ impl Storage {
                 .map_err(object_status)?;
             options.expected =
                 merge_hashes(options.expected, hashes(message.object_checksums.as_ref())?)?;
-            let offset = u64::try_from(message.write_offset).map_err(|_| {
-                Status::out_of_range("write_offset must be nonnegative; query the persisted offset")
-            })?;
-            if (first && offset != lease.session.offset) || offset > lease.session.offset {
-                return Err(Status::out_of_range(
-                    "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size",
-                ));
-            }
-            let data = match message.data.take() {
-                Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
-                None => pb::ChecksummedData::default(),
+            let persisted = Persisted {
+                offset: lease.session.offset,
+                total: lease.session.total,
             };
-            if data
-                .crc32c
-                .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
+            let (offset, data, written) =
+                resumable_piece(&mut message, persisted, position, self.max_object_bytes)?;
+            if message.finish_write
+                && end == EndOfStream::Required
+                && stream.next().await.transpose()?.is_some()
             {
-                return Err(Status::invalid_argument(
-                    "checksummed_data.crc32c mismatch; resend the correct data and checksum",
-                ));
-            }
-            let end = offset
-                .checked_add(data.content.len() as u64)
-                .ok_or_else(|| Status::out_of_range("write_offset plus content length overflows"))?
-                .max(lease.session.offset);
-            if end > self.max_object_bytes {
-                return Err(Status::resource_exhausted(
-                    "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
-                ));
-            }
-            if lease
-                .session
-                .total
-                .is_some_and(|total| end > total || (message.finish_write && end != total))
-            {
-                return Err(Status::out_of_range(
-                    "Written bytes do not match object_size; start a new upload with the correct size",
-                ));
-            }
-            if message.finish_write && require_eof && stream.next().await.transpose()?.is_some() {
                 return Err(Status::invalid_argument(
                     "A message followed finish_write; finish_write must be the final message",
                 ));
@@ -883,7 +871,7 @@ impl Storage {
             let chunk = ResumableChunk {
                 start: offset,
                 length: data.content.len() as u64,
-                total: lease.session.total.or(message.finish_write.then_some(end)),
+                total: persisted.total.or(message.finish_write.then_some(written)),
                 finalize: message.finish_write,
                 options,
                 catalog_wait,
@@ -894,11 +882,7 @@ impl Storage {
                 .admit_object_upload()
                 .map_err(object_status)?;
             let producer = async {
-                for bytes in crate::grpc::upload_chunks(&data.content) {
-                    tx.send(Ok(UploadChunk::Data(bytes)))
-                        .await
-                        .map_err(|_| Status::cancelled("Upload consumer stopped"))?;
-                }
+                stage(&tx, &data.content).await?;
                 tx.send(Ok(UploadChunk::End))
                     .await
                     .map_err(|_| Status::cancelled("Upload consumer stopped"))
@@ -912,28 +896,23 @@ impl Storage {
                         serde_json::to_value(resource.encode_to_vec())
                             .map_err(|_| ObjectError::InvalidMetadata)
                     });
-            let (sent, written) = tokio::join!(producer, write);
-            let completion = written.map_err(session_status)?;
+            let (sent, written_record) = tokio::join!(producer, write);
+            let completion = written_record.map_err(session_status)?;
             sent?;
             result = if let Some(value) = completion.as_ref() {
                 WriteStatus::Resource(decode_completion(Some(value))?)
             } else {
-                WriteStatus::PersistedSize(end as i64)
+                WriteStatus::PersistedSize(written as i64)
             };
             if let Some(tx) = responses
                 && (message.finish_write || message.flush || message.state_lookup)
             {
-                tx.send(Ok(pb::BidiWriteObjectResponse {
-                    write_status: Some(result.clone()),
-                    ..Default::default()
-                }))
-                .await
-                .map_err(|_| Status::cancelled("Response stream closed"))?;
+                send_status(tx, &result).await?;
             }
             if message.finish_write {
                 return Ok(result);
             }
-            first = false;
+            position = MessagePosition::Later;
             let Some(next) = stream.next().await.transpose()? else {
                 break;
             };
@@ -947,12 +926,15 @@ impl Storage {
     >(
         &self,
         stream: &mut S,
-        mut message: pb::BidiWriteObjectRequest,
-        spec: pb::WriteObjectSpec,
-        caller: Option<Caller<'_>>,
-        responses: Option<&mpsc::Sender<Result<pb::BidiWriteObjectResponse, Status>>>,
-        require_eof: bool,
+        message: pb::BidiWriteObjectRequest,
+        write: SingleWrite<'_>,
     ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
+        let SingleWrite {
+            spec,
+            caller,
+            responses,
+            end,
+        } = write;
         let (bucket, name, options, total) = self
             .write_spec(spec, message.object_checksums.as_ref(), caller)
             .await?;
@@ -963,104 +945,12 @@ impl Storage {
             .await
             .map_err(object_status)?;
         let (tx, rx) = mpsc::channel(2);
-        let producer = async move {
-            let mut offset = 0_u64;
-            let mut first = true;
-            let mut expected = options.expected;
-            let mut hasher = crate::hashing::Hasher::default();
-            loop {
-                common(message.common_object_request_params.as_ref())?;
-                if message.first_message.is_some() {
-                    return Err(Status::invalid_argument(
-                        "Only the first message may contain write_object_spec",
-                    ));
-                }
-                if (message.flush || message.state_lookup) && !message.finish_write {
-                    return Err(unsupported(
-                        "non-resumable flush/state_lookup; use StartResumableWrite and upload_id",
-                        caller,
-                    ));
-                }
-                if message.object_checksums.is_some() {
-                    if !first && !message.finish_write {
-                        return Err(Status::invalid_argument(
-                            "object_checksums is allowed only in the first or final message",
-                        ));
-                    }
-                    expected = merge_hashes(expected, hashes(message.object_checksums.as_ref())?)?;
-                }
-                let start = u64::try_from(message.write_offset).map_err(|_| {
-                    Status::out_of_range(
-                        "write_offset must be nonnegative; use 0 for the first message",
-                    )
-                })?;
-                if start > offset || (first && start != 0) {
-                    return Err(Status::out_of_range(
-                        "write_offset exceeds received bytes; start at 0 and continue at the received byte count",
-                    ));
-                }
-                let data = match message.data.take() {
-                    Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
-                    None => pb::ChecksummedData::default(),
-                };
-                if data
-                    .crc32c
-                    .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
-                {
-                    return Err(Status::invalid_argument(
-                        "checksummed_data.crc32c mismatch; resend the correct data and checksum",
-                    ));
-                }
-                let discard = (offset - start).min(data.content.len() as u64) as usize;
-                let added = data.content.slice(discard..);
-                offset = offset
-                    .checked_add(added.len() as u64)
-                    .ok_or_else(|| Status::out_of_range("Object size overflow"))?;
-                if offset > self.max_object_bytes {
-                    return Err(Status::resource_exhausted(
-                        "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
-                    ));
-                }
-                if total.is_some_and(|total| {
-                    offset > total || (message.finish_write && offset != total)
-                }) {
-                    return Err(Status::out_of_range(
-                        "Written bytes do not match object_size; start a new upload with the correct size",
-                    ));
-                }
-                hasher.update(&added);
-                for chunk in crate::grpc::upload_chunks(&added) {
-                    tx.send(Ok(UploadChunk::Data(chunk)))
-                        .await
-                        .map_err(|_| Status::cancelled("Upload consumer stopped"))?;
-                }
-                if message.finish_write {
-                    break;
-                }
-                message = stream.next().await.transpose()?.ok_or_else(|| {
-                    Status::invalid_argument(
-                        "Non-resumable write requires finish_write=true on its final message",
-                    )
-                })?;
-                first = false;
-            }
-            if require_eof && stream.next().await.transpose()?.is_some() {
-                return Err(Status::invalid_argument(
-                    "A message followed finish_write; finish_write must be the final message",
-                ));
-            }
-            let actual = hasher.finish();
-            if expected.crc32c.is_some_and(|crc| crc != actual.crc32c)
-                || expected.md5.is_some_and(|md5| md5 != actual.md5)
-            {
-                return Err(Status::invalid_argument(
-                    "object_checksums mismatch; send checksums for the complete object",
-                ));
-            }
-            tx.send(Ok(UploadChunk::End))
-                .await
-                .map_err(|_| Status::cancelled("Upload consumer stopped"))
+        let limits = SingleWriteLimits {
+            expected: options.expected,
+            total,
+            max_object_bytes: self.max_object_bytes,
         };
+        let producer = produce_single_write(stream, message, limits, tx, caller, end);
         let write = self.state.catalog.put_object_prechecked(
             &bucket,
             &name,
@@ -1089,15 +979,256 @@ impl Storage {
         let resource = convert::object(&record)?;
         let result = pb::bidi_write_object_response::WriteStatus::Resource(resource);
         if let Some(tx) = responses {
-            tx.send(Ok(pb::BidiWriteObjectResponse {
-                write_status: Some(result.clone()),
-                ..Default::default()
-            }))
-            .await
-            .map_err(|_| Status::cancelled("Response stream closed"))?;
+            send_status(tx, &result).await?;
         }
         Ok(result)
     }
+}
+
+type Responses = mpsc::Sender<Result<pb::BidiWriteObjectResponse, Status>>;
+
+/// Whether a write must end its request stream at `finish_write`. WriteObject rejects a later
+/// message; BidiWriteObject answers at `finish_write` without waiting for the stream to close.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EndOfStream {
+    Required,
+    NotChecked,
+}
+
+/// Whether a resumable message is the first one of its stream, which must resume exactly at
+/// the persisted offset; later messages may overlap bytes already persisted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MessagePosition {
+    First,
+    Later,
+}
+
+/// The resumable session a write stream continues.
+struct ResumableTarget {
+    bucket: String,
+    id: String,
+}
+
+/// What a resumable session had persisted when its lease was taken.
+#[derive(Clone, Copy)]
+struct Persisted {
+    offset: u64,
+    total: Option<u64>,
+}
+
+/// A non-resumable write and where its replies go.
+struct SingleWrite<'a> {
+    spec: pb::WriteObjectSpec,
+    caller: Option<Caller<'a>>,
+    responses: Option<&'a Responses>,
+    end: EndOfStream,
+}
+
+/// The checksum and size limits a non-resumable write's body must satisfy.
+#[derive(Clone, Copy)]
+struct SingleWriteLimits {
+    expected: ExpectedHashes,
+    total: Option<u64>,
+    max_object_bytes: u64,
+}
+
+async fn send_status(
+    tx: &Responses,
+    status: &pb::bidi_write_object_response::WriteStatus,
+) -> Result<(), Status> {
+    tx.send(Ok(pb::BidiWriteObjectResponse {
+        write_status: Some(status.clone()),
+        ..Default::default()
+    }))
+    .await
+    .map_err(|_| Status::cancelled("Response stream closed"))
+}
+
+/// Sends `content` to the upload consumer in bounded chunks.
+async fn stage(
+    tx: &mpsc::Sender<Result<UploadChunk, std::io::Error>>,
+    content: &bytes::Bytes,
+) -> Result<(), Status> {
+    for bytes in crate::grpc::upload_chunks(content) {
+        tx.send(Ok(UploadChunk::Data(bytes)))
+            .await
+            .map_err(|_| Status::cancelled("Upload consumer stopped"))?;
+    }
+    Ok(())
+}
+
+fn check_resumable_message(
+    message: &pb::BidiWriteObjectRequest,
+    caller: Option<Caller<'_>>,
+) -> Result<(), Status> {
+    common(message.common_object_request_params.as_ref())?;
+    if message.first_message.is_some() {
+        return Err(Status::invalid_argument(
+            "Only the first message may contain write_object_spec or upload_id",
+        ));
+    }
+    if message.object_checksums.is_some() && !message.finish_write {
+        return Err(unsupported(
+            "object_checksums before resumable finish; set StartResumableWrite.object_checksums or send them with finish_write=true",
+            caller,
+        ));
+    }
+    Ok(())
+}
+
+/// Validates one resumable message's offset, data checksum and size against the persisted
+/// session, returning its offset, data and the session size after it is written.
+fn resumable_piece(
+    message: &mut pb::BidiWriteObjectRequest,
+    persisted: Persisted,
+    position: MessagePosition,
+    max_object_bytes: u64,
+) -> Result<(u64, pb::ChecksummedData, u64), Status> {
+    let offset = u64::try_from(message.write_offset).map_err(|_| {
+        Status::out_of_range("write_offset must be nonnegative; query the persisted offset")
+    })?;
+    if (position == MessagePosition::First && offset != persisted.offset)
+        || offset > persisted.offset
+    {
+        return Err(Status::out_of_range(
+            "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size",
+        ));
+    }
+    let data = match message.data.take() {
+        Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
+        None => pb::ChecksummedData::default(),
+    };
+    if data
+        .crc32c
+        .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
+    {
+        return Err(Status::invalid_argument(
+            "checksummed_data.crc32c mismatch; resend the correct data and checksum",
+        ));
+    }
+    let end = offset
+        .checked_add(data.content.len() as u64)
+        .ok_or_else(|| Status::out_of_range("write_offset plus content length overflows"))?
+        .max(persisted.offset);
+    if end > max_object_bytes {
+        return Err(Status::resource_exhausted(
+            "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
+        ));
+    }
+    if persisted
+        .total
+        .is_some_and(|total| end > total || (message.finish_write && end != total))
+    {
+        return Err(Status::out_of_range(
+            "Written bytes do not match object_size; start a new upload with the correct size",
+        ));
+    }
+    Ok((offset, data, end))
+}
+
+/// Streams a non-resumable write's messages to the upload consumer, validating offsets,
+/// checksums and sizes, and ends the body only after the whole object checks out.
+async fn produce_single_write<
+    S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
+>(
+    stream: &mut S,
+    mut message: pb::BidiWriteObjectRequest,
+    limits: SingleWriteLimits,
+    tx: mpsc::Sender<Result<UploadChunk, std::io::Error>>,
+    caller: Option<Caller<'_>>,
+    end: EndOfStream,
+) -> Result<(), Status> {
+    let mut offset = 0_u64;
+    let mut position = MessagePosition::First;
+    let mut expected = limits.expected;
+    let mut hasher = crate::hashing::Hasher::default();
+    loop {
+        common(message.common_object_request_params.as_ref())?;
+        if message.first_message.is_some() {
+            return Err(Status::invalid_argument(
+                "Only the first message may contain write_object_spec",
+            ));
+        }
+        if (message.flush || message.state_lookup) && !message.finish_write {
+            return Err(unsupported(
+                "non-resumable flush/state_lookup; use StartResumableWrite and upload_id",
+                caller,
+            ));
+        }
+        if message.object_checksums.is_some() {
+            if position == MessagePosition::Later && !message.finish_write {
+                return Err(Status::invalid_argument(
+                    "object_checksums is allowed only in the first or final message",
+                ));
+            }
+            expected = merge_hashes(expected, hashes(message.object_checksums.as_ref())?)?;
+        }
+        let start = u64::try_from(message.write_offset).map_err(|_| {
+            Status::out_of_range("write_offset must be nonnegative; use 0 for the first message")
+        })?;
+        if start > offset || (position == MessagePosition::First && start != 0) {
+            return Err(Status::out_of_range(
+                "write_offset exceeds received bytes; start at 0 and continue at the received byte count",
+            ));
+        }
+        let data = match message.data.take() {
+            Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
+            None => pb::ChecksummedData::default(),
+        };
+        if data
+            .crc32c
+            .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
+        {
+            return Err(Status::invalid_argument(
+                "checksummed_data.crc32c mismatch; resend the correct data and checksum",
+            ));
+        }
+        let discard = (offset - start).min(data.content.len() as u64) as usize;
+        let added = data.content.slice(discard..);
+        offset = offset
+            .checked_add(added.len() as u64)
+            .ok_or_else(|| Status::out_of_range("Object size overflow"))?;
+        if offset > limits.max_object_bytes {
+            return Err(Status::resource_exhausted(
+                "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
+            ));
+        }
+        if limits
+            .total
+            .is_some_and(|total| offset > total || (message.finish_write && offset != total))
+        {
+            return Err(Status::out_of_range(
+                "Written bytes do not match object_size; start a new upload with the correct size",
+            ));
+        }
+        hasher.update(&added);
+        stage(&tx, &added).await?;
+        if message.finish_write {
+            break;
+        }
+        message = stream.next().await.transpose()?.ok_or_else(|| {
+            Status::invalid_argument(
+                "Non-resumable write requires finish_write=true on its final message",
+            )
+        })?;
+        position = MessagePosition::Later;
+    }
+    if end == EndOfStream::Required && stream.next().await.transpose()?.is_some() {
+        return Err(Status::invalid_argument(
+            "A message followed finish_write; finish_write must be the final message",
+        ));
+    }
+    let actual = hasher.finish();
+    if expected.crc32c.is_some_and(|crc| crc != actual.crc32c)
+        || expected.md5.is_some_and(|md5| md5 != actual.md5)
+    {
+        return Err(Status::invalid_argument(
+            "object_checksums mismatch; send checksums for the complete object",
+        ));
+    }
+    tx.send(Ok(UploadChunk::End))
+        .await
+        .map_err(|_| Status::cancelled("Upload consumer stopped"))
 }
 
 #[cfg(test)]
@@ -1177,7 +1308,7 @@ mod tests {
                 &mut tonic::codegen::tokio_stream::iter(messages.into_iter().map(Ok)),
                 None,
                 None,
-                true,
+                EndOfStream::Required,
             )
             .await
     }
@@ -1501,7 +1632,7 @@ mod tests {
                 &mut tonic::codegen::tokio_stream::iter([Ok(message("private", b"private"))]),
                 admin,
                 None,
-                true,
+                EndOfStream::Required,
             )
             .await
             .unwrap();
@@ -1515,7 +1646,7 @@ mod tests {
                     &mut tonic::codegen::tokio_stream::iter([Ok(message("private", b"denied"))]),
                     reader,
                     None,
-                    true
+                    EndOfStream::Required
                 )
                 .await
                 .unwrap_err()
@@ -1753,7 +1884,7 @@ mod tests {
                 &mut tonic::codegen::tokio_stream::iter([Ok(resume(&upload, 0, b"abc", false))]),
                 admin,
                 None,
-                true,
+                EndOfStream::Required,
             )
             .await
             .unwrap();
