@@ -277,7 +277,15 @@ pub(crate) fn validate_cors(rules: &[CorsRule]) -> Result<(), CatalogError> {
     Ok(())
 }
 
-pub(crate) fn valid_label(value: &str, key: bool) -> bool {
+/// Which half of a label pair is validated; only keys must start with a letter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LabelPart {
+    Key,
+    Value,
+}
+
+pub(crate) fn valid_label(value: &str, part: LabelPart) -> bool {
+    let key = part == LabelPart::Key;
     let initial = |character: char| {
         character.is_ascii_lowercase()
             || (!character.is_ascii() && character.is_alphabetic() && !character.is_uppercase())

@@ -1069,7 +1069,11 @@ impl Catalog {
                 })?;
             }
             let previous_retention = record.retention;
-            let override_unlocked = update.override_unlocked_retention;
+            let override_unlocked = if update.override_unlocked_retention {
+                crate::object::retention::UnlockedOverride::Allowed
+            } else {
+                crate::object::retention::UnlockedOverride::Denied
+            };
             update.apply(&mut record)?;
             if record.retention != previous_retention {
                 crate::object::retention::check_transition(
@@ -1206,7 +1210,7 @@ pub(super) fn open_selected(
         .allows(
             None,
             crate::auth::OBJECTS_GET,
-            super::policies::public_access_prevention(&transaction, bucket)
+            super::policies::policy_public_access(&transaction, bucket)
                 .map_err(object_unavailable)?,
         );
     Ok((

@@ -92,7 +92,7 @@ pub(super) fn check_access(
             return Err(CatalogError::Forbidden);
         }
         let policy = read_policy(connection, bucket)?;
-        let pap = public_access_prevention(connection, bucket)?;
+        let pap = policy_public_access(connection, bucket)?;
         if !identity
             .as_ref()
             .is_some_and(|identity| identity.allows(permission.as_str(), project))
@@ -253,6 +253,19 @@ pub(super) fn public_access_prevention(
         .prepare_cached("SELECT public_access_prevention_enforced OR EXISTS(SELECT 1 FROM parent_public_access_prevention WHERE project = buckets.project) FROM buckets WHERE name = ?1")
         .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
         .map_err(unavailable)
+}
+
+/// Whether public members of the bucket's IAM policy may grant access.
+pub(super) fn policy_public_access(
+    connection: &Connection,
+    bucket: &str,
+) -> Result<crate::auth::PublicAccess, CatalogError> {
+    use crate::auth::PublicAccess;
+    Ok(if public_access_prevention(connection, bucket)? {
+        PublicAccess::Prevented
+    } else {
+        PublicAccess::Allowed
+    })
 }
 
 fn authorize_policy(

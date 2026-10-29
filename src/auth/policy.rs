@@ -1,6 +1,14 @@
 use super::{Identity, roles};
 use serde_json::{Value, json};
 
+/// Whether `allUsers` and `allAuthenticatedUsers` bindings may grant access to a bucket.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PublicAccess {
+    Allowed,
+    /// Public access prevention is enforced on the bucket or its parent project.
+    Prevented,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binding {
     pub role: String,
@@ -37,11 +45,11 @@ impl Policy {
         &self,
         identity: Option<&Identity>,
         permission: &str,
-        public_access_prevention: bool,
+        public_access: PublicAccess,
     ) -> bool {
         self.bindings.iter().any(|binding| {
             binding.members.iter().any(|member| {
-                (!public_access_prevention
+                (matches!(public_access, PublicAccess::Allowed)
                     && (member == "allUsers"
                         || (member == "allAuthenticatedUsers" && identity.is_some())))
                     || identity.is_some_and(|identity| {

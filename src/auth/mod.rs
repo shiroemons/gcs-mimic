@@ -9,6 +9,7 @@
 mod policy;
 pub(crate) mod roles;
 pub mod signature;
+pub(crate) use policy::PublicAccess;
 pub use policy::{Binding, Policy};
 
 use hyper::{HeaderMap, header::AUTHORIZATION};

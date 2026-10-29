@@ -139,7 +139,8 @@ impl BucketDefinition {
             || record.location_type != location_type
             || record.labels.len() > 64
             || record.labels.iter().any(|(key, value)| {
-                !crate::bucket::valid_label(key, true) || !crate::bucket::valid_label(value, false)
+                !crate::bucket::valid_label(key, crate::bucket::LabelPart::Key)
+                    || !crate::bucket::valid_label(value, crate::bucket::LabelPart::Value)
             })
         {
             return Err(AdminError::Invalid("invalid bucket metadata".into()));

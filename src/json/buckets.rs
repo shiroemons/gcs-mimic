@@ -211,7 +211,9 @@ fn insert_labels(
         let value = value
             .as_str()
             .ok_or_else(|| JsonError::invalid_argument("Label values must be strings"))?;
-        if !valid_label(key, true) || !valid_label(value, false) {
+        if !valid_label(key, crate::bucket::LabelPart::Key)
+            || !valid_label(value, crate::bucket::LabelPart::Value)
+        {
             return Err(JsonError::invalid_argument("Invalid bucket label"));
         }
         labels.insert(key.clone(), value.to_owned());
@@ -387,10 +389,10 @@ fn update_labels(
                         .to_owned(),
                 )
             };
-            if !valid_label(key, true)
+            if !valid_label(key, crate::bucket::LabelPart::Key)
                 || value
                     .as_deref()
-                    .is_some_and(|value| !valid_label(value, false))
+                    .is_some_and(|value| !valid_label(value, crate::bucket::LabelPart::Value))
             {
                 return Err(JsonError::invalid_argument("Invalid bucket label"));
             }

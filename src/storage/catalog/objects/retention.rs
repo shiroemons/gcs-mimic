@@ -6,7 +6,7 @@ use crate::{
     bucket::CatalogError,
     object::{
         ObjectError, ObjectRecord,
-        retention::{ObjectRetention, RetentionMode},
+        retention::{BucketRetention, ObjectRetention, RetentionMode},
     },
 };
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, types::Type};
@@ -123,6 +123,10 @@ pub(super) fn validate_publication(
     if record.retention.is_none() {
         return Ok(());
     }
-    let enabled = bucket_enabled(transaction, &record.bucket)?;
-    crate::object::retention::validate_stored(record, enabled, now)
+    let bucket = if bucket_enabled(transaction, &record.bucket)? {
+        BucketRetention::Enabled
+    } else {
+        BucketRetention::Disabled
+    };
+    crate::object::retention::validate_stored(record, bucket, now)
 }

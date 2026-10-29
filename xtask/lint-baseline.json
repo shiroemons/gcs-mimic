@@ -2,10 +2,7 @@
   "schema_version": 1,
   "counts": {
     "clippy::fn_params_excessive_bools": {
-      "src/auth/policy.rs": 1,
-      "src/bucket.rs": 1,
       "src/json/derived_metadata.rs": 1,
-      "src/object/retention.rs": 2,
       "src/storage/catalog.rs": 2,
       "src/storage/catalog/appendable.rs": 1,
       "src/storage/catalog/change_journal.rs": 1,

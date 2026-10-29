@@ -1,8 +1,9 @@
 use super::lock;
 use crate::auth::{Identity, OBJECTS_DELETE, Policy};
 use crate::bucket::{
-    BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError, UNIFORM_ACCESS_LOCK_PERIOD,
-    cors_from_value, cors_value, valid_label, validate_cors, validate_storage_class,
+    BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError, LabelPart,
+    UNIFORM_ACCESS_LOCK_PERIOD, cors_from_value, cors_value, valid_label, validate_cors,
+    validate_storage_class,
 };
 use crate::clock::{Clock, SystemClock};
 use crate::storage::failure::unavailable;
@@ -1312,10 +1313,10 @@ impl Catalog {
                     for (key, value) in labels {
                         // Library callers can bypass adapter validation.
                         if (replace && value.is_none())
-                            || !valid_label(&key, true)
+                            || !valid_label(&key, LabelPart::Key)
                             || value
                                 .as_deref()
-                                .is_some_and(|value| !valid_label(value, false))
+                                .is_some_and(|value| !valid_label(value, LabelPart::Value))
                         {
                             return Err(CatalogError::InvalidMetadata(
                                 "Invalid bucket label".into(),
