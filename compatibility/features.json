@@ -12605,7 +12605,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "The frozen local copy subset has exact scoped behavior: generation-pinned bounded bytes, declared metadata rules, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract/evidence: docs/en/slices/object-copy.md and docs/en/evidence/object-copy.md. The method additionally remains PARTIAL because accepted full projection omits ACL/owner resources and their additional permission behavior. Final integrated evidence: docs/en/evidence/derived-objects.md. Copy rechecks source read grants at publication while retaining selection-time generation/condition semantics; revocation returns 403 with no destination or transfer residue. Independent quotas reserve 128 ephemeral copy/compose slots and 128 continuable slots, with unchanged seven-day rewrite expiry.",
+      "notes": "The frozen local copy subset covers generation-pinned bounded bytes, metadata, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Historical evidence: docs/en/evidence/object-copy.md and docs/en/evidence/derived-objects.md. JSON copy now reuses schema 35 response replay, binding method/raw URI/base/raw body digest, source/destination CSEK digests, profile/principal and both bucket incarnations. Publication atomically retains the original resource and originally visible ACL snapshot; retries survive source/destination overwrite/deletion and restart with current source-read/create authorization rechecked in the transaction. ACL-read revocation omits ACL/owner; required source-read/create denial stays 403. Conflicting bindings return 400 and mid-flight incarnation changes return 412. Copy shares the media/multipart global 4096-entry, ten-minute, 64 KiB completion cache; full capacity returns safe 503 without early eviction. Token admission conditions/capacity precede source-object lookup as a provider-unverified local rule. Source and acceptance tests: docs/en/slices/sdk-upload-replay.md; final-source suite/SDK results remain pending. Independent transfer quotas retain 128 ephemeral copy/compose slots and 128 continuable slots, with seven-day rewrite expiry. Whole-method status stays PARTIAL for provider/full-projection parity.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -12759,7 +12759,7 @@
         },
         {
           "id": "COPY-ACL-OWNER-PROJECTION",
-          "description": "Accepted projection=full currently renders the frozen metadata subset without ACL/owner resources or their additional permission checks; complete full projection is not modeled.",
+          "description": "Establish provider-exact full ACL/owner projection and permission behavior; local copy replay retains only the originally visible ACL snapshot and omits ACL/owner after current ACL-read revocation.",
           "test_ids": [],
           "result": "PENDING"
         }
@@ -12911,7 +12911,7 @@
         }
       ],
       "known_deviations": [
-        "Accepted projection=full omits ACL/owner resources and their additional permission behavior; full method stays PARTIAL for this exact missing surface."
+        "Local full projection/replay uses the originally visible ACL snapshot and current ACL-read permission; provider-exact full projection/permission/cache/error parity remains pending under SPEC-013. Whole method stays PARTIAL."
       ],
       "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-10-23",
@@ -13567,7 +13567,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "JSON metadata, whole-media and single-range GET support live-generation selection and query conditions; selfLink addresses the current object and mediaLink pins a generation. Range scope: docs/en/slices/json-object-range.md. If-Range/transcoding and exact fallback/header parity remain open. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain.",
+      "notes": "JSON metadata, whole-media and single-range GET support generation selection and conditions; selfLink addresses the current object and mediaLink pins a generation. Historical range/IAM/version/ETag evidence remains in docs/en/slices/json-object-range.md, docs/en/evidence/bucket-iam.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. JSON media GET now expands gzip in bounded 64 KiB input/output steps, ignores Range with full 200, removes Content-Encoding/Content-Length/Accept-Ranges and retains stored hash/ETag/encoding/length headers. Accepted gzip or stored no-transform returns raw bytes. Malformed/corrupt/truncated gzip or expansion beyond max_object_bytes visibly aborts the stream. JSON metadata HEAD is supported; JSON media HEAD and XML expansion are unsupported. Source and acceptance tests: docs/en/slices/sdk-scorecard-integration.md; final-source suite/SDK results remain pending. If-Range, double-compression detection, provider-exact transcoding/fallback/header/full ACL parity and broader pending scope keep this row PARTIAL. Object transfer ceilings remain independent of inactivity; upload advisory/post-EOF waits retain their separate bound.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -13620,7 +13620,7 @@
         },
         {
           "id": "JSON-OBJECTS-005-PENDING",
-          "description": "Implement If-Range, transcoding, full ACL projection, soft-delete selection and remaining provider version interactions, broader policies, object IAM/ACLs, redirect/header parity and replay; retained-generation reads pass. Resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS. SPEC-008 combined/missing-selected-resource/authorization precedence beyond documented single read conditions; SPEC-012/017 exact error/header parity; SPEC-009 ordinary-prefix redirect question; full download-header presence and transcoding/public-ACL details remain pending.",
+          "description": "Implement If-Range, XML/media-HEAD expansion, double-compression handling, full ACL projection, soft-delete selection and remaining provider version interactions, broader policies, object IAM/ACLs, redirect/header parity and GET replay; retained-generation reads and bounded JSON GET gzip expansion are supported locally. Resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS. SPEC-008 combined/missing-selected-resource/authorization precedence, SPEC-012/017 exact error/header parity, SPEC-009 redirect behavior and provider-exact transcoding/public-ACL details remain pending.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -14476,7 +14476,7 @@
       "known_deviations": [
         "SPEC-009: ordinary alt=media returns direct 200; no production redirect flow.",
         "SPEC-008/011/012: local condition precedence, missing upload MIME convenience, opaque ID/ETag/link choices and incomplete independent JSON header parity.",
-        "Single untranscoded JSON byte ranges work. If-Range, transcoding, userProject remains unsupported; scoped fields selection and read ETag validators work; full omits ACL/owner; retained historical versions now work. SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS and SPEC-012 retain fallback, empty-suffix, validator and partial-header questions.",
+        "Single untranscoded JSON byte ranges work; JSON GET gzip expansion ignores Range and sends full 200. If-Range, XML/media-HEAD expansion and userProject remain unsupported; scoped fields/read ETags and retained versions work. Full ACL/owner and provider-exact transcoding/fallback/header parity remain pending under SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS, SPEC-012 and SPEC-015.",
         "Strict mode enforces storage.objects.get through project-plus-bucket predefined roles; allUsers and allAuthenticatedUsers bucket grants are enforced; broader bucket policies, object IAM policies and ACLs remain unsupported and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "SPEC-013: accepted GET/DELETE retry tokens execute again without response replay.",
         "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
@@ -14484,7 +14484,7 @@
         "SPEC-JSON-ETAG-WIRE: scoped GET validators and mixed query conditions pass; provider opaque tag/header/error parity remains open. Legacy bucket JSON etag can differ from HTTP; equal-revision same-millisecond incarnations can share a tag.",
         "SPEC-JSON-ETAG-WIRE: for gzip-stored media with an ETag request header, Accept-Encoding validation precedes a NotMatch-query 304; encoding errors can win. A NotMatch-query-only 304 without an ETag request header emits no ETag response header, preserving existing behavior.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
+        "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET gzip expansion is supported locally; XML/media-HEAD expansion, double-compression detection and provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
         "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending."
       ],
@@ -15766,10 +15766,11 @@
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation.",
         "SPEC-013/SPEC-016: media/multipart upload tokens use bounded persistent replay with or without generation conditions (docs/en/slices/sdk-upload-replay.md); resumable initiation accepts one nonempty token without it and creates another bounded session; multipart MIME caps/errors, contentType precedence and checksum-container edge rules remain local choices awaiting direct service evidence.",
         "SPEC-RSM-DISCOVERY-PATH/EDGES/AUTH-CONDITIONS: JSON resumable has explicit local edge/error/terminal-retention and permission-recheck choices. XML/signed initiation, gRPC and invocation-token replay are excluded. Selected native resumable process-kill boundaries pass; final hash reread and prepublication error-resolution timing limits are recorded in docs/en/evidence/resumable-upload.md.",
+        "PHP checksum compatibility: nonfinal chunks persist consistent whole-object declarations with their durable offset; status/completed retries can repeat persisted declarations or a subset only. New algorithms or conflicts return 400 without invalidating a retained completion. Finalization verifies all persisted hashes; no new checksum is silently ignored. This is a local accommodation with provider parity pending; source and acceptance tests: docs/en/slices/sdk-upload-replay.md.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
+        "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET gzip expansion is supported locally; XML/media-HEAD expansion, double-compression detection and provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "SPEC-013/SPEC-016: multipart query-name advisory conditions precede body input; metadata-only names are checked after bounded metadata before media, then atomically at publication. Matching retained upload tokens replay committed responses; new invocations still enforce conditions. Exact provider cache/error parity remains pending.",
         "SPEC-010/SPEC-016: Content-MD5 is rejected 501; checksum parser/reasons and multipart conflicting/unknown third-part fields are local rules. Resumable/composite checksum behavior remains absent. Current scope clarification: JSON resumable checksums are delivered in the basic-json-contract declared subset. Multipart X-Goog-Hash and multi-data-request resumable MD5 remain source questions under SPEC-016 / SPEC-RSM-EDGES; composite remains order 11.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
@@ -17011,7 +17012,7 @@
       ],
       "known_deviations": [
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
+        "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET gzip expansion is supported locally; XML/media-HEAD expansion, double-compression detection and provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
@@ -18137,7 +18138,7 @@
       ],
       "known_deviations": [
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
+        "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET gzip expansion is supported locally; XML/media-HEAD expansion, double-compression detection and provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
@@ -22759,7 +22760,7 @@
       ],
       "known_deviations": [
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md)."
+        "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET gzip expansion is supported locally; XML/media-HEAD expansion, double-compression detection and provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md."
       ],
       "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
       "last_verified": "2026-10-23"
@@ -25523,7 +25524,7 @@
       "known_deviations": [
         "Content-Type defaults locally to application/octet-stream when missing (SPEC-011).",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
+        "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET gzip expansion is supported locally; XML/media-HEAD expansion, double-compression detection and provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "SPEC-016: multipart contentType precedence/null-empty fallback and conservative MIME/input rules are local; non-null custom metadata UTF-8 key/value bytes are capped at 8192 before media/staging and rechecked at publication."
       ],
       "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
@@ -25748,7 +25749,7 @@
         "Generation nonreuse applies to identities allocated by v3 from an empty object catalog; intermediate unreleased v3 catalogs remain accepted.",
         "One live and retained noncurrent generations are supported; soft delete remains unavailable.",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md)."
+        "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET gzip expansion is supported locally; XML/media-HEAD expansion, double-compression detection and provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md."
       ],
       "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
       "last_verified": "2026-10-22"
@@ -26373,7 +26374,7 @@
       "known_deviations": [
         "SPEC-012: ETag encoding is a local opaque choice; JSON object/bucket GET now supports scoped If-Match/If-None-Match. Writes/lists remain 501; IAM GET and combined query conditions are supported under SPEC-JSON-ETAG-WIRE.",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
+        "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET gzip expansion is supported locally; XML/media-HEAD expansion, double-compression detection and provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "SPEC-JSON-ETAG-WIRE: scoped GET validators and mixed query conditions pass; provider opaque tag/header/error parity remains open. Legacy bucket JSON etag can differ from HTTP; equal-revision same-millisecond incarnations can share a tag."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
@@ -26770,7 +26771,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-009-REPLAY",
-          "description": "Implement bounded token response replay/deduplication (SPEC-013); current generation conditions prevent duplicate publication but do not replay success.",
+          "description": "Establish provider-exact token retention/conflict/error behavior under SPEC-013; media/multipart already replay bounded persistent success snapshots with current authorization and a shared copy/upload capacity limit.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -27783,7 +27784,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-015-PENDING",
-          "description": "Implement ranges/transcoding/cache/permission behavior, production redirect and independent full JSON media header parity.",
+          "description": "Complete provider range/cache/permission/header and redirect parity; bounded JSON GET gzip expansion is supported locally, while XML/media-HEAD expansion, double-compression handling and provider-exact transcoding remain pending.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -27837,7 +27838,7 @@
       ],
       "known_deviations": [
         "SPEC-009/012: ordinary media GET is direct 200 and JSON header parity/opaque identifiers remain scoped local choices.",
-        "Single ranges are covered by BEHAVIOR-OBJECT-016; If-Range and ETag conditions remain 501. No historical media or transcoding; strict authorization uses project roles only."
+        "Single ranges, selected historical media, scoped ETag conditions and strict project/bucket grants are supported. JSON GET gzip expansion is bounded and ignores Range with full 200; If-Range, XML/media-HEAD expansion, double-compression handling and provider-exact transcoding remain pending. See docs/en/slices/sdk-scorecard-integration.md."
       ],
       "implemented_in": "39ea714194c25fa06b1a6c6a933f0d946bb2db9e",
       "last_verified": "2026-10-21"
