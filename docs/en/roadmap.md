@@ -4,17 +4,44 @@
 
 [日本語](../ja/roadmap.md)
 
-First make gcs-mimic easy to run from a Docker image and use with existing
-fake-gcs-server workflows. Deliver missing capabilities in useful increments;
-reserve **1.0.0** for verified reference compatibility plus the named extensions.
+Updated **2026-10-29** against the `0.4.1` source, tests and recorded evidence.
+Continue closing the gaps in existing fake-gcs-server workflows through useful
+`0.x` increments; reserve **1.0.0** for verified reference compatibility plus
+the named extensions. The order below selects work, not release dates.
 
 ## Available today
 
-The current scoped workflows include multiple buckets, per-bucket CORS/IAM,
-object transfers and version history, persistent storage, one-time seed import,
-HTTP/HTTPS and V4 RSA signed transfers. Go/Ruby SDK and browser evidence exists
-for the documented subsets. These are not whole-API compatibility claims.
-See the [comparison](feature-comparison.md) and [feature matrix](feature-matrix.md).
+The [published 0.4.1 release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.4.1)
+provides native archives and Linux AMD64/ARM64 images on GHCR and Docker Hub.
+The HTTP quick start, HTTPS default, simultaneous HTTP/HTTPS listeners,
+public-host routing, default bucket location and log-level controls are available.
+The [configuration mapping](fake-gcs-server-configuration.md) documents native
+equivalents and diagnostics for all 19 known source environment variables.
+
+Scoped workflows include multiple buckets, per-bucket CORS/IAM, streaming
+transfers, rewrite/compose/move, version history, holds, bucket/object retention,
+soft delete/restore, V2/V4 RSA signed transfers and V4 signed POST policies.
+JSON ACL resources, notification configurations, HMAC key management and
+Autoclass settings also exist, with the effect limitations below.
+Storage v2 gRPC includes resumable and appendable writes and ranged reads;
+legacy Storage v1 serves the twelve inventoried reference RPCs with field limits.
+See the [0.4.0 feature scope and limits](releases/0.4.0.md).
+
+Bucket initialization creates missing buckets and preserves API changes.
+Seed files are applied on every startup and use extension-derived MIME types.
+They replace differing objects at the same names, subject to holds and retention;
+identical objects keep their generation. A sync directory mirrors API changes
+and ingests external creates/edits at startup or an internal rescan.
+The importer converts supported live filesystem snapshots with metadata
+and source identities.
+See [container usage](container-usage.md) and the
+[migration guide](fake-gcs-server-migration.md).
+
+Go/Ruby SDK and browser evidence covers declared subsets. Rails Active Storage
+has a [working application credential recipe](slices/sdk-local-auth-softdelete-notes.md),
+but default `storage.yml` authentication still attempts external OAuth and fails
+the offline scenario. These are not whole-API compatibility claims. See the
+[comparison](feature-comparison.md) and [feature matrix](feature-matrix.md).
 
 ## Missing capabilities, in priority order
 
@@ -23,35 +50,48 @@ blocks another track; a higher-priority row does not make every later row wait.
 
 | Priority | User outcome | Prerequisite | Can run alongside |
 | --- | --- | --- | --- |
-| First | Pull an image and finish HTTP quick start | Release/platform gates and authorized publication | All implementation tracks |
-| First | Translate familiar CLI/environment settings and public-host behavior | Pinned option, URL and routing contracts | Image preparation and storage design |
-| Next | Edit bucket/object files and see changes through the API in both directions | Conflict/name/recovery design and shared mutation contract | Initializer and import |
-| Next | Preserve fixture MIME/metadata and import existing filesystem data | Pinned source format, preservation and recovery contract | Initializer and directory sync |
-| Then | Run Rails and close remaining reference capabilities | Each API/profile contract; existing prerequisites in the detailed plan | Independent clients/protocols |
-| Final gate | Release a verified functional superset as 1.0.0 | Complete baseline, migration, named additions and release evidence | Gate combines completed tracks |
+| First | Observe external file creates/edits continuously | Bounded watcher/rescan contract | Import and reference coverage |
+| Next | Complete safe bidirectional synchronization | Deletion approval, conflicts and recovery | Independent client/protocol work |
+| Next | Preserve the remaining source state on migration | Source history, classes and cutover contract | Directory sync |
+| Then | Close reference behavior and ordinary Rails setup | Scoped API/profile and credential contracts | Independent reference capabilities |
+| Every release | Reconcile evidence and pass distribution gates | Platform, dependency and artifact verification | All implementation tracks |
+| Final gate | Release the verified superset as 1.0.0 | Complete baseline and named extensions | Combine verified scopes |
 
-Public image publication is pending; local ARM64 and emulated AMD64 images pass
-the [onboarding checks](evidence/container-onboarding.md). Version-1 initialization
-files create missing buckets and preserve API changes. A sync directory mirrors
-API writes and imports external creates and edits at startup; external deletion,
-a file watcher, conflict transfer and source-state import are not implemented.
+The next proposed slice is continuous observation of external creates/edits,
+reusing the existing [ingestion/rescan path](../../src/sync/ingest.rs).
+Define bounded event handling, missed-event reconciliation, partial-write settling
+and shutdown cases before implementation. Preserve the current no-external-delete
+and conflict-preservation rules; do not bundle deletion or strict sync into it.
+DESIGN-062, DESIGN-072 and DESIGN-074 remain `PARTIAL`.
 
-Configuration work covers all [19 source environment variables](fake-gcs-server-configuration.md).
-Missing behavior includes combined public-host/routing configuration, dual
-listeners, memory-mode ergonomics, notification settings, global location and
-log-level controls. Literal option-name equality is not required. Equivalent
-functionality still needs evidence before a compatibility claim.
+Further sync work includes external deletion and rename removal, deletion approval,
+conflict transfer/control, interrupted write-back recovery and platform guarantees.
+The [sync contract](slices/directory-synchronization.md) separates these pending
+cases from continuous API export and existing external create/edit ingestion.
 
-Remaining reference work includes ACL/metadata and wire differences, batch,
-helpers/events, Storage **v1** gRPC, embedded Go and both backend workflows.
-Source inventory determines the final set; these examples do not exclude an
-unlisted source capability. Rails integration is another required user journey.
+Import is no longer an unimplemented track. Its remaining scope includes archived
+or memory-backend history, original names lost by source normalization, source
+IAM/settings and safe cutover/rollback. Filesystem publication currently rejects
+non-`STANDARD` source object classes. Seed metadata sidecars remain unsupported.
+See the [import contract](slices/import-filesystem.md).
+
+Remaining reference work includes JSON/XML field and wire differences, HTTP batch,
+helper/reset/reseed routes, event publication, embedded Go and the memory backend.
+Existing legacy v1 RPCs still need full reference input/response coverage.
+ACL entries are stored and inherited but do not authorize object access;
+notification configurations do not publish events. HMAC keys do not authenticate
+requests. Autoclass automatic transitions and lifecycle action execution remain
+absent; customer-supplied keys enforce reads without encrypting local disk bytes.
+Broader Google behavior is separate from the pinned-reference minimum.
+Source inventory determines the final reference set; these examples do not exclude
+an unlisted source capability.
 
 ## Parallel development boundaries
 
-Distribution and configuration work can start independently. Agree on bucket
-identity, initialization permissions, startup/readiness ordering and the shared
-mutation interface before writing the initializer and sync adapters.
+Watcher, import and reference work can proceed independently where their own
+prerequisites are satisfied. Preserve the existing bucket identity, local
+administrative authority and startup/readiness ordering. Sync starts after ready;
+ready does not mean that its initial reconciliation has finished.
 
 The initializer owns file parsing and create-missing orchestration. The sync
 adapter owns watching, rescans and write-back. The importer owns read-only source
@@ -72,7 +112,9 @@ are implemented; IAM policy bootstrap remains outside that schema.
 Directory sync must handle API/file conflicts, unusual names, partial writes,
 missed events and recovery. The delivered subset leaves conflicting files in
 place; fix the remaining deletion and conflict-transfer policies before
-implementing them.
+implementing them. Sync currently requires permissive authentication; strict
+original-owner authorization remains pending. A permanent write-back I/O error
+can delay graceful shutdown until space or permissions are repaired.
 SQLite remains the catalog; monitoring files and updating only their sizes is
 not sufficient. See the [filesystem requirements](fake-gcs-server-storage.md#required-gcs-mimic-follow-up).
 
@@ -89,19 +131,24 @@ the specified extensions. Full Google API coverage is separate. See the
 
 ## First useful release
 
-Ship the declared JSON, public/private access and URL workflows with persistent
-storage, fixtures, Go/Ruby checks, CORS and local HTTPS evidence. Rails, lifecycle,
-gRPC and full reference parity are not prerequisites for the first `0.x` release.
+The first useful `0.x` release has shipped; `0.4.1` is the current published
+baseline. The original gate covered scoped JSON, public/private access and URL
+workflows, persistent storage, fixtures, Go/Ruby, CORS and local HTTPS.
+Rails, lifecycle, gRPC and full parity were not prerequisites for that first release.
 
-Required native CI/platform checks, current dependencies, release notes, packaged
-notices/checksums and verified public image access still gate publication.
-Local image checks do not complete those [distribution gates](container-distribution.md).
+Native CI/platform checks, current dependencies, release notes, packaged
+notices/checksums and verified public image access still gate each release.
+The DIST-001 through DIST-005 ledger rows remain `PARTIAL`; published artifacts
+do not close their remaining acceptance or evidence-reconciliation work.
+Local checks alone do not complete the [distribution gates](container-distribution.md).
 
 ## Beyond reference compatibility
 
 Continue broader Google coverage in independently verified slices: remaining
-XML and Storage v2 gRPC, additional SDKs, advanced policy/retention/lifecycle,
-hierarchical storage, Rapid and service simulations. These remain in the
+XML and Storage v2 gRPC fields/operations, additional SDKs, advanced policy,
+retention and lifecycle effects, hierarchical storage, full Rapid bucket
+semantics and service simulations. Existing appendable-object support does not
+reproduce zonal Rapid storage. These remain in the
 [detailed coverage plan](delivery-plan.md#coverage-retained-for-later-delivery).
 
 The [feature ledger](../../compatibility/features.json) owns implementation
