@@ -146,11 +146,12 @@ pub fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, JsonError>
             "Missing required topic; set topic to //pubsub.googleapis.com/projects/PROJECT/topics/TOPIC",
         )
     })?;
-    let topic = notification::normalize_topic(topic).map_err(invalid)?;
+    let topic = notification::normalize_topic(topic).map_err(|error| invalid(error.to_string()))?;
     let payload_format = string("payload_format")?
         .unwrap_or("JSON_API_V1")
         .to_owned();
-    notification::validate_payload_format(&payload_format).map_err(invalid)?;
+    notification::validate_payload_format(&payload_format)
+        .map_err(|error| invalid(error.to_string()))?;
     let event_types = match field("event_types") {
         None => Vec::new(),
         Some(value) => value
@@ -165,7 +166,7 @@ pub fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, JsonError>
             })
             .collect::<Result<Vec<_>, _>>()?,
     };
-    notification::validate_event_types(&event_types).map_err(invalid)?;
+    notification::validate_event_types(&event_types).map_err(|error| invalid(error.to_string()))?;
     let custom_attributes = match field("custom_attributes") {
         None => BTreeMap::new(),
         Some(value) => value
@@ -180,9 +181,11 @@ pub fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, JsonError>
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?,
     };
-    notification::validate_custom_attributes(&custom_attributes).map_err(invalid)?;
+    notification::validate_custom_attributes(&custom_attributes)
+        .map_err(|error| invalid(error.to_string()))?;
     let object_name_prefix = string("object_name_prefix")?.unwrap_or_default().to_owned();
-    notification::validate_object_name_prefix(&object_name_prefix).map_err(invalid)?;
+    notification::validate_object_name_prefix(&object_name_prefix)
+        .map_err(|error| invalid(error.to_string()))?;
     Ok(NotificationConfig {
         topic,
         payload_format,

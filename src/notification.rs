@@ -4,7 +4,7 @@
 //! the emulator does not contact Google Cloud. The supported subset is recorded in
 //! `docs/en/slices/bucket-notifications.md`.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 /// Event types listed in the Cloud Storage Pub/Sub notification documentation.
 pub const EVENT_TYPES: [&str; 4] = [
@@ -31,6 +31,65 @@ pub struct NotificationConfig {
     /// Empty means every object name.
     pub object_name_prefix: String,
 }
+
+/// A rejected notification configuration. `Display` is the client-visible JSON error message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NotificationError {
+    InvalidTopic(String),
+    InvalidPayloadFormat(String),
+    InvalidEventType(String),
+    DuplicateEventType(String),
+    TooManyCustomAttributes(usize),
+    InvalidCustomAttributeKey(String),
+    CustomAttributeTooLong(String),
+    ObjectNamePrefixTooLong,
+    BucketLimit,
+    EventTypeLimit(String),
+}
+
+impl fmt::Display for NotificationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidTopic(topic) => write!(
+                f,
+                "Invalid topic {topic:?}; use //pubsub.googleapis.com/projects/PROJECT/topics/TOPIC (for example, //pubsub.googleapis.com/projects/local-project/topics/uploads)"
+            ),
+            Self::InvalidPayloadFormat(format) => write!(
+                f,
+                "Invalid payload_format {format:?}; use JSON_API_V1 or NONE"
+            ),
+            Self::InvalidEventType(event) => write!(
+                f,
+                "Invalid event type {event:?}; use OBJECT_FINALIZE, OBJECT_METADATA_UPDATE, OBJECT_DELETE or OBJECT_ARCHIVE"
+            ),
+            Self::DuplicateEventType(event) => {
+                write!(f, "Duplicate event type {event}; list each event type once")
+            }
+            Self::TooManyCustomAttributes(count) => write!(
+                f,
+                "custom_attributes has {count} entries; a notification allows at most {MAX_CUSTOM_ATTRIBUTES}"
+            ),
+            Self::InvalidCustomAttributeKey(key) => write!(
+                f,
+                "Invalid custom attribute key {key:?}; use 1 to 256 bytes that do not start with goog"
+            ),
+            Self::CustomAttributeTooLong(key) => {
+                write!(f, "Custom attribute {key:?} exceeds 1024 bytes")
+            }
+            Self::ObjectNamePrefixTooLong => f.write_str("object_name_prefix exceeds 1024 bytes"),
+            Self::BucketLimit => write!(
+                f,
+                "Bucket already has {MAX_PER_BUCKET} notification configurations; delete one before adding another"
+            ),
+            Self::EventTypeLimit(event) => write!(
+                f,
+                "Bucket already has {MAX_PER_EVENT_TYPE} notification configurations for {event}; delete one or narrow event_types"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for NotificationError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NotificationRecord {
@@ -113,13 +172,9 @@ impl NotificationConfig {
 
 /// Accept the documented full resource name and the relative `projects/.../topics/...` name
 /// that official SDKs send, and store only the full form.
-pub fn normalize_topic(topic: &str) -> Result<String, String> {
+pub fn normalize_topic(topic: &str) -> Result<String, NotificationError> {
     let relative = topic.strip_prefix(TOPIC_PREFIX).unwrap_or(topic);
-    let invalid = || {
-        format!(
-            "Invalid topic {topic:?}; use //pubsub.googleapis.com/projects/PROJECT/topics/TOPIC (for example, //pubsub.googleapis.com/projects/local-project/topics/uploads)"
-        )
-    };
+    let invalid = || NotificationError::InvalidTopic(topic.to_owned());
     let mut parts = relative.split('/');
     let (Some("projects"), Some(project), Some("topics"), Some(name), None) = (
         parts.next(),
@@ -152,57 +207,48 @@ pub fn normalize_topic(topic: &str) -> Result<String, String> {
     Ok(format!("{TOPIC_PREFIX}projects/{project}/topics/{name}"))
 }
 
-pub fn validate_payload_format(format: &str) -> Result<(), String> {
+pub fn validate_payload_format(format: &str) -> Result<(), NotificationError> {
     if PAYLOAD_FORMATS.contains(&format) {
         Ok(())
     } else {
-        Err(format!(
-            "Invalid payload_format {format:?}; use JSON_API_V1 or NONE"
-        ))
+        Err(NotificationError::InvalidPayloadFormat(format.to_owned()))
     }
 }
 
-pub fn validate_event_types(events: &[String]) -> Result<(), String> {
+pub fn validate_event_types(events: &[String]) -> Result<(), NotificationError> {
     for (index, event) in events.iter().enumerate() {
         if !EVENT_TYPES.contains(&event.as_str()) {
-            return Err(format!(
-                "Invalid event type {event:?}; use OBJECT_FINALIZE, OBJECT_METADATA_UPDATE, OBJECT_DELETE or OBJECT_ARCHIVE"
-            ));
+            return Err(NotificationError::InvalidEventType(event.clone()));
         }
         if events[..index].contains(event) {
-            return Err(format!(
-                "Duplicate event type {event}; list each event type once"
-            ));
+            return Err(NotificationError::DuplicateEventType(event.clone()));
         }
     }
     Ok(())
 }
 
-pub fn validate_custom_attributes(attributes: &BTreeMap<String, String>) -> Result<(), String> {
+pub fn validate_custom_attributes(
+    attributes: &BTreeMap<String, String>,
+) -> Result<(), NotificationError> {
     if attributes.len() > MAX_CUSTOM_ATTRIBUTES {
-        return Err(format!(
-            "custom_attributes has {} entries; a notification allows at most {MAX_CUSTOM_ATTRIBUTES}",
-            attributes.len()
-        ));
+        return Err(NotificationError::TooManyCustomAttributes(attributes.len()));
     }
     // Pub/Sub message attribute bounds: these values are copied onto every published message.
     for (key, value) in attributes {
         if key.is_empty() || key.len() > 256 || key.starts_with("goog") {
-            return Err(format!(
-                "Invalid custom attribute key {key:?}; use 1 to 256 bytes that do not start with goog"
-            ));
+            return Err(NotificationError::InvalidCustomAttributeKey(key.clone()));
         }
         if value.len() > 1024 {
-            return Err(format!("Custom attribute {key:?} exceeds 1024 bytes"));
+            return Err(NotificationError::CustomAttributeTooLong(key.clone()));
         }
     }
     Ok(())
 }
 
-pub fn validate_object_name_prefix(prefix: &str) -> Result<(), String> {
+pub fn validate_object_name_prefix(prefix: &str) -> Result<(), NotificationError> {
     // A prefix longer than the object-name limit could never match an object.
     if prefix.len() > 1024 {
-        return Err("object_name_prefix exceeds 1024 bytes".into());
+        return Err(NotificationError::ObjectNamePrefixTooLong);
     }
     Ok(())
 }
@@ -211,11 +257,9 @@ pub fn validate_object_name_prefix(prefix: &str) -> Result<(), String> {
 pub fn check_limits(
     existing: &[NotificationConfig],
     candidate: &NotificationConfig,
-) -> Result<(), String> {
+) -> Result<(), NotificationError> {
     if existing.len() >= MAX_PER_BUCKET {
-        return Err(format!(
-            "Bucket already has {MAX_PER_BUCKET} notification configurations; delete one before adding another"
-        ));
+        return Err(NotificationError::BucketLimit);
     }
     for event in candidate.effective_event_types() {
         let count = existing
@@ -223,9 +267,7 @@ pub fn check_limits(
             .filter(|config| config.effective_event_types().any(|other| other == event))
             .count();
         if count >= MAX_PER_EVENT_TYPE {
-            return Err(format!(
-                "Bucket already has {MAX_PER_EVENT_TYPE} notification configurations for {event}; delete one or narrow event_types"
-            ));
+            return Err(NotificationError::EventTypeLimit(event.to_owned()));
         }
     }
     Ok(())

@@ -141,7 +141,8 @@ impl Catalog {
                 .into_iter()
                 .map(|record| record.config)
                 .collect();
-            check_limits(&existing, &config).map_err(CatalogError::InvalidMetadata)?;
+            check_limits(&existing, &config)
+                .map_err(|error| CatalogError::InvalidMetadata(error.to_string()))?;
             let id: i64 = transaction
                 .query_row(
                     "INSERT INTO bucket_notification_ids VALUES (?1, 1)
