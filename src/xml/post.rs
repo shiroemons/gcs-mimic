@@ -25,6 +25,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::{
     HeaderMap, Request, Response, StatusCode, Uri,
     body::{Body, Bytes, Incoming},
+    header::HeaderValue,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -306,7 +307,9 @@ fn check_policy(
         let unsupported = || policy_error(format!("Unsupported policy condition {condition}."));
         let (operator, field, expected) = match condition {
             serde_json::Value::Object(entry) if entry.len() == 1 => {
-                let (field, value) = entry.iter().next().unwrap();
+                let Some((field, value)) = entry.iter().next() else {
+                    return Err(unsupported());
+                };
                 (
                     "eq",
                     field.to_ascii_lowercase(),
@@ -388,7 +391,8 @@ fn check_policy(
 
 enum Success {
     Status(StatusCode),
-    Redirect(String),
+    /// The validated `success_action_redirect`, already in its `Location` header form.
+    Redirect(HeaderValue),
 }
 
 struct Plan {
@@ -481,14 +485,15 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
     };
     json::validate_object_name(&name)?;
     let success = if let Some(url) = fields.get("success_action_redirect") {
-        let uri: Uri = url
+        let location = url
             .parse()
             .ok()
             .filter(|uri: &Uri| {
                 matches!(uri.scheme_str(), Some("http" | "https")) && uri.authority().is_some()
             })
+            .and_then(|uri| HeaderValue::try_from(uri.to_string()).ok())
             .ok_or_else(|| invalid("success_action_redirect must be an absolute HTTP(S) URL."))?;
-        Success::Redirect(uri.to_string())
+        Success::Redirect(location)
     } else {
         match fields.get("success_action_status").map(String::as_str) {
             None | Some("204") => Success::Status(StatusCode::NO_CONTENT),
@@ -753,16 +758,17 @@ pub(crate) async fn respond(
         ),
         Success::Status(status) => (status, String::new(), None),
     };
-    let mut response = Response::builder().status(status);
-    if let Success::Redirect(url) = &success {
-        response = response.header("location", url);
+    let content_length = HeaderValue::from(body.len());
+    let mut response = boxed(Response::new(Full::new(Bytes::from(body))));
+    *response.status_mut() = status;
+    if let Success::Redirect(location) = success {
+        response.headers_mut().insert("location", location);
     }
     if let Some(content_type) = content_type {
-        response = response
-            .header("content-type", content_type)
-            .header("content-length", body.len());
+        let headers = response.headers_mut();
+        headers.insert("content-type", HeaderValue::from_static(content_type));
+        headers.insert("content-length", content_length);
     }
-    let mut response = boxed(response.body(Full::new(Bytes::from(body))).unwrap());
     for name in [
         "etag",
         "x-goog-generation",

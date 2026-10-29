@@ -239,9 +239,13 @@ fn valid_date(value: &str) -> bool {
     {
         return false;
     }
-    let year: u32 = value[..4].parse().unwrap();
-    let month: u32 = value[5..7].parse().unwrap();
-    let day: u32 = value[8..].parse().unwrap();
+    let (Ok(year), Ok(month), Ok(day)) = (
+        value[..4].parse::<u32>(),
+        value[5..7].parse::<u32>(),
+        value[8..].parse::<u32>(),
+    ) else {
+        return false;
+    };
     let days = match month {
         4 | 6 | 9 | 11 => 30,
         2 => {

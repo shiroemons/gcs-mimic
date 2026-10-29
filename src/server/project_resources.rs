@@ -1,5 +1,8 @@
 //! Dispatch for project-scoped JSON resources: HMAC keys and the service agent.
-use super::{BUCKET_BODY_LIMIT, State, authorize_project, empty_response, validate_bodyless_post};
+use super::{
+    BUCKET_BODY_LIMIT, State, authorize_project, empty_response, json_response,
+    validate_bodyless_post,
+};
 use crate::auth::{AuthFailure, Caller};
 use crate::json::{self, Fields, JsonError, ProjectRequest};
 use crate::storage::hmac_keys::HmacKeyListQuery;
@@ -119,8 +122,5 @@ pub(super) async fn respond(
         ProjectRequest::GetServiceAccount { project } => json::service_account(&project),
     };
     fields.apply(&mut value);
-    Ok(Response::builder()
-        .header("content-type", "application/json; charset=UTF-8")
-        .body(Full::new(Bytes::from(value.to_string())))
-        .unwrap())
+    Ok(json_response(&value))
 }

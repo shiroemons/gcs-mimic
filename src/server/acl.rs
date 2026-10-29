@@ -1,6 +1,6 @@
 //! JSON ACL handlers and the ACL fields of `projection=full` resources.
 
-use super::{State, authorize_bucket, empty_response};
+use super::{State, authorize_bucket, empty_response, json_response};
 use crate::{
     acl::{AclKind, AclTarget},
     auth::{self, Caller},
@@ -176,10 +176,7 @@ pub(super) async fn respond(
         }
     };
     fields.apply(&mut value);
-    Ok(Response::builder()
-        .header("content-type", "application/json; charset=UTF-8")
-        .body(Full::new(Bytes::from(value.to_string())))
-        .unwrap())
+    Ok(json_response(&value))
 }
 
 /// Whether a bucket or object request renders `projection=full`; PUT defaults to full.

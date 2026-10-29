@@ -158,9 +158,10 @@ impl DeadlineReply {
         } else {
             boxed(error.into_response())
         };
-        response
-            .headers_mut()
-            .insert("connection", "close".parse().unwrap());
+        response.headers_mut().insert(
+            "connection",
+            hyper::header::HeaderValue::from_static("close"),
+        );
         response
     }
 }
@@ -554,9 +555,10 @@ async fn serve_connection(
                 // closes the connection. Announcing the close keeps a pooled client from
                 // sending its next request into the closing socket.
                 if sent_body && response.status().as_u16() >= 400 {
-                    response
-                        .headers_mut()
-                        .insert("connection", "close".parse().unwrap());
+                    response.headers_mut().insert(
+                        "connection",
+                        hyper::header::HeaderValue::from_static("close"),
+                    );
                 }
                 responded.store(true, Ordering::Release);
                 Ok::<_, Infallible>(response.map(|body| finished.track(body)))
@@ -686,7 +688,10 @@ async fn respond(
         let mut response = if preflight {
             let status = json::cors::preflight_status(request.headers());
             if status == StatusCode::NOT_FOUND {
-                headers.insert("access-control-allow-credentials", "true".parse().unwrap());
+                headers.insert(
+                    "access-control-allow-credentials",
+                    hyper::header::HeaderValue::from_static("true"),
+                );
                 boxed(
                     JsonError::new(
                         StatusCode::NOT_FOUND,
@@ -752,13 +757,11 @@ async fn respond(
         if !response.headers().contains_key("vary") {
             response.headers_mut().insert(
                 "vary",
-                if preflight {
+                hyper::header::HeaderValue::from_static(if preflight {
                     "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
                 } else {
                     "Origin"
-                }
-                .parse()
-                .unwrap(),
+                }),
             );
         }
         return response;
@@ -995,13 +998,15 @@ async fn respond_routed(
             && response.status() != StatusCode::NOT_MODIFIED
         {
             let (mut parts, body) = response.into_parts();
-            let mut bytes = body.collect().await.unwrap().to_bytes().to_vec();
+            let Ok(collected) = body.collect().await;
+            let mut bytes = collected.to_bytes().to_vec();
             if !bytes.ends_with(b"\n") {
                 bytes.push(b'\n');
             }
-            parts
-                .headers
-                .insert("content-type", "application/json".parse().unwrap());
+            parts.headers.insert(
+                "content-type",
+                hyper::header::HeaderValue::from_static("application/json"),
+            );
             response = Response::from_parts(parts, Full::new(Bytes::from(bytes)));
         }
         return boxed(response);
@@ -1756,10 +1761,9 @@ async fn object_response(
                         let mut response = error
                             .into_response()
                             .map(|body| body.map_err(|never| match never {}).boxed_unsync());
-                        response.headers_mut().insert(
-                            "content-range",
-                            format!("bytes */{}", record.size).parse().unwrap(),
-                        );
+                        response
+                            .headers_mut()
+                            .insert("content-range", unsatisfied_content_range(record.size));
                         return Ok(response);
                     }
                 };
@@ -1772,12 +1776,7 @@ async fn object_response(
                         )
                     })?;
                     headers.insert("content-length", length.into());
-                    headers.insert(
-                        "content-range",
-                        format!("bytes {}-{}/{}", offset, offset + length - 1, record.size)
-                            .parse()
-                            .unwrap(),
-                    );
+                    headers.insert("content-range", content_range(offset, length, record.size));
                 }
                 let mut response = Response::new(object_body(reader, activity));
                 if range.is_some() {
@@ -1861,12 +1860,7 @@ async fn object_response(
         }
     }
     fields.apply(&mut value);
-    Ok(boxed(
-        Response::builder()
-            .header("content-type", "application/json; charset=UTF-8")
-            .body(Full::new(Bytes::from(value.to_string())))
-            .unwrap(),
-    ))
+    Ok(boxed(json_response(&value)))
 }
 
 fn object_body(
@@ -1986,18 +1980,14 @@ async fn xml_response(
         Ok(range) => range,
         Err(_) if head => {
             // HEAD's Range only adds Content-Range; status and representation length stay unchanged.
-            headers.insert(
-                "content-range",
-                format!("bytes */{}", record.size).parse().unwrap(),
-            );
+            headers.insert("content-range", unsatisfied_content_range(record.size));
             None
         }
         Err(error) => {
             let mut response = boxed(xml::Error::from(error).response(head));
-            response.headers_mut().insert(
-                "content-range",
-                format!("bytes */{}", record.size).parse().unwrap(),
-            );
+            response
+                .headers_mut()
+                .insert("content-range", unsatisfied_content_range(record.size));
             return Ok(response);
         }
     };
@@ -2012,12 +2002,7 @@ async fn xml_response(
             })?;
             headers.insert("content-length", length.into());
         }
-        headers.insert(
-            "content-range",
-            format!("bytes {}-{}/{}", offset, offset + length - 1, record.size)
-                .parse()
-                .unwrap(),
-        );
+        headers.insert("content-range", content_range(offset, length, record.size));
     }
     let mut response = if head {
         boxed(empty_response(StatusCode::OK))
@@ -2441,10 +2426,12 @@ async fn bucket_response(
                 .await
                 .map_err(|error| bucket_catalog_error(error, profile, None))?;
             return Ok(if profile == CompatProfile::LegacyEmulator {
-                Response::builder()
-                    .header("content-type", "application/json")
-                    .body(Full::new(Bytes::from_static(b"null\n")))
-                    .unwrap()
+                let mut response = Response::new(Full::new(Bytes::from_static(b"null\n")));
+                response.headers_mut().insert(
+                    "content-type",
+                    hyper::header::HeaderValue::from_static("application/json"),
+                );
+                response
             } else {
                 empty_response(StatusCode::NO_CONTENT)
             });
@@ -2454,10 +2441,7 @@ async fn bucket_response(
         acl::add_full_projection(state, caller, &mut value).await?;
     }
     fields.apply(&mut value);
-    Ok(Response::builder()
-        .header("content-type", "application/json; charset=UTF-8")
-        .body(Full::new(Bytes::from(value.to_string())))
-        .unwrap())
+    Ok(json_response(&value))
 }
 
 fn bucket_catalog_error(
@@ -2504,12 +2488,11 @@ fn not_modified_response(
     etag: &hyper::header::HeaderValue,
     cache_control: &hyper::header::HeaderValue,
 ) -> Response<Full<Bytes>> {
-    Response::builder()
-        .status(StatusCode::NOT_MODIFIED)
-        .header("etag", etag)
-        .header("cache-control", cache_control)
-        .body(Full::new(Bytes::new()))
-        .unwrap()
+    let mut response = empty_response(StatusCode::NOT_MODIFIED);
+    let headers = response.headers_mut();
+    headers.insert("etag", etag.clone());
+    headers.insert("cache-control", cache_control.clone());
+    response
 }
 
 fn read_metadata_response(
@@ -2519,26 +2502,51 @@ fn read_metadata_response(
     fields: &json::Fields,
     query_not_modified: bool,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    if read_etag_not_modified(headers, etag)? || query_not_modified {
-        return Ok(not_modified_response(
-            &etag.parse().unwrap(),
-            &hyper::header::HeaderValue::from_static("no-cache"),
-        ));
+    let not_modified = read_etag_not_modified(headers, etag)? || query_not_modified;
+    let etag = hyper::header::HeaderValue::from_str(etag)
+        .expect("ETags are rendered locally from quoted ASCII digits and base64");
+    let no_cache = hyper::header::HeaderValue::from_static("no-cache");
+    if not_modified {
+        return Ok(not_modified_response(&etag, &no_cache));
     }
     fields.apply(&mut value);
-    Ok(Response::builder()
-        .header("content-type", "application/json; charset=UTF-8")
-        .header("etag", etag)
-        .header("cache-control", "no-cache")
-        .body(Full::new(Bytes::from(value.to_string())))
-        .unwrap())
+    let mut response = json_response(&value);
+    response.headers_mut().insert("etag", etag);
+    response.headers_mut().insert("cache-control", no_cache);
+    Ok(response)
 }
 
 fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
-    Response::builder()
-        .status(status)
-        .body(Full::new(Bytes::new()))
-        .unwrap()
+    let mut response = Response::new(Full::new(Bytes::new()));
+    *response.status_mut() = status;
+    response
+}
+
+/// A `200 OK` JSON API resource.
+fn json_response(value: &serde_json::Value) -> Response<Full<Bytes>> {
+    let mut response = Response::new(Full::new(Bytes::from(value.to_string())));
+    response.headers_mut().insert(
+        "content-type",
+        hyper::header::HeaderValue::from_static("application/json; charset=UTF-8"),
+    );
+    response
+}
+
+/// `Content-Range` for a satisfiable range; decimal positions always form a valid value.
+fn content_range(offset: u64, length: u64, size: u64) -> hyper::header::HeaderValue {
+    hyper::header::HeaderValue::try_from(format!(
+        "bytes {}-{}/{}",
+        offset,
+        offset + length - 1,
+        size
+    ))
+    .expect("a decimal byte range is a valid header value")
+}
+
+/// `Content-Range` for an unsatisfiable range request.
+fn unsatisfied_content_range(size: u64) -> hyper::header::HeaderValue {
+    hyper::header::HeaderValue::try_from(format!("bytes */{size}"))
+        .expect("a decimal object size is a valid header value")
 }
 
 fn probe_or_unknown(request: &Request<Incoming>, state: &State) -> Response<Full<Bytes>> {
@@ -2581,18 +2589,24 @@ fn probe_or_unknown(request: &Request<Incoming>, state: &State) -> Response<Full
             format!("{{\"status\":\"ok\",\"unix_time\":{now}}}"),
         )
     };
-    let mut response = Response::builder()
-        .status(status)
-        .header("content-type", "application/json")
-        .header("content-length", body.len());
+    let content_length = hyper::header::HeaderValue::from(body.len());
+    let mut response = Response::new(Full::new(if request.method() == Method::HEAD {
+        Bytes::new()
+    } else {
+        Bytes::from(body)
+    }));
+    *response.status_mut() = status;
+    let headers = response.headers_mut();
+    headers.insert(
+        "content-type",
+        hyper::header::HeaderValue::from_static("application/json"),
+    );
+    headers.insert("content-length", content_length);
     if status == StatusCode::METHOD_NOT_ALLOWED {
-        response = response.header("allow", "GET, HEAD");
+        headers.insert(
+            "allow",
+            hyper::header::HeaderValue::from_static("GET, HEAD"),
+        );
     }
     response
-        .body(Full::new(if request.method() == Method::HEAD {
-            Bytes::new()
-        } else {
-            Bytes::from(body)
-        }))
-        .unwrap()
 }

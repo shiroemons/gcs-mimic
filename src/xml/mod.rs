@@ -108,16 +108,20 @@ impl Error {
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Error><Code>{}</Code><Message>{escaped}</Message></Error>",
             self.code
         );
-        Response::builder()
-            .status(self.status)
-            .header("content-type", "application/xml; charset=UTF-8")
-            .header("content-length", body.len())
-            .body(Full::new(if head {
-                Bytes::new()
-            } else {
-                Bytes::from(body)
-            }))
-            .unwrap()
+        let content_length = HeaderValue::from(body.len());
+        let mut response = Response::new(Full::new(if head {
+            Bytes::new()
+        } else {
+            Bytes::from(body)
+        }));
+        *response.status_mut() = self.status;
+        let headers = response.headers_mut();
+        headers.insert(
+            "content-type",
+            HeaderValue::from_static("application/xml; charset=UTF-8"),
+        );
+        headers.insert("content-length", content_length);
+        response
     }
 }
 

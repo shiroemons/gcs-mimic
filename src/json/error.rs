@@ -107,10 +107,9 @@ impl JsonError {
 
     pub fn into_response(self) -> Response<Full<Bytes>> {
         if self.status == StatusCode::NOT_MODIFIED {
-            return Response::builder()
-                .status(self.status)
-                .body(Full::new(Bytes::new()))
-                .unwrap();
+            let mut response = Response::new(Full::new(Bytes::new()));
+            *response.status_mut() = self.status;
+            return response;
         }
         let mut response = Response::new(Full::new(Bytes::from(self.value().to_string())));
         *response.status_mut() = self.status;

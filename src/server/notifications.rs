@@ -74,8 +74,5 @@ pub(super) async fn respond(
         }
     };
     fields.apply(&mut value);
-    Ok(Response::builder()
-        .header("content-type", "application/json; charset=UTF-8")
-        .body(Full::new(Bytes::from(value.to_string())))
-        .unwrap())
+    Ok(json_response(&value))
 }

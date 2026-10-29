@@ -2,8 +2,9 @@ use super::{JsonError, read_body};
 use crate::storage::Catalog;
 use http_body_util::Full;
 use hyper::{
-    Request, Response,
+    Request, Response, StatusCode,
     body::{Body, Bytes},
+    header::{CACHE_CONTROL, HeaderValue},
 };
 
 pub async fn cancel_response<B: Body + Unpin>(
@@ -19,9 +20,12 @@ pub async fn cancel_response<B: Body + Unpin>(
         .cancel_resumable_session(id, bucket)
         .await
         .map_err(JsonError::from)?;
-    Ok(Response::builder()
-        .status(499)
-        .header("cache-control", "no-store")
-        .body(Full::new(Bytes::new()))
-        .unwrap())
+    let mut response = Response::new(Full::new(Bytes::new()));
+    // Google answers a cancelled resumable session with the nonstandard 499 status.
+    *response.status_mut() =
+        StatusCode::from_u16(499).expect("499 lies within the valid 100..=999 status range");
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
 }

@@ -209,6 +209,7 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
         metadata.storage_class = Some(class.to_owned());
     }
     let mut custom = BTreeMap::new();
+    let mut custom_bytes = 0usize;
     for name in headers.keys() {
         if let Some(key) = name.as_str().strip_prefix("x-goog-meta-") {
             if key.is_empty() {
@@ -218,18 +219,14 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
                     "Custom metadata requires a key.",
                 ));
             }
-            custom.insert(
-                key.to_owned(),
-                Some(single(headers, name.as_str())?.unwrap().to_owned()),
-            );
+            // `name` comes from this map, so the header is present.
+            if let Some(value) = single(headers, name.as_str())? {
+                custom_bytes += key.len() + value.len();
+                custom.insert(key.to_owned(), Some(value.to_owned()));
+            }
         }
     }
-    if custom
-        .iter()
-        .map(|(key, value)| key.len() + value.as_ref().unwrap().len())
-        .sum::<usize>()
-        > 8192
-    {
+    if custom_bytes > 8192 {
         return Err(Error::new(
             StatusCode::BAD_REQUEST,
             "MetadataTooLarge",
@@ -357,9 +354,9 @@ pub(crate) async fn respond(
         "x-goog-stored-content-length",
         "x-goog-stored-content-encoding",
     ] {
-        response
-            .headers_mut()
-            .insert(name, headers.remove(name).unwrap());
+        if let Some(value) = headers.remove(name) {
+            response.headers_mut().insert(name, value);
+        }
     }
     Ok(response)
 }

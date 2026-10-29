@@ -677,7 +677,9 @@ pub fn bucket_resource_with_profile(
             value["storageClass"] = "STANDARD".into();
             value["etag"] = "RVRhZw==".into();
             value["updated"] = value["timeCreated"].clone();
-            value.as_object_mut().unwrap().remove("labels");
+            if let Some(object) = value.as_object_mut() {
+                object.remove("labels");
+            }
         }
     }
     Ok(value)

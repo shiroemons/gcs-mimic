@@ -23,7 +23,10 @@ fn matches_field(
     strong: bool,
 ) -> Result<Option<bool>, EtagError> {
     let values = headers.get_all(name);
-    if values.iter().count() == 1 && values.iter().next().unwrap().as_bytes().trim_ascii() == b"*" {
+    let mut iter = values.iter();
+    if let (Some(only), None) = (iter.next(), iter.next())
+        && only.as_bytes().trim_ascii() == b"*"
+    {
         return Ok(Some(true));
     }
     let mut matched = None;
