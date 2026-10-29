@@ -22,6 +22,8 @@ failures; complete-method compatibility is not claimed here.
 | JSON-OBJECTS-009, BEHAVIOR-OBJECT-028 | Node's empty move options serialize as `{}`; accept only that empty JSON object or no body, and reject meaningful body fields before mutation | `move_rejects_missing_same_name_holds_and_unsupported_inputs` |
 | JSON-OBJECTS-002, BEHAVIOR-OBJECT-034 | Python's null optional source generation selects the live source; its nested null retentionExpirationTime changes no retention semantics; malformed generations, null source conditions and nonnull nested expiration remain rejected | `compose_body_rejects_invalid_generation_values`, `object_retention_json_parsing_boundaries` |
 | JSON-OBJECTS-005, AUDIT-004 | JSON media expands gzip when negotiation requires it, skips Range, retains stored-representation headers/ETag and conditions, and aborts invalid or oversized expansion; gzip acceptance and no-transform return stored bytes | `json_gzip_negotiation_range_and_conditions_preserve_stored_representation`, `json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof` |
+| JSON-OBJECTS-003, DESIGN-082 | Copy invocation tokens bind raw body/query, both key digests and bucket incarnations; concurrent retries publish one generation and retain the original authorized metadata/ACL snapshot across changes, deletion and restart | `copy_token_*`, `copy_replay_*`; [copy scope and limits](sdk-upload-replay.md#json-copy-replay) |
+| JSON-OBJECTS-007, BEHAVIOR-OBJECT-011/014 | Completed status/final/data retries accept only persisted checksum declarations or subsets, reject new/conflicting declarations and preserve the completion for a later valid retry | `completed_retries_reject_new_checksums_without_invalidating_completion` |
 
 The official sources, checked content digests, SDK revisions and exact local
 limits are in the linked contracts and committed lockfiles. Source documents
@@ -40,22 +42,33 @@ The integrated source passed the initial unfiltered
 | `cargo test --locked --lib object_resource_acl_echo_and_replacement_keep_read_and_write_permissions_separate -- --nocapture` | PASS; one real-HTTP permissions regression |
 | `cargo test --locked --lib upload_replay -- --nocapture` | PASS; six replay/header tests before the additional advisory MIME negative case |
 | `cargo test --locked --lib python_advisory_content_type_rejects_empty_malformed_and_duplicate_values -- --nocapture` | PASS; media/multipart/continuation rejection and preserved initiation fallback |
+| `cargo test --locked --lib server::gzip::tests` | PASS; three bounded-input/output/header/member/corruption tests |
+| `cargo test --locked --test sdk_object_wire_http` | PASS; three JSON metadata HEAD and gzip negotiation/corruption/cap tests |
+| `cargo test --locked --test object_metadata_http --test object_range_http` | PASS; 21 metadata, representation, range and ETag tests, including complete chunked-body validation |
+| `cargo test --locked --test object_copy_http` | PASS; 14 copy tests |
+| `cargo test --locked --lib copy_replay_` | PASS; key binding/capacity and oversized-completion rollback |
+| `cargo test --locked --lib completed_retries_reject_new_checksums_without_invalidating_completion` | PASS; completed status/final/data checksum constraints preserve replay |
 | `bash sdk-scorecard/test-tls.sh` | PASS; 16 real-client CA/SAN/origin combinations, including the Ruby SDK adapter |
-| `bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked` | PASS; 1247 passed, 0 failed, 0 ignored across 50 test-result summaries |
+| `bash scripts/with-test-tmpdir.sh cargo test --workspace --all-targets --locked` | PASS; 1262 passed, 0 failed, 0 ignored across 51 test-result summaries on the final behavior/test source |
 | `cargo fmt --all --check` | PASS |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS |
 | `go test ./...` in `sdk-scorecard/go` | PASS; SDK transport and TLS frontend packages |
+| `go test -race ./cmd/tls-front` in `sdk-scorecard/go` | PASS; early-error delivery, complete bounded upload drain and same-connection reuse |
 | `node --test sdk-scorecard/node/local-http.test.mjs` | PASS; real loopback SDK transport and external-socket rejection |
 | `bash sdk-scorecard/test-score.sh` | PASS; five-SDK/historical weighting and invalid evidence rejection |
 | `cargo xtask compatibility validate`, `render`, `check` | PASS; 606 feature rows, 401 parameter locations and 357 schema fields |
-| Markdown lint for the nine updated contracts/README documents | PASS; 0 issues |
+| Markdown lint for seven updated contracts/guides/README documents | PASS; 0 issues |
+| Generated English/Japanese matrix Markdown lint | PASS with MD013/MD024 disabled only for intentional long inventory rows and repeated generated headings; default rules otherwise |
 
 The final workspace test uses the repository's temporary macOS RAM-disk wrapper
-and retains real file synchronization. It includes the last advisory-header fix.
+and retains real file synchronization. It includes gzip expansion, copy replay,
+completed-session checksum constraints and strict chunked test readers.
 No performance or physical-disk/power-loss claim follows from that test profile.
 Historical ledger verifications retain their original test names and artifacts;
 renamed current tests link separately to this final workspace result. The
-canonical English and Japanese matrices were regenerated without status changes.
+canonical English and Japanese matrices were regenerated from the ledger:
+BEHAVIOR-OBJECT-017 changes from NOT_STARTED to PARTIAL for its verified JSON
+gzip subset; the broader SDK integration statuses remain PARTIAL.
 The older media contract's long tables use the same MD013 exception as the other
 slice contracts; its content and table syntax still pass Markdown lint.
 No application container build is needed for the unchanged Dockerfile.
@@ -70,13 +83,17 @@ CA. gcs-mimic scored 94.9: Go 57/57, Ruby 51/51, Node.js 49/51, PHP 44/51 and
 Python 47/51. fake-gcs-server scored 44.1 and gcp-storage-emulator scored 40.0.
 Raw failures are retained without rewriting earlier evidence.
 
-The remaining failures concern Node move/restore, Python compose/retention/restore
-and a checksum BrokenPipe, plus PHP JSON HEAD, copy invocation tokens, actual
-gzip expansion and V4 signing endpoint selection. The checksum case passed in
-isolated direct HTTP and shared HTTPS reproduction; this does not erase its
-failure in the complete run. The successful Node/Python/Go/Ruby gzip cases in
-that run rely on compressed transfer with client decoding and do not establish
-server-side decompressive transcoding.
+Those thirteen historical failures comprised eight emulator behavior gaps,
+four public-SDK argument/signing configurations and one common HTTP/1 frontend
+early-response reset. Emulator gaps were Node's empty move body, Python's null
+compose/retention defaults, PHP metadata HEAD (affecting three workflows),
+copy replay and actual gzip expansion. Probe corrections use explicit Node and
+Python restore generation arguments and PHP's public V4 scheme/path inputs;
+the final signed URL stays unchanged. The common frontend now delivers the
+Python checksum-specific 400 after bounded lingering input rather than losing
+it to a reset. Raw failures remain historical evidence. The successful
+Node/Python/Go/Ruby gzip cases in that run relied on compressed transfer with
+client decoding and did not establish server-side decompressive transcoding.
 
 The additional null/default and empty-options cases above are explicit local
 SDK accommodations. The official object resource has retentionExpirationTime

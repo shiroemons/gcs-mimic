@@ -125,8 +125,10 @@ handling still contacts Google OAuth, so follow the
 [local credential recipe](docs/en/slices/sdk-local-auth-softdelete-notes.md)
 and the [scenario limits](docs/en/slices/sdk-active-storage-scenario.md).
 Go gRPC clients use `STORAGE_EMULATOR_HOST_GRPC` with the optional gRPC listener
-below. Other SDKs that honor `STORAGE_EMULATOR_HOST=http://localhost:4443` are
-not verified by this project. See [Docker usage](docs/en/container-usage.md#connect-an-application)
+below. Node.js, PHP and Python use the explicit public endpoint and credential
+options documented in the [five-SDK scorecard](sdk-scorecard/README.md).
+Its permissive comparison scope does not establish arbitrary SDK configuration
+or strict authentication support. See [Docker usage](docs/en/container-usage.md#connect-an-application)
 and the [SDK and authentication guide](docs/en/getting-started.md) for more.
 
 ## Common settings

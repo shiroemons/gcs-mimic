@@ -37,7 +37,9 @@ and source identities.
 See [container usage](container-usage.md) and the
 [migration guide](fake-gcs-server-migration.md).
 
-Go/Ruby SDK and browser evidence covers declared subsets. Rails Active Storage
+SDK and browser evidence covers declared subsets; the five-client comparison
+is tracked in [SDK integration](slices/sdk-scorecard-integration.md).
+Rails Active Storage
 has a [working application credential recipe](slices/sdk-local-auth-softdelete-notes.md),
 but default `storage.yml` authentication still attempts external OAuth and fails
 the offline scenario. These are not whole-API compatibility claims. See the

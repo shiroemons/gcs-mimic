@@ -329,9 +329,13 @@ a GET whose not-match condition is false returns 304 with an empty body. Mutatio
 Ordinary `alt=media` responds directly with 200, a declared deviation from the documented
 redirect flow. Metadata/media GET and DELETE accept Go SDK retry tokens without replay or
 deduplication; repeated DELETE can therefore return 404 (SPEC-013). Media/multipart
-upload tokens require `ifGenerationMatch`, including zero; without it they return
-501 before body input. A committed conditioned retry returns 412; no response replay
-is implemented. Empty/duplicate token headers return 400 `invalidParameter`.
+upload and JSON copy tokens support bounded response replay with or without
+generation conditions. Matching retained retries return the original completion;
+conflicting invocations return 400. The local retention is ten minutes, with
+4096 entries and a 64 KiB completion cap; full capacity rejects new tokens with
+503. Current permissions are still checked. Empty/duplicate token headers return
+400 `invalidParameter`. Other methods remain outside this replay subset.
+See the [replay contract](slices/sdk-upload-replay.md).
 
 Peer-container upload, metadata, download and delete use the same media subset:
 
@@ -1050,10 +1054,10 @@ and can represent incomplete progress as HTTP 200 with
 override. Check `Write` and `Close` errors, keep automatic checksum validation,
 and do not use `ChunkSize=0` as a resumable workaround. Writer context cancellation
 does not cancel the server session; it remains until explicit cancellation or
-expiry. Resumable SDK results await final-source verification. The harness creates and
-cleans up its own random buckets. ACLs, token deduplication and unrestricted SDK support
-are not claimed. Pinned Ruby basic and signed methods are verified separately;
-Rails remains pending.
+expiry. The harness creates and cleans up its own random buckets. Scoped SDK
+results, resource ACL updates and bounded upload/copy replay are recorded in
+[SDK integration](slices/sdk-scorecard-integration.md); unrestricted SDK support
+is not claimed. Rails' default credential flow remains outside that comparison.
 Default Go SDK XML reads now work for the path-style GET subset, including
 selected generations, single ranges and generation/metageneration match headers;
 JSON reads remain available through `storage.WithJSONReads()`. The strict tests
