@@ -53,7 +53,8 @@ fi
 
 echo '# SDK scorecard'
 echo
-echo '<!-- markdownlint-configure-file {"MD013": false} -->'
+# Each SDK heading repeats under both sections.
+echo '<!-- markdownlint-configure-file {"MD013": false, "MD024": {"siblings_only": true}} -->'
 echo
 echo "Each SDK contributes $(jq -nr --argjson count "${#sdks[@]}" '100 / $count') points; cases within an SDK have equal weight."
 echo
@@ -79,15 +80,18 @@ done
 for section in area id; do
   echo
   if [[ $section == area ]]; then echo '## Passed cases by area'; title=Area; else echo '## Case results'; title=Case; fi
-  echo
-  header="| SDK | $title |"
-  divider='| --- | --- |'
+  header="| $title |"
+  divider='| --- |'
   for meta in "${metas[@]}"; do header+=" $(jq -r .emulator "$meta") |"; divider+=' --- |'; done
-  echo "$header"
-  echo "$divider"
-  for sdk in "${sdks[@]}"; do
+  for index in "${!sdks[@]}"; do
+    sdk=${sdks[$index]}
+    echo
+    echo "### ${labels[$index]}"
+    echo
+    echo "$header"
+    echo "$divider"
     while IFS= read -r value; do
-      if [[ $section == id ]]; then row="| $sdk | \`$value\` |"; else row="| $sdk | $value |"; fi
+      if [[ $section == id ]]; then row="| \`$value\` |"; else row="| $value |"; fi
       for meta in "${metas[@]}"; do
         emulator=$(jq -r .emulator "$meta")
         row+=" $(jq -rs --arg section "$section" --arg value "$value" '

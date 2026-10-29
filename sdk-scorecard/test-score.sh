@@ -17,6 +17,9 @@ done
 bash "$root/sdk-scorecard/score.sh" "$work" >"$work/output"
 grep -Fx "| first | \`fixture\` | 3/3 | 2/2 | 2/2 | 2/2 | 2/2 | 100 |" "$work/output" >/dev/null
 grep -Fx "| second | \`fixture\` | 1/3 | 1/2 | 1/2 | 1/2 | 1/2 | 46.7 |" "$work/output" >/dev/null
+test "$(grep -cFx '### Node.js' "$work/output")" = 2
+grep -Fx '| grpc | 1/1 | 0/1 |' "$work/output" >/dev/null
+grep -Fx "| \`grpc.roundtrip\` | ✅ | ❌ |" "$work/output" >/dev/null
 cp "$work/second.node.jsonl" "$work/saved"
 expect_failure() {
   if bash "$root/sdk-scorecard/score.sh" "$work" >"$work/output" 2>"$work/error"; then
