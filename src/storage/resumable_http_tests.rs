@@ -52,6 +52,61 @@ struct Reply {
 struct TestClock(Mutex<SystemTime>);
 
 #[tokio::test]
+async fn completed_retries_reject_new_checksums_without_invalidating_completion() {
+    for declared in [false, true] {
+        let h = Harness::start(1000, false, None).await;
+        let metadata = if declared {
+            br#"{"md5Hash":"kAFQmDzST7DWlj99KOF/cg=="}"#.as_slice()
+        } else {
+            b""
+        };
+        let init = h
+            .initiate(
+                "name=completed-hashes",
+                "Content-Type: application/json\r\n",
+                metadata,
+            )
+            .await;
+        let path = h.path(&init);
+        let completed = h
+            .request("PUT", &path, "Content-Range: bytes 0-2/3\r\n", b"abc")
+            .await;
+        assert_eq!(completed.status, 200);
+        for range in ["bytes */*", "bytes */3", "bytes 0-2/3"] {
+            let body = if range.starts_with("bytes 0") {
+                b"abc".as_slice()
+            } else {
+                b""
+            };
+            for checksum in ["crc32c=Nks/tw==", "md5=AAAAAAAAAAAAAAAAAAAAAA=="] {
+                h.request(
+                    "PUT",
+                    &path,
+                    &format!("Content-Range: {range}\r\nX-Goog-Hash: {checksum}\r\n"),
+                    body,
+                )
+                .await
+                .error(400, "invalidParameter");
+            }
+            let headers = if declared {
+                format!("Content-Range: {range}\r\nX-Goog-Hash: md5=kAFQmDzST7DWlj99KOF/cg==\r\n")
+            } else {
+                format!("Content-Range: {range}\r\n")
+            };
+            let retry = h.request("PUT", &path, &headers, body).await;
+            assert_eq!(retry.status, 200);
+            assert_eq!(retry.body, completed.body);
+        }
+        let object = h
+            .request("GET", "/storage/v1/b/bucket/o/completed-hashes", "", b"")
+            .await;
+        assert_eq!(object.status, 200);
+        assert_eq!(object.json()["generation"], completed.json()["generation"]);
+        h.stop().await;
+    }
+}
+
+#[tokio::test]
 async fn conflicting_final_hash_preserves_error_and_session_invalidation() {
     let size = 8 * 1024 * 1024 + 1;
     let h = Harness::start(size, false, None).await;

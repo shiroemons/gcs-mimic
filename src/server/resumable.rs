@@ -248,7 +248,7 @@ pub(super) async fn session_response(
     let options = match resumable::final_options(&headers, session.options.clone()) {
         Ok(options) => options,
         Err(error) => {
-            if finalize {
+            if finalize && session.state != SessionState::Complete {
                 state.catalog.invalidate_resumable_session(&lease).await?;
             }
             return Err(error);
@@ -263,17 +263,19 @@ pub(super) async fn session_response(
             "Final metadata requires a final request",
         ));
     }
+    if (session.state == SessionState::Complete || (status && !finalize))
+        && options.expected != session.options.expected
+    {
+        return Err(JsonError::invalid_parameter(
+            "Status or completed retries cannot introduce new checksum declarations",
+        ));
+    }
     if session.state == SessionState::Complete {
         return Ok(completed(
             session.completion.clone().expect("validated completion"),
         ));
     }
     if status && !finalize {
-        if options.expected != session.options.expected {
-            return Err(JsonError::invalid_parameter(
-                "Status cannot introduce new checksum declarations",
-            ));
-        }
         json::read_body(request.into_body(), 0).await?;
         let file = tokio::fs::OpenOptions::new()
             .write(true)
