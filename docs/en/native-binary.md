@@ -174,7 +174,8 @@ These inspected bounds are not an RSS/cgroup/CPU benchmark; the 1 GiB default ca
 been verified by a 1 GiB transfer under the Compose limit.
 Unknown routes return 404 without body reads; probes retain
 GET/HEAD support and body rejection. Catalog work has 32 admitted calls, one
-executing blocking job, a 2 MiB SQLite cache and no memory map. The runtime bounds
+executing blocking job, a 2 MiB SQLite cache, at most 64 cached prepared statements
+and no memory map. The runtime bounds
 blocking threads; queued/cancelled operations retain directory ownership until
 execution finishes. Before confirmed EOF, a timeout/disconnect aborts the upload without
 publishing partial bytes. Early rejections send a response and half-close the socket, then

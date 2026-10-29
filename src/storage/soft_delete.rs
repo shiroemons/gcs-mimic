@@ -3,7 +3,7 @@ use crate::{
     bucket::BucketAccess,
     object::{ObjectConditions, ObjectError, ObjectRecord},
 };
-use objects::{OBJECT_COLUMNS, authorized_bucket, object_unavailable, read_object};
+use objects::{SELECT_SOFT_DELETED_GENERATION, authorized_bucket, object_unavailable, read_object};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 pub(super) fn retention_seconds(connection: &Connection, bucket: &str) -> Result<i64, ObjectError> {
@@ -39,10 +39,14 @@ fn selected(
     generation: i64,
     now: i64,
 ) -> Result<(ObjectRecord, String), ObjectError> {
-    connection.query_row(
-        &format!("SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3 AND soft_delete_time IS NOT NULL AND hard_delete_time > ?4"),
-        params![bucket, name, generation, now], read_object,
-    ).optional().map_err(object_unavailable)?.ok_or(ObjectError::ObjectNotFound)
+    connection
+        .prepare_cached(SELECT_SOFT_DELETED_GENERATION)
+        .and_then(|mut statement| {
+            statement.query_row(params![bucket, name, generation, now], read_object)
+        })
+        .optional()
+        .map_err(object_unavailable)?
+        .ok_or(ObjectError::ObjectNotFound)
 }
 
 impl Catalog {

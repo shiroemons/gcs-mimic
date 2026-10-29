@@ -133,11 +133,25 @@ const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
     complete INTEGER NOT NULL CHECK(complete IN (0, 1))
 ) WITHOUT ROWID;
 PRAGMA user_version = 5;";
-const COLUMNS: &str = "name, project, location, location_type, storage_class, labels,
+// A literal macro lets per-request queries build static SQL with concat!, which
+// the connection's prepared statement cache reuses without formatting.
+macro_rules! bucket_columns {
+    () => {
+        "name, project, location, location_type, storage_class, labels,
                       metageneration, time_created, updated, versioning_enabled,
                       default_event_based_hold, cors, public_access_prevention_enforced,
                       uniform_bucket_level_access_locked_time, lifecycle, retention_policy, soft_delete_policy,
-                      object_retention_enabled, autoclass";
+                      object_retention_enabled, autoclass"
+    };
+}
+const COLUMNS: &str = bucket_columns!();
+const SELECT_BUCKET: &str = concat!(
+    "SELECT ",
+    bucket_columns!(),
+    " FROM buckets WHERE name = ?1"
+);
+/// Bounds the parsed statements each connection keeps; request paths use a few dozen texts.
+const STATEMENT_CACHE_CAPACITY: usize = 64;
 const BUCKET_PAP_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN public_access_prevention_enforced INTEGER NOT NULL DEFAULT 0 CHECK(public_access_prevention_enforced IN (0, 1));
 PRAGMA user_version = 13;";
 const BUCKET_CORS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN cors TEXT NOT NULL DEFAULT '[]';
@@ -737,6 +751,7 @@ impl Catalog {
             connection
                 .busy_timeout(Duration::from_secs(5))
                 .map_err(unavailable)?;
+            connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
             connection
                 .execute_batch(
                     "PRAGMA foreign_keys = ON;
@@ -1196,13 +1211,7 @@ impl Catalog {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(unavailable)?;
-            let mut record = transaction
-                .query_row(
-                    &format!("SELECT {COLUMNS} FROM buckets WHERE name = ?1"),
-                    [&name],
-                    read_bucket,
-                )
-                .optional()
+            let mut record = select_bucket(&transaction, &name)
                 .map_err(unavailable)?
                 .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &record.project, &access)?;
@@ -1406,14 +1415,7 @@ impl Catalog {
         let access = access.clone();
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
-            let record = transaction
-                .query_row(
-                    &format!("SELECT {COLUMNS} FROM buckets WHERE name = ?1"),
-                    [&name],
-                    read_bucket,
-                )
-                .optional()
-                .map_err(unavailable)?;
+            let record = select_bucket(&transaction, &name).map_err(unavailable)?;
             if let Some(record) = &record {
                 check_access(&transaction, &name, &record.project, &access)?;
             }
@@ -1605,7 +1607,8 @@ fn bucket_list_page(
         "SELECT {COLUMNS} FROM buckets
         WHERE {project_clause} name {comparison} ? {upper_clause} ORDER BY name LIMIT ?"
     );
-    let mut statement = connection.prepare(&sql).map_err(unavailable)?;
+    // The text varies only by bound shape and project count, so the LRU cache stays useful.
+    let mut statement = connection.prepare_cached(&sql).map_err(unavailable)?;
     let mut rows = statement
         .query(rusqlite::params_from_iter(values))
         .map_err(unavailable)?;
@@ -1760,6 +1763,17 @@ fn signed_system_time(duration: Duration, negative: bool) -> rusqlite::Result<Sy
             "timestamp outside SystemTime range".into(),
         )
     })
+}
+
+/// Reads one bucket through the cached statement that request paths share.
+pub(super) fn select_bucket(
+    connection: &Connection,
+    name: &str,
+) -> rusqlite::Result<Option<BucketRecord>> {
+    connection
+        .prepare_cached(SELECT_BUCKET)?
+        .query_row([name], read_bucket)
+        .optional()
 }
 
 fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {

@@ -25,12 +25,34 @@ use tokio::{
 pub(super) mod retention;
 
 const CHUNK_SIZE: usize = 64 * 1024;
-pub(super) const OBJECT_COLUMNS: &str = "bucket, name, generation, metageneration, content_type, size,
+// A literal macro lets per-request queries build static SQL with concat!, which
+// the connection's prepared statement cache reuses without formatting.
+macro_rules! object_columns {
+    () => {
+        "bucket, name, generation, metageneration, content_type, size,
     md5, crc32c, storage_class, time_created, updated, blob_id,
     content_encoding, content_disposition, content_language, cache_control, metadata,
     time_deleted, event_based_hold, component_count, temporary_hold, custom_time,
     time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket), soft_delete_time, hard_delete_time,
-    retention_mode, retain_until_time, customer_key_sha256";
+    retention_mode, retain_until_time, customer_key_sha256"
+    };
+}
+pub(super) const OBJECT_COLUMNS: &str = object_columns!();
+const SELECT_LIVE_OBJECT: &str = concat!(
+    "SELECT ",
+    object_columns!(),
+    " FROM objects WHERE bucket = ?1 AND name = ?2 AND time_deleted IS NULL"
+);
+const SELECT_OBJECT_GENERATION: &str = concat!(
+    "SELECT ",
+    object_columns!(),
+    " FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3 AND soft_delete_time IS NULL"
+);
+pub(super) const SELECT_SOFT_DELETED_GENERATION: &str = concat!(
+    "SELECT ",
+    object_columns!(),
+    " FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3 AND soft_delete_time IS NOT NULL AND hard_delete_time > ?4"
+);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectListCursor {
@@ -1374,6 +1396,49 @@ fn list_seek_sql(
     )
 }
 
+/// Live and version listings use a small fixed set of SQL texts that the connection cache
+/// reuses. Soft-deleted listings embed the current time, so caching them would only evict
+/// reusable statements.
+#[derive(Clone, Copy)]
+enum ListCache {
+    Reuse,
+    Bypass,
+}
+
+enum ListStatement<'c> {
+    Cached(rusqlite::CachedStatement<'c>),
+    Fresh(rusqlite::Statement<'c>),
+}
+
+impl<'c> ListStatement<'c> {
+    fn prepare(connection: &'c Connection, sql: &str, cache: ListCache) -> rusqlite::Result<Self> {
+        match cache {
+            ListCache::Reuse => connection.prepare_cached(sql).map(Self::Cached),
+            ListCache::Bypass => connection.prepare(sql).map(Self::Fresh),
+        }
+    }
+}
+
+impl<'c> std::ops::Deref for ListStatement<'c> {
+    type Target = rusqlite::Statement<'c>;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Cached(statement) => statement,
+            Self::Fresh(statement) => statement,
+        }
+    }
+}
+
+impl std::ops::DerefMut for ListStatement<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Cached(statement) => statement,
+            Self::Fresh(statement) => statement,
+        }
+    }
+}
+
 pub(super) fn list_page(
     connection: &Connection,
     query: &ObjectListQuery,
@@ -1425,15 +1490,18 @@ fn list_page_at(
             query.soft_deleted.then_some(now),
         )
     };
-    let mut inclusive = connection
-        .prepare(&seek(false))
-        .map_err(object_unavailable)?;
-    let mut exclusive = connection
-        .prepare(&seek(true))
-        .map_err(object_unavailable)?;
-    let mut versioned = connection.prepare(&format!(
+    let cache = if query.soft_deleted {
+        ListCache::Bypass
+    } else {
+        ListCache::Reuse
+    };
+    let mut inclusive =
+        ListStatement::prepare(connection, &seek(false), cache).map_err(object_unavailable)?;
+    let mut exclusive =
+        ListStatement::prepare(connection, &seek(true), cache).map_err(object_unavailable)?;
+    let mut versioned = ListStatement::prepare(connection, &format!(
         "SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND (name, generation) > (CAST(?2 AS TEXT), ?4) {upper_clause} AND {visibility} ORDER BY name, generation LIMIT 1"
-    )).map_err(object_unavailable)?;
+    ), cache).map_err(object_unavailable)?;
     loop {
         let mut after = false;
         let mut after_generation = None;
@@ -1560,11 +1628,8 @@ pub(super) fn authorized_bucket(
     access: &BucketAccess,
 ) -> Result<(String, bool), ObjectError> {
     let (storage_class, project): (String, String) = connection
-        .query_row(
-            "SELECT storage_class, project FROM buckets WHERE name = ?1",
-            [bucket],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
+        .prepare_cached("SELECT storage_class, project FROM buckets WHERE name = ?1")
+        .and_then(|mut statement| statement.query_row([bucket], |r| Ok((r.get(0)?, r.get(1)?))))
         .optional()
         .map_err(object_unavailable)?
         .ok_or(ObjectError::BucketNotFound)?;
@@ -1582,11 +1647,8 @@ pub(super) fn lookup(
     name: &str,
 ) -> Result<Option<(ObjectRecord, String)>, ObjectError> {
     connection
-        .query_row(
-            &format!("SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name = ?2 AND time_deleted IS NULL"),
-            params![bucket, name],
-            read_object,
-        )
+        .prepare_cached(SELECT_LIVE_OBJECT)
+        .and_then(|mut statement| statement.query_row(params![bucket, name], read_object))
         .optional()
         .map_err(object_unavailable)
 }
@@ -1602,13 +1664,17 @@ pub(super) fn selected(
 ) -> Result<(ObjectRecord, String), ObjectError> {
     authorized_bucket(connection, bucket, access)?;
     let (record, id) = if let Some(generation) = generation {
-        connection.query_row(
-            &format!("SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3 AND soft_delete_time IS NULL"),
-            params![bucket, name, generation], read_object,
-        ).optional().map_err(object_unavailable)?
+        connection
+            .prepare_cached(SELECT_OBJECT_GENERATION)
+            .and_then(|mut statement| {
+                statement.query_row(params![bucket, name, generation], read_object)
+            })
+            .optional()
+            .map_err(object_unavailable)?
     } else {
         lookup(connection, bucket, name)?
-    }.ok_or(ObjectError::ObjectNotFound)?;
+    }
+    .ok_or(ObjectError::ObjectNotFound)?;
     check_conditions(Some(&record), conditions, read)?;
     Ok((record, id))
 }

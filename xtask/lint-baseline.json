@@ -108,11 +108,10 @@
       "src/grpc/v1/mod.rs": 1
     },
     "text::format_sql": {
-      "src/storage/admin.rs": 3,
-      "src/storage/catalog.rs": 5,
+      "src/storage/admin.rs": 2,
+      "src/storage/catalog.rs": 3,
       "src/storage/hmac_keys.rs": 2,
-      "src/storage/objects.rs": 5,
-      "src/storage/soft_delete.rs": 1,
+      "src/storage/objects.rs": 3,
       "src/storage/sync_live_export.rs": 1,
       "src/storage/sync_state.rs": 2,
       "src/storage/sync_writeback.rs": 2
@@ -139,13 +138,13 @@
     "text::uncached_prepare": {
       "src/storage/admin.rs": 2,
       "src/storage/appendable.rs": 1,
-      "src/storage/catalog.rs": 3,
+      "src/storage/catalog.rs": 2,
       "src/storage/change_journal.rs": 1,
       "src/storage/derived.rs": 4,
       "src/storage/hmac_keys.rs": 1,
       "src/storage/import_journal.rs": 1,
       "src/storage/notifications.rs": 1,
-      "src/storage/objects.rs": 6,
+      "src/storage/objects.rs": 4,
       "src/storage/resumable.rs": 1,
       "src/storage/resumable_maintenance.rs": 1,
       "src/storage/resumable_recovery.rs": 1,

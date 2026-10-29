@@ -15,7 +15,7 @@
 //! }
 //! ```
 
-use super::{COLUMNS, Catalog, objects, read_bucket, unavailable};
+use super::{COLUMNS, Catalog, objects, read_bucket, select_bucket, unavailable};
 use crate::{
     bucket::{BucketAccess, BucketRecord, CatalogError},
     clock::Clock,
@@ -24,7 +24,7 @@ use crate::{
         UploadChunk,
     },
 };
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params_from_iter};
+use rusqlite::{Connection, TransactionBehavior, params_from_iter};
 use std::{any::Any, fmt, io, num::NonZeroI64, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
@@ -545,16 +545,7 @@ impl Admin {
     pub async fn get_bucket(&self, name: &BucketName) -> Result<Option<BucketRecord>, AdminError> {
         let name = name.0.clone();
         self.catalog
-            .run_admin(move |connection| {
-                connection
-                    .query_row(
-                        &format!("SELECT {COLUMNS} FROM buckets WHERE name = ?1"),
-                        [&name],
-                        read_bucket,
-                    )
-                    .optional()
-                    .map_err(unavailable)
-            })
+            .run_admin(move |connection| select_bucket(connection, &name).map_err(unavailable))
             .await
     }
 

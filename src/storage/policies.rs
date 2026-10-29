@@ -67,11 +67,10 @@ pub(super) fn insert_policy(
 
 pub(super) fn read_policy(connection: &Connection, bucket: &str) -> Result<Policy, CatalogError> {
     let (bindings, revision): (String, i64) = connection
-        .query_row(
-            "SELECT bindings, revision FROM bucket_policies WHERE bucket = ?1",
-            [bucket],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+        .prepare_cached("SELECT bindings, revision FROM bucket_policies WHERE bucket = ?1")
+        .and_then(|mut statement| {
+            statement.query_row([bucket], |row| Ok((row.get(0)?, row.get(1)?)))
+        })
         .map_err(unavailable)?;
     Policy::from_stored(&bindings, crate::json::policy_etag(revision))
         .map_err(|reason| CatalogError::Corrupt(reason.into()))
@@ -250,7 +249,10 @@ pub(super) fn public_access_prevention(
     connection: &Connection,
     bucket: &str,
 ) -> Result<bool, CatalogError> {
-    connection.query_row("SELECT public_access_prevention_enforced OR EXISTS(SELECT 1 FROM parent_public_access_prevention WHERE project = buckets.project) FROM buckets WHERE name = ?1", [bucket], |row| row.get(0)).map_err(unavailable)
+    connection
+        .prepare_cached("SELECT public_access_prevention_enforced OR EXISTS(SELECT 1 FROM parent_public_access_prevention WHERE project = buckets.project) FROM buckets WHERE name = ?1")
+        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
+        .map_err(unavailable)
 }
 
 fn authorize_policy(
