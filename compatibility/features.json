@@ -27947,26 +27947,210 @@
       "interface": "cross-cutting behavior",
       "phase": "P7",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
-      "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "status": "PARTIAL",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/encryption/customer-supplied-keys",
+        "https://docs.cloud.google.com/storage/docs/encryption/using-customer-supplied-keys",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-29",
       "source_evidence": "SPEC_BASED",
-      "notes": "Encryption headers, key fingerprint, mismatch/missing rejection and copy source/destination keys.",
+      "notes": "Encryption headers, key fingerprint, mismatch/missing rejection and copy source/destination keys. Keys are enforced on JSON media/multipart/resumable uploads, JSON media and XML GET/PUT, metadata reads/updates, copy, rewrite (key rotation) and compose; only the SHA-256 fingerprint is persisted. Object bytes stay unencrypted on local disk, so fidelity is LOCAL_SIMULATION. Scope: docs/en/slices/customer-supplied-keys.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "CSEK-HEADERS",
+          "description": "Algorithm, 32-byte key and SHA-256 fingerprint validation with the six documented JSON reasons and XML codes; repeated headers are invalid.",
+          "result": "PASS",
+          "test_ids": [
+            "parses_valid_key_and_keeps_only_its_fingerprint",
+            "rejects_invalid_algorithm_key_and_fingerprint",
+            "error_reasons_round_trip_to_xml_codes",
+            "csek_invalid_keys_are_rejected_before_any_object_is_created"
+          ]
+        },
+        {
+          "id": "CSEK-UPLOAD",
+          "description": "JSON media, multipart and resumable uploads and XML PUT store the fingerprint; resumable chunks may repeat but not replace the bound key.",
+          "result": "PASS",
+          "test_ids": [
+            "csek_media_upload_requires_its_key_for_data_but_not_metadata",
+            "csek_multipart_and_resumable_uploads_bind_the_key",
+            "csek_xml_put_get_and_head"
+          ]
+        },
+        {
+          "id": "CSEK-RESOURCE",
+          "description": "customerEncryption is rendered; md5Hash/crc32c and MD5-derived ETags are withheld unless the request supplied the matching key.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_csek_001_encrypted_resource_hides_hashes_without_its_key",
+            "csek_media_upload_requires_its_key_for_data_but_not_metadata"
+          ]
+        },
+        {
+          "id": "CSEK-READ",
+          "description": "JSON alt=media and XML GET require the matching key; metadata GET and XML HEAD succeed without it and check a supplied key.",
+          "result": "PASS",
+          "test_ids": [
+            "data_reads_need_the_matching_key_and_metadata_reads_hide_hashes",
+            "csek_media_upload_requires_its_key_for_data_but_not_metadata",
+            "csek_xml_put_get_and_head"
+          ]
+        },
+        {
+          "id": "CSEK-UPDATE",
+          "description": "Metadata PATCH/PUT needs no key, rejects a wrong key before committing and accepts only an unchanged customerEncryption echo.",
+          "result": "PASS",
+          "test_ids": [
+            "csek_metadata_update_checks_a_supplied_key_before_committing",
+            "obj_csek_002_metadata_update_accepts_only_echoed_customer_encryption"
+          ]
+        },
+        {
+          "id": "CSEK-DERIVED",
+          "description": "Copy and rewrite use source and destination keys (rewrite onto the same object rotates the key); compose requires one shared key for every component.",
+          "result": "PASS",
+          "test_ids": [
+            "csek_copy_rewrite_and_compose_use_source_and_destination_keys"
+          ]
+        },
+        {
+          "id": "CSEK-KEYLESS-TRANSPORTS",
+          "description": "Routes and transports that cannot carry a key reject key headers or refuse encrypted data; gRPC v2 metadata reports customer_encryption without checksums.",
+          "result": "PASS",
+          "test_ids": [
+            "fingerprint_survives_restart_and_keyless_readers_are_refused",
+            "grpc_record_conversion",
+            "csek_media_upload_requires_its_key_for_data_but_not_metadata"
+          ]
+        },
+        {
+          "id": "CSEK-PERSIST",
+          "description": "Catalog schema 30 stores only a 32-byte fingerprint, migrates existing objects as unencrypted and survives restart.",
+          "result": "PASS",
+          "test_ids": [
+            "fingerprint_survives_restart_and_keyless_readers_are_refused",
+            "schema_29_catalog_migrates_with_unencrypted_objects"
+          ]
+        },
+        {
+          "id": "CSEK-SDK",
+          "description": "Go and Ruby SDK scorecard customer-supplied-key journeys: keyed upload, keyless read rejected, keyed read returns the bytes.",
+          "result": "PASS",
+          "test_ids": [
+            "object.customer_supplied_key"
+          ]
+        },
+        {
+          "id": "CSEK-PENDING",
+          "description": "GET ?encryption (EXT-XML-015), keys on gRPC requests, TLS-only key acceptance, CMEK and bucket encryption enforcement interaction, signed URL key headers, at-rest encryption and provider differential evidence remain pending.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "parses_valid_key_and_keeps_only_its_fingerprint",
+        "rejects_invalid_algorithm_key_and_fingerprint",
+        "error_reasons_round_trip_to_xml_codes",
+        "data_reads_need_the_matching_key_and_metadata_reads_hide_hashes",
+        "obj_csek_001_encrypted_resource_hides_hashes_without_its_key",
+        "obj_csek_002_metadata_update_accepts_only_echoed_customer_encryption",
+        "csek_invalid_keys_are_rejected_before_any_object_is_created",
+        "csek_media_upload_requires_its_key_for_data_but_not_metadata",
+        "csek_multipart_and_resumable_uploads_bind_the_key",
+        "csek_metadata_update_checks_a_supplied_key_before_committing",
+        "csek_copy_rewrite_and_compose_use_source_and_destination_keys",
+        "csek_xml_put_get_and_head",
+        "fingerprint_survives_restart_and_keyless_readers_are_refused",
+        "schema_29_catalog_migrates_with_unencrypted_objects",
+        "grpc_record_conversion",
+        "object.customer_supplied_key"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --lib csek",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/customer-supplied-keys.md",
+          "test_ids": [
+            "parses_valid_key_and_keeps_only_its_fingerprint",
+            "rejects_invalid_algorithm_key_and_fingerprint",
+            "error_reasons_round_trip_to_xml_codes",
+            "data_reads_need_the_matching_key_and_metadata_reads_hide_hashes",
+            "obj_csek_001_encrypted_resource_hides_hashes_without_its_key",
+            "obj_csek_002_metadata_update_accepts_only_echoed_customer_encryption",
+            "csek_invalid_keys_are_rejected_before_any_object_is_created",
+            "csek_media_upload_requires_its_key_for_data_but_not_metadata",
+            "csek_multipart_and_resumable_uploads_bind_the_key",
+            "csek_metadata_update_checks_a_supplied_key_before_committing",
+            "csek_copy_rewrite_and_compose_use_source_and_destination_keys",
+            "csek_xml_put_get_and_head"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib customer_keys grpc_record_conversion",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/customer-supplied-keys.md",
+          "test_ids": [
+            "fingerprint_survives_restart_and_keyless_readers_are_refused",
+            "schema_29_catalog_migrates_with_unencrypted_objects",
+            "grpc_record_conversion"
+          ]
+        },
+        {
+          "command": "bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-csek\" gcs-mimic",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "artifact": "docs/en/slices/customer-supplied-keys.md",
+          "test_ids": [
+            "object.customer_supplied_key"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "HTTP JSON upload with ObjectHandle.Key; XML media reads with and without the key",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-csek\" gcs-mimic",
+          "artifact": "docs/en/slices/customer-supplied-keys.md",
+          "test_ids": [
+            "object.customer_supplied_key"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON upload_file and download with and without encryption_key",
+          "result": "PASS",
+          "verified_at": "2026-10-29",
+          "command": "bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-csek\" gcs-mimic",
+          "artifact": "docs/en/slices/customer-supplied-keys.md",
+          "test_ids": [
+            "object.customer_supplied_key"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-CSEK-LOCAL: object bytes are stored unencrypted on local disk (only the key fingerprint is persisted); XML HEAD without a key is a metadata read that omits x-goog-hash; resumable chunks may omit key headers; a key supplied for an unencrypted object's metadata returns resourceNotEncryptedWithCustomerEncryptionKey; keys are accepted over plain HTTP; gRPC requests cannot supply keys."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-29"
     },
     {
       "id": "BEHAVIOR-OBJECT-038",
