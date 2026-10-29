@@ -1,0 +1,15 @@
+# Thresholds for the lints that `cargo xtask lint` counts; see "Rust implementation
+# guardrails" in AGENTS.md. Default Clippy runs do not enable these lints.
+
+# Long enough for a rustfmt-formatted handler with a match over its cases; the review
+# found request handlers of 250 to 800 lines that this rejects.
+too-many-lines-threshold = 120
+
+# Any bool parameter counts: literal `true`/`false` call sites hide meaning, so use
+# a two-variant enum instead.
+max-fn-params-bools = 0
+
+# Tests may unwrap and expect; production code must not.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

@@ -1,6 +1,7 @@
 use serde_json::Value;
 pub mod container;
 pub mod dependencies;
+pub mod lint;
 pub mod release;
 use std::{
     collections::{BTreeMap, BTreeSet},

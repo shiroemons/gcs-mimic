@@ -1,6 +1,6 @@
 use std::{env, path::Path, process::ExitCode};
 
-const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check | release prepare TARGET BINARY OUTPUT_DIR | release notices OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
+const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check | lint [--strict | --update-baseline [--allow-increase]] | release prepare TARGET BINARY OUTPUT_DIR | release notices OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
 
 fn main() -> ExitCode {
     let args: Vec<_> = env::args().skip(1).collect();
@@ -41,6 +41,20 @@ fn main() -> ExitCode {
             Err(error) => {
                 eprintln!("error: {error}");
                 ExitCode::FAILURE
+            }
+        };
+    }
+    if args.first().is_some_and(|command| command == "lint") {
+        let Some(mode) = xtask::lint::mode(&args[1..]) else {
+            eprintln!("{USAGE}");
+            return ExitCode::FAILURE;
+        };
+        return match xtask::lint::run(root, mode) {
+            Ok(true) => ExitCode::SUCCESS,
+            Ok(false) => ExitCode::FAILURE,
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::from(2)
             }
         };
     }
