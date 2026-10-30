@@ -19,7 +19,12 @@ use std::{
     fmt,
     path::Path,
     str::FromStr,
+    sync::atomic::{AtomicBool, Ordering},
 };
+
+/// A client that signs its own JWT, such as googleauth outside googleapis.com, fails every
+/// request, and the documented 401 body cannot say why, so the log says it once per process.
+static WARNED_SELF_SIGNED_JWT: AtomicBool = AtomicBool::new(false);
 
 pub(crate) const BUCKETS_CREATE: &str = "storage.buckets.create";
 pub(crate) const BUCKETS_DELETE: &str = "storage.buckets.delete";
@@ -698,8 +703,32 @@ impl Auth {
             .tokens
             .get(token)
             .map(|index| Some(Caller::Principal(&registry.identities[*index])))
-            .ok_or(AuthFailure::InvalidCredentials)
+            .ok_or_else(|| {
+                if looks_like_jwt(token) && !WARNED_SELF_SIGNED_JWT.swap(true, Ordering::Relaxed) {
+                    crate::diagnostics::emit(
+                        crate::diagnostics::LogLevel::Warn,
+                        "auth_self_signed_jwt_rejected",
+                        serde_json::json!({
+                            "message": "strict authentication rejected a JWT bearer token, such as the self-signed token googleauth sends for a non-Google universe_domain; strict mode accepts only tokens listed in the identity file, so use the default permissive profile for that client or give it an identity-file token",
+                        }),
+                    );
+                }
+                AuthFailure::InvalidCredentials
+            })
     }
+}
+
+/// A JWT is three base64url segments; its header is JSON, which encodes to a leading `eyJ`.
+fn looks_like_jwt(token: &str) -> bool {
+    let mut segments = token.split('.');
+    segments
+        .next()
+        .is_some_and(|header| header.starts_with("eyJ"))
+        && segments.next().is_some_and(|payload| !payload.is_empty())
+        && segments
+            .next()
+            .is_some_and(|signature| !signature.is_empty())
+        && segments.next().is_none()
 }
 
 fn has_credential_parameter(query: &str) -> bool {
@@ -746,6 +775,22 @@ fn lenient_decode(raw: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jwt_detection_requires_three_segments_and_a_json_header() {
+        assert!(looks_like_jwt("eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJ4In0.c2ln"));
+        for token in [
+            "admin-token",
+            "ya29.opaque-oauth-access-token",
+            "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJ4In0",
+            "eyJhbGciOiJSUzI1NiJ9..c2ln",
+            "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJ4In0.c2ln.extra",
+            "abc.def.ghi",
+            "",
+        ] {
+            assert!(!looks_like_jwt(token), "{token}");
+        }
+    }
 
     #[test]
     fn pap_parent_fixture_rejects_malformed_and_unbounded_projects() {

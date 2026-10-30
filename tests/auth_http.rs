@@ -348,6 +348,87 @@ fn identity_file(config: &TestDir) -> PathBuf {
     path
 }
 
+/// Stops a server started with piped stderr and returns its JSON events.
+fn stderr_events(server: &mut Server) -> Vec<Value> {
+    server.stop();
+    let mut stderr = String::new();
+    server
+        .child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    stderr
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn strict_jwt_bearer_fails_unchanged_and_warns_once_about_self_signed_tokens() {
+    let config = TestDir::new();
+    let identities = identity_file(&config);
+    let data = TestDir::new();
+    let (mut server, ready) = Server::start_with_stderr(
+        &data,
+        &[
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            identities.to_str().unwrap(),
+        ],
+        Stdio::piped(),
+    );
+    assert_eq!(ready["auth_mode"], "strict");
+    // The shape googleauth sends outside googleapis.com: base64url header.payload.signature.
+    let jwt = "Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJsb2NhbCJ9.c2lnbmF0dXJl\r\n";
+    for _ in 0..2 {
+        server
+            .get(jwt, "/storage/v1/b?project=project-a")
+            .invalid_credentials();
+    }
+    let warnings: Vec<_> = stderr_events(&mut server)
+        .into_iter()
+        .filter(|e| e["event"] == "auth_self_signed_jwt_rejected")
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0]["level"], "warn");
+    let message = warnings[0]["message"].as_str().unwrap();
+    assert!(
+        message.contains("identity file") && message.contains("permissive"),
+        "{message}"
+    );
+    assert!(
+        !message.contains("eyJ"),
+        "the token must not be logged: {message}"
+    );
+
+    // An unknown opaque token keeps the same failure and gets no JWT advice.
+    let data = TestDir::new();
+    let (mut server, _) = Server::start_with_stderr(
+        &data,
+        &[
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            identities.to_str().unwrap(),
+        ],
+        Stdio::piped(),
+    );
+    server
+        .get(
+            "Authorization: Bearer unknown-token\r\n",
+            "/storage/v1/b?project=project-a",
+        )
+        .invalid_credentials();
+    assert!(
+        !stderr_events(&mut server)
+            .iter()
+            .any(|e| e["event"] == "auth_self_signed_jwt_rejected")
+    );
+}
+
 #[test]
 fn auth_http_permissive_ignores_any_authorization() {
     let dir = TestDir::new();

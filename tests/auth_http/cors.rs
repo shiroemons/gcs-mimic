@@ -391,22 +391,6 @@ fn mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently(
     restarted.stop();
 }
 
-fn stderr_events(server: &mut Server) -> Vec<Value> {
-    server.stop();
-    let mut stderr = String::new();
-    server
-        .child
-        .stderr
-        .take()
-        .unwrap()
-        .read_to_string(&mut stderr)
-        .unwrap();
-    stderr
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
-}
-
 #[test]
 fn allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json() {
     let data = TestDir::new();
