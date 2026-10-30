@@ -14,12 +14,16 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
     task::{Context, Poll},
     time::Duration,
 };
 use tokio::task::JoinHandle;
+
+/// Consecutive failed passes after which a loop that keeps running counts as down. One failure
+/// is often transient and retried; a loop that fails every pass is not doing its work.
+const FAILED_PASSES_BEFORE_DOWN: u32 = 3;
 
 /// The first restart delay; it doubles after each consecutive panic.
 const RESTART_DELAY_MIN: Duration = Duration::from_millis(100);
@@ -52,29 +56,60 @@ where
     runtime.spawn(Supervised::new(name, future))
 }
 
-/// Whether a restartable background task is down after a panic and waiting to restart.
+/// Whether a background task is doing its work, as readiness reports it.
+///
+/// A task is down while it waits to restart after a panic and until a pass of the replacement
+/// succeeds, and while [`FAILED_PASSES_BEFORE_DOWN`] or more consecutive passes have failed. A
+/// successful pass clears both.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct TaskHealth(Arc<AtomicBool>);
+pub(crate) struct TaskHealth(Arc<HealthState>);
+
+#[derive(Debug, Default)]
+struct HealthState {
+    restarting: AtomicBool,
+    failed_passes: AtomicU32,
+}
 
 impl TaskHealth {
     pub(crate) fn is_down(&self) -> bool {
-        self.0.load(Ordering::Acquire)
+        self.0.restarting.load(Ordering::Acquire)
+            || self.0.failed_passes.load(Ordering::Acquire) >= FAILED_PASSES_BEFORE_DOWN
     }
 
-    fn mark_down(&self) {
-        self.0.store(true, Ordering::Release);
+    /// Records a pass that did its work; it ends a restart gap and a run of failed passes.
+    pub(crate) fn pass_succeeded(&self) {
+        self.0.failed_passes.store(0, Ordering::Release);
+        self.0.restarting.store(false, Ordering::Release);
     }
 
-    fn mark_running(&self) {
-        self.0.store(false, Ordering::Release);
+    /// Records a pass that failed and will be retried.
+    pub(crate) fn pass_failed(&self) {
+        let _ = self
+            .0
+            .failed_passes
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                count.checked_add(1)
+            });
+    }
+
+    fn mark_restarting(&self) {
+        self.0.restarting.store(true, Ordering::Release);
+    }
+
+    /// Supervision stops only when the owner has closed, which readiness reports itself.
+    fn supervision_ended(&self) {
+        self.0.failed_passes.store(0, Ordering::Release);
+        self.0.restarting.store(false, Ordering::Release);
     }
 }
 
 /// Runs a long-lived loop and restarts it after a panic, with exponential backoff.
 ///
 /// `start` builds the next run; returning `None` stops supervision, for example once the owner
-/// has closed. A run that returns normally or is cancelled is not restarted. `health` reports
-/// down from a panic until the replacement run starts.
+/// has closed. A run that returns normally or is cancelled is not restarted. After a panic,
+/// `health` stays down until a pass of a replacement run calls [`TaskHealth::pass_succeeded`],
+/// so a run that panics again right after starting never looks healthy in between. The first
+/// run starts healthy: its owner has just opened and recovered the state the loop maintains.
 pub(crate) fn spawn_restarting<S, F>(
     name: &'static str,
     health: TaskHealth,
@@ -87,14 +122,13 @@ where
     spawn_supervised(name, async move {
         let mut delay = RESTART_DELAY_MIN;
         while let Some(run) = start() {
-            health.mark_running();
             let started = tokio::time::Instant::now();
             match spawn_supervised(name, run).await {
                 Ok(()) => break,
                 Err(error) if error.is_cancelled() => break,
                 Err(_) => {}
             }
-            health.mark_down();
+            health.mark_restarting();
             if started.elapsed() >= RESTART_DELAY_MAX {
                 delay = RESTART_DELAY_MIN;
             }
@@ -110,7 +144,7 @@ where
             tokio::time::sleep(delay).await;
             delay = delay.saturating_mul(2).min(RESTART_DELAY_MAX);
         }
-        health.mark_running();
+        health.supervision_ended();
     })
 }
 
@@ -288,7 +322,71 @@ pub(crate) mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn health_is_down_until_the_replacement_starts_and_none_stops() {
+    async fn a_restarted_loop_is_down_until_its_first_successful_pass() {
+        const NAME: &str = "test-restart-first-pass";
+        let health = TaskHealth::default();
+        let (started, mut replacement_started) = tokio::sync::mpsc::unbounded_channel();
+        let (proceed, proceeding) = tokio::sync::oneshot::channel::<()>();
+        let mut proceeding = Some(proceeding);
+        let runs = Arc::new(AtomicUsize::new(0));
+        let counted = runs.clone();
+        let reported = health.clone();
+        let supervisor = spawn_restarting(NAME, health.clone(), move || {
+            let run = counted.fetch_add(1, Ordering::SeqCst);
+            let started = started.clone();
+            let proceeding = if run == 1 { proceeding.take() } else { None };
+            let reported = reported.clone();
+            Some(async move {
+                let Some(proceeding) = proceeding else {
+                    panic!("first-pass fixture panic {run}");
+                };
+                let _ = started.send(());
+                let _ = proceeding.await;
+                reported.pass_succeeded();
+                std::future::pending::<()>().await;
+            })
+        });
+        replacement_started.recv().await.unwrap();
+        // The replacement has started but not yet finished a pass, so it has proven nothing.
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+            assert!(health.is_down(), "a started replacement is not yet healthy");
+        }
+        proceed.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while health.is_down() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(runs.load(Ordering::SeqCst), 2);
+        assert_eq!(reported_panics(NAME), ["first-pass fixture panic 0"]);
+        supervisor.abort();
+    }
+
+    #[test]
+    fn consecutive_failed_passes_are_down_until_a_pass_succeeds() {
+        let health = TaskHealth::default();
+        for _ in 1..FAILED_PASSES_BEFORE_DOWN {
+            health.pass_failed();
+            assert!(!health.is_down(), "a retried failure is transient");
+        }
+        health.pass_failed();
+        assert!(health.is_down(), "failing every pass is down");
+        health.pass_failed();
+        assert!(health.is_down());
+        health.pass_succeeded();
+        assert!(!health.is_down(), "a successful pass recovers");
+        health.pass_failed();
+        assert!(
+            !health.is_down(),
+            "the failure count restarts after a success"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn health_is_down_after_a_panic_until_supervision_stops() {
         const NAME: &str = "test-restart-health";
         let health = TaskHealth::default();
         let attempts = Arc::new(AtomicUsize::new(0));

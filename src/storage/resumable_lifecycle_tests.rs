@@ -1028,6 +1028,61 @@ async fn scheduler_restarts_after_a_panic_and_readiness_reports_the_gap() {
     catalog.close().await.unwrap();
 }
 
+/// A scheduler whose every pass fails is running but not doing its work, so readiness turns
+/// off after repeated failures and returns once a pass succeeds.
+#[tokio::test]
+async fn persistent_maintenance_failures_turn_readiness_off_until_a_pass_succeeds() {
+    let dir = TestDir::new();
+    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let catalog = setup(&dir, clock.clone()).await;
+    let state = gcs_mimic::server::State {
+        ready: AtomicBool::new(true),
+        clock: clock.clone(),
+        catalog: catalog.clone(),
+        api_base_url: "http://127.0.0.1:4443".into(),
+        default_location: "US".into(),
+        auth: Default::default(),
+    };
+    let session = catalog
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
+        .await
+        .unwrap();
+    // A directory in place of the staged file makes every expiry pass fail.
+    let stage = dir.0.join("staging").join(&session.blob_id);
+    std::fs::remove_file(&stage).unwrap();
+    std::fs::create_dir(&stage).unwrap();
+    *clock.0.lock().unwrap() = session.deadline;
+    catalog.start_resumable_maintenance();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while state.is_ready() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(catalog.resumable_maintenance_error().is_some());
+    assert!(
+        catalog.is_healthy(),
+        "failing maintenance does not poison the catalog"
+    );
+    std::fs::remove_dir(&stage).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !state.is_ready() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(catalog.resumable_maintenance_error().is_none());
+    drop(state);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadline() {
     let dir = TestDir::new();

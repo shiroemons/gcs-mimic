@@ -258,7 +258,8 @@ impl Catalog {
         );
     }
 
-    /// False while a background loop is down after a panic and waiting to restart.
+    /// False while a background loop is down: restarting after a panic until a pass succeeds,
+    /// failing every pass, or stopped for good.
     pub(crate) fn background_tasks_running(&self) -> bool {
         !self.0.maintenance_health.is_down()
     }
@@ -301,12 +302,18 @@ async fn maintenance_loop(
         }
         let catalog = Catalog(inner);
         let delay = match catalog.run_resumable_maintenance().await {
-            Ok(next) => next.map(|deadline| {
-                deadline
-                    .duration_since(catalog.0.clock.now())
-                    .unwrap_or_default()
-            }),
+            Ok(next) => {
+                catalog.0.maintenance_health.pass_succeeded();
+                next.map(|deadline| {
+                    deadline
+                        .duration_since(catalog.0.clock.now())
+                        .unwrap_or_default()
+                })
+            }
             Err(error) => {
+                // Expiry that fails on every pass leaves sessions and staged bytes behind, so
+                // persistent failure turns readiness off until a pass succeeds again.
+                catalog.0.maintenance_health.pass_failed();
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Warn,
                     "resumable_maintenance_retry",
