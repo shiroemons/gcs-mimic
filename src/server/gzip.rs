@@ -2,7 +2,7 @@ use super::{ObjectActivity, ResponseBody};
 use crate::storage::ObjectReader;
 use bytes::Bytes;
 use flate2::bufread::MultiGzDecoder;
-use http_body_util::{BodyExt, Channel};
+use http_body_util::BodyExt;
 use std::io::{self, BufRead, BufReader, Read};
 use tokio::sync::watch;
 
@@ -45,7 +45,7 @@ pub(super) fn body(
     expanded_limit: u64,
     activity: &watch::Sender<ObjectActivity>,
 ) -> ResponseBody {
-    let (mut sender, body) = Channel::<Bytes, io::Error>::new(1);
+    let (sender, body) = super::chunk_body::channel();
     let activity = activity.clone();
     tokio::spawn(async move {
         let mut progress = activity.subscribe();
@@ -84,7 +84,7 @@ pub(super) fn body(
                     .checked_add(bytes.len() as u64)
                     .filter(|size| *size <= expanded_limit)
                     .ok_or_else(|| io::Error::other("expanded object exceeds max_object_bytes"))?;
-                if sender.send_data(bytes).await.is_err() {
+                if sender.send(Ok(bytes)).await.is_err() {
                     return Ok(());
                 }
                 activity.send_modify(|progress| progress.awaiting_catalog = false);
@@ -101,7 +101,7 @@ pub(super) fn body(
                 "object_transcoding_failed",
                 serde_json::json!({"cause": error.kind().to_string()}),
             );
-            sender.abort(error);
+            let _ = sender.send(Err(error)).await;
         }
     });
     body.boxed_unsync()

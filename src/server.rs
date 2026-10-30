@@ -9,7 +9,7 @@ use crate::{
     storage::Catalog,
     tls, xml,
 };
-use http_body_util::{BodyExt, Channel, Full, combinators::UnsyncBoxBody};
+use http_body_util::{BodyExt, Full, combinators::UnsyncBoxBody};
 use hyper::{
     Method, Request, Response, StatusCode,
     body::{Bytes, Incoming},
@@ -88,6 +88,7 @@ fn report_connection_task_failure(error: &tokio::task::JoinError) {
 }
 
 mod acl;
+mod chunk_body;
 mod copy;
 mod gzip;
 mod notifications;
@@ -820,13 +821,13 @@ fn object_body(
     mut reader: crate::storage::ObjectReader,
     activity: &watch::Sender<ObjectActivity>,
 ) -> ResponseBody {
-    let (mut sender, body) = Channel::<Bytes, io::Error>::new(1);
+    let (sender, body) = chunk_body::channel();
     let activity = activity.clone();
     tokio::spawn(async move {
         loop {
             match reader.next_chunk().await {
                 Ok(Some(bytes)) => {
-                    if sender.send_data(bytes).await.is_err() {
+                    if sender.send(Ok(bytes)).await.is_err() {
                         break;
                     }
                     activity.send_modify(|progress| progress.awaiting_catalog = false);
@@ -842,7 +843,7 @@ fn object_body(
                             "cause": error.kind().to_string(),
                         }),
                     );
-                    sender.abort(error);
+                    let _ = sender.send(Err(error)).await;
                     break;
                 }
             }
