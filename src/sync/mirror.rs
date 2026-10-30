@@ -93,19 +93,46 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
     let (stop, mut stopping) = tokio::sync::watch::channel(false);
     let (done, completion) = tokio::sync::oneshot::channel();
     let (rescan, mut requests) = tokio::sync::mpsc::channel(1);
-    std::thread::Builder::new().name("sync-mirror".into()).spawn(move || {
-        runtime.block_on(async move {
-            let result = run_live_config(&catalog, &root, &mut stopping, &config, &mut requests).await;
-            drop(requests);
-            match result {
-                Ok(()) => {},
-                Err(error) => diagnostics::emit(LogLevel::Error, "sync_stopped", serde_json::json!({
-                    "reason": error.to_string(),
+    // The mirror never restarts, so a stop on an error or a panic keeps readiness off: the
+    // server would otherwise report ready while the working tree silently stopped syncing.
+    let health = crate::task::TaskHealth::default();
+    catalog.watch_background_task(health.clone());
+    crate::task::spawn_thread("sync-mirror", move || {
+        let result = crate::task::catch_job("sync-mirror", || {
+            #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+            tests::injected_live_failure(&config)?;
+            runtime.block_on(run_live_config(
+                &catalog,
+                &root,
+                &mut stopping,
+                &config,
+                &mut requests,
+            ))
+        });
+        drop(requests);
+        let reason = match result {
+            Ok(Ok(())) => None,
+            Ok(Err(error)) => Some(error.to_string()),
+            Err(panicked) => Some(panicked.to_string()),
+        };
+        if let Some(reason) = reason {
+            health.mark_stopped();
+            diagnostics::emit(
+                LogLevel::Error,
+                "sync_stopped",
+                serde_json::json!({
+                    "reason": reason,
                     "remedy": "Preserve the working tree and workspace. Correct unsafe names or permissions; for unresolved write-back recovery, back up the tree and select a fresh unassociated sync_dir."
-                })),
-            }
+                }),
+            );
+        }
+        runtime.block_on(async move {
             // Idle ownership must also release when the server closes after a listener error.
-            let mut fence = catalog.read_changes(None, None, 1).await.ok().map(|p| p.fence);
+            let mut fence = catalog
+                .read_changes(None, None, 1)
+                .await
+                .ok()
+                .map(|p| p.fence);
             while !*stopping.borrow() {
                 let Some(current) = fence else { break };
                 tokio::select! {

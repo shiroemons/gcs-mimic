@@ -262,6 +262,23 @@ impl Catalog {
     /// failing every pass, or stopped for good.
     pub(crate) fn background_tasks_running(&self) -> bool {
         !self.0.maintenance_health.is_down()
+            && self
+                .0
+                .background_health
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .all(|health| !health.is_down())
+    }
+
+    /// Reports `health` through readiness for as long as the catalog lives, for a background
+    /// worker the catalog does not start itself, such as the sync mirror.
+    pub(crate) fn watch_background_task(&self, health: crate::task::TaskHealth) {
+        self.0
+            .background_health
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(health);
     }
 
     /// Makes the next `count` maintenance passes panic before doing any work.

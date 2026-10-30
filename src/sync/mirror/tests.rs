@@ -792,3 +792,90 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
         catalog.close().await.unwrap();
     }
 }
+
+#[derive(Clone, Copy)]
+enum LiveFailure {
+    Error,
+    Panic,
+}
+
+/// Failures armed per working tree, since tests run in parallel and the mirror runs on its
+/// own thread, out of reach of a task-local hook.
+static LIVE_FAILURES: std::sync::Mutex<Vec<(PathBuf, LiveFailure)>> =
+    std::sync::Mutex::new(Vec::new());
+
+pub(super) fn injected_live_failure(config: &Config) -> io::Result<()> {
+    let mut armed = LIVE_FAILURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(index) = armed
+        .iter()
+        .position(|(tree, _)| config.sync_dir.as_ref() == Some(tree))
+    else {
+        return Ok(());
+    };
+    let (_, failure) = armed.remove(index);
+    drop(armed);
+    match failure {
+        LiveFailure::Error => Err(io::Error::other("injected live sync failure")),
+        LiveFailure::Panic => panic!("injected live sync panic"),
+    }
+}
+
+async fn started_mirror(failure: Option<LiveFailure>) -> (TestDir, TestDir, Catalog, Task) {
+    let (data, tree, catalog, _, root) = live_fixture().await;
+    let config = Config {
+        data_dir: data.0.clone(),
+        sync_dir: Some(tree.0.clone()),
+        ..Default::default()
+    };
+    if let Some(failure) = failure {
+        LIVE_FAILURES
+            .lock()
+            .unwrap()
+            .push((tree.0.clone(), failure));
+    }
+    let task = start(catalog.clone(), root, &config).unwrap();
+    (data, tree, catalog, task)
+}
+
+/// The mirror never restarts, so a stop on an error or a panic must keep readiness off
+/// instead of serving as ready while the working tree no longer syncs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stopped_mirror_turns_readiness_off() {
+    for failure in [LiveFailure::Error, LiveFailure::Panic] {
+        let (_data, _tree, catalog, task) = started_mirror(Some(failure)).await;
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while catalog.background_tasks_running() {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            catalog.is_healthy(),
+            "a stopped mirror does not poison the catalog"
+        );
+        task.finish().await.unwrap();
+        assert!(!catalog.background_tasks_running(), "the stop is permanent");
+        catalog.close().await.unwrap();
+    }
+    assert_eq!(
+        crate::task::tests::reported_panics("sync-mirror"),
+        ["injected live sync panic"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mirror_stopped_by_shutdown_stays_ready() {
+    let (_data, _tree, catalog, task) = started_mirror(None).await;
+    // A served rescan shows the mirror is past its start and running.
+    tokio::time::timeout(std::time::Duration::from_secs(10), task.rescan())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(catalog.background_tasks_running());
+    task.finish().await.unwrap();
+    assert!(catalog.background_tasks_running());
+    catalog.close().await.unwrap();
+}

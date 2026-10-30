@@ -1,11 +1,12 @@
-//! The one module that spawns Tokio tasks.
+//! The one module that spawns Tokio tasks and OS threads.
 //!
 //! Tokio keeps a task's panic in its `JoinHandle`; a fire-and-forget spawn drops the handle and
 //! with it the only record of the failure. [`spawn_supervised`] reports every panic and
 //! cancellation as a diagnostic event first, then resumes the panic, so a caller that awaits the
 //! handle still receives the same `JoinError` as from a plain `tokio::spawn`. Long-lived loops use
 //! [`spawn_restarting`], which restarts them after a panic and reports the gap through
-//! [`TaskHealth`].
+//! [`TaskHealth`]. [`spawn_thread`] does the same reporting for a dedicated OS thread, and
+//! [`catch_job`] for one job that a long-lived worker thread runs without dying with it.
 
 use std::{
     any::Any,
@@ -56,11 +57,59 @@ where
     runtime.spawn(Supervised::new(name, future))
 }
 
+/// Spawns a named OS thread and reports its panic before the thread ends.
+///
+/// A dedicated thread is for work that would otherwise hold a bounded blocking-pool slot for
+/// its whole life, such as the catalog executor or a directory walk feeding a channel. Like
+/// [`spawn_supervised`], the panic is resumed afterwards, so `join` still returns it.
+pub(crate) fn spawn_thread<F, T>(
+    name: &'static str,
+    body: F,
+) -> std::io::Result<std::thread::JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    std::thread::Builder::new()
+        .name(name.into())
+        .spawn(move || match catch_unwind(AssertUnwindSafe(body)) {
+            Ok(value) => value,
+            Err(payload) => {
+                report_panic(name, payload.as_ref());
+                resume_unwind(payload)
+            }
+        })
+}
+
+/// A job that panicked; [`catch_job`] has already reported the panic message.
+#[derive(Debug)]
+pub(crate) struct JobPanicked(&'static str);
+
+impl std::fmt::Display for JobPanicked {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} job panicked", self.0)
+    }
+}
+
+impl std::error::Error for JobPanicked {}
+
+/// Runs one job of a long-lived worker thread and reports its panic.
+///
+/// The worker keeps serving later jobs, and the job's caller receives [`JobPanicked`] instead
+/// of a reply that never comes. The job's state is dropped during the unwind and never observed
+/// again, so catching the unwind cannot expose it half-updated.
+pub(crate) fn catch_job<T>(name: &'static str, job: impl FnOnce() -> T) -> Result<T, JobPanicked> {
+    catch_unwind(AssertUnwindSafe(job)).map_err(|payload| {
+        report_panic(name, payload.as_ref());
+        JobPanicked(name)
+    })
+}
+
 /// Whether a background task is doing its work, as readiness reports it.
 ///
 /// A task is down while it waits to restart after a panic and until a pass of the replacement
-/// succeeds, and while [`FAILED_PASSES_BEFORE_DOWN`] or more consecutive passes have failed. A
-/// successful pass clears both.
+/// succeeds, while [`FAILED_PASSES_BEFORE_DOWN`] or more consecutive passes have failed, and
+/// after it stopped for good with an error. A successful pass clears the first two.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct TaskHealth(Arc<HealthState>);
 
@@ -68,12 +117,19 @@ pub(crate) struct TaskHealth(Arc<HealthState>);
 struct HealthState {
     restarting: AtomicBool,
     failed_passes: AtomicU32,
+    stopped: AtomicBool,
 }
 
 impl TaskHealth {
     pub(crate) fn is_down(&self) -> bool {
         self.0.restarting.load(Ordering::Acquire)
+            || self.0.stopped.load(Ordering::Acquire)
             || self.0.failed_passes.load(Ordering::Acquire) >= FAILED_PASSES_BEFORE_DOWN
+    }
+
+    /// Records that the task stopped with an error and will not run again.
+    pub(crate) fn mark_stopped(&self) {
+        self.0.stopped.store(true, Ordering::Release);
     }
 
     /// Records a pass that did its work; it ends a restart gap and a run of failed passes.
@@ -383,6 +439,33 @@ pub(crate) mod tests {
             !health.is_down(),
             "the failure count restarts after a success"
         );
+    }
+
+    #[test]
+    fn a_stopped_task_stays_down() {
+        let health = TaskHealth::default();
+        health.mark_stopped();
+        health.pass_succeeded();
+        assert!(health.is_down());
+    }
+
+    #[test]
+    fn a_thread_panic_is_reported_and_still_reaches_join() {
+        const NAME: &str = "test-thread-panic";
+        let thread = spawn_thread(NAME, || -> u8 { panic!("thread fixture panic") }).unwrap();
+        assert!(thread.join().is_err());
+        assert_eq!(reported_panics(NAME), ["thread fixture panic"]);
+        let next = spawn_thread("test-thread-after-panic", || 7).unwrap();
+        assert_eq!(next.join().unwrap(), 7);
+    }
+
+    #[test]
+    fn a_job_panic_is_reported_and_returned_as_an_error() {
+        const NAME: &str = "test-job-panic";
+        let error = catch_job(NAME, || -> u8 { panic!("job fixture panic") }).unwrap_err();
+        assert_eq!(error.to_string(), "test-job-panic job panicked");
+        assert_eq!(reported_panics(NAME), ["job fixture panic"]);
+        assert_eq!(catch_job(NAME, || 7).unwrap(), 7);
     }
 
     #[tokio::test(start_paused = true)]

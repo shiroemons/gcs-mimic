@@ -408,6 +408,8 @@ struct Inner {
     maintenance_error: Mutex<Option<String>>,
     maintenance_started: AtomicBool,
     maintenance_health: crate::task::TaskHealth,
+    /// Workers started beside the catalog whose health readiness also reports.
+    background_health: Mutex<Vec<crate::task::TaskHealth>>,
     #[cfg(test)]
     fail_rollback: AtomicBool,
     #[cfg(test)]
@@ -908,6 +910,7 @@ impl Catalog {
                 maintenance_error: Mutex::new(None),
                 maintenance_started: AtomicBool::new(false),
                 maintenance_health: crate::task::TaskHealth::default(),
+                background_health: Mutex::new(Vec::new()),
                 #[cfg(test)]
                 fail_rollback: AtomicBool::new(false),
                 #[cfg(test)]
