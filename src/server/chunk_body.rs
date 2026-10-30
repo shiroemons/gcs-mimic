@@ -90,17 +90,40 @@ mod tests {
         producer.await.unwrap();
     }
 
-    /// The lost chunk needs a thread switch inside one poll, so this repeats the
-    /// producer's send-then-drop on a multi-threaded runtime; `Channel` lost about one
-    /// body in 200 000 rounds of this shape on an idle debug build, and more under load.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn the_last_chunk_survives_a_racing_sender_drop() {
-        for _ in 0..20_000 {
-            let (sender, body) = channel();
-            tokio::spawn(async move {
-                let _ = sender.send(Ok(Bytes::from_static(b"selected"))).await;
-            });
-            assert_eq!(collect(body).await, (b"selected".to_vec(), None));
-        }
+    /// Pins the contract `Channel` broke: a chunk queued before the sender drops comes out
+    /// before end-of-stream. The sender is gone before the first poll, so the state is
+    /// fixed rather than raced. `Channel` lost the chunk only when the drop landed between
+    /// two checks inside one poll (about once in 200 000 racing rounds), which no
+    /// practical repeat count catches; the regression guard against reintroducing it is
+    /// the `disallowed-types` ban on `http_body_util::Channel` in `clippy.toml`.
+    #[tokio::test]
+    async fn a_chunk_queued_before_the_sender_drops_precedes_end_of_stream() {
+        let (sender, mut body) = channel();
+        sender
+            .try_send(Ok(Bytes::from_static(b"selected")))
+            .unwrap();
+        drop(sender);
+        let frame = body.frame().await.unwrap().unwrap();
+        assert_eq!(frame.into_data().unwrap(), Bytes::from_static(b"selected"));
+        assert!(body.frame().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn an_error_queued_before_the_sender_drops_follows_its_data() {
+        let (sender, mut body) = channel();
+        sender.try_send(Ok(Bytes::from_static(b"partial"))).unwrap();
+        let blocked = tokio::spawn(async move {
+            sender
+                .send(Err(io::ErrorKind::UnexpectedEof.into()))
+                .await
+                .unwrap();
+        });
+        let frame = body.frame().await.unwrap().unwrap();
+        assert_eq!(frame.into_data().unwrap(), Bytes::from_static(b"partial"));
+        // The error is queued and its sender dropped before the next poll.
+        blocked.await.unwrap();
+        let error = body.frame().await.unwrap().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+        assert!(body.frame().await.is_none());
     }
 }
