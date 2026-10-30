@@ -18,6 +18,9 @@
 //!   length then; [`file_synced`] records a file's current length as durable. The snapshot
 //!   truncates every other copy to its durable length, or to empty when none was recorded.
 //!   Writes are modeled as appends: a rewrite in place below the durable length survives.
+//!   [`truncated`] lowers the durable length when a seamed path cuts a file back, so bytes
+//!   written again past the cut stay volatile until the next recorded sync. Whether the cut
+//!   itself survives is not modeled: the snapshot cannot bring back bytes already gone.
 //! - Directory entries: [`dir_created`] and [`renamed`] record entries that stay volatile
 //!   until [`dir_synced`] syncs their parent. The snapshot undoes them, newest first: a
 //!   volatile rename moves the file back to its old name and a volatile directory vanishes
@@ -45,6 +48,8 @@ pub(crate) enum Step {
     BodyFlush,
     /// Before the staged file's `sync_all`.
     BodySync,
+    /// After a resumable chunk is durable, before the transaction that records its offset.
+    Checkpoint,
     /// After the staged file is durable, before it is renamed into `blobs/`.
     BeforePublish,
     /// After the rename and shard sync, before the catalog transaction.
@@ -271,6 +276,27 @@ pub(crate) fn file_synced(data_dir: &Path, metadata: &fs::Metadata) {
         let data_dir = key(data_dir);
         if let Some((_, ledger)) = ledgers.iter_mut().find(|(dir, _)| *dir == data_dir) {
             ledger.durable.insert(inode(metadata), metadata.len());
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (data_dir, metadata);
+}
+
+/// Records that a file in `data_dir` was cut back to its current length. Bytes written past
+/// the cut replace bytes that may have been durable, so they count as durable again only
+/// after a later [`file_synced`].
+pub(crate) fn truncated(data_dir: &Path, metadata: &fs::Metadata) {
+    #[cfg(unix)]
+    {
+        let mut ledgers = ledgers();
+        if ledgers.is_empty() {
+            return;
+        }
+        let data_dir = key(data_dir);
+        if let Some((_, ledger)) = ledgers.iter_mut().find(|(dir, _)| *dir == data_dir)
+            && let Some(durable) = ledger.durable.get_mut(&inode(metadata))
+        {
+            *durable = (*durable).min(metadata.len());
         }
     }
     #[cfg(not(unix))]

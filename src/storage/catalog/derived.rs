@@ -644,6 +644,8 @@ impl Catalog {
             let path = stage_path(&catalog.0.data_dir, &id)?;
             let mut output = tokio::fs::OpenOptions::new().write(true).open(path).await.map_err(object_unavailable)?;
             output.set_len(progress.offset).await.map_err(object_unavailable)?;
+            #[cfg(test)]
+            fault::truncated(&catalog.0.data_dir, &output.metadata().await.map_err(object_unavailable)?);
             output.seek(io::SeekFrom::Start(progress.offset)).await.map_err(object_unavailable)?;
             let target = progress.offset.saturating_add(budget).min(progress.total);
             let mut skip = progress.offset;
@@ -1023,6 +1025,8 @@ pub(super) fn recover(
             output
                 .set_len(progress.offset)
                 .map_err(object_unavailable)?;
+            #[cfg(test)]
+            fault::truncated(data_dir, &output.metadata().map_err(object_unavailable)?);
             output.sync_all().map_err(object_unavailable)?;
             // A same-length corrupted prefix must not inherit the acknowledged hash state.
             let mut hasher = Hasher::default();

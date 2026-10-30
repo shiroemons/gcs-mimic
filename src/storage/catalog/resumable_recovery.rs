@@ -80,6 +80,8 @@ pub(super) fn recover_prefix(
             .open(&stage)
             .map_err(unavailable)?;
         file.set_len(offset).map_err(unavailable)?;
+        #[cfg(test)]
+        super::fault::truncated(data_dir, &file.metadata().map_err(unavailable)?);
         file.sync_all().map_err(unavailable)?;
     }
     Ok(())

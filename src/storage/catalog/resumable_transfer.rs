@@ -48,6 +48,11 @@ async fn receive_chunk(
         return Err(object_unavailable("Acknowledged upload prefix is missing"));
     }
     file.set_len(durable).await.map_err(object_unavailable)?;
+    #[cfg(test)]
+    fault::truncated(
+        data_dir,
+        &file.metadata().await.map_err(object_unavailable)?,
+    );
     file.seek(io::SeekFrom::Start(durable))
         .await
         .map_err(object_unavailable)?;
@@ -96,6 +101,11 @@ async fn receive_chunk(
     .await;
     if let Err(error) = transfer {
         file.set_len(durable).await.map_err(object_unavailable)?;
+        #[cfg(test)]
+        fault::truncated(
+            data_dir,
+            &file.metadata().await.map_err(object_unavailable)?,
+        );
         // xtask-lint: allow(text::sync_without_flush) -- set_len waits for tokio's in-flight write and cuts the file back to the prefix synced earlier, so no failed tail write survives
         file.sync_all().await.map_err(object_unavailable)?;
         return Err(error);
@@ -174,6 +184,8 @@ impl Catalog {
             )
             .await?;
             let offset = lease.session.offset.max(chunk.start + chunk.length);
+            #[cfg(test)]
+            fault::hit(&catalog.0.data_dir, Step::Checkpoint).map_err(object_unavailable)?;
             chunk.catalog_wait.send_replace(true);
             catalog
                 .checkpoint_resumable_options(&mut lease, offset, chunk.total, Some(&chunk.options))

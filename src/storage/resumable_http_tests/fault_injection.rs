@@ -278,14 +278,21 @@ async fn read_all(catalog: &Catalog, name: &str) -> Option<Vec<u8>> {
 /// Reopens a crash snapshot, which runs startup recovery, and checks that it holds
 /// exactly `expected` for `name` and no staged or unreferenced file.
 async fn assert_recovers(snapshot: &Path, name: &str, expected: Option<&[u8]>, case: &str) {
+    assert_recovers_objects(snapshot, &[(name, expected)], case).await;
+}
+
+/// [`assert_recovers`] for several objects of one snapshot.
+async fn assert_recovers_objects(snapshot: &Path, objects: &[(&str, Option<&[u8]>)], case: &str) {
     let catalog = Catalog::open(snapshot)
         .await
         .unwrap_or_else(|error| panic!("{case}: recovery failed: {error}"));
-    assert_eq!(
-        read_all(&catalog, name).await.as_deref(),
-        expected,
-        "{case}"
-    );
+    for (name, expected) in objects {
+        assert_eq!(
+            read_all(&catalog, name).await.as_deref(),
+            *expected,
+            "{case}: {name}"
+        );
+    }
     catalog.close().await.unwrap();
     assert_no_leaks(snapshot, case);
 }
@@ -480,6 +487,139 @@ async fn resumable_chunk_and_finalization_failures_keep_the_acknowledged_prefix(
     h.stop().await;
 }
 
+/// The staged blob ID of the session at `path`.
+async fn session_blob(h: &Harness, path: &str) -> String {
+    let id = path.split("upload_id=").nth(1).unwrap();
+    h.state
+        .catalog
+        .resumable_session(id, "bucket")
+        .await
+        .unwrap()
+        .blob_id
+}
+
+/// After recovery an uncommitted session is still active, and its staged body holds exactly
+/// the acknowledged prefix, so the client can query the offset and resume.
+#[cfg(unix)]
+fn assert_resumable_prefix(snapshot: &Path, blob_id: &str, prefix: &[u8], case: &str) {
+    let connection = rusqlite::Connection::open(snapshot.join("catalog.sqlite3")).unwrap();
+    let (state, offset): (String, i64) = connection
+        .query_row(
+            "SELECT state, offset FROM resumable_sessions WHERE blob_id = ?1",
+            [blob_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, "ACTIVE", "{case}");
+    assert_eq!(usize::try_from(offset).unwrap(), prefix.len(), "{case}");
+    let staged = std::fs::read(snapshot.join("staging").join(blob_id)).unwrap();
+    assert!(staged == prefix, "{case}: staged prefix differs");
+}
+
+/// Power loss at each durable step of a resumable finalization: before the commit the old
+/// object stays and the session resumes from its last checkpoint; after it the new object is
+/// complete. Without the final chunk's `sync_all` the committed blob comes back short, and
+/// without the shard sync it is back in staging, so the committed case fails.
+#[cfg(unix)]
+#[tokio::test]
+async fn resumable_power_loss_at_each_durable_step_keeps_the_old_or_new_object() {
+    let crashes = TestDir::new();
+    let h = Harness::start(4 * 1024 * 1024, false, None).await;
+    assert_eq!(h.media("target", b"old").await.status, 200);
+    let chunk = vec![b'a'; 256 * 1024];
+    let mut body = chunk.clone();
+    body.extend_from_slice(b"tail");
+    let last = "Content-Range: bytes 262144-262147/262148\r\n";
+    for (index, (case, step, acknowledged)) in [
+        (
+            "final chunk written, not synced",
+            Step::BodySync,
+            Some(chunk.len()),
+        ),
+        (
+            "final chunk durable, no checkpoint",
+            Step::Checkpoint,
+            Some(chunk.len()),
+        ),
+        ("staged body durable", Step::BeforePublish, Some(body.len())),
+        (
+            "blob renamed, no catalog row",
+            Step::AfterPublish,
+            Some(body.len()),
+        ),
+        (
+            "publication transaction open",
+            Step::BeforeCommit,
+            Some(body.len()),
+        ),
+        ("committed", Step::AfterCommit, None),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let path = resumable_prefix(&h, "target", &chunk).await;
+        let blob = session_blob(&h, &path).await;
+        let snapshot = crashes.0.join(index.to_string());
+        h.inject(step, 0, Fault::PowerLoss(snapshot.clone()));
+        assert_eq!(
+            h.request("PUT", &path, last, b"tail").await.status,
+            200,
+            "{case}"
+        );
+        h.assert_fired(case);
+        let expected: &[u8] = if acknowledged.is_some() {
+            b"old"
+        } else {
+            &body
+        };
+        assert_recovers(&snapshot, "target", Some(expected), case).await;
+        if let Some(length) = acknowledged {
+            assert_resumable_prefix(&snapshot, &blob, &body[..length], case);
+        }
+        assert_eq!(h.media("target", b"old").await.status, 200);
+    }
+    h.stop().await;
+}
+
+/// A chunk that was synced but whose checkpoint failed is cut back and written again by the
+/// retry. The bytes it rewrites were durable before the cut, so only the retry's own sync may
+/// make them durable again; power loss after the commit must still find the whole object.
+#[cfg(unix)]
+#[tokio::test]
+async fn resumable_retry_after_a_failed_checkpoint_syncs_the_rewritten_chunk() {
+    let crashes = TestDir::new();
+    let h = Harness::start(4 * 1024 * 1024, false, None).await;
+    let chunk = vec![b'a'; 256 * 1024];
+    let path = resumable_prefix(&h, "retried", &chunk).await;
+    let blob = session_blob(&h, &path).await;
+    let last = "Content-Range: bytes 262144-524287/524288\r\n";
+    let tail = vec![b'b'; 256 * 1024];
+    h.inject(Step::Checkpoint, 0, Fault::Io(ErrorKind::Other));
+    let reply = h.request("PUT", &path, last, &tail).await;
+    assert_backend_failure(
+        &reply,
+        &Expect::Message(io_message(ErrorKind::Other)),
+        "checkpoint",
+    );
+    h.assert_fired("checkpoint");
+    // The unacknowledged chunk is durable on disk beyond the acknowledged offset. A status
+    // query would cut and sync the file first, so the retry follows directly, as a client
+    // that retries the same range without querying does.
+    assert_eq!(
+        std::fs::metadata(h.dir.0.join("staging").join(&blob))
+            .unwrap()
+            .len(),
+        512 * 1024
+    );
+    let snapshot = crashes.0.join("retry");
+    h.inject(Step::AfterCommit, 0, Fault::PowerLoss(snapshot.clone()));
+    assert_eq!(h.request("PUT", &path, last, &tail).await.status, 200);
+    h.assert_fired("retry");
+    let expected = [chunk, tail].concat();
+    assert_recovers(&snapshot, "retried", Some(&expected), "retry").await;
+    h.stop().await;
+}
+
 async fn seed_sources(h: &Harness) {
     assert_eq!(h.media("a", &vec![b'a'; 100 * 1024]).await.status, 200);
     assert_eq!(h.media("b", &vec![b'b'; 100 * 1024]).await.status, 200);
@@ -656,6 +796,57 @@ async fn derived_crash_at_each_durable_step_recovers_without_a_partial_destinati
                 &snapshot,
                 "derived",
                 committed.then_some(&expected[..]),
+                &case,
+            )
+            .await;
+            assert_eq!(
+                h.request("DELETE", "/storage/v1/b/bucket/o/derived", "", b"")
+                    .await
+                    .status,
+                204
+            );
+        }
+    }
+    h.stop().await;
+}
+
+/// Power loss at each durable step of compose, copy and rewrite publication. The destination
+/// is absent until the commit and complete after it, and the sources stay intact. Without the
+/// derived body's `sync_all` the committed destination comes back short, and without the shard
+/// sync its blob is back in staging, so the committed cases fail.
+#[cfg(unix)]
+#[tokio::test]
+async fn derived_power_loss_at_each_durable_step_keeps_no_partial_destination() {
+    let crashes = TestDir::new();
+    let h = Harness::start(1024 * 1024, false, None).await;
+    seed_sources(&h).await;
+    let (a, b) = (vec![b'a'; 100 * 1024], vec![b'b'; 100 * 1024]);
+    let mut index = 0;
+    for operation in ["compose", "copy", "rewrite"] {
+        let expected = match operation {
+            "compose" => [a.clone(), b.clone()].concat(),
+            _ => a.clone(),
+        };
+        for (case, step, committed) in [
+            ("body written, not synced", Step::BodySync, false),
+            ("body durable, not renamed", Step::BeforePublish, false),
+            ("blob renamed, no catalog row", Step::AfterPublish, false),
+            ("publication transaction open", Step::BeforeCommit, false),
+            ("committed, sources not cleaned", Step::AfterCommit, true),
+        ] {
+            let case = format!("{operation}: {case}");
+            let snapshot = crashes.0.join(index.to_string());
+            index += 1;
+            h.inject(step, 0, Fault::PowerLoss(snapshot.clone()));
+            assert_eq!(derive(&h, operation).await.status, 200, "{case}");
+            h.assert_fired(&case);
+            assert_recovers_objects(
+                &snapshot,
+                &[
+                    ("derived", committed.then_some(&expected[..])),
+                    ("a", Some(&a)),
+                    ("b", Some(&b)),
+                ],
                 &case,
             )
             .await;
