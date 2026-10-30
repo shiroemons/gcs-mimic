@@ -615,11 +615,8 @@ impl Catalog {
                 }
                 self.run(move |connection| {
                     connection
-                        // xtask-lint: allow(text::uncached_statement) -- expired sessions are removed only by the maintenance sweep
-                        .execute(
-                            "DELETE FROM rewrite_sessions WHERE id=?1 AND deadline<=?2",
-                            params![id, now],
-                        )
+                        .prepare_cached("DELETE FROM rewrite_sessions WHERE id=?1 AND deadline<=?2")
+                        .and_then(|mut statement| statement.execute(params![id, now]))
                         .map(|_| ())
                         .map_err(super::unavailable)
                 })
@@ -627,13 +624,10 @@ impl Catalog {
             }
         }
         self.run(move |connection| {
+            // Rewrite calls wake the maintenance sweep, so this runs per request.
             let deadline: Option<i64> = connection
-                // xtask-lint: allow(text::uncached_statement) -- the next deadline is read once per maintenance pass
-                .query_row(
-                    "SELECT min(deadline) FROM rewrite_sessions WHERE deadline>?1",
-                    [now],
-                    |row| row.get(0),
-                )
+                .prepare_cached("SELECT min(deadline) FROM rewrite_sessions WHERE deadline>?1")
+                .and_then(|mut statement| statement.query_row([now], |row| row.get(0)))
                 .map_err(super::unavailable)?;
             deadline
                 .map(system_time_millis)

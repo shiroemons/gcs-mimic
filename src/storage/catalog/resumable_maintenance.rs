@@ -29,12 +29,10 @@ fn clean_record(
 ) -> Result<(), CatalogError> {
     clean_session_files(connection, data_dir, blob_id)?;
     if deadline <= now {
+        // Resumable session requests wake the maintenance sweep, so this runs per request.
         connection
-            // xtask-lint: allow(text::uncached_statement) -- expired sessions are removed only by open-time recovery and the maintenance sweep
-            .execute(
-                "DELETE FROM resumable_sessions WHERE id = ?1 AND deadline <= ?2",
-                params![id, now],
-            )
+            .prepare_cached("DELETE FROM resumable_sessions WHERE id = ?1 AND deadline <= ?2")
+            .and_then(|mut statement| statement.execute(params![id, now]))
             .map_err(unavailable)?;
     }
     Ok(())
@@ -220,10 +218,8 @@ impl Catalog {
         let resumable_deadline = self
             .run(|connection| {
                 let deadline: Option<i64> = connection
-                    // xtask-lint: allow(text::uncached_statement) -- the next deadline is read once per maintenance pass
-                    .query_row("SELECT min(deadline) FROM resumable_sessions", [], |row| {
-                        row.get(0)
-                    })
+                    .prepare_cached("SELECT min(deadline) FROM resumable_sessions")
+                    .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
                     .map_err(unavailable)?;
                 deadline
                     .map(super::system_time_millis)

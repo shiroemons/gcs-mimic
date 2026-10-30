@@ -876,21 +876,14 @@ impl Catalog {
             return Err(super::unavailable(error));
         }
         self.run(move |connection| {
+            // Derived transfers wake the maintenance sweep, so these run per request.
             let deadline: Option<i64> = connection
-                // xtask-lint: allow(text::uncached_statement) -- the next deadline is read once per maintenance pass
-                .query_row(
-                    "SELECT min(deadline) FROM derived_transfers WHERE deadline > ?1",
-                    [now],
-                    |row| row.get(0),
-                )
+                .prepare_cached("SELECT min(deadline) FROM derived_transfers WHERE deadline > ?1")
+                .and_then(|mut statement| statement.query_row([now], |row| row.get(0)))
                 .map_err(super::unavailable)?;
             let pending: bool = connection
-                // xtask-lint: allow(text::uncached_statement) -- pending reclamation is probed once per maintenance pass
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM derived_deletions)",
-                    [],
-                    |row| row.get(0),
-                )
+                .prepare_cached("SELECT EXISTS(SELECT 1 FROM derived_deletions)")
+                .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
                 .map_err(super::unavailable)?;
             let deadline = if pending {
                 Some(deadline.map_or(now, |deadline| deadline.min(now)))
