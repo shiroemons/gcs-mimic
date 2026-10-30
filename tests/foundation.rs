@@ -504,24 +504,39 @@ fn dual_listener_invalid_settings_fail_before_catalog_or_readiness() {
 #[test]
 fn dual_listener_second_bind_failure_releases_first_socket_and_catalog() {
     let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let primary = reserved.local_addr().unwrap();
-    drop(reserved);
     let dir = TestDir::new();
-    let output = common::server_command()
-        .args([
-            "serve",
-            "--scheme",
-            "both",
-            "--listen",
-            &primary.to_string(),
-            "--listen-http",
-            &occupied.local_addr().unwrap().to_string(),
-            "--data-dir",
-        ])
-        .arg(&dir.0)
-        .output()
-        .unwrap();
+    // The primary port is released before the server binds it, so a concurrently running
+    // test can take it first; the server then fails on --listen instead of --listen-http.
+    // Only that collision retries with a fresh port; every other outcome is asserted.
+    let mut attempts = 0;
+    let (primary, output) = loop {
+        let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let primary = reserved.local_addr().unwrap();
+        drop(reserved);
+        let output = common::server_command()
+            .args([
+                "serve",
+                "--scheme",
+                "both",
+                "--listen",
+                &primary.to_string(),
+                "--listen-http",
+                &occupied.local_addr().unwrap().to_string(),
+                "--data-dir",
+            ])
+            .arg(&dir.0)
+            .output()
+            .unwrap();
+        let diagnostics = String::from_utf8_lossy(&output.stderr);
+        attempts += 1;
+        if attempts < 5
+            && !diagnostics.contains("listen_http")
+            && diagnostics.contains("--listen IP:PORT")
+        {
+            continue;
+        }
+        break (primary, output);
+    };
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
     let diagnostics = String::from_utf8(output.stderr).unwrap();
