@@ -159,11 +159,13 @@ remaining sleeps, accept `BrokenPipe`, `ConnectionReset` and
 steps that run under a short catalog budget, and use client socket timeouts and
 retry deadlines only as hang guards.
 
-Keep `#[allow(unsafe_code)]` on each necessary unsafe statement or its binding,
-with an adjacent `// SAFETY:` comment explaining why the operation is safe.
-Clippy rejects allowed unsafe blocks without these comments. Callbacks that
+Keep `#[expect(unsafe_code, reason = "...")]` on each necessary unsafe statement
+or its binding, with an adjacent `// SAFETY:` comment explaining why the
+operation is safe; production code uses `#[expect]` rather than `#[allow]`
+(see the production lint gate below). Clippy rejects unsafe blocks without
+these comments. Callbacks that
 convert raw pointer arguments to references must be `unsafe extern "C" fn` with
-a `# Safety` contract. Their item-level allow is needed for the unsafe declaration
+a `# Safety` contract. Their item-level expectation is needed for the unsafe declaration
 but also permits unsafe code throughout the body and nested items; it cannot be
 limited to the declaration. Keep body operations in explicit inner unsafe blocks
 with `// SAFETY:` comments. Edition 2024's `unsafe_op_in_unsafe_fn` and Clippy's
@@ -233,11 +235,28 @@ and fails on any invalid or stale suppression.
 
 The gate covers only server production code: files under `src/` except
 `src/grpc/generated/`, the `src/grpc/codegen/` build tool, `*_tests.rs`,
-`tests.rs` and `test_support.rs`. Clippy runs on the `gcs-mimic` library and
-binary only (`--lib --bins`), so `cfg(test)` code is not compiled; the text
-rules skip each item marked `#[cfg(test)]` or `#[cfg(all(test, ...))]`.
-Clippy runs for the host target only, so code behind other targets' `cfg`
-is not checked. Tests may unwrap and expect.
+`tests.rs`, `test_support.rs` and files inside a `tests/` or `*_tests/`
+module directory. Clippy runs on the `gcs-mimic` library and binary only
+(`--lib --bins`), so `cfg(test)` code is not compiled; the text rules skip
+each item marked `#[cfg(test)]` or `#[cfg(all(test, ...))]`, including
+attributes stacked before that `cfg`. Tests may unwrap and expect.
+
+`cargo xtask lint --target <triple>` runs only the Clippy pass for another
+target, so code behind that target's `cfg` (for example Windows-only file
+naming) is checked; the text rules do not depend on the target and run with
+the host gate. `scripts/check-cross.sh` runs it after the cross Clippy run for
+each target in its list, with the same C compiler stub and target directory.
+
+#### Pending rules
+
+A new rule that existing code does not pass yet is listed in `PENDING_RULES`
+in `xtask/src/lint.rs`. Its findings print as
+`warning: pending <rule>: <file>: <count>` and in the summary line, but do not
+fail the gate. The pseudo-rule `target::cross` makes every finding of a
+`--target` run pending. Suppressions of a pending rule are still validated,
+and a stale one fails. To enforce a rule, remove it from `PENDING_RULES`; once
+every rule is enforced the list is `&[]`. To see each pending finding's line,
+empty the list locally and run `cargo xtask lint`.
 
 | Rule | Rejects |
 | --- | --- |
@@ -245,14 +264,19 @@ is not checked. Tests may unwrap and expect.
 | `clippy::too_many_lines` | Functions over 120 lines (`clippy.toml`). |
 | `clippy::fn_params_excessive_bools` | Functions with any `bool` parameter (`max-fn-params-bools = 0`). |
 | `clippy::needless_pass_by_value` | Avoidable copies. |
-| `clippy::allow_attributes_without_reason` | `#[allow]` without a `reason`. |
+| `clippy::allow_attributes_without_reason` | `#[allow]` or `#[expect]` without a `reason`. |
+| `clippy::allow_attributes` | Any `#[allow]`; use `#[expect]`, which fails once the lint stops firing. |
 | `text::path_attribute` | `#[path]` module attributes. |
 | `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`. |
+| `text::string_error_variant` | Tuple variants `Backend(String)`, `BodyAborted(String)`, `Database(String)`, `Internal(String)`, `Io(String)`, `Other(String)`, `Sqlite(String)`, `Storage(String)` or `Unavailable(String)` in an enum named `*Error`. |
+| `text::stringified_error` | `map_err(\|e\| Path(e.to_string()))` or `map_err(\|e\| Path(format!(".. {e}")))` whose only argument stringifies the error. |
 | `text::unavailable_helper` | `fn unavailable` outside `src/storage/failure.rs`, or not exactly one there. |
-| `text::allow_too_many_arguments` | `#[allow]` or `#[expect]` of `clippy::too_many_arguments`. |
+| `text::allow_too_many_arguments` | `#[allow]`, `#[expect]` or `cfg_attr` of `clippy::too_many_arguments`, including attributes split over several lines. |
 | `text::uncached_prepare` | rusqlite `.prepare(` calls instead of `prepare_cached`. |
+| `text::uncached_statement` | `.execute(`, `.query_row(` or `.query_one(` whose first argument is a string literal or an `UPPER_SNAKE` constant: rusqlite prepares that SQL on every call. |
 | `text::format_sql` | `format!` whose literal starts with an SQL statement. |
 | `text::sync_without_flush` | `.sync_all().await` or `.sync_data().await` after an awaited write in the same function with no `.flush().await` or `.shutdown().await` in between. |
+| `text::unsupervised_spawn` | `tokio::spawn(` or `task::spawn(` outside `src/task.rs`, the supervised spawn helper (`SUPERVISED_SPAWN_FILE`). |
 
 `unreachable_pub` and `clippy::redundant_clone` pass on every workspace target,
 so `[workspace.lints]` denies them and the plain
@@ -266,8 +290,15 @@ for example, `text::format_sql` does not see SQL assembled through other
 helpers, and a `Result<_, String>` hidden behind another alias is not counted.
 `text::sync_without_flush` follows source order without tracking which value
 was written, so it misses a write and a sync in different functions and
-reports a socket write followed by a file sync. Review still applies the
-written rules where the tool cannot.
+reports a socket write followed by a file sync. `text::uncached_statement`
+does not see SQL passed through a variable and matches any `.execute("..")`
+receiver; `execute_batch` is not checked because it runs multi-statement DDL
+and has no cached form. `text::string_error_variant` checks only the listed
+variant names, so a variant that names rejected client input, such as
+`InvalidTopic(String)`, may keep its message. `text::unsupervised_spawn` does
+not see `Handle::spawn` or `Runtime::spawn`; `JoinSet::spawn` keeps its tasks
+observed and is not matched. Review still applies the written rules where the
+tool cannot.
 
 #### Reasoned suppressions
 
@@ -291,6 +322,19 @@ let sql = format!("SELECT {COLUMNS} FROM objects"); // xtask-lint: allow(text::f
   suppression and fails the check, like an unfulfilled `#[expect]`. Remove the
   comment when the code no longer needs it.
 - Doc comments and string contents never suppress anything.
+
+Statements that run once at open, during a schema migration or in
+maintenance, rather than per request, are the intended exception to
+`text::uncached_statement`. When a whole module consists of them, one
+file-scope comment replaces per-line ones:
+
+```rust
+// xtask-lint: allow-file(text::uncached_statement) -- schema setup runs once at open
+```
+
+Only the rules in `FILE_SCOPE_RULES` (currently `text::uncached_statement`)
+accept `allow-file`. It covers every finding of that rule in the file that no
+line suppression covers, and it is stale when the file has none.
 
 #### `#[expect]` for restriction lints
 

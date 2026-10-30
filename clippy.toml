@@ -5,8 +5,9 @@
 # found request handlers of 250 to 800 lines that this rejects.
 too-many-lines-threshold = 120
 
-# Any bool parameter counts: literal `true`/`false` call sites hide meaning, so use
-# a two-variant enum instead.
+# Any bool parameter counts: literal `true`/`false` call sites hide meaning, so a mode
+# becomes a two-variant enum. A private helper forwarding a stored or wire boolean keeps
+# it under a reasoned `#[expect]`; see "Rust implementation guardrails" in AGENTS.md.
 max-fn-params-bools = 0
 
 # Tests may unwrap and expect; production code must not.
