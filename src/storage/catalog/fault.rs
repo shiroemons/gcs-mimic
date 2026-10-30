@@ -31,6 +31,12 @@ pub(crate) enum Step {
     BeforeCommit,
     /// After the publication transaction committed.
     AfterCommit,
+    /// Before one write of appended bytes to an appendable data file.
+    AppendWrite,
+    /// Before the appendable data file's `sync_data` on a flush.
+    AppendSync,
+    /// After the appended bytes are durable, before the transaction that publishes their size.
+    AppendCommit,
 }
 
 /// What an armed step does when it is reached.

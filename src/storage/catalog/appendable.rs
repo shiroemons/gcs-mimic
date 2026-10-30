@@ -398,6 +398,11 @@ pub(crate) struct AppendWriter {
     bucket: String,
     name: String,
     path: PathBuf,
+    /// Appends and flushes share this descriptor. Linux tracks writeback errors per open file:
+    /// a descriptor opened after a failure reports it only while no other descriptor has seen
+    /// it (and never before Linux 4.16), so a sync through a fresh descriptor could
+    /// acknowledge lost bytes as durable.
+    file: Arc<fs::File>,
     handle: String,
     /// Keeps the slot, and so this writer's ownership claim, registered while it lives.
     slot: SlotHandle,
@@ -451,17 +456,22 @@ impl AppendWriter {
         if guard.owner.as_deref() != Some(self.handle.as_str()) {
             return Err(AppendError::Superseded);
         }
-        let path = self.path.clone();
+        let file = self.file.clone();
         let start = self.end;
         let bytes = added.clone();
-        tokio::task::spawn_blocking(move || -> io::Result<()> {
-            let mut file = fs::OpenOptions::new().write(true).open(path)?;
-            file.seek(io::SeekFrom::Start(start))?;
-            file.write_all(&bytes)
+        #[cfg(test)]
+        let data_dir = self.catalog.0.data_dir.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), ObjectError> {
+            #[cfg(test)]
+            super::fault::hit(&data_dir, super::fault::Step::AppendWrite)
+                .map_err(object_unavailable)?;
+            let mut file = &*file;
+            file.seek(io::SeekFrom::Start(start))
+                .and_then(|_| file.write_all(&bytes))
+                .map_err(object_unavailable)
         })
         .await
-        .map_err(object_unavailable)?
-        .map_err(object_unavailable)?;
+        .map_err(object_unavailable)??;
         drop(guard);
         self.crc32c = crc32c::crc32c_append(self.crc32c, &added);
         self.end = end;
@@ -478,13 +488,28 @@ impl AppendWriter {
         if self.end == self.record.size {
             return Ok(self.end);
         }
-        let path = self.path.clone();
-        tokio::task::spawn_blocking(move || {
-            fs::OpenOptions::new().write(true).open(path)?.sync_data()
+        let file = self.file.clone();
+        #[cfg(test)]
+        let data_dir = self.catalog.0.data_dir.clone();
+        let synced = tokio::task::spawn_blocking(move || -> Result<(), ObjectError> {
+            #[cfg(test)]
+            super::fault::hit(&data_dir, super::fault::Step::AppendSync)
+                .map_err(object_unavailable)?;
+            file.sync_data().map_err(object_unavailable)
         })
         .await
-        .map_err(object_unavailable)?
-        .map_err(object_unavailable)?;
+        .map_err(object_unavailable)
+        .and_then(|synced| synced);
+        if let Err(error) = synced {
+            // After a failed sync the unflushed bytes may be lost even though a retried sync
+            // would succeed, so they must be received and written again before any flush.
+            self.end = self.record.size;
+            self.crc32c = self.record.crc32c;
+            return Err(error.into());
+        }
+        #[cfg(test)]
+        super::fault::hit(&self.catalog.0.data_dir, super::fault::Step::AppendCommit)
+            .map_err(object_unavailable)?;
         let (bucket, name, generation, handle) = (
             self.bucket.clone(),
             self.name.clone(),
@@ -722,15 +747,15 @@ impl Catalog {
         let path = data_path(&self.0.data_dir, &blob_id)?;
         let directory = self.0.data_dir.join("appendable");
         let file = path.clone();
-        tokio::task::spawn_blocking(move || -> io::Result<()> {
+        let file = tokio::task::spawn_blocking(move || -> io::Result<fs::File> {
             fs::create_dir_all(&directory)?;
-            fs::OpenOptions::new()
+            let file = fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&file)?;
             #[cfg(unix)]
             crate::fsutil::sync_dir(&directory)?;
-            Ok(())
+            Ok(file)
         })
         .await
         .map_err(object_unavailable)?
@@ -763,6 +788,7 @@ impl Catalog {
             bucket: bucket.to_owned(),
             name: name.to_owned(),
             path,
+            file: Arc::new(file),
             handle,
             slot,
             end: 0,
@@ -914,7 +940,7 @@ impl Catalog {
         let file = path.clone();
         let size = record.size;
         // Unflushed bytes from the previous writer were never acknowledged.
-        tokio::task::spawn_blocking(move || -> Result<(), ObjectError> {
+        let file = tokio::task::spawn_blocking(move || -> Result<fs::File, ObjectError> {
             let file = fs::OpenOptions::new()
                 .write(true)
                 .open(file)
@@ -925,7 +951,8 @@ impl Catalog {
                 ));
             }
             file.set_len(size).map_err(object_unavailable)?;
-            file.sync_data().map_err(object_unavailable)
+            file.sync_data().map_err(object_unavailable)?;
+            Ok(file)
         })
         .await
         .map_err(object_unavailable)??;
@@ -936,6 +963,7 @@ impl Catalog {
             bucket: bucket.to_owned(),
             name: name.to_owned(),
             path,
+            file: Arc::new(file),
             handle: new_handle,
             slot,
             end: record.size,

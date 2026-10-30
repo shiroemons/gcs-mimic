@@ -533,3 +533,238 @@ async fn appendable_size_limit_and_reader_bound_by_persisted_size() {
         Some(ObjectError::NotModified)
     );
 }
+
+async fn persisted_content(catalog: &Catalog, name: &str) -> Vec<u8> {
+    let (_, mut reader) = catalog
+        .open_appendable(
+            "append",
+            name,
+            None,
+            Default::default(),
+            &BucketAccess::Permissive,
+        )
+        .await
+        .unwrap();
+    let mut content = Vec::new();
+    while let Some(chunk) = reader.next_chunk().await.unwrap() {
+        content.extend_from_slice(&chunk);
+    }
+    content
+}
+
+async fn take_over(catalog: &Catalog, name: &str, generation: i64) -> AppendWriter {
+    catalog
+        .take_over_appendable(
+            "append",
+            name,
+            generation,
+            None,
+            Default::default(),
+            BucketAccess::Permissive,
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn failed_append_write_is_not_received_and_can_be_retried() {
+    use super::super::fault::{Fault, Step};
+    let dir = TestDir::new();
+    let catalog = catalog_with_bucket(&dir).await;
+    let mut writer = catalog
+        .create_appendable("append", "write", options())
+        .await
+        .unwrap();
+    catalog.inject(Step::AppendWrite, 0, Fault::Io(io::ErrorKind::StorageFull));
+    assert!(matches!(
+        writer.append(0, Bytes::from_static(b"abc"), 1024).await,
+        Err(AppendError::Object(_))
+    ));
+    assert_eq!(catalog.pending_faults(), 0);
+    assert_eq!(writer.flush().await, Ok(0), "nothing was received");
+    writer
+        .append(0, Bytes::from_static(b"abc"), 1024)
+        .await
+        .unwrap();
+    assert_eq!(writer.flush().await, Ok(3));
+    assert_eq!(persisted_content(&catalog, "write").await, b"abc");
+}
+
+/// A failed sync may already have lost the unflushed bytes, and a retried sync can succeed
+/// without writing them, so the writer must receive them again instead of publishing them.
+#[tokio::test]
+async fn failed_append_sync_is_never_published_by_a_retried_flush() {
+    use super::super::fault::{Fault, Step};
+    let dir = TestDir::new();
+    let catalog = catalog_with_bucket(&dir).await;
+    let mut writer = catalog
+        .create_appendable("append", "sync", options())
+        .await
+        .unwrap();
+    writer
+        .append(0, Bytes::from_static(b"one"), 1024)
+        .await
+        .unwrap();
+    assert_eq!(writer.flush().await, Ok(3));
+    writer
+        .append(3, Bytes::from_static(b"two"), 1024)
+        .await
+        .unwrap();
+    catalog.inject(Step::AppendSync, 0, Fault::Io(io::ErrorKind::Other));
+    assert!(matches!(writer.flush().await, Err(AppendError::Object(_))));
+    assert_eq!(writer.persisted_size(), 3);
+    assert_eq!(
+        writer.flush().await,
+        Ok(3),
+        "the failed bytes stay unacknowledged"
+    );
+    assert_eq!(
+        writer.append(6, Bytes::from_static(b"more"), 1024).await,
+        Err(AppendError::OffsetGap { expected: 3 })
+    );
+    writer
+        .append(3, Bytes::from_static(b"two"), 1024)
+        .await
+        .unwrap();
+    assert_eq!(writer.flush().await, Ok(6));
+    assert_eq!(persisted_content(&catalog, "sync").await, b"onetwo");
+    let record = writer
+        .finalize(
+            Some(crc32c::crc32c(b"onetwo")),
+            BucketAccess::Permissive,
+            1024,
+        )
+        .await
+        .unwrap();
+    assert_eq!(record.size, 6);
+}
+
+/// A crash before the size update commits leaves only the previously flushed prefix; the next
+/// writer truncates the unacknowledged bytes and continues from there.
+#[tokio::test]
+async fn append_crash_at_each_durable_step_recovers_the_flushed_prefix() {
+    use super::super::fault::{Fault, Step};
+    let crashes = TestDir::new();
+    for (index, step) in [Step::AppendWrite, Step::AppendSync, Step::AppendCommit]
+        .into_iter()
+        .enumerate()
+    {
+        let dir = TestDir::new();
+        let catalog = catalog_with_bucket(&dir).await;
+        let mut writer = catalog
+            .create_appendable("append", "crash", options())
+            .await
+            .unwrap();
+        writer
+            .append(0, Bytes::from_static(b"one"), 1024)
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        let generation = writer.record().generation;
+        let snapshot = crashes.0.join(index.to_string());
+        catalog.inject(step, 0, Fault::Snapshot(snapshot.clone()));
+        writer
+            .append(3, Bytes::from_static(b"two"), 1024)
+            .await
+            .unwrap();
+        assert_eq!(writer.flush().await, Ok(6), "{step:?}");
+        assert_eq!(catalog.pending_faults(), 0, "{step:?}");
+        drop(writer);
+        catalog.close().await.unwrap();
+
+        let recovered = Catalog::open(&snapshot).await.unwrap();
+        assert_eq!(open(&recovered, "crash").await.unwrap().size, 3, "{step:?}");
+        assert_eq!(
+            persisted_content(&recovered, "crash").await,
+            b"one",
+            "{step:?}"
+        );
+        let mut writer = take_over(&recovered, "crash", generation).await;
+        assert_eq!(writer.persisted_size(), 3, "{step:?}");
+        writer
+            .append(3, Bytes::from_static(b"TWO"), 1024)
+            .await
+            .unwrap();
+        assert_eq!(writer.flush().await, Ok(6), "{step:?}");
+        assert_eq!(
+            persisted_content(&recovered, "crash").await,
+            b"oneTWO",
+            "{step:?}"
+        );
+        recovered.close().await.unwrap();
+    }
+}
+
+/// Finalization publishes through the ordinary write path: a failed publication keeps the
+/// generation appendable, a crash before its commit recovers it as appendable, and a crash
+/// after the commit recovers it as finalized.
+#[tokio::test]
+async fn finalize_failure_and_crashes_recover_appendable_or_finalized() {
+    use super::super::fault::{Fault, Step};
+    let crashes = TestDir::new();
+    let dir = TestDir::new();
+    let catalog = catalog_with_bucket(&dir).await;
+    let mut writer = catalog
+        .create_appendable("append", "final", options())
+        .await
+        .unwrap();
+    writer
+        .append(0, Bytes::from_static(b"data"), 1024)
+        .await
+        .unwrap();
+    let generation = writer.record().generation;
+    catalog.inject(Step::BodySync, 0, Fault::Io(io::ErrorKind::Other));
+    assert!(
+        writer
+            .finalize(None, BucketAccess::Permissive, 1024)
+            .await
+            .is_err()
+    );
+    assert_eq!(catalog.pending_faults(), 0);
+    assert_eq!(open(&catalog, "final").await.unwrap().size, 4);
+    drop(writer);
+
+    let before = crashes.0.join("before");
+    let after = crashes.0.join("after");
+    catalog.inject(Step::BeforeCommit, 0, Fault::Snapshot(before.clone()));
+    catalog.inject(Step::AfterCommit, 0, Fault::Snapshot(after.clone()));
+    let mut writer = take_over(&catalog, "final", generation).await;
+    let record = writer
+        .finalize(
+            Some(crc32c::crc32c(b"data")),
+            BucketAccess::Permissive,
+            1024,
+        )
+        .await
+        .unwrap();
+    assert_eq!((record.generation, record.size), (generation, 4));
+    assert_eq!(catalog.pending_faults(), 0);
+    drop(writer);
+    catalog.close().await.unwrap();
+
+    let recovered = Catalog::open(&before).await.unwrap();
+    assert_eq!(open(&recovered, "final").await.unwrap().size, 4);
+    assert_eq!(persisted_content(&recovered, "final").await, b"data");
+    recovered.close().await.unwrap();
+
+    let recovered = Catalog::open(&after).await.unwrap();
+    assert_eq!(
+        open(&recovered, "final").await.err(),
+        Some(ObjectError::ObjectNotFound)
+    );
+    assert_eq!(
+        recovered
+            .take_over_appendable(
+                "append",
+                "final",
+                generation,
+                None,
+                Default::default(),
+                BucketAccess::Permissive,
+            )
+            .await
+            .err(),
+        Some(AppendError::Finalized)
+    );
+    recovered.close().await.unwrap();
+}
