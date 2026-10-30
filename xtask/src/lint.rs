@@ -1,9 +1,11 @@
-//! Ratcheting code-quality gate for the server crate.
+//! Zero-tolerance code-quality gate for the server's production code.
 //!
-//! Existing violations are recorded per rule and file in the baseline. A check fails when a
-//! count grows, so new violations cannot land, and also when a count shrinks, so the baseline
-//! always tracks the tree and a fix cannot be silently undone later. `--strict` ignores the
-//! baseline and is the end state once every recorded violation is fixed.
+//! `cargo xtask lint` runs Clippy on the server library and binaries with [`CLIPPY_LINTS`] and
+//! applies the text rules to production files. Any finding fails the gate. The only exceptions
+//! are reasoned suppressions (`#[expect(lint, reason = "..")]` for Clippy and rustc lints,
+//! `// xtask-lint: allow(text::..) -- reason` for text rules) and the one shared error-mapping
+//! helper in [`SHARED_HELPER_FILE`]. `--all-targets-report` lists the same Clippy lints across
+//! every workspace target for information; tests may unwrap, so it never fails.
 
 use serde_json::Value;
 use std::{
@@ -15,25 +17,22 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, String>;
-/// Rule name, then file (or [`ALL_FILES`] for a tree-wide rule), then occurrence count.
-pub type Counts = BTreeMap<String, BTreeMap<String, u64>>;
 
-pub const BASELINE: &str = "xtask/lint-baseline.json";
-const ALL_FILES: &str = "(all files)";
-const UPDATE: &str = "cargo xtask lint --update-baseline";
-
-/// Extra Clippy and rustc lints counted on production code. Thresholds live in `clippy.toml`.
-pub const CLIPPY_LINTS: [&str; 9] = [
+/// Extra Clippy lints for production code; thresholds live in `clippy.toml`. A lint that passes
+/// on every workspace target belongs in `[workspace.lints]` instead: a `-W` here would lower
+/// that `deny` to a warning for this run.
+pub const CLIPPY_LINTS: [&str; 7] = [
     "clippy::unwrap_used",
     "clippy::expect_used",
     "clippy::panic",
     "clippy::too_many_lines",
     "clippy::fn_params_excessive_bools",
     "clippy::needless_pass_by_value",
-    "clippy::redundant_clone",
     "clippy::allow_attributes_without_reason",
-    "unreachable_pub",
 ];
+
+/// The only file that may define `fn unavailable`, the shared storage error mapping.
+pub const SHARED_HELPER_FILE: &str = "src/storage/failure.rs";
 
 const PATH_ATTRIBUTE: &str = "text::path_attribute";
 const STRING_ERROR_RESULT: &str = "text::string_error_result";
@@ -78,18 +77,10 @@ const SQL_MARKERS: [&str; 7] = [
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
-    /// Fail on any count above or below the baseline.
-    Ratchet,
-    /// Ignore the baseline; fail on any violation.
-    Strict,
-    /// Rewrite the baseline; growth needs [`Growth::Allow`].
-    Update(Growth),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Growth {
-    Refuse,
-    Allow,
+    /// Fail on any production finding.
+    Gate,
+    /// Print the Clippy lints across every workspace target; never fails on findings.
+    AllTargetsReport,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -107,17 +98,9 @@ impl Finding {
             line,
         }
     }
-
-    fn key(&self) -> &str {
-        if self.rule == UNAVAILABLE_HELPER {
-            ALL_FILES
-        } else {
-            &self.file
-        }
-    }
 }
 
-/// A suppression comment that fails the check whatever the baseline says.
+/// A malformed, unknown, unreasoned or stale suppression comment; it always fails the gate.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Problem {
     pub file: String,
@@ -146,9 +129,9 @@ impl Scan {
 /// Which code a Clippy pass compiles and which reported files it keeps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
-    /// The server's library and binaries: the files the ratchet counts.
+    /// The server's library and binaries: the files the gate checks.
     Production,
-    /// Every workspace target: what `[workspace.lints]` would reach after the deny switch.
+    /// Every workspace target: what `[workspace.lints]` would reach.
     Workspace,
 }
 
@@ -170,49 +153,32 @@ impl Scope {
     }
 }
 
-/// Counts that differ from the reference: `(rule, file, reference, current)`.
-pub type Changes = Vec<(String, String, u64, u64)>;
-
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct Comparison {
-    pub increased: Changes,
-    pub decreased: Changes,
-}
-
 /// Parses the arguments after `lint`.
 pub fn mode(args: &[String]) -> Option<Mode> {
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
-        [] => Some(Mode::Ratchet),
-        ["--strict"] => Some(Mode::Strict),
-        ["--update-baseline"] => Some(Mode::Update(Growth::Refuse)),
-        ["--update-baseline", "--allow-increase"] | ["--allow-increase", "--update-baseline"] => {
-            Some(Mode::Update(Growth::Allow))
-        }
+        [] => Some(Mode::Gate),
+        ["--all-targets-report"] => Some(Mode::AllTargetsReport),
         _ => None,
     }
 }
 
-/// Runs the gate and returns whether it passed.
+/// Runs the selected mode and returns whether it passed.
 pub fn run(root: &Path, mode: Mode) -> Result<bool> {
-    let path = root.join(BASELINE);
-    // Read the baseline before the slow Clippy run so a missing or malformed file fails fast.
-    let baseline = match (fs::read_to_string(&path), mode) {
-        (_, Mode::Strict) => Counts::new(),
-        (Ok(text), _) => parse_baseline(&text)?,
-        (Err(e), Mode::Update(_)) if e.kind() == std::io::ErrorKind::NotFound => Counts::new(),
-        (Err(e), _) => {
-            return Err(format!(
-                "{BASELINE}: {e}; create it with `{UPDATE} --allow-increase`"
-            ));
+    match mode {
+        Mode::Gate => gate(root),
+        Mode::AllTargetsReport => {
+            all_targets_report(&clippy(root, Scope::Workspace)?);
+            Ok(true)
         }
-    };
+    }
+}
+
+fn gate(root: &Path) -> Result<bool> {
     let mut findings = clippy(root, Scope::Production)?;
     let scan = scan_tree(root)?;
     findings.extend(scan.findings);
     findings.sort();
-    let current = count(&findings);
     let suppressions = suppression_summary(&scan.suppressed);
-    // Suppression mistakes fail every mode: a stale or unreasoned one must not be recorded.
     for problem in &scan.problems {
         eprintln!(
             "error: {}:{}: {}",
@@ -221,88 +187,46 @@ pub fn run(root: &Path, mode: Mode) -> Result<bool> {
     }
     if !scan.problems.is_empty() {
         eprintln!("Suppressions use `{SUPPRESSION_SYNTAX}`; see docs/en/development.md.");
-        return Ok(false);
     }
-    match mode {
-        Mode::Strict => {
-            let failures = strict_failures(&current);
-            report(&failures, &findings, "strict lint violation");
-            let blockers = switch_blockers(&findings, &clippy(root, Scope::Workspace)?);
-            for ((rule, file), lines) in &blockers {
-                eprintln!(
-                    "error: blocks the Cargo.toml deny switch: {rule} in {file}: {}",
-                    lines.len()
-                );
-                for line in lines {
-                    eprintln!("  {file}:{line}");
-                }
-            }
-            let ready = ready_lints(&current, &blockers);
-            println!(
-                "lint strict: {} production violations, {} findings outside production code; {suppressions}",
-                failures.iter().map(|(_, _, _, n)| n).sum::<u64>(),
-                blockers.values().map(Vec::len).sum::<usize>(),
-            );
-            println!(
-                "lints ready to deny in [workspace.lints]: {}",
-                if ready.is_empty() {
-                    "none".to_owned()
-                } else {
-                    ready.join(", ")
-                }
-            );
-            Ok(failures.is_empty() && blockers.is_empty())
-        }
-        Mode::Ratchet => {
-            let comparison = compare(&baseline, &current);
-            report(&comparison.increased, &findings, "new lint violation");
-            for (rule, file, base, now) in &comparison.decreased {
-                eprintln!("error: stale lint baseline: {rule} in {file}: {now} (baseline {base})");
-            }
-            if !comparison.increased.is_empty() {
-                eprintln!(
-                    "Fix the violations listed above. Accepting them is a deliberate, reviewed act: `{UPDATE} --allow-increase`."
-                );
-            }
-            if !comparison.decreased.is_empty() {
-                eprintln!(
-                    "Violations were fixed; record the lower counts with `{UPDATE}` and commit {BASELINE}."
-                );
-            }
-            let passed = comparison == Comparison::default();
-            if passed {
-                println!(
-                    "lint ratchet: {} recorded violations, none new; {suppressions}",
-                    total(&current)
-                );
-            } else {
-                eprintln!("lint ratchet failed; {suppressions}");
-            }
-            Ok(passed)
-        }
-        Mode::Update(growth) => {
-            let comparison = compare(&baseline, &current);
-            if growth == Growth::Refuse && !comparison.increased.is_empty() {
-                report(
-                    &comparison.increased,
-                    &findings,
-                    "refusing to raise the baseline",
-                );
-                eprintln!(
-                    "Fix these violations, or pass --allow-increase to record them deliberately."
-                );
-                return Ok(false);
-            }
-            fs::write(&path, render_baseline(&current)?).map_err(|e| format!("{BASELINE}: {e}"))?;
-            println!(
-                "wrote {BASELINE}: {} violations ({} lowered, {} raised); {suppressions}",
-                total(&current),
-                comparison.decreased.len(),
-                comparison.increased.len()
-            );
-            Ok(true)
-        }
+    let (violations, missing_helper) = violations(findings);
+    for finding in &violations {
+        eprintln!("error: {}: {}:{}", finding.rule, finding.file, finding.line);
     }
+    if let Some(message) = &missing_helper {
+        eprintln!("error: {message}");
+    }
+    let passed = violations.is_empty() && missing_helper.is_none() && scan.problems.is_empty();
+    if passed {
+        println!("lint: 0 production violations; {suppressions}");
+    } else {
+        eprintln!(
+            "lint failed: {} production violations, {} suppression problems; {suppressions}",
+            violations.len() + usize::from(missing_helper.is_some()),
+            scan.problems.len()
+        );
+        eprintln!(
+            "Fix each finding, or justify it with `#[expect(<lint>, reason = \"...\")]` or `{SUPPRESSION_SYNTAX}`."
+        );
+    }
+    Ok(passed)
+}
+
+/// Gate violations: every finding except the single shared `fn unavailable` in
+/// [`SHARED_HELPER_FILE`], plus a message when that file does not define it exactly once.
+/// Two definitions there are both reported, so a duplicate cannot hide behind the original.
+pub fn violations(findings: Vec<Finding>) -> (Vec<Finding>, Option<String>) {
+    let shared = |f: &Finding| f.rule == UNAVAILABLE_HELPER && f.file == SHARED_HELPER_FILE;
+    let definitions = findings.iter().filter(|f| shared(f)).count();
+    let violations = findings
+        .into_iter()
+        .filter(|f| definitions != 1 || !shared(f))
+        .collect();
+    let missing = (definitions == 0).then(|| {
+        format!(
+            "{UNAVAILABLE_HELPER}: {SHARED_HELPER_FILE} must define the shared `fn unavailable`"
+        )
+    });
+    (violations, missing)
 }
 
 /// `N reasoned suppressions (rule: n, ..)`, so reviewers see accepted exceptions next to counts.
@@ -322,51 +246,44 @@ pub fn suppression_summary(suppressed: &[Finding]) -> String {
     }
 }
 
-/// Lines per `(rule, file)` found by the workspace pass but not by the production pass:
-/// test targets, `cfg(test)` items, xtask and the code generator. Each would fail the build
-/// once the lint is denied in `[workspace.lints]`.
-pub fn switch_blockers(
-    production: &[Finding],
-    workspace: &[Finding],
-) -> BTreeMap<(String, String), Vec<usize>> {
-    let known: BTreeSet<&Finding> = production.iter().collect();
-    let mut blockers = BTreeMap::<(String, String), Vec<usize>>::new();
-    for finding in workspace.iter().filter(|f| !known.contains(f)) {
-        blockers
-            .entry((finding.rule.clone(), finding.file.clone()))
-            .or_default()
-            .push(finding.line);
+/// Prints the [`CLIPPY_LINTS`] findings of every workspace target per lint and file, then the
+/// lints with none, which can move to `[workspace.lints]` as `deny`.
+fn all_targets_report(workspace: &[Finding]) {
+    for ((rule, file), count) in counts_by_file(workspace) {
+        println!("{rule}\t{file}\t{count}");
     }
-    blockers
+    let ready = ready_lints(workspace);
+    println!(
+        "all targets: {} findings (informational; tests may unwrap)",
+        workspace.len()
+    );
+    println!(
+        "lints ready to deny in [workspace.lints]: {}",
+        if ready.is_empty() {
+            "none".to_owned()
+        } else {
+            ready.join(", ")
+        }
+    );
 }
 
-/// Counted Clippy and rustc lints with no finding anywhere: denying them in
-/// `[workspace.lints]` would not break any target.
-pub fn ready_lints(
-    production: &Counts,
-    blockers: &BTreeMap<(String, String), Vec<usize>>,
-) -> Vec<&'static str> {
+/// Finding counts per `(rule, file)`, sorted.
+pub fn counts_by_file(findings: &[Finding]) -> BTreeMap<(String, String), usize> {
+    let mut counts = BTreeMap::new();
+    for finding in findings {
+        *counts
+            .entry((finding.rule.clone(), finding.file.clone()))
+            .or_default() += 1;
+    }
+    counts
+}
+
+/// [`CLIPPY_LINTS`] with no finding on any workspace target.
+pub fn ready_lints(workspace: &[Finding]) -> Vec<&'static str> {
     CLIPPY_LINTS
         .into_iter()
-        .filter(|lint| !production.contains_key(*lint))
-        .filter(|lint| !blockers.keys().any(|(rule, _)| rule == lint))
+        .filter(|lint| !workspace.iter().any(|f| f.rule == *lint))
         .collect()
-}
-
-fn total(counts: &Counts) -> u64 {
-    counts.values().flat_map(BTreeMap::values).sum()
-}
-
-fn report(changes: &Changes, findings: &[Finding], heading: &str) {
-    for (rule, file, base, now) in changes {
-        eprintln!("error: {heading}: {rule} in {file}: {now} (allowed {base})");
-        for finding in findings
-            .iter()
-            .filter(|f| &f.rule == rule && f.key() == file)
-        {
-            eprintln!("  {}:{}", finding.file, finding.line);
-        }
-    }
 }
 
 fn clippy(root: &Path, scope: Scope) -> Result<Vec<Finding>> {
@@ -616,7 +533,8 @@ pub fn parse_suppression(comment: &str) -> Option<std::result::Result<Vec<String
         return Some(malformed());
     }
     for rule in &rules {
-        if CLIPPY_LINTS.contains(&rule.as_str()) || rule.starts_with("clippy::") {
+        // Compiler lints already reject stale or reasonless expectations themselves.
+        if !rule.starts_with("text::") {
             return Some(Err(format!(
                 "`{rule}` cannot be suppressed by a comment; use `#[expect({rule}, reason = \"...\")]`"
             )));
@@ -1092,95 +1010,6 @@ pub fn test_lines(masked: &str) -> Vec<bool> {
     tests
 }
 
-pub fn count(findings: &[Finding]) -> Counts {
-    let mut counts = Counts::new();
-    for finding in findings {
-        *counts
-            .entry(finding.rule.clone())
-            .or_default()
-            .entry(finding.key().to_owned())
-            .or_default() += 1;
-    }
-    counts
-}
-
-pub fn compare(reference: &Counts, current: &Counts) -> Comparison {
-    let mut keys = BTreeSet::new();
-    for counts in [reference, current] {
-        for (rule, files) in counts {
-            keys.extend(files.keys().map(|file| (rule.clone(), file.clone())));
-        }
-    }
-    let get = |counts: &Counts, rule: &str, file: &str| {
-        counts
-            .get(rule)
-            .and_then(|files| files.get(file))
-            .copied()
-            .unwrap_or(0)
-    };
-    let mut comparison = Comparison::default();
-    for (rule, file) in keys {
-        let (before, after) = (get(reference, &rule, &file), get(current, &rule, &file));
-        if after > before {
-            comparison.increased.push((rule, file, before, after));
-        } else if after < before {
-            comparison.decreased.push((rule, file, before, after));
-        }
-    }
-    comparison
-}
-
-/// Violations of the final policy: none at all, except the one shared error-mapping helper.
-pub fn strict_failures(current: &Counts) -> Changes {
-    let mut failures = Changes::new();
-    for (rule, files) in current {
-        let limit = u64::from(rule == UNAVAILABLE_HELPER);
-        for (file, &n) in files {
-            if n > limit {
-                failures.push((rule.clone(), file.clone(), limit, n));
-            }
-        }
-    }
-    failures
-}
-
-pub fn parse_baseline(text: &str) -> Result<Counts> {
-    let value: Value = serde_json::from_str(text).map_err(|e| format!("{BASELINE}: {e}"))?;
-    if value["schema_version"] != 1 {
-        return Err(format!("{BASELINE}: unsupported schema_version"));
-    }
-    let mut counts = Counts::new();
-    for (rule, files) in value["counts"]
-        .as_object()
-        .ok_or_else(|| format!("{BASELINE}: counts must be an object"))?
-    {
-        let files = files
-            .as_object()
-            .ok_or_else(|| format!("{BASELINE}: {rule} must map files to counts"))?;
-        for (file, n) in files {
-            let n = n.as_u64().filter(|&n| n > 0).ok_or_else(|| {
-                format!("{BASELINE}: {rule} in {file}: expected a positive count")
-            })?;
-            counts
-                .entry(rule.clone())
-                .or_default()
-                .insert(file.clone(), n);
-        }
-    }
-    Ok(counts)
-}
-
-/// Stable, sorted JSON so baseline diffs show exactly which counts moved.
-pub fn render_baseline(counts: &Counts) -> Result<String> {
-    // Serializing the map itself (not a `Value`) keeps `BTreeMap` order whatever serde_json
-    // features the workspace enables.
-    let body = serde_json::to_string_pretty(counts).map_err(|e| e.to_string())?;
-    Ok(format!(
-        "{{\n  \"schema_version\": 1,\n  \"counts\": {}\n}}\n",
-        body.replace('\n', "\n  ")
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1191,17 +1020,6 @@ mod tests {
             .into_iter()
             .map(|f| (f.rule, f.line))
             .collect()
-    }
-
-    fn counts(entries: &[(&str, &str, u64)]) -> Counts {
-        let mut counts = Counts::new();
-        for (rule, file, n) in entries {
-            counts
-                .entry((*rule).to_owned())
-                .or_default()
-                .insert((*file).to_owned(), *n);
-        }
-        counts
     }
 
     #[test]
@@ -1350,9 +1168,9 @@ let v = format!(\"select failed: {e}\");
             message("clippy::unwrap_used", "src/server.rs", 10),
             message("clippy::unwrap_used", "src\\url.rs", 3),
             message("clippy::needless_return", "src/server.rs", 11),
-            message("unreachable_pub", "src/grpc/generated/x.rs", 1),
-            message("unreachable_pub", "src/grpc/v1/../generated/x.rs", 1),
-            message("unreachable_pub", "src/grpc/./v2/../mod.rs", 2),
+            message("clippy::panic", "src/grpc/generated/x.rs", 1),
+            message("clippy::panic", "src/grpc/v1/../generated/x.rs", 1),
+            message("clippy::panic", "src/grpc/./v2/../mod.rs", 2),
             message("clippy::too_many_lines", "src/storage/catalog_tests.rs", 1),
             message("clippy::unwrap_used", "/registry/src/lib.rs", 1),
             r#"{"reason":"build-finished","success":true}"#.to_owned(),
@@ -1364,100 +1182,56 @@ let v = format!(\"select failed: {e}\");
             [
                 Finding::new("clippy::unwrap_used", "src/server.rs", 10),
                 Finding::new("clippy::unwrap_used", "src/url.rs", 3),
-                Finding::new("unreachable_pub", "src/grpc/mod.rs", 2)
+                Finding::new("clippy::panic", "src/grpc/mod.rs", 2)
             ]
         );
     }
 
     #[test]
-    fn comparison_reports_growth_and_stale_entries() {
-        let baseline = counts(&[
-            ("a", "src/x.rs", 2),
-            ("a", "src/y.rs", 1),
-            ("b", "src/x.rs", 1),
-        ]);
-        let current = counts(&[
-            ("a", "src/x.rs", 3),
-            ("b", "src/x.rs", 1),
-            ("c", "src/z.rs", 1),
-        ]);
-        let comparison = compare(&baseline, &current);
-        assert_eq!(
-            comparison.increased,
-            [
-                ("a".to_owned(), "src/x.rs".to_owned(), 2, 3),
-                ("c".to_owned(), "src/z.rs".to_owned(), 0, 1)
-            ]
-        );
-        assert_eq!(
-            comparison.decreased,
-            [("a".to_owned(), "src/y.rs".to_owned(), 1, 0)]
-        );
-        assert_eq!(compare(&current, &current), Comparison::default());
-    }
+    fn every_finding_fails_except_one_shared_helper_in_its_file() {
+        let helper = |file: &str| scan_source(file, "fn unavailable() {}").findings;
+        let unwrap = Finding::new("clippy::unwrap_used", "src/x.rs", 1);
 
-    #[test]
-    fn the_shared_helper_is_counted_tree_wide_and_strict_allows_one() {
-        let one = scan_source("src/a.rs", "fn unavailable() {}").findings;
-        let mut two = one.clone();
-        two.extend(scan_source("src/b.rs", "fn unavailable() {}").findings);
-        assert_eq!(count(&one), counts(&[(UNAVAILABLE_HELPER, ALL_FILES, 1)]));
-        // Moving the helper to another file is not growth.
-        let moved = count(&scan_source("src/c.rs", "fn unavailable() {}").findings);
-        assert_eq!(compare(&count(&one), &moved), Comparison::default());
-        assert!(strict_failures(&count(&one)).is_empty());
-        assert_eq!(
-            strict_failures(&count(&two)),
-            [(UNAVAILABLE_HELPER.to_owned(), ALL_FILES.to_owned(), 1, 2)]
-        );
-        assert_eq!(
-            strict_failures(&counts(&[("clippy::unwrap_used", "src/x.rs", 1)])).len(),
-            1
-        );
-    }
+        let shared = helper(SHARED_HELPER_FILE);
+        assert_eq!(violations(shared.clone()), (Vec::new(), None));
 
-    #[test]
-    fn baseline_round_trips_sorted_and_rejects_malformed_counts() {
-        let original = counts(&[
-            ("b", "src/y.rs", 2),
-            ("a", "src/z.rs", 1),
-            ("a", "src/x.rs", 3),
-        ]);
-        let text = render_baseline(&original).unwrap();
-        assert!(text.ends_with("}\n"));
-        assert!(text.find("\"a\"").unwrap() < text.find("\"b\"").unwrap());
-        assert!(text.find("src/x.rs").unwrap() < text.find("src/z.rs").unwrap());
-        assert_eq!(parse_baseline(&text).unwrap(), original);
+        let mut copied = shared;
+        copied.extend(helper("src/b.rs"));
+        copied.push(unwrap.clone());
         assert_eq!(
-            render_baseline(&Counts::new()).unwrap(),
-            "{\n  \"schema_version\": 1,\n  \"counts\": {}\n}\n"
+            violations(copied),
+            (
+                vec![Finding::new(UNAVAILABLE_HELPER, "src/b.rs", 1), unwrap],
+                None
+            )
         );
-        for bad in [
-            r#"{"schema_version": 2, "counts": {}}"#,
-            r#"{"schema_version": 1, "counts": []}"#,
-            r#"{"schema_version": 1, "counts": {"a": {"src/x.rs": 0}}}"#,
-            r#"{"schema_version": 1, "counts": {"a": {"src/x.rs": -1}}}"#,
-        ] {
-            assert!(parse_baseline(bad).is_err(), "{bad}");
-        }
+
+        // Moving the helper elsewhere both reports the copy and the missing shared one.
+        let (moved, missing) = violations(helper("src/c.rs"));
+        assert_eq!(moved, [Finding::new(UNAVAILABLE_HELPER, "src/c.rs", 1)]);
+        assert!(missing.unwrap().contains(SHARED_HELPER_FILE));
+
+        // A second definition in the shared file reports both.
+        let twice = scan_source(
+            SHARED_HELPER_FILE,
+            "fn unavailable() {}\nmod m { fn unavailable() {} }\n",
+        )
+        .findings;
+        assert_eq!(violations(twice).0.len(), 2);
     }
 
     #[test]
     fn arguments_select_one_mode() {
         let args = |list: &[&str]| list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        assert_eq!(mode(&args(&[])), Some(Mode::Ratchet));
-        assert_eq!(mode(&args(&["--strict"])), Some(Mode::Strict));
+        assert_eq!(mode(&args(&[])), Some(Mode::Gate));
         assert_eq!(
-            mode(&args(&["--update-baseline"])),
-            Some(Mode::Update(Growth::Refuse))
-        );
-        assert_eq!(
-            mode(&args(&["--update-baseline", "--allow-increase"])),
-            Some(Mode::Update(Growth::Allow))
+            mode(&args(&["--all-targets-report"])),
+            Some(Mode::AllTargetsReport)
         );
         for bad in [
-            &["--allow-increase"][..],
-            &["--strict", "--update-baseline"],
+            &["--strict"][..],
+            &["--update-baseline"],
+            &["--all-targets-report", "x"],
             &["x"],
         ] {
             assert_eq!(mode(&args(bad)), None);
@@ -1690,38 +1464,50 @@ let s = \"// xtask-lint: allow(text::nope)\";
     }
 
     #[test]
-    fn switch_blockers_exclude_production_findings_and_gate_ready_lints() {
-        let production = [
-            Finding::new("clippy::expect_used", "src/a.rs", 3),
-            Finding::new(FORMAT_SQL, "src/a.rs", 9),
-        ];
+    fn all_targets_report_counts_per_file_and_lists_clean_lints() {
         let workspace = [
             Finding::new("clippy::expect_used", "src/a.rs", 3),
-            Finding::new("clippy::too_many_lines", "src/a.rs", 40),
             Finding::new("clippy::too_many_lines", "tests/x.rs", 1),
             Finding::new("clippy::too_many_lines", "tests/x.rs", 90),
         ];
-        let blockers = switch_blockers(&production, &workspace);
         assert_eq!(
-            blockers.into_iter().collect::<Vec<_>>(),
+            counts_by_file(&workspace).into_iter().collect::<Vec<_>>(),
             [
-                (
-                    ("clippy::too_many_lines".to_owned(), "src/a.rs".to_owned()),
-                    vec![40]
-                ),
+                (("clippy::expect_used".to_owned(), "src/a.rs".to_owned()), 1),
                 (
                     ("clippy::too_many_lines".to_owned(), "tests/x.rs".to_owned()),
-                    vec![1, 90]
+                    2
                 )
             ]
         );
-        let ready = ready_lints(
-            &count(&production),
-            &switch_blockers(&production, &workspace),
-        );
+        let ready = ready_lints(&workspace);
         assert!(!ready.contains(&"clippy::expect_used"));
         assert!(!ready.contains(&"clippy::too_many_lines"));
         assert!(ready.contains(&"clippy::unwrap_used"));
         assert_eq!(ready.len(), CLIPPY_LINTS.len() - 2);
+    }
+
+    #[test]
+    fn workspace_denied_lints_are_not_downgraded_by_the_gate() {
+        // `-W` on the command line would override a `deny` from `[workspace.lints]`.
+        let mut section = "";
+        let mut denied = Vec::new();
+        for line in include_str!("../../Cargo.toml").lines() {
+            if line.starts_with('[') {
+                section = line;
+            } else if section.starts_with("[workspace.lints")
+                && let Some((name, _)) = line.split_once(" = ")
+            {
+                denied.push(name);
+            }
+        }
+        assert!(denied.contains(&"unreachable_pub"), "{denied:?}");
+        for lint in CLIPPY_LINTS {
+            let name = lint.trim_start_matches("clippy::");
+            assert!(
+                !denied.contains(&name),
+                "{lint} is set in [workspace.lints]; remove it from CLIPPY_LINTS"
+            );
+        }
     }
 }

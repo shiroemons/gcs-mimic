@@ -13,6 +13,8 @@ serde_json = "1.0.154"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
+# Every `pub` item must be reachable from a crate root; default to pub(crate).
+unreachable_pub = "deny"
 
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "deny"
@@ -20,6 +22,7 @@ undocumented_unsafe_blocks = "deny"
 dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
+redundant_clone = "deny"
 
 [profile.release]
 lto = "thin"

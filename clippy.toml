@@ -1,4 +1,4 @@
-# Thresholds for the lints that `cargo xtask lint` counts; see "Rust implementation
+# Thresholds for the lints that `cargo xtask lint` checks; see "Rust implementation
 # guardrails" in AGENTS.md. Default Clippy runs do not enable these lints.
 
 # Long enough for a rustfmt-formatted handler with a match over its cases; the review
