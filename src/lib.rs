@@ -8,11 +8,8 @@ pub mod config;
 pub mod config_input;
 mod csek;
 pub mod diagnostics;
-// Linux/macOS descriptor xattr ABIs are isolated behind safe bounded wrappers.
-#[expect(
-    unsafe_code,
-    reason = "descriptor xattr ABIs need FFI; the unsafe calls stay behind bounded safe wrappers"
-)]
+// The descriptor and xattr FFI calls carry their `unsafe_code` expectations on the individual
+// wrapper functions in this module, so new unsafe code elsewhere in it still fails the lint.
 pub mod fsutil;
 mod grpc;
 mod hashing;

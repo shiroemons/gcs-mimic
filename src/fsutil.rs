@@ -12,6 +12,13 @@ pub(crate) enum CopyMethod {
 }
 
 /// Returns an exact-spelling keyset page without following directory entries.
+#[cfg_attr(
+    unix,
+    expect(
+        unsafe_code,
+        reason = "openat, fdopendir and readdir have no safe std equivalent for a pinned descriptor"
+    )
+)]
 pub fn directory_names_after(
     directory: &File,
     after: Option<&std::ffi::OsStr>,
@@ -101,6 +108,10 @@ pub fn directory_names_after(
 /// turn a clean end into an error. Each libc names its thread-local errno accessor
 /// differently, and a Unix target without a known accessor must not build.
 #[cfg(unix)]
+#[expect(
+    unsafe_code,
+    reason = "errno is reachable only through the libc accessor"
+)]
 fn clear_errno() {
     #[cfg(any(target_os = "solaris", target_os = "illumos"))]
     use libc::___errno as errno;
@@ -129,6 +140,13 @@ fn clear_errno() {
 }
 
 /// Checks effective write access to the pinned directory without creating an entry.
+#[cfg_attr(
+    unix,
+    expect(
+        unsafe_code,
+        reason = "faccessat on a pinned descriptor has no safe std equivalent"
+    )
+)]
 pub fn directory_writable(directory: &File) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -155,6 +173,13 @@ pub fn directory_writable(directory: &File) -> io::Result<()> {
 }
 
 /// Removes one descriptor-relative name without following a symlink destination.
+#[cfg_attr(
+    unix,
+    expect(
+        unsafe_code,
+        reason = "unlinkat on a pinned descriptor has no safe std equivalent"
+    )
+)]
 pub(crate) fn unlink_file_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
     validate_name(name)?;
     #[cfg(unix)]
@@ -237,6 +262,13 @@ pub(crate) enum DirectoryOpen {
 }
 
 /// Opens a single directory component, creating it only when explicitly requested.
+#[cfg_attr(
+    unix,
+    expect(
+        unsafe_code,
+        reason = "mkdirat and openat on a pinned descriptor have no safe std equivalent"
+    )
+)]
 pub(crate) fn directory_at(
     directory: &File,
     name: &std::ffi::OsStr,
@@ -367,6 +399,13 @@ pub(crate) fn sync_dir(path: &std::path::Path) -> io::Result<()> {
     File::open(path)?.sync_all()
 }
 
+#[cfg_attr(
+    windows,
+    expect(
+        unsafe_code,
+        reason = "the volume serial and file index come only from GetFileInformationByHandle"
+    )
+)]
 pub(crate) fn stat_identity(file: &File) -> Result<FileIdentity, FsError> {
     #[cfg(unix)]
     {
@@ -412,6 +451,10 @@ pub(crate) fn stat_identity(file: &File) -> Result<FileIdentity, FsError> {
 }
 
 #[cfg(windows)]
+#[expect(
+    unsafe_code,
+    reason = "the change time comes only from GetFileInformationByHandleEx"
+)]
 fn windows_change_time(file: &File) -> Result<i128, FsError> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
@@ -468,6 +511,10 @@ enum FileOpen {
 }
 
 #[cfg(unix)]
+#[expect(
+    unsafe_code,
+    reason = "openat on a pinned descriptor has no safe std equivalent"
+)]
 fn open_at(directory: &File, name: &std::ffi::CStr, open: FileOpen) -> io::Result<File> {
     use std::os::fd::{AsRawFd, FromRawFd};
     let flags = libc::O_CLOEXEC
@@ -503,6 +550,13 @@ fn open_at(directory: &File, name: &std::ffi::CStr, open: FileOpen) -> io::Resul
 
 /// Creates a clone without copying; Unsupported leaves no new entry.
 /// Mutable-source staging can then fall back to its own single-pass copy and hash.
+#[cfg_attr(
+    any(target_os = "linux", target_os = "macos"),
+    expect(
+        unsafe_code,
+        reason = "fclonefileat, FICLONE and unlinkat have no safe std equivalent"
+    )
+)]
 pub(crate) fn clone_into(
     src: &File,
     directory: &File,
@@ -562,6 +616,10 @@ pub(crate) fn clone_into(
 
 /// Copies an immutable open blob. Mutable-source staging must hash its own read/write pass.
 /// The source offset is unchanged; a failed copy leaves its new entry for caller cleanup.
+#[cfg_attr(
+    target_os = "linux",
+    expect(unsafe_code, reason = "copy_file_range has no safe std equivalent")
+)]
 pub(crate) fn clone_or_copy_into(
     src: &File,
     directory: &File,
@@ -739,6 +797,13 @@ fn sync_replace_parent(directory: &File) -> io::Result<()> {
 }
 
 /// Retains displaced bytes under the source name; errors after rename require reconciliation.
+#[cfg_attr(
+    any(target_os = "linux", target_os = "macos"),
+    expect(
+        unsafe_code,
+        reason = "renameat2 and renameatx_np exchanges have no safe std equivalent"
+    )
+)]
 pub(crate) fn durable_replace_between(
     source_directory: &File,
     staged_name: &std::ffi::OsStr,
@@ -857,6 +922,10 @@ pub(crate) fn durable_replace_between(
 }
 
 #[cfg(windows)]
+#[expect(
+    unsafe_code,
+    reason = "a handle's path comes only from GetFinalPathNameByHandleW"
+)]
 fn directory_path(directory: &File) -> io::Result<std::path::PathBuf> {
     use std::os::windows::{ffi::OsStringExt, io::AsRawHandle};
     use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
@@ -883,6 +952,10 @@ fn directory_path(directory: &File) -> io::Result<std::path::PathBuf> {
 }
 
 #[cfg(windows)]
+#[expect(
+    unsafe_code,
+    reason = "MOVEFILE_WRITE_THROUGH is reachable only through MoveFileExW"
+)]
 pub(crate) fn move_write_through(
     source: &std::path::Path,
     destination: &std::path::Path,
@@ -976,6 +1049,13 @@ fn checked_length(length: usize) -> Result<Option<usize>, SourceMetadataError> {
 }
 
 /// The dedicated buffer prevents callers from supplying a smaller allocation.
+#[cfg_attr(
+    any(target_os = "linux", target_os = "macos"),
+    expect(
+        unsafe_code,
+        reason = "descriptor xattrs are reachable only through fgetxattr"
+    )
+)]
 pub(crate) fn read_source_metadata<'a>(
     file: &File,
     buffer: &'a mut SourceMetadataBuffer,
@@ -1394,6 +1474,13 @@ pub(crate) mod test_support {
         }
     }
 
+    #[cfg_attr(
+        any(target_os = "linux", target_os = "macos"),
+        expect(
+            unsafe_code,
+            reason = "descriptor xattrs are writable only through fsetxattr"
+        )
+    )]
     pub(crate) fn set_metadata(file: &fs::File, bytes: &[u8]) -> io::Result<bool> {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
