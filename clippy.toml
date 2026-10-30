@@ -10,6 +10,13 @@ too-many-lines-threshold = 120
 # it under a reasoned `#[expect]`; see "Rust implementation guardrails" in AGENTS.md.
 max-fn-params-bools = 0
 
+# Channel checks for a queued frame before it checks for a dropped sender, so a producer
+# that sends its last chunk and drops between those checks loses that chunk and the
+# response ends short of its Content-Length. Use crate::server::chunk_body instead.
+disallowed-types = [
+    { path = "http_body_util::Channel", reason = "loses the last frame when the sender drops mid-poll; use crate::server::chunk_body" },
+]
+
 # Tests may unwrap and expect; production code must not.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true

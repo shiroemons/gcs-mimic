@@ -1,6 +1,6 @@
 use super::*;
+use crate::server::chunk_body;
 use bytes::Bytes;
-use http_body_util::channel::Channel;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -163,7 +163,7 @@ async fn grpc_idle_connection_closes_with_goaway() {
 #[tokio::test]
 async fn grpc_idle_never_cuts_in_flight_streams() {
     let release = Arc::new(Notify::new());
-    let (mut sender, body) = Channel::<Bytes, Infallible>::new(1);
+    let (sender, body) = chunk_body::channel();
     let body = Arc::new(std::sync::Mutex::new(Some(body)));
     let entered = Arc::new(Notify::new());
     let (mut client, _stop, task) = start({
@@ -199,7 +199,7 @@ async fn grpc_idle_never_cuts_in_flight_streams() {
         if phase == 0 {
             release.notify_one();
             sender
-                .send_data(Bytes::from_static(b"still streaming"))
+                .send(Ok(Bytes::from_static(b"still streaming")))
                 .await
                 .unwrap();
         }
@@ -212,7 +212,7 @@ async fn grpc_idle_never_cuts_in_flight_streams() {
 #[tokio::test]
 async fn grpc_silent_open_stream_is_bounded() {
     for pending_response in [true, false] {
-        let (_sender, body) = Channel::<Bytes, Infallible>::new(1);
+        let (_sender, body) = chunk_body::channel();
         let body = Arc::new(std::sync::Mutex::new(Some(body)));
         // Keepalive PINGs repeat every DEADLINE, so a bound between two of them keeps the
         // silence close from coinciding with a PING that the client must acknowledge.
@@ -242,7 +242,7 @@ async fn grpc_silent_open_stream_is_bounded() {
 #[tokio::test]
 async fn grpc_active_stream_survives_past_bound() {
     for incoming in [true, false] {
-        let (mut sender, body) = Channel::<Bytes, Infallible>::new(1);
+        let (sender, body) = chunk_body::channel();
         let body = Arc::new(std::sync::Mutex::new(Some(body)));
         let (mut client, stop, task) = start_with_bound(DEADLINE * 3, move |mut request| {
             let body = body.clone();
@@ -270,7 +270,7 @@ async fn grpc_active_stream_survives_past_bound() {
                         if incoming {
                             send_frame(&mut writer, 0, 0, 1, b"progress").await;
                         } else {
-                            sender.send_data(Bytes::from_static(b"progress")).await.unwrap();
+                            sender.send(Ok(Bytes::from_static(b"progress"))).await.unwrap();
                         }
                     }
                     Some(data) = acks.recv() => {
@@ -350,7 +350,7 @@ fn grpc_response_drop_releases_stream_count() {
         streams: 1,
         last_frame: Instant::now(),
     });
-    let (_sender, body) = Channel::<Bytes, Infallible>::new(1);
+    let (_sender, body) = chunk_body::channel();
     let body = ResponseBody {
         body: tonic::body::Body::new(body),
         active: Some(StreamGuard(count)),

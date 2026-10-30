@@ -88,7 +88,7 @@ fn report_connection_task_failure(error: &tokio::task::JoinError) {
 }
 
 mod acl;
-mod chunk_body;
+pub(crate) mod chunk_body;
 mod copy;
 mod gzip;
 mod notifications;

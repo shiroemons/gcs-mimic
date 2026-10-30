@@ -536,8 +536,8 @@ fn merge_hashes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use http_body_util::{Channel, Full};
-    use std::io;
+    use crate::server::chunk_body;
+    use http_body_util::Full;
 
     fn wire(metadata: &[u8], media: &[u8]) -> Vec<u8> {
         let mut body =
@@ -568,11 +568,11 @@ mod tests {
         let payload = b"\x00\xff\r\n--boundar\r\n--\r\n--bound\r\nend\r\n";
         let body = wire(b"{}", payload);
         for width in 1..=body.len() {
-            let (mut sender, receiver) = Channel::<Bytes, io::Error>::new(1);
+            let (sender, receiver) = chunk_body::channel();
             let chunks: Vec<_> = body.chunks(width).map(Bytes::copy_from_slice).collect();
             let producer = tokio::spawn(async move {
                 for chunk in chunks {
-                    sender.send_data(chunk).await.unwrap();
+                    sender.send(Ok(chunk)).await.unwrap();
                 }
             });
             let (metadata, media) = parse(receiver).await.unwrap();
@@ -590,10 +590,10 @@ mod tests {
         let body = format!(
             "--boundary{padding}\r\n{header}{value}\r\n\r\n{{}}\r\n--boundary{padding}\r\n\r\nmedia\r\n--boundary--{padding}\r\n"
         );
-        let (mut sender, receiver) = Channel::<Bytes, io::Error>::new(1);
+        let (sender, receiver) = chunk_body::channel();
         let producer = tokio::spawn(async move {
             for byte in body.into_bytes() {
-                sender.send_data(Bytes::from(vec![byte])).await.unwrap();
+                sender.send(Ok(Bytes::from(vec![byte]))).await.unwrap();
             }
         });
         let (metadata, media) = parse(receiver).await.unwrap();
@@ -611,22 +611,22 @@ mod tests {
 
     #[tokio::test]
     async fn multipart_parser_streams_large_media_with_bounded_carry() {
-        let (mut sender, receiver) = Channel::<Bytes, io::Error>::new(1);
+        let (sender, receiver) = chunk_body::channel();
         let producer = tokio::spawn(async move {
             sender
-                .send_data(Bytes::from_static(
+                .send(Ok(Bytes::from_static(
                     b"--boundary\r\nContent-Type: application/json\r\n\r\n{}\r\n--boundary\r\n\r\n",
-                ))
+                )))
                 .await
                 .unwrap();
             for _ in 0..256 {
                 sender
-                    .send_data(Bytes::from(vec![b'x'; 64 * 1024]))
+                    .send(Ok(Bytes::from(vec![b'x'; 64 * 1024])))
                     .await
                     .unwrap();
             }
             sender
-                .send_data(Bytes::from_static(b"\r\n--boundary--"))
+                .send(Ok(Bytes::from_static(b"\r\n--boundary--")))
                 .await
                 .unwrap();
         });

@@ -16,15 +16,15 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-pub(super) type ChunkSender = mpsc::Sender<io::Result<Bytes>>;
+pub(crate) type ChunkSender = mpsc::Sender<io::Result<Bytes>>;
 
 /// Holds one chunk ahead of the writer, like the single-slot channel it replaces.
-pub(super) fn channel() -> (ChunkSender, ChunkBody) {
+pub(crate) fn channel() -> (ChunkSender, ChunkBody) {
     let (sender, receiver) = mpsc::channel(1);
     (sender, ChunkBody { receiver })
 }
 
-pub(super) struct ChunkBody {
+pub(crate) struct ChunkBody {
     receiver: mpsc::Receiver<io::Result<Bytes>>,
 }
 
