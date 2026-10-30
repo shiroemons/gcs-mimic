@@ -80,19 +80,24 @@ fn status_response(
 ) -> Result<pb::BidiWriteObjectResponse, Status> {
     use pb::bidi_write_object_response::WriteStatus;
     let record = writer.record();
-    let resource = acknowledgement == Acknowledgement::Resource;
-    Ok(pb::BidiWriteObjectResponse {
+    let (write_status, persisted_data_checksums) = match acknowledgement {
         // The first acknowledgement of a new object carries its generation, which the client
         // needs for AppendObjectSpec on reconnect.
-        write_status: Some(if resource {
-            WriteStatus::Resource(object(record, Finality::Unfinalized)?)
-        } else {
-            WriteStatus::PersistedSize(writer.persisted_size() as i64)
-        }),
-        persisted_data_checksums: (!resource).then_some(pb::ObjectChecksums {
-            crc32c: Some(record.crc32c),
-            md5_hash: Vec::new(),
-        }),
+        Acknowledgement::Resource => (
+            WriteStatus::Resource(object(record, Finality::Unfinalized)?),
+            None,
+        ),
+        Acknowledgement::PersistedSize => (
+            WriteStatus::PersistedSize(writer.persisted_size() as i64),
+            Some(pb::ObjectChecksums {
+                crc32c: Some(record.crc32c),
+                md5_hash: Vec::new(),
+            }),
+        ),
+    };
+    Ok(pb::BidiWriteObjectResponse {
+        write_status: Some(write_status),
+        persisted_data_checksums,
         write_handle: Some(pb::BidiWriteHandle {
             handle: writer.write_handle().to_vec(),
         }),
