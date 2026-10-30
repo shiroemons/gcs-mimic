@@ -1,5 +1,5 @@
 #[test]
-fn go_sdk_scope_and_lockfile_are_declared() {
+fn sdk_scopes_and_lockfiles_are_declared() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap();
@@ -8,7 +8,7 @@ fn go_sdk_scope_and_lockfile_are_declared() {
     )
     .unwrap();
     let scopes = status["sdk_ecosystems"].as_array().unwrap();
-    assert_eq!(scopes.len(), 6);
+    assert_eq!(scopes.len(), 9);
     for (ecosystem, manifest, lockfile) in [
         ("go", "sdk-tests/go/go.mod", "sdk-tests/go/go.sum"),
         (
@@ -35,6 +35,21 @@ fn go_sdk_scope_and_lockfile_are_declared() {
             "pypi",
             "sdk-scorecard/python/pyproject.toml",
             "sdk-scorecard/python/uv.lock",
+        ),
+        (
+            "npm",
+            "sdk-tests/node/package.json",
+            "sdk-tests/node/package-lock.json",
+        ),
+        (
+            "composer",
+            "sdk-tests/php/composer.json",
+            "sdk-tests/php/composer.lock",
+        ),
+        (
+            "pypi",
+            "sdk-tests/python/pyproject.toml",
+            "sdk-tests/python/uv.lock",
         ),
     ] {
         let scope = scopes
