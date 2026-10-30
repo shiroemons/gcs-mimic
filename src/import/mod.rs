@@ -510,71 +510,69 @@ fn spawn_scan(
     baseline: Option<(PathBuf, filesystem::BaselineMode)>,
     purpose: ScanPurpose,
 ) -> io::Result<ScanWorker> {
-    let worker = std::thread::Builder::new()
-        .name("import-inspection".into())
-        .spawn(move || {
-            let mut reporter = Reporter {
-                send,
-                page: Page::default(),
-                summary: Summary {
-                    mixed_format_absence_verified: true,
-                    ..Summary::default()
-                },
-                manifest: digest_context(b"export"),
-                observations: digest_context(b"stat"),
-                body_manifest: digest_context(b"bodies"),
-                baseline: baseline
-                    .map(|(path, mode)| filesystem::Baseline::open(&path, mode))
-                    .transpose()?,
-                purpose,
-            };
-            reporter.manifest(
-                "options",
-                "",
-                &[
-                    SOURCE_REVISION.as_bytes(),
-                    &[match options.metadata_mode {
-                        MetadataMode::Xattr => 0,
-                        MetadataMode::Sidecar => 1,
-                    }],
-                    &[match options.source_platform {
-                        SourcePlatform::Unix => 0,
-                        SourcePlatform::Windows => 1,
-                    }],
-                    &options.max_object_bytes.to_be_bytes(),
-                    &(options.max_entries as u64).to_be_bytes(),
-                    &(options.max_depth as u64).to_be_bytes(),
-                ],
-            );
-            match reader::scan(&options, &mut reporter, xattr) {
-                Ok(()) => reporter.summary.complete = true,
-                Err(ImportFailure::ReportClosed) => return Err(ImportFailure::ReportClosed),
-                Err(error) => reporter.failure(".", &error)?,
-            }
-            reporter.summary.eligible =
-                reporter.summary.complete && reporter.summary.blocking_findings == 0;
-            reporter.summary.bodies_verified = options.verify_bodies && reporter.summary.eligible;
-            reporter.manifest(
-                "totals",
-                "",
-                &[
-                    &reporter.summary.entries.to_be_bytes(),
-                    &reporter.summary.skipped_os_metadata.to_be_bytes(),
-                ],
-            );
-            reporter.summary.fingerprint_format = FINGERPRINT_FORMAT;
-            if reporter.summary.eligible {
-                reporter.summary.manifest_sha256 = Some(finish_digest(reporter.manifest.clone()));
-                reporter.summary.stat_observations_sha256 =
-                    Some(finish_digest(reporter.observations.clone()));
-            }
-            if reporter.summary.bodies_verified {
-                reporter.summary.body_digests_sha256 =
-                    Some(finish_digest(reporter.body_manifest.clone()));
-            }
-            reporter.flush()?;
-            Ok(reporter.summary)
-        })?;
+    let worker = crate::task::spawn_thread("import-inspection", move || {
+        let mut reporter = Reporter {
+            send,
+            page: Page::default(),
+            summary: Summary {
+                mixed_format_absence_verified: true,
+                ..Summary::default()
+            },
+            manifest: digest_context(b"export"),
+            observations: digest_context(b"stat"),
+            body_manifest: digest_context(b"bodies"),
+            baseline: baseline
+                .map(|(path, mode)| filesystem::Baseline::open(&path, mode))
+                .transpose()?,
+            purpose,
+        };
+        reporter.manifest(
+            "options",
+            "",
+            &[
+                SOURCE_REVISION.as_bytes(),
+                &[match options.metadata_mode {
+                    MetadataMode::Xattr => 0,
+                    MetadataMode::Sidecar => 1,
+                }],
+                &[match options.source_platform {
+                    SourcePlatform::Unix => 0,
+                    SourcePlatform::Windows => 1,
+                }],
+                &options.max_object_bytes.to_be_bytes(),
+                &(options.max_entries as u64).to_be_bytes(),
+                &(options.max_depth as u64).to_be_bytes(),
+            ],
+        );
+        match reader::scan(&options, &mut reporter, xattr) {
+            Ok(()) => reporter.summary.complete = true,
+            Err(ImportFailure::ReportClosed) => return Err(ImportFailure::ReportClosed),
+            Err(error) => reporter.failure(".", &error)?,
+        }
+        reporter.summary.eligible =
+            reporter.summary.complete && reporter.summary.blocking_findings == 0;
+        reporter.summary.bodies_verified = options.verify_bodies && reporter.summary.eligible;
+        reporter.manifest(
+            "totals",
+            "",
+            &[
+                &reporter.summary.entries.to_be_bytes(),
+                &reporter.summary.skipped_os_metadata.to_be_bytes(),
+            ],
+        );
+        reporter.summary.fingerprint_format = FINGERPRINT_FORMAT;
+        if reporter.summary.eligible {
+            reporter.summary.manifest_sha256 = Some(finish_digest(reporter.manifest.clone()));
+            reporter.summary.stat_observations_sha256 =
+                Some(finish_digest(reporter.observations.clone()));
+        }
+        if reporter.summary.bodies_verified {
+            reporter.summary.body_digests_sha256 =
+                Some(finish_digest(reporter.body_manifest.clone()));
+        }
+        reporter.flush()?;
+        Ok(reporter.summary)
+    })?;
     Ok(worker)
 }
 

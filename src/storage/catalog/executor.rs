@@ -6,7 +6,6 @@
 //! A thread owned by the catalog keeps metadata work independent of the pool's load. The
 //! execution permit still serializes jobs, so the queue holds at most one job in practice.
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use tokio::sync::{mpsc, oneshot};
 
 /// What the thread does after a job: closing the catalog runs the last job.
@@ -51,15 +50,13 @@ impl Executor {
     /// Starts the thread. It exits after a [`Self::run_last`] job or once the catalog is dropped.
     pub(super) fn start() -> std::io::Result<Self> {
         let (jobs, mut queue) = mpsc::channel::<Job>(1);
-        std::thread::Builder::new()
-            .name("gcs-mimic-catalog".into())
-            .spawn(move || {
-                while let Some(job) = queue.blocking_recv() {
-                    if let Flow::Stop = job() {
-                        break;
-                    }
+        crate::task::spawn_thread("gcs-mimic-catalog", move || {
+            while let Some(job) = queue.blocking_recv() {
+                if let Flow::Stop = job() {
+                    break;
                 }
-            })?;
+            }
+        })?;
         Ok(Self { jobs })
     }
 
@@ -88,7 +85,7 @@ impl Executor {
         let job: Job = Box::new(move || {
             // The job's captured state is dropped before the reply is sent, so a caller woken by
             // the reply observes released resources, such as the directory lock after close.
-            match catch_unwind(AssertUnwindSafe(job)) {
+            match crate::task::catch_job("gcs-mimic-catalog", job) {
                 Ok((value, flow)) => {
                     let _ = reply.send(Ok(value));
                     flow

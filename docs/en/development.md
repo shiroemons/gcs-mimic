@@ -278,7 +278,7 @@ empty the list locally and run `cargo xtask lint`.
 | `text::uncached_statement` | `.execute(`, `.query_row(` or `.query_one(` whose first argument is a string literal or an `UPPER_SNAKE` constant: rusqlite prepares that SQL on every call. |
 | `text::format_sql` | `format!` whose literal starts with an SQL statement. |
 | `text::sync_without_flush` | `.sync_all().await` or `.sync_data().await` after an awaited write in the same function with no `.flush().await` or `.shutdown().await` in between. |
-| `text::unsupervised_spawn` | `tokio::spawn(` or `task::spawn(` outside `src/task.rs`, the supervised spawn helper (`SUPERVISED_SPAWN_FILE`). |
+| `text::unsupervised_spawn` | `tokio::spawn(`, `task::spawn(`, `task::spawn_local(`, `thread::spawn(`, any `thread::Builder`, or `.spawn(` on a runtime handle outside `src/task.rs`, the supervised spawn helpers (`SUPERVISED_SPAWN_FILE`). Start OS threads with `task::spawn_thread` and run a worker thread's jobs under `task::catch_job`. |
 
 `unreachable_pub` and `clippy::redundant_clone` pass on every workspace target,
 so `[workspace.lints]` denies them and the plain
@@ -297,11 +297,13 @@ does not see SQL passed through a variable and matches any `.execute("..")`
 receiver; `execute_batch` is not checked because it runs multi-statement DDL
 and has no cached form. `text::string_error_variant` checks only the listed
 variant names, so a variant that names rejected client input, such as
-`InvalidTopic(String)`, may keep its message. `text::unsupervised_spawn` does
-not see `Handle::spawn` or `Runtime::spawn`; use `task::spawn_supervised_on`
-for an explicit runtime handle. `JoinSet::spawn` keeps its tasks observed and
-is not matched. Review still applies the written rules where the
-tool cannot.
+`InvalidTopic(String)`, may keep its message. `text::unsupervised_spawn`
+recognizes a runtime handle by its receiver name (`runtime`, `handle`, `rt`)
+or a direct `Handle::current()` chain, so a handle under another name escapes
+it; use `task::spawn_supervised_on` for an explicit runtime handle.
+`spawn_blocking` uses the bounded pool and is awaited, and `JoinSet::spawn`
+keeps its tasks observed, so neither is matched. Review still applies the
+written rules where the tool cannot.
 
 #### Reasoned suppressions
 

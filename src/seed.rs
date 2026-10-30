@@ -119,22 +119,20 @@ fn walk_error(error: WalkError) -> io::Error {
 
 fn entries(root: PathBuf) -> io::Result<mpsc::Receiver<Entry>> {
     let (send, receive) = mpsc::channel(2);
-    std::thread::Builder::new()
-        .name("seed-walk".into())
-        .spawn(move || {
-            let walk = match Walker::new(&root, MAX_ENTRIES, MAX_DEPTH) {
-                Ok(walk) => walk,
-                Err(error) => {
-                    let _ = send.blocking_send(Err(walk_error(error)));
-                    return;
-                }
-            };
-            for entry in walk {
-                if send.blocking_send(entry.map_err(walk_error)).is_err() {
-                    break;
-                }
+    crate::task::spawn_thread("seed-walk", move || {
+        let walk = match Walker::new(&root, MAX_ENTRIES, MAX_DEPTH) {
+            Ok(walk) => walk,
+            Err(error) => {
+                let _ = send.blocking_send(Err(walk_error(error)));
+                return;
             }
-        })?;
+        };
+        for entry in walk {
+            if send.blocking_send(entry.map_err(walk_error)).is_err() {
+                break;
+            }
+        }
+    })?;
     Ok(receive)
 }
 

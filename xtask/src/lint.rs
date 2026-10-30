@@ -41,8 +41,9 @@ const ALLOW_ATTRIBUTES: &str = "clippy::allow_attributes";
 /// The only file that may define `fn unavailable`, the shared storage error mapping.
 pub const SHARED_HELPER_FILE: &str = "src/storage/failure.rs";
 
-/// The only file that may call `tokio::spawn`: the supervised spawn helper, which keeps
-/// background-task panics and errors visible instead of dropping them with the `JoinHandle`.
+/// The only file that may call `tokio::spawn`, spawn on a runtime handle or start an OS thread:
+/// the supervised spawn helpers, which keep background-task and thread panics visible instead
+/// of dropping them with the `JoinHandle` or the thread.
 pub const SUPERVISED_SPAWN_FILE: &str = "src/task.rs";
 
 const PATH_ATTRIBUTE: &str = "text::path_attribute";
@@ -810,7 +811,7 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
         add(STRINGIFIED_ERROR, offset);
     }
     if file != SUPERVISED_SPAWN_FILE {
-        for offset in tokio_spawns(masked) {
+        for offset in unsupervised_spawns(masked) {
             add(UNSUPERVISED_SPAWN, offset);
         }
     }
@@ -1024,17 +1025,58 @@ fn formats_param(text: &str, masked: &str, from: usize, to: usize, param: &str) 
     inline || words(&masked[open..close], param).next().is_some()
 }
 
-/// Offsets of `tokio::spawn(` and `task::spawn(` calls, which detach a task whose panic or
-/// error nobody observes once the `JoinHandle` is dropped.
-fn tokio_spawns(masked: &str) -> Vec<usize> {
+/// Receivers of a `.spawn(..)` method call that name a Tokio runtime handle.
+const RUNTIME_RECEIVERS: &[&str] = &["runtime", "handle", "rt"];
+
+/// Offsets of spawns whose panic nobody observes unless they go through `src/task.rs`:
+///
+/// - `tokio::spawn(`, `task::spawn(` and `task::spawn_local(`, which detach a task once the
+///   `JoinHandle` is dropped;
+/// - `thread::spawn(` and every `thread::Builder`, whose OS thread dies silently on a panic;
+/// - `.spawn(` on a runtime handle: a receiver named in [`RUNTIME_RECEIVERS`], or
+///   `Handle::current()` / `Handle::try_current()?` chained directly.
+///
+/// `spawn_blocking` runs on the bounded blocking pool and its handle is awaited, so it is not
+/// reported; neither is `JoinSet::spawn`, whose set observes every panic when it is joined.
+/// Receivers are matched by name, not type, so a handle under another name escapes the check.
+fn unsupervised_spawns(masked: &str) -> Vec<usize> {
     let bytes = masked.as_bytes();
-    words(masked, "spawn")
-        .filter(|&offset| {
+    let called = |end: usize| bytes.get(skip_space(bytes, end)) == Some(&b'(');
+    let mut offsets: Vec<usize> = ["spawn", "spawn_local"]
+        .into_iter()
+        .flat_map(|word| words(masked, word).map(move |offset| (word, offset)))
+        .filter(|&(word, offset)| {
             let prefix = &masked[..offset];
-            (prefix.ends_with("tokio::") || prefix.ends_with("task::"))
-                && bytes.get(skip_space(bytes, offset + "spawn".len())) == Some(&b'(')
+            let path = prefix.ends_with("tokio::")
+                || prefix.ends_with("task::")
+                || (word == "spawn" && prefix.ends_with("thread::"));
+            let handle = word == "spawn" && runtime_receiver(prefix);
+            (path || handle) && called(offset + word.len())
         })
-        .collect()
+        .map(|(_, offset)| offset)
+        .collect();
+    offsets
+        .extend(words(masked, "Builder").filter(|&offset| masked[..offset].ends_with("thread::")));
+    offsets.sort_unstable();
+    offsets
+}
+
+/// Whether `prefix`, the text before a `spawn` method name, ends in `.` on a runtime handle.
+fn runtime_receiver(prefix: &str) -> bool {
+    let Some(receiver) = prefix.trim_end().strip_suffix('.') else {
+        return false;
+    };
+    let receiver = receiver.trim_end();
+    let receiver = receiver.strip_suffix('?').unwrap_or(receiver);
+    if let Some(call) = receiver.strip_suffix("()") {
+        return call.ends_with("Handle::current") || call.ends_with("Handle::try_current");
+    }
+    let start = receiver
+        .bytes()
+        .rposition(|b| !ident(b))
+        .map_or(0, |index| index + 1);
+    // A field such as `self.runtime` names the handle by its last segment.
+    RUNTIME_RECEIVERS.contains(&&receiver[start..])
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1696,13 +1738,56 @@ let task = tokio::task::spawn(work());
 task::spawn(
     work(),
 );
-std::thread::spawn(move || {});
 tokio::task::spawn_blocking(move || {});
 connections.spawn(serve());
 let spawn = 1;
 // tokio::spawn(x)
+tokio::task::spawn_local(work());
 ";
-        assert_eq!(lines_of(UNSUPERVISED_SPAWN, text), [1, 2, 3]);
+        assert_eq!(lines_of(UNSUPERVISED_SPAWN, text), [1, 2, 3, 10]);
+        assert!(
+            scan_source(SUPERVISED_SPAWN_FILE, text).findings.is_empty(),
+            "the helper itself spawns"
+        );
+    }
+
+    #[test]
+    fn os_threads_are_found_outside_the_supervised_helper() {
+        let text = "\
+std::thread::spawn(move || {});
+let worker = thread::spawn(work);
+std::thread::Builder::new()
+    .name(\"worker\".into())
+    .spawn(move || {})?;
+let builder = thread::Builder::new();
+std::thread::scope(|scope| { scope.spawn(|| {}); });
+let thread = std::thread::current();
+fn spawn() {}
+// std::thread::spawn(x)
+";
+        assert_eq!(lines_of(UNSUPERVISED_SPAWN, text), [1, 2, 3, 6]);
+        assert!(
+            scan_source(SUPERVISED_SPAWN_FILE, text).findings.is_empty(),
+            "the helper itself spawns"
+        );
+    }
+
+    #[test]
+    fn runtime_handle_spawns_are_found_outside_the_supervised_helper() {
+        let text = "\
+runtime.spawn(work());
+let task = self.handle.spawn(work());
+tokio::runtime::Handle::current().spawn(work());
+Handle::try_current()?.spawn(work());
+rt
+    .spawn(work());
+runtime.spawn_blocking(move || {});
+runtime.block_on(work());
+connections.spawn(serve());
+Builder::new().spawn(work);
+other.spawn(work());
+";
+        assert_eq!(lines_of(UNSUPERVISED_SPAWN, text), [1, 2, 3, 4, 6]);
         assert!(
             scan_source(SUPERVISED_SPAWN_FILE, text).findings.is_empty(),
             "the helper itself spawns"
