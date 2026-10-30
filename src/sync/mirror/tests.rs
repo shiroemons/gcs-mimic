@@ -797,6 +797,8 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
 enum LiveFailure {
     Error,
     Panic,
+    /// Catalog admission timed out, as under contention.
+    Busy,
 }
 
 /// Failures armed per working tree, since tests run in parallel and the mirror runs on its
@@ -819,22 +821,28 @@ pub(super) fn injected_live_failure(config: &Config) -> io::Result<()> {
     match failure {
         LiveFailure::Error => Err(io::Error::other("injected live sync failure")),
         LiveFailure::Panic => panic!("injected live sync panic"),
+        LiveFailure::Busy => Err(io::Error::other(AdminError::Busy {
+            retry_after: std::time::Duration::from_secs(1),
+        })),
     }
 }
 
 async fn started_mirror(failure: Option<LiveFailure>) -> (TestDir, TestDir, Catalog, Task) {
+    started_mirror_failing(failure.as_slice()).await
+}
+
+/// Starts the mirror with `failures` armed for its first runs, in order.
+async fn started_mirror_failing(failures: &[LiveFailure]) -> (TestDir, TestDir, Catalog, Task) {
     let (data, tree, catalog, _, root) = live_fixture().await;
     let config = Config {
         data_dir: data.0.clone(),
         sync_dir: Some(tree.0.clone()),
         ..Default::default()
     };
-    if let Some(failure) = failure {
-        LIVE_FAILURES
-            .lock()
-            .unwrap()
-            .push((tree.0.clone(), failure));
-    }
+    LIVE_FAILURES
+        .lock()
+        .unwrap()
+        .extend(failures.iter().map(|failure| (tree.0.clone(), *failure)));
     let task = start(catalog.clone(), root, &config).unwrap();
     (data, tree, catalog, task)
 }
@@ -864,6 +872,55 @@ async fn a_stopped_mirror_turns_readiness_off() {
         crate::task::tests::reported_panics("sync-mirror"),
         ["injected live sync panic"]
     );
+}
+
+/// Contention that outlasts the catalog wait must not take the server out of readiness until
+/// restart: the mirror retries, and its next successful pass clears the failed ones, even after
+/// enough consecutive failures to report it down.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_transient_mirror_failure_is_retried_until_it_clears() {
+    let (_data, _tree, catalog, task) = started_mirror_failing(&[LiveFailure::Busy; 4]).await;
+    // A served rescan shows a retried run got past its start.
+    tokio::time::timeout(std::time::Duration::from_secs(10), task.rescan())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        catalog.background_tasks_running(),
+        "a successful pass restores readiness"
+    );
+    task.finish().await.unwrap();
+    assert!(catalog.background_tasks_running());
+    catalog.close().await.unwrap();
+}
+
+#[test]
+fn only_contention_and_timeouts_are_transient() {
+    let wrapped = |error: AdminError| io::Error::other(error);
+    for transient in [
+        wrapped(AdminError::Busy {
+            retry_after: std::time::Duration::from_secs(1),
+        }),
+        wrapped(AdminError::Io(io::ErrorKind::TimedOut)),
+        wrapped(AdminError::backend(CatalogError::Unavailable(
+            "database is locked".into(),
+        ))),
+        io::Error::from(io::ErrorKind::TimedOut),
+        io::Error::other(io::Error::from(io::ErrorKind::Interrupted)),
+    ] {
+        assert!(is_transient(&transient), "{transient:?}");
+    }
+    for unrecoverable in [
+        wrapped(AdminError::Invalid("object name is not valid".into())),
+        wrapped(AdminError::Forbidden),
+        wrapped(AdminError::Corrupt("catalog row".into())),
+        wrapped(AdminError::Closed),
+        wrapped(AdminError::DiskFull),
+        io::Error::from(io::ErrorKind::PermissionDenied),
+        io::Error::other("injected live sync failure"),
+    ] {
+        assert!(!is_transient(&unrecoverable), "{unrecoverable:?}");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

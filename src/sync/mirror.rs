@@ -1,5 +1,6 @@
 use super::mapping::{self, PathMapping, Reason};
 use crate::{
+    bucket::CatalogError,
     config::Config,
     diagnostics::{self, LogLevel},
     fsutil,
@@ -21,6 +22,7 @@ use std::{
     fs::File,
     io,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 #[cfg(test)]
@@ -87,34 +89,123 @@ impl Task {
     }
 }
 
+/// The first retry delay after a transient failure; it doubles after each consecutive one.
+/// Tests shorten it so a retry does not dominate their run time.
+const RETRY_DELAY_MIN: Duration = if cfg!(test) {
+    Duration::from_millis(10)
+} else {
+    Duration::from_secs(1)
+};
+/// The retry delay cap, also the run length after which a failure starts the backoff over.
+const RETRY_DELAY_MAX: Duration = Duration::from_secs(30);
+
+/// Whether a mirror failure may clear on its own: catalog contention, an admission timeout or
+/// an interrupted or timed-out I/O call. Everything else, such as an invalid name, a permission
+/// error or a corrupt catalog, needs an operator and stops the mirror.
+fn is_transient(error: &io::Error) -> bool {
+    fn transient_kind(kind: io::ErrorKind) -> bool {
+        matches!(
+            kind,
+            io::ErrorKind::TimedOut
+                | io::ErrorKind::WouldBlock
+                | io::ErrorKind::Interrupted
+                | io::ErrorKind::ResourceBusy
+        )
+    }
+    if transient_kind(error.kind()) {
+        return true;
+    }
+    // `io::Error::source` skips a wrapped error itself, so start the walk at the wrapped one.
+    let mut next = error
+        .get_ref()
+        .map(|inner| inner as &(dyn std::error::Error + 'static));
+    while let Some(cause) = next {
+        let transient = if let Some(admin) = cause.downcast_ref::<AdminError>() {
+            match admin {
+                AdminError::Busy { .. } => true,
+                AdminError::Io(kind) => transient_kind(*kind),
+                _ => false,
+            }
+        } else if let Some(catalog) = cause.downcast_ref::<CatalogError>() {
+            matches!(catalog, CatalogError::Unavailable(_))
+        } else if let Some(io) = cause.downcast_ref::<io::Error>() {
+            transient_kind(io.kind())
+        } else if let Some(sqlite) = cause.downcast_ref::<rusqlite::Error>() {
+            matches!(
+                sqlite.sqlite_error_code(),
+                Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
+            )
+        } else {
+            false
+        };
+        if transient {
+            return true;
+        }
+        next = cause.source();
+    }
+    false
+}
+
 pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<Task> {
     let config = config.clone();
     let runtime = tokio::runtime::Handle::current();
     let (stop, mut stopping) = tokio::sync::watch::channel(false);
     let (done, completion) = tokio::sync::oneshot::channel();
     let (rescan, mut requests) = tokio::sync::mpsc::channel(1);
-    // The mirror never restarts, so a stop on an error or a panic keeps readiness off: the
-    // server would otherwise report ready while the working tree silently stopped syncing.
+    // A transient failure (catalog contention, a timeout) is retried with backoff and counts as
+    // a failed pass, so readiness drops only once failures repeat and recovers with the next
+    // successful pass. Any other error or a panic stops the mirror for good and keeps readiness
+    // off: the server would otherwise report ready while the working tree silently stopped
+    // syncing, and retrying an invalid name or a permission error cannot fix it.
     let health = crate::task::TaskHealth::default();
     catalog.watch_background_task(health.clone());
     crate::task::spawn_thread("sync-mirror", move || {
-        let result = crate::task::catch_job("sync-mirror", || {
-            #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-            tests::injected_live_failure(&config)?;
-            runtime.block_on(run_live_config(
-                &catalog,
-                &root,
-                &mut stopping,
-                &config,
-                &mut requests,
-            ))
-        });
-        drop(requests);
-        let reason = match result {
-            Ok(Ok(())) => None,
-            Ok(Err(error)) => Some(error.to_string()),
-            Err(panicked) => Some(panicked.to_string()),
+        let mut delay = RETRY_DELAY_MIN;
+        let reason = loop {
+            let started = std::time::Instant::now();
+            let result = crate::task::catch_job("sync-mirror", || {
+                #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+                tests::injected_live_failure(&config)?;
+                runtime.block_on(run_live_config(
+                    &catalog,
+                    &root,
+                    &mut stopping,
+                    &config,
+                    &mut requests,
+                    &health,
+                ))
+            });
+            let error = match result {
+                Ok(Ok(())) => break None,
+                Ok(Err(error)) if is_transient(&error) => error,
+                Ok(Err(error)) => break Some(error.to_string()),
+                Err(panicked) => break Some(panicked.to_string()),
+            };
+            health.pass_failed();
+            // A run that lasted longer than the cap had recovered, so its failure starts over.
+            if started.elapsed() >= RETRY_DELAY_MAX {
+                delay = RETRY_DELAY_MIN;
+            }
+            diagnostics::emit(
+                LogLevel::Warn,
+                "sync_retrying",
+                serde_json::json!({
+                    "reason": error.to_string(),
+                    "delay_ms": delay.as_millis(),
+                }),
+            );
+            let stopped = runtime.block_on(async {
+                tokio::select! {
+                    _ = stopping.wait_for(|stop| *stop) => true,
+                    () = tokio::time::sleep(delay) => false,
+                }
+            });
+            if stopped {
+                break None;
+            }
+            delay = delay.saturating_mul(2).min(RETRY_DELAY_MAX);
         };
+        drop(requests);
         if let Some(reason) = reason {
             health.mark_stopped();
             diagnostics::emit(
@@ -161,7 +252,16 @@ async fn run_live(
     stopping: &mut tokio::sync::watch::Receiver<bool>,
 ) -> io::Result<()> {
     let (_sender, mut receiver) = tokio::sync::mpsc::channel(1);
-    run_live_config(catalog, root, stopping, &Config::default(), &mut receiver).await
+    let health = crate::task::TaskHealth::default();
+    run_live_config(
+        catalog,
+        root,
+        stopping,
+        &Config::default(),
+        &mut receiver,
+        &health,
+    )
+    .await
 }
 
 async fn run_live_config(
@@ -172,6 +272,7 @@ async fn run_live_config(
     requests: &mut tokio::sync::mpsc::Receiver<
         tokio::sync::oneshot::Sender<io::Result<Reconciliation>>,
     >,
+    health: &crate::task::TaskHealth,
 ) -> io::Result<()> {
     catalog
         .enable_change_journal()
@@ -189,6 +290,7 @@ async fn run_live_config(
     summary.ingested = ingested.ingested;
     let mut baseline_complete = summary.baseline_complete;
     diagnostics::emit(LogLevel::Info, "sync_reconciled", &summary);
+    health.pass_succeeded();
     let writeback = root
         .writeback(
             Limits::new(super::CONFLICT_MAX_BYTES, super::CONFLICT_MAX_ENTRIES)
@@ -282,6 +384,7 @@ async fn run_live_config(
         }
         cursor = page.next;
         diagnostics::emit(LogLevel::Info, "sync_exported", &summary);
+        health.pass_succeeded();
     }
     Ok(())
 }

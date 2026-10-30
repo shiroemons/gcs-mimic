@@ -418,7 +418,10 @@ struct Inner {
     maintenance_error: Mutex<Option<String>>,
     maintenance_started: AtomicBool,
     maintenance_health: crate::task::TaskHealth,
-    /// Workers started beside the catalog whose health readiness also reports.
+    /// Workers started beside the catalog whose health readiness also reports. Each worker
+    /// registers once and is never removed: a worker that stops for good must keep readiness
+    /// off for the catalog's lifetime, and the server starts each such worker once per catalog,
+    /// so the list stays as short as the set of workers.
     background_health: Mutex<Vec<crate::task::TaskHealth>>,
     #[cfg(test)]
     fail_rollback: AtomicBool,
