@@ -93,3 +93,6 @@ fn client_config_from_pem(pem: &[u8]) -> io::Result<Arc<rustls::ClientConfig>> {
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
     Ok(Arc::new(config))
 }
+
+#[cfg(test)]
+mod tests;

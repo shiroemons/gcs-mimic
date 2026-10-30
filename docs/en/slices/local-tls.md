@@ -40,9 +40,31 @@ request. Clients can trust this exported root for local tests while retaining
 CA, validity and hostname verification. HTTPS healthcheck uses the bundled CA
 when `--ca-cert` is omitted; supplying that option replaces the default roots.
 The P-256 leaf contains SANs for `localhost`, `gcs`, `127.0.0.1` and `::1`,
-and is valid from 2026-10-23 09:08:11 UTC through 2036-10-19 09:08:11 UTC.
+and is valid from 2026-10-30 05:10:27 UTC through 2036-10-26 05:10:27 UTC;
+the CA expires on 2036-10-27 05:10:27 UTC.
 The bundled credentials must be replaced before expiry; no automatic renewal
 or clock-validation bypass is provided.
+
+The chain satisfies RFC 5280 strict verification (Python 3.13+
+`VERIFY_X509_STRICT`, `openssl verify -x509_strict`), so clients keep their
+default checks. Strict verifiers require the leaf's Authority Key Identifier
+and the CA's Subject Key Identifier; a self-signed root may omit its own
+Authority Key Identifier, but the bundled root includes it so every certificate
+in the chain names its issuing key:
+
+| Certificate | Properties |
+| --- | --- |
+| CA | Self-signed P-256 named curve; critical `basicConstraints` `CA:TRUE`; critical `keyUsage` `keyCertSign, cRLSign`; Subject Key Identifier; Authority Key Identifier equal to it |
+| Leaf | P-256 named curve; critical `basicConstraints` `CA:FALSE`; critical `keyUsage` `digitalSignature`; `extendedKeyUsage` `serverAuth`; Subject Key Identifier; Authority Key Identifier equal to the CA's Subject Key Identifier; the SANs above |
+
+`bash scripts/tls-development-cert.sh EMPTY_DIRECTORY` regenerates the CA, leaf
+and leaf key with these extensions, checks the result with
+`openssl verify -x509_strict -purpose sslserver` and deletes the CA private key.
+Copy the three PEM files into `src/tls` and update the validity dates here and
+in the [local HTTPS guide](../local-https.md). Every regeneration creates a new
+CA, so clients must export it again with `gcs-mimic tls ca`. Unit tests in
+`src/tls/tests.rs` parse the embedded chain and fail if a regeneration drops
+any of these properties.
 
 The bundled leaf key is deliberately public development material. Trusting this
 CA does not establish a private server identity; keep it scoped to the local

@@ -47,6 +47,32 @@ The TLS wire harness requires Bash, OpenSSL and curl on Unix and contacts only
 loopback. Its CA/private keys are generated per test outside the checkout and
 removed afterward. Existing portable HTTP foundation tests remain active.
 
+## Strict X.509 development certificate
+
+On 2026-10-30 the bundled CA, leaf and leaf key were regenerated with
+`scripts/tls-development-cert.sh` so RFC 5280 strict verifiers accept them
+without relaxing defaults. The previous leaf lacked Subject and Authority Key
+Identifiers: `openssl verify -x509_strict` reported `Missing Authority Key
+Identifier`, and the Python 3.14.10 suite with default `VERIFY_X509_STRICT`
+failed its first HTTPS request with `CERTIFICATE_VERIFY_FAILED ... Missing
+Authority Key Identifier`. The regenerated chain keeps the subject names, P-256
+keys, SANs and ten-year validity, and adds the identifiers listed in the
+[contract](../slices/local-tls.md#bundled-development-certificate). Against it,
+`openssl verify -x509_strict -purpose sslserver` and a strict
+`openssl s_client -verify_hostname localhost` handshake pass, the
+`src/tls/tests.rs` structure tests pass (and fail against the previous chain),
+and `GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby --with-python
+--with-php` passes Go, Ruby, Python with default strict verification and PHP.
+
+| Certificate | SHA-256 fingerprint |
+| --- | --- |
+| CA | `FC:CC:DB:C8:A3:30:B8:90:11:2A:15:28:73:21:59:8C:8C:7B:5F:64:A6:C2:73:F2:D0:64:2D:2B:20:2D:7B:C3` |
+| Leaf | `E3:87:0F:75:4D:B6:AD:A2:8A:10:71:F0:33:EA:CC:B8:91:84:CD:8A:36:05:1D:63:B9:10:99:7A:AB:2A:7D:15` |
+
+The other sections and transcripts in this directory, including PEM digests in
+the CORS and signed-browser evidence, are historical records of the earlier
+certificate and are kept unchanged.
+
 ## Official SDKs
 
 - [Go HTTPS transcript](local-tls-go-https.txt): Go 1.27.3, Storage v1.70.0, generated API v0.308.0; vet and all 41 top-level tests pass against separate permissive/strict built-in HTTPS listeners, using automatically exported CA trust with hostname verification. The same full suite passes over explicit HTTP in the pre-push transcript. [Paired custom certificate workflows and missing cert/key/CA configuration failures](local-tls-go-custom.txt) also pass.

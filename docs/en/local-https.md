@@ -77,8 +77,13 @@ or hostname verification. The [TLS evidence](evidence/local-tls.md) records the
 isolated Chromium trust procedure and failure checks.
 
 The Docker image and `compose.yaml` default to built-in HTTPS without TLS mounts.
-The built-in leaf expires on 2036-10-19 and its CA on 2036-10-20; renew the
-embedded assets before then. To use a custom development CA instead, generate
+The built-in leaf expires on 2036-10-26 and its CA on 2036-10-27; renew the
+embedded assets before then with `scripts/tls-development-cert.sh` as described
+in the [local TLS contract](slices/local-tls.md#bundled-development-certificate).
+The chain carries the key identifiers that strict verifiers such as Python
+3.13+ require, so clients keep their default certificate checks. A CA exported
+from gcs-mimic 0.5.0 or earlier does not verify the current certificate; export
+it again with `gcs-mimic tls ca`. To use a custom development CA instead, generate
 throwaway two-day fixtures with OpenSSL and select the read-only TLS override:
 
 ```sh
