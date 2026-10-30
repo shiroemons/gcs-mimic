@@ -34,7 +34,9 @@ volumes:
 ```
 
 Five common option groups translate as follows. Old flags and `FAKE_GCS_*`
-variables are diagnosed with replacement advice, never accepted as aliases.
+variables also work unchanged in releases after 0.6.0, with a warning naming
+each native setting; this walkthrough uses the native names. See
+[legacy setting aliases](slices/legacy-setting-aliases.md).
 
 | Before | After in this walkthrough | Why |
 | --- | --- | --- |
@@ -282,7 +284,8 @@ and SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALS; DESIGN-084 remains PARTIAL.
 
 | Symptom | Cause | Repair |
 | --- | --- | --- |
-| Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | Source names are not aliases | Remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
+| Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | 0.6.0 and earlier do not translate source names | Upgrade, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
+| Startup rejects `-event.pubsub-topic` or another `FAKE_GCS_EVENT_*` | Event publishing is unavailable | Remove the event settings; tests that need notifications cannot run against gcs-mimic yet. |
 | SDK initiation succeeds but its next request cannot connect | Location contains loopback or a host-only address | Set `GCS_MIMIC_API_BASE_URL: http://gcs:4443` for container clients and recreate the service. |
 | Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when translating unsigned URLs. |
 | A newly added empty directory creates no bucket | 0.2.1 and earlier imported seed files once; see the [0.3.0 release notes](releases/0.3.0.md) | Upgrade to 0.3.0, which replays seed on every startup and creates the bucket after a restart, or add `{"name":"exports"}` to the version-1 buckets file and restart; do not erase the data volume. |
@@ -439,11 +442,12 @@ HTTP operations exist.
 
 The [complete environment reference](fake-gcs-server-configuration.md) lists all
 19 source variables, defaults, CLI precedence and current native mappings.
-Source variables are not accepted aliases in the current gcs-mimic binary.
 
-These are role mappings, not accepted aliases. gcs-mimic uses `serve --name VALUE`
-and native `GCS_MIMIC_*` environment variables. Do not copy a source command and
-assume that changing the image name is sufficient.
+`serve` translates source flags and variables with an equivalent into these
+native settings and warns for each one; see
+[legacy setting aliases](slices/legacy-setting-aliases.md) for the exact
+translation and its exceptions. New configuration should use `serve --name VALUE`
+and native `GCS_MIMIC_*` environment variables.
 
 | fake-gcs-server option | Current gcs-mimic setting | Difference |
 | --- | --- | --- |
@@ -485,13 +489,11 @@ and [routes and URL helpers](https://github.com/fsouza/fake-gcs-server/blob/896e
 The table is not a complete flag inventory; event and
 other source-only settings still need individually scoped decisions.
 
-Use native names where they already express the intended role. Retaining every
-source suffix or adding aliases is not required. Keep CLI > environment > server
-JSON > default precedence. If aliases are added later, reject contradictory
-values at the same precedence rather than depending on iteration order.
-Legacy `FAKE_GCS_*` keys do not select compatibility mode. The development
-binary rejects the 19 known keys with migration advice and warns on unknown
-names; these are diagnostics, not aliases. See the
+Keep CLI > environment > server JSON > default precedence. Within one source,
+a translated legacy value wins over a native value of the same setting and
+warns that it overrides it: the image's own `GCS_MIMIC_LISTEN` default must not
+silently defeat an existing `FAKE_GCS_PORT`. Legacy `FAKE_GCS_*` keys do not
+select compatibility mode. Unknown names only warn. See the
 [migration diagnostics](fake-gcs-server-configuration.md#migration-diagnostics).
 
 `GCS_MIMIC_PORT` in the repository's source-build Compose file controls host

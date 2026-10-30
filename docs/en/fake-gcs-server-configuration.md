@@ -72,9 +72,11 @@ the help text. Event-list validation occurs only when notifications are enabled.
 
 ## Current gcs-mimic equivalents
 
-Use native names by role. **gcs-mimic rejects all 19 known
-`FAKE_GCS_*` variables**, including empty values, with migration instructions;
-they are not aliases. Unknown `FAKE_GCS_*` names warn without stopping startup.
+Use native names by role. When the server starts, gcs-mimic translates the
+known `FAKE_GCS_*` variables and flags that have a native equivalent, and warns
+with the native name for each one. Event settings and an unknown backend still
+stop startup; see [legacy setting aliases](slices/legacy-setting-aliases.md).
+Unknown `FAKE_GCS_*` names warn without stopping startup.
 Unknown `GCS_MIMIC_*` names fail validation, and an empty native value does not
 generally mean “use the default.” See the
 [native configuration reference](native-binary.md#native-binary-and-configuration).
@@ -128,19 +130,19 @@ supported name, for example `GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1` or
 `GCS_MIMIC_DEFAULT_LOCATION=ASIA-NORTHEAST1`, together with
 `GCS_MIMIC_COMPAT_PROFILE=native`. Unknown names are redacted and receive valid
 examples. The legacy profile's global default remains unsupported.
-Unsupported log settings,
-memory backend and event delivery are identified as unsupported; future names
-are not working replacements. `FAKE_GCS_CORS_HEADERS` is rejected with advice
-to remove it, because JSON already allows every valid requested header. Only
-callers whose browsers read XML/public URLs of buckets without stored CORS
-rules also set `GCS_MIMIC_CORS_FALLBACK=allow-all`.
+For `serve`, this advice is a warning and the translated setting takes effect;
+the table in [legacy setting aliases](slices/legacy-setting-aliases.md) lists
+each translation. Event delivery and backends other than `filesystem` and
+`memory` remain errors. Helper commands such as `healthcheck` and `url` have no
+server settings, so legacy names given to them still fail with this advice.
 
 Legacy option names are detected in one- and two-hyphen forms with separate or
-equals values, including a Compose command that omits `serve`. Native
+equals values. A command line that starts with a legacy flag, as when a
+fake-gcs-server Compose `command` replaces the image CMD, runs `serve`. Native
 `serve --scheme http` remains valid; native options require `--name VALUE`,
 so `--scheme=http` receives syntax advice. Native value positions such as
-`url public --object -data` retain their meaning. Compose `command` replaces
-the image CMD: include `serve` when supplying server arguments. The image's
+`url public --object -data` retain their meaning. A Compose `command` with
+native options must still include `serve`. The image's
 `GCS_MIMIC_LISTEN=0.0.0.0:4443` and `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`
 environment defaults retain network access and persistence; override these values
 to change them while keeping the automatic healthcheck on the same listener.

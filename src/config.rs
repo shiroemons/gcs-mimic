@@ -3,7 +3,7 @@
 use crate::{
     auth::AuthMode,
     bucket::bucket_location,
-    config_input::{CliCommand, Input, InputError, Inputs, NATIVE_KEYS},
+    config_input::{CliCommand, Input, InputError, InputKind, Inputs, NATIVE_KEYS},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
     url::PublicOrigin,
 };
@@ -264,7 +264,7 @@ impl Config {
     }
 
     fn from_inputs(mut inputs: Inputs) -> ConfigurationReport {
-        inputs.diagnose_legacy();
+        inputs.translate_legacy();
         let invalid_file_fields = read_selected_config(&mut inputs);
         let settings = collect_settings(&mut inputs);
         let mut report = ConfigurationReport {
@@ -298,7 +298,7 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
         .iter()
         .filter(|i| {
             i.name == "config"
-                && !i.legacy
+                && i.kind == InputKind::Native
                 && i.source != DiagnosticSource::Config
                 && !i.key.starts_with("FAKE_GCS_")
         })
@@ -330,7 +330,7 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
                     key: key.clone(),
                     name: key.clone(),
                     value: text.clone().unwrap_or_default(),
-                    legacy: false,
+                    kind: InputKind::Native,
                     invalid: None,
                 }) {
                     break;
@@ -359,8 +359,9 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
     invalid_file_fields
 }
 
-/// Merges native inputs by precedence (config file, then environment, then CLI) and diagnoses
-/// duplicate CLI options and settings that are unknown or not accepted from their source.
+/// Merges native inputs and translated aliases by precedence (config file, then environment,
+/// then CLI) and diagnoses duplicate CLI options and settings that are unknown or not accepted
+/// from their source.
 fn collect_settings(inputs: &mut Inputs) -> Settings {
     let mut settings = BTreeMap::new();
     let mut seen_cli = BTreeSet::new();
@@ -369,12 +370,18 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
         DiagnosticSource::Environment,
         DiagnosticSource::Cli,
     ] {
-        for input in inputs
-            .entries
-            .iter()
-            .filter(|i| i.source == source && !i.legacy && !i.key.starts_with("FAKE_GCS_"))
-        {
-            if source == DiagnosticSource::Cli && !seen_cli.insert(&input.name) {
+        for input in inputs.entries.iter().filter(|i| {
+            i.source == source
+                && match i.kind {
+                    InputKind::Native => !i.key.starts_with("FAKE_GCS_"),
+                    InputKind::Alias => true,
+                    InputKind::Legacy => false,
+                }
+        }) {
+            if source == DiagnosticSource::Cli
+                && input.kind == InputKind::Native
+                && !seen_cli.insert(&input.name)
+            {
                 inputs.diagnostics.errors.push(Diagnostic::new(
                     source,
                     &input.key,
@@ -1326,7 +1333,15 @@ mod tests {
         .map(String::from);
         let report = Config::preflight(&args, &env);
         assert_eq!(report.config.worker_threads, 3);
-        assert_eq!(report.diagnostics.errors.len(), 5);
+        // FAKE_GCS_PORT only warns: the native --listen flag outranks its translation.
+        assert_eq!(report.diagnostics.errors.len(), 4);
+        assert!(
+            report
+                .diagnostics
+                .warnings
+                .iter()
+                .any(|d| d.key == "FAKE_GCS_PORT")
+        );
         assert!(report.valid(&["worker_threads"]));
         assert!(!report.valid(&["auth_mode", "tls_cert"]));
         assert!(!report.diagnostics.to_string().contains("secret"));

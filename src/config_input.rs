@@ -75,8 +75,18 @@ pub(crate) struct Input {
     pub key: String,
     pub name: String,
     pub value: String,
-    pub legacy: bool,
+    pub kind: InputKind,
     pub invalid: Option<InputError>,
+}
+
+/// How a supplied setting relates to the native configuration names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InputKind {
+    Native,
+    /// A known fake-gcs-server flag or `FAKE_GCS_*` variable, as supplied.
+    Legacy,
+    /// A native setting translated from `Legacy` inputs; its key names the legacy input.
+    Alias,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,7 +180,11 @@ impl Inputs {
                 key: key.into(),
                 name: normalized,
                 value: value.unwrap_or_default().into(),
-                legacy,
+                kind: if legacy {
+                    InputKind::Legacy
+                } else {
+                    InputKind::Native
+                },
                 invalid: if !legacy && !valid_syntax {
                     Some(InputError::Syntax)
                 } else {
@@ -208,7 +222,11 @@ impl Inputs {
                     key: key.clone(),
                     name: suffix.to_ascii_lowercase(),
                     value: value.clone(),
-                    legacy,
+                    kind: if legacy {
+                        InputKind::Legacy
+                    } else {
+                        InputKind::Native
+                    },
                     invalid: None,
                 }) {
                     break;
@@ -219,7 +237,7 @@ impl Inputs {
                     key: key.clone(),
                     name: suffix.to_ascii_lowercase(),
                     value: value.clone(),
-                    legacy: false,
+                    kind: InputKind::Native,
                     invalid: None,
                 })
             {
@@ -246,7 +264,7 @@ impl Inputs {
                     key: "input".into(),
                     name: "input".into(),
                     value: String::new(),
-                    legacy: false,
+                    kind: InputKind::Native,
                     invalid: Some(InputError::Encoding),
                 }) {
                     break;
@@ -278,7 +296,11 @@ impl Inputs {
                 key,
                 name,
                 value,
-                legacy,
+                kind: if legacy {
+                    InputKind::Legacy
+                } else {
+                    InputKind::Native
+                },
                 invalid,
             }) {
                 break;
@@ -286,39 +308,213 @@ impl Inputs {
         }
     }
 
-    pub(crate) fn diagnose_legacy(&mut self) {
+    /// The legacy inputs that fake-gcs-server would apply, by name: flags win over environment
+    /// variables, and an empty environment value counts as unset.
+    fn effective_legacy(&self) -> BTreeMap<String, &Input> {
         let mut effective = BTreeMap::new();
         for source in [DiagnosticSource::Environment, DiagnosticSource::Cli] {
             for input in self
                 .entries
                 .iter()
-                .filter(|i| i.source == source && i.legacy)
+                .filter(|i| i.source == source && i.kind == InputKind::Legacy)
             {
-                let value = if input.invalid == Some(InputError::Encoding) {
-                    "<invalid UTF-8>"
-                } else {
-                    input.value.as_str()
-                };
-                if !value.is_empty() || source == DiagnosticSource::Cli {
-                    effective.insert(input.name.as_str(), value);
+                if !input.value.is_empty()
+                    || input.invalid.is_some()
+                    || source == DiagnosticSource::Cli
+                {
+                    effective.insert(input.name.clone(), input);
                 }
             }
         }
+        effective
+    }
+
+    /// Rejects legacy inputs given to helper commands, which have no server settings to map to.
+    pub(crate) fn diagnose_legacy(&mut self) {
+        let effective = self.effective_legacy();
+        let values = advice_values(&effective);
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
         for input in &self.entries {
-            if input.legacy {
-                let mut fix = legacy_fix(&input.name, &effective);
+            if input.kind == InputKind::Legacy {
+                let mut fix = legacy_fix(&input.name, &values);
                 if input.invalid == Some(InputError::Encoding) {
                     fix.push_str(" The supplied value is not UTF-8; correct or remove it.");
                 }
-                self.diagnostics
-                    .errors
-                    .push(Diagnostic::new(input.source, &input.key, fix));
+                errors.push(Diagnostic::new(input.source, &input.key, fix));
             } else if input.key.starts_with("FAKE_GCS_") {
-                self.diagnostics.warnings.push(Diagnostic::new(input.source, &input.key,
-                    "Unknown legacy environment variable is ignored; remove it from the emulator environment if unintended."));
+                warnings.push(unknown_legacy_warning(input));
             }
         }
+        self.diagnostics.errors.extend(errors);
+        self.diagnostics.warnings.extend(warnings);
     }
+
+    /// Translates fake-gcs-server inputs into native settings so that an unchanged
+    /// fake-gcs-server deployment starts; each one warns with its native replacement. Event
+    /// publishing still fails: a test that waits for notifications would otherwise start and
+    /// time out without saying why.
+    pub(crate) fn translate_legacy(&mut self) {
+        let effective = self.effective_legacy();
+        let values = advice_values(&effective);
+        let mut aliases: BTreeMap<&str, Input> = BTreeMap::new();
+        for (name, input) in &effective {
+            let Some((native, value)) = translation(name, &effective) else {
+                continue;
+            };
+            let alias = aliases.entry(native).or_insert_with(|| Input {
+                source: input.source,
+                key: input.key.clone(),
+                name: native.into(),
+                value,
+                kind: InputKind::Alias,
+                invalid: None,
+            });
+            // host and port share one listener; a flag outranks an environment variable.
+            if input.source == DiagnosticSource::Cli {
+                alias.source = DiagnosticSource::Cli;
+                alias.key.clone_from(&input.key);
+            }
+            alias.invalid = alias.invalid.or(input.invalid);
+        }
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        for input in &self.entries {
+            if input.kind == InputKind::Legacy {
+                match legacy_outcome(&input.name, &values) {
+                    Some(advice) => warnings.push(Diagnostic::new(
+                        input.source,
+                        &input.key,
+                        format!("fake-gcs-server input is accepted; {advice}."),
+                    )),
+                    None => errors.push(Diagnostic::new(
+                        input.source,
+                        &input.key,
+                        legacy_fix(&input.name, &values),
+                    )),
+                }
+            } else if input.key.starts_with("FAKE_GCS_") {
+                warnings.push(unknown_legacy_warning(input));
+            }
+        }
+        for alias in aliases.values() {
+            let overridden = self.entries.iter().any(|native| {
+                native.kind == InputKind::Native
+                    && native.source == alias.source
+                    && native.name == alias.name
+                    && native.value != alias.value
+            });
+            if overridden {
+                warnings.push(Diagnostic::new(
+                    alias.source,
+                    &alias.key,
+                    format!(
+                        "This fake-gcs-server input overrides GCS_MIMIC_{} from the same source; remove one of them.",
+                        alias.name.to_ascii_uppercase()
+                    ),
+                ));
+            }
+        }
+        self.diagnostics.errors.extend(errors);
+        self.diagnostics.warnings.extend(warnings);
+        // Appended after native inputs, so an alias wins within its own source.
+        self.entries.extend(aliases.into_values());
+    }
+}
+
+fn unknown_legacy_warning(input: &Input) -> Diagnostic {
+    Diagnostic::new(
+        input.source,
+        &input.key,
+        "Unknown legacy environment variable is ignored; remove it from the emulator environment if unintended.",
+    )
+}
+
+/// Values that advice may quote; non-UTF-8 values are replaced by a marker.
+fn advice_values<'a>(effective: &'a BTreeMap<String, &'a Input>) -> BTreeMap<&'a str, &'a str> {
+    effective
+        .iter()
+        .map(|(name, input)| {
+            let value = if input.invalid == Some(InputError::Encoding) {
+                "<invalid UTF-8>"
+            } else {
+                input.value.as_str()
+            };
+            (name.as_str(), value)
+        })
+        .collect()
+}
+
+/// The native setting and value that fake-gcs-server's `name` maps to, if any.
+fn translation(name: &str, legacy: &BTreeMap<String, &Input>) -> Option<(&'static str, String)> {
+    let value = |key: &str| legacy.get(key).map(|input| input.value.as_str());
+    let set = |key: &str| value(key).filter(|v| !v.is_empty());
+    let host = || match set("host").unwrap_or("0.0.0.0") {
+        "localhost" => "127.0.0.1".to_owned(),
+        host => match host.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V6(ip)) => format!("[{ip}]"),
+            _ => host.to_owned(),
+        },
+    };
+    let text = value(name)?.to_owned();
+    Some(match name {
+        "scheme" => ("scheme", text),
+        "host" | "port" => (
+            "listen",
+            format!("{}:{}", host(), set("port").unwrap_or("4443")),
+        ),
+        "port_http" => ("listen_http", format!("{}:{text}", host())),
+        "external_url" => ("api_base_url", text),
+        "public_host" => {
+            let scheme = if value("scheme") == Some("http") {
+                "http"
+            } else {
+                "https"
+            };
+            ("public_base_url", format!("{scheme}://{text}"))
+        }
+        "data" => ("seed_dir", text),
+        // filesystem_root is not translated: a reused fake-gcs-server volume is owned by root,
+        // so the unprivileged image could not write there and would fail to start.
+        "cert_location" => ("tls_cert", text),
+        "private_key_location" => ("tls_key", text),
+        "cors_headers" => ("cors_fallback", "allow-all".into()),
+        "location" => ("default_location", text),
+        // fake-gcs-server uses logrus level names.
+        "log_level" => (
+            "log_level",
+            match text.as_str() {
+                "warning" => "warn".into(),
+                "trace" => "debug".into(),
+                "fatal" | "panic" => "error".into(),
+                _ => text,
+            },
+        ),
+        _ => return None,
+    })
+}
+
+/// Advice for an accepted legacy input, or `None` when it must still be rejected.
+fn legacy_outcome(name: &str, values: &BTreeMap<&str, &str>) -> Option<String> {
+    let value = values.get(name).copied().unwrap_or_default();
+    Some(match name {
+        "backend" => match value {
+            "memory" => "the memory backend is not available, so data survives restarts in GCS_MIMIC_DATA_DIR; remove the container or its data volume for a clean state, and remove this setting".into(),
+            "filesystem" | "" => "disk storage is the only backend; remove this setting".into(),
+            _ => return None,
+        },
+        "filesystem_root" => "it is ignored; data is kept in GCS_MIMIC_DATA_DIR (/var/lib/gcs-mimic in the image), so mount the data volume there; existing fake-gcs-server objects are not loaded, so convert a stopped snapshot with gcs-mimic import fake-gcs-server; remove this setting".into(),
+        "public_host" => {
+            let scheme = if values.get("scheme") == Some(&"http") { "http" } else { "https" };
+            let example = crate::url::normalize_public_base_url(&format!("{scheme}://{value}"))
+                .unwrap_or_else(|_| "https://storage.example.invalid:4443".into());
+            format!("use GCS_MIMIC_PUBLIC_BASE_URL={example}; path-style URLs work with any Host")
+        }
+        "cors_headers" => "browsers may read public URLs from any origin, as in fake-gcs-server; JSON requests already allow every valid header; use GCS_MIMIC_CORS_FALLBACK=allow-all".into(),
+        "scheme" | "host" | "port" | "port_http" | "external_url" | "data" | "cert_location"
+        | "private_key_location" | "location" | "log_level" => legacy_advice(name, values),
+        _ => return None,
+    })
 }
 
 fn component<'a>(values: &'a BTreeMap<&str, &str>, key: &str, default: &'a str) -> &'a str {
@@ -349,6 +545,13 @@ fn safe_url(value: &str) -> bool {
 }
 
 fn legacy_fix(name: &str, values: &BTreeMap<&str, &str>) -> String {
+    format!(
+        "Legacy input is unsupported; {}.",
+        legacy_advice(name, values)
+    )
+}
+
+fn legacy_advice(name: &str, values: &BTreeMap<&str, &str>) -> String {
     let host = component(values, "host", "0.0.0.0");
     let host = match host.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V6(ip)) => format!("[{ip}]"),
@@ -360,7 +563,7 @@ fn legacy_fix(name: &str, values: &BTreeMap<&str, &str>) -> String {
         .map_or_else(|_| "<PORT_0_TO_65535>".into(), |p| p.to_string());
     let scheme = component(values, "scheme", "https");
     let value = values.get(name).copied().unwrap_or_default();
-    let advice = match name {
+    match name {
         "host" | "port" => format!("combine HOST and PORT as GCS_MIMIC_LISTEN={host}:{port}; use a valid IP address and port 0..65535"),
         "scheme" if matches!(scheme, "http" | "https" | "both") => format!("use GCS_MIMIC_SCHEME={scheme} or --scheme {scheme}"),
         "scheme" => "use GCS_MIMIC_SCHEME=http, https or both; both serves HTTPS on listen and HTTP on listen_http".into(),
@@ -391,8 +594,19 @@ fn legacy_fix(name: &str, values: &BTreeMap<&str, &str>) -> String {
         "log_level" if matches!(value, "debug" | "info" | "warn" | "warning" | "error") => format!("use GCS_MIMIC_LOG_LEVEL={} or --log-level {}; this controls runtime stderr events, not validation diagnostics or stdout lifecycle events", if value == "warning" { "warn" } else { value }, if value == "warning" { "warn" } else { value }),
         "log_level" => "remove this legacy setting; use GCS_MIMIC_LOG_LEVEL=info or --log-level info; supported levels are debug, info, warn or error".into(),
         _ => "event publishing and filters are unsupported; remove this setting; no native publisher alias is available".into(),
-    };
-    format!("Legacy input is unsupported; {advice}.")
+    }
+}
+
+/// Whether `args` begin with a fake-gcs-server flag, as when a Compose `command` written for
+/// fake-gcs-server replaces the image's `serve` command.
+pub fn starts_with_legacy_flag(args: &[String]) -> bool {
+    args.first().is_some_and(|token| {
+        let key = token.split_once('=').map_or(token.as_str(), |(key, _)| key);
+        let hyphens = key.bytes().take_while(|byte| *byte == b'-').count();
+        let name = &key[hyphens..];
+        let native = hyphens == 2 && NATIVE_KEYS.contains(&name.replace('-', "_").as_str());
+        !native && (1..=2).contains(&hyphens) && LEGACY.iter().any(|(_, flag)| *flag == name)
+    })
 }
 
 /// Inspect option-name positions without reading server configuration or environment.
@@ -516,24 +730,35 @@ mod tests {
         values.iter().map(|s| (*s).into()).collect()
     }
 
+    /// Every error and warning as the emitted JSON lines.
+    fn emitted(diagnostics: &Diagnostics) -> String {
+        let mut bytes = Vec::new();
+        diagnostics.write(&mut bytes).unwrap();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    fn unsupported(diagnostics: &Diagnostics, key: &str) -> bool {
+        diagnostics
+            .errors
+            .iter()
+            .any(|d| d.key == key && d.fix.starts_with("Legacy input is unsupported"))
+    }
+
     #[test]
     fn legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty() {
         assert_eq!(LEGACY.len(), 19);
         for (suffix, flag) in LEGACY {
+            let event = suffix.starts_with("EVENT_");
             for value in ["", "secret-do-not-print\n"] {
-                let env = BTreeMap::from([(format!("FAKE_GCS_{suffix}"), value.into())]);
+                let key = format!("FAKE_GCS_{suffix}");
+                let env = BTreeMap::from([(key.clone(), value.into())]);
                 let report = crate::config::Config::preflight(&[], &env);
-                assert_eq!(report.diagnostics.errors.len(), 1, "{suffix}");
-                assert_eq!(
-                    report.diagnostics.errors[0].key,
-                    format!("FAKE_GCS_{suffix}")
-                );
-                assert!(
-                    !report
-                        .diagnostics
-                        .to_string()
-                        .contains("secret-do-not-print")
-                );
+                let text = emitted(&report.diagnostics);
+                assert!(text.contains(&key), "{text}");
+                assert!(!text.contains("secret-do-not-print"), "{text}");
+                // Only events and an unknown backend still stop startup.
+                let rejected = event || (*suffix == "BACKEND" && !value.is_empty());
+                assert_eq!(unsupported(&report.diagnostics, &key), rejected, "{text}");
                 for hyphens in ["-", "--"] {
                     for equals in [false, true] {
                         let key = format!("{hyphens}{flag}");
@@ -543,6 +768,8 @@ mod tests {
                             vec![key.clone(), value.into()]
                         };
                         let report = crate::config::Config::preflight(&args, &BTreeMap::new());
+                        let text = emitted(&report.diagnostics);
+                        assert!(!text.contains("secret-do-not-print"), "{text}");
                         if key == "--scheme" || key == "--log-level" {
                             assert_eq!(report.diagnostics.errors[0].key, key);
                             assert!(report.diagnostics.errors[0].fix.contains(if equals {
@@ -553,18 +780,120 @@ mod tests {
                                 "log_level must"
                             }));
                         } else {
-                            assert_eq!(report.diagnostics.errors.len(), 1, "{args:?}");
-                            assert_eq!(report.diagnostics.errors[0].key, key);
-                            assert!(
-                                report.diagnostics.errors[0]
-                                    .fix
-                                    .starts_with("Legacy input is unsupported")
-                            );
+                            assert!(text.contains(&key), "{text}");
+                            let rejected = event || (*suffix == "BACKEND" && !value.is_empty());
+                            assert_eq!(unsupported(&report.diagnostics, &key), rejected, "{text}");
                         }
                     }
                 }
             }
         }
+    }
+
+    #[test]
+    fn fake_gcs_server_compose_command_starts_with_translated_settings() {
+        let image = BTreeMap::from([
+            ("GCS_MIMIC_LISTEN".into(), "0.0.0.0:4443".into()),
+            ("GCS_MIMIC_DATA_DIR".into(), "/var/lib/gcs-mimic".into()),
+        ]);
+        let args = strings(&[
+            "-scheme",
+            "http",
+            "-port",
+            "4443",
+            "-external-url",
+            "http://gcs:4443",
+            "-public-host",
+            "gcs:4443",
+            "-backend",
+            "filesystem",
+            "-filesystem-root",
+            "/storage",
+            "-data",
+            "/data",
+            "-log-level",
+            "trace",
+            "-cors-headers",
+            "X-Custom",
+            "-location",
+            "asia-northeast1",
+        ]);
+        assert!(starts_with_legacy_flag(&args));
+        let report = crate::config::Config::preflight(&args, &image);
+        assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+        let config = &report.config;
+        assert!(matches!(config.scheme, crate::config::Scheme::Http));
+        assert_eq!(config.listen.to_string(), "0.0.0.0:4443");
+        assert_eq!(config.api_base_url.as_deref(), Some("http://gcs:4443"));
+        assert!(config.public_base_url.is_some());
+        assert_eq!(config.data_dir, std::path::Path::new("/var/lib/gcs-mimic"));
+        assert_eq!(
+            config.seed_dir.as_deref(),
+            Some(std::path::Path::new("/data"))
+        );
+        assert!(matches!(
+            config.log_level,
+            crate::diagnostics::LogLevel::Debug
+        ));
+        assert!(matches!(
+            config.cors_fallback,
+            crate::config::CorsFallback::AllowAll
+        ));
+        assert_eq!(config.default_location, "ASIA-NORTHEAST1");
+        let warned: Vec<_> = report
+            .diagnostics
+            .warnings
+            .iter()
+            .map(|d| d.key.as_str())
+            .collect();
+        for key in args.iter().filter(|arg| arg.starts_with('-')) {
+            assert!(warned.contains(&key.as_str()), "{key}: {warned:?}");
+        }
+        let text = emitted(&report.diagnostics);
+        assert!(text.contains("gcs-mimic import fake-gcs-server"), "{text}");
+    }
+
+    #[test]
+    fn legacy_aliases_follow_source_precedence_and_keep_rejecting_events() {
+        let image = BTreeMap::from([
+            ("GCS_MIMIC_LISTEN".into(), "0.0.0.0:4443".into()),
+            ("FAKE_GCS_PORT".into(), "8080".into()),
+        ]);
+        let report = crate::config::Config::preflight(&[], &image);
+        assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+        assert_eq!(report.config.listen.to_string(), "0.0.0.0:8080");
+        assert!(emitted(&report.diagnostics).contains("overrides GCS_MIMIC_LISTEN"));
+        // A flag outranks the environment, and a native flag outranks a legacy variable.
+        let report = crate::config::Config::preflight(&strings(&["-host", "localhost"]), &image);
+        assert_eq!(report.config.listen.to_string(), "127.0.0.1:8080");
+        let report =
+            crate::config::Config::preflight(&strings(&["--listen", "127.0.0.3:9000"]), &image);
+        assert_eq!(report.config.listen.to_string(), "127.0.0.3:9000");
+        let report = crate::config::Config::preflight(
+            &strings(&["-backend", "memory", "-filesystem-root", "/storage"]),
+            &BTreeMap::new(),
+        );
+        assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+        assert_eq!(
+            report.config.data_dir,
+            crate::config::Config::default().data_dir
+        );
+        assert!(emitted(&report.diagnostics).contains("memory backend is not available"));
+        let report = crate::config::Config::preflight(
+            &strings(&["-scheme", "http", "-event.pubsub-topic", "uploads"]),
+            &BTreeMap::new(),
+        );
+        assert!(unsupported(&report.diagnostics, "-event.pubsub-topic"));
+        assert_eq!(report.diagnostics.errors.len(), 1, "{}", report.diagnostics);
+        for args in [
+            &["--scheme", "http"][..],
+            &["serve", "-scheme", "http"],
+            &["-x", "http"],
+            &[],
+        ] {
+            assert!(!starts_with_legacy_flag(&strings(args)), "{args:?}");
+        }
+        assert!(starts_with_legacy_flag(&strings(&["--port=8080"])));
     }
 
     #[test]
@@ -587,15 +916,13 @@ mod tests {
             "-location=EU",
         ]);
         let report = crate::config::Config::preflight(&args, &env);
-        let fixes = report.diagnostics.to_string();
+        let fixes = emitted(&report.diagnostics);
         for expected in [
             "GCS_MIMIC_LISTEN=[::1]:9001",
             "GCS_MIMIC_API_BASE_URL=http://gcs:8080/proxy",
             "GCS_MIMIC_PUBLIC_BASE_URL=http://storage.invalid:9000",
-            "GCS_MIMIC_COMPAT_PROFILE=legacy-emulator",
             "GCS_MIMIC_LOG_LEVEL=warn",
             "GCS_MIMIC_DEFAULT_LOCATION=EU",
-            "SDK XML reads",
         ] {
             assert!(fixes.contains(expected), "{expected}: {fixes}");
         }
@@ -603,14 +930,21 @@ mod tests {
             &[],
             &BTreeMap::from([("FAKE_GCS_PORT".into(), "8080".into())]),
         );
-        assert!(report.diagnostics.to_string().contains("0.0.0.0:8080"));
+        assert!(emitted(&report.diagnostics).contains("0.0.0.0:8080"));
         let report = crate::config::Config::preflight(
             &strings(&["-scheme", "http", "-public-host", "Storage.Invalid:80"]),
             &BTreeMap::new(),
         );
-        let advice = report.diagnostics.to_string();
-        assert!(advice.contains("GCS_MIMIC_PUBLIC_BASE_URL=http://storage.invalid including"));
+        let advice = emitted(&report.diagnostics);
+        assert!(advice.contains("GCS_MIMIC_PUBLIC_BASE_URL=http://storage.invalid;"));
         assert!(!advice.contains("Storage.Invalid:80"));
+        // Helper commands have no server settings, so legacy input still fails there.
+        let helper = cli_diagnostics(&strings(&["healthcheck", "-public-host", "x"]));
+        assert!(
+            helper
+                .to_string()
+                .contains("GCS_MIMIC_COMPAT_PROFILE=legacy-emulator")
+        );
         for url in [
             "http://user:secret@host/path",
             "http://host/?X-Goog-Signature=secret",
@@ -623,9 +957,8 @@ mod tests {
                 "-public-host".into(),
                 url.into(),
             ];
-            let text = crate::config::Config::preflight(&args, &BTreeMap::new())
-                .diagnostics
-                .to_string();
+            let text =
+                emitted(&crate::config::Config::preflight(&args, &BTreeMap::new()).diagnostics);
             assert!(!text.contains("secret"), "{text}");
         }
         let report = crate::config::Config::preflight(
@@ -641,27 +974,31 @@ mod tests {
             ]),
             &BTreeMap::new(),
         );
-        let text = report.diagnostics.to_string();
+        let text = emitted(&report.diagnostics);
         for expected in [
             "<IP_ADDRESS>:<PORT_0_TO_65535>",
             "GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1",
             "GCS_MIMIC_CORS_FALLBACK=allow-all",
-            "--cors-fallback allow-all",
-            "without stored CORS rules",
         ] {
             assert!(text.contains(expected), "{text}");
         }
         assert!(!text.contains("secret"));
-        // JSON-only callers must learn first that removal alone suffices.
+        // The translated listener is invalid, so startup reports it without echoing values.
+        assert!(
+            report
+                .diagnostics
+                .errors
+                .iter()
+                .any(|d| d.fix.contains("listen must"))
+        );
         let cors = &report
             .diagnostics
-            .errors
+            .warnings
             .iter()
             .find(|d| d.key == "-cors-headers")
             .unwrap()
             .fix;
-        assert!(cors.starts_with("Legacy input is unsupported; remove this setting;"));
-        assert!(cors.find("JSON").unwrap() < cors.find("allow-all").unwrap());
+        assert!(cors.starts_with("fake-gcs-server input is accepted;"));
     }
 
     #[test]
@@ -700,8 +1037,8 @@ mod tests {
             &strings(&["--scheme=http", "-port", "9000", "-host=::1"]),
             &BTreeMap::new(),
         );
-        assert_eq!(report.diagnostics.errors.len(), 3);
-        assert!(report.diagnostics.to_string().contains("[::1]:9000"));
+        assert_eq!(report.diagnostics.errors.len(), 1, "{}", report.diagnostics);
+        assert_eq!(report.config.listen.to_string(), "[::1]:9000");
         let report = crate::config::Config::preflight(
             &[],
             &BTreeMap::from([("FAKE_GCS_CONFIG".into(), "missing-secret.json".into())]),
@@ -720,8 +1057,12 @@ mod tests {
                 ("FAKE_GCS_PORT_HTTP".into(), "9000".into()),
             ]),
         );
-        assert!(report.diagnostics.is_err());
-        let advice = report.diagnostics.to_string();
+        assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+        assert_eq!(
+            report.config.listen_http.map(|a| a.to_string()).as_deref(),
+            Some("[::1]:9000")
+        );
+        let advice = emitted(&report.diagnostics);
         assert!(advice.contains("GCS_MIMIC_SCHEME=both"));
         assert!(advice.contains("GCS_MIMIC_LISTEN_HTTP=[::1]:9000"));
         assert!(!advice.contains("future"));
@@ -792,7 +1133,7 @@ mod tests {
             assert_eq!(
                 report
                     .diagnostics
-                    .errors
+                    .warnings
                     .iter()
                     .filter(|d| d.key == "-port")
                     .count(),
@@ -911,15 +1252,16 @@ mod tests {
         ] {
             let env = BTreeMap::from([("FAKE_GCS_LOCATION".into(), value.into())]);
             let report = crate::config::Config::preflight(&[], &env);
-            assert!(report.diagnostics.is_err());
-            assert_eq!(report.diagnostics.errors[0].key, "FAKE_GCS_LOCATION");
-            let advice = report.diagnostics.to_string();
+            assert_eq!(report.diagnostics.is_err(), expected.is_none());
+            let advice = emitted(&report.diagnostics);
             assert!(advice.contains("GCS_MIMIC_COMPAT_PROFILE=native"));
             if let Some(expected) = expected {
+                assert_eq!(report.config.default_location, expected);
                 assert!(advice.contains(&format!("GCS_MIMIC_DEFAULT_LOCATION={expected}")));
                 assert!(advice.contains(&format!("--default-location {expected}")));
             } else {
-                assert!(advice.contains("for example US or ASIA-NORTHEAST1"));
+                assert_eq!(report.diagnostics.errors[0].key, "FAKE_GCS_LOCATION");
+                assert!(advice.contains("ASIA-NORTHEAST1"));
                 assert!(!advice.contains(value));
             }
             assert!(!advice.contains("future"));

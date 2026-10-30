@@ -41,7 +41,8 @@ readinessの確認に成功したら、READMEの保存・取得コマンドを�
 `GCS_MIMIC_CONFIG`で選んだJSON設定に従うため、HTTPでも上書きは不要です。
 ワイルドカードの待受にはループバックで接続し、`both`ではHTTP側を確認します。
 HTTPSでは組み込みの開発用CAを信頼します。独自CAは`--ca-cert PATH`で指定します。
-サーバーのCLI引数は別プロセスから読めません。設定を環境変数やファイルで共有するか、
+イメージのようにサーバーがPID 1で動く場合、ヘルスチェックはComposeの`command`を含むサーバーのCLI引数も読みます。
+それ以外の環境では、設定を環境変数やファイルで共有するか、
 `healthcheck --url URL`で接続先を明示してください。
 イメージは`GCS_MIMIC_LISTEN=0.0.0.0:4443`と
 `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`を環境変数で設定します。

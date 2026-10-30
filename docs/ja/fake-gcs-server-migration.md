@@ -21,7 +21,8 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 既存アプリのサービスと`STORAGE_EMULATOR_HOST=gcs:4443`はそのまま残し、
 `gcs`サービスを置き換えます。よく使う5組のフラグは次のように書き換えます。
 移行前のCompose全体は[英語版の例](../en/fake-gcs-server-migration.md#replace-a-fake-gcs-server-compose-service)を参照してください。
-古いフラグと`FAKE_GCS_*`は別名として受け付けず、置き換え先を診断に表示します。
+0.6.0より新しいリリースでは、古いフラグと`FAKE_GCS_*`も書き換えずに動き、置き換え先を警告で表示します。
+この手順ではnativeの名前を使います。[旧設定の読み替え（英語）](../en/slices/legacy-setting-aliases.md)を参照してください。
 
 | 書き換え前 | 書き換え後 | 必要な理由・違い |
 | --- | --- | --- |
@@ -235,7 +236,8 @@ SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALSを参照してください。DESIGN-084は
 
 | 症状 | 原因 | 直し方 |
 | --- | --- | --- |
-| `-scheme`や`FAKE_GCS_SCHEME`で起動が止まる | 旧設定名は別名ではない | 古いcommandやキーを消し、`GCS_MIMIC_SCHEME: http`へ置き換える。 |
+| `-scheme`や`FAKE_GCS_SCHEME`で起動が止まる | 0.6.0以前は旧設定名を読み替えない | 新しいリリースに上げるか、古いcommandやキーを消して`GCS_MIMIC_SCHEME: http`へ置き換える。 |
+| `-event.pubsub-topic`などの`FAKE_GCS_EVENT_*`で起動が止まる | イベント通知は未対応 | イベント設定を消す。通知が必要なテストはまだgcs-mimicでは動かせない。 |
 | SDKの開始は成功するが次の接続が失敗する | Locationがループバックかホスト専用のURL | コンテナ向けに`GCS_MIMIC_API_BASE_URL: http://gcs:4443`を指定し、サービスを再作成する。 |
 | ブラウザーが`gcs`を名前解決できない | コンテナDNSはホストでは使えない | この例では`http://localhost:14443`を使い、署名なしセッションのpath/queryを保って変換する。 |
 | 後から足した空ディレクトリがバケットにならない | 0.2.1以前は初期ファイルを一度だけ読み込んでいた。[0.3.0のリリースノート（英語）](../en/releases/0.3.0.md)を参照 | 0.3.0へ更新すると起動のたびにseedを反映するため、再起動でバケットが作られる。またはバケットファイルへ`{"name":"exports"}`を追加して再起動する。データボリュームは消さない。 |

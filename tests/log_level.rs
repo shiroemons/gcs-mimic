@@ -242,8 +242,16 @@ fn invalid_log_levels_and_legacy_diagnostics_fail_before_catalog() {
     for level in ["debug", "info", "warn", "error"] {
         let directory = TestDir::new();
         let data = directory.0.join("data");
+        // The translated legacy level only warns; an invalid limit keeps startup from binding.
         let output = common::server_command()
-            .args(["serve", "--log-level", level, "--data-dir"])
+            .args([
+                "serve",
+                "--log-level",
+                level,
+                "--max-connections",
+                "0",
+                "--data-dir",
+            ])
             .arg(&data)
             .env("FAKE_GCS_LOG_LEVEL", "warning")
             .env("FAKE_GCS_UNRELATED", "ignored")
@@ -256,9 +264,15 @@ fn invalid_log_levels_and_legacy_diagnostics_fail_before_catalog() {
         assert_eq!(records.len(), 2);
         assert_eq!(records[0]["level"], "warn");
         assert_eq!(records[1]["level"], "error");
-        assert_eq!(records[1]["diagnostics"][0]["key"], "FAKE_GCS_LOG_LEVEL");
+        assert_eq!(records[1]["diagnostics"][0]["key"], "--max-connections");
+        let warning = records[0]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["key"] == "FAKE_GCS_LOG_LEVEL")
+            .unwrap();
         assert!(
-            records[1]["diagnostics"][0]["fix"]
+            warning["fix"]
                 .as_str()
                 .unwrap()
                 .contains("GCS_MIMIC_LOG_LEVEL=warn")

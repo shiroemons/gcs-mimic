@@ -1162,23 +1162,29 @@ fn startup_diagnostics_aggregate_independent_inputs_and_material_without_side_ef
     assert_eq!(events.len(), 2, "{text}");
     assert_eq!(events[0]["level"], "warn");
     assert_eq!(events[1]["level"], "error");
-    let diagnostics = events[1]["diagnostics"].as_array().unwrap();
+    let has = |event: &serde_json::Value, source: &str, key: &str| {
+        event["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["source"] == source && d["key"] == key)
+    };
     for (source, key) in [
         ("cli", "--config"),
         ("cli", "--worker-threads"),
-        ("cli", "-host"),
-        ("cli", "-port"),
-        ("environment", "FAKE_GCS_PORT"),
         ("environment", "GCS_MIMIC_MAX_CONNECTIONS"),
         ("tls", "tls_cert"),
         ("identity", "identity_file"),
     ] {
-        assert!(
-            diagnostics
-                .iter()
-                .any(|d| d["source"] == source && d["key"] == key),
-            "{source}/{key}: {text}"
-        );
+        assert!(has(&events[1], source, key), "{source}/{key}: {text}");
+    }
+    // Translated fake-gcs-server inputs warn alongside the independent errors.
+    for (source, key) in [
+        ("cli", "-host"),
+        ("cli", "-port"),
+        ("environment", "FAKE_GCS_PORT"),
+    ] {
+        assert!(has(&events[0], source, key), "{source}/{key}: {text}");
     }
     assert!(text.contains("GCS_MIMIC_LISTEN=127.0.0.2:8080"));
 }
@@ -1392,21 +1398,83 @@ fn compose_only_variables_and_missing_subcommand_report_native_migration() {
     ] {
         assert!(text.contains(expected), "{text}");
     }
+    // Native options without `serve` still fail; a leading fake-gcs-server flag starts instead.
     let output = common::server_command()
         .clean_env()
-        .args(["-scheme=http", "-port", "9000", "--data=fixtures"])
+        .args(["--scheme", "http", "-port", "9000", "--data=fixtures"])
         .output()
         .unwrap();
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
     let text = String::from_utf8(output.stderr).unwrap();
     for expected in [
-        "-scheme",
+        "--scheme",
         "-port",
         "--data",
         "serve --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic",
     ] {
         assert!(text.contains(expected), "{text}");
+    }
+}
+
+#[test]
+fn fake_gcs_server_command_without_serve_starts_with_translated_settings() {
+    let root = TestDir::new();
+    let storage = root.0.join("storage");
+    let seed = root.0.join("seed");
+    fs::create_dir_all(seed.join("seeded-bucket")).unwrap();
+    fs::write(seed.join("seeded-bucket/hello.txt"), "hello").unwrap();
+    let mut child = common::server_command()
+        .clean_env()
+        .args(["-scheme", "http", "-host", "127.0.0.1", "-port", "0"])
+        .args(["-backend", "filesystem", "-filesystem-root"])
+        .arg(&storage)
+        .arg("-data")
+        .arg(&seed)
+        .arg("--data-dir")
+        .arg(root.0.join("data"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (mut stdout, ready) = process_ready(&mut child);
+    assert_eq!(ready["event"], "ready");
+    assert!(
+        ready["api_base_url"]
+            .as_str()
+            .unwrap()
+            .starts_with("http://127.0.0.1:"),
+        "{ready}"
+    );
+    // filesystem-root is ignored: a reused root-owned source volume must not stop startup.
+    assert!(root.0.join("data").is_dir());
+    assert!(!storage.exists());
+    common::stop_server(&mut child, &mut stdout);
+    let mut text = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut text)
+        .unwrap();
+    let warning: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(warning["level"], "warn");
+    for key in [
+        "-scheme",
+        "-host",
+        "-port",
+        "-backend",
+        "-filesystem-root",
+        "-data",
+    ] {
+        assert!(
+            warning["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|d| d["key"] == key),
+            "{key}: {text}"
+        );
     }
 }
 

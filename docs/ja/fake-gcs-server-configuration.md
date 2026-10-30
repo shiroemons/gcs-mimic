@@ -3,8 +3,10 @@
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
 fake-gcs-serverの設定は、名前を一括置換せず用途ごとに対応させます。
-gcs-mimicは既知19個の`FAKE_GCS_*`を移行案内付きのエラーにし、未知の名前は警告します。
-空の値もエラーです。別名としては使えません。
+サーバーの起動時、gcs-mimicは既知の`FAKE_GCS_*`と旧フラグのうち対応先があるものをnative設定に読み替え、それぞれnativeの名前を警告で案内します。
+イベント設定と未知のbackendは引き続き起動を止めます。未知の`FAKE_GCS_*`は警告だけです。
+読み替えの一覧は[旧設定の読み替え（英語）](../en/slices/legacy-setting-aliases.md)を参照してください。
+0.6.0以前は、既知19個をすべて移行案内付きのエラーにします。
 
 [English](../en/fake-gcs-server-configuration.md) ·
 [実装状態の原本](../../compatibility/features.json)
@@ -184,7 +186,7 @@ API originの既定はprimaryのHTTPSです。HTTPで開始したresumable uploa
 両方をポート0にすると独立して空きポートを確保します。
 どちらかのbindに失敗するとreadyを出さず、socketとカタログのlockを解放します。
 終了時には両方の待受を閉じます。ComposeではHTTPのポートも明示して公開してください。
-`FAKE_GCS_SCHEME`・`FAKE_GCS_PORT_HTTP`は引き続きエラーにし、上のnative設定を案内します。
+`FAKE_GCS_SCHEME`・`FAKE_GCS_PORT_HTTP`は上のnative設定に読み替え、その名前を警告で案内します。
 対象ケース`UX-003-DUAL-LISTENER`の範囲は
 [契約と検証結果](../en/slices/configuration-workflows.md#dual-listener-behavior-and-verification)に記載しています。
 親機能`UX-003`は、独立した未対応ケースが残るためPARTIALのままです。

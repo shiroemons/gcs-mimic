@@ -53174,7 +53174,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are verified in docs/en/evidence/configuration-diagnostics.md. Public-origin helper receiver choices, native/legacy routing, selected-bucket CORS, strict signatures/PAP and DNS/IP/unset ready fields pass native process/wire checks in docs/en/evidence/configuration-public-origin.md. Native US/EU/ASIA default_location, explicit API/initializer precedence, restart preservation, legacy fixed-region validation and native-only migration guidance pass in docs/en/slices/configuration-workflows.md. Bound-address API defaults, Compose host-port resumable traversal and dual HTTP/HTTPS listeners with shared catalog/admission, HTTPS-primary origin, all-or-nothing bind and shutdown pass. Effective structured stderr log levels, native precedence, warning alias, legacy migration advice and unfiltered validation/lifecycle events are verified in docs/en/slices/configuration-workflows.md. Parent status remains PARTIAL for independent contract review, memory and events.",
+      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are verified in docs/en/evidence/configuration-diagnostics.md. Public-origin helper receiver choices, native/legacy routing, selected-bucket CORS, strict signatures/PAP and DNS/IP/unset ready fields pass native process/wire checks in docs/en/evidence/configuration-public-origin.md. Native US/EU/ASIA default_location, explicit API/initializer precedence, restart preservation, legacy fixed-region validation and native-only migration guidance pass in docs/en/slices/configuration-workflows.md. Bound-address API defaults, Compose host-port resumable traversal and dual HTTP/HTTPS listeners with shared catalog/admission, HTTPS-primary origin, all-or-nothing bind and shutdown pass. Effective structured stderr log levels, native precedence, warning alias, legacy migration advice and unfiltered validation/lifecycle events are verified in docs/en/slices/configuration-workflows.md. serve translates fake-gcs-server flags and FAKE_GCS_* variables with a native equivalent and warns; events still fail and the memory backend and filesystem-root only warn (docs/en/slices/legacy-setting-aliases.md). Parent status remains PARTIAL for independent contract review, memory and events.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -53410,7 +53410,10 @@
         "dual_listener_second_bind_failure_releases_first_socket_and_catalog",
         "dual_listener_connection_cap_counts_tls_handshakes_and_shutdown_closes_both",
         "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
-        "tls_handshake_admission_timeout_shutdown_and_strict_permissions"
+        "tls_handshake_admission_timeout_shutdown_and_strict_permissions",
+        "config_input::tests::fake_gcs_server_compose_command_starts_with_translated_settings",
+        "config_input::tests::legacy_aliases_follow_source_precedence_and_keep_rejecting_events",
+        "fake_gcs_server_command_without_serve_starts_with_translated_settings"
       ],
       "verification": [
         {
@@ -53593,6 +53596,18 @@
           "artifact": "docs/en/slices/configuration-workflows.md",
           "test_ids": [
             "ruby-api-default-https"
+          ]
+        },
+        {
+          "command": "cargo test --lib config; cargo test --test foundation --test log_level --test bucket_initialization; cargo xtask lint; docker compose up --wait with fake-gcs-server flags and FAKE_GCS_* variables against a locally built image",
+          "result": "PASS",
+          "verified_at": "2026-10-30",
+          "artifact": "docs/en/slices/legacy-setting-aliases.md",
+          "test_ids": [
+            "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+            "config_input::tests::fake_gcs_server_compose_command_starts_with_translated_settings",
+            "config_input::tests::legacy_aliases_follow_source_precedence_and_keep_rejecting_events",
+            "fake_gcs_server_command_without_serve_starts_with_translated_settings"
           ]
         }
       ],

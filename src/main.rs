@@ -221,6 +221,9 @@ fn run() -> Result<(), CliError> {
         }
         _ => (),
     }
+    if gcs_mimic::config_input::starts_with_legacy_flag(&args) {
+        return serve(&args);
+    }
     if args.first().is_none_or(|s| s != "serve") {
         let diagnostics = gcs_mimic::config_input::cli_diagnostics(&args);
         if diagnostics.is_err() {
@@ -567,7 +570,7 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
     let url = if let Some(url) = explicit_url {
         url
     } else {
-        let mut report = Config::preflight_os(&[], std::env::vars_os());
+        let mut report = Config::preflight_os(&container_server_args(), std::env::vars_os());
         let url = report.config.healthcheck_url();
         if report.diagnostics.is_err() {
             report.diagnostics.errors.push(Diagnostic::new(
@@ -587,6 +590,34 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
         "healthcheck",
         format!("Healthcheck {url} failed: {error}; require HTTP 200 and verify CA trust (including 403 access denial). {}", repair(&url)),
     ))
+}
+
+/// The server options of a gcs-mimic process running as PID 1, as in the container image.
+/// A Compose `command` such as fake-gcs-server's `-scheme http` reaches only that process, so
+/// the image healthcheck reads them here instead of probing the environment's defaults.
+fn container_server_args() -> Vec<String> {
+    let Ok(bytes) = std::fs::read("/proc/1/cmdline") else {
+        return Vec::new();
+    };
+    let bytes = bytes.strip_suffix(b"\0").unwrap_or(&bytes);
+    let Ok(mut args) = bytes
+        .split(|byte| *byte == 0)
+        .map(|arg| String::from_utf8(arg.to_vec()))
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return Vec::new();
+    };
+    if args.is_empty() || Path::new(&args.remove(0)).file_name() != Some("gcs-mimic".as_ref()) {
+        return Vec::new();
+    }
+    if args.first().is_some_and(|arg| arg == "serve") {
+        args.remove(0);
+        args
+    } else if gcs_mimic::config_input::starts_with_legacy_flag(&args) {
+        args
+    } else {
+        Vec::new()
+    }
 }
 
 fn probe(args: &[String], url: &str) -> io::Result<()> {

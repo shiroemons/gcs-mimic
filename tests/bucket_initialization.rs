@@ -226,19 +226,18 @@ fn default_location_invalid_or_legacy_settings_fail_before_catalog_creation() {
         let event: Value = serde_json::from_slice(&output.stderr).unwrap();
         assert_eq!(event["diagnostics"][0]["key"], "--default-location");
     }
+    // A translated fake-gcs-server location is validated like the native setting.
     let dir = TestDir::new();
     let output = command(&dir.0)
-        .env("FAKE_GCS_LOCATION", "EU")
+        .env("FAKE_GCS_LOCATION", "MARS-CENTRAL1")
         .output()
         .unwrap();
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
     assert!(!dir.0.join("data").exists());
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("GCS_MIMIC_DEFAULT_LOCATION=EU")
-    );
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(text.contains("FAKE_GCS_LOCATION"), "{text}");
+    assert!(text.contains("default_location must"), "{text}");
 }
 
 #[test]
