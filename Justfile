@@ -32,7 +32,12 @@ check-container platform:
         awk -v platform={{ quote(platform) }} '{ print "[" platform "] " $0; fflush() }'
 
 # Run each check stage in order; the container stage waits for both architectures.
-pre-push: check check-sdk check-containers
+# Progress lines show the stage, overall percentage and the time left based on earlier runs.
+pre-push: (_pre-push-progress "start") check (_pre-push-progress "check") check-sdk (_pre-push-progress "check-sdk") check-containers (_pre-push-progress "check-containers")
+
+[private]
+_pre-push-progress mark:
+    @bash scripts/pre-push-progress.sh {{ quote(mark) }} {{ just_pid() }}
 
 # Stage a built native binary with licenses and build information.
 prepare-binary target binary output:

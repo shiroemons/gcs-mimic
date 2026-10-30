@@ -10,6 +10,9 @@ cleanup() {
 trap cleanup EXIT
 cp Justfile "$work/Justfile"
 mkdir "$work/scripts"
+cp scripts/pre-push-progress.sh "$work/scripts/pre-push-progress.sh"
+# Periodic reports are exercised once below; the other runs only print stage transitions.
+export GCSM_PRE_PUSH_PROGRESS_INTERVAL=0
 # Replace expensive checks, retaining the real recipe graph and output pipeline.
 for script in test-pre-push test-check; do
   printf 'exit 0\n' >"$work/scripts/$script.sh"
@@ -18,6 +21,7 @@ printf 'exec "$@"\n' >"$work/scripts/with-test-tmpdir.sh"
 cat >"$work/scripts/check.sh" <<'SH'
 set -euo pipefail
 if [[ ${GCS_MIMIC_PRE_PUSH_TEST_FAIL:-} == check ]]; then exit 23; fi
+sleep "${GCS_MIMIC_PRE_PUSH_TEST_SLEEP:-0}"
 touch "$GCS_MIMIC_PRE_PUSH_TEST_STATE/check.done"
 SH
 cat >"$work/scripts/sdk-go.sh" <<'SH'
@@ -73,6 +77,15 @@ for failure in none amd64 arm64 both check sdk; do
   status=0
   just --justfile "$work/Justfile" --jobs 2 pre-push >"$work/output" 2>&1 || status=$?
   if [[ $failure == none ]]; then test "$status" = 0; else test "$status" = 23; fi
+  if [[ $failure == none ]]; then
+    # The first run has no history, so it can only count stages.
+    grep -F '[pre-push 1/3 0%] Rust and shell checks started; no earlier run recorded' "$work/output" >/dev/null
+    grep -F '[pre-push 3/3 100%] container checks took' "$work/output" >/dev/null
+  else
+    # Later runs estimate from the recorded stage durations and never claim completion on failure.
+    grep -F 'based on the last run' "$work/output" >/dev/null
+    if grep -F '100%]' "$work/output" >/dev/null; then exit 1; fi
+  fi
   for arch in amd64 arm64; do
     if [[ $failure == check || $failure == sdk ]]; then
       test ! -e "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.started"
@@ -96,4 +109,12 @@ for arch in amd64 arm64; do
   test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.passed"
   test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.cleaned"
 done
-echo 'PASS: container recipes overlap, label both output streams, wait for cleanup, propagate failures and support serial execution'
+
+# A slow stage gets periodic reports, and the reporter stops with the run.
+export GCS_MIMIC_PRE_PUSH_TEST_STATE="$work/periodic"
+export GCS_MIMIC_PRE_PUSH_TEST_SERIAL=false GCS_MIMIC_PRE_PUSH_TEST_SLEEP=3 GCSM_PRE_PUSH_PROGRESS_INTERVAL=1
+mkdir "$GCS_MIMIC_PRE_PUSH_TEST_STATE"
+just --justfile "$work/Justfile" --jobs 2 pre-push >"$work/output" 2>&1
+grep -E '^\[pre-push 1/3 [0-9]+%\] Rust and shell checks running for [0-9]+s \(last run took [0-9]+s\); about [0-9ms]+ left overall$' "$work/output" >/dev/null
+test ! -e "$work/target/pre-push-progress/state"
+echo 'PASS: pre-push reports stage progress and estimates, container recipes overlap, label both output streams, wait for cleanup, propagate failures and support serial execution'

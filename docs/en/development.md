@@ -37,6 +37,14 @@ lines carry `[linux/amd64]` or `[linux/arm64]`, including build errors. The exis
 harness isolates image tags, Compose projects, volumes and dynamically assigned
 host ports for each worker.
 
+`just pre-push` prints `[pre-push N/3 P%]` lines when each stage starts and
+finishes, and every 30 seconds while a stage runs, with the elapsed time and an
+estimate of the time left. Estimates use the stage durations of the previous
+run, recorded under `target/pre-push-progress/`; the first run, or one after
+`cargo clean`, reports only the stage count. Set
+`GCSM_PRE_PUSH_PROGRESS_INTERVAL` to another number of seconds, or to `0` to
+print only the stage transitions.
+
 Run `just check` while editing and reserve the SDK/container checks for the final
 source. Parallel builds use more CPU and memory; on a constrained Docker host,
 use `just --jobs 1 pre-push` or `just --jobs 1 check-containers` to run them in
