@@ -231,54 +231,20 @@ test "$cancellation_status" = 499
 Authority rewriting is scoped to these unsigned permissive sessions. Never
 rewrite a strict signed URL after signing; sign the final recipient-visible URL.
 
-### Rails Active Storage with application-supplied local credentials
+### Rails Active Storage
 
-The data `endpoint` does not redirect OAuth. With googleauth 1.17.6,
-service-account JSON `token_uri` is ignored; Rails 8.1.4 `storage.yml` cannot
-pass the credential constructor's `token_credential_uri`. `external_account`
-credentials lack the private key needed for default V2 signing. The emulator
-has no token-issuing route, so there is no supported local token exchange path.
+The data `endpoint` alone does not redirect OAuth: googleauth 1.17.6 requests
+a token from Google for service-account credentials in the default universe,
+and ignores `token_uri`. Add a `gcs_emulator` entry with a non-Google
+`universe_domain` to `config/storage.yml` instead; googleauth then signs its
+own token and never contacts Google. Select it in development and test, and
+keep the production entry for production. See the
+[Rails recipe](rails-active-storage.md) and its
+[verification](slices/sdk-active-storage-scenario.md#storageyml-emulator-recipe).
 
-For an isolated **permissive** emulator, construct the service in application
-code with service-account credentials carrying a preset dummy access token.
-The JSON file below is an example location for a locally generated test key,
-with an example project and email; do not use real Google credentials.
-
-```ruby
-require "googleauth"
-require "active_storage/service/gcs_service"
-
-credentials = File.open("config/credentials/example-local-service-account.json") do |key|
-  Google::Auth::ServiceAccountCredentials.make_creds(
-    json_key_io: key,
-    scope: "https://www.googleapis.com/auth/devstorage.full_control"
-  )
-end
-credentials.access_token = "example-local-token"
-credentials.expires_at = Time.now + 86_400
-service = ActiveStorage::Service::GCSService.new(
-  project: "example-project", bucket: "example-bucket", credentials: credentials,
-  endpoint: "http://127.0.0.1:4443/"
-)
-```
-
-Use this application-created service for local operations. The example JSON
-needs `type: service_account`, `project_id: example-project`,
-`client_email: example-signer@example.invalid` and a locally generated RSA
-`private_key`. Create `example-bucket` first. A fresh preset token avoids OAuth
-while retaining the key for V2 signing; renew the token and expiry before the
-client needs a refresh or googleauth will attempt its normal OAuth endpoint.
-Permissive mode accepts the dummy bearer token without validating it.
-
-The guarded Rails 8.1.4 / Storage 1.62.1 scenario verifies upload, download,
-delete and an unchanged V2 signed GET with these credential semantics, without
-clearing internal authorization. Only direct service calls were verified; wiring
-this service into `ActiveStorage::Blob` or attachments (including replacing
-`Blob.service` or registering a named service in `storage.yml`) is unverified.
-This is a separate application recipe; ordinary
-`storage.yml` authentication still fails. Strict Rails integration and automatic
-token renewal are unverified. See [verification and limits](slices/sdk-local-auth-softdelete-notes.md)
-and SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALS; DESIGN-084 remains PARTIAL.
+An earlier recipe built the service in application code with a preset token
+and a one-day expiry. It is replaced: after the expiry, googleauth tried to
+refresh the token at Google. The entry works only with the permissive profile.
 
 ### Migration troubleshooting
 

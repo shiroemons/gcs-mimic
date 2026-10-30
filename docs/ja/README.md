@@ -24,7 +24,7 @@ Google Cloudのアカウントなしで、公式のCloud Storage SDKをそのま
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
   -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.6.0
-curl --retry 5 --retry-connrefused -H 'Content-Type: application/json' \
+curl --retry 5 --retry-all-errors -H 'Content-Type: application/json' \
   -d '{"name":"demo-bucket"}' 'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --data-binary 'hello' \
   'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=hello.txt'
@@ -135,8 +135,18 @@ $storage = new StorageClient(['projectId' => 'local-project',
     'credentialsFetcher' => new AnonymousCredentials()]);
 ```
 
-**Rails Active Storage**: googleauthがGoogleのOAuthに接続するため、`storage.yml`だけでは動きません。
-[Railsの手順](sdk-setup.md#rails-active-storage)を参照してください。
+**Rails Active Storage**: 開発・テスト用の項目を`config/storage.yml`に1つ足します。本番は本番用の項目のままです。
+Google以外の`universe_domain`を書くと、googleauthはGoogleのOAuthに接続しません。
+
+```yaml
+gcs_emulator:
+  service: GCS
+  endpoint: http://localhost:4443/
+  universe_domain: gcs-emulator.invalid
+  # plus project, bucket and local credentials
+```
+
+項目の全体、バケットとCORS、Railsをコンテナで動かす場合、CIは[Rails Active Storage](rails-active-storage.md)を参照してください。
 
 ## fake-gcs-serverから移行する
 
@@ -230,7 +240,7 @@ $storage = new StorageClient(['projectId' => 'local-project',
 
 ## 次に読む
 
-- [Dockerでの使い方](container-usage.md)と[SDKの設定](sdk-setup.md)
+- [Dockerでの使い方](container-usage.md)、[SDKの設定](sdk-setup.md)、[Rails Active Storage](rails-active-storage.md)
 - [fake-gcs-serverからの移行](fake-gcs-server-migration.md)と[設定・環境変数の対応](fake-gcs-server-configuration.md)
 - [機能比較](feature-comparison.md)と[詳細な機能表](feature-matrix.md)
 - [ファイル保存の仕組み](storage-backends.md)と[ロードマップ](roadmap.md)

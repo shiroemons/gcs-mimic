@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | Go | `STORAGE_EMULATOR_HOST` or `option.WithEndpoint` | `host:port` or a full URL |
 | Ruby | `Storage.anonymous(endpoint:)` | Not used |
-| Rails | An application-built `GCSService` | Not used |
+| Rails | A `storage.yml` entry with `endpoint` and `universe_domain` | Not used |
 | Node.js | `apiEndpoint` | Leave unset |
 | Python | `api_endpoint`; the tests also set the variable | Full URL with `http://` |
 | PHP | `apiEndpoint` | Not used |
@@ -65,35 +65,11 @@ Keep the trailing `/` in `endpoint`.
 
 ## Rails Active Storage
 
-Rails 8.1.4 with `google-cloud-storage` 1.62.1
-([scenario and limits](slices/sdk-active-storage-scenario.md)).
-A `storage.yml` entry with `service: GCS` and `endpoint:` alone fails, because
-googleauth still requests a token from Google OAuth. Build the service in
-application code with a preset dummy token instead:
-
-```ruby
-require "googleauth"
-require "active_storage/service/gcs_service"
-
-credentials = File.open("config/local-gcs-service-account.json") do |key|
-  Google::Auth::ServiceAccountCredentials.make_creds(
-    json_key_io: key,
-    scope: "https://www.googleapis.com/auth/devstorage.full_control")
-end
-credentials.access_token = "local-token"
-credentials.expires_at = Time.now + 86_400
-service = ActiveStorage::Service::GCSService.new(
-  project: "local-project", bucket: "demo-bucket",
-  credentials: credentials, endpoint: "http://localhost:4443/")
-```
-
-- The JSON file is a service-account key with a throwaway RSA key that you
-  generate locally. Never use real Google credentials.
-- Create the bucket first.
-- Upload, download, delete and V2 signed URLs are verified on this service
-  object. Registering it as `ActiveStorage::Blob.service` is not yet verified.
-
-See the [full recipe](fake-gcs-server-migration.md#rails-active-storage-with-application-supplied-local-credentials).
+Use the emulator in development and test, and Google Cloud Storage in
+production, with one extra `config/storage.yml` entry. The entry sets a
+non-Google `universe_domain`, so googleauth never contacts Google OAuth. See
+[Rails Active Storage](rails-active-storage.md) for the entry, bucket and CORS
+setup, Rails in containers, CI and what is verified.
 
 ## Node.js
 

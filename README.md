@@ -24,7 +24,7 @@ Use the official Cloud Storage SDKs against it without a Google Cloud account.
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
   -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.6.0
-curl --retry 5 --retry-connrefused -H 'Content-Type: application/json' \
+curl --retry 5 --retry-all-errors -H 'Content-Type: application/json' \
   -d '{"name":"demo-bucket"}' 'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --data-binary 'hello' \
   'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=hello.txt'
@@ -145,9 +145,20 @@ $storage = new StorageClient(['projectId' => 'local-project',
     'credentialsFetcher' => new AnonymousCredentials()]);
 ```
 
-**Rails Active Storage**: `storage.yml` alone does not work, because googleauth
-still contacts Google OAuth. See the
-[Rails recipe](docs/en/sdk-setup.md#rails-active-storage).
+**Rails Active Storage**: add one `config/storage.yml` entry for development
+and test; production keeps its own. A non-Google `universe_domain` keeps
+googleauth from contacting Google OAuth:
+
+```yaml
+gcs_emulator:
+  service: GCS
+  endpoint: http://localhost:4443/
+  universe_domain: gcs-emulator.invalid
+  # plus project, bucket and local credentials
+```
+
+[Rails Active Storage](docs/en/rails-active-storage.md) has the full entry,
+bucket and CORS setup, Rails in containers and CI.
 
 ## Migrating from fake-gcs-server
 
@@ -248,7 +259,8 @@ means an ordinary SDK workflow works, not that the API is complete.
 
 ## More information
 
-- [Docker usage](docs/en/container-usage.md) and [SDK setup](docs/en/sdk-setup.md)
+- [Docker usage](docs/en/container-usage.md), [SDK setup](docs/en/sdk-setup.md)
+  and [Rails Active Storage](docs/en/rails-active-storage.md)
 - [Build from source and API walkthroughs](docs/en/getting-started.md),
   [local HTTPS](docs/en/local-https.md), [signed URLs](docs/en/signed-urls.md)
   and the [native binary](docs/en/native-binary.md)

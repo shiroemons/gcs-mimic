@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | Go | `STORAGE_EMULATOR_HOST`または`option.WithEndpoint` | `host:port`または完全なURL |
 | Ruby | `Storage.anonymous(endpoint:)` | 使わない |
-| Rails | アプリで組み立てた`GCSService` | 使わない |
+| Rails | `endpoint`と`universe_domain`を書いた`storage.yml`の項目 | 使わない |
 | Node.js | `apiEndpoint` | 設定しない |
 | Python | `api_endpoint`。テストでは変数も設定 | `http://`付きの完全なURL |
 | PHP | `apiEndpoint` | 使わない |
@@ -61,31 +61,9 @@ bucket = storage.create_bucket "demo-bucket"
 
 ## Rails Active Storage
 
-Rails 8.1.4と`google-cloud-storage` 1.62.1（[動作確認と制限](sdk-active-storage-scenario.md)）。
-`storage.yml`に`service: GCS`と`endpoint:`を書くだけでは動きません。googleauthがGoogleのOAuthへトークンを取りに行くためです。
-代わりに、ダミーのトークンを入れたサービスをアプリのコードで組み立てます。
-
-```ruby
-require "googleauth"
-require "active_storage/service/gcs_service"
-
-credentials = File.open("config/local-gcs-service-account.json") do |key|
-  Google::Auth::ServiceAccountCredentials.make_creds(
-    json_key_io: key,
-    scope: "https://www.googleapis.com/auth/devstorage.full_control")
-end
-credentials.access_token = "local-token"
-credentials.expires_at = Time.now + 86_400
-service = ActiveStorage::Service::GCSService.new(
-  project: "local-project", bucket: "demo-bucket",
-  credentials: credentials, endpoint: "http://localhost:4443/")
-```
-
-- JSONファイルは、使い捨てのRSA鍵でローカルに作ったサービスアカウント鍵です。本物のGoogleの認証情報は使わないでください。
-- バケットは先に作成します。
-- このサービスオブジェクトでのアップロード・ダウンロード・削除・V2署名付きURLは確認済みです。`ActiveStorage::Blob.service`への登録はまだ確認していません。
-
-[手順の全体（英語）](../en/fake-gcs-server-migration.md#rails-active-storage-with-application-supplied-local-credentials)を参照してください。
+`config/storage.yml`に項目を1つ足すだけで、開発・テストではエミュレーター、本番ではGoogle Cloud Storageを使えます。
+その項目でGoogle以外の`universe_domain`を設定するため、googleauthはGoogleのOAuthに接続しません。
+項目の書き方、バケットとCORS、Railsをコンテナで動かす場合、CI、確認済みの範囲は[Rails Active Storage](rails-active-storage.md)を参照してください。
 
 ## Node.js
 
