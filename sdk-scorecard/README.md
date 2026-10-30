@@ -163,7 +163,12 @@ bash sdk-scorecard/run.sh gcs-mimic             # one product
 bash sdk-scorecard/run.sh --out "$TMPDIR/sc"    # scratch run
 bash sdk-scorecard/score.sh sdk-scorecard/results/2026-10-29   # rescore recorded results
 bash sdk-scorecard/test-score.sh               # offline scoring checks
+bash scripts/sdk-scorecard-check.sh            # gcs-mimic must pass every case
 ```
+
+`just check-sdk` runs `scripts/sdk-scorecard-check.sh` after the Go and Ruby SDK
+suites. It scores gcs-mimic in a temporary directory, never in `results/`, and
+fails with the SDK and case ID of every case that does not pass.
 
 `SCORECARD_RUN=<substring>` restricts individual probes to matching case IDs when
 debugging a single case against a running emulator:
