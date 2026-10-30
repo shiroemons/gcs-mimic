@@ -324,6 +324,7 @@
           "BEHAVIOR-OBJECT-011/RSM-CHUNK-007",
           "BEHAVIOR-OBJECT-011/RSM-CHUNK-008",
           "BEHAVIOR-OBJECT-011/RSM-CHUNK-009",
+          "BEHAVIOR-OBJECT-011/RSM-CHUNK-010",
           "BEHAVIOR-OBJECT-012/RSM-STATUS-001",
           "BEHAVIOR-OBJECT-012/RSM-STATUS-002",
           "BEHAVIOR-OBJECT-012/RSM-STATUS-003",
@@ -27063,7 +27064,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "All nine scoped sequential PUT/SDK POST chunk cases pass: numeric/unknown totals, overlap preserving acknowledged bytes, zero/exact-multiple completion, no-308 override, invalid ranges/lengths, interruption, bounded admission and object caps. Native 16 MiB through 1 GiB, slow and eight-session runs measure bounded server RSS in one declared profile; no cgroup or constrained-container memory claim. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-EDGES retains provider malformed/concurrent error and chunk-checkpoint parity; alternate upload commands and invocation-token replay are excluded.",
+      "notes": "All ten scoped sequential PUT/SDK POST chunk cases pass: numeric/unknown totals, overlap preserving acknowledged bytes, zero/exact-multiple completion, no-308 override, invalid ranges/lengths, interruption, bounded admission, object caps and open-ended final ranges (bytes start-*/total, the Node.js default single-request upload). Native 16 MiB through 1 GiB, slow and eight-session runs measure bounded server RSS in one declared profile; no cgroup or constrained-container memory claim. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-EDGES retains provider malformed/concurrent error and chunk-checkpoint parity; alternate upload commands and invocation-token replay are excluded.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -27150,6 +27151,20 @@
             "host_follows_returned_location_and_streams_large_body_in_small_buffers",
             "measure-resumable-native"
           ]
+        },
+        {
+          "id": "RSM-CHUNK-010",
+          "description": "positive/negative/boundary: Open ranges bytes start-*/* and bytes start-*/N complete chunked, declared-length, empty and resumed bodies with exact bytes; malformed, gap, total-conflict, short/long, prefix-shrinking and over-cap requests fail without advancing the prefix. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PASS",
+          "test_ids": [
+            "open_range_completes_single_request_uploads_at_body_eof",
+            "open_range_resumes_after_a_persisted_prefix_without_rewriting_it",
+            "open_range_rejects_malformed_and_inconsistent_requests_without_advancing",
+            "open_range_bodies_are_bounded_by_the_object_size_limit",
+            "open_ended_final_chunk_failures_keep_the_acknowledged_prefix",
+            "open_ended_final_chunk_power_loss_keeps_the_old_or_new_object",
+            "node-migration-default-save"
+          ]
         }
       ],
       "test_ids": [
@@ -27168,9 +27183,47 @@
         "measure-resumable-native",
         "TestObjectResumableWriter",
         "TestObjectResumableRetriesLostChunkResponse",
-        "TestObjectResumableContextCancellationDoesNotPublish"
+        "TestObjectResumableContextCancellationDoesNotPublish",
+        "open_range_completes_single_request_uploads_at_body_eof",
+        "open_range_resumes_after_a_persisted_prefix_without_rewriting_it",
+        "open_range_rejects_malformed_and_inconsistent_requests_without_advancing",
+        "open_range_bodies_are_bounded_by_the_object_size_limit",
+        "open_ended_final_chunk_failures_keep_the_acknowledged_prefix",
+        "open_ended_final_chunk_power_loss_keeps_the_old_or_new_object",
+        "node-migration-default-save"
       ],
       "verification": [
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --test object_http resumable_open_end",
+          "result": "PASS",
+          "verified_at": "2026-10-30",
+          "artifact": "docs/en/evidence/resumable-open-range.txt",
+          "test_ids": [
+            "open_range_completes_single_request_uploads_at_body_eof",
+            "open_range_resumes_after_a_persisted_prefix_without_rewriting_it",
+            "open_range_rejects_malformed_and_inconsistent_requests_without_advancing",
+            "open_range_bodies_are_bounded_by_the_object_size_limit"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --lib open_ended_final_chunk",
+          "result": "PASS",
+          "verified_at": "2026-10-30",
+          "artifact": "docs/en/evidence/resumable-open-range.txt",
+          "test_ids": [
+            "open_ended_final_chunk_failures_keep_the_acknowledged_prefix",
+            "open_ended_final_chunk_power_loss_keeps_the_old_or_new_object"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php",
+          "result": "PASS",
+          "verified_at": "2026-10-30",
+          "artifact": "docs/en/evidence/resumable-open-range.txt",
+          "test_ids": [
+            "node-migration-default-save"
+          ]
+        },
         {
           "command": "just check",
           "result": "PASS",
@@ -27229,11 +27282,25 @@
             "TestObjectResumableRetriesLostChunkResponse",
             "TestObjectResumableContextCancellationDoesNotPublish"
           ]
+        },
+        {
+          "language": "Node.js",
+          "toolchain": "Node.js 24.22.1",
+          "sdk": "@google-cloud/storage",
+          "version": "8.4.0",
+          "transport": "HTTP JSON default single-request resumable File#save with Content-Range bytes 0-*/*; anonymous permissive local endpoint",
+          "result": "PASS",
+          "verified_at": "2026-10-30",
+          "command": "bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php",
+          "artifact": "docs/en/evidence/resumable-open-range.txt",
+          "test_ids": [
+            "node-migration-default-save"
+          ]
         }
       ],
       "known_deviations": [],
       "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-30"
     },
     {
       "id": "BEHAVIOR-OBJECT-012",

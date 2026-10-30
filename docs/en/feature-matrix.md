@@ -709,7 +709,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-008 | Simple media upload | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-009 | Multipart JSON upload | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-OBJECT-010 | Resumable initiation | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
-| BEHAVIOR-OBJECT-011 | Resumable chunk writes | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-011 | Resumable chunk writes | IMPLEMENTED | P3 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-012 | Resumable status query | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-013 | Resumable cancellation and expiration | IMPLEMENTED | P3 | EXACT | EXACT | 0 |
 | BEHAVIOR-OBJECT-014 | Resumable finalization visibility | IMPLEMENTED | P3 | EXACT | EXACT | 1 |

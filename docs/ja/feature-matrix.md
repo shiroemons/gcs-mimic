@@ -709,7 +709,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-008 | 単純メディアアップロード | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-009 | JSON multipartアップロード | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-OBJECT-010 | 再開可能アップロード開始 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
-| BEHAVIOR-OBJECT-011 | 再開可能アップロードのチャンク送信 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-011 | 再開可能アップロードのチャンク送信 | IMPLEMENTED | P3 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-012 | アップロード進捗照会 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-013 | アップロード中止と期限切れ | IMPLEMENTED | P3 | EXACT | EXACT | 0 |
 | BEHAVIOR-OBJECT-014 | アップロード確定時の可視性 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |

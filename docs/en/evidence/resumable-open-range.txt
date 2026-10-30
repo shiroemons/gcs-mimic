@@ -1,0 +1,49 @@
+Local checkout and temporary path prefixes were replaced with <checkout> and <temporary-directory>; all other output is unchanged.
+Date: 2026-10-30. Source: the commit that adds open-ended resumable Content-Range support on top of da1af21.
+
+Command: bash scripts/with-test-tmpdir.sh cargo test --test object_http resumable_open_end
+Using a 4096 MiB RAM disk for TMPDIR: <temporary-directory>
+   Compiling ring v0.17.14
+   Compiling rustls v0.23.46
+   Compiling rustls-webpki v0.103.16
+   Compiling tokio-rustls v0.26.6
+   Compiling gcs-mimic v0.5.0 (<checkout>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.38s
+     Running tests/object_http.rs (target/debug/deps/object_http-0c71d57c59bf56ba)
+
+running 4 tests
+test resumable_open_end::open_range_bodies_are_bounded_by_the_object_size_limit ... ok
+test resumable_open_end::open_range_resumes_after_a_persisted_prefix_without_rewriting_it ... ok
+test resumable_open_end::open_range_completes_single_request_uploads_at_body_eof ... ok
+test resumable_open_end::open_range_rejects_malformed_and_inconsistent_requests_without_advancing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.87s
+
+Command: bash scripts/with-test-tmpdir.sh cargo test --lib open_ended_final_chunk
+Excerpt: compile lines omitted.
+Using a 4096 MiB RAM disk for TMPDIR: <temporary-directory>
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.86s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-caf8fef80d6d758f)
+
+running 2 tests
+{"event":"object_backend_failure","level":"error","cause":"unrecognized backend failure (private details withheld)"}
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::fault_injection::open_ended_final_chunk_failures_keep_the_acknowledged_prefix ... ok
+{"event":"stopping","level":"info"}
+test storage::resumable_http_tests::fault_injection::open_ended_final_chunk_power_loss_keeps_the_old_or_new_object ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 700 filtered out; finished in 0.16s
+
+Command: bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php
+Excerpt: the Node.js migration stage (@google-cloud/storage 8.4.0, HTTP, permissive server), with the SDK's MaxListenersExceededWarning lines omitted. The full run exited 0; the Go, Ruby, Node.js, Python and PHP stages all passed.
+== node: migration scenario (anonymous)
+✔ node-migration-scenario (34.13025ms)
+✔ node-migration-default-save (13.121958ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 133.03325

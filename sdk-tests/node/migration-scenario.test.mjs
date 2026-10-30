@@ -30,14 +30,12 @@ async function roundTrip(name, saveOptions) {
 
 test('node-migration-scenario', async () => {
   assert.equal((await bucket.exists())[0], true, 'buckets file did not initialize assets');
-  // resumable: false selects the SDK's multipart upload; see the TODO case below for the default.
+  // resumable: false selects the SDK's multipart upload; the next case covers the default.
   await roundTrip('uploads/node-migration.txt', {resumable: false});
 });
 
-// File#save defaults to a single-request resumable upload whose PUT carries
-// `Content-Range: bytes 0-*/*` (unknown end and total). gcs-mimic does not parse that form yet, so
-// this case stays visible as TODO instead of failing the run or being dropped.
-test('node-migration-default-save', {todo: 'gcs-mimic rejects the SDK default Content-Range: bytes 0-*/*'},
-  async () => {
-    await roundTrip('uploads/node-migration-default.txt');
-  });
+// File#save defaults to a single-request resumable upload whose PUT streams the whole body with
+// `Content-Range: bytes 0-*/*` (unknown end and total).
+test('node-migration-default-save', async () => {
+  await roundTrip('uploads/node-migration-default.txt');
+});

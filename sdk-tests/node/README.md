@@ -114,7 +114,7 @@ Any failing case makes `run.sh` exit nonzero, which fails the runner.
 | V2 signed GET/PUT | default and explicit `v2` URLs; signed Content-Type, changed type/method/path rejected; response overrides; anonymous 401 | strict |
 | V4 canonical host | URL keeps host:port; signature verified locally against `host:<hostname>` only; strict server rejects it | strict |
 | HTTPS trust and hostname | public roots alone rejected; out-of-SAN server name rejected; emulator CA accepted | HTTPS |
-| Migration scenario | anonymous `assets` bucket, `save`, `getMetadata`, `download`, `delete` | permissive |
+| Migration scenario | anonymous `assets` bucket, `save` (multipart and the default single-request resumable upload), `getMetadata`, `download`, `delete` | permissive |
 
 ## SDK limitations
 
@@ -147,15 +147,15 @@ These are properties of `@google-cloud/storage` 8.4.0 observed by this suite:
 - The SDK's internal streams emit `MaxListenersExceededWarning` during
   downloads; it does not affect results.
 
-## Known emulator gap
+## Default single-request resumable upload
 
 `File#save` and `createWriteStream` default to a single-request resumable
-upload whose PUT carries `Content-Range: bytes 0-*/*`. gcs-mimic answers
-400 `Expected an unsigned decimal integer`, so the SDK's default small-object
-upload does not work yet. `node-migration-default-save` keeps this visible as a
-`node:test` TODO case (reported, not counted as a failure); the other journeys
-select `resumable: false` or an explicit `chunkSize`. Promote the case to a
-normal test when the server accepts this form.
+upload whose PUT streams the whole body with `Content-Range: bytes 0-*/*`
+(unknown end and total). `node-migration-default-save` runs that default path
+in the migration scenario; the other journeys select `resumable: false` or an
+explicit `chunkSize` to pin the multipart or chunked transport they exercise.
+The accepted open-ended range forms are described in the
+[resumable upload contract](../../docs/en/slices/resumable-upload.md).
 
 Official sources:
 
