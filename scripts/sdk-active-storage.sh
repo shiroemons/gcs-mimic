@@ -36,7 +36,8 @@ origin="http://$address"
 env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_AUTH_MODE -u GCS_MIMIC_IDENTITY_FILE \
   -u GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY \
   "$server" serve --scheme http --listen "$address" --api-base-url "$origin" \
-  --auth-mode permissive --data-dir "$work/data" >"$work/server.log" 2>&1 &
+  --auth-mode permissive --data-dir "$work/data" \
+  --buckets-file "$suite/buckets.json" >"$work/server.log" 2>&1 &
 pid=$!
 ready=false
 for ((attempt = 0; attempt < 100; attempt++)); do
@@ -51,4 +52,9 @@ done
 if [[ $ready != true ]]; then echo 'Server readiness timed out' >&2; exit 1; fi
 cd "$suite"
 bundle exec ruby scenario.rb --self-check
-GCS_MIMIC_ENDPOINT="$origin" bundle exec ruby scenario.rb
+# The default-auth scenario reports a known failure; still run the storage.yml recipe check.
+suite_status=0
+GCS_MIMIC_ENDPOINT="$origin" bundle exec ruby scenario.rb || suite_status=$?
+GCS_MIMIC_ENDPOINT="$origin" bundle exec ruby attachments.rb || suite_status=$?
+GCS_MIMIC_ENDPOINT="$origin" bundle exec ruby attachments.rb --production || suite_status=$?
+exit "$suite_status"

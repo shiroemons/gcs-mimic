@@ -11,7 +11,8 @@ module StorageScenario
     config.secret_key_base = "local-active-storage-scenario-only-" * 4
     config.logger = Logger.new($stderr)
     config.log_level = :warn
-    config.active_storage.service = :local_gcs
+    # Applications select gcs_emulator per environment; each script picks the service under test.
+    config.active_storage.service = ENV.fetch("ACTIVE_STORAGE_SERVICE", "local_gcs").to_sym
     config.active_storage.analyzers = []
     config.active_storage.previewers = []
     config.active_storage.variant_processor = :disabled

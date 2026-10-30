@@ -62,3 +62,17 @@ authentication pass. Token expiry/renewal and strict Rails integration remain
 unverified. The emulator has no token-issuing route.
 See [results and next slices](../../../docs/en/slices/sdk-active-storage-scenario.md)
 for the exact supported scope and known failures (DESIGN-084).
+
+`attachments.rb` then verifies the documented `gcs_emulator` entry in
+[storage.yml](config/storage.yml), which sets a non-Google `universe_domain` so
+that googleauth signs its own token instead of requesting one from Google. The
+runner starts the emulator with [buckets.json](buckets.json), which creates
+`local-bucket` with the Rails guide's direct-upload CORS rule plus
+`Cache-Control`. The script selects the entry as an application would and runs
+ten AS-EMULATOR-* cases through a `has_one_attached` model, under the same
+connection guard and without internal changes: attachments, `url`, the default
+redirect target, proxy mode, V2 and V4 (`cache_control`, from the
+`gcs_emulator_cache_control` entry) direct uploads with browser-equivalent CORS
+requests, an upload 400 days after startup and `purge`. `attachments.rb --production` then checks that a
+production boot generates no emulator key. The runner fails if any script
+fails. See the [Rails guide page](../../../docs/en/rails-active-storage.md).

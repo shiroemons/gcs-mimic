@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "project": "local-project",
+  "buckets": [
+    {
+      "name": "local-bucket",
+      "cors": [
+        {
+          "origin": ["http://localhost:3000"],
+          "method": ["PUT"],
+          "responseHeader": ["Content-Type", "Content-MD5", "Content-Disposition", "Cache-Control"],
+          "maxAgeSeconds": 3600
+        }
+      ]
+    }
+  ]
+}
