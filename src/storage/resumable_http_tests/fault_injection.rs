@@ -487,6 +487,99 @@ async fn resumable_chunk_and_finalization_failures_keep_the_acknowledged_prefix(
     h.stop().await;
 }
 
+/// Sends the rest of the object after a 256 KiB prefix as an open-ended chunked final
+/// request (`bytes 262144-*/*`), whose length the server learns only at EOF.
+async fn put_open_tail(h: &Harness, path: &str, tail: &[u8]) -> Reply {
+    let mut stream = TcpStream::connect(&h.address).await.unwrap();
+    let mut request = format!(
+        "PUT {path} HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\nContent-Range: bytes 262144-*/*\r\n\r\n{:x}\r\n",
+        tail.len()
+    )
+    .into_bytes();
+    request.extend_from_slice(tail);
+    request.extend_from_slice(b"\r\n0\r\n\r\n");
+    stream.write_all(&request).await.unwrap();
+    Harness::read_response(stream).await
+}
+
+#[tokio::test]
+async fn open_ended_final_chunk_failures_keep_the_acknowledged_prefix() {
+    let h = Harness::start(4 * 1024 * 1024, false, None).await;
+    let chunk = vec![b'a'; 256 * 1024];
+    let path = resumable_prefix(&h, "open", &chunk).await;
+    for (case, step, fault) in [
+        (
+            "open tail write, disk full",
+            Step::BodyWrite,
+            Fault::Io(ErrorKind::StorageFull),
+        ),
+        (
+            "open tail flush",
+            Step::BodyFlush,
+            Fault::Io(ErrorKind::Other),
+        ),
+        (
+            "open tail fsync",
+            Step::BodySync,
+            Fault::Io(ErrorKind::Other),
+        ),
+        ("open checkpoint, busy", Step::Checkpoint, Fault::Busy),
+    ] {
+        let expect = expect_for(&fault);
+        h.inject(step, 0, fault);
+        let reply = put_open_tail(&h, &path, b"tail").await;
+        assert_backend_failure(&reply, &expect, case);
+        h.assert_fired(case);
+        assert_prefix(&h, &path, chunk.len(), case).await;
+        assert_eq!(h.resource("open").await.status, 404, "{case}");
+    }
+    let completed = put_open_tail(&h, &path, b"tail").await;
+    assert_eq!(completed.status, 200);
+    let mut expected = chunk.clone();
+    expected.extend_from_slice(b"tail");
+    assert_eq!(h.media_bytes("open").await.body, expected);
+    h.stop().await;
+}
+
+/// Power loss while an open-ended final chunk is unsynced or not yet checkpointed resumes
+/// from the earlier prefix; after the commit the whole object is durable.
+#[cfg(unix)]
+#[tokio::test]
+async fn open_ended_final_chunk_power_loss_keeps_the_old_or_new_object() {
+    let crashes = TestDir::new();
+    let h = Harness::start(4 * 1024 * 1024, false, None).await;
+    assert_eq!(h.media("target", b"old").await.status, 200);
+    let chunk = vec![b'a'; 256 * 1024];
+    let mut body = chunk.clone();
+    body.extend_from_slice(b"tail");
+    for (index, (case, step, committed)) in [
+        ("open tail written, not synced", Step::BodySync, false),
+        ("open tail durable, no checkpoint", Step::Checkpoint, false),
+        ("open upload committed", Step::AfterCommit, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let path = resumable_prefix(&h, "target", &chunk).await;
+        let blob = session_blob(&h, &path).await;
+        let snapshot = crashes.0.join(index.to_string());
+        h.inject(step, 0, Fault::PowerLoss(snapshot.clone()));
+        assert_eq!(
+            put_open_tail(&h, &path, b"tail").await.status,
+            200,
+            "{case}"
+        );
+        h.assert_fired(case);
+        let expected: &[u8] = if committed { &body } else { b"old" };
+        assert_recovers(&snapshot, "target", Some(expected), case).await;
+        if !committed {
+            assert_resumable_prefix(&snapshot, &blob, &chunk, case);
+        }
+        assert_eq!(h.media("target", b"old").await.status, 200);
+    }
+    h.stop().await;
+}
+
 /// The staged blob ID of the session at `path`.
 #[cfg(unix)]
 async fn session_blob(h: &Harness, path: &str) -> String {

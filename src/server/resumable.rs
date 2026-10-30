@@ -151,6 +151,8 @@ struct ChunkPlan {
     total: Option<u64>,
     kind: ChunkKind,
     finalize: bool,
+    /// The body length is unknown: `length` only bounds it, and its EOF ends the object.
+    open_end: bool,
 }
 
 /// The session state a chunk is planned against.
@@ -178,19 +180,69 @@ fn chunk_framing(
             end >= max_bytes || total.is_some_and(|n| n > max_bytes)
         }
         Some(Range::Status(total)) => total.is_some_and(|n| n > max_bytes),
+        Some(Range::Open { start, total }) => {
+            start > max_bytes
+                || total.is_some_and(|n| n > max_bytes)
+                || length.is_some_and(|n| start.saturating_add(n) > max_bytes)
+        }
         None => false,
     };
     if oversized {
         return Err(ObjectError::TooLarge.into());
     }
-    if let Some(Range::Data { start, end, .. }) = range
-        && length.is_some_and(|length| length != end - start + 1)
-    {
+    let mismatch = match range {
+        Some(Range::Data { start, end, .. }) => {
+            length.is_some_and(|length| length != end - start + 1)
+        }
+        // An open range runs to the end of the object, so a known total fixes the body length.
+        Some(Range::Open {
+            start,
+            total: Some(total),
+        }) => length.is_some_and(|length| length != total - start),
+        _ => false,
+    };
+    if mismatch {
         return Err(JsonError::invalid_parameter(
             "Content-Length does not match Content-Range",
         ));
     }
     Ok((range, length))
+}
+
+/// Resolves an open range (`bytes start-*/total`) into the bytes it carries. The request
+/// always completes the object: a known total (declared here or at initiation) fixes the
+/// body length; otherwise a declared Content-Length does, and a chunked body without either
+/// is bounded only by the object size limit and completes at its EOF.
+fn open_extent(
+    start: u64,
+    total: Option<u64>,
+    length: Option<u64>,
+    session_total: Option<u64>,
+    max_bytes: u64,
+) -> Result<(u64, Option<u64>, bool), JsonError> {
+    if total.is_some_and(|n| session_total.is_some_and(|t| n != t)) {
+        return Err(JsonError::invalid_parameter("Inconsistent upload total"));
+    }
+    match (total.or(session_total), length) {
+        (Some(total), length) => {
+            let remaining = total
+                .checked_sub(start)
+                .ok_or_else(|| JsonError::invalid_parameter("Inconsistent upload total"))?;
+            if length.is_some_and(|n| n != remaining) {
+                return Err(JsonError::invalid_parameter(
+                    "Content-Length does not match Content-Range",
+                ));
+            }
+            Ok((remaining, Some(total), false))
+        }
+        (None, Some(length)) => {
+            let end = start
+                .checked_add(length)
+                .ok_or_else(|| JsonError::invalid_parameter("Upload offset overflow"))?;
+            Ok((length, Some(end), false))
+        }
+        (None, None) => Ok((max_bytes.saturating_sub(start), None, true)),
+    }
 }
 
 fn plan_chunk(
@@ -200,6 +252,7 @@ fn plan_chunk(
     session: &SessionPosition,
     max_bytes: u64,
 ) -> Result<ChunkPlan, JsonError> {
+    let mut open_end = false;
     let (start, length, total, kind) = match range {
         Some(Range::Status(total)) => {
             if length != Some(0) || headers.contains_key("transfer-encoding") {
@@ -210,6 +263,12 @@ fn plan_chunk(
             (session.offset, 0, total, ChunkKind::Status)
         }
         Some(Range::Data { start, end, total }) => (start, end - start + 1, total, ChunkKind::Data),
+        Some(Range::Open { start, total }) => {
+            let (length, total, open) =
+                open_extent(start, total, length, session.total, max_bytes)?;
+            open_end = open;
+            (start, length, total, ChunkKind::Data)
+        }
         None => {
             if session.offset != 0 && session.state != SessionState::Complete {
                 return Err(JsonError::invalid_parameter(
@@ -239,7 +298,7 @@ fn plan_chunk(
     let total = total.or(session.total);
     let finalize = match kind {
         ChunkKind::Status => matches!(range, Some(Range::Status(Some(n))) if n == session.offset),
-        ChunkKind::Data => total == Some(end),
+        ChunkKind::Data => open_end || total == Some(end),
     };
     if kind == ChunkKind::Data && !finalize && !length.is_multiple_of(256 * 1024) {
         return Err(JsonError::invalid_parameter(
@@ -253,6 +312,7 @@ fn plan_chunk(
         total,
         kind,
         finalize,
+        open_end,
     })
 }
 
@@ -344,6 +404,7 @@ pub(super) async fn session_response(
         length: plan.length,
         total: plan.total,
         finalize: plan.finalize,
+        open_end: plan.open_end,
         options,
         catalog_wait,
     };

@@ -873,6 +873,7 @@ impl Storage {
                 length: data.content.len() as u64,
                 total: persisted.total.or(message.finish_write.then_some(written)),
                 finalize: message.finish_write,
+                open_end: false,
                 options,
                 catalog_wait,
             };

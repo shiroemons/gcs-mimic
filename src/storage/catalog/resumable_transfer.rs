@@ -21,6 +21,8 @@ pub(crate) struct ResumableChunk {
     pub length: u64,
     pub total: Option<u64>,
     pub finalize: bool,
+    /// The body length is unknown: `length` only bounds it, and its EOF sets the total.
+    pub open_end: bool,
     pub options: ResumableOptions,
     pub catalog_wait: watch::Sender<bool>,
 }
@@ -36,7 +38,7 @@ async fn receive_chunk(
     body: &mut mpsc::Receiver<Result<UploadChunk, io::Error>>,
     cancellation: &mut oneshot::Receiver<()>,
     #[cfg(test)] data_dir: &std::path::Path,
-) -> Result<tokio::fs::File, ObjectError> {
+) -> Result<(tokio::fs::File, u64), ObjectError> {
     let mut file = tokio::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -70,7 +72,13 @@ async fn receive_chunk(
                         .checked_add(bytes.len() as u64)
                         .filter(|n| *n <= chunk.length)
                         .ok_or_else(|| {
-                            ObjectError::BodyAborted("Chunk length exceeds Content-Range".into())
+                            if chunk.open_end {
+                                ObjectError::TooLarge
+                            } else {
+                                ObjectError::BodyAborted(
+                                    "Chunk length exceeds Content-Range".into(),
+                                )
+                            }
                         })?;
                     let discard = durable
                         .saturating_sub(chunk.start + received)
@@ -82,7 +90,9 @@ async fn receive_chunk(
                     }
                     received = next;
                 }
-                Some(Ok(UploadChunk::End)) if received == chunk.length => break,
+                Some(Ok(UploadChunk::End)) if chunk.open_end || received == chunk.length => {
+                    break;
+                }
                 Some(Err(error)) => return Err(ObjectError::body_aborted(error)),
                 _ => {
                     return Err(ObjectError::BodyAborted(
@@ -97,20 +107,24 @@ async fn receive_chunk(
             data_dir,
         )
         .await
+        .map(|()| received)
     }
     .await;
-    if let Err(error) = transfer {
-        file.set_len(durable).await.map_err(object_unavailable)?;
-        #[cfg(test)]
-        fault::truncated(
-            data_dir,
-            &file.metadata().await.map_err(object_unavailable)?,
-        );
-        // xtask-lint: allow(text::sync_without_flush) -- set_len waits for tokio's in-flight write and cuts the file back to the prefix synced earlier, so no failed tail write survives
-        file.sync_all().await.map_err(object_unavailable)?;
-        return Err(error);
-    }
-    Ok(file)
+    let received = match transfer {
+        Ok(received) => received,
+        Err(error) => {
+            file.set_len(durable).await.map_err(object_unavailable)?;
+            #[cfg(test)]
+            fault::truncated(
+                data_dir,
+                &file.metadata().await.map_err(object_unavailable)?,
+            );
+            // xtask-lint: allow(text::sync_without_flush) -- set_len waits for tokio's in-flight write and cuts the file back to the prefix synced earlier, so no failed tail write survives
+            file.sync_all().await.map_err(object_unavailable)?;
+            return Err(error);
+        }
+    };
+    Ok((file, received))
 }
 
 /// Re-reads the staged body from the start; returns its hashes and length.
@@ -174,7 +188,7 @@ impl Catalog {
         let (_request, mut cancellation) = oneshot::channel::<()>();
         crate::task::spawn_supervised("resumable-chunk", async move {
             let _permit = permit;
-            let file = receive_chunk(
+            let (file, received) = receive_chunk(
                 &lease,
                 &chunk,
                 &mut body,
@@ -183,12 +197,20 @@ impl Catalog {
                 &catalog.0.data_dir,
             )
             .await?;
-            let offset = lease.session.offset.max(chunk.start + chunk.length);
+            let end = chunk.start + received;
+            // An open-ended body completes the object at its EOF. If it ends inside the
+            // persisted prefix, the checkpoint rejects the total and nothing was appended.
+            let total = if chunk.open_end {
+                Some(end)
+            } else {
+                chunk.total
+            };
+            let offset = lease.session.offset.max(end);
             #[cfg(test)]
             fault::hit(&catalog.0.data_dir, Step::Checkpoint).map_err(object_unavailable)?;
             chunk.catalog_wait.send_replace(true);
             catalog
-                .checkpoint_resumable_options(&mut lease, offset, chunk.total, Some(&chunk.options))
+                .checkpoint_resumable_options(&mut lease, offset, total, Some(&chunk.options))
                 .await?;
             chunk.catalog_wait.send_replace(false);
             if !chunk.finalize {

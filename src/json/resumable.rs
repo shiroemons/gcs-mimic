@@ -343,6 +343,13 @@ pub(crate) enum Range {
         end: u64,
         total: Option<u64>,
     },
+    /// `bytes start-*/total`: the request body carries the rest of the object from `start`,
+    /// so the end of the body is the end of the object. The Node.js client sends this form
+    /// (`bytes 0-*/*` by default) for single-request resumable uploads.
+    Open {
+        start: u64,
+        total: Option<u64>,
+    },
 }
 
 pub(crate) fn range(headers: &HeaderMap) -> Result<Option<Range>, JsonError> {
@@ -365,6 +372,15 @@ pub(crate) fn range(headers: &HeaderMap) -> Result<Option<Range>, JsonError> {
             let (start, end) = range
                 .split_once('-')
                 .ok_or_else(|| JsonError::invalid_parameter("Invalid Content-Range"))?;
+            if end == "*" {
+                let start = unsigned(start)?;
+                if total.is_some_and(|n| start > n) {
+                    return Err(JsonError::invalid_parameter(
+                        "Invalid Content-Range offsets",
+                    ));
+                }
+                return Ok(Range::Open { start, total });
+            }
             let (start, end) = (unsigned(start)?, unsigned(end)?);
             if end < start || end == u64::MAX || total.is_some_and(|n| end >= n) {
                 return Err(JsonError::invalid_parameter(

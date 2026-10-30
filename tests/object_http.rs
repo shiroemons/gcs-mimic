@@ -1,5 +1,7 @@
 mod common;
 
+#[path = "object_http/resumable_open_end.rs"]
+mod resumable_open_end;
 #[path = "object_http/upload_admission.rs"]
 mod upload_admission;
 #[path = "object_http/upload_replay.rs"]

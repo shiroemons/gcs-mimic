@@ -1168,6 +1168,7 @@ async fn finalize_session(
         length: bytes.len() as u64,
         total: Some(bytes.len() as u64),
         finalize: true,
+        open_end: false,
         options: lease.session.options.clone(),
         catalog_wait,
     };

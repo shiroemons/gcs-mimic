@@ -325,6 +325,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
                     length: 1,
                     total: Some(1),
                     finalize: true,
+                    open_end: false,
                     options,
                     catalog_wait: tokio::sync::watch::channel(false).0,
                 },
@@ -494,6 +495,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
                         length: 1,
                         total: Some(1),
                         finalize: true,
+                        open_end: false,
                         options,
                         catalog_wait: tokio::sync::watch::channel(false).0
                     },

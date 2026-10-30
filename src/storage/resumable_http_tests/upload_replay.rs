@@ -553,6 +553,7 @@ async fn php_chunk_hashes_persist_and_validate_the_whole_object() {
             length: 1,
             total: Some(262145),
             finalize: true,
+            open_end: false,
             options,
             catalog_wait,
         };

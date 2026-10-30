@@ -42,6 +42,7 @@ Discovery revision and immutable upstream identities are in
 | [Storage v2 proto](https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto) | Cross-check only: gRPC WriteObject/QueryWriteStatus is a separate transport, not the JSON wire contract |
 | [Go Writer](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/writer.go) and [HTTP client](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go) | Writer chunk selection, metadata, conditions, automatic CRC32C and context behavior |
 | [API v0.307.0 resumable transport](https://github.com/googleapis/google-api-go-client/blob/v0.307.0/internal/gensupport/resumable.go), [media helper](https://github.com/googleapis/google-api-go-client/blob/v0.307.0/internal/gensupport/media.go) and [generated storage API](https://github.com/googleapis/google-api-go-client/blob/v0.307.0/storage/v1/storage-gen.go) | POST chunks, unknown totals, empty final request, 308 override and retry headers |
+| [Node.js Storage 8.4.0 tarball](https://registry.npmjs.org/@google-cloud/storage/-/storage-8.4.0.tgz) (`build/cjs/src/resumable-upload.js`, lockfile integrity in `sdk-tests/node/package-lock.json`) | Single-request resumable PUT with `Content-Range: bytes offset-*/total`, total `*` unless the caller declares a length; checked 2026-10-30 |
 | [fake-gcs-server v1.56.1 upload handler](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go) | Comparison only; no Google authority or executed comparison claim |
 
 Discovery revision `20261013` lists a resumable protocol path under
@@ -97,6 +98,9 @@ is routed through the XML adapter.
 | --- | --- |
 | Content-Range: bytes start-end/N | Inclusive nonnegative offsets; body length equals end-start+1; N is consistent with prior known total and end is less than N |
 | Content-Range: bytes start-end/* | Unknown total; accepted prefix remains incomplete until a final request supplies the total |
+| Content-Range: bytes start-*/* | The body carries the rest of the object from start, and the request always completes it. A declared Content-Length, or a total declared at initiation, fixes the end; otherwise a chunked body is bounded by max_object_bytes minus start (413 past it) and its EOF sets the total. An empty body completes the persisted prefix |
+| Content-Range: bytes start-*/N | Same, with a known total: start must not exceed N, N must match any initiation total, and a declared Content-Length must equal N-start (400 before the body is read). A chunked body ending before N or running past it fails with 400 badRequest and acknowledges nothing |
+| Malformed open ranges | `*-*`, a missing or signed start, a missing total, `**` or a nondecimal total return 400 invalidParameter. A start past the persisted offset is a gap; a body ending inside the persisted prefix cannot shrink the object (400, prefix unchanged) |
 | Nonfinal chunk | A multiple of 256 KiB; final chunk may be smaller. Recommended 8 MiB is guidance, not a server minimum |
 | Single complete PUT without Content-Range | At offset zero, stream the entire object with declared Content-Length, including zero bytes; complete EOF finalizes. After a persisted prefix, require Content-Range. Do not mistake metadata request Content-Length for object size |
 | Content-Range: bytes */N, Content-Length: 0 | Query persisted offset when below N; finalize if the complete persisted prefix equals N, supporting the Go empty final request and an empty object at N=0 |
@@ -106,6 +110,14 @@ is routed through the XML adapter.
 | X-GUploader-No-308: yes | Return HTTP 200 plus X-HTTP-Status-Code-Override: 308 instead of actual 308 for incomplete writes/status; preserve the same Range semantics |
 | X-Goog-Gcs-Idempotency-Token on session writes | Accept one nonempty SDK per-chunk retry token without requiring a new query precondition. It neither selects the offset nor implements token-keyed response replay |
 | Authorization on session writes/status/cancel | Capability authorizes access without re-authenticating the uploader; optional SDK bearer headers do not replace or redirect the session |
+
+The open-ended `bytes start-*/total` form is not shown literally in the
+performing guide. The JSON headers reference describes Content-Range on upload
+as an indicator of the starting point of the data in the current request, and
+the pinned Google-maintained Node.js client sends `bytes 0-*/*` for every
+default `File#save` and `createWriteStream` upload. The local semantics above
+follow that: the request is final. Exact provider errors for malformed or
+short open requests remain under SPEC-RSM-EDGES.
 
 Return **308 Resume Incomplete** without `Location` redirection and with
 `Range: bytes=0-last` for a nonempty persisted prefix. Omit Range when no bytes
@@ -316,6 +328,7 @@ not additional independent features.
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-007 | concurrency | Two writers on one session serialize/reject safely; separate sessions progress; all permits released after timeout/disconnect |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-008 | positive | SDK POST with no-308 header gets HTTP 200 plus override 308 and correct Range; final response removes override |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-009 | resource/boundary | Exact object cap succeeds; cap+1 known/unknown/offset stream fails 413; large/slow upload uses bounded server buffers |
+| BEHAVIOR-OBJECT-011 | RSM-CHUNK-010 | positive/negative/boundary | Open ranges `bytes start-*/*` and `bytes start-*/N` complete chunked, declared-length, empty and resumed bodies with exact bytes; malformed, gap, total-conflict, short/long, prefix-shrinking and over-cap requests fail without advancing the prefix; injected write/flush/sync/checkpoint failures and power loss keep the acknowledged prefix or the complete object |
 | BEHAVIOR-OBJECT-012 | RSM-STATUS-001 | positive/boundary | Empty PUT `bytes */N` (N>0) and `bytes */*` before data return 308 with no Range and no object; `bytes */0` completes the empty object |
 | BEHAVIOR-OBJECT-012 | RSM-STATUS-002 | positive | Persisted prefix returns Range bytes=0-last, empty body and same offset across repeated queries/restart |
 | BEHAVIOR-OBJECT-012 | RSM-STATUS-003 | positive | Completed status returns 200 Object snapshot even after later overwrite, never allocates a new generation |

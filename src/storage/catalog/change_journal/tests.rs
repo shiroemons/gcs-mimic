@@ -383,6 +383,7 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
                 length: 4,
                 total: Some(4),
                 finalize: true,
+                open_end: false,
                 options,
                 catalog_wait: tokio::sync::watch::channel(false).0,
             },
