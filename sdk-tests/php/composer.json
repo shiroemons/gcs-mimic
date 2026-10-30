@@ -1,0 +1,7 @@
+{
+  "name": "gcs-mimic/sdk-tests-php",
+  "description": "Official PHP Cloud Storage SDK journeys against a local gcs-mimic emulator",
+  "license": "MIT",
+  "require": { "php": "^8.5", "google/cloud-storage": "2.6.1" },
+  "config": { "allow-plugins": false }
+}
