@@ -304,7 +304,8 @@ impl Catalog {
                 ObjectError::BodyAborted("Final length does not match total".into()).into(),
             );
         }
-        file.sync_all().await.map_err(object_unavailable)?;
+        // Every chunk, the final one included, was made durable by `receive_chunk` before its
+        // checkpoint, and hashing only reads the file, so there is nothing left to sync.
         drop(file);
         let destination = objects::blob_path(&self.0.data_dir, &lease.session.blob_id)?;
         self.publish_staged(lease.staging_path(), destination)
