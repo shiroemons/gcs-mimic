@@ -117,21 +117,38 @@ fn walk_error(error: WalkError) -> io::Error {
     }
 }
 
-fn entries(root: PathBuf) -> io::Result<mpsc::Receiver<Entry>> {
+/// One message from the walk thread. The walk ends only with [`Walked::Done`]: a thread that
+/// panicked or stopped early drops its sender without one, and a closed channel alone would
+/// otherwise look like the end of a complete walk and mark a partial seed complete.
+enum Walked {
+    Entry(Entry),
+    Done,
+}
+
+fn entries(root: PathBuf) -> io::Result<mpsc::Receiver<Walked>> {
     let (send, receive) = mpsc::channel(2);
     crate::task::spawn_thread("seed-walk", move || {
         let walk = match Walker::new(&root, MAX_ENTRIES, MAX_DEPTH) {
             Ok(walk) => walk,
             Err(error) => {
-                let _ = send.blocking_send(Err(walk_error(error)));
+                let _ = send.blocking_send(Walked::Entry(Err(walk_error(error))));
                 return;
             }
         };
+        #[cfg(test)]
+        let walk = walk.enumerate().map(|(index, entry)| {
+            tests::injected_walk_panic(&root, index);
+            entry
+        });
         for entry in walk {
-            if send.blocking_send(entry.map_err(walk_error)).is_err() {
-                break;
+            if send
+                .blocking_send(Walked::Entry(entry.map_err(walk_error)))
+                .is_err()
+            {
+                return;
             }
         }
+        let _ = send.blocking_send(Walked::Done);
     })?;
     Ok(receive)
 }
@@ -163,7 +180,17 @@ async fn import_directory(
         clock,
     };
     let mut counts = Counts::default();
-    while let Some(entry) = entries.recv().await {
+    loop {
+        let entry = match entries.recv().await {
+            Some(Walked::Entry(entry)) => entry,
+            Some(Walked::Done) => break,
+            // The thread already reported its panic; failing here keeps the seed incomplete.
+            None => {
+                return Err(io::Error::other(
+                    "seed directory walk stopped before it finished",
+                ));
+            }
+        };
         let (path, metadata, depth) = entry?;
         // The walker only yields paths below the root it was given.
         let relative = path.strip_prefix(&root).map_err(io::Error::other)?;
@@ -371,3 +398,6 @@ impl Seed<'_> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;
