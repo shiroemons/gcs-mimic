@@ -796,16 +796,18 @@ fn publish_entry(
         .ok_or_else(|| objects_error("resolved staged handle"))?;
     let (record, _, ()) = objects::publish_in_transaction(
         transaction,
-        micros,
-        staged
-            .import_identity
-            .map_or(objects::GenerationAssignment::Automatic, |identity| {
-                objects::GenerationAssignment::Imported(identity.generation())
-            }),
         previous.as_ref(),
         versioning,
-        id,
-        grant.origin(),
+        objects::NewVersion {
+            blob_id: id,
+            assignment: staged
+                .import_identity
+                .map_or(objects::GenerationAssignment::Automatic, |identity| {
+                    objects::GenerationAssignment::Imported(identity.generation())
+                }),
+            micros,
+            origin: grant.origin(),
+        },
         |generation| {
             let mut record = ObjectRecord {
                 bucket: bucket.into(),

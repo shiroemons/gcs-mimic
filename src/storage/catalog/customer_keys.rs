@@ -182,19 +182,21 @@ mod tests {
             .unwrap();
         catalog
             .put_object_prechecked(
-                "bucket",
-                name,
-                "text/plain".into(),
-                Default::default(),
-                Default::default(),
-                1024,
+                crate::storage::ObjectUpload {
+                    bucket: "bucket",
+                    name,
+                    content_type: "text/plain".into(),
+                    expected: Default::default(),
+                    conditions: Default::default(),
+                    max_bytes: 1024,
+                    metadata: ObjectMetadataUpdate {
+                        customer_key_sha256: key,
+                        ..Default::default()
+                    },
+                    access: BucketAccess::Permissive,
+                },
                 body,
                 permit,
-                ObjectMetadataUpdate {
-                    customer_key_sha256: key,
-                    ..Default::default()
-                },
-                BucketAccess::Permissive,
             )
             .await
             .unwrap()

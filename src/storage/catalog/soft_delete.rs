@@ -89,10 +89,7 @@ impl Catalog {
         .await
     }
 
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "Both permissions and live conditions are checked in the publication transaction"
-    )]
+    /// Both permissions and live conditions are checked in the publication transaction.
     pub(crate) async fn restore_object_authorized(
         &self,
         bucket: &str,
@@ -169,12 +166,14 @@ impl Catalog {
                     record.hard_delete_time = None;
                     let (record, _, ()) = objects::publish_in_transaction(
                         &transaction,
-                        micros,
-                        objects::GenerationAssignment::Automatic,
                         previous.as_ref(),
                         versioning,
-                        &text,
-                        super::change_journal::origin(&create_access),
+                        objects::NewVersion {
+                            blob_id: &text,
+                            assignment: objects::GenerationAssignment::Automatic,
+                            micros,
+                            origin: super::change_journal::origin(&create_access),
+                        },
                         |generation| {
                             record.generation = generation;
                             Ok((record, ()))

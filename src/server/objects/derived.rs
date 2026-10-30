@@ -11,7 +11,7 @@ use crate::{
         BUCKET_BODY_LIMIT, ObjectCtx,
         copy::{self, CopyBudget, CopyJob},
     },
-    storage::{CopyReplay, DerivedDestination},
+    storage::{CopyReplay, CopyReplaySource, DerivedDestination, ReplayInvocation},
 };
 use hyper::{HeaderMap, Request, body::Incoming};
 
@@ -67,10 +67,14 @@ pub(super) async fn copy(
             &params.name,
             params.conditions,
             &access,
-            &params.source_bucket,
-            &source_access,
-            token.as_deref(),
-            &request_binding,
+            CopyReplaySource {
+                bucket: &params.source_bucket,
+                access: &source_access,
+            },
+            ReplayInvocation {
+                token: token.as_deref(),
+                request: &request_binding,
+            },
         ))
         .await?;
     let acl_snapshot = replay.as_ref().map(CopyReplay::acl_snapshot);

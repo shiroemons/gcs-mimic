@@ -47,7 +47,7 @@ pub(crate) use resumable::ResumableError;
 pub(crate) use resumable::ResumableSession;
 pub(crate) use resumable::{ResumableOptions, SessionState};
 pub(crate) use resumable_transfer::ResumableChunk;
-pub(crate) use upload_replay::CopyReplay;
+pub(crate) use upload_replay::{CopyReplay, CopyReplaySource, ReplayInvocation};
 
 mod resumable_maintenance;
 
@@ -65,11 +65,14 @@ mod appendable;
 pub(crate) use appendable::{AppendError, AppendWriter};
 
 mod object_move;
+pub(crate) use object_move::MoveAccess;
 mod objects;
 #[cfg(test)]
 pub(crate) use objects::Versioning;
 mod soft_delete;
-pub(crate) use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
+pub(crate) use objects::{
+    ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader, ObjectSelector, ObjectUpload,
+};
 
 mod derived;
 #[cfg(test)]

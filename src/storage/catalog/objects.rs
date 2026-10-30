@@ -57,6 +57,41 @@ pub(super) const SELECT_SOFT_DELETED_GENERATION: &str = concat!(
     " FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3 AND soft_delete_time IS NOT NULL AND hard_delete_time > ?4"
 );
 
+/// The object version a request addresses and the preconditions it must meet.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ObjectSelector<'a> {
+    pub(crate) bucket: &'a str,
+    pub(crate) name: &'a str,
+    /// `None` selects the live version.
+    pub(crate) generation: Option<i64>,
+    pub(crate) conditions: ObjectConditions,
+}
+
+/// A streamed upload's destination and everything its publication checks and records,
+/// apart from the body and the admission permit.
+pub(crate) struct ObjectUpload<'a> {
+    pub(crate) bucket: &'a str,
+    pub(crate) name: &'a str,
+    pub(crate) content_type: String,
+    pub(crate) expected: ExpectedHashes,
+    pub(crate) conditions: ObjectConditions,
+    pub(crate) max_bytes: u64,
+    pub(crate) metadata: ObjectMetadataUpdate,
+    /// Rechecked at publication: the bucket may have been recreated under another project
+    /// while the body streamed, and overwriting needs storage.objects.delete there.
+    pub(crate) access: BucketAccess,
+}
+
+/// The new version a publication transaction records: its blob, how its generation is
+/// assigned, the publication time and the origin the change journal reports.
+#[derive(Clone, Copy)]
+pub(super) struct NewVersion<'a> {
+    pub(super) blob_id: &'a str,
+    pub(super) assignment: GenerationAssignment,
+    pub(super) micros: i64,
+    pub(super) origin: super::admin::Origin,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectListCursor {
     pub name: String,
@@ -658,15 +693,18 @@ impl UploadCommit {
         let time = system_time_micros(micros).map_err(object_unavailable)?;
         let (record, _retired, ()) = publish_in_transaction(
             &transaction,
-            micros,
-            self.identity
-                .map_or(GenerationAssignment::Automatic, |value| {
-                    GenerationAssignment::Imported(value.generation())
-                }),
             previous.as_ref(),
             versioning,
-            &self.blob_id,
-            super::change_journal::origin(&self.access),
+            NewVersion {
+                blob_id: &self.blob_id,
+                assignment: self
+                    .identity
+                    .map_or(GenerationAssignment::Automatic, |value| {
+                        GenerationAssignment::Imported(value.generation())
+                    }),
+                micros,
+                origin: super::change_journal::origin(&self.access),
+            },
             |generation| {
                 let mut record = ObjectRecord {
                     bucket: self.bucket.clone(),
@@ -855,16 +893,18 @@ impl Catalog {
             .prepare_object_upload(bucket, name, conditions, &BucketAccess::Permissive)
             .await?;
         self.put_object_prechecked(
-            bucket,
-            name,
-            content_type,
-            expected,
-            conditions,
-            max_bytes,
+            ObjectUpload {
+                bucket,
+                name,
+                content_type,
+                expected,
+                conditions,
+                max_bytes,
+                metadata: ObjectMetadataUpdate::default(),
+                access: BucketAccess::Permissive,
+            },
             body,
             permit,
-            ObjectMetadataUpdate::default(),
-            BucketAccess::Permissive,
         )
         .await
     }
@@ -898,61 +938,40 @@ impl Catalog {
         })
     }
 
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "The internal path retains the shared storage contract and its admission permit"
-    )]
     pub(crate) async fn put_object_prechecked(
         &self,
-        bucket: &str,
-        name: &str,
-        content_type: String,
-        expected: ExpectedHashes,
-        conditions: ObjectConditions,
-        max_bytes: u64,
+        upload: ObjectUpload<'_>,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
         permit: UploadGuard,
-        metadata: ObjectMetadataUpdate,
-        // Rechecked at publication: the bucket may have been recreated under another project
-        // while the body streamed, and overwriting needs storage.objects.delete there.
-        access: BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
         self.put_object_with_mode(
-            bucket,
-            name,
-            content_type,
-            expected,
-            conditions,
-            max_bytes,
+            upload,
             body,
             permit,
-            metadata,
-            access,
             super::admin::PublishMode::Replace,
             None,
         )
         .await
     }
 
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "Shared publication retains existing upload arguments"
-    )]
     pub(super) async fn put_object_with_mode(
         &self,
-        bucket: &str,
-        name: &str,
-        content_type: String,
-        expected: ExpectedHashes,
-        conditions: ObjectConditions,
-        max_bytes: u64,
+        upload: ObjectUpload<'_>,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
         mut permit: UploadGuard,
-        metadata: ObjectMetadataUpdate,
-        access: BucketAccess,
         mode: super::admin::PublishMode,
         identity: Option<super::admin::ImportedIdentity>,
     ) -> Result<ObjectRecord, ObjectError> {
+        let ObjectUpload {
+            bucket,
+            name,
+            content_type,
+            expected,
+            conditions,
+            max_bytes,
+            metadata,
+            access,
+        } = upload;
         crate::object::validate_fixed_metadata("contentType", &content_type)?;
         metadata.validate()?;
         let catalog = self.clone();
@@ -1137,10 +1156,12 @@ impl Catalog {
         validate: impl FnOnce(&ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
     ) -> Result<ObjectRecord, ObjectError> {
         self.update_object_metadata_authorized(
-            bucket,
-            name,
-            generation,
-            conditions,
+            ObjectSelector {
+                bucket,
+                name,
+                generation,
+                conditions,
+            },
             update,
             validate,
             &BucketAccess::Permissive,
@@ -1148,20 +1169,20 @@ impl Catalog {
         .await
     }
 
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "The public update contract plus the authorization it must recheck"
-    )]
+    /// Applies the public update contract after rechecking the caller's authorization.
     pub(crate) async fn update_object_metadata_authorized(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
-        conditions: ObjectConditions,
+        target: ObjectSelector<'_>,
         update: ObjectMetadataUpdate,
         validate: impl FnOnce(&ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
         access: &BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
+        let ObjectSelector {
+            bucket,
+            name,
+            generation,
+            conditions,
+        } = target;
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let clock = self.0.clock.clone();
@@ -1296,10 +1317,12 @@ impl Catalog {
             delete_selected(
                 connection,
                 clock.as_ref(),
-                &bucket,
-                &name,
-                generation,
-                conditions,
+                ObjectSelector {
+                    bucket: &bucket,
+                    name: &name,
+                    generation,
+                    conditions,
+                },
                 &access,
                 None,
             )
@@ -1310,10 +1333,7 @@ impl Catalog {
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Shared selection preserves protocol conditions and access"
-)]
+/// Shared selection preserves protocol conditions and access.
 pub(super) fn open_selected(
     connection: &mut Connection,
     data_dir: &Path,
@@ -1354,20 +1374,20 @@ pub(super) fn open_selected(
     ))
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Shared selection preserves protocol conditions and access"
-)]
+/// Shared selection preserves protocol conditions and access.
 pub(super) fn delete_selected(
     connection: &mut Connection,
     clock: &dyn crate::clock::Clock,
-    bucket: &str,
-    name: &str,
-    generation: Option<i64>,
-    conditions: ObjectConditions,
+    target: ObjectSelector<'_>,
     access: &BucketAccess,
     sync_binding: Option<&super::sync_state::SyncBinding>,
 ) -> Result<(), ObjectError> {
+    let ObjectSelector {
+        bucket,
+        name,
+        generation,
+        conditions,
+    } = target;
     authorized_bucket(connection, bucket, access)?;
     super::soft_delete::purge_expired(
         connection,
@@ -2069,21 +2089,20 @@ pub(super) enum GenerationAssignment {
     Imported(super::admin::Generation),
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Shared transaction receives generation assignment explicitly"
-)]
 /// The caller owns protocol-specific completion and commits before reclaiming retired bytes.
 pub(super) fn publish_in_transaction<T>(
     transaction: &Transaction<'_>,
-    micros: i64,
-    assignment: GenerationAssignment,
     previous: Option<&(ObjectRecord, String)>,
     versioning: Versioning,
-    blob_id: &str,
-    origin: super::admin::Origin,
+    version: NewVersion<'_>,
     prepare: impl FnOnce(i64) -> Result<(ObjectRecord, T), ObjectError>,
 ) -> Result<(ObjectRecord, Option<String>, T), ObjectError> {
+    let NewVersion {
+        blob_id,
+        assignment,
+        micros,
+        origin,
+    } = version;
     let last: i64 = transaction
         .prepare_cached("SELECT last_generation FROM object_generation WHERE singleton = 1")
         .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
@@ -2890,16 +2909,18 @@ mod tests {
             };
             let error = catalog
                 .put_object_prechecked(
-                    "bucket",
-                    "object",
-                    "text/plain".into(),
-                    expected,
-                    conditions,
-                    1000,
+                    ObjectUpload {
+                        bucket: "bucket",
+                        name: "object",
+                        content_type: "text/plain".into(),
+                        expected,
+                        conditions,
+                        max_bytes: 1000,
+                        metadata: ObjectMetadataUpdate::default(),
+                        access: BucketAccess::Permissive,
+                    },
                     body,
                     permit,
-                    ObjectMetadataUpdate::default(),
-                    BucketAccess::Permissive,
                 )
                 .await
                 .unwrap_err();
@@ -2977,16 +2998,18 @@ mod tests {
         let (winner_permit, winner_body) = upload(true, b"winner").await.unwrap();
         let publish = |body, permit, allow_overwrite| {
             catalog.put_object_prechecked(
-                "bucket",
-                "object",
-                "text/plain".into(),
-                ExpectedHashes::default(),
-                ObjectConditions::default(),
-                1000,
+                ObjectUpload {
+                    bucket: "bucket",
+                    name: "object",
+                    content_type: "text/plain".into(),
+                    expected: ExpectedHashes::default(),
+                    conditions: ObjectConditions::default(),
+                    max_bytes: 1000,
+                    metadata: ObjectMetadataUpdate::default(),
+                    access: project_access(allow_overwrite),
+                },
                 body,
                 permit,
-                ObjectMetadataUpdate::default(),
-                project_access(allow_overwrite),
             )
         };
         let winner = publish(winner_body, winner_permit, true).await.unwrap();
@@ -3143,16 +3166,18 @@ mod tests {
     ) -> Result<ObjectRecord, ObjectError> {
         catalog
             .put_object_prechecked(
-                "bucket",
-                name,
-                "text/plain".into(),
-                ExpectedHashes::default(),
-                ObjectConditions::default(),
-                1000,
+                ObjectUpload {
+                    bucket: "bucket",
+                    name,
+                    content_type: "text/plain".into(),
+                    expected: ExpectedHashes::default(),
+                    conditions: ObjectConditions::default(),
+                    max_bytes: 1000,
+                    metadata: ObjectMetadataUpdate::default(),
+                    access,
+                },
                 body(b"late"),
                 permit,
-                ObjectMetadataUpdate::default(),
-                access,
             )
             .await
     }
@@ -3213,10 +3238,12 @@ mod tests {
         assert_eq!(
             catalog
                 .update_object_metadata_authorized(
-                    "bucket",
-                    "object",
-                    None,
-                    conditions,
+                    ObjectSelector {
+                        bucket: "bucket",
+                        name: "object",
+                        generation: None,
+                        conditions,
+                    },
                     update,
                     |_| Ok(()),
                     access,

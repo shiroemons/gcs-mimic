@@ -153,10 +153,12 @@ async fn publication_streaming_modes_preserve_patches_and_require_all_hash_field
     };
     catalog
         .update_object_metadata_authorized(
-            bucket.as_str(),
-            name.as_str(),
-            None,
-            Default::default(),
+            crate::storage::ObjectSelector {
+                bucket: bucket.as_str(),
+                name: name.as_str(),
+                generation: None,
+                conditions: Default::default(),
+            },
             patch,
             |_| Ok(()),
             &BucketAccess::Permissive,
@@ -195,10 +197,12 @@ async fn publication_inherits_metadata_patched_after_staging() {
     };
     catalog
         .update_object_metadata_authorized(
-            bucket.as_str(),
-            name.as_str(),
-            None,
-            Default::default(),
+            crate::storage::ObjectSelector {
+                bucket: bucket.as_str(),
+                name: name.as_str(),
+                generation: None,
+                conditions: Default::default(),
+            },
             patch,
             |_| Ok(()),
             &BucketAccess::Permissive,

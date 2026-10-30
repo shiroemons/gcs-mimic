@@ -20,9 +20,11 @@ pub(crate) use catalog::ResumableError;
 pub(crate) use catalog::SourceDisposal;
 pub(crate) use catalog::acl::{AclChange, AclError, AclState};
 pub(crate) use catalog::{AppendError, AppendWriter};
+pub(crate) use catalog::{CopyReplaySource, ReplayInvocation};
 pub(crate) use catalog::{DerivedDestination, DerivedRequestGuard, DerivedSource};
 #[cfg(test)]
 pub(crate) use catalog::{DerivedTransfer, ResumableSession};
+pub(crate) use catalog::{MoveAccess, ObjectSelector, ObjectUpload};
 pub(crate) use catalog::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
 pub(crate) use catalog::{ResumableOptions, SessionState};
 #[cfg(test)]

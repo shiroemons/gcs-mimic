@@ -14,7 +14,8 @@
 use super::{
     Catalog,
     objects::{
-        ObjectReader, authorized_bucket, check_conditions, lookup, object_unavailable, unlink,
+        ObjectReader, ObjectUpload, authorized_bucket, check_conditions, lookup,
+        object_unavailable, unlink,
     },
     resumable::{ResumableOptions, decode_options, encode_options},
     system_time_micros, unix_micros,
@@ -577,20 +578,22 @@ impl AppendWriter {
             Ok::<(), io::Error>(())
         };
         let publish = catalog.put_object_with_mode(
-            &self.bucket,
-            &self.name,
-            self.record.content_type.clone(),
-            Default::default(),
-            // Ordinary writes may have created the name since the appendable generation began.
-            ObjectConditions {
-                if_generation_match: Some(0),
-                ..Default::default()
+            ObjectUpload {
+                bucket: &self.bucket,
+                name: &self.name,
+                content_type: self.record.content_type.clone(),
+                expected: Default::default(),
+                // Ordinary writes may have created the name since the appendable generation began.
+                conditions: ObjectConditions {
+                    if_generation_match: Some(0),
+                    ..Default::default()
+                },
+                max_bytes,
+                metadata: self.stored_metadata().await?,
+                access,
             },
-            max_bytes,
             rx,
             permit,
-            self.stored_metadata().await?,
-            access,
             super::admin::PublishMode::Replace,
             Some(identity),
         );

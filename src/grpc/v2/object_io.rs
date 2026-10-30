@@ -6,7 +6,7 @@ use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
     json,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, UploadChunk},
-    storage::{ResumableChunk, ResumableError, ResumableOptions, SessionState},
+    storage::{ObjectUpload, ResumableChunk, ResumableError, ResumableOptions, SessionState},
 };
 use prost::Message;
 use tokio::sync::{mpsc, watch};
@@ -952,16 +952,18 @@ impl Storage {
         };
         let producer = produce_single_write(stream, message, limits, tx, caller, end);
         let write = self.state.catalog.put_object_prechecked(
-            &bucket,
-            &name,
-            options.content_type.clone(),
-            options.expected,
-            options.conditions,
-            self.max_object_bytes,
+            ObjectUpload {
+                bucket: &bucket,
+                name: &name,
+                content_type: options.content_type.clone(),
+                expected: options.expected,
+                conditions: options.conditions,
+                max_bytes: self.max_object_bytes,
+                metadata: options.metadata.clone(),
+                access: options.access.clone(),
+            },
             rx,
             permit,
-            options.metadata.clone(),
-            options.access.clone(),
         );
         let (sent, written) = tokio::join!(producer, write);
         let record = match written {

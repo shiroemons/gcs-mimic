@@ -4,6 +4,7 @@ use crate::{
     json,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, UploadChunk},
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed, stream_upload},
+    storage::ObjectUpload,
 };
 use http_body_util::Full;
 use hyper::{
@@ -341,16 +342,18 @@ pub(crate) async fn respond(
         .map_err(|error| storage_error(error, caller))?;
     let (sender, body) = mpsc::channel(2);
     let upload = state.catalog.put_object_prechecked(
-        &operation.bucket,
-        &operation.name,
-        content_type,
-        expected,
-        conditions,
-        config.max_object_bytes,
+        ObjectUpload {
+            bucket: &operation.bucket,
+            name: &operation.name,
+            content_type,
+            expected,
+            conditions,
+            max_bytes: config.max_object_bytes,
+            metadata,
+            access,
+        },
         body,
         permit,
-        metadata,
-        access,
     );
     tokio::pin!(upload);
     let record = tokio::select! {

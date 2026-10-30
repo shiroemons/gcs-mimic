@@ -30,6 +30,21 @@ CREATE INDEX upload_replays_deadline ON upload_replays(deadline, token);
 PRAGMA user_version = 35;";
 const SELECT_INCARNATION: &str = "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1";
 
+/// The client's idempotency token and the exact request it binds; without a token the
+/// request is not replayable.
+#[derive(Clone, Copy)]
+pub(crate) struct ReplayInvocation<'a> {
+    pub(crate) token: Option<&'a str>,
+    pub(crate) request: &'a str,
+}
+
+/// The bucket a replayable copy reads from and the authority that reads it.
+#[derive(Clone, Copy)]
+pub(crate) struct CopyReplaySource<'a> {
+    pub(crate) bucket: &'a str,
+    pub(crate) access: &'a BucketAccess,
+}
+
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
     transaction.execute_batch(SCHEMA).map_err(unavailable)?;
@@ -277,26 +292,21 @@ pub(super) fn fingerprint(value: &impl std::fmt::Debug) -> Vec<u8> {
 }
 
 impl Catalog {
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "Copy replay binds both resource authorities and the exact invocation"
-    )]
+    /// Copy replay binds both resource authorities and the exact invocation.
     pub(crate) async fn prepare_copy_replay(
         &self,
         bucket: &str,
         name: &str,
         conditions: ObjectConditions,
         access: &BucketAccess,
-        source_bucket: &str,
-        source_access: &BucketAccess,
-        token: Option<&str>,
-        request: &str,
+        source: CopyReplaySource<'_>,
+        invocation: ReplayInvocation<'_>,
     ) -> Result<Option<CopyReplay>, ObjectError> {
-        if token.is_none() {
+        if invocation.token.is_none() {
             return Ok(None);
         }
-        let source_bucket = source_bucket.to_owned();
-        let source_access = source_access.clone();
+        let source_bucket = source.bucket.to_owned();
+        let source_access = source.access.clone();
         let source_query = source_bucket.clone();
         let source_authority = source_access.clone();
         let source_incarnation: String = self
@@ -313,7 +323,7 @@ impl Catalog {
             })
             .await
             .map_err(objects::object_unavailable)??;
-        let request = serde_json::to_string(&(request, &source_incarnation))
+        let request = serde_json::to_string(&(invocation.request, &source_incarnation))
             .map_err(objects::object_unavailable)?;
         let mut permit = self.admit_object_upload()?;
         self.check_upload_replay(
@@ -321,8 +331,10 @@ impl Catalog {
             name,
             conditions,
             access,
-            token,
-            &request,
+            ReplayInvocation {
+                token: invocation.token,
+                request: &request,
+            },
             &mut permit,
         )
         .await?;
@@ -356,20 +368,17 @@ impl Catalog {
         .map_err(objects::object_unavailable)?
     }
 
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "Upload advisory checks also bind the invocation and its admission permit"
-    )]
+    /// Upload advisory checks also bind the invocation and its admission permit.
     pub(crate) async fn check_upload_replay(
         &self,
         bucket: &str,
         name: &str,
         conditions: ObjectConditions,
         access: &BucketAccess,
-        token: Option<&str>,
-        request: &str,
+        invocation: ReplayInvocation<'_>,
         permit: &mut UploadGuard,
     ) -> Result<(), ObjectError> {
+        let ReplayInvocation { token, request } = invocation;
         let Some(token) = token else {
             return self.check_upload(bucket, name, conditions, access).await;
         };

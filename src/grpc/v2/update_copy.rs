@@ -6,7 +6,7 @@ use crate::{
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError},
     server::authorize_bucket,
     storage::{
-        DerivedDestination, DerivedRequestGuard,
+        DerivedDestination, DerivedRequestGuard, MoveAccess, ObjectSelector,
         rewrite::{RewriteBinding, RewriteError, RewriteStart},
     },
 };
@@ -920,10 +920,12 @@ impl Storage {
             .state
             .catalog
             .update_object_metadata_authorized(
-                bucket,
-                name,
-                (o.generation != 0).then_some(o.generation),
-                c,
+                ObjectSelector {
+                    bucket,
+                    name,
+                    generation: (o.generation != 0).then_some(o.generation),
+                    conditions: c,
+                },
                 parsed.update,
                 |_| Ok(()),
                 &access,
@@ -1058,9 +1060,11 @@ impl Storage {
                 &r.destination_object,
                 sc,
                 dc,
-                &read,
-                &delete,
-                &create,
+                MoveAccess {
+                    source_read: &read,
+                    source_delete: &delete,
+                    destination_create: &create,
+                },
             )
             .await
             .map_err(error)?;

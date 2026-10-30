@@ -126,6 +126,11 @@ async fn move_reuses_blob_and_preserves_failed_source_conditions() {
         .await
         .unwrap();
     let access = BucketAccess::Permissive;
+    let move_access = crate::storage::MoveAccess {
+        source_read: &access,
+        source_delete: &access,
+        destination_create: &access,
+    };
     let failed = catalog
         .move_object_authorized(
             "bucket",
@@ -136,9 +141,7 @@ async fn move_reuses_blob_and_preserves_failed_source_conditions() {
                 ..Default::default()
             },
             Default::default(),
-            &access,
-            &access,
-            &access,
+            move_access,
         )
         .await;
     assert_eq!(failed, Err(ObjectError::PreconditionFailed));
@@ -149,9 +152,7 @@ async fn move_reuses_blob_and_preserves_failed_source_conditions() {
             "target",
             Default::default(),
             Default::default(),
-            &access,
-            &access,
-            &access,
+            move_access,
         )
         .await
         .unwrap();

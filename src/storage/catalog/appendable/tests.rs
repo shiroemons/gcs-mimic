@@ -319,19 +319,21 @@ async fn publishing_a_reserved_generation_retires_its_row_atomically() {
     tx.send(Ok(UploadChunk::End)).await.unwrap();
     let published = catalog
         .put_object_with_mode(
-            "append",
-            "atomic",
-            record.content_type.clone(),
-            Default::default(),
-            ObjectConditions {
-                if_generation_match: Some(0),
-                ..Default::default()
+            ObjectUpload {
+                bucket: "append",
+                name: "atomic",
+                content_type: record.content_type.clone(),
+                expected: Default::default(),
+                conditions: ObjectConditions {
+                    if_generation_match: Some(0),
+                    ..Default::default()
+                },
+                max_bytes: 1024,
+                metadata: Default::default(),
+                access: BucketAccess::Permissive,
             },
-            1024,
             rx,
             catalog.admit_object_upload().unwrap(),
-            Default::default(),
-            BucketAccess::Permissive,
             super::super::admin::PublishMode::Replace,
             Some(identity),
         )

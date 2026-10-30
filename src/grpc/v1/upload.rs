@@ -6,6 +6,7 @@ use crate::{
     auth::Caller,
     hashing::Hasher,
     object::{ExpectedHashes, UploadChunk},
+    storage::ObjectUpload,
 };
 use tokio::sync::mpsc;
 use tonic::{Status, Streaming};
@@ -92,16 +93,18 @@ impl Storage {
             .map_err(object_error)?;
         let (sender, receiver) = mpsc::channel(2);
         let write = self.state.catalog.put_object_prechecked(
-            &bucket,
-            &name,
-            content_type,
-            ExpectedHashes::default(),
-            conditions,
-            self.max_object_bytes,
+            ObjectUpload {
+                bucket: &bucket,
+                name: &name,
+                content_type,
+                expected: ExpectedHashes::default(),
+                conditions,
+                max_bytes: self.max_object_bytes,
+                metadata,
+                access,
+            },
             receiver,
             permit,
-            metadata,
-            access,
         );
         let receive = receive_upload(first, stream, sender, self.max_object_bytes);
         let result = tokio::try_join!(async { write.await.map_err(object_error) }, receive)?;

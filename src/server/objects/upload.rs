@@ -7,6 +7,7 @@ use crate::{
     json::{self, JsonError, ObjectInsertParams},
     object::{ExpectedHashes, ObjectError, ObjectRecord, UploadChunk},
     server::{ObjectCtx, stream_upload},
+    storage::{ObjectUpload, ReplayInvocation},
 };
 use http_body_util::BodyExt;
 use hyper::{
@@ -63,27 +64,31 @@ pub(super) async fn insert(
         &name,
         params.conditions,
         &access,
-        token.as_deref(),
-        &replay_request,
+        ReplayInvocation {
+            token: token.as_deref(),
+            request: &replay_request,
+        },
         &mut permit,
     ))
     .await?;
     let (sender, body) = mpsc::channel(2);
     let acl_snapshot = permit.replay_acl_snapshot();
     let upload = ctx.state.catalog.put_object_prechecked(
-        &bucket,
-        &name,
-        content_type,
-        expected,
-        params.conditions,
-        max_bytes,
+        ObjectUpload {
+            bucket: &bucket,
+            name: &name,
+            content_type,
+            expected,
+            conditions: params.conditions,
+            max_bytes,
+            metadata: crate::object::ObjectMetadataUpdate {
+                customer_key_sha256: key.map(CustomerKey::sha256),
+                ..Default::default()
+            },
+            access,
+        },
         body,
         permit,
-        crate::object::ObjectMetadataUpdate {
-            customer_key_sha256: key.map(CustomerKey::sha256),
-            ..Default::default()
-        },
-        access,
     );
     tokio::pin!(upload);
     let record = tokio::select! {
@@ -145,8 +150,10 @@ pub(super) async fn multipart(
             Default::default()
         },
         &access,
-        token.as_deref(),
-        &replay_request,
+        ReplayInvocation {
+            token: token.as_deref(),
+            request: &replay_request,
+        },
         &mut permit,
     ))
     .await?;
@@ -168,8 +175,10 @@ pub(super) async fn multipart(
             &name,
             params.conditions,
             &access,
-            token.as_deref(),
-            &replay_request,
+            ReplayInvocation {
+                token: token.as_deref(),
+                request: &replay_request,
+            },
             &mut permit,
         ))
         .await?;
@@ -181,16 +190,18 @@ pub(super) async fn multipart(
     let (sender, body) = mpsc::channel(2);
     let acl_snapshot = permit.replay_acl_snapshot();
     let upload = catalog.put_object_prechecked(
-        &bucket,
-        &name,
-        content_type,
-        expected,
-        params.conditions,
-        max_bytes,
+        ObjectUpload {
+            bucket: &bucket,
+            name: &name,
+            content_type,
+            expected,
+            conditions: params.conditions,
+            max_bytes,
+            metadata,
+            access,
+        },
         body,
         permit,
-        metadata,
-        access,
     );
     let record = stream_multipart(ctx, &mut multipart, upload, sender, expected).await?;
     Ok(Written {

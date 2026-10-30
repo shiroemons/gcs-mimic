@@ -16,6 +16,7 @@ use crate::{
         UploadChunk, custom_time_key,
     },
     server::{ObjectCtx, RequestCtx, ResponseBody, State, anonymous_error, body_progress, boxed},
+    storage::ObjectUpload,
 };
 use http_body_util::{BodyExt, Full};
 use hyper::{
@@ -656,16 +657,18 @@ pub(crate) async fn respond(
         .map_err(|error| storage_error(error, caller))?;
     let (sender, receiver) = mpsc::channel(2);
     let upload = state.catalog.put_object_prechecked(
-        &bucket,
-        &name,
-        content_type,
-        ExpectedHashes::default(),
-        ObjectConditions::default(),
-        config.max_object_bytes,
+        ObjectUpload {
+            bucket: &bucket,
+            name: &name,
+            content_type,
+            expected: ExpectedHashes::default(),
+            conditions: ObjectConditions::default(),
+            max_bytes: config.max_object_bytes,
+            metadata,
+            access,
+        },
         receiver,
         permit,
-        metadata,
-        access,
     );
     let limits = FileLimits {
         range,

@@ -160,8 +160,10 @@ async fn upload_replay_never_crosses_authentication_profiles_after_restart() {
                 ..Default::default()
             },
             &access,
-            Some("profile"),
-            &format!("{path}|{}|None", h.base),
+            crate::storage::ReplayInvocation {
+                token: Some("profile"),
+                request: &format!("{path}|{}|None", h.base),
+            },
             &mut permit,
         )
         .await;

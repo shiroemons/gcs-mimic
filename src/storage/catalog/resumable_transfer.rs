@@ -332,12 +332,14 @@ impl Catalog {
                 let time = system_time_micros(micros).map_err(object_unavailable)?;
                 let (_, _retired, resource) = objects::publish_in_transaction(
                     &transaction,
-                    micros,
-                    objects::GenerationAssignment::Automatic,
                     previous.as_ref(),
                     versioning,
-                    &session.blob_id,
-                    super::change_journal::origin(&options.access),
+                    objects::NewVersion {
+                        blob_id: &session.blob_id,
+                        assignment: objects::GenerationAssignment::Automatic,
+                        micros,
+                        origin: super::change_journal::origin(&options.access),
+                    },
                     |generation| {
                         let mut record = ObjectRecord {
                             bucket: session.bucket,

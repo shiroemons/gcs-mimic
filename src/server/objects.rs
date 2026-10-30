@@ -14,6 +14,7 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     json::{self, JsonError, ObjectRequest},
     object::ObjectError,
+    storage::{MoveAccess, ObjectSelector},
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri, body::Incoming};
 use serde_json::Value;
@@ -318,9 +319,11 @@ async fn move_object(
             &params.destination,
             params.source_conditions,
             params.conditions,
-            &source_read,
-            &source_delete,
-            access,
+            MoveAccess {
+                source_read: &source_read,
+                source_delete: &source_delete,
+                destination_create: access,
+            },
         )
         .await?;
     json::object_resource(&record, &ctx.state.api_base_url, params.projection)
@@ -423,10 +426,12 @@ async fn update(
         .state
         .catalog
         .update_object_metadata_authorized(
-            &bucket,
-            &name,
-            params.generation,
-            params.conditions,
+            ObjectSelector {
+                bucket: &bucket,
+                name: &name,
+                generation: params.generation,
+                conditions: params.conditions,
+            },
             update.update,
             move |record| {
                 // A wrong key fails before the metadata change commits.

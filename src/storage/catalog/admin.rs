@@ -628,16 +628,18 @@ impl Admin {
             .await?;
         self.catalog
             .put_object_with_mode(
-                bucket.as_str(),
-                name.as_str(),
-                request.content_type,
-                request.expected,
-                conditions,
-                request.max_bytes,
+                objects::ObjectUpload {
+                    bucket: bucket.as_str(),
+                    name: name.as_str(),
+                    content_type: request.content_type,
+                    expected: request.expected,
+                    conditions,
+                    max_bytes: request.max_bytes,
+                    metadata: request.metadata,
+                    access,
+                },
                 body,
                 permit.into(),
-                request.metadata,
-                access,
                 request.mode,
                 identity,
             )
@@ -795,10 +797,12 @@ impl Admin {
                 Ok(objects::delete_selected(
                     connection,
                     clock.as_ref(),
-                    &bucket,
-                    &name,
-                    None,
-                    condition.conditions(),
+                    objects::ObjectSelector {
+                        bucket: &bucket,
+                        name: &name,
+                        generation: None,
+                        conditions: condition.conditions(),
+                    },
                     &access,
                     binding.as_ref(),
                 ))

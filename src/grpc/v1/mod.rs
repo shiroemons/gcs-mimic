@@ -300,10 +300,12 @@ impl Storage {
             .state
             .catalog
             .update_object_metadata_authorized(
-                bucket,
-                name,
-                generation(selected)?,
-                conditions,
+                crate::storage::ObjectSelector {
+                    bucket,
+                    name,
+                    generation: generation(selected)?,
+                    conditions,
+                },
                 update,
                 move |record| {
                     let current = convert::object(record)
