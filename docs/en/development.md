@@ -232,8 +232,9 @@ and it prints every occurrence. There is no baseline. The only exceptions are:
   mapping, in `src/storage/failure.rs`. A definition anywhere else fails, and
   so does a second one in that file or a missing one.
 
-The gate prints how many findings reasoned suppressions silenced, per rule,
-and fails on any invalid or stale suppression.
+The gate prints how many text-rule findings suppression comments silenced,
+per rule, and fails on any invalid or stale comment; the compiler checks
+`#[expect]` itself.
 
 The gate covers only server production code: files under `src/` except
 `src/grpc/generated/`, the `src/grpc/codegen/` build tool, `*_tests.rs`,
@@ -249,16 +250,12 @@ naming) is checked; the text rules do not depend on the target and run with
 the host gate. `scripts/check-cross.sh` runs it after the cross Clippy run for
 each target in its list, with the same C compiler stub and target directory.
 
-#### Pending rules
+#### Rules
 
-A new rule that existing code does not pass yet is listed in `PENDING_RULES`
-in `xtask/src/lint.rs`. Its findings print as
-`warning: pending <rule>: <file>: <count>` and in the summary line, but do not
-fail the gate. The pseudo-rule `target::cross` makes every finding of a
-`--target` run pending. Suppressions of a pending rule are still validated,
-and a stale one fails. To enforce a rule, remove it from `PENDING_RULES`; once
-every rule is enforced the list is `&[]`. To see each pending finding's line,
-empty the list locally and run `cargo xtask lint`.
+Prefer a Clippy lint or a `clippy.toml` entry to a new text rule: Clippy
+resolves types and paths, so it cannot be fooled by naming, and its
+`#[expect]` already checks staleness. The text rules cover only what Clippy
+cannot express.
 
 | Rule | Rejects |
 | --- | --- |
@@ -268,44 +265,60 @@ empty the list locally and run `cargo xtask lint`.
 | `clippy::needless_pass_by_value` | Avoidable copies. |
 | `clippy::allow_attributes_without_reason` | `#[allow]` or `#[expect]` without a `reason`. |
 | `clippy::allow_attributes` | Any `#[allow]`; use `#[expect]`, which fails once the lint stops firing. |
+| `clippy::disallowed_methods` | The methods listed in `clippy.toml`: unsupervised spawns (`tokio::spawn`, `tokio::task::spawn`, `tokio::task::spawn_local`, `Handle::spawn`, `Runtime::spawn`, `std::thread::spawn`, `std::thread::Builder::spawn`) outside `src/task.rs`, and rusqlite's `Connection::execute`, `query_row`, `query_one` and `prepare`, which prepare their SQL on every call. Calls through a `Transaction` resolve to the `Connection` methods; `Statement` methods from `prepare_cached`, `execute_batch`, `spawn_blocking`, `JoinSet::spawn` and scoped threads are not listed. |
 | `text::path_attribute` | `#[path]` module attributes. |
 | `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`. |
 | `text::string_error_variant` | Tuple variants `Backend(String)`, `BodyAborted(String)`, `Database(String)`, `Internal(String)`, `Io(String)`, `Other(String)`, `Sqlite(String)`, `Storage(String)` or `Unavailable(String)` in an enum named `*Error`. |
 | `text::stringified_error` | `map_err(\|e\| Path(e.to_string()))` or `map_err(\|e\| Path(format!(".. {e}")))` whose only argument stringifies the error. |
 | `text::unavailable_helper` | `fn unavailable` outside `src/storage/failure.rs`, or not exactly one there. |
 | `text::allow_too_many_arguments` | `#[allow]`, `#[expect]` or `cfg_attr` of `clippy::too_many_arguments`, including attributes split over several lines. |
-| `text::uncached_prepare` | rusqlite `.prepare(` calls instead of `prepare_cached`. |
-| `text::uncached_statement` | `.execute(`, `.query_row(` or `.query_one(` whose first argument is a string literal or an `UPPER_SNAKE` constant: rusqlite prepares that SQL on every call. |
 | `text::format_sql` | `format!` whose literal starts with an SQL statement. |
 | `text::sync_without_flush` | `.sync_all().await` or `.sync_data().await` after an awaited write in the same function with no `.flush().await` or `.shutdown().await` in between. |
-| `text::unsupervised_spawn` | `tokio::spawn(`, `task::spawn(`, `task::spawn_local(`, `thread::spawn(`, any `thread::Builder`, or `.spawn(` on a runtime handle outside `src/task.rs`, the supervised spawn helpers (`SUPERVISED_SPAWN_FILE`). Start OS threads with `task::spawn_thread` and run a worker thread's jobs under `task::catch_job`. |
 
 `unreachable_pub` and `clippy::redundant_clone` pass on every workspace target,
 so `[workspace.lints]` denies them and the plain
 `cargo clippy --workspace --all-targets -- -D warnings` run enforces them,
 tests included. The gate does not pass them with `-W`: a command-line `-W`
-would lower that `deny` to a warning. A unit test in `xtask` fails if a lint
-appears in both places.
+would lower that `deny` to a warning. `[workspace.lints]` instead sets
+`clippy::disallowed_methods` to `allow`, so tests may spawn tasks and run
+ad-hoc SQL, and the gate's `-W` raises it for production code only. A unit
+test in `xtask` fails if a lint is denied there and also passed with `-W`.
 
 The text rules ignore comments and string contents. They are heuristics:
 for example, `text::format_sql` does not see SQL assembled through other
 helpers, and a `Result<_, String>` hidden behind another alias is not counted.
 `text::sync_without_flush` follows source order without tracking which value
 was written, so it misses a write and a sync in different functions and
-reports a socket write followed by a file sync. `text::uncached_statement`
-does not see SQL passed through a variable and matches any `.execute("..")`
-receiver; `execute_batch` is not checked because it runs multi-statement DDL
-and has no cached form. `text::string_error_variant` checks only the listed
-variant names, so a variant that names rejected client input, such as
-`InvalidTopic(String)`, may keep its message. `text::unsupervised_spawn`
-recognizes a runtime handle by its receiver name (`runtime`, `handle`, `rt`)
-or a direct `Handle::current()` chain, so a handle under another name escapes
-it; use `task::spawn_supervised_on` for an explicit runtime handle.
-`spawn_blocking` uses the bounded pool and is awaited, and `JoinSet::spawn`
-keeps its tasks observed, so neither is matched. Review still applies the
-written rules where the tool cannot.
+reports a socket write followed by a file sync. `text::string_error_variant`
+checks only the listed variant names, so a variant that names rejected client
+input, such as `InvalidTopic(String)`, may keep its message. Review still
+applies the written rules where the tool cannot.
 
 #### Reasoned suppressions
+
+A Clippy or rustc finding that the rule's intent does not cover takes
+`#[expect(<lint>, reason = "...")]` on the narrowest item that holds it,
+usually the function. The compiler fails an expectation that no longer
+fires, so a stale exception cannot linger.
+
+Statements that no API request reaches are the intended exception to the
+rusqlite entries of `clippy::disallowed_methods`: those that run at open,
+during a schema migration, at startup or only in a background worker. A
+request reaches a statement indirectly too, through a wakeup it triggers.
+Resumable session, rewrite and derived-transfer requests wake the maintenance
+sweep, so the sweep's statements use `prepare_cached` like any request path.
+A function that runs only at open carries the reason itself:
+
+```rust
+#[expect(clippy::disallowed_methods, reason = "crash recovery runs once at open")]
+fn recover_on_open(connection: &mut Connection) -> Result<(), CatalogError> {
+```
+
+A module that no request path calls, such as the sync mirror's write-back
+state, uses one inner `#![expect(...)]` whose reason names what makes it
+request-free. Module scope also hides a request-path statement added later,
+so trace the callers before adding a statement to such a module, and move
+the expectation to its functions once any caller is request-driven.
 
 A text-rule hit that the rule's intent does not cover, such as a schema
 migration whose DDL is built only from static fragments, can be suppressed
@@ -328,33 +341,6 @@ let sql = format!("SELECT {COLUMNS} FROM objects"); // xtask-lint: allow(text::f
   comment when the code no longer needs it.
 - Doc comments and string contents never suppress anything.
 
-Statements that no API request reaches are the intended exception to
-`text::uncached_statement`: those that run at open, during a schema
-migration, at startup or only in a background worker. A request reaches a
-statement indirectly too, through a wakeup it triggers. Resumable session,
-rewrite and derived-transfer requests wake the maintenance sweep, so the
-sweep's statements use `prepare_cached` like any request path.
-
-When no statement in a module runs on an API request path, because only
-startup or a background worker calls it, one file-scope comment replaces
-per-line ones. The reason names what makes the module request-free:
-
-```rust
-// xtask-lint: allow-file(text::uncached_statement) -- request-free: only the sync mirror's background worker calls this module
-```
-
-File scope has a cost: it also hides a request-path statement added to the
-module later. Trace the callers before adding a statement to such a module,
-and replace the file scope with line suppressions once any caller is
-request-driven.
-
-Only the rules in `FILE_SCOPE_RULES` (currently `text::uncached_statement`)
-accept `allow-file`. It covers every finding of that rule in the file that no
-line suppression covers, and it is stale when the file has none. The tool
-rejects `allow-file` in files under the request adapters (`src/server`,
-`src/json`, `src/xml` and `src/grpc`, listed in `FILE_SCOPE_FORBIDDEN_DIRS`),
-because every module there serves requests.
-
 #### `#[expect]` for restriction lints
 
 `clippy::unwrap_used` and `clippy::expect_used` are allowed by default, and
@@ -372,18 +358,13 @@ tests, for example `#[cfg(all(test, unix))]`, instead of staying in production
 builds as dead code. A field that only tests read keeps a reasoned
 `#[cfg_attr(not(test), expect(dead_code, reason = "..."))]`.
 
-#### All-targets report
+#### Moving a lint to every target
 
-`cargo xtask lint --all-targets-report` runs
-`cargo clippy --workspace --all-targets` with the gate's Clippy lints and
-prints the count per lint and file, including tests, examples, xtask and the
-gRPC code generator, then the lints with no finding anywhere. It is
-informational, always exits 0 on findings and is not part of `just check` or
-CI. `clippy.toml`'s `allow-unwrap-in-tests`, `allow-expect-in-tests` and
-`allow-panic-in-tests` cover `#[test]` functions and `#[cfg(test)]` modules,
-but not helper functions of integration tests, which the report lists.
-
-A lint that the report shows as ready can move to `[workspace.lints]`:
+A gate lint that passes on every workspace target, which
+`cargo clippy --workspace --all-targets -- -W <lint>` shows, can move to
+`[workspace.lints]`. `clippy.toml`'s `allow-unwrap-in-tests`,
+`allow-expect-in-tests` and `allow-panic-in-tests` cover `#[test]` functions
+and `#[cfg(test)]` modules, but not helper functions of integration tests.
 
 1. Add it to `Cargo.toml`, for example `unwrap_used = "deny"` (without the
    `clippy::` prefix) under `[workspace.lints.clippy]`.
