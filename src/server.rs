@@ -485,6 +485,22 @@ async fn drain_connections(connections: &mut JoinSet<()>, deadline: Duration) ->
 
 #[cfg(test)]
 mod drain_tests;
+#[cfg(test)]
+mod upload_frame_tests;
+
+/// hyper's per-connection read buffer limit. It bounds how much hyper reserves before each
+/// read, not the read itself: one read fills the buffer's spare capacity, which can grow to
+/// about twice this value, so HTTP/1 body frames stay below `2 * CONNECTION_READ_BUFFER`
+/// (24 KiB observed). [`stream_upload`] forwards frames without copying, so this bound is what
+/// keeps the memory an upload's two-slot channel retains small; `upload_frame_tests` fails if
+/// the value or the frame bound changes.
+const CONNECTION_READ_BUFFER: usize = 16 * 1024;
+
+fn http1_builder() -> http1::Builder {
+    let mut builder = http1::Builder::new();
+    builder.max_headers(64).max_buf_size(CONNECTION_READ_BUFFER);
+    builder
+}
 
 async fn serve_connection(
     stream: impl AsyncRead + AsyncWrite + Unpin,
@@ -507,8 +523,7 @@ async fn serve_connection(
     // response head; until then an expired deadline can still be answered.
     let responded = Arc::new(AtomicBool::new(false));
     let (expire, expired) = watch::channel(false);
-    let mut builder = http1::Builder::new();
-    builder.max_headers(64).max_buf_size(16 * 1024);
+    let builder = http1_builder();
     let service = ConnectionService {
         state,
         config,
@@ -908,9 +923,9 @@ pub(crate) async fn stream_upload(
         if let Some(hash) = &mut sha256 {
             hash.update(&bytes);
         }
-        // HTTP/1 frames are capped by the 16 KiB connection read buffer, so passing them on
-        // without a copy keeps what the two-slot channel retains bounded; larger frames are
-        // still split into 64 KiB chunks.
+        // HTTP/1 frames stay below twice CONNECTION_READ_BUFFER, so passing them on without a
+        // copy keeps what the two-slot channel retains bounded; larger frames are still split
+        // into 64 KiB chunks.
         while !bytes.is_empty() {
             let part = bytes.split_to(bytes.len().min(64 * 1024));
             if sender.send(Ok(UploadChunk::Data(part))).await.is_err() {
