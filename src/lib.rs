@@ -9,7 +9,7 @@ pub mod config_input;
 mod csek;
 pub mod diagnostics;
 // Linux/macOS descriptor xattr ABIs are isolated behind safe bounded wrappers.
-#[allow(
+#[expect(
     unsafe_code,
     reason = "descriptor xattr ABIs need FFI; the unsafe calls stay behind bounded safe wrappers"
 )]

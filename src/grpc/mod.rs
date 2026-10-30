@@ -3,6 +3,11 @@ pub(crate) mod v1;
 pub(crate) mod v2;
 
 // Generated upstream code retains its own field names and documentation.
+#[expect(
+    clippy::allow_attributes,
+    reason = "which lints fire in generated code varies by target and cfg(test), so an \
+              expectation on them could go unfulfilled"
+)]
 #[allow(
     clippy::all,
     dead_code,

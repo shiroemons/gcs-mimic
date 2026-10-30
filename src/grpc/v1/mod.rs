@@ -4,6 +4,11 @@ mod convert;
 mod tests;
 mod upload;
 
+#[expect(
+    clippy::allow_attributes,
+    reason = "which lints fire in generated code varies by target and cfg(test), so an \
+              expectation on them could go unfulfilled"
+)]
 #[allow(
     clippy::all,
     dead_code,
