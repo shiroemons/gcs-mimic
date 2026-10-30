@@ -17,7 +17,7 @@ fixtures by mounting a directory, and keep data with a volume.
 ## Quick start
 
 ```sh
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.5.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.6.0
 curl -k 'https://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -32,7 +32,7 @@ then create a bucket, upload a file and read it:
 ```sh
 docker rm -f gcs-mimic
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.5.0
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.6.0
 curl --fail \
   -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=demo-project'
@@ -52,14 +52,14 @@ The image is published for `linux/amd64` and `linux/arm64` on
 digest, so either name works in every example. The quick start from Docker Hub:
 
 ```sh
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 shiroemons/gcs-mimic:0.5.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 shiroemons/gcs-mimic:0.6.0
 curl -k 'https://localhost:4443/storage/v1/b?project=local-project'
 ```
 
-In Compose, use `image: shiroemons/gcs-mimic:0.5.0`.
+In Compose, use `image: shiroemons/gcs-mimic:0.6.0`.
 
 See the
-[0.5.0 release notes](docs/en/releases/0.5.0.md), the
+[0.6.0 release notes](docs/en/releases/0.6.0.md), the
 [0.1.0 features and known limitations](docs/en/releases/0.1.0.md), or the
 [source-build guide](docs/en/getting-started.md).
 
@@ -68,7 +68,7 @@ See the
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.5.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -97,7 +97,7 @@ data/
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
   -e GCS_MIMIC_SCHEME=http \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.5.0
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.6.0
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 curl 'http://localhost:4443/storage/v1/b/sample-bucket/o'
 ```
@@ -161,7 +161,7 @@ and the [SDK and authentication guide](docs/en/getting-started.md) for more.
 List every option with:
 
 ```sh
-docker run --rm ghcr.io/shiroemons/gcs-mimic:0.5.0 --help
+docker run --rm ghcr.io/shiroemons/gcs-mimic:0.6.0 --help
 ```
 
 Moving from fake-gcs-server? Its flags and the 19 known `FAKE_GCS_*` variables
@@ -247,7 +247,7 @@ method complete, and cross-SDK weighting is provisional.
 - [Roadmap](docs/en/roadmap.md)
 - [Development and checks](docs/en/development.md)
 - [Release policy](docs/en/release-policy.md)
-- [0.5.0 release notes](docs/en/releases/0.5.0.md) and
+- [0.6.0 release notes](docs/en/releases/0.6.0.md) and
   [0.1.0 features and known limitations](docs/en/releases/0.1.0.md)
 
 ## License

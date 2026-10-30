@@ -20,7 +20,7 @@ Google Cloudのアカウントなしで、バケット作成やファイルの�
 ## まず動かす
 
 ```sh
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.5.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.6.0
 curl -k 'https://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -34,7 +34,7 @@ SDKから使う場合はHTTPのほうが手軽です。コンテナをHTTPで起
 ```sh
 docker rm -f gcs-mimic
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.5.0
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.6.0
 curl --fail \
   -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=demo-project'
@@ -53,13 +53,13 @@ curl --fail 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=medi
 どの例でも、どちらの名前を使っても構いません。Docker Hubから起動する場合は次のとおりです。
 
 ```sh
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 shiroemons/gcs-mimic:0.5.0
+docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 shiroemons/gcs-mimic:0.6.0
 curl -k 'https://localhost:4443/storage/v1/b?project=local-project'
 ```
 
-Composeでは`image: shiroemons/gcs-mimic:0.5.0`を指定します。
+Composeでは`image: shiroemons/gcs-mimic:0.6.0`を指定します。
 
-[0.5.0のリリースノート（英語）](../en/releases/0.5.0.md)、
+[0.6.0のリリースノート（英語）](../en/releases/0.6.0.md)、
 [0.1.0の機能と既知の制限（英語）](../en/releases/0.1.0.md)、
 [ソースからの導入手順（英語）](../en/getting-started.md)も参照してください。
 
@@ -68,7 +68,7 @@ Composeでは`image: shiroemons/gcs-mimic:0.5.0`を指定します。
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.5.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -96,7 +96,7 @@ data/
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
   -e GCS_MIMIC_SCHEME=http \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.5.0
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.6.0
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 curl 'http://localhost:4443/storage/v1/b/sample-bucket/o'
 ```
@@ -155,7 +155,7 @@ GoのgRPCクライアントは、後述のgRPC待受を`STORAGE_EMULATOR_HOST_GR
 すべての設定は次のコマンドで確認できます。
 
 ```sh
-docker run --rm ghcr.io/shiroemons/gcs-mimic:0.5.0 --help
+docker run --rm ghcr.io/shiroemons/gcs-mimic:0.6.0 --help
 ```
 
 fake-gcs-serverから移行する場合、旧フラグと既知19個の`FAKE_GCS_*`環境変数は、
