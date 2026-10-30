@@ -71,12 +71,3 @@ fn classification_passes_through_already_classified_errors() {
     let nested = unavailable(CatalogError::NotFound);
     assert_eq!(nested.to_string(), "catalog unavailable: bucket not found");
 }
-
-#[test]
-fn unclassified_mapping_never_reports_corrupt_or_io() {
-    let error = object_unclassified(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
-    assert_eq!(error.to_string(), "catalog unavailable: denied");
-    assert!(error.source().is_some());
-    let error = object_unclassified(sqlite_failure(rusqlite::ffi::SQLITE_CORRUPT));
-    assert!(matches!(error, ObjectError::Unavailable(_)));
-}

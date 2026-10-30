@@ -9,7 +9,7 @@ use crate::{
 use rusqlite::Connection;
 use std::{collections::BTreeSet, sync::Arc};
 
-use crate::storage::failure::object_unclassified;
+use crate::storage::failure::object_unavailable;
 
 /// Whether a compose deletes its source objects once the destination is published.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,7 +25,7 @@ fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectEr
             [bucket],
             |row| row.get(0),
         )
-        .map_err(object_unclassified)
+        .map_err(object_unavailable)
 }
 
 /// The source identities a compose read, re-checked when it publishes.
@@ -54,7 +54,7 @@ fn combine_sources(
         crc = combine(
             crc,
             source.object.crc32c,
-            usize::try_from(source.object.size).map_err(object_unclassified)?,
+            usize::try_from(source.object.size).map_err(object_unavailable)?,
         );
         count = count
             .saturating_add(source.object.component_count.unwrap_or(1))
@@ -156,7 +156,7 @@ impl Catalog {
                 .await
         })
         .await
-        .map_err(object_unclassified)?
+        .map_err(object_unavailable)?
     }
 
     async fn compose_detached(
@@ -234,7 +234,7 @@ impl Catalog {
     ) -> Result<String, ObjectError> {
         let clock = self.0.clock.clone();
         self.run_object(move |connection| {
-            let transaction = connection.transaction().map_err(object_unclassified)?;
+            let transaction = connection.transaction().map_err(object_unavailable)?;
             let (_, overwrite) =
                 objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
             let (_, delete) =

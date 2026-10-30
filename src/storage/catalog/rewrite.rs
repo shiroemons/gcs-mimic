@@ -51,10 +51,10 @@ impl From<ObjectError> for RewriteError {
 }
 impl From<CatalogError> for RewriteError {
     fn from(error: CatalogError) -> Self {
-        Self::Object(object_unclassified(error))
+        Self::Object(object_unavailable(error))
     }
 }
-use crate::storage::failure::object_unclassified;
+use crate::storage::failure::object_unavailable;
 
 pub(crate) struct RewriteStart {
     pub binding: RewriteBinding,
@@ -103,7 +103,7 @@ fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectEr
             |row| row.get(0),
         )
         .optional()
-        .map_err(object_unclassified)?
+        .map_err(object_unavailable)?
         .ok_or(ObjectError::BucketNotFound)
 }
 
@@ -353,7 +353,7 @@ fn progress(session: &RewriteSession, response: &Value) -> Result<RewriteProgres
         total: session.total,
         offset: response["offset"]
             .as_u64()
-            .ok_or_else(|| object_unclassified("invalid rewrite response"))?,
+            .ok_or_else(|| object_unavailable("invalid rewrite response"))?,
         token: response["token"].as_str().map(str::to_owned),
         resource: response.get("resource").filter(|v| !v.is_null()).cloned(),
         fields: session
@@ -373,7 +373,7 @@ impl Catalog {
         start: RewriteStart,
     ) -> Result<(String, super::derived::DerivedRequestGuard), RewriteError> {
         let token = RewriteToken::generate()
-            .map_err(object_unclassified)?
+            .map_err(object_unavailable)?
             .as_str()
             .to_owned();
         let result = token.clone();
@@ -386,7 +386,7 @@ impl Catalog {
             max_bytes,
             super::derived::TransferKind::Continuable,
             move |connection, transfer| {
-                *callback_owner.lock().map_err(object_unclassified)? =
+                *callback_owner.lock().map_err(object_unavailable)? =
                     Some(catalog.guard_derived_request(&transfer.id));
                 let count: i64 = connection
                     .query_row(
@@ -394,9 +394,9 @@ impl Catalog {
                         [],
                         |row| row.get(0),
                     )
-                    .map_err(object_unclassified)?;
+                    .map_err(object_unavailable)?;
                 if count >= 128 {
-                    return Err(object_unclassified("rewrite session limit reached"));
+                    return Err(object_unavailable("rewrite session limit reached"));
                 }
                 let request = encode(
                     &start,
@@ -411,17 +411,17 @@ impl Catalog {
                             token,
                             request.to_string(),
                             transfer.total as i64,
-                            unix_millis(transfer.deadline).map_err(object_unclassified)?
+                            unix_millis(transfer.deadline).map_err(object_unavailable)?
                         ],
                     )
-                    .map_err(object_unclassified)?;
+                    .map_err(object_unavailable)?;
                 let session = connection
                     .query_row(
                         "SELECT * FROM rewrite_sessions WHERE id=?1",
                         [&transfer.id],
                         read,
                     )
-                    .map_err(object_unclassified)?;
+                    .map_err(object_unavailable)?;
                 check_source(connection, &session, &start.source_access).map(|_| ())
             },
         )
@@ -429,9 +429,9 @@ impl Catalog {
         self.0.maintenance_wake.notify_one();
         let owner = owner
             .lock()
-            .map_err(object_unclassified)?
+            .map_err(object_unavailable)?
             .take()
-            .ok_or_else(|| object_unclassified("missing rewrite request owner"))?;
+            .ok_or_else(|| object_unavailable("missing rewrite request owner"))?;
         Ok((result, owner))
     }
 
@@ -453,7 +453,7 @@ impl Catalog {
                         read,
                     )
                     .optional()
-                    .map_err(object_unclassified)
+                    .map_err(object_unavailable)
             })
             .await?
             .ok_or(RewriteError::Gone)?;
@@ -479,7 +479,7 @@ impl Catalog {
         let destination_check = destination_access.clone();
         let source_result = self
             .run_object(move |connection| {
-                let transaction = connection.transaction().map_err(object_unclassified)?;
+                let transaction = connection.transaction().map_err(object_unavailable)?;
                 if replay {
                     check_incarnations(&transaction, &checked)?;
                     super::objects::authorized_bucket(
@@ -525,7 +525,7 @@ impl Catalog {
                 session
                     .response
                     .as_ref()
-                    .ok_or_else(|| object_unclassified("missing rewrite replay"))?,
+                    .ok_or_else(|| object_unavailable("missing rewrite replay"))?,
             )
             .map_err(Into::into);
         }
@@ -547,29 +547,29 @@ impl Catalog {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             // shortcut: publish-time permission failures discard progress; specialize cleanup when retry must survive revocation.
             self.publish_derived_prepared(&id,destination,move |connection,record| {
-                if validate_session.deadline<=unix_millis(clock.now()).map_err(object_unclassified)? {return Err(ObjectError::DerivedTransferExpired);}
+                if validate_session.deadline<=unix_millis(clock.now()).map_err(object_unavailable)? {return Err(ObjectError::DerivedTransferExpired);}
                 let source = check_source(connection,&validate_session,&source_access)?;
-                let same_location: bool = connection.query_row("SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1",params![source.bucket,record.bucket],|row|row.get(0)).map_err(object_unclassified)?;
+                let same_location: bool = connection.query_row("SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1",params![source.bucket,record.bucket],|row|row.get(0)).map_err(object_unavailable)?;
                 let location = if same_location { crate::json::DestinationLocation::Same } else { crate::json::DestinationLocation::Different };
                 record.component_count = crate::json::derived_component_count(&source,&record.storage_class,location);
                 Ok(())
             },move |connection,record| {
                 let response=json!({"offset":record.size,"resource":render(record)?});
-                connection.execute("UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1",params![session.id,response.to_string()]).map_err(object_unclassified)?;
+                connection.execute("UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1",params![session.id,response.to_string()]).map_err(object_unavailable)?;
                 // shortcut: eviction follows creation deadlines; add completion ordering for recent-finish retention.
-                connection.execute("DELETE FROM rewrite_sessions WHERE id IN (SELECT id FROM rewrite_sessions WHERE transfer_id IS NULL AND id!=?1 ORDER BY deadline,id LIMIT max((SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)-128,0))",[&session.id]).map_err(object_unclassified)?;
+                connection.execute("DELETE FROM rewrite_sessions WHERE id IN (SELECT id FROM rewrite_sessions WHERE transfer_id IS NULL AND id!=?1 ORDER BY deadline,id LIMIT max((SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)-128,0))",[&session.id]).map_err(object_unavailable)?;
                 // The stored response remains authoritative if its network receiver disappears.
                 let _=sender.send(response);
                 Ok(())
             },None).await?;
             return progress(
                 &completed_session,
-                &receiver.await.map_err(object_unclassified)?,
+                &receiver.await.map_err(object_unavailable)?,
             )
             .map_err(Into::into);
         }
         let next = RewriteToken::generate()
-            .map_err(object_unclassified)?
+            .map_err(object_unavailable)?
             .as_str()
             .to_owned();
         let response = json!({"offset":current.offset,"token":next});
@@ -577,7 +577,7 @@ impl Catalog {
         let id = session.id.clone();
         let now = unix_millis(self.0.clock.now())?;
         self.run_object(move |connection| {
-            let changed=connection.execute("UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5",params![id,next,current.offset as i64,saved,now]).map_err(object_unclassified)?;
+            let changed=connection.execute("UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5",params![id,next,current.offset as i64,saved,now]).map_err(object_unavailable)?;
             if changed!=1 {return Err(ObjectError::PreconditionFailed);}Ok(())
         }).await?;
         progress(&session, &response).map_err(Into::into)

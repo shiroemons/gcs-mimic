@@ -324,15 +324,6 @@ pub(crate) fn object_unavailable(cause: impl StorageCause) -> ObjectError {
     cause.classify().into()
 }
 
-/// Maps an object failure to `ObjectError::Unavailable` without classifying it.
-///
-/// Derived operations (compose, rewrite, derived transfers) and resumable transfers have
-/// always reported every backend failure as unavailable; classifying them would change the
-/// messages clients receive for corrupt or I/O failures on those paths.
-pub(crate) fn object_unclassified(cause: impl StorageCause) -> ObjectError {
-    ObjectError::Unavailable(cause.into_cause())
-}
-
 macro_rules! classified_from {
     ($($error:ty),* $(,)?) => {
         $(

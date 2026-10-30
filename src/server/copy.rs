@@ -406,9 +406,10 @@ mod tests {
                     .unwrap();
                 fs::remove_file(pinned.path()).unwrap();
                 resume.send(()).unwrap();
+                // The removed source is a filesystem failure, classified like any other I/O error.
                 assert!(matches!(
                     request.await.unwrap(),
-                    Err(ObjectError::Unavailable(_))
+                    Err(ObjectError::Io(cause)) if cause.kind() == std::io::ErrorKind::NotFound
                 ));
             }
             clean(&catalog, &path, &progress.id).await;
