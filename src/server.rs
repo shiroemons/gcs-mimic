@@ -895,7 +895,7 @@ pub(crate) async fn stream_upload(
     let mut size = 0_u64;
     let mut sha256 = expected_sha256.map(|_| ring::digest::Context::new(&ring::digest::SHA256));
     while let Some(frame) = body.frame().await {
-        let frame = frame.map_err(|error| ObjectError::BodyAborted(error.to_string()))?;
+        let frame = frame.map_err(ObjectError::body_aborted)?;
         let mut bytes = frame
             .into_data()
             .map_err(|_| ObjectError::BodyAborted("Upload trailers are unsupported".into()))?;

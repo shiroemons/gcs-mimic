@@ -321,9 +321,22 @@ impl std::error::Error for InvalidUploadSnapshot {}
 pub enum RegistryError {
     TooLarge,
     Io(std::io::Error),
+    /// The file is not valid JSON.
+    Syntax(serde_json::Error),
     Invalid {
         entry: Option<usize>,
         reason: String,
+    },
+    /// An identity's `public_keys` entry is not a supported RSA public key.
+    PublicKey {
+        entry: usize,
+        source: signature::InvalidPublicKey,
+    },
+    /// An identity's `project_roles` names a project the JSON API rejects.
+    Project {
+        entry: usize,
+        project: String,
+        source: crate::json::JsonError,
     },
 }
 
@@ -332,6 +345,7 @@ impl fmt::Display for RegistryError {
         match self {
             Self::TooLarge => f.write_str("identity_file exceeds 64 KiB"),
             Self::Io(error) => write!(f, "identity_file: {error}"),
+            Self::Syntax(error) => write!(f, "identity_file: {error}"),
             Self::Invalid {
                 entry: None,
                 reason,
@@ -340,6 +354,18 @@ impl fmt::Display for RegistryError {
                 entry: Some(index),
                 reason,
             } => write!(f, "identity_file: identities[{index}]: {reason}"),
+            Self::PublicKey { entry, source } => {
+                write!(f, "identity_file: identities[{entry}]: {source}")
+            }
+            Self::Project {
+                entry,
+                project,
+                source,
+            } => write!(
+                f,
+                "identity_file: identities[{entry}]: project {project:?}: {}",
+                source.message
+            ),
         }
     }
 }
@@ -348,6 +374,9 @@ impl std::error::Error for RegistryError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
+            Self::Syntax(error) => Some(error),
+            Self::PublicKey { source, .. } => Some(source),
+            Self::Project { source, .. } => Some(source),
             Self::TooLarge | Self::Invalid { .. } => None,
         }
     }
@@ -377,7 +406,7 @@ impl Registry {
             entry: None,
             reason,
         };
-        let value: Value = serde_json::from_slice(bytes).map_err(|e| error(e.to_string()))?;
+        let value: Value = serde_json::from_slice(bytes).map_err(RegistryError::Syntax)?;
         let top = value
             .as_object()
             .ok_or_else(|| error("top level must be a JSON object".into()))?;
@@ -535,7 +564,10 @@ fn parse_public_keys(
                 key.as_str()
                     .ok_or_else(|| error("public_keys entries must be strings".into()))?,
             )
-            .map_err(|invalid| error(invalid.to_string()))
+            .map_err(|source| RegistryError::PublicKey {
+                entry: index,
+                source,
+            })
         })
         .collect()
 }
@@ -559,8 +591,11 @@ fn parse_project_roles(
         )));
     }
     for (project, role_values) in projects {
-        crate::json::validate_project(project)
-            .map_err(|e| error(format!("project {project:?}: {}", e.message)))?;
+        crate::json::validate_project(project).map_err(|source| RegistryError::Project {
+            entry: index,
+            project: project.clone(),
+            source,
+        })?;
         let role_values = role_values
             .as_array()
             .filter(|roles| (1..=MAX_ROLES).contains(&roles.len()))

@@ -7,6 +7,7 @@ use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
     path::Path,
+    sync::mpsc::TrySendError,
 };
 use tokio::sync::oneshot;
 
@@ -20,6 +21,15 @@ thread_local! {
 }
 
 type FileJob = Box<dyn FnOnce() + Send>;
+
+/// The send failure without the rejected job, which is not `Sync`, so it can be kept as a
+/// source.
+fn without_job(error: &TrySendError<FileJob>) -> TrySendError<()> {
+    match error {
+        TrySendError::Full(_) => TrySendError::Full(()),
+        TrySendError::Disconnected(_) => TrySendError::Disconnected(()),
+    }
+}
 
 pub(crate) struct FileWorkers {
     sender: std::sync::mpsc::SyncSender<FileJob>,
@@ -69,10 +79,8 @@ impl FileWorkers {
                 let _permit = permit;
                 let _ = sender.send(job());
             }))
-            .map_err(|error| AdminError::Backend(error.to_string()))?;
-        receiver
-            .await
-            .map_err(|error| AdminError::Backend(error.to_string()))?
+            .map_err(|error| AdminError::backend(without_job(&error)))?;
+        receiver.await.map_err(AdminError::backend)?
     }
 }
 
@@ -99,7 +107,7 @@ impl StagedObject {
         runtime
             .spawn(self.cleanup())
             .await
-            .map_err(|error| AdminError::Backend(error.to_string()))?
+            .map_err(AdminError::backend)?
     }
     pub(crate) fn size(&self) -> u64 {
         self.size
@@ -336,7 +344,7 @@ impl Admin {
         tokio::spawn(async move {
             let _worker = worker;
             let mut random = [0; 16];
-            getrandom::fill(&mut random).map_err(|error| AdminError::Backend(error.to_string()))?;
+            getrandom::fill(&mut random).map_err(AdminError::backend)?;
             let id = crate::hashing::encode_lower(&random);
             let mut handle = StagedObject {
                 catalog: catalog.clone(),
@@ -381,7 +389,7 @@ impl Admin {
             }
         })
         .await
-        .map_err(|error| AdminError::Backend(error.to_string()))?
+        .map_err(AdminError::backend)?
     }
 
     pub async fn publish_from_file(
@@ -541,7 +549,7 @@ impl Admin {
             import,
         ))
         .await
-        .map_err(|error| AdminError::Backend(error.to_string()))?
+        .map_err(AdminError::backend)?
     }
 }
 

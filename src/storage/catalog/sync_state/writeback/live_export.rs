@@ -228,7 +228,7 @@ impl Writeback {
                 };
                 let reservation = selected.as_ref().map_or(0, |s| s.fingerprint.size);
                 if usage.entries >= usage.limits.entries || usage.reserved_bytes + usage.retained_bytes + u128::from(reservation) > u128::from(usage.limits.bytes) { return Err(Error::Capacity); }
-                let id = BlobId::generate().map_err(|e| AdminError::Backend(e.to_string()))?.to_hex();
+                let id = BlobId::generate().map_err(AdminError::backend)?.to_hex();
                 tx.execute("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)", params![id,root.as_bytes(),owner,bucket.as_str(),incarnation,name.as_str(),path,generation.get(),kind as i64,fence.sequence.0 as i64,fence.revision,reservation.to_be_bytes(),size as i64,md5,crc32c])?;
                 let item = load(&tx,catalog,root,&id)?;
                 api_original(&tx,&item)?;
@@ -402,7 +402,7 @@ impl Writeback {
             .as_ref()
             .map(serde_json::to_vec)
             .transpose()
-            .map_err(|e| AdminError::Backend(e.to_string()))?;
+            .map_err(AdminError::backend)?;
         let selected = item.clone();
         operation.item = self.db(move |c| {
             let tx = c.transaction()?;

@@ -4,10 +4,12 @@ use crate::{
     auth::{Identity, OBJECTS_CREATE},
     bucket::BucketAccess,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate},
+    storage::failure::BackendCause,
 };
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 use serde_json::{Value, json};
 use std::{
+    borrow::Cow,
     fmt, fs,
     path::PathBuf,
     time::{Duration, SystemTime},
@@ -279,11 +281,7 @@ impl Catalog {
     }
 
     pub(super) fn try_resumable_writer(&self, id: &str) -> Result<WriterGuard, CatalogError> {
-        let mut writers = self
-            .0
-            .session_writers
-            .lock()
-            .map_err(|error| unavailable(error.to_string()))?;
+        let mut writers = self.0.session_writers.lock().map_err(unavailable)?;
         if writers.len() >= MAX_SESSIONS || !writers.insert(id.to_owned()) {
             return Err(unavailable("upload session is busy"));
         }
@@ -384,21 +382,30 @@ pub(super) fn encode_options(o: &ResumableOptions) -> Value {
 
 /// Stored resumable session options that no longer decode; the catalog treats them as corrupt.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::storage) struct InvalidOptions(String);
+pub(in crate::storage) struct InvalidOptions(BackendCause);
 
 impl InvalidOptions {
-    pub(in crate::storage) fn new(reason: impl Into<String>) -> Self {
-        Self(reason.into())
+    pub(in crate::storage) fn new(reason: impl Into<Cow<'static, str>>) -> Self {
+        Self(BackendCause::new(reason))
+    }
+
+    /// Options whose embedded value failed to decode; the decoding error stays the source.
+    fn from_error(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(BackendCause::from_error(error))
     }
 }
 
 impl fmt::Display for InvalidOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        fmt::Display::fmt(&self.0, f)
     }
 }
 
-impl std::error::Error for InvalidOptions {}
+impl std::error::Error for InvalidOptions {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.source()
+    }
+}
 
 pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, InvalidOptions> {
     let invalid = || InvalidOptions::new("invalid resumable options");
@@ -463,7 +470,7 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, InvalidOptio
             } else {
                 Some(
                     Identity::from_upload_snapshot(&a["identity"])
-                        .map_err(|error| InvalidOptions::new(error.to_string()))?,
+                        .map_err(InvalidOptions::from_error)?,
                 )
             },
             permission: crate::auth::Permission::ObjectsCreate,
@@ -521,10 +528,12 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, InvalidOptio
     })
 }
 
+/// A stored session row that does not decode, keeping the decoding error as the source.
+fn invalid(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, error.into())
+}
+
 pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> {
-    let invalid = |message: String| {
-        rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, message.into())
-    };
     let id: String = row.get(0)?;
     let blob_id: String = row.get(1)?;
     if id.len() != 64
@@ -534,13 +543,13 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
             .chain(blob_id.bytes())
             .all(|b| b.is_ascii_hexdigit())
     {
-        return Err(invalid("invalid upload opaque ID".into()));
+        return Err(invalid("invalid upload opaque ID"));
     }
     let state = match row.get::<_, String>(10)?.as_str() {
         "ACTIVE" => SessionState::Active,
         "COMPLETE" => SessionState::Complete,
         "CANCELLED" => SessionState::Cancelled,
-        _ => return Err(invalid("invalid upload state".into())),
+        _ => return Err(invalid("invalid upload state")),
     };
     let completion: Option<String> = row.get(11)?;
     Ok(ResumableSession {
@@ -550,26 +559,19 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
         name: row.get(3)?,
         incarnation: row.get(4)?,
         options: decode_options(
-            &serde_json::from_str::<Value>(&row.get::<_, String>(5)?)
-                .map_err(|e| invalid(e.to_string()))?,
+            &serde_json::from_str::<Value>(&row.get::<_, String>(5)?).map_err(invalid)?,
         )
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                5,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?,
+        .map_err(invalid)?,
         total: row
             .get::<_, Option<i64>>(6)?
-            .map(|n| u64::try_from(n).map_err(|e| invalid(e.to_string())))
+            .map(|n| u64::try_from(n).map_err(invalid))
             .transpose()?,
-        offset: u64::try_from(row.get::<_, i64>(7)?).map_err(|e| invalid(e.to_string()))?,
+        offset: u64::try_from(row.get::<_, i64>(7)?).map_err(invalid)?,
         created: system_time_millis(row.get(8)?)?,
         deadline: system_time_millis(row.get(9)?)?,
         state,
         completion: completion
-            .map(|v| serde_json::from_str(&v).map_err(|e| invalid(e.to_string())))
+            .map(|v| serde_json::from_str(&v).map_err(invalid))
             .transpose()?,
     })
 }

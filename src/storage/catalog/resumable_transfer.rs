@@ -78,7 +78,7 @@ async fn receive_chunk(
                     received = next;
                 }
                 Some(Ok(UploadChunk::End)) if received == chunk.length => break,
-                Some(Err(error)) => return Err(ObjectError::BodyAborted(error.to_string())),
+                Some(Err(error)) => return Err(ObjectError::body_aborted(error)),
                 _ => {
                     return Err(ObjectError::BodyAborted(
                         "Chunk did not reach complete EOF".into(),

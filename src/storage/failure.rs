@@ -73,6 +73,14 @@ impl fmt::Display for BackendCause {
     }
 }
 
+/// Lets a contextual message travel inside another error, such as `io::Error::other`, with
+/// the underlying error still reachable through `source()`.
+impl Error for BackendCause {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        BackendCause::source(self)
+    }
+}
+
 /// Formats like the bare message so `Debug` output of the error enums is unchanged.
 impl fmt::Debug for BackendCause {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

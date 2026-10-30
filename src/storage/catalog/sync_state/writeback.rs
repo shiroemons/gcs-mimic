@@ -815,7 +815,7 @@ impl Writeback {
                 Kind::Publish=>{let value=objects::lookup(&tx,&bucket,&name)?.ok_or_else(stale)?.0;(value.size,value.md5,value.crc32c)},
                 Kind::Remove=>tx.query_row("SELECT size,md5,crc32c FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4",params![bucket,name,incarnation,generation.get()],|r|Ok((r.get::<_,i64>(0)? as u64,r.get(1)?,r.get(2)?)))?,
             };
-            let id=BlobId::generate().map_err(|e|Error::Admin(AdminError::Backend(e.to_string())))?.to_hex();
+            let id=BlobId::generate().map_err(|e|Error::Admin(AdminError::backend(e)))?.to_hex();
             tx.execute("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)",
                 params![id,root.as_bytes(),owner,bucket,incarnation,name,path,generation.get(),kind as i64,fence.sequence.0 as i64,fence.revision,reservation.to_be_bytes(),size as i64,md5,crc32c])?;
             let item=load(&tx,catalog,root,&id)?;original(&tx,&item)?;
@@ -953,7 +953,7 @@ impl Writeback {
             .as_ref()
             .map(serde_json::to_vec)
             .transpose()
-            .map_err(|e| Error::Admin(AdminError::Backend(e.to_string())))?;
+            .map_err(|e| Error::Admin(AdminError::backend(e)))?;
         let next=self.db(move|c|{let tx=c.transaction()?;let item=checked(&tx,&token)?;original(&tx,&item)?;
             let usage=status(&tx,token.root)?;
             if usage.protected_entries>0||usage.over_limit(){return Err(Error::RecoveryRequired);}
@@ -1139,7 +1139,7 @@ async fn owned<T: Send + 'static>(
 ) -> Result<T, Error> {
     tokio::spawn(future)
         .await
-        .map_err(|e| Error::Admin(AdminError::Backend(e.to_string())))?
+        .map_err(|e| Error::Admin(AdminError::backend(e)))?
 }
 
 #[cfg(all(test, unix))]

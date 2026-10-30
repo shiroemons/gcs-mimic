@@ -883,7 +883,7 @@ async fn writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drai
             .file_job(move |root| {
                 let name = format!("copy-{index}");
                 fsutil::clone_or_copy_into(&descriptor, root, name.as_ref())
-                    .map_err(|e| AdminError::Backend(e.to_string()))?;
+                    .map_err(AdminError::backend)?;
                 assert_eq!(descriptor.stream_position().unwrap(), before);
                 Ok(fsutil::open_regular_at(root, name.as_ref())?)
             })
@@ -916,7 +916,7 @@ async fn writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drai
                 entered.send(()).unwrap();
                 blocked.recv().unwrap();
                 fsutil::clone_or_copy_into(&fd, workspace, entry.as_ref())
-                    .map_err(|e| AdminError::Backend(e.to_string()))?;
+                    .map_err(AdminError::backend)?;
                 Ok(())
             })
             .await
@@ -1355,7 +1355,7 @@ async fn writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion
                 fs::rename(&replace, &original)?;
                 fs::create_dir(&replace)?;
                 fsutil::clone_or_copy_into(&source, workspace, entry.as_ref())
-                    .map_err(|e| AdminError::Backend(e.to_string()))?;
+                    .map_err(AdminError::backend)?;
                 Ok(())
             })
             .await,
@@ -1512,7 +1512,7 @@ async fn writeback_cancelled_job_serializes_separate_handles_until_protected_bod
                 entered.send(()).unwrap();
                 blocked.recv().unwrap();
                 fsutil::clone_or_copy_into(&source, workspace, entry.as_ref())
-                    .map_err(|e| AdminError::Backend(e.to_string()))?;
+                    .map_err(AdminError::backend)?;
                 Ok(())
             })
             .await

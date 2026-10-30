@@ -124,8 +124,7 @@ impl Fingerprint {
         let fingerprint = Self::of(&file.metadata()?)?;
         #[cfg(windows)]
         let fingerprint = {
-            let identity = crate::fsutil::stat_identity(file)
-                .map_err(|error| io::Error::other(error.to_string()))?;
+            let identity = crate::fsutil::stat_identity(file).map_err(io::Error::other)?;
             Self {
                 ctime_ns: Some(identity.changed_ns),
                 inode: Some(identity.inode),

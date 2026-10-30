@@ -13,6 +13,7 @@ use crate::{
             Admin, AdminError, BatchPublication, BucketDefinition, BucketName, EnsureBucket,
             Generation, GenerationCondition, ObjectName, Origin, Publication, PublishMode,
         },
+        failure::BackendCause,
     },
 };
 use serde::Serialize;
@@ -68,7 +69,12 @@ pub async fn import(
         serde_json::json!({}),
     );
     let result = import_directory(&admin, config, clock, root).await;
-    result.map_err(|error| io::Error::other(format!("seed import: {error}")))
+    result.map_err(|error| {
+        io::Error::other(BackendCause::with_source(
+            format!("seed import: {error}"),
+            error,
+        ))
+    })
 }
 
 /// True when the live object carries exactly the metadata a seed publication would write, so
@@ -171,9 +177,12 @@ async fn import_directory(
             metadata: &metadata,
             depth,
         };
-        seed.entry(&fixture, &mut counts)
-            .await
-            .map_err(|error| io::Error::other(format!("{label}: {error}")))?;
+        seed.entry(&fixture, &mut counts).await.map_err(|error| {
+            io::Error::other(BackendCause::with_source(
+                format!("{label}: {error}"),
+                error,
+            ))
+        })?;
     }
     catalog.finish_seed().await.map_err(io::Error::other)?;
     Ok(SeedOutcome::Imported {

@@ -15,6 +15,7 @@ use crate::{
     fsutil,
     storage::{
         Catalog,
+        failure::BackendCause,
         sync_state::{
             CatalogId,
             root::{Activation, RootLease},
@@ -82,7 +83,7 @@ pub async fn preflight(catalog: &Catalog, config: &Config) -> io::Result<Option<
         });
     let state = catalog.sync_state();
     let id = state.catalog_id().await.map_err(io::Error::other)?;
-    state.activate_root(root, activation).await.map(Some).map_err(|error| io::Error::other(format!(
+    state.activate_root(root, activation).await.map(Some).map_err(|error| io::Error::other(BackendCause::with_source(format!(
         "{error}; restore the intended mount/root and stop other writers. For an associated root with a missing marker only, back up the tree and restart with --sync-reinitialize {id}. Preserve foreign/malformed markers and select a fresh unassociated directory; never overwrite them. A foreign .gcs-mimic-sync.json may have been committed to Git or copied from another environment: add it to .gitignore, preserve the tree and select a fresh directory, or select the intended data_dir."
-    )))
+    ), error)))
 }

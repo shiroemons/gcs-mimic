@@ -16,6 +16,7 @@
 //! ```
 
 use super::{Catalog, objects, read_bucket, select_bucket, unavailable};
+use crate::storage::failure::BackendCause;
 use crate::{
     bucket::{BucketAccess, BucketRecord, CatalogError},
     clock::Clock,
@@ -239,21 +240,33 @@ pub enum AdminError {
     Checksum,
     TooLarge,
     Forbidden,
-    BodyAborted(String),
-    Backend(String),
+    BodyAborted(BackendCause),
+    Backend(BackendCause),
 }
 impl fmt::Display for AdminError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "administrative operation: {self:?}")
     }
 }
-impl std::error::Error for AdminError {}
+impl std::error::Error for AdminError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::BodyAborted(cause) | Self::Backend(cause) => cause.source(),
+            _ => None,
+        }
+    }
+}
 impl From<io::Error> for AdminError {
     fn from(error: io::Error) -> Self {
         Self::from_kind(error.kind())
     }
 }
 impl AdminError {
+    /// Wraps a failure outside the catalog's own classification, keeping it as the source.
+    pub(crate) fn backend(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::Backend(BackendCause::from_error(error))
+    }
+
     fn from_kind(kind: io::ErrorKind) -> Self {
         if kind == io::ErrorKind::StorageFull {
             Self::DiskFull
@@ -275,7 +288,7 @@ impl From<CatalogError> for AdminError {
             CatalogError::InvalidMetadata(reason) | CatalogError::UnsupportedMetadata(reason) => {
                 Self::Invalid(reason)
             }
-            error => Self::Backend(error.to_string()),
+            error => Self::backend(error),
         }
     }
 }
@@ -296,7 +309,7 @@ impl From<ObjectError> for AdminError {
             ObjectError::InvalidMetadata => Self::Invalid(error.to_string()),
             ObjectError::Forbidden | ObjectError::OverwriteForbidden => Self::Forbidden,
             ObjectError::BodyAborted(reason) => Self::BodyAborted(reason),
-            error => Self::Backend(error.to_string()),
+            error => Self::backend(error),
         }
     }
 }
@@ -388,13 +401,13 @@ impl Catalog {
             let result = match inner.with_connection(operation) {
                 Ok(result) => result.map_err(AdminError::from),
                 Err(super::ConnectionUnavailable::Closed) => Err(AdminError::Closed),
-                Err(error) => Err(AdminError::Backend(error.to_string())),
+                Err(error) => Err(AdminError::backend(error)),
             };
             drop(inner);
             result
         })
         .await
-        .map_err(|error| AdminError::Backend(error.to_string()))?
+        .map_err(AdminError::backend)?
     }
 }
 

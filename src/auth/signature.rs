@@ -39,7 +39,7 @@ pub enum Failure {
 
 /// A `public_keys` entry that is not a supported RSA SubjectPublicKeyInfo PEM.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct InvalidPublicKey;
+pub struct InvalidPublicKey;
 
 impl fmt::Display for InvalidPublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -51,7 +51,7 @@ impl std::error::Error for InvalidPublicKey {}
 
 /// Why a timestamp could not be parsed or a URL or policy could not be signed. `Display` is the
 /// operator-facing message printed by the `url sign` command.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub enum SigningError {
     InvalidTimestamp,
     TimestampOutOfRange,
@@ -64,7 +64,8 @@ pub enum SigningError {
     InvalidRequest,
     PrivateKeyTooLarge,
     UnsupportedPrivateKey,
-    InvalidPrivateKey(String),
+    /// ring's reason for rejecting the key.
+    InvalidPrivateKey(ring::error::KeyRejected),
     SigningFailed,
 }
 
@@ -98,6 +99,9 @@ impl fmt::Display for SigningError {
     }
 }
 
+// ring's `KeyRejected` implements `std::error::Error` only with ring's `std` feature, which
+// this crate does not enable, so `InvalidPrivateKey` keeps it typed but cannot expose it as
+// `source()`.
 impl std::error::Error for SigningError {}
 
 #[derive(Debug)]
@@ -658,7 +662,7 @@ fn rsa_sign(private_key: &[u8], message: &str) -> Result<Vec<u8>, SigningError> 
         PrivateKeyDer::Pkcs1(key) => signature::RsaKeyPair::from_der(key.secret_pkcs1_der()),
         _ => return Err(SigningError::UnsupportedPrivateKey),
     }
-    .map_err(|e| SigningError::InvalidPrivateKey(e.to_string()))?;
+    .map_err(SigningError::InvalidPrivateKey)?;
     let mut bytes = vec![0; key.public().modulus_len()];
     key.sign(
         &signature::RSA_PKCS1_SHA256,

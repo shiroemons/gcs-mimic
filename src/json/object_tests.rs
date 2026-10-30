@@ -787,7 +787,7 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
             "Object exceeds the upload size limit",
         ),
         (
-            ObjectError::BodyAborted("private transport error".to_owned()),
+            ObjectError::BodyAborted("private transport error".into()),
             400,
             "badRequest",
             "The upload request body did not complete",

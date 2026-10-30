@@ -474,8 +474,12 @@ fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(
         }
         for (id, size) in rows {
             let path = blob_path(data_dir, &id)?;
-            let metadata = fs::symlink_metadata(&path)
-                .map_err(|error| object_unavailable(format!("referenced blob {id}: {error}")))?;
+            let metadata = fs::symlink_metadata(&path).map_err(|error| {
+                ObjectError::Unavailable(crate::storage::failure::BackendCause::with_source(
+                    format!("referenced blob {id}: {error}"),
+                    error,
+                ))
+            })?;
             if !metadata.is_file() || metadata.len() != size {
                 return Err(object_unavailable(format!(
                     "referenced blob {id} has invalid size or type"
@@ -927,11 +931,7 @@ impl Catalog {
     }
 
     pub(crate) fn admit_object_upload(&self) -> Result<UploadGuard, ObjectError> {
-        let mut uploads = self
-            .0
-            .uploads
-            .lock()
-            .map_err(|error| object_unavailable(error.to_string()))?;
+        let mut uploads = self.0.uploads.lock().map_err(object_unavailable)?;
         if uploads.closed || !self.is_healthy() {
             return Err(object_unavailable("catalog is closed"));
         }
@@ -1463,7 +1463,7 @@ async fn write_body(
                 if error.kind() == io::ErrorKind::StorageFull {
                     ObjectError::Io(error.into())
                 } else {
-                    ObjectError::BodyAborted(error.to_string())
+                    ObjectError::body_aborted(error)
                 }
             })?;
         let chunk = match chunk {

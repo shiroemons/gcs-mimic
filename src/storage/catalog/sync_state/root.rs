@@ -266,8 +266,7 @@ fn reserve(
             return Err(RootError::ReinitializeDenied);
         }
         let mut id = [0; 16];
-        getrandom::fill(&mut id)
-            .map_err(|error| RootError::Admin(AdminError::Backend(error.to_string())))?;
+        getrandom::fill(&mut id).map_err(|error| RootError::Admin(AdminError::backend(error)))?;
         transaction
             .execute(
                 "INSERT INTO sync_roots VALUES (?1,?2,?3,?4,0)",
@@ -435,7 +434,7 @@ impl SyncState {
                 .await
         })
         .await
-        .map_err(|error| RootError::Admin(AdminError::Backend(error.to_string())))?
+        .map_err(|error| RootError::Admin(AdminError::backend(error)))?
     }
 
     async fn activate_owned(

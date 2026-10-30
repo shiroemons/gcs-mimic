@@ -333,7 +333,7 @@ pub(crate) enum ObjectError {
     /// A customer-supplied key is invalid, missing or does not match the object.
     CustomerEncryption(crate::csek::CsekError),
     /// The request body ended early or failed while streaming.
-    BodyAborted(String),
+    BodyAborted(BackendCause),
     Io(IoCause),
     Corrupt(BackendCause),
     Unavailable(BackendCause),
@@ -388,7 +388,9 @@ impl std::error::Error for ObjectError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(cause) => cause.source(),
-            Self::Corrupt(cause) | Self::Unavailable(cause) => cause.source(),
+            Self::BodyAborted(cause) | Self::Corrupt(cause) | Self::Unavailable(cause) => {
+                cause.source()
+            }
             _ => None,
         }
     }
@@ -398,6 +400,11 @@ impl ObjectError {
     /// Wraps an adapter-side failure as unavailable, keeping it as the source.
     pub(crate) fn backend(error: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self::Unavailable(BackendCause::from_error(error))
+    }
+
+    /// The request body stream failed; the transport error stays the source.
+    pub(crate) fn body_aborted(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::BodyAborted(BackendCause::from_error(error))
     }
 
     pub(crate) fn is_backend_failure(&self) -> bool {

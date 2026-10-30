@@ -599,11 +599,7 @@ impl Catalog {
                 after = id.clone();
                 let key = format!("rewrite:{id}");
                 let _guard = {
-                    let mut writers = self
-                        .0
-                        .session_writers
-                        .lock()
-                        .map_err(|error| super::unavailable(error.to_string()))?;
+                    let mut writers = self.0.session_writers.lock().map_err(super::unavailable)?;
                     if writers.contains(&key) || writers.len() >= 128 {
                         continue;
                     }
