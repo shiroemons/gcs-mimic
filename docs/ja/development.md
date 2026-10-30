@@ -8,7 +8,7 @@
 ## 準備
 
 macOSまたはLinuxで、Bash、just 1.56.0以降、rustup、Go、jq、curl、
-Node.js 24以降（npm付き）、uvを使います。
+Node.js 24以降（npm付き）、uv 0.13.6以降を使います。
 Ruby・Bundler・gemは[SDKテストの指定バージョン](../../sdk-tests/ruby/README.md)を
 揃えてください。PythonはuvがPython SDKテスト用の指定バージョンを用意するので、
 別途インストールする必要はありません。PHP SDKテストはDocker上で動くので、PHPも不要です。

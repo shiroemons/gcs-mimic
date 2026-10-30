@@ -12,7 +12,7 @@ Install [just](https://github.com/casey/just#installation) 1.56.0 or newer to us
 `Justfile`; `just` lists the available recipes. The recipes are intended for
 macOS and Linux with Bash. The full pre-push check also requires Go, jq, curl,
 the pinned Ruby/Bundler/gems from [the Ruby harness](../../sdk-tests/ruby/README.md),
-Node.js 24+ with npm, uv, Docker Engine/Desktop, Compose and Buildx. Docker must be running and able to
+Node.js 24+ with npm, uv 0.13.6+, Docker Engine/Desktop, Compose and Buildx. Docker must be running and able to
 execute both Linux amd64 and arm64 containers, using emulation where needed.
 The Justfile uses the standard [parallel attribute](https://just.systems/man/en/attributes.html)
 and `--jobs` to control container concurrency.

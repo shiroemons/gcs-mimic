@@ -3,3 +3,8 @@ name = "gcs-mimic-sdk-tests-python"
 version = "0.0.0"
 requires-python = ">=3.15"
 dependencies = ["google-cloud-storage==3.17.1", "cryptography==50.0.2"]
+
+[tool.uv]
+# 0.13.6 is the first uv release that can install the pinned CPython 3.15.2; older uv
+# stops here with this requirement instead of failing to find the interpreter.
+required-version = ">=0.13.6"
