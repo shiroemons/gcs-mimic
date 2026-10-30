@@ -64,12 +64,7 @@ pub const CROSS_TARGET: &str = "target::cross";
 /// Rules reported as warnings instead of failures while existing code is migrated. Each entry
 /// is temporary: remove it (or empty the list) to enforce the rule once its findings are fixed.
 /// A pending rule still accepts suppressions, and stale or invalid suppressions still fail.
-pub const PENDING_RULES: &[&str] = &[
-    ALLOW_ATTRIBUTES,
-    ALLOW_TOO_MANY_ARGUMENTS,
-    UNCACHED_STATEMENT,
-    CROSS_TARGET,
-];
+pub const PENDING_RULES: &[&str] = &[];
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
