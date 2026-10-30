@@ -187,7 +187,7 @@
     "status": "PINNED",
     "digests": [
       {
-        "repository": "library/composer", "reference": "composer:2.11.0",
+        "repository": "library/composer", "reference": "composer:2.11.0", "release_input": false,
         "tag": "2.11.0", "latest_tag": "latest",
         "digest": "sha256:278dfc7bd35169965d03f87194816f43bf4e6b6ea61707c2114e52ad12fe24ce",
         "latest_verified_digest": "sha256:c7f68260503e3c1f0ece10bdbe84519fd98d48ba091f2c02f16ea94a7faae337",
@@ -201,7 +201,7 @@
         "purpose": "Development-only official Composer 2.11.0 / PHP 8.5.12 runtime for the PHP SDK scorecard and the official PHP SDK suite. sdk-scorecard/run.sh, sdk-scorecard/test-tls.sh and sdk-tests/php/run.sh pin this manifest index; daily detection checks replacement tags and digests."
       },
       {
-        "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie",
+        "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie", "release_input": true,
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
         "digest": "sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247",
         "latest_verified_digest": "sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247",
@@ -215,7 +215,7 @@
       },
       {
         "registry": "gcr.io",
-        "repository": "distroless/cc-debian13", "reference": "gcr.io/distroless/cc-debian13:nonroot",
+        "repository": "distroless/cc-debian13", "reference": "gcr.io/distroless/cc-debian13:nonroot", "release_input": true,
         "tag": "nonroot", "latest_tag": "nonroot", "stable_codename": "trixie",
         "digest": "sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e",
         "platforms": {
@@ -228,7 +228,7 @@
         "alias_note": "The nonroot tag tracks updates within Debian 13. Debian stable codename is checked independently so a newer Debian generation is detected."
       },
       {
-        "repository": "curlimages/curl", "reference": "curlimages/curl:8.23.0",
+        "repository": "curlimages/curl", "reference": "curlimages/curl:8.23.0", "release_input": false,
         "tag": "8.23.0", "latest_tag": "latest",
         "digest": "sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93",
         "platforms": {
@@ -240,14 +240,14 @@
         "update_scope": "Registry inspection on 2026-10-29 found the curl-container 8.23.0_2 rebuild, which moves the Alpine base from 3.24.2 to 3.24.3; curl stays 8.23.0 and both 8.23.0 and latest resolve to this index."
       },
       {
-        "repository": "docker/dockerfile", "reference": "docker/dockerfile:1",
+        "repository": "docker/dockerfile", "reference": "docker/dockerfile:1", "release_input": true,
         "tag": "1", "latest_tag": "1",
         "digest": "sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e",
         "platforms": {},
         "source_url": "https://docs.docker.com/build/buildkit/frontend/"
       },
       {
-        "repository": "moby/buildkit", "reference": "moby/buildkit:v0.34.1",
+        "repository": "moby/buildkit", "reference": "moby/buildkit:v0.34.1", "release_input": true,
         "tag": "v0.34.1", "latest_tag": "latest",
         "digest": "sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c",
         "platforms": {
@@ -258,7 +258,7 @@
         "purpose": "Pinned native container builder for GHCR publication, SBOM and provenance. The floating latest selector detects new stable image inputs."
       },
       {
-        "repository": "docker/buildkit-syft-scanner", "reference": "docker/buildkit-syft-scanner:stable-1",
+        "repository": "docker/buildkit-syft-scanner", "reference": "docker/buildkit-syft-scanner:stable-1", "release_input": true,
         "tag": "stable-1", "latest_tag": "stable-1",
         "digest": "sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315",
         "platforms": {

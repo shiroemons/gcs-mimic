@@ -1,0 +1,117 @@
+$ cargo xtask dependencies check --scope release
+scope=Release
+checked_at_unix_seconds=1793343249
+rust: CURRENT current=1.99.1 latest=1.99.1
+bytes: CURRENT current=1.12.1 latest=1.12.1
+crc32c: CURRENT current=0.6.8 latest=0.6.8
+flate2: CURRENT current=1.1.10 latest=1.1.10
+getrandom: CURRENT current=0.4.3 latest=0.4.3
+http-body-util: CURRENT current=0.1.5 latest=0.1.5
+hyper: CURRENT current=1.12.0 latest=1.12.0
+hyper-util: CURRENT current=0.1.21 latest=0.1.21
+libc: CURRENT current=0.2.191 latest=0.2.191
+md-5: CURRENT current=0.11.0 latest=0.11.0
+proptest: CURRENT current=1.12.0 latest=1.12.0
+prost: CURRENT current=0.14.4 latest=0.14.4
+prost-types: CURRENT current=0.14.4 latest=0.14.4
+ring: CURRENT current=0.17.14 latest=0.17.14
+rusqlite: CURRENT current=0.41.1 latest=0.41.1
+serde: CURRENT current=1.0.229 latest=1.0.229
+serde_json: CURRENT current=1.0.154 latest=1.0.154
+tokio: CURRENT current=1.54.1 latest=1.54.1
+tokio-rustls: CURRENT current=0.26.6 latest=0.26.6
+tonic: CURRENT current=0.14.9 latest=0.14.9
+tonic-prost: CURRENT current=0.14.9 latest=0.14.9
+tonic-prost-build: CURRENT current=0.14.9 latest=0.14.9
+windows-sys: CURRENT current=0.61.2 latest=0.61.2
+actions/checkout: CURRENT current=3d3c42e5aac5ba805825da76410c181273ba90b1 latest=3d3c42e5aac5ba805825da76410c181273ba90b1
+actions/setup-go: CURRENT current=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e latest=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+actions/upload-artifact: CURRENT current=cf430e030ddbb5b0abf93d22962f4752f3646cd9 latest=cf430e030ddbb5b0abf93d22962f4752f3646cd9
+actions/download-artifact: CURRENT current=9000827ccba6bdab643e8b6fd33ac0654aef8333 latest=9000827ccba6bdab643e8b6fd33ac0654aef8333
+Swatinem/rust-cache: CURRENT current=d1527c8f67ef9af357290475d4af4b0fab8f12e0 latest=d1527c8f67ef9af357290475d4af4b0fab8f12e0
+docker composer:2.11.0: SKIPPED development-only input
+docker library/rust:1.99.1-slim-trixie: CURRENT current=sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247 latest=sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247
+docker library/rust:slim-trixie: CURRENT current=sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247 latest=sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247
+Debian stable codename: CURRENT current=trixie latest=trixie
+docker distroless/cc-debian13:nonroot: CURRENT current=sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e latest=sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e
+docker curlimages/curl:8.23.0: SKIPPED development-only input
+docker docker/dockerfile:1: CURRENT current=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e latest=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+docker moby/buildkit:latest: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker moby/buildkit:v0.34.1: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker docker/buildkit-syft-scanner:stable-1: CURRENT current=sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315 latest=sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315
+SDK ecosystems: SKIPPED development-only inputs
+exit=0
+
+$ cargo xtask dependencies check
+scope=All
+checked_at_unix_seconds=1793343263
+rust: CURRENT current=1.99.1 latest=1.99.1
+bytes: CURRENT current=1.12.1 latest=1.12.1
+crc32c: CURRENT current=0.6.8 latest=0.6.8
+flate2: CURRENT current=1.1.10 latest=1.1.10
+getrandom: CURRENT current=0.4.3 latest=0.4.3
+http-body-util: CURRENT current=0.1.5 latest=0.1.5
+hyper: CURRENT current=1.12.0 latest=1.12.0
+hyper-util: CURRENT current=0.1.21 latest=0.1.21
+libc: CURRENT current=0.2.191 latest=0.2.191
+md-5: CURRENT current=0.11.0 latest=0.11.0
+proptest: CURRENT current=1.12.0 latest=1.12.0
+prost: CURRENT current=0.14.4 latest=0.14.4
+prost-types: CURRENT current=0.14.4 latest=0.14.4
+ring: CURRENT current=0.17.14 latest=0.17.14
+rusqlite: CURRENT current=0.41.1 latest=0.41.1
+serde: CURRENT current=1.0.229 latest=1.0.229
+serde_json: CURRENT current=1.0.154 latest=1.0.154
+tokio: CURRENT current=1.54.1 latest=1.54.1
+tokio-rustls: CURRENT current=0.26.6 latest=0.26.6
+tonic: CURRENT current=0.14.9 latest=0.14.9
+tonic-prost: CURRENT current=0.14.9 latest=0.14.9
+tonic-prost-build: CURRENT current=0.14.9 latest=0.14.9
+windows-sys: CURRENT current=0.61.2 latest=0.61.2
+actions/checkout: CURRENT current=3d3c42e5aac5ba805825da76410c181273ba90b1 latest=3d3c42e5aac5ba805825da76410c181273ba90b1
+actions/setup-go: CURRENT current=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e latest=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+actions/upload-artifact: CURRENT current=cf430e030ddbb5b0abf93d22962f4752f3646cd9 latest=cf430e030ddbb5b0abf93d22962f4752f3646cd9
+actions/download-artifact: CURRENT current=9000827ccba6bdab643e8b6fd33ac0654aef8333 latest=9000827ccba6bdab643e8b6fd33ac0654aef8333
+Swatinem/rust-cache: CURRENT current=d1527c8f67ef9af357290475d4af4b0fab8f12e0 latest=d1527c8f67ef9af357290475d4af4b0fab8f12e0
+docker library/composer:2.11.0: CURRENT current=sha256:278dfc7bd35169965d03f87194816f43bf4e6b6ea61707c2114e52ad12fe24ce latest=sha256:278dfc7bd35169965d03f87194816f43bf4e6b6ea61707c2114e52ad12fe24ce
+docker library/composer:latest: UPDATE_AVAILABLE current=sha256:278dfc7bd35169965d03f87194816f43bf4e6b6ea61707c2114e52ad12fe24ce latest=sha256:c7f68260503e3c1f0ece10bdbe84519fd98d48ba091f2c02f16ea94a7faae337
+docker library/rust:1.99.1-slim-trixie: CURRENT current=sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247 latest=sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247
+docker library/rust:slim-trixie: CURRENT current=sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247 latest=sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247
+Debian stable codename: CURRENT current=trixie latest=trixie
+docker distroless/cc-debian13:nonroot: CURRENT current=sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e latest=sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e
+docker curlimages/curl:8.23.0: CURRENT current=sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93 latest=sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+docker curlimages/curl:latest: CURRENT current=sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93 latest=sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+docker docker/dockerfile:1: CURRENT current=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e latest=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+docker moby/buildkit:latest: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker moby/buildkit:v0.34.1: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker docker/buildkit-syft-scanner:stable-1: CURRENT current=sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315 latest=sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315
+npm:@google-cloud/storage (sdk-scorecard/node/package.json): CURRENT current=8.4.0 latest=8.4.0
+npm:@google-cloud/storage (sdk-tests/node/package.json): CURRENT current=8.4.0 latest=8.4.0
+npm:google-auth-library (sdk-tests/node/package.json): CURRENT current=11.3.2 latest=11.3.2
+Python toolchain (sdk-scorecard/python/.python-version): CURRENT current=3.15.2 latest=3.15.2
+pypi:cryptography (sdk-scorecard/python/pyproject.toml): CURRENT current=50.0.2 latest=50.0.2
+pypi:google-cloud-storage (sdk-scorecard/python/pyproject.toml): CURRENT current=3.17.1 latest=3.17.1
+Python toolchain (sdk-tests/python/.python-version): CURRENT current=3.15.2 latest=3.15.2
+pypi:cryptography (sdk-tests/python/pyproject.toml): CURRENT current=50.0.2 latest=50.0.2
+pypi:google-cloud-storage (sdk-tests/python/pyproject.toml): CURRENT current=3.17.1 latest=3.17.1
+composer:google/cloud-storage (sdk-scorecard/php/composer.json): CURRENT current=2.6.1 latest=2.6.1
+composer:google/cloud-storage (sdk-tests/php/composer.json): CURRENT current=2.6.1 latest=2.6.1
+Ruby toolchain: CURRENT current=4.0.9 latest=4.0.9
+activestorage: CURRENT current=8.1.4 latest=8.1.4
+google-apis-iamcredentials_v1: CURRENT current=0.28.0 latest=0.28.0
+google-cloud-storage: CURRENT current=1.62.1 latest=1.62.1
+railties: CURRENT current=8.1.4 latest=8.1.4
+sqlite3: CURRENT current=2.10.2 latest=2.10.2
+bundler: CURRENT current=4.0.23 latest=4.0.23
+Go language baseline: CURRENT current=1.27.0 latest=1.27.0
+Go toolchain: CURRENT current=1.27.3 latest=1.27.3
+cloud.google.com/go/storage: CURRENT current=v1.70.0 latest=v1.70.0
+golang.org/x/oauth2: CURRENT current=v0.37.0 latest=v0.37.0
+google.golang.org/api: CURRENT current=v0.310.0 latest=v0.310.0
+google.golang.org/genproto: CURRENT current=v0.0.0-20261026165753-2ffab32bce7e latest=v0.0.0-20261026165753-2ffab32bce7e
+google.golang.org/grpc: CURRENT current=v1.85.0 latest=v1.85.0
+google.golang.org/protobuf: CURRENT current=v1.36.12 latest=v1.36.12
+Ruby toolchain: CURRENT current=4.0.9 latest=4.0.9
+google-cloud-storage: CURRENT current=1.62.1 latest=1.62.1
+bundler: CURRENT current=4.0.23 latest=4.0.23
+exit=1

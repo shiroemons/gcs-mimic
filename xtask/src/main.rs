@@ -1,6 +1,6 @@
 use std::{env, path::Path, process::ExitCode};
 
-const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check | lint [--target TRIPLE] | release prepare TARGET BINARY OUTPUT_DIR | release notices OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
+const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check [--scope all|release] | lint [--target TRIPLE] | release prepare TARGET BINARY OUTPUT_DIR | release notices OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
 
 fn main() -> ExitCode {
     let args: Vec<_> = env::args().skip(1).collect();
@@ -58,8 +58,12 @@ fn main() -> ExitCode {
             }
         };
     }
-    if args == ["dependencies", "check"] {
-        return match xtask::dependencies::check(root) {
+    if args.len() >= 2 && args[..2] == ["dependencies", "check"] {
+        let Some(scope) = xtask::dependencies::scope(&args[2..]) else {
+            eprintln!("{USAGE}");
+            return ExitCode::FAILURE;
+        };
+        return match xtask::dependencies::check(root, scope) {
             Ok(false) => ExitCode::SUCCESS,
             Ok(true) => ExitCode::FAILURE,
             Err(error) => {

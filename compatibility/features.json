@@ -55484,7 +55484,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Historical slice-start checks passed. The 0.1.0 release preparation reran official-source freshness and found a distroless runtime digest update (exit 1); dist-tag-publication owns the actual refresh and revalidation before publication. Release and weekly-review procedures are documented but their full cycles remain unexecuted. See docs/en/evidence/dist-release-notes.md. The local resource-measurement check reconfirmed Rust/direct crates CURRENT and the same unresolved distroless UPDATE_AVAILABLE (exit 1), with no pin updates; its pinned-image resource success does not satisfy freshness. Evidence: docs/en/evidence/dist-resource-measurement.txt.",
+      "notes": "Historical slice-start checks passed. The 0.1.0 release preparation reran official-source freshness and found a distroless runtime digest update (exit 1); dist-tag-publication owns the actual refresh and revalidation before publication. Release and weekly-review procedures are documented but their full cycles remain unexecuted. See docs/en/evidence/dist-release-notes.md. The local resource-measurement check reconfirmed Rust/direct crates CURRENT and the same unresolved distroless UPDATE_AVAILABLE (exit 1), with no pin updates; its pinned-image resource success does not satisfy freshness. Evidence: docs/en/evidence/dist-resource-measurement.txt. The release workflow's freshness gate runs `dependencies check --scope release`, which compares only inputs that build or ship release artifacts (Rust, direct crates, Actions and Docker inputs marked release_input) and skips SDK suites and test-only images; the daily check keeps the full scope. Evidence: docs/en/evidence/release-scope-dependencies.txt.",
       "dependencies": [
         "DEP-001"
       ],
@@ -55500,6 +55500,14 @@
           ]
         },
         {
+          "id": "DEP-006-A2",
+          "description": "The release freshness gate compares release inputs only: it passes while a development-only image drifts, and the full-scope check still reports that drift with exit 1. Every Docker input declares release_input, true exactly for images pinned in the Dockerfile or GHCR workflow.",
+          "result": "PASS",
+          "test_ids": [
+            "freshness-release-scope"
+          ]
+        },
+        {
           "id": "DEP-006-P1",
           "description": "Exercise a release gate and weekly exception-review cycle.",
           "result": "PENDING",
@@ -55507,9 +55515,19 @@
         }
       ],
       "test_ids": [
-        "freshness-live-check"
+        "freshness-live-check",
+        "freshness-release-scope"
       ],
       "verification": [
+        {
+          "command": "cargo xtask dependencies check --scope release",
+          "result": "PASS",
+          "verified_at": "2026-10-30",
+          "artifact": "docs/en/evidence/release-scope-dependencies.txt",
+          "test_ids": [
+            "freshness-release-scope"
+          ]
+        },
         {
           "command": "cargo +1.99.1 xtask dependencies check",
           "result": "PASS",

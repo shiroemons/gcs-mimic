@@ -234,6 +234,8 @@ Source: <https://docs.docker.com/build/building/best-practices/>
 
 Release gates require a successful check against the currently verified stable compiler, adoption of the latest direct dependencies or explicit visible exceptions, successful target-platform container smoke tests, and recorded version provenance.
 
+The freshness part of the release gate covers release inputs only: inputs that build or ship release artifacts. `cargo xtask dependencies check --scope release`, which the **Release binaries** `validate` job runs, compares the Rust toolchain, direct Cargo dependencies, GitHub Action pins and the Docker inputs marked `"release_input": true` in the [dependency snapshot](../../compatibility/dependency-status.json) (the Dockerfile builder, frontend and runtime, and the GHCR builder and SBOM generator), plus the Debian stable codename. It skips the SDK suite ecosystems and test-only images such as the Composer and peer curl images, because they ship nothing. Every Docker input must declare `release_input`; a unit test requires it to be true exactly for the images pinned in the Dockerfile or the GHCR workflow. The daily check and `just check-dependencies` keep the default `--scope all`, so drift in development-only inputs stays visible and must still be adopted or recorded as an exception; it just no longer blocks publishing artifacts that do not contain it.
+
 ## Dependency status evidence
 
 The 2026-10-29 SDK integration adds flate2 1.1.10 with default features disabled

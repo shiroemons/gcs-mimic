@@ -428,7 +428,9 @@ The Go harness requires Go and jq; it pins Go 1.27.3, storage v1.70.0 and API v0
 public GCR metadata. Other Rust tests are offline and use only loopback. All direct
 dependencies are compared against non-yanked stable releases, including new majors;
 Docker tags/digests and Debian stable codename are checked separately. Exit 1 means
-updates; exit 2 means verification failed. Run at slice start and before release
+updates; exit 2 means verification failed. `--scope release` compares only the inputs
+that build or ship release artifacts, as the release workflow does; see the
+[dependency policy](dependency-policy.md#ci-lanes). Run at slice start and before release
 and review exceptions weekly. No manifests are modified and nothing is published
 automatically.
 

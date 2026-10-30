@@ -910,7 +910,39 @@ fn direct_crate_resolutions(metadata: &Value) -> Result<BTreeMap<String, BTreeSe
     Ok(direct)
 }
 
-pub fn check(root: &Path) -> Result<bool> {
+/// Which inputs a freshness check compares.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// Every tracked input, as the daily check and `just check-dependencies` compare them.
+    All,
+    /// Only inputs that build or ship release artifacts. SDK suites and test-only images ship
+    /// nothing, so their drift stays visible in the daily check without blocking a release.
+    Release,
+}
+
+/// Parses the arguments after `dependencies check`.
+pub fn scope(args: &[String]) -> Option<Scope> {
+    match args {
+        [] => Some(Scope::All),
+        [flag, value] if flag == "--scope" => match value.as_str() {
+            "all" => Some(Scope::All),
+            "release" => Some(Scope::Release),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Every Docker input must say whether it builds or ships a release artifact, so a new image
+/// cannot fall out of the release gate by omission.
+fn release_input(image: &Value) -> Result<bool> {
+    image["release_input"]
+        .as_bool()
+        .ok_or_else(|| format!("missing release_input: {}", image["reference"]))
+}
+
+pub fn check(root: &Path, scope: Scope) -> Result<bool> {
+    println!("scope={scope:?}");
     println!(
         "checked_at_unix_seconds={}",
         std::time::SystemTime::now()
@@ -1032,6 +1064,14 @@ pub fn check(root: &Path) -> Result<bool> {
         let repository = text(image, "repository")?;
         let reference = text(image, "reference")?;
         let digest = text(image, "digest")?;
+        let pin = format!("{reference}@{digest}");
+        if !container_sources.contains(&pin) {
+            return Err(format!("container pin mismatch: {reference}"));
+        }
+        if !release_input(image)? && scope == Scope::Release {
+            println!("docker {reference}: SKIPPED development-only input");
+            continue;
+        }
         if image.get("stable_codename").is_some() {
             let expected = text(image, "stable_codename")?;
             let release = fetch(
@@ -1044,10 +1084,6 @@ pub fn check(root: &Path) -> Result<bool> {
                 .find_map(|line| line.strip_prefix("Codename: "))
                 .ok_or("missing Debian stable codename")?;
             drift |= compare("Debian stable codename", expected, codename);
-        }
-        let pin = format!("{reference}@{digest}");
-        if !container_sources.contains(&pin) {
-            return Err(format!("container pin mismatch: {reference}"));
         }
         let (manifest_source, headers) =
             registry_manifest_source(image, |url| fetch(url, &[], false))?;
@@ -1078,6 +1114,10 @@ pub fn check(root: &Path) -> Result<bool> {
                 }
             }
         }
+    }
+    if scope == Scope::Release {
+        println!("SDK ecosystems: SKIPPED development-only inputs");
+        return Ok(drift);
     }
     let scopes = status["sdk_ecosystems"]
         .as_array()
@@ -1517,6 +1557,39 @@ mod tests {
         }
         assert!(!compare("test", "1.0.0", "1.0.0"));
         assert!(compare("test", "1.0.0", "2.0.0"));
+    }
+
+    #[test]
+    fn scope_arguments() {
+        let args = |values: &[&str]| values.iter().map(|v| (*v).to_owned()).collect::<Vec<_>>();
+        assert_eq!(scope(&args(&[])), Some(Scope::All));
+        assert_eq!(scope(&args(&["--scope", "all"])), Some(Scope::All));
+        assert_eq!(scope(&args(&["--scope", "release"])), Some(Scope::Release));
+        assert_eq!(scope(&args(&["--scope"])), None);
+        assert_eq!(scope(&args(&["--scope", "sdk"])), None);
+        assert_eq!(scope(&args(&["release"])), None);
+    }
+
+    #[test]
+    fn release_inputs_are_the_images_that_build_or_ship_releases() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let release_sources = ["Dockerfile", ".github/workflows/ghcr.yaml"]
+            .map(|path| std::fs::read_to_string(root.join(path)).unwrap())
+            .join("\n");
+        let status = crate::read_json(&root.join("compatibility/dependency-status.json")).unwrap();
+        for image in status["docker"]["digests"].as_array().unwrap() {
+            let pin = format!(
+                "{}@{}",
+                text(image, "reference").unwrap(),
+                text(image, "digest").unwrap()
+            );
+            assert_eq!(
+                release_input(image).unwrap(),
+                release_sources.contains(&pin),
+                "{pin}"
+            );
+        }
+        assert!(release_input(&serde_json::json!({"reference": "x:1"})).is_err());
     }
 
     #[test]

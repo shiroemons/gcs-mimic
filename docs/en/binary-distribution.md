@@ -142,7 +142,8 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
 3. Run `just check-dependencies` and `just pre-push` on the final source. Commit
    the reviewed version, lockfile and notes, then push through the agreed process.
 4. Run **Release binaries** using GitHub Actions' manual dispatch on that commit.
-   It runs freshness checks, the reusable Foundation checks and every release
+   It runs the release-input freshness check
+   (`cargo xtask dependencies check --scope release`), the reusable Foundation checks and every release
    matrix target's native suite, uploads verification archives as workflow
    artifacts and runs the publish job up to the asset list. Manual dispatch
    never creates a public release. Inspect the results and archives. Do not tag

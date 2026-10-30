@@ -43,7 +43,8 @@ jobs:
             bash scripts/release-notes.sh "docs/en/releases/$version.md" "$REF_NAME" > /dev/null
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      - run: cargo xtask dependencies check
+      # Only inputs that build or ship the release gate it; the daily check covers the rest.
+      - run: cargo xtask dependencies check --scope release
         env:
           GITHUB_TOKEN: ${{ github.token }}
   foundation:
