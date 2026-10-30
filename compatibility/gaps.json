@@ -1236,7 +1236,7 @@
     {
       "id": "LOCAL-STORAGE-ERROR-CLASSIFICATION",
       "title": "Compose, copy/rewrite and resumable transfer paths report storage I/O and corruption failures without classification",
-      "status": "OPEN",
+      "status": "RESOLVED",
       "affected_features": [
         "JSON-OBJECTS-002",
         "JSON-OBJECTS-003",
@@ -1252,7 +1252,7 @@
       ],
       "observed_at": "2026-10-30",
       "kind": "LOCAL_DEVIATION",
-      "observed_evidence": "The shared storage failure mapping in src/storage/failure.rs classifies SQLite corruption and type errors as Corrupt, disk-full as Io(StorageFull), other io::Error values as Io, and everything else as Unavailable. Compose (src/storage/catalog/compose.rs), derived copy/rewrite transfers (src/storage/catalog/derived.rs, rewrite.rs) and resumable chunk transfer (src/storage/catalog/resumable_transfer.rs) deliberately map through object_unclassified, preserving their earlier behavior of reporting every backend failure as Unavailable. All three variants return 503 backendError, so status codes and retry behavior are identical; only the message differs. Classified paths name the remedy (check data directory permissions and free disk space, or restore a valid data directory), while the unclassified paths return the generic backend message.",
+      "observed_evidence": "Compose (src/storage/catalog/compose.rs), derived copy/rewrite transfers (src/storage/catalog/derived.rs, rewrite.rs) and resumable chunk transfer (src/storage/catalog/resumable_transfer.rs) now map backend failures through the shared classified object_unavailable, and object_unclassified was removed, so no write path can report a classified failure as generic. SQLite corruption returns 503 backendError 'stored data is corrupt; restore a valid data directory', and disk-full or other filesystem errors return 503 backendError 'storage I/O error (<kind>); check data directory permissions and available disk space', the same text single-shot uploads return. Non-I/O causes such as 'Acknowledged upload prefix is missing', 'catalog is closing' and SQLite busy remain unavailable with unchanged text. Status codes are unchanged. Fault-injection tests in src/storage/resumable_http_tests/fault_injection.rs inject disk-full, other I/O and corrupt-database failures at body write, tail flush, fsync, rename and publication commit on compose, copy, rewrite and resumable chunk/finalization requests and assert the exact classified 503 message; no Rust wire or SDK test depended on the generic text.",
       "required_resolution": "Decide whether the four paths should use the classified mapping so corruption and disk-full failures carry the same actionable message as single-shot uploads. Changing it alters only local 503 backendError message text; confirm no SDK or wire test depends on the generic text, switch object_unclassified call sites to object_unavailable, add fault-injection tests for StorageFull and corruption on each path, and remove object_unclassified when unused."
     }
   ],
