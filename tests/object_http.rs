@@ -159,6 +159,17 @@ impl Drop for Server {
     }
 }
 
+/// Creates the test bucket and runs `setup` on a server with the default deadlines,
+/// then stops it. A short connection deadline under test also bounds a whole bucket
+/// insert, which loaded runs exceeded with 503 before the scenario even started.
+fn before_short_deadline<T>(dir: &TestDir, setup: impl FnOnce(&Server) -> T) -> T {
+    let mut server = Server::start(dir, 1000, 5000);
+    server.bucket();
+    let result = setup(&server);
+    server.stop();
+    result
+}
+
 struct Reply {
     status: u16,
     headers: BTreeMap<String, String>,
@@ -779,8 +790,8 @@ fn obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out() {
     let dir = TestDir::new();
     // The 80 ms chunk gap stays far below the 600 ms timeout so scheduler
     // stalls on shared CI runners cannot turn activity into inactivity.
+    before_short_deadline(&dir, |_| ());
     let server = Server::start(&dir, 1000, 600);
-    server.bucket();
     let mut stream = server.stream();
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=slow HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n").unwrap();
     for _ in 0..10 {
@@ -804,9 +815,10 @@ fn obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out() {
 #[test]
 fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
     let dir = TestDir::new();
+    let original = before_short_deadline(&dir, |setup| {
+        setup.upload("name=held-0", "", b"original").json()
+    });
     let server = Server::with_timeouts(&dir, 1000, 300, 900, 5000);
-    server.bucket();
-    let original = server.upload("name=held-0", "", b"original").json();
     let started = Instant::now();
     let mut uploads: Vec<_> = (0..8).map(|index| {
         let mut stream = server.stream();
@@ -1080,8 +1092,8 @@ fn obj_http_completed_body_waits_for_commit_past_inactivity_deadline() {
     let dir = TestDir::new();
     // Holding the lock for four inactivity timeouts shows the completed body is
     // exempt; 500 ms keeps setup header reads clear of CPU starvation.
+    before_short_deadline(&dir, |_| ());
     let server = Server::start(&dir, 1000, 500);
-    server.bucket();
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     let mut stream = server.stream();
@@ -1096,8 +1108,8 @@ fn obj_http_completed_body_waits_for_commit_past_inactivity_deadline() {
 fn obj_http_queued_precheck_waits_past_body_inactivity_deadline() {
     let dir = TestDir::new();
     // As above: four inactivity timeouts of queueing, and 500 ms for header reads.
+    before_short_deadline(&dir, |_| ());
     let server = Server::start(&dir, 1000, 500);
-    server.bucket();
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     let mut first = server.stream();
