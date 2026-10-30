@@ -298,8 +298,9 @@ receiver; `execute_batch` is not checked because it runs multi-statement DDL
 and has no cached form. `text::string_error_variant` checks only the listed
 variant names, so a variant that names rejected client input, such as
 `InvalidTopic(String)`, may keep its message. `text::unsupervised_spawn` does
-not see `Handle::spawn` or `Runtime::spawn`; `JoinSet::spawn` keeps its tasks
-observed and is not matched. Review still applies the written rules where the
+not see `Handle::spawn` or `Runtime::spawn`; use `task::spawn_supervised_on`
+for an explicit runtime handle. `JoinSet::spawn` keeps its tasks observed and
+is not matched. Review still applies the written rules where the
 tool cannot.
 
 #### Reasoned suppressions

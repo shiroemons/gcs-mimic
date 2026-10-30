@@ -187,7 +187,7 @@ impl Drop for DerivedRequestGuard {
         };
         let catalog = self.catalog.clone();
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(async move {
+            crate::task::spawn_supervised_on(&runtime, "derived-cleanup", async move {
                 loop {
                     let notified = catalog.0.derived_wake.notified();
                     tokio::pin!(notified);
@@ -197,13 +197,21 @@ impl Drop for DerivedRequestGuard {
                             if let Err(error) = catalog.cleanup_derived(&id).await
                                 && error != ObjectError::DerivedTransferNotFound
                             {
-                                crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred abandoned derived cleanup: {error}")}));
+                                crate::diagnostics::emit(
+                                    crate::diagnostics::LogLevel::Warn,
+                                    "derived_cleanup_deferred",
+                                    serde_json::json!({"message":format!("deferred abandoned derived cleanup: {error}")}),
+                                );
                             }
                             return;
                         }
                         Err(ObjectError::DerivedTransferBusy) => notified.await,
                         Err(error) => {
-                            crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred abandoned derived cleanup: {error}")}));
+                            crate::diagnostics::emit(
+                                crate::diagnostics::LogLevel::Warn,
+                                "derived_cleanup_deferred",
+                                serde_json::json!({"message":format!("deferred abandoned derived cleanup: {error}")}),
+                            );
                             return;
                         }
                     }
@@ -623,7 +631,7 @@ impl Catalog {
         let catalog = self.clone();
         let id = id.to_owned();
         // Detached ownership keeps cancellation from racing directory closure or cleanup.
-        tokio::spawn(async move {
+        crate::task::spawn_supervised("derived-transfer", async move {
             let (_permit, _guard) = (permit, guard);
             let query = id.clone();
             let data_dir = catalog.0.data_dir.clone();
@@ -740,7 +748,7 @@ impl Catalog {
         .map_err(object_unavailable)?;
         let catalog = self.clone();
         let id = id.to_owned();
-        tokio::spawn(async move {
+        crate::task::spawn_supervised("derived-publication", async move {
             let (_permit, _guard) = (permit, guard);
             let query = id.clone();
             let data_dir = catalog.0.data_dir.clone();

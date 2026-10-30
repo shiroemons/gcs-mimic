@@ -162,7 +162,7 @@ impl Catalog {
     ) -> Result<Option<Value>, ResumableError> {
         let catalog = self.clone();
         let (_request, mut cancellation) = oneshot::channel::<()>();
-        tokio::spawn(async move {
+        crate::task::spawn_supervised("resumable-chunk", async move {
             let _permit = permit;
             let file = receive_chunk(
                 &lease,

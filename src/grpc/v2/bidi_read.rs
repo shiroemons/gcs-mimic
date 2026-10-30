@@ -214,7 +214,7 @@ impl Storage {
             ..Default::default()
         };
         let (tx, rx) = mpsc::channel(2);
-        tokio::spawn(async move {
+        crate::task::spawn_supervised("grpc-bidi-read", async move {
             let work = async {
                 tx.send(Ok(initial))
                     .await

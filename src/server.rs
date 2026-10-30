@@ -47,7 +47,8 @@ impl State {
         if !self.catalog.is_healthy() {
             self.ready.store(false, Ordering::Release);
         }
-        self.ready.load(Ordering::Acquire)
+        // A background loop restarting after a panic is a transient gap, so it does not latch.
+        self.ready.load(Ordering::Acquire) && self.catalog.background_tasks_running()
     }
 }
 
@@ -823,7 +824,7 @@ fn object_body(
 ) -> ResponseBody {
     let (sender, body) = chunk_body::channel();
     let activity = activity.clone();
-    tokio::spawn(async move {
+    crate::task::spawn_supervised("object-body", async move {
         loop {
             match reader.next_chunk().await {
                 Ok(Some(bytes)) => {

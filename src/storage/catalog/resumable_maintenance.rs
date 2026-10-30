@@ -250,43 +250,82 @@ impl Catalog {
         }
         let weak = std::sync::Arc::downgrade(&self.0);
         let wake = self.0.maintenance_wake.clone();
-        tokio::spawn(async move {
-            loop {
-                let notified = wake.notified();
-                tokio::pin!(notified);
-                // Register before reading the next deadline so insertions cannot lose a wakeup.
-                notified.as_mut().enable();
-                let Some(inner) = weak.upgrade() else {
-                    return;
-                };
-                if inner.admission.is_closed() {
-                    return;
-                }
-                let catalog = Catalog(inner);
-                let delay = match catalog.run_resumable_maintenance().await {
-                    Ok(next) => next.map(|deadline| {
-                        deadline
-                            .duration_since(catalog.0.clock.now())
-                            .unwrap_or_default()
-                    }),
-                    Err(error) => {
-                        crate::diagnostics::emit(
-                            crate::diagnostics::LogLevel::Warn,
-                            "resumable_maintenance_retry",
-                            serde_json::json!({"message":format!("resumable maintenance failed; retrying: {error}")}),
-                        );
-                        Some(RETRY_DELAY)
-                    }
-                };
-                drop(catalog);
-                match delay {
-                    Some(delay) => {
-                        tokio::select! { _ = tokio::time::sleep(delay) => {}, _ = &mut notified => {} }
-                    }
-                    None => notified.await,
-                }
+        // A panic must not end expiry for the rest of the process: restart the loop and report
+        // the gap through readiness. The supervisor holds only a weak reference, like the loop.
+        crate::task::spawn_restarting(
+            "resumable-maintenance",
+            self.0.maintenance_health.clone(),
+            move || {
+                let inner = weak.upgrade()?;
+                (!inner.admission.is_closed()).then(|| maintenance_loop(weak.clone(), wake.clone()))
+            },
+        );
+    }
+
+    /// False while a background loop is down after a panic and waiting to restart.
+    pub(crate) fn background_tasks_running(&self) -> bool {
+        !self.0.maintenance_health.is_down()
+    }
+
+    /// Makes the next `count` maintenance passes panic before doing any work.
+    #[cfg(test)]
+    pub(crate) fn inject_maintenance_panics(&self, count: usize) {
+        self.0
+            .maintenance_panics
+            .store(count, std::sync::atomic::Ordering::Release);
+    }
+}
+
+async fn maintenance_loop(
+    weak: std::sync::Weak<super::Inner>,
+    wake: std::sync::Arc<tokio::sync::Notify>,
+) {
+    loop {
+        let notified = wake.notified();
+        tokio::pin!(notified);
+        // Register before reading the next deadline so insertions cannot lose a wakeup.
+        notified.as_mut().enable();
+        let Some(inner) = weak.upgrade() else {
+            return;
+        };
+        if inner.admission.is_closed() {
+            return;
+        }
+        #[cfg(test)]
+        if inner
+            .maintenance_panics
+            .try_update(
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+                |count| count.checked_sub(1),
+            )
+            .is_ok()
+        {
+            panic!("injected resumable maintenance panic");
+        }
+        let catalog = Catalog(inner);
+        let delay = match catalog.run_resumable_maintenance().await {
+            Ok(next) => next.map(|deadline| {
+                deadline
+                    .duration_since(catalog.0.clock.now())
+                    .unwrap_or_default()
+            }),
+            Err(error) => {
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Warn,
+                    "resumable_maintenance_retry",
+                    serde_json::json!({"message":format!("resumable maintenance failed; retrying: {error}")}),
+                );
+                Some(RETRY_DELAY)
             }
-        });
+        };
+        drop(catalog);
+        match delay {
+            Some(delay) => {
+                tokio::select! { _ = tokio::time::sleep(delay) => {}, _ = &mut notified => {} }
+            }
+            None => notified.await,
+        }
     }
 }
 

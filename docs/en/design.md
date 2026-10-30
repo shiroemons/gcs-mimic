@@ -118,7 +118,11 @@ and 1 GiB media/resumable transfers for source bb8dd5c under those resource limi
 with HTTP, permissive/native defaults and swap disabled. This does not verify all
 Compose settings, other platforms, parallel transfers or a published release image.
 Resumable expiry uses one next-deadline scheduler, with no
-timer when idle; failed cleanup has a bounded retry delay.
+timer when idle; failed cleanup has a bounded retry delay. Background tasks are
+spawned through `src/task.rs`, which logs every panic. A panic in the scheduler
+restarts it with exponential backoff (100 ms doubling to 30 s), and
+`/_internal/ready` reports not ready until the replacement starts; unlike a
+poisoned catalog, this gap does not revoke readiness for good.
 
 Startup validates config, supplied TLS files and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running blocking work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Initial seed import completes before bind/readiness; resumable expiry uses the injected clock and one explicit deadline scheduler before readiness; other lifecycle scheduling remains future work.
 

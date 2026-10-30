@@ -95,12 +95,15 @@ pub(super) async fn respond(
         source_access,
         destination_access,
     };
-    let result = tokio::spawn(execute(
-        job,
-        state.catalog.clone(),
-        config.max_object_bytes,
-        state.api_base_url.clone(),
-    ))
+    let result = crate::task::spawn_supervised(
+        "rewrite",
+        execute(
+            job,
+            state.catalog.clone(),
+            config.max_object_bytes,
+            state.api_base_url.clone(),
+        ),
+    )
     .await;
     activity.send_modify(|progress| progress.awaiting_catalog = false);
     let (value, mut owner) =

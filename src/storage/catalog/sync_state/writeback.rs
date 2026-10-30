@@ -1137,7 +1137,7 @@ fn advance(
 async fn owned<T: Send + 'static>(
     future: impl std::future::Future<Output = Result<T, Error>> + Send + 'static,
 ) -> Result<T, Error> {
-    tokio::spawn(future)
+    crate::task::spawn_supervised("sync-writeback", future)
         .await
         .map_err(|e| Error::Admin(AdminError::backend(e)))?
 }

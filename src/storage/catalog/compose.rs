@@ -156,7 +156,7 @@ impl Catalog {
     ) -> Result<ObjectRecord, ObjectError> {
         let catalog = self.clone();
         // A complete JSON request owns its cleanup even when the HTTP response is cancelled.
-        tokio::spawn(async move {
+        crate::task::spawn_supervised("compose", async move {
             catalog
                 .compose_detached(destination, sources, disposal, max_bytes)
                 .await

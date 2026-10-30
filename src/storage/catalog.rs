@@ -404,8 +404,11 @@ struct Inner {
     maintenance_wake: Arc<Notify>,
     maintenance_error: Mutex<Option<String>>,
     maintenance_started: AtomicBool,
+    maintenance_health: crate::task::TaskHealth,
     #[cfg(test)]
     fail_rollback: AtomicBool,
+    #[cfg(test)]
+    maintenance_panics: std::sync::atomic::AtomicUsize,
 }
 
 struct Resources {
@@ -910,8 +913,11 @@ impl Catalog {
                 maintenance_wake: Arc::new(Notify::new()),
                 maintenance_error: Mutex::new(None),
                 maintenance_started: AtomicBool::new(false),
+                maintenance_health: crate::task::TaskHealth::default(),
                 #[cfg(test)]
                 fail_rollback: AtomicBool::new(false),
+                #[cfg(test)]
+                maintenance_panics: std::sync::atomic::AtomicUsize::new(0),
             })))
         })
         .await

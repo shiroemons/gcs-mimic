@@ -28,6 +28,7 @@ pub mod server;
 pub mod source_tree;
 pub mod storage;
 pub mod sync;
+mod task;
 #[cfg(test)]
 mod test_support;
 pub mod tls;

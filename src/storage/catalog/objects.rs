@@ -986,7 +986,7 @@ impl Catalog {
         let replay = permit.replay.take();
         let has_replay = replay.is_some();
         // Cancellation must not release directory ownership during publication or cleanup.
-        tokio::spawn(async move {
+        crate::task::spawn_supervised("object-upload", async move {
             let _permit = permit;
             let blob = super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
             let id = blob.to_hex();
@@ -2206,7 +2206,7 @@ impl Catalog {
             .map_err(object_unavailable)?;
         let catalog = self.clone();
         // Detached callers retain the cleanup slot until filesystem work and SQL settle.
-        let task = tokio::spawn(async move {
+        let task = crate::task::spawn_supervised("blob-reclamation", async move {
             let _permit = permit;
             let ids = catalog
                 .run_upload(|connection| {

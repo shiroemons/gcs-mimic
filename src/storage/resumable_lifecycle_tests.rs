@@ -964,6 +964,71 @@ async fn scheduler_retries_failed_cleanup_and_clears_its_error_after_repair() {
 }
 
 #[tokio::test]
+async fn scheduler_restarts_after_a_panic_and_readiness_reports_the_gap() {
+    let dir = TestDir::new();
+    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let catalog = setup(&dir, clock.clone()).await;
+    let state = gcs_mimic::server::State {
+        ready: AtomicBool::new(true),
+        clock: clock.clone(),
+        catalog: catalog.clone(),
+        api_base_url: "http://127.0.0.1:4443".into(),
+        default_location: "US".into(),
+        auth: Default::default(),
+    };
+    let session = catalog
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
+        .await
+        .unwrap();
+    *clock.0.lock().unwrap() = session.deadline;
+    // Every pass panics until the injection is cleared, keeping the loop in its restart backoff.
+    catalog.inject_maintenance_panics(usize::MAX);
+    catalog.start_resumable_maintenance();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while state.is_ready() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!catalog.background_tasks_running());
+    assert!(
+        catalog.is_healthy(),
+        "a restarting loop does not poison the catalog"
+    );
+    assert!(
+        !crate::task::tests::reported_panics("resumable-maintenance").is_empty(),
+        "the panic is reported"
+    );
+    catalog.inject_maintenance_panics(0);
+    // The restarted loop expires the session without another explicit maintenance call.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let count: i64 = rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
+                .unwrap()
+                .query_row("SELECT count(*) FROM resumable_sessions", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            if count == 0 && state.is_ready() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(catalog.background_tasks_running());
+    drop(state);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadline() {
     let dir = TestDir::new();
     let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));

@@ -104,8 +104,7 @@ impl StagedObject {
     }
     pub(crate) async fn discard(self) -> Result<(), AdminError> {
         let runtime = self.runtime.clone();
-        runtime
-            .spawn(self.cleanup())
+        crate::task::spawn_supervised_on(&runtime, "staged-object-discard", self.cleanup())
             .await
             .map_err(AdminError::backend)?
     }
@@ -129,7 +128,7 @@ impl Drop for StagedObject {
         let Some(id) = self.id.take() else { return };
         let catalog = self.catalog.clone();
         let permit = self.permit.take();
-        self.runtime.spawn(async move {
+        crate::task::spawn_supervised_on(&self.runtime, "staged-object-cleanup", async move {
             let _permit = permit;
             if let Err(error) = cleanup(&catalog, id).await {
                 crate::diagnostics::emit(
@@ -341,7 +340,7 @@ impl Admin {
             .await?;
         let catalog = self.catalog.clone();
         // Owned work returns a handle even if its receiving future is cancelled; Drop then cleans it.
-        tokio::spawn(async move {
+        crate::task::spawn_supervised("admin-stage-object", async move {
             let _worker = worker;
             let mut random = [0; 16];
             getrandom::fill(&mut random).map_err(AdminError::backend)?;
@@ -539,15 +538,18 @@ impl Admin {
             .catalog
             .wait_admin(self.catalog.0.publication_batch.clone(), deadline)
             .await?;
-        tokio::spawn(run_batch(
-            self.catalog.clone(),
-            self.grant.clone(),
-            entries,
-            deadline,
-            budget,
-            (batch, request),
-            import,
-        ))
+        crate::task::spawn_supervised(
+            "admin-publication-batch",
+            run_batch(
+                self.catalog.clone(),
+                self.grant.clone(),
+                entries,
+                deadline,
+                budget,
+                (batch, request),
+                import,
+            ),
+        )
         .await
         .map_err(AdminError::backend)?
     }

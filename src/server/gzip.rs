@@ -47,7 +47,7 @@ pub(super) fn body(
 ) -> ResponseBody {
     let (sender, body) = super::chunk_body::channel();
     let activity = activity.clone();
-    tokio::spawn(async move {
+    crate::task::spawn_supervised("gzip-object-body", async move {
         let mut progress = activity.subscribe();
         let stream = async {
             let file = reader.into_file().await;

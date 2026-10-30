@@ -401,7 +401,7 @@ impl Storage {
             }
         }
         let (tx, rx) = mpsc::channel(1);
-        tokio::spawn(async move {
+        crate::task::spawn_supervised("grpc-read-object", async move {
             let mut response = first;
             loop {
                 match reader.next_chunk().await {
@@ -492,7 +492,7 @@ impl Storage {
             max_object_bytes: self.max_object_bytes,
         };
         let (tx, rx) = mpsc::channel(1);
-        tokio::spawn(async move {
+        crate::task::spawn_supervised("grpc-write-object", async move {
             let caller = strict.then(|| {
                 identity
                     .as_ref()

@@ -402,7 +402,7 @@ impl SyncState {
         let catalog = self.catalog_id().await?;
         // Detached ownership makes cancellation safe across the separate durability domains.
         let state = self.clone();
-        tokio::spawn(async move {
+        crate::task::spawn_supervised("sync-root-ownership", async move {
             let ownership = state
                 .0
                 .0
