@@ -209,55 +209,57 @@ describe inheritance and local overrides.
 
 The workspace lints also deny `clippy::dbg_macro`, `clippy::todo` and
 `clippy::unimplemented`, so debugging leftovers and placeholders fail the
-`-D warnings` run.
+`-D warnings` run, and `unreachable_pub` and `clippy::redundant_clone` on
+every target.
 
-### Lint ratchet
+### Production lint gate
 
 `cargo xtask lint` enforces the Rust implementation guardrails in
 [AGENTS.md](../../AGENTS.md#rust-implementation-guardrails). `scripts/check.sh`
 runs it after workspace Clippy, so `just check` and Foundation CI run it too.
-It counts violations per rule and file and compares them with
-`xtask/lint-baseline.json`:
+It is a zero-tolerance gate over server production code: any finding fails,
+and it prints every occurrence. There is no baseline. The only exceptions are:
 
-- A count above the baseline fails and lists every occurrence of that rule in
-  that file.
-- A count below the baseline also fails, as a stale baseline. Run
-  `cargo xtask lint --update-baseline` and commit the lower counts, so a fix
-  cannot be silently undone later.
-- `--update-baseline` refuses to raise any count. Raising one requires
-  `cargo xtask lint --update-baseline --allow-increase`, and the baseline diff
-  must be justified in review. The same command regenerates the whole baseline,
-  for example after merging branches that both changed it.
-- `cargo xtask lint --strict` ignores the baseline and allows no violations,
-  except one definition of the shared `unavailable` helper. It also reports
-  what blocks the final deny switch (below). It replaces the ratchet once both
-  lists are empty.
-- Every mode prints how many findings reasoned suppressions silenced, per
-  rule, and fails on any invalid or stale suppression.
+- a reasoned `#[expect(<lint>, reason = "...")]` for a Clippy or rustc lint
+  (see [below](#expect-for-restriction-lints));
+- a reasoned `// xtask-lint: allow(text::<rule>) -- <reason>` comment for a
+  text rule (see [Reasoned suppressions](#reasoned-suppressions));
+- exactly one definition of `fn unavailable`, the shared storage error
+  mapping, in `src/storage/failure.rs`. A definition anywhere else fails, and
+  so does a second one in that file or a missing one.
 
-The check covers only server production code: files under `src/` except
+The gate prints how many findings reasoned suppressions silenced, per rule,
+and fails on any invalid or stale suppression.
+
+The gate covers only server production code: files under `src/` except
 `src/grpc/generated/`, the `src/grpc/codegen/` build tool, `*_tests.rs`,
 `tests.rs` and `test_support.rs`. Clippy runs on the `gcs-mimic` library and
 binary only (`--lib --bins`), so `cfg(test)` code is not compiled; the text
 rules skip each item marked `#[cfg(test)]` or `#[cfg(all(test, ...))]`.
 Clippy runs for the host target only, so code behind other targets' `cfg`
-is not counted.
+is not checked. Tests may unwrap and expect.
 
-| Rule | Counts |
+| Rule | Rejects |
 | --- | --- |
 | `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic` | Panics reachable from requests. |
 | `clippy::too_many_lines` | Functions over 120 lines (`clippy.toml`). |
 | `clippy::fn_params_excessive_bools` | Functions with any `bool` parameter (`max-fn-params-bools = 0`). |
-| `clippy::needless_pass_by_value`, `clippy::redundant_clone` | Avoidable copies. |
+| `clippy::needless_pass_by_value` | Avoidable copies. |
 | `clippy::allow_attributes_without_reason` | `#[allow]` without a `reason`. |
-| `unreachable_pub` | `pub` items that are not reachable from the crate root. |
 | `text::path_attribute` | `#[path]` module attributes. |
 | `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`. |
-| `text::unavailable_helper` | Definitions of `fn unavailable`, counted across all files. |
+| `text::unavailable_helper` | `fn unavailable` outside `src/storage/failure.rs`, or not exactly one there. |
 | `text::allow_too_many_arguments` | `#[allow]` or `#[expect]` of `clippy::too_many_arguments`. |
 | `text::uncached_prepare` | rusqlite `.prepare(` calls instead of `prepare_cached`. |
 | `text::format_sql` | `format!` whose literal starts with an SQL statement. |
 | `text::sync_without_flush` | `.sync_all().await` or `.sync_data().await` after an awaited write in the same function with no `.flush().await` or `.shutdown().await` in between. |
+
+`unreachable_pub` and `clippy::redundant_clone` pass on every workspace target,
+so `[workspace.lints]` denies them and the plain
+`cargo clippy --workspace --all-targets -- -D warnings` run enforces them,
+tests included. The gate does not pass them with `-W`: a command-line `-W`
+would lower that `deny` to a warning. A unit test in `xtask` fails if a lint
+appears in both places.
 
 The text rules ignore comments and string contents. They are heuristics:
 for example, `text::format_sql` does not see SQL assembled through other
@@ -299,48 +301,31 @@ checked there: the attribute sets the lint's level inside the item, so Clippy
 runs the lint in that scope. A matching call fulfills the expectation; without
 one, `unfulfilled_lint_expectations` fails the `-D warnings` run. This was
 verified on Rust 1.99.1 with a scratch crate. `cargo check` and `cargo build`
-do not run Clippy lints, so they report neither case. The ratchet's `-W` run
+do not run Clippy lints, so they report neither case. The gate's `-W` run
 does not count a call covered by a fulfilled `#[expect]`.
 
-#### Final deny switch
+Code that only unit tests use is compiled under the same `cfg` as those
+tests, for example `#[cfg(all(test, unix))]`, instead of staying in production
+builds as dead code. A field that only tests read keeps a reasoned
+`#[cfg_attr(not(test), expect(dead_code, reason = "..."))]`.
 
-The counted Clippy and rustc lints move into `[workspace.lints]` once nothing
-in the workspace triggers them. `[workspace.lints]` reaches every target of
-every member (the server's tests and examples, xtask and the gRPC code
-generator), not only the production code that the ratchet counts. Therefore
-`cargo xtask lint --strict` runs a second Clippy pass,
-`cargo clippy --workspace --all-targets` with the same `-W` lints, and reports
-each finding that the production pass did not see as blocking the switch. It
-ends with the lints that are ready to deny.
+#### All-targets report
 
-`clippy.toml`'s `allow-unwrap-in-tests`, `allow-expect-in-tests` and
-`allow-panic-in-tests` cover `#[test]` functions and `#[cfg(test)]` modules.
-They do not cover helper functions of integration tests, such as
-`tests/common/` or a test file's non-`#[test]` functions, so those helpers
-need a fix or a reasoned
-`#![expect(clippy::unwrap_used, reason = "...")]` on the test module. The
-existing reasonless `#![allow(clippy::unwrap_used, clippy::expect_used)]` in
-`cfg(test)` modules duplicate the `clippy.toml` allowances; deleting them also
-clears their `clippy::allow_attributes_without_reason` findings.
+`cargo xtask lint --all-targets-report` runs
+`cargo clippy --workspace --all-targets` with the gate's Clippy lints and
+prints the count per lint and file, including tests, examples, xtask and the
+gRPC code generator, then the lints with no finding anywhere. It is
+informational, always exits 0 on findings and is not part of `just check` or
+CI. `clippy.toml`'s `allow-unwrap-in-tests`, `allow-expect-in-tests` and
+`allow-panic-in-tests` cover `#[test]` functions and `#[cfg(test)]` modules,
+but not helper functions of integration tests, which the report lists.
 
-The switch can be made one lint at a time:
+A lint that the report shows as ready can move to `[workspace.lints]`:
 
-1. Run `cargo xtask lint --strict`. Pick a lint from
-   `lints ready to deny in [workspace.lints]`, or clear its production
-   violations and switch blockers first.
-2. Add it to `Cargo.toml`: `unwrap_used = "deny"` (without the `clippy::`
-   prefix) under `[workspace.lints.clippy]`, or `unreachable_pub = "deny"`
-   under `[workspace.lints.rust]`.
-3. Remove it from `CLIPPY_LINTS` in `xtask/src/lint.rs`, because the regular
-   `-D warnings` run now enforces it, and run
-   `cargo xtask lint --update-baseline` so the baseline holds no entry for it.
-4. Run `just check`.
-
-When `cargo xtask lint --strict` passes, every counted Clippy lint has moved and
-the text rules are at zero. Then replace `cargo xtask lint` with
-`cargo xtask lint --strict` in `scripts/check.sh`, which `just check` and
-Foundation CI run, delete `xtask/lint-baseline.json`, and remove the ratchet
-and `--update-baseline` modes from xtask.
+1. Add it to `Cargo.toml`, for example `unwrap_used = "deny"` (without the
+   `clippy::` prefix) under `[workspace.lints.clippy]`.
+2. Remove it from `CLIPPY_LINTS` in `xtask/src/lint.rs`.
+3. Run `just check`.
 
 ## Direct verification commands
 

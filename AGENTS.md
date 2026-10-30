@@ -41,23 +41,23 @@ gcs-mimic is an independent Google Cloud Storage emulator written in Rust. It ta
 
 ## Rust implementation guardrails
 
-`cargo xtask lint` (run by `just check` and CI) enforces most of these rules as a ratchet over `xtask/lint-baseline.json`: existing violations are recorded per rule and file, a new one fails the check, and a fixed one fails it until the baseline is lowered. Each rule below states why.
+`cargo xtask lint` (run by `just check` and CI) enforces most of these rules on production code with zero tolerance: any finding fails, and there is no baseline. `[workspace.lints]` denies `unreachable_pub` and `clippy::redundant_clone` on every target. Tests may unwrap. Each rule below states why.
 
 - Do not use `unwrap()` in production code, and use `expect()` only for an invariant the surrounding code proves, under `#[expect(clippy::expect_used, reason = "...")]`. A panic reachable from a request turns bad input into a dropped connection or a crashed task.
 - Isolate panics per connection and background task; a panic must never stop the listener or the server. One faulty request must not deny service to every other client.
 - Recover from poisoned locks or fail visibly through health checks and errors; never leave the catalog permanently unusable. A poisoned mutex otherwise turns one panic into a silent permanent outage.
 - Return typed error enums that keep the underlying error as `source()`, and add no new `Result<_, String>` signatures. Stringified errors lose the cause chain needed to classify and debug failures.
-- Map storage errors through one shared helper or `From` conversion, not a per-module copy of `fn unavailable`. Duplicated helpers drift apart in status codes and messages.
-- Keep functions within the Clippy line threshold in `clippy.toml` (120 lines); group request context in a struct instead of long parameter lists, and add no new `#[allow(clippy::too_many_arguments)]`. Giant handlers and hidden parameter lists are where the review found untestable, inconsistent behavior.
+- Map storage errors through the one shared `fn unavailable` in `src/storage/failure.rs` or a `From` conversion, not a per-module copy. Duplicated helpers drift apart in status codes and messages.
+- Keep functions within the Clippy line threshold in `clippy.toml` (120 lines); group request context in a struct such as `server::context::RequestCtx` instead of long parameter lists, and add no new `#[allow(clippy::too_many_arguments)]`. Giant handlers and hidden parameter lists are where the review found untestable, inconsistent behavior.
 - Make the module tree mirror the file tree; do not add `#[path]` attributes. Diverging trees make code hard to find and module privacy hard to reason about.
-- Default to `pub(crate)` and expose only what binaries and integration tests use. Every `pub` item is API surface that blocks refactoring.
+- Default to `pub(crate)` and expose only what binaries, integration tests and examples use; compile test-only helpers under the tests' `cfg`. Every `pub` item is API surface that blocks refactoring.
 - Use a two-variant enum instead of a `bool` parameter. A literal `true` or `false` at the call site hides its meaning.
 - On request paths use `prepare_cached` with static SQL, not `prepare` or `format!`-built statements. Re-preparing per request wastes CPU, and built SQL invites injection.
 - Run blocking I/O and CPU-heavy work only through the bounded blocking pools, never directly on async worker threads. Blocking an async worker stalls every connection it serves.
 - Stream object bodies with bounded buffers. Unbounded buffering makes memory grow with request size.
 - Flush a `tokio::fs::File` before `sync_all()` or `sync_data()`. tokio finishes the last write in the background and the sync calls do not report its error, so a failed tail write would publish a short file as durable.
 
-Run `cargo xtask lint` before pushing. Fixing violations lowers counts: run `cargo xtask lint --update-baseline` and commit the baseline. Raising a count requires `--update-baseline --allow-increase` and an explicit justification in review. A legitimate text-rule hit, such as DDL built only from static fragments, takes `// xtask-lint: allow(text::<rule>) -- <reason>` on its line or the line above; the tool rejects unknown rules, reasons under 10 characters and suppressions that suppress nothing. Clippy lints use `#[expect(<lint>, reason = "...")]` instead. `cargo xtask lint --strict` ignores the baseline, also lists what blocks denying the Clippy lints in `[workspace.lints]`, and becomes the gate once both are empty. Details are in `docs/en/development.md`.
+Run `cargo xtask lint` before pushing and fix every finding. A legitimate exception needs a written reason: `#[expect(<lint>, reason = "...")]` for a Clippy or rustc lint, or `// xtask-lint: allow(text::<rule>) -- <reason>` on the line or the line above for a text rule, such as DDL built only from static fragments. The tool rejects unknown rules, reasons under 10 characters and suppressions that suppress nothing. `cargo xtask lint --all-targets-report` lists the same Clippy lints across tests and tooling for information only. Details are in `docs/en/development.md`.
 
 ## Access and URLs
 
