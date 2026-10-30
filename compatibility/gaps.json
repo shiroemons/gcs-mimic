@@ -1232,6 +1232,28 @@
       "kind": "SOURCE_QUESTION",
       "observed_evidence": "The current JSON method and Discovery expose deleteSourceObjects, and the composing guide says hard deletion bypasses Object Versioning and soft delete. The permission list names storage.objects.delete only for destination overwrite; source-deletion permission, active holds, duplicate sources, destination-as-source, concurrent source changes and cross-object failure atomicity remain unspecified. The local safety contract requires delete permission, rejects any held selected source, deletes duplicate generations once, keeps the newly published destination, and joins publication/deletions in one catalog transaction. These are local safety choices, separate from the documented hard-delete success and failure-preservation scope. The JSON composite guide ignores supplied destination MD5/CRC32C, whereas pinned Go Composer.SendCRC32C and the RPC object_checksums field describe validation; JSON follows the guide without inferring RPC behavior. The JSON resource defines the serving application/octet-stream fallback; first-source contentType inheritance is expressly attributed to gcloud, not the JSON API. Null/empty/omitted destination metadata, unknown/output-only inputs and exhaustive error precedence remain local rules. Full acceptance decomposition: docs/en/slices/object-compose.md.",
       "required_resolution": "Keep provider questions OPEN and outside the explicitly declared local acceptance scope; scoped completion does not claim full Google-service parity. Obtain authoritative clarification or explicitly authorized differential evidence for source-deletion permission/holds, duplicate/self sources, concurrent disappearance and all-or-nothing failure behavior, supplied JSON CRC32C versus RPC/SDK wording, destination MIME/default/null handling, unknown/output-only fields and error precedence. Composite JSON/XML ETags share a stable local quoted c-generation-metageneration form and change with metadata; the provider's opaque format remains unverified and is not a checksum identity claim. XML GET/HEAD emit x-goog-component-count only on composites as documented; JSON's common-header reference does not document it, so the adapter exposes componentCount in JSON resources without adding that XML header, and provider JSON header parity remains unverified. A changed bucket incarnation returns local 412; cleanup failures are logged for recovery without replacing the original error. Every explicit destination storageClass is rejected with 501, including an identical source class. Do not restore the obsolete 1024 component limit: current official quotas establish unlimited cumulative components with int32-saturating metadata. Preserve the separately declared local non-destructive safety rules; no real-cloud request is authorized by this gap."
+    },
+    {
+      "id": "LOCAL-STORAGE-ERROR-CLASSIFICATION",
+      "title": "Compose, copy/rewrite and resumable transfer paths report storage I/O and corruption failures without classification",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-OBJECTS-002",
+        "JSON-OBJECTS-003",
+        "JSON-OBJECTS-012",
+        "BEHAVIOR-OBJECT-011",
+        "BEHAVIOR-OBJECT-014",
+        "BEHAVIOR-OBJECT-023",
+        "BEHAVIOR-OBJECT-024",
+        "BEHAVIOR-OBJECT-027"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes"
+      ],
+      "observed_at": "2026-10-30",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The shared storage failure mapping in src/storage/failure.rs classifies SQLite corruption and type errors as Corrupt, disk-full as Io(StorageFull), other io::Error values as Io, and everything else as Unavailable. Compose (src/storage/catalog/compose.rs), derived copy/rewrite transfers (src/storage/catalog/derived.rs, rewrite.rs) and resumable chunk transfer (src/storage/catalog/resumable_transfer.rs) deliberately map through object_unclassified, preserving their earlier behavior of reporting every backend failure as Unavailable. All three variants return 503 backendError, so status codes and retry behavior are identical; only the message differs. Classified paths name the remedy (check data directory permissions and free disk space, or restore a valid data directory), while the unclassified paths return the generic backend message.",
+      "required_resolution": "Decide whether the four paths should use the classified mapping so corruption and disk-full failures carry the same actionable message as single-shot uploads. Changing it alters only local 503 backendError message text; confirm no SDK or wire test depends on the generic text, switch object_unclassified call sites to object_unavailable, add fault-injection tests for StorageFull and corruption on each path, and remove object_unclassified when unused."
     }
   ],
   "resolved_research_items": [
