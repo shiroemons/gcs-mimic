@@ -50,7 +50,6 @@ pub(crate) fn cors(
     fallback: CorsFallback,
 ) -> HeaderMap {
     let mut result = HeaderMap::new();
-    let preflight = request == CorsRequest::Preflight;
     let one = |name: &str| {
         let mut values = headers.get_all(name).iter();
         let value = values.next()?;
@@ -62,15 +61,16 @@ pub(crate) fn cors(
     let Ok(origin) = origin_value.to_str() else {
         return result;
     };
-    let requested_method = if preflight {
-        let Some(method) = one("access-control-request-method")
-            .filter(|value| Method::from_bytes(value.as_bytes()).is_ok())
-        else {
-            return result;
-        };
-        method
-    } else {
-        method.as_str()
+    let requested_method = match request {
+        CorsRequest::Preflight => {
+            let Some(method) = one("access-control-request-method")
+                .filter(|value| Method::from_bytes(value.as_bytes()).is_ok())
+            else {
+                return result;
+            };
+            method
+        }
+        CorsRequest::Actual => method.as_str(),
     };
     if !matches!(requested_method, "DELETE" | "GET" | "HEAD" | "POST" | "PUT") {
         return result;
@@ -90,54 +90,57 @@ pub(crate) fn cors(
     }) else {
         return result;
     };
-    if preflight {
-        let requested_headers = if headers.contains_key("access-control-request-headers") {
-            let Some(value) = one("access-control-request-headers") else {
-                return result;
+    match request {
+        CorsRequest::Preflight => {
+            let requested_headers = if headers.contains_key("access-control-request-headers") {
+                let Some(value) = one("access-control-request-headers") else {
+                    return result;
+                };
+                let names: Vec<_> = value.split(',').map(str::trim).collect();
+                if names.iter().any(|name| {
+                    HeaderName::from_bytes(name.as_bytes()).is_err()
+                        || !rule
+                            .response_header
+                            .iter()
+                            .any(|allowed| allowed == "*" || allowed.eq_ignore_ascii_case(name))
+                }) {
+                    return result;
+                }
+                names
+            } else {
+                Vec::new()
             };
-            let names: Vec<_> = value.split(',').map(str::trim).collect();
-            if names.iter().any(|name| {
-                HeaderName::from_bytes(name.as_bytes()).is_err()
-                    || !rule
-                        .response_header
-                        .iter()
-                        .any(|allowed| allowed == "*" || allowed.eq_ignore_ascii_case(name))
-            }) {
-                return result;
+            // `validate_cors` admits only method tokens, `*` and header names, and every stored rule
+            // passes it on update and on catalog load, so these joined lists are valid header values.
+            // Omitting a header is still safer than panicking if that invariant is ever broken.
+            if let Ok(methods) = HeaderValue::from_str(&rule.method.join(", ")) {
+                result.insert("access-control-allow-methods", methods);
             }
-            names
-        } else {
-            Vec::new()
-        };
-        // `validate_cors` admits only method tokens, `*` and header names, and every stored rule
-        // passes it on update and on catalog load, so these joined lists are valid header values.
-        // Omitting a header is still safer than panicking if that invariant is ever broken.
-        if let Ok(methods) = HeaderValue::from_str(&rule.method.join(", ")) {
-            result.insert("access-control-allow-methods", methods);
+            // Each requested name already parsed as a `HeaderName`.
+            if !requested_headers.is_empty()
+                && let Ok(names) = HeaderValue::from_str(&requested_headers.join(", "))
+            {
+                result.insert("access-control-allow-headers", names);
+            }
+            result.insert(
+                "access-control-max-age",
+                HeaderValue::from(rule.max_age_seconds.unwrap_or(3600)),
+            );
+            result.insert(
+                "vary",
+                HeaderValue::from_static(
+                    "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+                ),
+            );
         }
-        // Each requested name already parsed as a `HeaderName`.
-        if !requested_headers.is_empty()
-            && let Ok(names) = HeaderValue::from_str(&requested_headers.join(", "))
-        {
-            result.insert("access-control-allow-headers", names);
+        CorsRequest::Actual => {
+            if !rule.response_header.is_empty()
+                && let Ok(names) = HeaderValue::from_str(&rule.response_header.join(", "))
+            {
+                result.insert("access-control-expose-headers", names);
+            }
+            result.insert("vary", HeaderValue::from_static("Origin"));
         }
-        result.insert(
-            "access-control-max-age",
-            HeaderValue::from(rule.max_age_seconds.unwrap_or(3600)),
-        );
-        result.insert(
-            "vary",
-            HeaderValue::from_static(
-                "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
-            ),
-        );
-    } else {
-        if !rule.response_header.is_empty()
-            && let Ok(names) = HeaderValue::from_str(&rule.response_header.join(", "))
-        {
-            result.insert("access-control-expose-headers", names);
-        }
-        result.insert("vary", HeaderValue::from_static("Origin"));
     }
     result.insert("access-control-allow-origin", origin_value.clone());
     result
@@ -152,37 +155,39 @@ fn allow_all(
     requested_headers: Option<&str>,
 ) -> HeaderMap {
     let mut result = HeaderMap::new();
-    let preflight = request == CorsRequest::Preflight;
-    if preflight {
-        if headers.contains_key("access-control-request-headers") {
-            let Some(value) = requested_headers
-                .filter(|value| {
-                    value
-                        .split(',')
-                        .all(|name| HeaderName::from_bytes(name.trim().as_bytes()).is_ok())
-                })
-                .and_then(|value| HeaderValue::from_str(value).ok())
-            else {
-                return result;
-            };
-            result.insert("access-control-allow-headers", value);
+    match request {
+        CorsRequest::Preflight => {
+            if headers.contains_key("access-control-request-headers") {
+                let Some(value) = requested_headers
+                    .filter(|value| {
+                        value
+                            .split(',')
+                            .all(|name| HeaderName::from_bytes(name.trim().as_bytes()).is_ok())
+                    })
+                    .and_then(|value| HeaderValue::from_str(value).ok())
+                else {
+                    return result;
+                };
+                result.insert("access-control-allow-headers", value);
+            }
+            result.insert(
+                "access-control-allow-methods",
+                HeaderValue::from_static(ALLOW_ALL_METHODS),
+            );
+            result.insert(
+                "vary",
+                HeaderValue::from_static(
+                    "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+                ),
+            );
         }
-        result.insert(
-            "access-control-allow-methods",
-            HeaderValue::from_static(ALLOW_ALL_METHODS),
-        );
-        result.insert(
-            "vary",
-            HeaderValue::from_static(
-                "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
-            ),
-        );
-    } else {
-        result.insert(
-            "access-control-expose-headers",
-            HeaderValue::from_static("Location"),
-        );
-        result.insert("vary", HeaderValue::from_static("Origin"));
+        CorsRequest::Actual => {
+            result.insert(
+                "access-control-expose-headers",
+                HeaderValue::from_static("Location"),
+            );
+            result.insert("vary", HeaderValue::from_static("Origin"));
+        }
     }
     result.insert("access-control-allow-origin", HeaderValue::from_static("*"));
     result

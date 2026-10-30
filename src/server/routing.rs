@@ -88,8 +88,7 @@ async fn respond_xml_cors(
     };
     let RequestCtx { state, config, .. } = ctx;
     let has_origin = request.headers().contains_key("origin");
-    let preflight = request.method() == Method::OPTIONS && has_origin;
-    let kind = if preflight {
+    let kind = if request.method() == Method::OPTIONS && has_origin {
         CorsRequest::Preflight
     } else {
         CorsRequest::Actual
@@ -126,21 +125,18 @@ async fn respond_xml_cors(
     } else {
         hyper::HeaderMap::new()
     };
-    let mut response = if preflight {
-        boxed(Response::new(Full::new(Bytes::new())))
-    } else {
-        respond_routed(request, ctx, selected).await
+    let (mut response, vary) = match kind {
+        CorsRequest::Preflight => (
+            boxed(Response::new(Full::new(Bytes::new()))),
+            "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+        ),
+        CorsRequest::Actual => (respond_routed(request, ctx, selected).await, "Origin"),
     };
     response.headers_mut().extend(cors);
     if !response.headers().contains_key("vary") {
-        response.headers_mut().insert(
-            "vary",
-            HeaderValue::from_static(if preflight {
-                "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
-            } else {
-                "Origin"
-            }),
-        );
+        response
+            .headers_mut()
+            .insert("vary", HeaderValue::from_static(vary));
     }
     response
 }
