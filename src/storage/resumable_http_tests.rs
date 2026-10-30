@@ -1,5 +1,6 @@
 use super::catalog::replace_resumable_cleanup_obstacle;
 mod csek;
+mod fault_injection;
 mod object_retention;
 mod retention;
 mod soft_delete;

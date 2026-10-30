@@ -23,6 +23,9 @@ use tokio::{
     sync::{OwnedSemaphorePermit, mpsc, oneshot},
 };
 
+#[cfg(test)]
+use super::fault::{self, Step};
+
 pub(super) mod retention;
 
 const CHUNK_SIZE: usize = 64 * 1024;
@@ -253,6 +256,40 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
             .canonicalize()?
             .join(destination.file_name().expect("blob filename"));
         crate::fsutil::move_write_through(&source, &destination)
+    }
+}
+
+/// Commits a publication transaction after its blob is durable in `blobs/`.
+///
+/// Every object publication commits here, so fault-injection tests can fail the commit or
+/// report an error after it succeeded, the ambiguous outcome cleanup must survive.
+pub(super) fn commit_publication(transaction: Transaction<'_>) -> Result<(), ObjectError> {
+    #[cfg(test)]
+    let data_dir = fault::database_dir(&transaction);
+    #[cfg(test)]
+    fault::hit(&data_dir, Step::BeforeCommit).map_err(object_unavailable)?;
+    transaction.commit().map_err(object_unavailable)?;
+    #[cfg(test)]
+    fault::hit(&data_dir, Step::AfterCommit).map_err(object_unavailable)?;
+    Ok(())
+}
+
+impl Catalog {
+    /// Moves a durable staged body into its blob shard on the blocking pool.
+    pub(super) async fn publish_staged(
+        &self,
+        source: PathBuf,
+        destination: PathBuf,
+    ) -> Result<(), ObjectError> {
+        #[cfg(test)]
+        fault::hit(&self.0.data_dir, Step::BeforePublish).map_err(object_unavailable)?;
+        tokio::task::spawn_blocking(move || publish_blob(&source, &destination))
+            .await
+            .map_err(object_unavailable)?
+            .map_err(object_unavailable)?;
+        #[cfg(test)]
+        fault::hit(&self.0.data_dir, Step::AfterPublish).map_err(object_unavailable)?;
+        Ok(())
     }
 }
 
@@ -682,7 +719,7 @@ impl UploadCommit {
                 &self.access,
             )?;
         }
-        transaction.commit().map_err(object_unavailable)?;
+        commit_publication(transaction)?;
         Ok(record)
     }
 }
@@ -940,14 +977,13 @@ impl Catalog {
                     max_bytes,
                     body,
                     cancellation,
+                    #[cfg(test)]
+                    &catalog.0.data_dir,
                 )
                 .await?;
-                let source = stage.clone();
-                let destination = published.clone();
-                tokio::task::spawn_blocking(move || publish_blob(&source, &destination))
-                    .await
-                    .map_err(object_unavailable)?
-                    .map_err(object_unavailable)?;
+                catalog
+                    .publish_staged(stage.clone(), published.clone())
+                    .await?;
                 let commit = UploadCommit {
                     bucket,
                     name,
@@ -1391,6 +1427,7 @@ async fn write_body(
     max_bytes: u64,
     mut body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     mut cancellation: oneshot::Receiver<()>,
+    #[cfg(test)] data_dir: &Path,
 ) -> Result<(u64, [u8; 16], u32, [u8; 32]), ObjectError> {
     let mut size = 0_u64;
     let mut hasher = Hasher::default();
@@ -1434,6 +1471,8 @@ async fn write_body(
         for part in chunk.chunks(CHUNK_SIZE) {
             hasher.update(part);
             sha256.update(part);
+            #[cfg(test)]
+            fault::hit(data_dir, Step::BodyWrite).map_err(object_unavailable)?;
             file.write_all(part).await.map_err(object_unavailable)?;
         }
     }
@@ -1443,9 +1482,13 @@ async fn write_body(
     {
         return Err(ObjectError::ChecksumMismatch);
     }
+    #[cfg(test)]
+    fault::hit(data_dir, Step::BodyFlush).map_err(object_unavailable)?;
     // tokio finishes the last write in the background, and sync_all drops its error;
     // flush reports it, so a failed tail cannot publish a short blob at the full size.
     file.flush().await.map_err(object_unavailable)?;
+    #[cfg(test)]
+    fault::hit(data_dir, Step::BodySync).map_err(object_unavailable)?;
     file.sync_all().await.map_err(object_unavailable)?;
     Ok((
         size,
@@ -2508,7 +2551,15 @@ mod tests {
             .unwrap();
         sender.send(Ok(UploadChunk::End)).await.unwrap();
         let (_cancel, cancellation) = oneshot::channel();
-        let result = write_body(file, ExpectedHashes::default(), 1024, body, cancellation).await;
+        let result = write_body(
+            file,
+            ExpectedHashes::default(),
+            1024,
+            body,
+            cancellation,
+            &blob.0,
+        )
+        .await;
         assert!(
             matches!(
                 result,

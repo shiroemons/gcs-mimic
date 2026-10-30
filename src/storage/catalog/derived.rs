@@ -49,6 +49,9 @@ PRAGMA user_version = 10;";
 
 use crate::storage::failure::object_unavailable;
 
+#[cfg(test)]
+use super::fault::{self, Step};
+
 fn random_id() -> Result<String, ObjectError> {
     super::super::blob_id::BlobId::generate()
         .map(|id| id.to_hex())
@@ -643,14 +646,20 @@ impl Catalog {
                     if catalog.0.admission.is_closed() { return Err(object_unavailable("catalog is closing")); }
                     let length = remaining.min(BUFFER_SIZE as u64) as usize;
                     input.read_exact(&mut buffer[..length]).await.map_err(object_unavailable)?;
+                    #[cfg(test)]
+                    fault::hit(&catalog.0.data_dir, Step::BodyWrite).map_err(object_unavailable)?;
                     output.write_all(&buffer[..length]).await.map_err(object_unavailable)?;
                     hasher.update(&buffer[..length]);
                     progress.offset += length as u64;
                     remaining -= length as u64;
                 }
             }
+            #[cfg(test)]
+            fault::hit(&catalog.0.data_dir, Step::BodyFlush).map_err(object_unavailable)?;
             // sync_all drops the error of tokio's background tail write; flush reports it.
             output.flush().await.map_err(object_unavailable)?;
+            #[cfg(test)]
+            fault::hit(&catalog.0.data_dir, Step::BodySync).map_err(object_unavailable)?;
             output.sync_all().await.map_err(object_unavailable)?;
             catalog.run_upload(move |connection| {
                 let (md5_state, crc) = hasher.md5_state();
@@ -738,7 +747,11 @@ impl Catalog {
                 let Hashes { md5, crc32c } = hasher.finish();
                 restore_stage(&data_dir, &query)?;
                 let stage = stage_path(&data_dir, &query)?;
+                #[cfg(test)]
+                fault::hit(&data_dir, Step::BeforePublish).map_err(object_unavailable)?;
                 objects::publish_blob(&stage, &objects::blob_path(&data_dir, &query)?).map_err(object_unavailable)?;
+                #[cfg(test)]
+                fault::hit(&data_dir, Step::AfterPublish).map_err(object_unavailable)?;
                 let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(object_unavailable)?;
                 let (default_class, allow_overwrite) = objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
                 let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
@@ -779,7 +792,7 @@ impl Catalog {
                 };
                 transaction.execute("DELETE FROM derived_inputs WHERE transfer_id = ?1", [&query]).map_err(object_unavailable)?;
                 transaction.execute("DELETE FROM derived_transfers WHERE id = ?1", [&query]).map_err(object_unavailable)?;
-                transaction.commit().map_err(object_unavailable)?;
+                objects::commit_publication(transaction)?;
                 for source in sources {
                     if let Err(error) = objects::unlink(&stage_path(&data_dir, &source.id)?) {
                         crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred derived source cleanup: {error}")}));

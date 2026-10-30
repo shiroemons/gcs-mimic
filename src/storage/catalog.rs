@@ -24,6 +24,9 @@ mod timestamp_tests;
 pub(super) mod test_support;
 
 #[cfg(test)]
+pub(crate) mod fault;
+
+#[cfg(test)]
 pub(super) async fn replace_resumable_cleanup_obstacle(catalog: &Catalog, stage: PathBuf) {
     catalog
         .run(move |_| {
@@ -891,6 +894,18 @@ impl Catalog {
         .await
         .map_err(unavailable)??;
         Ok(catalog)
+    }
+
+    /// Arms a one-shot fault for the `skip + 1`-th time a write path reaches `step`.
+    #[cfg(test)]
+    pub(crate) fn inject(&self, step: fault::Step, skip: usize, fault: fault::Fault) {
+        fault::arm(&self.0.data_dir, step, skip, fault);
+    }
+
+    /// The number of injected faults no write path has reached yet.
+    #[cfg(test)]
+    pub(crate) fn pending_faults(&self) -> usize {
+        fault::pending(&self.0.data_dir)
     }
 
     pub fn is_healthy(&self) -> bool {

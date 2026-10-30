@@ -27,11 +27,15 @@ pub(crate) struct ResumableChunk {
 
 use crate::storage::failure::object_unavailable;
 
+#[cfg(test)]
+use super::fault::{self, Step};
+
 async fn receive_chunk(
     lease: &SessionLease,
     chunk: &ResumableChunk,
     body: &mut mpsc::Receiver<Result<UploadChunk, io::Error>>,
     cancellation: &mut oneshot::Receiver<()>,
+    #[cfg(test)] data_dir: &std::path::Path,
 ) -> Result<tokio::fs::File, ObjectError> {
     let mut file = tokio::fs::OpenOptions::new()
         .read(true)
@@ -67,6 +71,8 @@ async fn receive_chunk(
                         .saturating_sub(chunk.start + received)
                         .min(bytes.len() as u64) as usize;
                     if discard < bytes.len() {
+                        #[cfg(test)]
+                        fault::hit(data_dir, Step::BodyWrite).map_err(object_unavailable)?;
                         file.write_all(&bytes[discard..]).await.map_err(object_unavailable)?;
                     }
                     received = next;
@@ -80,8 +86,12 @@ async fn receive_chunk(
                 }
             }
         }
+        #[cfg(test)]
+        fault::hit(data_dir, Step::BodyFlush).map_err(object_unavailable)?;
         // sync_all drops the error of tokio's background tail write; flush reports it.
         file.flush().await.map_err(object_unavailable)?;
+        #[cfg(test)]
+        fault::hit(data_dir, Step::BodySync).map_err(object_unavailable)?;
         file.sync_all().await.map_err(object_unavailable)
     }
     .await;
@@ -160,7 +170,15 @@ impl Catalog {
         let (_request, mut cancellation) = oneshot::channel::<()>();
         tokio::spawn(async move {
             let _permit = permit;
-            let file = receive_chunk(&lease, &chunk, &mut body, &mut cancellation).await?;
+            let file = receive_chunk(
+                &lease,
+                &chunk,
+                &mut body,
+                &mut cancellation,
+                #[cfg(test)]
+                &catalog.0.data_dir,
+            )
+            .await?;
             let offset = lease.session.offset.max(chunk.start + chunk.length);
             chunk.catalog_wait.send_replace(true);
             catalog
@@ -285,12 +303,9 @@ impl Catalog {
         }
         file.sync_all().await.map_err(object_unavailable)?;
         drop(file);
-        let source = lease.staging_path();
         let destination = objects::blob_path(&self.0.data_dir, &lease.session.blob_id)?;
-        tokio::task::spawn_blocking(move || objects::publish_blob(&source, &destination))
-            .await
-            .map_err(object_unavailable)?
-            .map_err(object_unavailable)?;
+        self.publish_staged(lease.staging_path(), destination)
+            .await?;
         let session = lease.session.clone();
         let clock = self.0.clock.clone();
         catalog_wait.send_replace(true);
@@ -370,7 +385,7 @@ impl Catalog {
                     },
                 )?;
                 transaction.execute("UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'",params![resource.to_string(),session.id]).map_err(object_unavailable)?;
-                transaction.commit().map_err(object_unavailable)?;
+                objects::commit_publication(transaction)?;
                 Ok(resource)
             };
         let result = self
