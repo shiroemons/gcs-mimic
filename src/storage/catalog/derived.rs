@@ -777,7 +777,7 @@ impl Catalog {
                 let time = system_time_micros(micros).map_err(object_unavailable)?;
                 let version = objects::NewVersion { blob_id: &query, assignment: objects::GenerationAssignment::Automatic, micros, origin: super::change_journal::origin(&destination.access) };
                 let (record, _retired, ()) = objects::publish_in_transaction(&transaction, previous.as_ref(), versioning, version, |generation| {
-                crate::bucket::validate_storage_class(&storage_class).map_err(|error| ObjectError::UnsupportedMetadata(error.to_string()))?;
+                crate::bucket::validate_storage_class(&storage_class).map_err(|error| match error { crate::bucket::CatalogError::InvalidMetadata(reason) | crate::bucket::CatalogError::UnsupportedMetadata(reason) => ObjectError::UnsupportedMetadata(reason), error => ObjectError::from(error) })?;
                 let mut record = ObjectRecord {
                     bucket: destination.bucket, name: destination.name, generation, metageneration: 1,
                     content_type: destination.content_type, size: progress.total, md5, crc32c, storage_class,

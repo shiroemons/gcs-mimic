@@ -27,6 +27,7 @@ impl ImportedIdentity {
         for time in [time_created, updated] {
             let micros = super::super::unix_micros(time).map_err(AdminError::from)?;
             if super::super::system_time_micros(micros)
+                // xtask-lint: allow(text::stringified_error) -- an out-of-range imported timestamp is rejected operator input, which AdminError::Invalid reports as text
                 .map_err(|error| AdminError::Invalid(error.to_string()))?
                 != time
             {

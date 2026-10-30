@@ -7,6 +7,14 @@ use super::{BucketAccess, Catalog, CatalogError, check_access, unavailable};
 use crate::notification::{NotificationConfig, NotificationRecord, check_limits};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
+/// A configuration over a bucket or event-type limit is invalid metadata whose message names
+/// the limit; the validation error has no cause to keep.
+impl From<crate::notification::NotificationError> for CatalogError {
+    fn from(error: crate::notification::NotificationError) -> Self {
+        Self::InvalidMetadata(error.to_string())
+    }
+}
+
 pub(super) const SCHEMA: &str = "CREATE TABLE bucket_notification_ids (
     bucket TEXT PRIMARY KEY COLLATE BINARY REFERENCES buckets(name) ON DELETE CASCADE,
     last_id INTEGER NOT NULL CHECK(last_id > 0)
@@ -139,8 +147,7 @@ impl Catalog {
                 .into_iter()
                 .map(|record| record.config)
                 .collect();
-            check_limits(&existing, &config)
-                .map_err(|error| CatalogError::InvalidMetadata(error.to_string()))?;
+            check_limits(&existing, &config).map_err(CatalogError::from)?;
             let id: i64 = transaction
                 .prepare_cached(
                     "INSERT INTO bucket_notification_ids VALUES (?1, 1)

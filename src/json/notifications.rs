@@ -110,6 +110,14 @@ fn invalid(message: impl Into<String>) -> JsonError {
     JsonError::new(StatusCode::BAD_REQUEST, "invalid", message)
 }
 
+/// A rejected notification field becomes the error body text; the validation error has no
+/// underlying cause to keep.
+impl From<notification::NotificationError> for JsonError {
+    fn from(error: notification::NotificationError) -> Self {
+        invalid(error.to_string())
+    }
+}
+
 /// Parse a notifications.insert body. Output-only `id`, `etag` and `selfLink` are ignored,
 /// following the server-assigned semantics of those Discovery fields; other unknown fields
 /// follow the bucket insert ignored-input rule.
@@ -146,12 +154,11 @@ pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, Jso
             "Missing required topic; set topic to //pubsub.googleapis.com/projects/PROJECT/topics/TOPIC",
         )
     })?;
-    let topic = notification::normalize_topic(topic).map_err(|error| invalid(error.to_string()))?;
+    let topic = notification::normalize_topic(topic)?;
     let payload_format = string("payload_format")?
         .unwrap_or("JSON_API_V1")
         .to_owned();
-    notification::validate_payload_format(&payload_format)
-        .map_err(|error| invalid(error.to_string()))?;
+    notification::validate_payload_format(&payload_format)?;
     let event_types = match field("event_types") {
         None => Vec::new(),
         Some(value) => value
@@ -166,7 +173,7 @@ pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, Jso
             })
             .collect::<Result<Vec<_>, _>>()?,
     };
-    notification::validate_event_types(&event_types).map_err(|error| invalid(error.to_string()))?;
+    notification::validate_event_types(&event_types)?;
     let custom_attributes = match field("custom_attributes") {
         None => BTreeMap::new(),
         Some(value) => value
@@ -181,11 +188,9 @@ pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, Jso
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?,
     };
-    notification::validate_custom_attributes(&custom_attributes)
-        .map_err(|error| invalid(error.to_string()))?;
+    notification::validate_custom_attributes(&custom_attributes)?;
     let object_name_prefix = string("object_name_prefix")?.unwrap_or_default().to_owned();
-    notification::validate_object_name_prefix(&object_name_prefix)
-        .map_err(|error| invalid(error.to_string()))?;
+    notification::validate_object_name_prefix(&object_name_prefix)?;
     Ok(NotificationConfig {
         topic,
         payload_format,

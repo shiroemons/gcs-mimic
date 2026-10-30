@@ -47,8 +47,7 @@ pub(super) async fn initiate(
             "Metadata requires application/json",
         ));
     }
-    let base = crate::url::normalize_base_url(&state.api_base_url)
-        .map_err(|error| JsonError::invalid_parameter(error.to_string()))?;
+    let base = crate::url::normalize_base_url(&state.api_base_url).map_err(JsonError::from)?;
     let location_prefix =
         format!("{base}/upload/storage/v1/b/{bucket}/o?uploadType=resumable&upload_id=");
     location_prefix

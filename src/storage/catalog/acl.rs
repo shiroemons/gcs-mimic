@@ -110,6 +110,14 @@ impl From<ObjectError> for AclError {
     }
 }
 
+/// Stored ACLs are re-validated before they are written; a rejected entry list is invalid
+/// metadata whose message names the entry, and the validation error has no cause to keep.
+impl From<crate::acl::AclError> for CatalogError {
+    fn from(error: crate::acl::AclError) -> Self {
+        Self::InvalidMetadata(error.to_string())
+    }
+}
+
 /// ACLs rendered by `projection=full`; `None` lists mean uniform bucket-level access hides them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AclProjection {
@@ -284,8 +292,7 @@ pub(super) fn replace_resource_acl(
             "Cannot use legacy ACLs while uniform bucket-level access is enabled; omit acl/defaultObjectAcl or disable uniform access".into(),
         ));
     }
-    crate::acl::validate_entries(target.kind(), entries)
-        .map_err(|error| CatalogError::InvalidMetadata(error.to_string()))?;
+    crate::acl::validate_entries(target.kind(), entries).map_err(CatalogError::from)?;
     if entries
         .iter()
         .any(|entry| Entity::parse(&entry.entity).is_ok_and(Entity::is_public))

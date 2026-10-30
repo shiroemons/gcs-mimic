@@ -130,6 +130,14 @@ impl JsonError {
     }
 }
 
+/// A URL that cannot be built becomes the error body text; `UrlError` names the defect and
+/// has no underlying cause to keep.
+impl From<crate::url::UrlError> for JsonError {
+    fn from(error: crate::url::UrlError) -> Self {
+        Self::invalid_parameter(error.to_string())
+    }
+}
+
 impl From<AuthFailure> for JsonError {
     fn from(failure: AuthFailure) -> Self {
         match failure {
