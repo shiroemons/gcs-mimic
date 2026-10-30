@@ -22,6 +22,8 @@ thread_local! {
 
 type FileJob = Box<dyn FnOnce() + Send>;
 
+const FILE_WORKER: &str = "publication-file";
+
 /// The send failure without the rejected job, which is not `Sync`, so it can be kept as a
 /// source.
 fn without_job(error: &TrySendError<FileJob>) -> TrySendError<()> {
@@ -42,20 +44,20 @@ impl FileWorkers {
         let receiver = Arc::new(std::sync::Mutex::new(receiver));
         for _ in 0..2 {
             let receiver = receiver.clone();
-            std::thread::Builder::new()
-                .name("publication-file".into())
-                .spawn(move || {
-                    loop {
-                        let job = match receiver.lock() {
-                            Ok(receiver) => receiver.recv(),
-                            Err(_) => return,
-                        };
-                        match job {
-                            Ok(job) => job(),
-                            Err(_) => return,
-                        }
+            crate::task::spawn_thread(FILE_WORKER, move || {
+                loop {
+                    // Jobs run after the guard is released, so the lock is never poisoned by
+                    // a job; recovering keeps the pool whole even if it were.
+                    let job = receiver
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .recv();
+                    match job {
+                        Ok(job) => job(),
+                        Err(_) => return,
                     }
-                })?;
+                }
+            })?;
         }
         Ok(Self {
             sender,
@@ -77,7 +79,11 @@ impl FileWorkers {
         self.sender
             .try_send(Box::new(move || {
                 let _permit = permit;
-                let _ = sender.send(job());
+                // A panicking job must neither end its worker, which would shrink the pool for
+                // every later job, nor leave its caller without a reply.
+                let result = crate::task::catch_job(FILE_WORKER, job)
+                    .unwrap_or_else(|panicked| Err(AdminError::backend(panicked)));
+                let _ = sender.send(result);
             }))
             .map_err(|error| AdminError::backend(without_job(&error)))?;
         receiver.await.map_err(AdminError::backend)?

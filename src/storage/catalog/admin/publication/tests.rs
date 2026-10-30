@@ -31,6 +31,45 @@ fn blob_count(dir: &std::path::Path) -> usize {
         .sum()
 }
 
+/// Each panic once ended its worker silently; with two workers, the third job then had no
+/// thread left to run it.
+#[tokio::test]
+async fn a_panicking_file_job_fails_its_caller_and_keeps_both_workers() {
+    let workers = FileWorkers::new().unwrap();
+    for _ in 0..2 {
+        let error = workers
+            .run(|| -> Result<(), AdminError> { panic!("publication fixture panic") })
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("publication-file job panicked"),
+            "{error}"
+        );
+    }
+    // Each job waits for the other, so both finish only while two workers run them at once.
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let meet = |barrier: Arc<std::sync::Barrier>| {
+        move || {
+            barrier.wait();
+            Ok(())
+        }
+    };
+    let (first, second) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(
+            workers.run(meet(barrier.clone())),
+            workers.run(meet(barrier.clone())),
+        )
+    })
+    .await
+    .expect("both workers still serve");
+    first.unwrap();
+    second.unwrap();
+    assert_eq!(
+        crate::task::tests::reported_panics("publication-file"),
+        ["publication fixture panic", "publication fixture panic"]
+    );
+}
+
 #[tokio::test]
 async fn publication_disk_full_rolls_back_the_batch_and_journal() {
     let (dir, catalog, admin, bucket, _) = setup().await;
