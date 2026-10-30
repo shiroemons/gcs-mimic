@@ -67,65 +67,74 @@ fn combine_sources(
     Ok(keys)
 }
 
-/// Inside the publication transaction: the bucket is unchanged and, when sources are
-/// deleted, the caller may still delete them and their retention allows it.
-fn validate_composition(
-    connection: &Connection,
-    bucket: &str,
-    expected_incarnation: &str,
-    access: &BucketAccess,
+/// What a compose observed before reading its sources, re-checked and acted on inside the
+/// publication transaction.
+#[derive(Clone)]
+struct ComposePlan {
+    bucket: String,
+    /// The bucket incarnation the destination check saw; a recreated bucket fails publication.
+    expected_incarnation: String,
+    /// The destination grant narrowed to reads, which also authorizes source deletion.
+    read_access: BucketAccess,
     disposal: SourceDisposal,
     keys: SourceKeys,
-    clock: &dyn Clock,
-) -> Result<(), ObjectError> {
-    let (_, delete) = objects::authorized_bucket(connection, bucket, access)?;
-    if incarnation(connection, bucket)? != expected_incarnation {
-        return Err(ObjectError::PreconditionFailed);
-    }
-    if disposal == SourceDisposal::Keep {
-        return Ok(());
-    }
-    if delete == objects::DeletePermission::Denied {
-        return Err(ObjectError::Forbidden);
-    }
-    for (name, generation) in keys {
-        let source = Catalog::check_derived_source_in_transaction(
-            connection,
-            bucket,
-            &name,
-            Some(generation),
-            ObjectConditions::default(),
-            access,
-        )?;
-        source.check_retention(clock.now())?;
-    }
-    Ok(())
 }
 
-/// Inside the publication transaction: deletes every source except the destination itself.
-fn delete_sources(
-    connection: &Connection,
-    record: &ObjectRecord,
-    keys: SourceKeys,
-    access: &BucketAccess,
-    clock: &dyn Clock,
-) -> Result<(), ObjectError> {
-    for (name, generation) in keys {
-        // The destination follows normal overwrite/versioning rules, never source deletion.
-        if name == record.name {
-            continue;
+impl ComposePlan {
+    /// The bucket is unchanged and, when sources are deleted, the caller may still delete
+    /// them and their retention allows it.
+    fn validate(&self, connection: &Connection, clock: &dyn Clock) -> Result<(), ObjectError> {
+        let (_, delete) = objects::authorized_bucket(connection, &self.bucket, &self.read_access)?;
+        if incarnation(connection, &self.bucket)? != self.expected_incarnation {
+            return Err(ObjectError::PreconditionFailed);
         }
-        Catalog::delete_derived_source_in_transaction(
-            connection,
-            &record.bucket,
-            &name,
-            generation,
-            ObjectConditions::default(),
-            access,
-            clock.now(),
-        )?;
+        if self.disposal == SourceDisposal::Keep {
+            return Ok(());
+        }
+        if delete == objects::DeletePermission::Denied {
+            return Err(ObjectError::Forbidden);
+        }
+        for (name, generation) in &self.keys {
+            let source = Catalog::check_derived_source_in_transaction(
+                connection,
+                &self.bucket,
+                name,
+                Some(*generation),
+                ObjectConditions::default(),
+                &self.read_access,
+            )?;
+            source.check_retention(clock.now())?;
+        }
+        Ok(())
     }
-    Ok(())
+
+    /// Deletes every source except the destination itself when the compose asked for it.
+    fn dispose_sources(
+        &self,
+        connection: &Connection,
+        record: &ObjectRecord,
+        clock: &dyn Clock,
+    ) -> Result<(), ObjectError> {
+        if self.disposal == SourceDisposal::Keep {
+            return Ok(());
+        }
+        for (name, generation) in &self.keys {
+            // The destination follows normal overwrite/versioning rules, never source deletion.
+            if *name == record.name {
+                continue;
+            }
+            Catalog::delete_derived_source_in_transaction(
+                connection,
+                &record.bucket,
+                name,
+                *generation,
+                ObjectConditions::default(),
+                &self.read_access,
+                clock.now(),
+            )?;
+        }
+        Ok(())
+    }
 }
 
 /// The read access a compose needs on its sources: the destination grant, narrowed to reads.
@@ -198,16 +207,14 @@ impl Catalog {
                 max_bytes,
             )
             .await?;
-        let result = self
-            .publish_composed(
-                &transfer,
-                destination,
-                expected_incarnation,
-                access,
-                disposal,
-                keys,
-            )
-            .await;
+        let plan = ComposePlan {
+            bucket: destination.bucket.clone(),
+            expected_incarnation,
+            read_access: access,
+            disposal,
+            keys,
+        };
+        let result = self.publish_composed(&transfer, destination, plan).await;
         if result.is_err() {
             match self.cancel_derived(&transfer.id).await {
                 Ok(()) | Err(ObjectError::DerivedTransferNotFound) => {}
@@ -257,37 +264,17 @@ impl Catalog {
         &self,
         transfer: &super::derived::DerivedTransfer,
         destination: DerivedDestination,
-        expected_incarnation: String,
-        access: BucketAccess,
-        disposal: SourceDisposal,
-        keys: SourceKeys,
+        plan: ComposePlan,
     ) -> Result<ObjectRecord, ObjectError> {
         self.advance_derived(&transfer.id, transfer.total).await?;
-        let bucket = destination.bucket.clone();
-        let checked_keys = keys.clone();
-        let read_access = access.clone();
+        let checked = plan.clone();
         let check_clock: Arc<dyn Clock> = self.0.clock.clone();
         let delete_clock = check_clock.clone();
         self.publish_derived_with_validation(
             &transfer.id,
             destination,
-            move |connection, _| {
-                validate_composition(
-                    connection,
-                    &bucket,
-                    &expected_incarnation,
-                    &read_access,
-                    disposal,
-                    checked_keys,
-                    &*check_clock,
-                )
-            },
-            move |connection, record| match disposal {
-                SourceDisposal::Keep => Ok(()),
-                SourceDisposal::Delete => {
-                    delete_sources(connection, record, keys, &access, &*delete_clock)
-                }
-            },
+            move |connection, _| checked.validate(connection, &*check_clock),
+            move |connection, record| plan.dispose_sources(connection, record, &*delete_clock),
         )
         .await
     }
