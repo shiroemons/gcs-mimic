@@ -82,10 +82,22 @@ pub const TEXT_RULES: [&str; 11] = [
     UNSUPERVISED_SPAWN,
 ];
 
-/// Rules that `// xtask-lint: allow-file(..)` may suppress for a whole file: statements that
-/// run once at open or during maintenance, such as schema setup and migrations, cluster in
-/// modules where per-line comments would only repeat one reason.
+/// Rules that `// xtask-lint: allow-file(..)` may suppress for a whole file: statements that no
+/// API request reaches, such as schema setup, migrations and the sync mirror's worker, cluster
+/// in modules where per-line comments would only repeat one reason.
 pub const FILE_SCOPE_RULES: [&str; 1] = [UNCACHED_STATEMENT];
+
+/// The request adapters, where every module serves API requests, so no file there is
+/// request-free and a file-scope suppression would only hide request-path findings. A
+/// directory also covers its `<dir>.rs` module root.
+pub const FILE_SCOPE_FORBIDDEN_DIRS: [&str; 4] = ["src/server", "src/json", "src/xml", "src/grpc"];
+
+fn file_scope_forbidden(file: &str) -> bool {
+    FILE_SCOPE_FORBIDDEN_DIRS.iter().any(|dir| {
+        file.strip_prefix(dir)
+            .is_some_and(|rest| rest.starts_with('/') || rest == ".rs")
+    })
+}
 
 const SUPPRESSION_MARKER: &str = "xtask-lint:";
 const SUPPRESSION_SYNTAX: &str = "// xtask-lint: allow(<text rule>[, <text rule>]) -- <reason>";
@@ -563,6 +575,18 @@ pub fn scan_source(file: &str, text: &str) -> Scan {
                 line: line_index(text, comment.start) + 1,
                 message,
             }),
+            Some(Ok(parsed))
+                if parsed.scope == SuppressionScope::File && file_scope_forbidden(file) =>
+            {
+                problems.push(Problem {
+                    file: file.to_owned(),
+                    line: line_index(text, comment.start) + 1,
+                    message: format!(
+                        "`allow-file` is not accepted in the request adapters ({}); use line suppressions",
+                        FILE_SCOPE_FORBIDDEN_DIRS.join(", ")
+                    ),
+                });
+            }
             Some(Ok(parsed)) => suppressions.push(Suppression {
                 comment: line_index(text, comment.start),
                 target: match parsed.scope {
@@ -1756,6 +1780,53 @@ fn open(c: &Connection) {
                 rules: vec![UNCACHED_STATEMENT.to_owned()]
             }))
         );
+    }
+
+    #[test]
+    fn file_suppressions_are_rejected_in_request_adapters() {
+        let text = "\
+// xtask-lint: allow-file(text::uncached_statement) -- request-free module, supposedly
+fn handle(c: &Connection) {
+    c.execute(\"DELETE FROM t\", [])?;
+}
+";
+        for file in [
+            "src/server/upload.rs",
+            "src/server.rs",
+            "src/json/mod.rs",
+            "src/xml/post.rs",
+            "src/grpc/v2/objects.rs",
+        ] {
+            let scan = scan_source(file, text);
+            assert_eq!(
+                scan.problems
+                    .iter()
+                    .map(|p| (p.line, p.message.contains("request adapters")))
+                    .collect::<Vec<_>>(),
+                [(1, true)],
+                "{file}"
+            );
+            // The rejected comment suppresses nothing, so the finding still fails the gate.
+            assert_eq!(scan.findings.len(), 1, "{file}");
+            assert!(scan.suppressed.is_empty(), "{file}");
+        }
+        for file in [
+            "src/serverless.rs",
+            "src/storage/catalog/sync_state/root.rs",
+        ] {
+            let scan = scan_source(file, text);
+            assert_eq!(scan.problems, [], "{file}");
+            assert_eq!(scan.suppressed.len(), 1, "{file}");
+        }
+        let line = "\
+fn handle(c: &Connection) {
+    // xtask-lint: allow(text::uncached_statement) -- a one-off repair at startup
+    c.execute(\"DELETE FROM t\", [])?;
+}
+";
+        let scan = scan_source("src/server/upload.rs", line);
+        assert_eq!(scan.problems, []);
+        assert_eq!(scan.suppressed.len(), 1);
     }
 
     #[test]
