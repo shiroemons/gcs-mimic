@@ -61,8 +61,10 @@ separate native container jobs.
 
 `scripts/test-rust.sh` runs every test binary and doctest that
 `cargo test --workspace` runs. It runs the test binaries in a pool of
-`GCSM_TEST_JOBS` (default 1), while the doctests and the SDK server binary
-build run alongside them. `just check` and `just check-sdk` run through
+`GCSM_TEST_JOBS` (default 1), while the doctests run alongside them. It builds
+the SDK server binary first: that build and the test build both re-link
+`target/debug/gcs-mimic`, which the integration tests start, so the two must
+not overlap with running tests. `just check` and `just check-sdk` run through
 `scripts/with-test-tmpdir.sh`. On macOS, that wrapper attaches a temporary RAM
 disk (`GCSM_TEST_RAMDISK_MB`, default 4096), uses it as `TMPDIR`, raises
 the default pool to 4, and detaches the disk on exit. Tests keep their real file

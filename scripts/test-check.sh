@@ -66,8 +66,8 @@ clippy --workspace --all-targets --locked --offline --target x86_64-pc-windows-m
 xtask lint --target x86_64-pc-windows-msvc
 clippy --workspace --all-targets --locked --offline --target x86_64-unknown-linux-musl -- -D warnings
 xtask lint --target x86_64-unknown-linux-musl
-test --workspace --locked --offline --no-run --message-format=json-render-diagnostics
 build --locked --offline
+test --workspace --locked --offline --no-run --message-format=json-render-diagnostics
 test --workspace --locked --offline --doc
 xtask compatibility check
 TEXT
@@ -95,14 +95,12 @@ sort "$work/ran" | diff -u "$work/expected-ran" -
 : >"$work/prefix"
 while IFS= read -r command; do
   printf '%s\n' "$command" >>"$work/prefix"
-  if [[ $command == 'build --locked --offline' ]]; then
+  if [[ $command == 'test --workspace --locked --offline --doc' ]]; then
     # A failing test binary still lets the other binaries and the doctest lane finish.
-    sed '$d' "$work/prefix" >"$work/binary-prefix"
-    printf '%s\n' "$command" 'test --workspace --locked --offline --doc' >>"$work/binary-prefix"
     for name in unit integration; do
       GCS_MIMIC_CHECK_FAIL="binary $name" run_check
       test "$status" = 23
-      diff -u "$work/binary-prefix" "$work/actual"
+      diff -u "$work/prefix" "$work/actual"
       sort "$work/ran" | diff -u "$work/expected-ran" -
       grep -Fx "FAIL $name (exit 23)" "$work/output" >/dev/null
     done

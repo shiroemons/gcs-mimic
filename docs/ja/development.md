@@ -40,7 +40,9 @@ just pre-push
 
 `scripts/test-rust.sh`は、`cargo test --workspace`と同じテストバイナリとdoctestをすべて実行します。
 テストバイナリは`GCSM_TEST_JOBS`本ずつ（既定は1）並列に実行し、
-doctestとSDK用サーバーのビルドもその間に進めます。
+doctestもその間に進めます。SDK用サーバーは最初にビルドします。
+このビルドとテストのビルドはどちらも、統合テストが起動する`target/debug/gcs-mimic`を置き換えるため、
+実行中のテストと重ねられません。
 
 `just check`と`just check-sdk`は`scripts/with-test-tmpdir.sh`を通して実行します。
 macOSでは実行中だけRAMディスク（`GCSM_TEST_RAMDISK_MB`、既定は4096）を作って`TMPDIR`にし、

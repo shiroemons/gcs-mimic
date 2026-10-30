@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Runs every workspace test that `cargo test --workspace` runs, with test binaries in a bounded pool.
 # Cargo runs test binaries one at a time while most of their time waits on file synchronization, so
-# the doctests and the SDK server build share that wait. GCSM_TEST_JOBS (default 1) bounds the
-# pool: concurrent syncs on a system disk delay unrelated processes enough to break wall-clock
-# deadline tests, so scripts/with-test-tmpdir.sh raises the default only on a RAM-backed TMPDIR.
+# the doctests share that wait. GCSM_TEST_JOBS (default 1) bounds the pool: concurrent syncs on a
+# system disk delay unrelated processes enough to break wall-clock deadline tests, so
+# scripts/with-test-tmpdir.sh raises the default only on a RAM-backed TMPDIR.
 set -euo pipefail
 
 if [[ ${1:-} == --run-binary ]]; then
@@ -34,6 +34,10 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/gcs-mimic-test-rust.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 mkdir "$work/out"
 
+# The SDK recipe runs the binary built without dev-dependency features. Both builds re-link the same
+# target/debug/gcs-mimic, even when fresh, which the integration tests spawn, so this build must
+# finish before the test build: a concurrent one replaced the file while tests started servers.
+cargo build --locked --offline
 cargo test --workspace --locked --offline --no-run --message-format=json-render-diagnostics >"$work/build.json"
 jq -r 'select(.reason == "compiler-artifact" and .profile.test and .executable != null)
   | [.manifest_path, .executable] | @tsv' "$work/build.json" >"$work/binaries"
@@ -42,9 +46,8 @@ if [[ ! -s $work/binaries ]]; then
   exit 1
 fi
 
-# The SDK recipe runs the binary built without dev-dependency features; building it here keeps
-# that compilation inside the synchronization wait instead of the SDK stage.
-(cargo build --locked --offline && cargo test --workspace --locked --offline --doc) >"$work/lane.log" 2>&1 &
+# Doctests build into their own artifacts and leave the spawned binary alone.
+cargo test --workspace --locked --offline --doc >"$work/lane.log" 2>&1 &
 lane_pid=$!
 
 # Larger binaries hold more tests, so they start first and the pool drains with short ones.
@@ -75,7 +78,7 @@ while IFS=$'\t' read -r _ exe; do
   fi
 done <"$work/binaries"
 if [[ $status != 0 ]]; then
-  echo "FAIL: Rust tests failed (doctest/build lane exit $lane_status)" >&2
+  echo "FAIL: Rust tests failed (doctest lane exit $lane_status)" >&2
   exit "$status"
 fi
 echo "PASS: $count test binaries and doctests with $jobs concurrent binaries"
