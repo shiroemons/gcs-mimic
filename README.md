@@ -10,60 +10,38 @@
 [日本語ドキュメント](docs/ja/README.md)
 
 A local Google Cloud Storage emulator for development and CI, written in Rust.
-Point your application at it to create buckets and upload, download or delete
-objects without a Google Cloud account. Start it with one `docker run`, preload
-fixtures by mounting a directory, and keep data with a volume.
+Use the official Cloud Storage SDKs against it without a Google Cloud account.
+
+- **Works with your SDK**: Go, Ruby, Node.js, Python and PHP pass every case in
+  the [SDK scorecard](#sdk-scorecard).
+- **Replaces fake-gcs-server**: swap the image; most old flags and
+  `FAKE_GCS_*` variables keep working (after 0.6.0; see
+  [migrating](#migrating-from-fake-gcs-server)).
+- **One container**: preload files from a directory, keep data in a volume.
 
 ## Quick start
 
 ```sh
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 ghcr.io/shiroemons/gcs-mimic:0.6.0
-curl -k 'https://localhost:4443/storage/v1/b?project=local-project'
-```
-
-The server uses HTTPS by default with a built-in public development
-certificate, so `curl -k` skips verification. The second command prints
-`{"kind":"storage#buckets"}`. Bucket listing requires `?project=`, as in Google
-Cloud Storage; the error message says so when it is missing.
-
-SDKs are easiest to point at plain HTTP. Replace the container with an HTTP one,
-then create a bucket, upload a file and read it:
-
-```sh
-docker rm -f gcs-mimic
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
   -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.6.0
-curl --fail \
-  -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
-  'http://localhost:4443/storage/v1/b?project=demo-project'
-curl --fail --data-binary 'hello' \
+curl --retry 5 --retry-connrefused -H 'Content-Type: application/json' \
+  -d '{"name":"demo-bucket"}' 'http://localhost:4443/storage/v1/b?project=demo-project'
+curl --data-binary 'hello' \
   'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=hello.txt'
-curl --fail 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
+curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 ```
 
-The last command prints `hello`. The examples publish the port on `127.0.0.1`
-only, because the default profile accepts unauthenticated requests. Quote URLs
-so that shells such as zsh do not expand `?`. Data stays in the container until
-it is removed; add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep it.
+The last command prints `hello`. Next, [connect your SDK](#connect-your-sdk).
 
-The image is published for `linux/amd64` and `linux/arm64` on
-[GHCR](https://github.com/shiroemons/gcs-mimic/pkgs/container/gcs-mimic) and
-[Docker Hub](https://hub.docker.com/r/shiroemons/gcs-mimic) with the same
-digest, so either name works in every example. The quick start from Docker Hub:
+- The port is published on `127.0.0.1` only, because the emulator accepts
+  unauthenticated requests by default.
+- Add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep data after the container
+  is removed.
+- Docker Hub has the same image: `shiroemons/gcs-mimic:0.6.0`.
+- Without `GCS_MIMIC_SCHEME=http`, the emulator serves HTTPS with a built-in
+  development certificate; see [local HTTPS](docs/en/local-https.md).
 
-```sh
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 shiroemons/gcs-mimic:0.6.0
-curl -k 'https://localhost:4443/storage/v1/b?project=local-project'
-```
-
-In Compose, use `image: shiroemons/gcs-mimic:0.6.0`.
-
-See the
-[0.6.0 release notes](docs/en/releases/0.6.0.md), the
-[0.1.0 features and known limitations](docs/en/releases/0.1.0.md), or the
-[source-build guide](docs/en/getting-started.md).
-
-### Compose
+## Docker Compose
 
 ```yaml
 services:
@@ -73,19 +51,36 @@ services:
       - "127.0.0.1:4443:4443"
     environment:
       GCS_MIMIC_SCHEME: http
+      GCS_MIMIC_API_BASE_URL: http://gcs:4443
     volumes:
+      - ./data:/data:ro # optional: files to preload
       - gcs-data:/var/lib/gcs-mimic
+  app:
+    build: .
+    environment:
+      # Go and Python read this. For Node.js, remove it and use apiEndpoint.
+      STORAGE_EMULATOR_HOST: http://gcs:4443
+    depends_on:
+      gcs:
+        condition: service_healthy
 volumes:
   gcs-data:
 ```
 
-`docker compose up -d --wait` waits for the image healthcheck. The curl commands
-above work unchanged, and `docker compose down` keeps the named volume.
+`docker compose up -d --wait` returns once the emulator is healthy.
+
+`gcs` in `http://gcs:4443` is the Compose service name. If you name the
+service differently, replace `gcs` in both `GCS_MIMIC_API_BASE_URL` and the
+app's setting.
+
+`GCS_MIMIC_API_BASE_URL` goes into links that the emulator returns, such as
+resumable upload URLs. Set it to the address your app uses. Programs on the
+host then get links they cannot resolve, so omit it if only the host connects.
 
 ## Preload files
 
-Mount a directory at `/data` with the same `BUCKET/OBJECT` layout as
-fake-gcs-server:
+Mount a directory at `/data`. Top-level directories become buckets, and files
+become objects, as in fake-gcs-server:
 
 ```text
 data/
@@ -94,88 +89,118 @@ data/
   empty-bucket/
 ```
 
-```sh
-docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.6.0
-curl 'http://localhost:4443/storage/v1/b?project=local-project'
-curl 'http://localhost:4443/storage/v1/b/sample-bucket/o'
-```
+The files are applied on every startup and replace API changes to the same
+names; other objects are kept. See [loading local files](docs/en/container-usage.md#load-local-files).
 
-Each top-level directory becomes a bucket owned by `local-project`, and files
-become objects. Like fake-gcs-server, the files are applied on every startup
-and win over API changes at the same names, while other objects are kept.
-See [loading local files](docs/en/container-usage.md#load-local-files) for the
-exact rules and the differences from fake-gcs-server.
+## Connect your SDK
 
-## Connect your application
+The examples connect from the host. From a Compose service, use
+`http://SERVICE:4443` with the emulator's service name, such as
+`http://gcs:4443`. Clients are anonymous and never contact Google.
+[SDK setup](docs/en/sdk-setup.md) has the tested versions, gRPC, signed URLs
+and strict authentication.
 
-| Caller | Endpoint |
-| --- | --- |
-| Application or browser on the host | `http://localhost:4443` |
-| Application on the same Compose network | `http://gcs:4443`, with `GCS_MIMIC_API_BASE_URL: http://gcs:4443` on the emulator |
-
-The emulator advertises one API base URL in generated links such as resumable
-upload `Location`. It defaults to `http://127.0.0.1:4443` when the host and
-container ports are both 4443; set `GCS_MIMIC_API_BASE_URL` when the host port
-differs or peers use another hostname.
-
-These connection forms are exercised by the repository's pinned SDK tests.
-Go (`cloud.google.com/go/storage` v1.70.0, [tests](sdk-tests/go/README.md)):
+**Go**: set `STORAGE_EMULATOR_HOST=localhost:4443`; a plain client then skips
+authentication. A fake-gcs-server setup works unchanged.
 
 ```go
-client, err := storage.NewClient(ctx,
-    option.WithEndpoint("http://localhost:4443/storage/v1/"),
-    option.WithoutAuthentication())
+client, err := storage.NewClient(ctx)
 ```
 
-Ruby (`google-cloud-storage` 1.62.1, [tests](sdk-tests/ruby/README.md)):
+**Ruby**: set a project to create and list buckets.
 
 ```ruby
+require "google/cloud/storage"
 storage = Google::Cloud::Storage.anonymous(endpoint: "http://localhost:4443/")
+storage.service.project = "local-project"
 ```
 
-Rails Active Storage uses an ordinary `service: GCS` entry with
-`endpoint: http://localhost:4443/` (keep the trailing slash). Default credential
-handling still contacts Google OAuth, so follow the
-[local credential recipe](docs/en/slices/sdk-local-auth-softdelete-notes.md)
-and the [scenario limits](docs/en/slices/sdk-active-storage-scenario.md).
-Go gRPC clients use `STORAGE_EMULATOR_HOST_GRPC` with the optional gRPC listener
-below. Node.js, PHP and Python use the explicit public endpoint and credential
-options documented in the [five-SDK scorecard](sdk-scorecard/README.md).
-Its permissive comparison scope does not establish arbitrary SDK configuration
-or strict authentication support. See [Docker usage](docs/en/container-usage.md#connect-an-application)
-and the [SDK and authentication guide](docs/en/getting-started.md) for more.
+**Node.js**: use `apiEndpoint` and leave `STORAGE_EMULATOR_HOST` unset; this
+SDK reads that variable as a path.
+
+```js
+import {Storage} from '@google-cloud/storage';
+const storage = new Storage({projectId: 'local-project',
+  apiEndpoint: 'http://localhost:4443'});
+```
+
+**Python**: the tests also set `STORAGE_EMULATOR_HOST=http://localhost:4443`,
+with the scheme.
+
+```python
+from google.auth.credentials import AnonymousCredentials
+from google.cloud import storage
+client = storage.Client(project="local-project",
+    credentials=AnonymousCredentials(),
+    client_options={"api_endpoint": "http://localhost:4443"})
+```
+
+**PHP**:
+
+```php
+use Google\Cloud\Core\AnonymousCredentials;
+use Google\Cloud\Storage\StorageClient;
+$storage = new StorageClient(['projectId' => 'local-project',
+    'apiEndpoint' => 'http://localhost:4443',
+    'credentialsFetcher' => new AnonymousCredentials()]);
+```
+
+**Rails Active Storage**: `storage.yml` alone does not work, because googleauth
+still contacts Google OAuth. See the
+[Rails recipe](docs/en/sdk-setup.md#rails-active-storage).
+
+## Migrating from fake-gcs-server
+
+> [!NOTE]
+> This needs a release newer than 0.6.0. With 0.6.0, old flags stop startup,
+> and the error names the `GCS_MIMIC_*` setting to use instead.
+
+Swap the image and mount a data volume. Most `command:` flags, `FAKE_GCS_*`
+variables and the `./data:/data` mount keep working:
+
+```diff
+ gcs:
+-  image: fsouza/fake-gcs-server:1.56.1
++  image: ghcr.io/shiroemons/gcs-mimic:0.6.0
+   command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
+   volumes:
+     - ./data:/data
+-    - gcs-storage:/storage
++    - gcs-data:/var/lib/gcs-mimic
+```
+
+Each old setting is logged as a warning with its `GCS_MIMIC_*` name; rename
+them when convenient. Exceptions and differences:
+
+| fake-gcs-server | gcs-mimic |
+| --- | --- |
+| Data in `/storage` | Kept in `/var/lib/gcs-mimic` instead; `-filesystem-root` is ignored. Convert old data with [`gcs-mimic import fake-gcs-server`](docs/en/slices/import-filesystem.md). |
+| `-backend memory` | Not available: data survives restarts. Remove the container for a clean state. |
+| `-event.*` (Pub/Sub notifications) | Not available. Startup fails, so tests that wait for notifications do not hang. |
+| `-public-host` | Accepted; matching the Host header as before also needs `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. |
+| `GET /storage/v1/b` without `?project=` | Returns 400, as in Google Cloud Storage. SDKs send the project already. |
+| Cancelling a resumable upload | Returns 499, which Google documents for a successful cancel; it is not an error. |
+
+See the [migration guide](docs/en/fake-gcs-server-migration.md) and the
+[setting mapping](docs/en/fake-gcs-server-configuration.md).
 
 ## Common settings
 
 | Setting | Purpose |
 | --- | --- |
 | `GCS_MIMIC_SCHEME` | `https` (default), `http` or `both` |
-| `GCS_MIMIC_API_BASE_URL` | Address placed in generated links; see above |
-| `-v NAME:/var/lib/gcs-mimic` | Keep buckets and objects across container replacement |
-| `GCS_MIMIC_GRPC_LISTEN` | Optional plaintext gRPC listener, for example `0.0.0.0:4444` with `-p 127.0.0.1:4444:4444` |
+| `GCS_MIMIC_API_BASE_URL` | Address in links that the emulator returns |
+| `GCS_MIMIC_GRPC_LISTEN` | Optional gRPC listener, for example `0.0.0.0:4444` |
+| `GCS_MIMIC_CORS_FALLBACK` | `allow-all` lets browsers read public URLs from any origin |
 | `GCS_MIMIC_AUTH_MODE` | `strict` checks local bearer tokens; see [strict authentication](docs/en/getting-started.md#strict-local-authentication) |
-| `GCS_MIMIC_LOG_LEVEL` | `debug`, `info` (default), `warn` or `error` for JSON stderr events |
+| `GCS_MIMIC_LOG_LEVEL` | `debug`, `info` (default), `warn` or `error` |
 
-List every option with:
-
-```sh
-docker run --rm ghcr.io/shiroemons/gcs-mimic:0.6.0 --help
-```
-
-Moving from fake-gcs-server? Its flags and the 19 known `FAKE_GCS_*` variables
-are rejected with advice on the matching `GCS_MIMIC_*` setting, and unknown
-`FAKE_GCS_*` names warn. `gcs-mimic import fake-gcs-server` converts live objects
-from a stopped filesystem snapshot; archived history is not imported. See the
-[migration guide](docs/en/fake-gcs-server-migration.md) and
-[environment mapping](docs/en/fake-gcs-server-configuration.md).
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.6.0 --help` lists every option.
 
 ## Features at a glance
 
-Each row checks the same behavior for all three products.
-✅ Available for that scope · ◐ Partly available · ❌ Unavailable.
-These are workflow summaries, not claims of complete Google API compatibility.
+✅ Available · ◐ Partly · ❌ Unavailable. Each row compares one workflow, not
+full Google API compatibility.
 
 | Workflow | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
 | --- | --- | --- | --- |
@@ -196,25 +221,17 @@ These are workflow summaries, not claims of complete Google API compatibility.
 | gRPC legacy Storage v1 reference RPCs | ✅ | ◐ First upload message | ❌ |
 | Published Docker image | ✅ GHCR and Docker Hub | ✅ | ✅ |
 
-The mirror row uses an optional `--sync-dir`
-[directory](docs/en/container-usage.md#mirror-objects-to-a-host-directory)
-beside the internal storage; external deletion is not imported. The gRPC rows
-cover scoped subsets on standard buckets, and individual RPC rows in the feature
-ledger remain `PARTIAL`; see the
-[protocol comparison](docs/en/feature-comparison.md#-protocols-and-access) for
-their limits.
-
-Comparison baseline: fake-gcs-server `v1.56.1` and gcp-storage-emulator
-`v2026.07.19`; gcs-mimic is `0.5.0`.
-Seed loading excludes migration of existing backend metadata and history.
-See the [detailed comparison](docs/en/feature-comparison.md) for criteria,
-sources and verification limits, and the generated
-[feature matrix](docs/en/feature-matrix.md) for implementation status.
+Compared with fake-gcs-server `v1.56.1` and gcp-storage-emulator
+`v2026.07.19`. The mirror row uses an optional
+[sync directory](docs/en/container-usage.md#mirror-objects-to-a-host-directory),
+and the gRPC rows cover a subset of RPCs. See the
+[detailed comparison](docs/en/feature-comparison.md) and the
+[feature matrix](docs/en/feature-matrix.md).
 
 ### SDK scorecard
 
-The [SDK scorecard](sdk-scorecard/README.md) runs the same workflow probes with
-the official Cloud Storage SDKs against each emulator. Passed cases:
+Each official SDK runs the same workflows against all three emulators
+([details](sdk-scorecard/README.md)):
 
 | SDK | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
 | --- | --- | --- | --- |
@@ -225,30 +242,22 @@ the official Cloud Storage SDKs against each emulator. Passed cases:
 | Python | 51/51 | 19/51 | 24/51 |
 | Score (/100) | 100 | 44.9 | 41.5 |
 
-Recorded on 2026-10-29 at gcs-mimic commit `e7fb384` over shared HTTPS with
-permissive authentication; see the
-[full results](sdk-scorecard/results/2026-10-29-5/summary.md). A passing probe
-shows that an ordinary SDK workflow works; it does not mark the underlying API
-method complete, and cross-SDK weighting is provisional.
+Recorded on 2026-10-29 at commit `e7fb384`
+([results](sdk-scorecard/results/2026-10-29-5/summary.md)). A passing case
+means an ordinary SDK workflow works, not that the API is complete.
 
 ## More information
 
-- [Docker usage](docs/en/container-usage.md): seed files, sync directory,
-  bucket initialization file and configuration
-- [Setup, configuration and examples](docs/en/getting-started.md), with separate
-  guides for [local HTTPS](docs/en/local-https.md),
-  [signed URLs](docs/en/signed-urls.md) and the
-  [native binary](docs/en/native-binary.md)
-- [Detailed feature comparison](docs/en/feature-comparison.md)
-- [Generated implementation matrix](docs/en/feature-matrix.md)
-- [fake-gcs-server migration guide](docs/en/fake-gcs-server-migration.md) and
-  [storage investigation](docs/en/fake-gcs-server-storage.md)
-- [Storage design](docs/en/storage-backends.md) and [architecture](docs/en/design.md)
-- [Roadmap](docs/en/roadmap.md)
-- [Development and checks](docs/en/development.md)
-- [Release policy](docs/en/release-policy.md)
+- [Docker usage](docs/en/container-usage.md) and [SDK setup](docs/en/sdk-setup.md)
+- [Build from source and API walkthroughs](docs/en/getting-started.md),
+  [local HTTPS](docs/en/local-https.md), [signed URLs](docs/en/signed-urls.md)
+  and the [native binary](docs/en/native-binary.md)
+- [fake-gcs-server migration guide](docs/en/fake-gcs-server-migration.md)
+- [Storage design](docs/en/storage-backends.md), [architecture](docs/en/design.md)
+  and [roadmap](docs/en/roadmap.md)
+- [Development](docs/en/development.md) and [release policy](docs/en/release-policy.md)
 - [0.6.0 release notes](docs/en/releases/0.6.0.md) and
-  [0.1.0 features and known limitations](docs/en/releases/0.1.0.md)
+  [all releases](https://github.com/shiroemons/gcs-mimic/releases)
 
 ## License
 
