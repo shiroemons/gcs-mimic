@@ -23,6 +23,8 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 redundant_clone = "deny"
+# `cargo xtask lint` raises this to a warning for production code only; see clippy.toml.
+disallowed_methods = "allow"
 
 [profile.release]
 # Thin LTO with one codegen unit trades a longer release build (about 53 s to

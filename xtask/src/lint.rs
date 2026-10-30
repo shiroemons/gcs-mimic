@@ -24,7 +24,7 @@ type Result<T> = std::result::Result<T, String>;
 /// Extra Clippy lints for production code; thresholds live in `clippy.toml`. A lint that passes
 /// on every workspace target belongs in `[workspace.lints]` instead: a `-W` here would lower
 /// that `deny` to a warning for this run.
-pub const CLIPPY_LINTS: [&str; 8] = [
+pub const CLIPPY_LINTS: [&str; 9] = [
     "clippy::unwrap_used",
     "clippy::expect_used",
     "clippy::panic",
@@ -34,17 +34,14 @@ pub const CLIPPY_LINTS: [&str; 8] = [
     "clippy::allow_attributes_without_reason",
     // `#[expect]` fails once its lint stops firing; `#[allow]` silently outlives the reason.
     ALLOW_ATTRIBUTES,
+    // The methods in clippy.toml; `[workspace.lints]` allows it so tests may call them.
+    "clippy::disallowed_methods",
 ];
 
 const ALLOW_ATTRIBUTES: &str = "clippy::allow_attributes";
 
 /// The only file that may define `fn unavailable`, the shared storage error mapping.
 pub const SHARED_HELPER_FILE: &str = "src/storage/failure.rs";
-
-/// The only file that may call `tokio::spawn`, spawn on a runtime handle or start an OS thread:
-/// the supervised spawn helpers, which keep background-task and thread panics visible instead
-/// of dropping them with the `JoinHandle` or the thread.
-pub const SUPERVISED_SPAWN_FILE: &str = "src/task.rs";
 
 const PATH_ATTRIBUTE: &str = "text::path_attribute";
 const STRING_ERROR_RESULT: &str = "text::string_error_result";
@@ -56,7 +53,6 @@ const FORMAT_SQL: &str = "text::format_sql";
 const SYNC_WITHOUT_FLUSH: &str = "text::sync_without_flush";
 const STRING_ERROR_VARIANT: &str = "text::string_error_variant";
 const STRINGIFIED_ERROR: &str = "text::stringified_error";
-const UNSUPERVISED_SPAWN: &str = "text::unsupervised_spawn";
 
 /// Pseudo-rule for the findings of a `--target` run; listing it in [`PENDING_RULES`] reports
 /// every cross-target finding as pending.
@@ -69,7 +65,7 @@ pub const PENDING_RULES: &[&str] = &[];
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
-pub const TEXT_RULES: [&str; 11] = [
+pub const TEXT_RULES: [&str; 10] = [
     PATH_ATTRIBUTE,
     STRING_ERROR_RESULT,
     UNAVAILABLE_HELPER,
@@ -80,7 +76,6 @@ pub const TEXT_RULES: [&str; 11] = [
     SYNC_WITHOUT_FLUSH,
     STRING_ERROR_VARIANT,
     STRINGIFIED_ERROR,
-    UNSUPERVISED_SPAWN,
 ];
 
 /// Rules that `// xtask-lint: allow-file(..)` may suppress for a whole file: statements that no
@@ -810,11 +805,6 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
     for offset in stringified_errors(text, masked) {
         add(STRINGIFIED_ERROR, offset);
     }
-    if file != SUPERVISED_SPAWN_FILE {
-        for offset in unsupervised_spawns(masked) {
-            add(UNSUPERVISED_SPAWN, offset);
-        }
-    }
     findings
 }
 
@@ -1023,60 +1013,6 @@ fn formats_param(text: &str, masked: &str, from: usize, to: usize, param: &str) 
     let inline =
         literal.contains(&format!("{{{param}}}")) || literal.contains(&format!("{{{param}:"));
     inline || words(&masked[open..close], param).next().is_some()
-}
-
-/// Receivers of a `.spawn(..)` method call that name a Tokio runtime handle.
-const RUNTIME_RECEIVERS: &[&str] = &["runtime", "handle", "rt"];
-
-/// Offsets of spawns whose panic nobody observes unless they go through `src/task.rs`:
-///
-/// - `tokio::spawn(`, `task::spawn(` and `task::spawn_local(`, which detach a task once the
-///   `JoinHandle` is dropped;
-/// - `thread::spawn(` and every `thread::Builder`, whose OS thread dies silently on a panic;
-/// - `.spawn(` on a runtime handle: a receiver named in [`RUNTIME_RECEIVERS`], or
-///   `Handle::current()` / `Handle::try_current()?` chained directly.
-///
-/// `spawn_blocking` runs on the bounded blocking pool and its handle is awaited, so it is not
-/// reported; neither is `JoinSet::spawn`, whose set observes every panic when it is joined.
-/// Receivers are matched by name, not type, so a handle under another name escapes the check.
-fn unsupervised_spawns(masked: &str) -> Vec<usize> {
-    let bytes = masked.as_bytes();
-    let called = |end: usize| bytes.get(skip_space(bytes, end)) == Some(&b'(');
-    let mut offsets: Vec<usize> = ["spawn", "spawn_local"]
-        .into_iter()
-        .flat_map(|word| words(masked, word).map(move |offset| (word, offset)))
-        .filter(|&(word, offset)| {
-            let prefix = &masked[..offset];
-            let path = prefix.ends_with("tokio::")
-                || prefix.ends_with("task::")
-                || (word == "spawn" && prefix.ends_with("thread::"));
-            let handle = word == "spawn" && runtime_receiver(prefix);
-            (path || handle) && called(offset + word.len())
-        })
-        .map(|(_, offset)| offset)
-        .collect();
-    offsets
-        .extend(words(masked, "Builder").filter(|&offset| masked[..offset].ends_with("thread::")));
-    offsets.sort_unstable();
-    offsets
-}
-
-/// Whether `prefix`, the text before a `spawn` method name, ends in `.` on a runtime handle.
-fn runtime_receiver(prefix: &str) -> bool {
-    let Some(receiver) = prefix.trim_end().strip_suffix('.') else {
-        return false;
-    };
-    let receiver = receiver.trim_end();
-    let receiver = receiver.strip_suffix('?').unwrap_or(receiver);
-    if let Some(call) = receiver.strip_suffix("()") {
-        return call.ends_with("Handle::current") || call.ends_with("Handle::try_current");
-    }
-    let start = receiver
-        .bytes()
-        .rposition(|b| !ident(b))
-        .map_or(0, |index| index + 1);
-    // A field such as `self.runtime` names the handle by its last segment.
-    RUNTIME_RECEIVERS.contains(&&receiver[start..])
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1731,73 +1667,9 @@ struct ParseError(String);
     }
 
     #[test]
-    fn tokio_spawns_are_found_outside_the_supervised_helper() {
-        let text = "\
-tokio::spawn(async move {});
-let task = tokio::task::spawn(work());
-task::spawn(
-    work(),
-);
-tokio::task::spawn_blocking(move || {});
-connections.spawn(serve());
-let spawn = 1;
-// tokio::spawn(x)
-tokio::task::spawn_local(work());
-";
-        assert_eq!(lines_of(UNSUPERVISED_SPAWN, text), [1, 2, 3, 10]);
-        assert!(
-            scan_source(SUPERVISED_SPAWN_FILE, text).findings.is_empty(),
-            "the helper itself spawns"
-        );
-    }
-
-    #[test]
-    fn os_threads_are_found_outside_the_supervised_helper() {
-        let text = "\
-std::thread::spawn(move || {});
-let worker = thread::spawn(work);
-std::thread::Builder::new()
-    .name(\"worker\".into())
-    .spawn(move || {})?;
-let builder = thread::Builder::new();
-std::thread::scope(|scope| { scope.spawn(|| {}); });
-let thread = std::thread::current();
-fn spawn() {}
-// std::thread::spawn(x)
-";
-        assert_eq!(lines_of(UNSUPERVISED_SPAWN, text), [1, 2, 3, 6]);
-        assert!(
-            scan_source(SUPERVISED_SPAWN_FILE, text).findings.is_empty(),
-            "the helper itself spawns"
-        );
-    }
-
-    #[test]
-    fn runtime_handle_spawns_are_found_outside_the_supervised_helper() {
-        let text = "\
-runtime.spawn(work());
-let task = self.handle.spawn(work());
-tokio::runtime::Handle::current().spawn(work());
-Handle::try_current()?.spawn(work());
-rt
-    .spawn(work());
-runtime.spawn_blocking(move || {});
-runtime.block_on(work());
-connections.spawn(serve());
-Builder::new().spawn(work);
-other.spawn(work());
-";
-        assert_eq!(lines_of(UNSUPERVISED_SPAWN, text), [1, 2, 3, 4, 6]);
-        assert!(
-            scan_source(SUPERVISED_SPAWN_FILE, text).findings.is_empty(),
-            "the helper itself spawns"
-        );
-    }
-
-    #[test]
     fn pending_rules_warn_and_cross_target_findings_are_pending() {
         let enforced = Finding::new("clippy::expect_used", "src/a.rs", 1);
-        let pending = Finding::new(UNSUPERVISED_SPAWN, "src/a.rs", 2);
+        let pending = Finding::new(STRINGIFIED_ERROR, "src/a.rs", 2);
         let all = vec![enforced.clone(), pending.clone()];
         let host = split_pending(all.clone(), false);
         let cross = split_pending(all.clone(), true);
@@ -1807,7 +1679,7 @@ other.spawn(work());
                 "{rule} is not a gate rule"
             );
         }
-        if PENDING_RULES.contains(&UNSUPERVISED_SPAWN) {
+        if PENDING_RULES.contains(&STRINGIFIED_ERROR) {
             assert_eq!(host, (vec![enforced.clone()], vec![pending]));
         } else {
             assert_eq!(host, (all.clone(), Vec::new()));
@@ -2288,14 +2160,16 @@ let s = \"// xtask-lint: allow(text::nope)\";
 
     #[test]
     fn workspace_denied_lints_are_not_downgraded_by_the_gate() {
-        // `-W` on the command line would override a `deny` from `[workspace.lints]`.
+        // `-W` on the command line would override a `deny` from `[workspace.lints]`. An
+        // `allow` there is what the gate deliberately raises for production code only.
         let mut section = "";
         let mut denied = Vec::new();
         for line in include_str!("../../Cargo.toml").lines() {
             if line.starts_with('[') {
                 section = line;
             } else if section.starts_with("[workspace.lints")
-                && let Some((name, _)) = line.split_once(" = ")
+                && let Some((name, level)) = line.split_once(" = ")
+                && level != "\"allow\""
             {
                 denied.push(name);
             }

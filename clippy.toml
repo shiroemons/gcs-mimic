@@ -1,5 +1,6 @@
-# Thresholds for the lints that `cargo xtask lint` checks; see "Rust implementation
-# guardrails" in AGENTS.md. Default Clippy runs do not enable these lints.
+# Configuration for the Clippy lints behind "Rust implementation guardrails" in AGENTS.md.
+# The thresholds and `disallowed-methods` apply to lints that only `cargo xtask lint` enables;
+# `disallowed-types` is checked by every Clippy run.
 
 # Long enough for a rustfmt-formatted handler with a match over its cases; the review
 # found request handlers of 250 to 800 lines that this rejects.
@@ -15,6 +16,20 @@ max-fn-params-bools = 0
 # response ends short of its Content-Length. Use crate::server::chunk_body instead.
 disallowed-types = [
     { path = "http_body_util::Channel", reason = "loses the last frame when the sender drops mid-poll; use crate::server::chunk_body" },
+]
+
+# `disallowed_methods` is allowed in `[workspace.lints]` and enabled only by `cargo xtask lint`
+# for production code, so tests may spawn helper tasks freely. The supervised helpers in
+# src/task.rs keep their calls under a reasoned `#[expect(clippy::disallowed_methods)]`.
+disallowed-methods = [
+    # A dropped JoinHandle or a dead thread hides the panic or error.
+    { path = "tokio::spawn", reason = "unsupervised; use crate::task::spawn_supervised" },
+    { path = "tokio::task::spawn", reason = "unsupervised; use crate::task::spawn_supervised" },
+    { path = "tokio::task::spawn_local", reason = "unsupervised; use crate::task::spawn_supervised" },
+    { path = "tokio::runtime::Handle::spawn", reason = "unsupervised; use crate::task::spawn_supervised_on" },
+    { path = "tokio::runtime::Runtime::spawn", reason = "unsupervised; use crate::task::spawn_supervised_on" },
+    { path = "std::thread::spawn", reason = "unsupervised; use crate::task::spawn_thread" },
+    { path = "std::thread::Builder::spawn", reason = "unsupervised; use crate::task::spawn_thread" },
 ]
 
 # Tests may unwrap and expect; production code must not.

@@ -36,6 +36,10 @@ const RESTART_DELAY_MAX: Duration = Duration::from_secs(30);
 ///
 /// Await the returned handle when the caller needs the result; dropping it detaches the task,
 /// which keeps running and still reports a panic. `name` identifies the task in diagnostics.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the supervised wrapper that every other spawn goes through"
+)]
 pub(crate) fn spawn_supervised<F>(name: &'static str, future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
@@ -45,6 +49,10 @@ where
 }
 
 /// [`spawn_supervised`] on an explicit runtime, for `Drop` impls that may run outside one.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the supervised wrapper for spawns on an explicit runtime handle"
+)]
 pub(crate) fn spawn_supervised_on<F>(
     runtime: &tokio::runtime::Handle,
     name: &'static str,
@@ -62,6 +70,10 @@ where
 /// A dedicated thread is for work that would otherwise hold a bounded blocking-pool slot for
 /// its whole life, such as the catalog executor or a directory walk feeding a channel. Like
 /// [`spawn_supervised`], the panic is resumed afterwards, so `join` still returns it.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the supervised wrapper that every other OS thread goes through"
+)]
 pub(crate) fn spawn_thread<F, T>(
     name: &'static str,
     body: F,
