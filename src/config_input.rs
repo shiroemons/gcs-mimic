@@ -879,7 +879,7 @@ mod tests {
         let mut explicit = crate::config::Config {
             data_dir: root.join("native"),
             seed_dir: Some(root.join("empty")),
-            default_seed_dir: Some(legacy.clone()),
+            default_seed_dir: Some(legacy),
             ..Default::default()
         };
         assert!(resolve_default_seed(&mut explicit).is_empty());

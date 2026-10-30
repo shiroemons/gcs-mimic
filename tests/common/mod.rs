@@ -6,11 +6,11 @@ use std::{
 
 #[path = "../../src/test_support.rs"]
 pub(super) mod input_fixtures;
-pub type TestDir = input_fixtures::TestDir;
+pub(crate) type TestDir = input_fixtures::TestDir;
 
 /// PUT defaults to `projection=full`; remove ACL fields before comparing with noAcl reads.
 #[allow(dead_code)]
-pub fn without_acl(mut value: serde_json::Value) -> serde_json::Value {
+pub(crate) fn without_acl(mut value: serde_json::Value) -> serde_json::Value {
     let resource = value.as_object_mut().unwrap();
     for field in ["acl", "defaultObjectAcl", "owner"] {
         resource.remove(field);
@@ -19,7 +19,7 @@ pub fn without_acl(mut value: serde_json::Value) -> serde_json::Value {
 }
 
 #[allow(dead_code)]
-pub fn http_config() -> gcs_mimic::config::Config {
+pub(crate) fn http_config() -> gcs_mimic::config::Config {
     gcs_mimic::config::Config {
         scheme: gcs_mimic::config::Scheme::Http,
         api_base_url: Some("http://127.0.0.1:4443".into()),
@@ -28,7 +28,7 @@ pub fn http_config() -> gcs_mimic::config::Config {
 }
 
 #[allow(dead_code)]
-pub fn load_http_config(
+pub(crate) fn load_http_config(
     args: &[String],
     env: &std::collections::BTreeMap<String, String>,
 ) -> Result<gcs_mimic::config::Config, gcs_mimic::diagnostics::Diagnostics> {
@@ -39,15 +39,15 @@ pub fn load_http_config(
 
 #[allow(dead_code)]
 #[path = "../../src/storage/catalog/test_support.rs"]
-pub mod timestamp_support;
+pub(crate) mod timestamp_support;
 
 #[allow(dead_code)]
-pub fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {
     timestamp_support::downgrade_timestamp_precision(connection);
 }
 
 #[allow(dead_code)]
-pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_object_schema(connection: &rusqlite::Connection) {
     timestamp_support::downgrade_object_schema(connection);
 }
 
@@ -56,7 +56,10 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
 /// client on a persistent connection cannot wait for the server to close; `head`
 /// marks a response to HEAD, which carries no body.
 #[allow(dead_code)]
-pub fn read_http_response(reader: &mut impl BufRead, head: bool) -> std::io::Result<Vec<u8>> {
+pub(crate) fn read_http_response(
+    reader: &mut impl BufRead,
+    head: bool,
+) -> std::io::Result<Vec<u8>> {
     use std::io::{Error, ErrorKind, Read};
     fn line(reader: &mut impl BufRead, raw: &mut Vec<u8>) -> std::io::Result<usize> {
         let start = raw.len();
@@ -125,7 +128,7 @@ pub fn read_http_response(reader: &mut impl BufRead, head: bool) -> std::io::Res
 /// macOS reports a peer close during transfer as a reset or broken pipe where
 /// Linux often still accepts the write or returns EOF.
 #[allow(dead_code)]
-pub fn closed_by_server(error: &std::io::Error) -> bool {
+pub(crate) fn closed_by_server(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
         std::io::ErrorKind::BrokenPipe
@@ -138,7 +141,7 @@ pub fn closed_by_server(error: &std::io::Error) -> bool {
 /// needs to create a process: Windows cannot initialize Winsock without
 /// `SystemRoot`, so servers exited before readiness there.
 #[allow(dead_code)]
-pub trait CleanEnv {
+pub(crate) trait CleanEnv {
     fn clean_env(&mut self) -> &mut Self;
 }
 
@@ -153,7 +156,7 @@ impl CleanEnv for Command {
     }
 }
 
-pub fn server_command() -> Command {
+pub(crate) fn server_command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"));
     command.clean_env();
     #[cfg(windows)]
@@ -182,7 +185,7 @@ pub fn server_command() -> Command {
     command
 }
 
-pub fn stop_server(child: &mut Child, stdout: &mut impl BufRead) {
+pub(crate) fn stop_server(child: &mut Child, stdout: &mut impl BufRead) {
     #[cfg(unix)]
     assert!(
         Command::new("kill")

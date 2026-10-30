@@ -4,14 +4,14 @@
 
 use std::path::{Path, PathBuf};
 
-pub struct TestDir(pub PathBuf);
+pub(crate) struct TestDir(pub PathBuf);
 
 impl TestDir {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::new_in(&std::env::temp_dir())
     }
 
-    pub fn new_in(parent: &Path) -> Self {
+    pub(crate) fn new_in(parent: &Path) -> Self {
         let mut random = [0; 8];
         getrandom::fill(&mut random).unwrap();
         // Keep nested Unix socket fixtures within the platform path limit.
@@ -24,7 +24,7 @@ impl TestDir {
 /// Length of a file that another handle may still be writing. Windows directory
 /// listings report a stale size for open files, so stat the path itself; a file
 /// removed since the listing counts as empty.
-pub fn live_len(path: &Path) -> u64 {
+pub(crate) fn live_len(path: &Path) -> u64 {
     std::fs::metadata(path).map_or(0, |metadata| metadata.len())
 }
 
@@ -130,7 +130,7 @@ impl Drop for TestDir {
 }
 
 #[cfg(unix)]
-pub fn fifo(path: &Path) {
+pub(crate) fn fifo(path: &Path) {
     assert!(
         std::process::Command::new("mkfifo")
             .arg(path)

@@ -498,18 +498,18 @@ fn metadata_updates_replace_and_clear_acls() {
     server.put("object", b"x").json();
     let object = format!("{BUCKET}/o/object");
     let full = call(&server, "GET", &format!("{object}?projection=full")).json();
-    let mut body = full.clone();
+    let mut body = full;
     body["contentType"] = json!("text/plain");
     let replaced = send(&server, "PUT", &object, body.clone()).json();
     assert_eq!(replaced["contentType"], "text/plain");
     assert_eq!(replaced["acl"].as_array().unwrap().len(), 3);
     // Reordered entries still describe the same ACL.
     let full = call(&server, "GET", &format!("{object}?projection=full")).json();
-    let mut body = full.clone();
+    let mut body = full;
     body["acl"].as_array_mut().unwrap().reverse();
     send(&server, "PATCH", &object, body).json();
     let bucket = call(&server, "GET", &format!("{BUCKET}?projection=full")).json();
-    let mut body = bucket.clone();
+    let mut body = bucket;
     body["labels"] = json!({"echo": "yes"});
     let updated = send(&server, "PUT", BUCKET, body).json();
     assert_eq!(updated["labels"], json!({"echo": "yes"}));

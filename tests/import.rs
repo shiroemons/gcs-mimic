@@ -276,7 +276,7 @@ fn escaped_bucket_aliases_invalid_escapes_suffix_collisions_and_platform_rules_b
             && text.contains("percent escape")
             && text.contains("suffix collision")
     );
-    let mut invalid = options.clone();
+    let mut invalid = options;
     invalid.source_platform = SourcePlatform::Windows;
     invalid.metadata_mode = MetadataMode::Xattr;
     let error = import::inspect(invalid, Vec::new(), Vec::new()).unwrap_err();
@@ -342,7 +342,7 @@ fn metadata_and_body_limits_empty_files_os_detritus_and_page_counts_are_explicit
     assert!(inspect(options.clone()).0.eligible);
     exact.push(b' ');
     object(&options.source, "bucket-one/oversize", &exact);
-    let (summary, pages, _) = inspect(options.clone());
+    let (summary, pages, _) = inspect(options);
     assert!(!summary.eligible);
     assert_finding(
         &pages,

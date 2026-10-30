@@ -342,7 +342,7 @@ fn xml_head_matches_get_headers_and_selected_metadata() {
     assert_eq!(head.status, 200);
     assert!(head.body.is_empty());
     let mut get_headers = get.headers.clone();
-    let mut head_headers = head.headers.clone();
+    let mut head_headers = head.headers;
     get_headers.remove("date");
     head_headers.remove("date");
     // The HEAD helper asks the server to close the connection, which hyper echoes.

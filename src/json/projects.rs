@@ -592,7 +592,7 @@ mod tests {
         ] {
             assert!(decode_list_token(&token, &other).is_err());
         }
-        let mut corrupted = token.clone();
+        let mut corrupted = token;
         corrupted.replace_range(0..2, "00");
         assert!(decode_list_token(&corrupted, &params).is_err());
     }

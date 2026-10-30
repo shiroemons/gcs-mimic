@@ -11,22 +11,22 @@ use std::{
     time::Duration,
 };
 
-pub struct Server {
+pub(crate) struct Server {
     pub child: Child,
     pub address: String,
     stdout: BufReader<ChildStdout>,
 }
-pub struct Reply {
+pub(crate) struct Reply {
     pub status: u16,
     pub headers: BTreeMap<String, String>,
     pub body: Vec<u8>,
 }
 impl Reply {
-    pub fn json(&self) -> Value {
+    pub(crate) fn json(&self) -> Value {
         assert_eq!(self.status, 200, "{}", String::from_utf8_lossy(&self.body));
         serde_json::from_slice(&self.body).unwrap()
     }
-    pub fn error(&self, status: u16, reason: &str) {
+    pub(crate) fn error(&self, status: u16, reason: &str) {
         assert_eq!(
             self.status,
             status,
@@ -38,13 +38,17 @@ impl Reply {
     }
 }
 impl Server {
-    pub fn start(dir: &common::TestDir, strict: bool) -> Self {
+    pub(crate) fn start(dir: &common::TestDir, strict: bool) -> Self {
         Self::start_with_catalog_wait(dir, strict, 30000)
     }
-    pub fn start_with_catalog_wait(dir: &common::TestDir, strict: bool, milliseconds: u64) -> Self {
+    pub(crate) fn start_with_catalog_wait(
+        dir: &common::TestDir,
+        strict: bool,
+        milliseconds: u64,
+    ) -> Self {
         Self::start_with_timeouts(dir, strict, milliseconds, 900000)
     }
-    pub fn start_with_timeouts(
+    pub(crate) fn start_with_timeouts(
         dir: &common::TestDir,
         strict: bool,
         catalog_milliseconds: u64,
@@ -58,7 +62,7 @@ impl Server {
             gcs_mimic::config::Config::default().max_object_bytes,
         )
     }
-    pub fn start_with_limits(
+    pub(crate) fn start_with_limits(
         dir: &common::TestDir,
         strict: bool,
         catalog_milliseconds: u64,
@@ -107,10 +111,10 @@ impl Server {
             stdout,
         }
     }
-    pub fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
+    pub(crate) fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
         request(&self.address, method, path, headers, body)
     }
-    pub fn bucket(&self) {
+    pub(crate) fn bucket(&self) {
         let reply = self.request(
             "POST",
             "/storage/v1/b?project=local",
@@ -119,7 +123,7 @@ impl Server {
         );
         reply.json();
     }
-    pub fn put(&self, name: &str, bytes: &[u8]) -> Reply {
+    pub(crate) fn put(&self, name: &str, bytes: &[u8]) -> Reply {
         self.request(
             "POST",
             &format!("/upload/storage/v1/b/test-bucket/o?uploadType=media&name={name}"),
@@ -127,7 +131,7 @@ impl Server {
             bytes,
         )
     }
-    pub fn get(&self, name: &str) -> Reply {
+    pub(crate) fn get(&self, name: &str) -> Reply {
         self.request(
             "GET",
             &format!("/storage/v1/b/test-bucket/o/{name}"),
@@ -135,7 +139,7 @@ impl Server {
             b"",
         )
     }
-    pub fn list(&self, query: &str) -> Value {
+    pub(crate) fn list(&self, query: &str) -> Value {
         self.request(
             "GET",
             &format!("/storage/v1/b/test-bucket/o?{query}"),
@@ -144,7 +148,7 @@ impl Server {
         )
         .json()
     }
-    pub fn stop(&mut self) {
+    pub(crate) fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
     }
 }
@@ -156,12 +160,18 @@ impl Drop for Server {
         }
     }
 }
-pub fn settings(dir: &common::TestDir, versioning: bool, hold: bool) {
+pub(crate) fn settings(dir: &common::TestDir, versioning: bool, hold: bool) {
     rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap().execute(
         "UPDATE buckets SET versioning_enabled = ?1, default_event_based_hold = ?2 WHERE name='test-bucket'", rusqlite::params![versioning, hold],
     ).unwrap();
 }
-pub fn request(address: &str, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
+pub(crate) fn request(
+    address: &str,
+    method: &str,
+    path: &str,
+    headers: &str,
+    body: &[u8],
+) -> Reply {
     let mut stream = TcpStream::connect(address).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
@@ -222,7 +232,7 @@ pub fn request(address: &str, method: &str, path: &str, headers: &str, body: &[u
         body,
     }
 }
-pub fn blobs(dir: &common::TestDir) -> usize {
+pub(crate) fn blobs(dir: &common::TestDir) -> usize {
     std::fs::read_dir(dir.0.join("blobs"))
         .unwrap()
         .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())

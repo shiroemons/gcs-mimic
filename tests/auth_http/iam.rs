@@ -896,7 +896,7 @@ fn iam_principal_and_body_limits() {
             .len(),
         1500
     );
-    let mut excess = max.clone();
+    let mut excess = max;
     excess["bindings"]
         .as_array_mut()
         .unwrap()

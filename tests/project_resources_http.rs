@@ -102,7 +102,7 @@ fn hmac_key_lifecycle_state_rules_etags_and_restart() {
     );
 
     // Read-modify-write clients send back the whole metadata resource.
-    let mut round_trip = fetched.clone();
+    let mut round_trip = fetched;
     round_trip["state"] = "INACTIVE".into();
     let inactive = set_state(&server, &access_id, round_trip).json();
     assert_eq!(inactive["state"], "INACTIVE");

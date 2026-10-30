@@ -243,7 +243,7 @@ mod tests {
                 .apply(&mut value);
             assert_eq!(value, original);
         }
-        let mut value = original.clone();
+        let mut value = original;
         Fields::parse("items(metadata/*),prefixes", "Objects")
             .unwrap()
             .apply(&mut value);

@@ -1368,9 +1368,9 @@ pub(crate) mod test_support {
     //! Test-only snapshot creation; production source readers never call this module.
     use std::{fs, io, path::PathBuf};
 
-    pub struct SourceDir(pub PathBuf);
+    pub(crate) struct SourceDir(pub PathBuf);
     impl SourceDir {
-        pub fn new() -> Self {
+        pub(crate) fn new() -> Self {
             let mut random = [0; 8];
             getrandom::fill(&mut random).expect("test directory randomness");
             let path = std::env::temp_dir().join(format!(
@@ -1394,7 +1394,7 @@ pub(crate) mod test_support {
         }
     }
 
-    pub fn set_metadata(file: &fs::File, bytes: &[u8]) -> io::Result<bool> {
+    pub(crate) fn set_metadata(file: &fs::File, bytes: &[u8]) -> io::Result<bool> {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
             use std::os::fd::AsRawFd;

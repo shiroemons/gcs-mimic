@@ -1484,7 +1484,7 @@ mod tests {
 
         #[test]
         fn schema_shaped_inputs_keep_native_and_typed_conversion_consistent(resource in schema_resource()) {
-            let document = json!({"version":1,"buckets":[resource.clone()]});
+            let document = json!({"version":1,"buckets":[resource]});
             match parsed(&document.to_string()) {
                 Ok(records) => { prop_assert_eq!(records.len(), 1); prop_assert_eq!(records[0].name.as_str(), resource["name"].as_str().unwrap()); }
                 Err(errors) => { prop_assert!(errors.errors.iter().all(|record| record.key != "$" || record.fix.starts_with("Omitted")), "{errors:?}"); }

@@ -1,7 +1,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[allow(dead_code)]
-pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_object_schema(connection: &rusqlite::Connection) {
     downgrade_timestamp_precision(connection);
     connection.execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; ALTER TABLE buckets DROP COLUMN cors; DROP TABLE rewrite_sessions; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers;
         ALTER TABLE objects RENAME TO objects_with_versions;
@@ -30,7 +30,7 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
 }
 
 /// Restores the schema 33 layout, which predates Rapid appendable objects.
-pub fn downgrade_appendable_schema(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_appendable_schema(connection: &rusqlite::Connection) {
     downgrade_upload_replay_schema(connection);
     connection
         .execute_batch("DROP TABLE IF EXISTS appendable_objects;")
@@ -38,14 +38,14 @@ pub fn downgrade_appendable_schema(connection: &rusqlite::Connection) {
 }
 
 /// Restores the schema 34 layout, which predates upload response replay.
-pub fn downgrade_upload_replay_schema(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_upload_replay_schema(connection: &rusqlite::Connection) {
     connection
         .execute_batch("DROP TABLE IF EXISTS upload_replays;")
         .unwrap();
 }
 
 /// Restores the schema 32 layout, which predates stored access control lists.
-pub fn downgrade_acl_schema(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_acl_schema(connection: &rusqlite::Connection) {
     downgrade_appendable_schema(connection);
     connection
         .execute_batch(
@@ -55,7 +55,7 @@ pub fn downgrade_acl_schema(connection: &rusqlite::Connection) {
 }
 
 /// Restores the schema 31 layout, which predates project HMAC keys.
-pub fn downgrade_hmac_key_schema(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_hmac_key_schema(connection: &rusqlite::Connection) {
     downgrade_acl_schema(connection);
     connection
         .execute_batch("DROP TABLE IF EXISTS hmac_keys;")
@@ -63,7 +63,7 @@ pub fn downgrade_hmac_key_schema(connection: &rusqlite::Connection) {
 }
 
 /// Remove the version 31 Autoclass column; fixtures built at older versions lack it.
-pub fn downgrade_autoclass_schema(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_autoclass_schema(connection: &rusqlite::Connection) {
     downgrade_hmac_key_schema(connection);
     let present: bool = connection
         .query_row(
@@ -79,7 +79,7 @@ pub fn downgrade_autoclass_schema(connection: &rusqlite::Connection) {
     }
 }
 
-pub fn downgrade_soft_delete_schema(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_soft_delete_schema(connection: &rusqlite::Connection) {
     downgrade_object_retention_schema(connection);
     connection
         .execute_batch("DROP TABLE IF EXISTS bucket_notifications; DROP TABLE IF EXISTS bucket_notification_ids; DROP TABLE IF EXISTS sync_buckets;")
@@ -88,7 +88,7 @@ pub fn downgrade_soft_delete_schema(connection: &rusqlite::Connection) {
 }
 
 /// Restores the schema 28 layout; retain_until_time's CHECK names retention_mode, so it goes first.
-pub fn downgrade_object_retention_schema(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_object_retention_schema(connection: &rusqlite::Connection) {
     downgrade_customer_key_schema(connection);
     connection
         .execute_batch("ALTER TABLE objects DROP COLUMN retain_until_time; ALTER TABLE objects DROP COLUMN retention_mode; ALTER TABLE buckets DROP COLUMN object_retention_enabled;")
@@ -96,14 +96,14 @@ pub fn downgrade_object_retention_schema(connection: &rusqlite::Connection) {
 }
 
 /// Restores the schema 29 layout, which predates customer-supplied key fingerprints.
-pub fn downgrade_customer_key_schema(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_customer_key_schema(connection: &rusqlite::Connection) {
     downgrade_autoclass_schema(connection);
     connection
         .execute_batch("ALTER TABLE objects DROP COLUMN customer_key_sha256;")
         .unwrap();
 }
 
-pub fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {
+pub(crate) fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {
     downgrade_soft_delete_schema(connection);
     connection
         .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time;")
@@ -120,7 +120,7 @@ pub fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {
     ).unwrap();
 }
 
-pub fn floor_to_millis(time: SystemTime) -> SystemTime {
+pub(crate) fn floor_to_millis(time: SystemTime) -> SystemTime {
     match time.duration_since(UNIX_EPOCH) {
         Ok(duration) => UNIX_EPOCH + Duration::from_millis(duration.as_millis() as u64),
         Err(error) => {

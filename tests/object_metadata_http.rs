@@ -176,7 +176,7 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
         assert_eq!(first[field], original[field], "{field}");
     }
     assert_ne!(first["etag"], original["etag"]);
-    let identical = server.update("PUT", "", first.clone()).json();
+    let identical = server.update("PUT", "", first).json();
     assert_eq!(identical["metageneration"], "3");
     assert_eq!(
         server.update("PATCH", "", json!({"contentType":""})).json()["contentType"],
