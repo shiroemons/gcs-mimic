@@ -669,7 +669,7 @@ impl Admin {
                         condition
                             .map(GenerationCondition::conditions)
                             .unwrap_or_default(),
-                        objects::Overwrite::Allowed,
+                        objects::DeletePermission::Granted,
                         clock.now(),
                     )
                 })();

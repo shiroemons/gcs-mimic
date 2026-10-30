@@ -747,7 +747,8 @@ fn publish_entry(
     let access = BucketAccess::Admin(grant.clone());
     let bucket = entry.bucket.as_str();
     let name = entry.name.as_str();
-    let (storage_class, overwrite) = objects::authorized_bucket(transaction, bucket, &access)?;
+    let (storage_class, delete_permission) =
+        objects::authorized_bucket(transaction, bucket, &access)?;
     let (versioning, default_hold) =
         Catalog::bucket_settings_in_transaction(transaction, bucket).map_err(objects_error)?;
     let previous = objects::lookup(transaction, bucket, name)?;
@@ -758,7 +759,7 @@ fn publish_entry(
             .condition
             .map(GenerationCondition::conditions)
             .unwrap_or_default(),
-        overwrite,
+        delete_permission,
         clock.now(),
     )?;
     let staged = &entry.staged;

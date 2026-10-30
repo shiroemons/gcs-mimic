@@ -199,9 +199,9 @@ impl Catalog {
         let catalog = self.clone();
         let session = self.run_waiting(move |connection| Ok((|| -> Result<_,ResumableError> {
             let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
-            let (_,allow_overwrite)=super::objects::authorized_bucket(&transaction,&bucket,&options.access)?;
+            let (_,delete_permission)=super::objects::authorized_bucket(&transaction,&bucket,&options.access)?;
             let previous=super::objects::lookup(&transaction,&bucket,&name)?;
-            super::objects::check_publication(previous.as_ref(),options.conditions,allow_overwrite,catalog.0.clock.now())?;
+            super::objects::check_publication(previous.as_ref(),options.conditions,delete_permission,catalog.0.clock.now())?;
             let count: i64 = transaction.prepare_cached("SELECT count(*) FROM resumable_sessions").and_then(|mut statement| statement.query_row([], |r| r.get(0))).map_err(unavailable)?;
             if count >= MAX_SESSIONS as i64 { return Err(unavailable("retained upload session limit reached").into()); }
             let incarnation: String = transaction.prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1").and_then(|mut statement| statement.query_row([&bucket], |r| r.get(0))).optional().map_err(unavailable)?.ok_or(ObjectError::BucketNotFound)?;

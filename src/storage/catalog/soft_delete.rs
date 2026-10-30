@@ -121,7 +121,7 @@ impl Catalog {
                         .transaction_with_behavior(TransactionBehavior::Immediate)
                         .map_err(object_unavailable)?;
                     authorized_bucket(&transaction, &bucket, &restore_access)?;
-                    let (_, allow_overwrite) =
+                    let (_, delete_permission) =
                         authorized_bucket(&transaction, &bucket, &create_access)?;
                     let (mut record, original) =
                         match selected(&transaction, &bucket, &name, generation, micros) {
@@ -148,7 +148,7 @@ impl Catalog {
                     objects::check_publication(
                         previous.as_ref(),
                         conditions,
-                        allow_overwrite,
+                        delete_permission,
                         now,
                     )?;
                     let (versioning, _) =

@@ -85,7 +85,7 @@ fn validate_composition(
     if disposal == SourceDisposal::Keep {
         return Ok(());
     }
-    if delete == objects::Overwrite::Forbidden {
+    if delete == objects::DeletePermission::Denied {
         return Err(ObjectError::Forbidden);
     }
     for (name, generation) in keys {
@@ -232,18 +232,20 @@ impl Catalog {
         let clock = self.0.clock.clone();
         self.run_object(move |connection| {
             let transaction = connection.transaction().map_err(object_unavailable)?;
-            let (_, overwrite) =
+            let (_, destination_delete) =
                 objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
-            let (_, delete) =
+            let (_, source_delete) =
                 objects::authorized_bucket(&transaction, &destination.bucket, &read_access)?;
-            if disposal == SourceDisposal::Delete && delete == objects::Overwrite::Forbidden {
+            if disposal == SourceDisposal::Delete
+                && source_delete == objects::DeletePermission::Denied
+            {
                 return Err(ObjectError::Forbidden);
             }
             let previous = objects::lookup(&transaction, &destination.bucket, &destination.name)?;
             objects::check_publication(
                 previous.as_ref(),
                 destination.conditions,
-                overwrite,
+                destination_delete,
                 clock.now(),
             )?;
             incarnation(&transaction, &destination.bucket)

@@ -53,10 +53,15 @@ impl Catalog {
                     super::objects::RequestKind::Write,
                     &source_delete,
                 )?;
-                let (_, allow_overwrite) =
+                let (_, delete_permission) =
                     authorized_bucket(&transaction, &bucket, &destination_create)?;
                 let previous = lookup(&transaction, &bucket, &destination)?;
-                check_publication(previous.as_ref(), conditions, allow_overwrite, clock.now())?;
+                check_publication(
+                    previous.as_ref(),
+                    conditions,
+                    delete_permission,
+                    clock.now(),
+                )?;
                 record.check_retention(clock.now())?;
                 if source == destination {
                     return Err(ObjectError::InvalidMetadata);

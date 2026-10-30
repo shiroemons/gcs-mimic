@@ -1,4 +1,7 @@
-use super::{BucketAccess, Catalog, CatalogError, Identity, OBJECTS_DELETE, Policy, unavailable};
+use super::{
+    BucketAccess, Catalog, CatalogError, Identity, OBJECTS_DELETE, Policy,
+    objects::DeletePermission, unavailable,
+};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 pub(super) const SCHEMA: &str = "CREATE TABLE bucket_policies (
@@ -93,7 +96,7 @@ pub(super) fn check_access(
     bucket: &str,
     project: &str,
     access: &BucketAccess,
-) -> Result<bool, CatalogError> {
+) -> Result<DeletePermission, CatalogError> {
     if let BucketAccess::Policy {
         identity,
         permission,
@@ -112,12 +115,17 @@ pub(super) fn check_access(
         {
             return Err(CatalogError::Forbidden);
         }
-        return Ok(identity
+        let delete = identity
             .as_ref()
             .is_some_and(|identity| identity.allows(OBJECTS_DELETE, project))
-            || policy.allows(identity.as_ref(), OBJECTS_DELETE, pap));
+            || policy.allows(identity.as_ref(), OBJECTS_DELETE, pap);
+        return Ok(if delete {
+            DeletePermission::Granted
+        } else {
+            DeletePermission::Denied
+        });
     }
-    Ok(true)
+    Ok(DeletePermission::Granted)
 }
 
 impl Catalog {

@@ -643,7 +643,7 @@ impl UploadCommit {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(object_unavailable)?;
-        let (storage_class, allow_overwrite) =
+        let (storage_class, delete_permission) =
             authorized_bucket(&transaction, &self.bucket, &self.access)?;
         let fingerprint = self.fingerprint();
         let replay_now = unix_micros(self.clock.now()).map_err(object_unavailable)?;
@@ -669,7 +669,7 @@ impl UploadCommit {
         check_publication(
             previous.as_ref(),
             self.conditions,
-            allow_overwrite,
+            delete_permission,
             self.clock.now(),
         )?;
         let body = &self.body;
@@ -863,9 +863,14 @@ impl Catalog {
         self.run_waiting(move |connection| {
             Ok((|| {
                 let transaction = connection.transaction().map_err(object_unavailable)?;
-                let (_, allow_overwrite) = authorized_bucket(&transaction, &bucket, &access)?;
+                let (_, delete_permission) = authorized_bucket(&transaction, &bucket, &access)?;
                 let previous = lookup(&transaction, &bucket, &name)?;
-                check_publication(previous.as_ref(), conditions, allow_overwrite, clock.now())
+                check_publication(
+                    previous.as_ref(),
+                    conditions,
+                    delete_permission,
+                    clock.now(),
+                )
             })())
         })
         .await
@@ -1921,30 +1926,26 @@ fn trailing_marker(name: &str, query: &ObjectListQuery) -> bool {
 /// Resolves the bucket and re-validates `access` against the owning project observed on the
 /// same connection, before any object state is read or changed.
 ///
-/// Returns the storage class and whether replacing a live object is allowed. A missing bucket
-/// is reported before authorization, matching the adapter's missing-bucket rule.
+/// Returns the storage class and whether the caller may delete objects, which replacing a
+/// live object also requires. A missing bucket is reported before authorization, matching the
+/// adapter's missing-bucket rule.
 pub(super) fn authorized_bucket(
     connection: &Connection,
     bucket: &str,
     access: &BucketAccess,
-) -> Result<(String, Overwrite), ObjectError> {
+) -> Result<(String, DeletePermission), ObjectError> {
     let (storage_class, project): (String, String) = connection
         .prepare_cached("SELECT storage_class, project FROM buckets WHERE name = ?1")
         .and_then(|mut statement| statement.query_row([bucket], |r| Ok((r.get(0)?, r.get(1)?))))
         .optional()
         .map_err(object_unavailable)?
         .ok_or(ObjectError::BucketNotFound)?;
-    let allow_overwrite =
+    let delete_permission =
         super::check_access(connection, bucket, &project, access).map_err(|error| match error {
             CatalogError::Forbidden => ObjectError::Forbidden,
             error => object_unavailable(error),
         })?;
-    let overwrite = if allow_overwrite {
-        Overwrite::Allowed
-    } else {
-        Overwrite::Forbidden
-    };
-    Ok((storage_class, overwrite))
+    Ok((storage_class, delete_permission))
 }
 
 pub(super) fn lookup(
@@ -1989,7 +1990,7 @@ pub(super) fn selected(
 pub(super) fn check_publication(
     previous: Option<&(ObjectRecord, String)>,
     conditions: ObjectConditions,
-    overwrite: Overwrite,
+    delete_permission: DeletePermission,
     now: std::time::SystemTime,
 ) -> Result<(), ObjectError> {
     check_conditions(
@@ -1997,7 +1998,7 @@ pub(super) fn check_publication(
         conditions,
         RequestKind::Write,
     )?;
-    if previous.is_some() && overwrite == Overwrite::Forbidden {
+    if previous.is_some() && delete_permission == DeletePermission::Denied {
         return Err(ObjectError::OverwriteForbidden);
     }
     // Object retention depends on versioning; publish_in_transaction checks it.
@@ -2049,11 +2050,11 @@ pub(super) fn inherit_metadata(
     }
 }
 
-/// Whether the caller may delete objects, and so replace a live object.
+/// Whether the caller holds `storage.objects.delete`, which replacing a live object requires.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Overwrite {
-    Allowed,
-    Forbidden,
+pub(super) enum DeletePermission {
+    Granted,
+    Denied,
 }
 
 /// Whether the bucket keeps replaced live generations as noncurrent versions.

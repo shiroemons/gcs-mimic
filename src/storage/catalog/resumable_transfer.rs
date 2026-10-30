@@ -306,7 +306,7 @@ impl Catalog {
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(object_unavailable)?;
                 check_session_publishable(&transaction, &session, clock.now())?;
-                let (storage_class, allow_overwrite) =
+                let (storage_class, delete_permission) =
                     authorized_bucket(&transaction, &session.bucket, &options.access)?;
                 let storage_class = super::bucket_autoclass::object_storage_class(
                     &transaction,
@@ -322,7 +322,7 @@ impl Catalog {
                 check_publication(
                     previous.as_ref(),
                     options.conditions,
-                    allow_overwrite,
+                    delete_permission,
                     clock.now(),
                 )?;
                 let now = clock.now();

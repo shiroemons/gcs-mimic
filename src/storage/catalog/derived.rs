@@ -758,7 +758,7 @@ impl Catalog {
                 #[cfg(test)]
                 fault::hit(&data_dir, Step::AfterPublish).map_err(object_unavailable)?;
                 let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(object_unavailable)?;
-                let (default_class, allow_overwrite) = objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
+                let (default_class, delete_permission) = objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
                 let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
                 let cached = replay.as_ref().map(|replay| replay.cached(&transaction, micros)).transpose()?.flatten();
                 let record = if let Some(record) = cached {
@@ -770,7 +770,7 @@ impl Catalog {
                 let storage_class = super::bucket_autoclass::object_storage_class(&transaction, &destination.bucket, destination.storage_class.clone(), default_class).map_err(object_unavailable)?;
                 let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(&transaction, &destination.bucket).map_err(object_unavailable)?;
                 let previous = objects::lookup(&transaction, &destination.bucket, &destination.name)?;
-                objects::check_publication(previous.as_ref(), destination.conditions, allow_overwrite, clock.now())?;
+                objects::check_publication(previous.as_ref(), destination.conditions, delete_permission, clock.now())?;
                 if destination.expected.md5.is_some_and(|hash| hash != md5) || destination.expected.crc32c.is_some_and(|hash| hash != crc32c) { return Err(ObjectError::ChecksumMismatch); }
                 let now = clock.now();
                 now.duration_since(std::time::UNIX_EPOCH).map_err(object_unavailable)?;

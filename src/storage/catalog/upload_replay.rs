@@ -408,7 +408,7 @@ impl Catalog {
                     let transaction = connection
                         .transaction()
                         .map_err(objects::object_unavailable)?;
-                    let (_, allow_overwrite) =
+                    let (_, delete_permission) =
                         objects::authorized_bucket(&transaction, &bucket, &access)?;
                     let incarnation = transaction
                         .prepare_cached(SELECT_INCARNATION)
@@ -433,7 +433,7 @@ impl Catalog {
                         objects::check_publication(
                             previous.as_ref(),
                             conditions,
-                            allow_overwrite,
+                            delete_permission,
                             clock.now(),
                         )?;
                     }
