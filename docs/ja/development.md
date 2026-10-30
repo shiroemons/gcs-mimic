@@ -7,9 +7,11 @@
 
 ## 準備
 
-macOSまたはLinuxで、Bash、just 1.56.0以降、rustup、Go、jq、curlを使います。
+macOSまたはLinuxで、Bash、just 1.56.0以降、rustup、Go、jq、curl、
+Node.js 24以降（npm付き）、uvを使います。
 Ruby・Bundler・gemは[SDKテストの指定バージョン](../../sdk-tests/ruby/README.md)を
-揃えてください。Pythonは不要です。
+揃えてください。PythonはuvがPython SDKテスト用の指定バージョンを用意するので、
+別途インストールする必要はありません。PHP SDKテストはDocker上で動くので、PHPも不要です。
 
 Docker、Compose、Buildxも必要です。Dockerを起動し、AMD64とARM64の
 Linuxコンテナを実行できるようにします。ホストと異なる環境ではエミュレーションを使います。
@@ -25,7 +27,7 @@ just pre-push
 `just pre-push`は次の順序で進みます。
 
 1. Rustとシェルの検証。
-2. Go・Ruby SDKの全テスト。
+2. Go・Ruby・Node.js・Python・PHP SDKの全テスト。
 3. AMD64・ARM64のコンテナ検証を並列実行。
 
 各環境は、自分のビルドが終わり次第、動作確認へ進みます。

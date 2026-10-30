@@ -12,9 +12,9 @@ check:
 check-dependencies:
     env -u RUSTUP_TOOLCHAIN cargo xtask dependencies check
 
-# Run the complete pinned Go and Ruby SDK suites against isolated servers.
+# Run the complete pinned Go, Ruby, Node.js, Python and PHP SDK suites against isolated servers.
 check-sdk:
-    env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby
+    env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php
 
 # Report Rails GCS compatibility cases independently; known failures return nonzero.
 check-active-storage:

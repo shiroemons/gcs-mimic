@@ -4,7 +4,7 @@
 
 [日本語](../ja/development.md)
 
-Requires rustup and curl for the explicit online freshness check. Python is not required. Rust 1.99.1 is the verified latest stable compiler; edition 2024 is explicit. No Google credentials or project are needed.
+Requires rustup and curl for the explicit online freshness check. A host Python is not required: the Python SDK suite runs on the pinned Python that uv provides. Rust 1.99.1 is the verified latest stable compiler; edition 2024 is explicit. No Google credentials or project are needed.
 
 ## Development commands and push checks
 
@@ -12,7 +12,7 @@ Install [just](https://github.com/casey/just#installation) 1.56.0 or newer to us
 `Justfile`; `just` lists the available recipes. The recipes are intended for
 macOS and Linux with Bash. The full pre-push check also requires Go, jq, curl,
 the pinned Ruby/Bundler/gems from [the Ruby harness](../../sdk-tests/ruby/README.md),
-Docker Engine/Desktop, Compose and Buildx. Docker must be running and able to
+Node.js 24+ with npm, uv, Docker Engine/Desktop, Compose and Buildx. Docker must be running and able to
 execute both Linux amd64 and arm64 containers, using emulation where needed.
 The Justfile uses the standard [parallel attribute](https://just.systems/man/en/attributes.html)
 and `--jobs` to control container concurrency.
@@ -27,7 +27,7 @@ just pre-push
 Run `just pre-push` on the final source before every push. It runs three stages:
 
 1. Rust and shell checks.
-2. The complete Go/Ruby SDK suites.
+2. The complete Go, Ruby, Node.js, Python and PHP SDK suites.
 3. AMD64 and ARM64 container checks **in parallel**. Each builds its own image,
    then immediately runs its smoke tests without waiting for the other build.
 
@@ -81,10 +81,18 @@ because the server reads every `GCS_MIMIC_` and `FAKE_GCS_` variable as its own
 setting and rejects unknown names.
 
 `bash scripts/sdk-go.sh` remains Go-only for the existing CI job; the SDK recipe
-explicitly passes `--with-ruby`. It requires installed pinned Ruby gems and fails
-if they are absent. It runs the Ruby origin guard, permissive/strict basic methods
-and strict signed GET/PUT. `GCS_MIMIC_SDK_SCHEME=https just check-sdk` verifies
-both languages with the exported local CA. Signature endpoint/payload caveats are
+explicitly passes `--with-ruby --with-node --with-python --with-php`. Each flag
+runs that language's official SDK suite against the same permissive and strict
+servers. Every suite runs its origin guard self-check, a migration scenario,
+the permissive journeys, and the strict journeys with authorization denials and
+signed URLs. The Ruby suite requires the installed pinned gems and fails if they
+are absent. [The Node.js suite](../../sdk-tests/node/README.md) needs Node.js 24+
+with npm and installs its lockfile with `npm ci --ignore-scripts`.
+[The Python suite](../../sdk-tests/python/README.md) needs uv, which provides the
+pinned Python. [The PHP suite](../../sdk-tests/php/README.md) runs in the
+digest-pinned Composer/PHP image and needs Docker, not a host PHP. Each README
+lists the journeys that its SDK cannot express. `GCS_MIMIC_SDK_SCHEME=https just check-sdk`
+verifies every language with the exported local CA. Signature endpoint/payload caveats are
 recorded in [the signed-access evidence](evidence/signed-urls.md).
 
 No Git hook is installed and no commit or push is performed. Re-run the checks
