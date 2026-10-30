@@ -21,4 +21,9 @@ for target in "${targets[@]}"; do
   env "CC_$env_target=$stub" "AR_$env_target=$stub" \
     CARGO_TARGET_DIR=target/cross \
     cargo clippy --workspace --all-targets --locked --offline --target "$target" -- -D warnings
+  # The production gate's Clippy lints for code behind this target's cfg; the host run of
+  # `cargo xtask lint` already applied the target-independent text rules.
+  env "CC_$env_target=$stub" "AR_$env_target=$stub" \
+    CARGO_TARGET_DIR=target/cross \
+    cargo xtask lint --target "$target"
 done
