@@ -40,8 +40,9 @@ The image healthcheck follows `GCS_MIMIC_SCHEME`, `GCS_MIMIC_LISTEN` and the
 JSON file selected by `GCS_MIMIC_CONFIG`; HTTP needs no probe override.
 Wildcard listeners connect through loopback; `both` probes its HTTP listener.
 HTTPS trusts the embedded development CA. Custom CAs require `--ca-cert PATH`.
-When the server runs as PID 1, as in the image, the healthcheck also reads its
-command-line options, including a Compose `command`. Elsewhere, use the same
+When the server runs as PID 1, as in the image, and the probe derived from the
+environment fails, the healthcheck retries with the server's command-line
+options, including a Compose `command`. Elsewhere, use the same
 environment/file settings for probes, or specify `healthcheck --url URL`.
 The image supplies `GCS_MIMIC_LISTEN=0.0.0.0:4443` and
 `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`; override these environment values to

@@ -47,10 +47,16 @@ advice only where existing diagnostics already allow it.
 - **A leading legacy flag selects `serve`.** A fake-gcs-server Compose
   `command` replaces the image's `serve`. Native options without `serve` still
   fail with the existing advice.
-- **The healthcheck reads PID 1's options.** A Compose `command` reaches only
-  the server process. When PID 1 is `gcs-mimic` running `serve` or a leading
-  legacy flag, `gcs-mimic healthcheck` derives its probe from those options and
-  the environment. Elsewhere it uses the environment and file as before.
+- **The healthcheck falls back to PID 1's options.** A Compose `command`
+  reaches only the server process. `gcs-mimic healthcheck` first probes the URL
+  derived from the environment and file, as before. Only if that fails, and PID
+  1 is `gcs-mimic` running `serve` or a leading legacy flag, does it derive a
+  second URL from those options and probe it. Reading PID 1 only after a
+  failure matters on Apple Silicon: Rosetta emulates `/proc/<pid>/cmdline` for
+  an amd64 image with a temporary file, so reading it on a read-only root
+  crashes the probe. Reading it unconditionally made every read-only amd64
+  container unhealthy there; now only a legacy `command` on a read-only amd64
+  container under Rosetta still fails, which ordinary setups do not use.
 - **Helper commands still reject legacy names.** They have no server settings.
 
 ## Acceptance and verification

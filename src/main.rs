@@ -564,37 +564,63 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
             }
         )
     };
+    let failed = |url: &str, error: io::Error| {
+        Diagnostics::error(
+            DiagnosticSource::Cli,
+            "healthcheck",
+            format!(
+                "Healthcheck {url} failed: {error}; require HTTP 200 and verify CA trust (including 403 access denial). {}",
+                repair(url)
+            ),
+        )
+    };
     let explicit_url = args
         .chunks(2)
         .find_map(|pair| (pair.len() == 2 && pair[0] == "--url").then(|| pair[1].clone()));
-    let url = if let Some(url) = explicit_url {
-        url
-    } else {
-        let mut report = Config::preflight_os(&container_server_args(), std::env::vars_os());
-        let url = report.config.healthcheck_url();
-        if report.diagnostics.is_err() {
-            report.diagnostics.errors.push(Diagnostic::new(
-                DiagnosticSource::Cli,
-                "healthcheck",
-                format!(
-                    "Cannot derive a reliable probe URL (candidate {url}); fix configuration. {}",
-                    repair(&url)
-                ),
-            ));
-            return Err(report.diagnostics);
-        }
-        url
+    if let Some(url) = explicit_url {
+        return probe(args, &url).map_err(|error| failed(&url, error));
+    }
+    let url = probe_url(&[], &repair)?;
+    let Err(error) = probe(args, &url) else {
+        return Ok(());
     };
-    probe(args, &url).map_err(|error| Diagnostics::error(
-        DiagnosticSource::Cli,
-        "healthcheck",
-        format!("Healthcheck {url} failed: {error}; require HTTP 200 and verify CA trust (including 403 access denial). {}", repair(&url)),
-    ))
+    // Only a failed probe consults PID 1: Rosetta emulates /proc/<pid>/cmdline with a temporary
+    // file, which crashes the probe on a read-only root, so ordinary setups never read it.
+    let server_args = container_server_args();
+    if server_args.is_empty() {
+        return Err(failed(&url, error));
+    }
+    let fallback = probe_url(&server_args, &repair)?;
+    if fallback == url {
+        return Err(failed(&url, error));
+    }
+    probe(args, &fallback).map_err(|error| failed(&fallback, error))
+}
+
+/// The probe URL for the environment, JSON file and the given server options.
+fn probe_url(
+    server_args: &[String],
+    repair: &dyn Fn(&str) -> String,
+) -> Result<String, Diagnostics> {
+    let mut report = Config::preflight_os(server_args, std::env::vars_os());
+    let url = report.config.healthcheck_url();
+    if report.diagnostics.is_err() {
+        report.diagnostics.errors.push(Diagnostic::new(
+            DiagnosticSource::Cli,
+            "healthcheck",
+            format!(
+                "Cannot derive a reliable probe URL (candidate {url}); fix configuration. {}",
+                repair(&url)
+            ),
+        ));
+        return Err(report.diagnostics);
+    }
+    Ok(url)
 }
 
 /// The server options of a gcs-mimic process running as PID 1, as in the container image.
 /// A Compose `command` such as fake-gcs-server's `-scheme http` reaches only that process, so
-/// the image healthcheck reads them here instead of probing the environment's defaults.
+/// the healthcheck falls back to them when the environment's defaults do not answer.
 fn container_server_args() -> Vec<String> {
     let Ok(bytes) = std::fs::read("/proc/1/cmdline") else {
         return Vec::new();
