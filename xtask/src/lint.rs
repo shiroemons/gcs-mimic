@@ -5,10 +5,8 @@
 //! are reasoned suppressions (`#[expect(lint, reason = "..")]` for Clippy and rustc lints,
 //! `// xtask-lint: allow(text::..) -- reason` for text rules) and the one shared error-mapping
 //! helper in [`SHARED_HELPER_FILE`]. `--target <triple>` repeats the Clippy pass for another
-//! target, so code behind that target's `cfg` is checked too. Rules in [`PENDING_RULES`] are
-//! reported as warnings until the code they reject is fixed. `--all-targets-report` lists the
-//! same Clippy lints across every workspace target for information; tests may unwrap, so it
-//! never fails.
+//! target, so code behind that target's `cfg` is checked too. Text rules cover only what Clippy
+//! cannot express; prefer a Clippy lint or `clippy.toml` entry for anything new.
 
 use serde_json::Value;
 use std::{
@@ -51,15 +49,6 @@ const FORMAT_SQL: &str = "text::format_sql";
 const SYNC_WITHOUT_FLUSH: &str = "text::sync_without_flush";
 const STRING_ERROR_VARIANT: &str = "text::string_error_variant";
 const STRINGIFIED_ERROR: &str = "text::stringified_error";
-
-/// Pseudo-rule for the findings of a `--target` run; listing it in [`PENDING_RULES`] reports
-/// every cross-target finding as pending.
-pub const CROSS_TARGET: &str = "target::cross";
-
-/// Rules reported as warnings instead of failures while existing code is migrated. Each entry
-/// is temporary: remove it (or empty the list) to enforce the rule once its findings are fixed.
-/// A pending rule still accepts suppressions, and stale or invalid suppressions still fail.
-pub const PENDING_RULES: &[&str] = &[];
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
@@ -119,8 +108,6 @@ pub enum Mode {
     /// Run only the Clippy pass for another target triple; text rules are target-independent
     /// and already ran with the host gate.
     Target(String),
-    /// Print the Clippy lints across every workspace target; never fails on findings.
-    AllTargetsReport,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -166,38 +153,10 @@ impl Scan {
     }
 }
 
-/// Which code a Clippy pass compiles and which reported files it keeps.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scope {
-    /// The server's library and binaries: the files the gate checks.
-    Production,
-    /// Every workspace target: what `[workspace.lints]` would reach.
-    Workspace,
-}
-
-impl Scope {
-    fn cargo_args(self) -> &'static [&'static str] {
-        match self {
-            // `--lib --bins` leaves `cfg(test)` code uncompiled, so test helpers never count.
-            // xtask and the gRPC code generator are build tooling.
-            Self::Production => &["--package", "gcs-mimic", "--lib", "--bins"],
-            Self::Workspace => &["--workspace", "--all-targets"],
-        }
-    }
-
-    fn includes(self, path: &str) -> bool {
-        match self {
-            Self::Production => production_file(path),
-            Self::Workspace => path.ends_with(".rs") && !path.starts_with(".."),
-        }
-    }
-}
-
 /// Parses the arguments after `lint`.
 pub fn mode(args: &[String]) -> Option<Mode> {
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
         [] => Some(Mode::Gate),
-        ["--all-targets-report"] => Some(Mode::AllTargetsReport),
         ["--target", triple] if !triple.is_empty() && !triple.starts_with('-') => {
             Some(Mode::Target(triple.to_owned()))
         }
@@ -209,58 +168,19 @@ pub fn mode(args: &[String]) -> Option<Mode> {
 pub fn run(root: &Path, mode: &Mode) -> Result<bool> {
     match mode {
         Mode::Gate => gate(root),
-        Mode::Target(triple) => Ok(target_gate(
-            triple,
-            clippy(root, Scope::Production, Some(triple))?,
-        )),
-        Mode::AllTargetsReport => {
-            all_targets_report(&clippy(root, Scope::Workspace, None)?);
-            Ok(true)
-        }
+        Mode::Target(triple) => Ok(target_gate(triple, &clippy(root, Some(triple))?)),
     }
 }
 
-/// Splits findings into enforced ones and those of [`PENDING_RULES`]; with `cross_target`,
-/// every finding is pending while [`CROSS_TARGET`] is.
-pub fn split_pending(findings: Vec<Finding>, cross_target: bool) -> (Vec<Finding>, Vec<Finding>) {
-    let all_pending = cross_target && PENDING_RULES.contains(&CROSS_TARGET);
-    findings
-        .into_iter()
-        .partition(|f| !all_pending && !PENDING_RULES.contains(&f.rule.as_str()))
-}
-
-/// `N pending findings (rule: n, ..)` plus one `warning: pending` line per rule and file, so the
-/// migration workload stays visible without failing the gate.
-fn report_pending(pending: &[Finding]) -> String {
-    for ((rule, file), count) in counts_by_file(pending) {
-        eprintln!("warning: pending {rule}: {file}: {count}");
-    }
-    let mut by_rule = BTreeMap::<&str, usize>::new();
-    for finding in pending {
-        *by_rule.entry(&finding.rule).or_default() += 1;
-    }
-    let detail = by_rule
-        .iter()
-        .map(|(rule, n)| format!("{rule}: {n}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    match pending.len() {
-        0 => "0 pending findings".to_owned(),
-        n => format!("{n} pending findings, not enforced yet ({detail})"),
-    }
-}
-
-fn target_gate(triple: &str, findings: Vec<Finding>) -> bool {
-    let (violations, pending) = split_pending(findings, true);
-    let pending = report_pending(&pending);
-    for finding in &violations {
+fn target_gate(triple: &str, violations: &[Finding]) -> bool {
+    for finding in violations {
         eprintln!("error: {}: {}:{}", finding.rule, finding.file, finding.line);
     }
     if violations.is_empty() {
-        println!("lint --target {triple}: 0 production Clippy violations; {pending}");
+        println!("lint --target {triple}: 0 production Clippy violations");
     } else {
         eprintln!(
-            "lint --target {triple} failed: {} production Clippy violations; {pending}",
+            "lint --target {triple} failed: {} production Clippy violations",
             violations.len()
         );
     }
@@ -268,12 +188,10 @@ fn target_gate(triple: &str, findings: Vec<Finding>) -> bool {
 }
 
 fn gate(root: &Path) -> Result<bool> {
-    let mut findings = clippy(root, Scope::Production, None)?;
+    let mut findings = clippy(root, None)?;
     let scan = scan_tree(root)?;
     findings.extend(scan.findings);
     findings.sort();
-    let (findings, pending) = split_pending(findings, false);
-    let pending = report_pending(&pending);
     let suppressions = suppression_summary(&scan.suppressed);
     for problem in &scan.problems {
         eprintln!(
@@ -293,10 +211,10 @@ fn gate(root: &Path) -> Result<bool> {
     }
     let passed = violations.is_empty() && missing_helper.is_none() && scan.problems.is_empty();
     if passed {
-        println!("lint: 0 production violations; {suppressions}; {pending}");
+        println!("lint: 0 production violations; {suppressions}");
     } else {
         eprintln!(
-            "lint failed: {} production violations, {} suppression problems; {suppressions}; {pending}",
+            "lint failed: {} production violations, {} suppression problems; {suppressions}",
             violations.len() + usize::from(missing_helper.is_some()),
             scan.problems.len()
         );
@@ -342,53 +260,14 @@ pub fn suppression_summary(suppressed: &[Finding]) -> String {
     }
 }
 
-/// Prints the [`CLIPPY_LINTS`] findings of every workspace target per lint and file, then the
-/// lints with none, which can move to `[workspace.lints]` as `deny`.
-fn all_targets_report(workspace: &[Finding]) {
-    for ((rule, file), count) in counts_by_file(workspace) {
-        println!("{rule}\t{file}\t{count}");
-    }
-    let ready = ready_lints(workspace);
-    println!(
-        "all targets: {} findings (informational; tests may unwrap)",
-        workspace.len()
-    );
-    println!(
-        "lints ready to deny in [workspace.lints]: {}",
-        if ready.is_empty() {
-            "none".to_owned()
-        } else {
-            ready.join(", ")
-        }
-    );
-}
-
-/// Finding counts per `(rule, file)`, sorted.
-pub fn counts_by_file(findings: &[Finding]) -> BTreeMap<(String, String), usize> {
-    let mut counts = BTreeMap::new();
-    for finding in findings {
-        *counts
-            .entry((finding.rule.clone(), finding.file.clone()))
-            .or_default() += 1;
-    }
-    counts
-}
-
-/// [`CLIPPY_LINTS`] with no finding on any workspace target.
-pub fn ready_lints(workspace: &[Finding]) -> Vec<&'static str> {
-    CLIPPY_LINTS
-        .into_iter()
-        .filter(|lint| !workspace.iter().any(|f| f.rule == *lint))
-        .collect()
-}
-
-fn clippy(root: &Path, scope: Scope, target: Option<&str>) -> Result<Vec<Finding>> {
+fn clippy(root: &Path, target: Option<&str>) -> Result<Vec<Finding>> {
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut command = Command::new(cargo);
+    // `--lib --bins` leaves `cfg(test)` code uncompiled, so test helpers never count; xtask and
+    // the gRPC code generator are build tooling.
     command
         .current_dir(root)
-        .arg("clippy")
-        .args(scope.cargo_args())
+        .args(["clippy", "--package", "gcs-mimic", "--lib", "--bins"])
         .args(["--locked", "--offline", "--message-format=json"]);
     if let Some(target) = target {
         command.args(["--target", target]);
@@ -415,12 +294,12 @@ fn clippy(root: &Path, scope: Scope, target: Option<&str>) -> Result<Vec<Finding
             output.status
         ));
     }
-    Ok(clippy_findings(&stdout, scope))
+    Ok(clippy_findings(&stdout))
 }
 
-/// Extracts curated lint findings on the scope's files from a `--message-format=json` stream.
+/// Extracts curated lint findings on production files from a `--message-format=json` stream.
 /// Several targets can report the same span, so findings are de-duplicated.
-pub fn clippy_findings(stream: &str, scope: Scope) -> Vec<Finding> {
+pub fn clippy_findings(stream: &str) -> Vec<Finding> {
     let mut seen = BTreeSet::new();
     let mut findings = Vec::new();
     for line in stream.lines() {
@@ -451,7 +330,7 @@ pub fn clippy_findings(stream: &str, scope: Scope) -> Vec<Finding> {
         let file = normalize(raw);
         let line = span["line_start"].as_u64().unwrap_or_default();
         let column = span["column_start"].as_u64().unwrap_or_default();
-        if !scope.includes(&file) || !seen.insert((code.to_owned(), file.clone(), line, column)) {
+        if !production_file(&file) || !seen.insert((code.to_owned(), file.clone(), line, column)) {
             continue;
         }
         findings.push(Finding::new(
@@ -1507,31 +1386,6 @@ struct ParseError(String);
     }
 
     #[test]
-    fn pending_rules_warn_and_cross_target_findings_are_pending() {
-        let enforced = Finding::new("clippy::expect_used", "src/a.rs", 1);
-        let pending = Finding::new(STRINGIFIED_ERROR, "src/a.rs", 2);
-        let all = vec![enforced.clone(), pending.clone()];
-        let host = split_pending(all.clone(), false);
-        let cross = split_pending(all.clone(), true);
-        for rule in PENDING_RULES {
-            assert!(
-                TEXT_RULES.contains(rule) || CLIPPY_LINTS.contains(rule) || *rule == CROSS_TARGET,
-                "{rule} is not a gate rule"
-            );
-        }
-        if PENDING_RULES.contains(&STRINGIFIED_ERROR) {
-            assert_eq!(host, (vec![enforced.clone()], vec![pending]));
-        } else {
-            assert_eq!(host, (all.clone(), Vec::new()));
-        }
-        if PENDING_RULES.contains(&CROSS_TARGET) {
-            assert_eq!(cross, (Vec::new(), all));
-        } else {
-            assert_eq!(cross.0.first(), Some(&enforced));
-        }
-    }
-
-    #[test]
     fn only_server_production_files_are_scanned() {
         for path in [
             "src/server.rs",
@@ -1583,7 +1437,7 @@ struct ParseError(String);
         ]
         .join("\n");
         assert_eq!(
-            clippy_findings(&stream, Scope::Production),
+            clippy_findings(&stream),
             [
                 Finding::new("clippy::unwrap_used", "src/server.rs", 10),
                 Finding::new("clippy::unwrap_used", "src/url.rs", 3),
@@ -1630,10 +1484,6 @@ struct ParseError(String);
         let args = |list: &[&str]| list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
         assert_eq!(mode(&args(&[])), Some(Mode::Gate));
         assert_eq!(
-            mode(&args(&["--all-targets-report"])),
-            Some(Mode::AllTargetsReport)
-        );
-        assert_eq!(
             mode(&args(&["--target", "x86_64-pc-windows-msvc"])),
             Some(Mode::Target("x86_64-pc-windows-msvc".to_owned()))
         );
@@ -1644,7 +1494,7 @@ struct ParseError(String);
             &["x"],
             &["--target"],
             &["--target", ""],
-            &["--target", "--all-targets-report"],
+            &["--target", "--strict"],
             &["--target", "a", "--target", "b"],
         ] {
             assert_eq!(mode(&args(bad)), None);
@@ -1846,7 +1696,7 @@ let s = \"// xtask-lint: allow(text::nope)\";
     }
 
     #[test]
-    fn workspace_scope_keeps_every_repository_file() {
+    fn tests_tooling_and_dependency_files_are_not_production() {
         let message = |file: &str| {
             serde_json::json!({
                 "reason": "compiler-message",
@@ -1867,37 +1717,12 @@ let s = \"// xtask-lint: allow(text::nope)\";
         .map(message)
         .join("\n");
         assert_eq!(
-            clippy_findings(&stream, Scope::Workspace)
+            clippy_findings(&stream)
                 .into_iter()
                 .map(|f| f.file)
                 .collect::<Vec<_>>(),
-            ["src/server.rs", "tests/common/mod.rs", "xtask/src/main.rs"]
+            ["src/server.rs"]
         );
-        assert_eq!(clippy_findings(&stream, Scope::Production).len(), 1);
-    }
-
-    #[test]
-    fn all_targets_report_counts_per_file_and_lists_clean_lints() {
-        let workspace = [
-            Finding::new("clippy::expect_used", "src/a.rs", 3),
-            Finding::new("clippy::too_many_lines", "tests/x.rs", 1),
-            Finding::new("clippy::too_many_lines", "tests/x.rs", 90),
-        ];
-        assert_eq!(
-            counts_by_file(&workspace).into_iter().collect::<Vec<_>>(),
-            [
-                (("clippy::expect_used".to_owned(), "src/a.rs".to_owned()), 1),
-                (
-                    ("clippy::too_many_lines".to_owned(), "tests/x.rs".to_owned()),
-                    2
-                )
-            ]
-        );
-        let ready = ready_lints(&workspace);
-        assert!(!ready.contains(&"clippy::expect_used"));
-        assert!(!ready.contains(&"clippy::too_many_lines"));
-        assert!(ready.contains(&"clippy::unwrap_used"));
-        assert_eq!(ready.len(), CLIPPY_LINTS.len() - 2);
     }
 
     #[test]
