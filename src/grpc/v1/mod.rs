@@ -150,13 +150,6 @@ fn limit(value: i32) -> Result<usize, Status> {
     })
 }
 
-/// Whether supplied object metadata replaces every writable field or only the supplied ones.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MetadataWrite {
-    Replace,
-    Merge,
-}
-
 /// One UpdateObject or PatchObject request after common parameter validation.
 struct ObjectUpdate<'a> {
     bucket: &'a str,
@@ -164,11 +157,14 @@ struct ObjectUpdate<'a> {
     selected: i64,
     conditions: ObjectConditions,
     object: pb::Object,
-    write: MetadataWrite,
+    write: json::WriteMode,
 }
 
-fn metadata(mut object: pb::Object, write: MetadataWrite) -> Result<ObjectMetadataUpdate, Status> {
-    let replace = write == MetadataWrite::Replace;
+fn metadata(
+    mut object: pb::Object,
+    write: json::WriteMode,
+) -> Result<ObjectMetadataUpdate, Status> {
+    let replace = write == json::WriteMode::Replace;
     if object.encoded_len() > 8192 {
         return Err(Status::resource_exhausted(
             "Object metadata exceeds 8 KiB; reduce metadata",
@@ -216,11 +212,7 @@ fn metadata(mut object: pb::Object, write: MetadataWrite) -> Result<ObjectMetada
     }
     Ok(json::parse_object_metadata(
         &serde_json::to_vec(&body).map_err(|_| Status::internal("Cannot encode metadata"))?,
-        if replace {
-            json::WriteMode::Replace
-        } else {
-            json::WriteMode::Patch
-        },
+        write,
     )
     .map_err(from_json)?
     .update)
@@ -643,7 +635,7 @@ impl pb::storage_server::Storage for Storage {
                 r.if_metageneration_not_match,
             )?,
             object: r.metadata.unwrap_or_default(),
-            write: MetadataWrite::Replace,
+            write: json::WriteMode::Replace,
         };
         self.update(caller, update).await
     }
@@ -675,7 +667,7 @@ impl pb::storage_server::Storage for Storage {
                 r.if_metageneration_not_match,
             )?,
             object: r.metadata.unwrap_or_default(),
-            write: MetadataWrite::Merge,
+            write: json::WriteMode::Patch,
         };
         self.update(caller, update).await
     }
@@ -747,7 +739,7 @@ impl pb::storage_server::Storage for Storage {
             ));
         }
         let content_type = object.content_type.clone();
-        let metadata = metadata(object, MetadataWrite::Replace)?;
+        let metadata = metadata(object, json::WriteMode::Replace)?;
         let sources = r
             .source_objects
             .into_iter()

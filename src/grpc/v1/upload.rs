@@ -1,6 +1,5 @@
 use super::{
-    MetadataWrite, Storage, common, conditions, convert, metadata, object_error, pb, projection,
-    unsupported,
+    Storage, common, conditions, convert, metadata, object_error, pb, projection, unsupported,
 };
 use crate::{
     auth::Caller,
@@ -75,7 +74,7 @@ impl Storage {
         let name = object.name.clone();
         let content_type = object.content_type.clone();
         crate::json::validate_object_name(&name).map_err(super::from_json)?;
-        let metadata = metadata(object, MetadataWrite::Merge)?;
+        let metadata = metadata(object, crate::json::WriteMode::Patch)?;
         let conditions = conditions(
             spec.if_generation_match,
             spec.if_generation_not_match,
