@@ -20,11 +20,8 @@ pub(crate) enum SourceDisposal {
 
 fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectError> {
     connection
-        .query_row(
-            "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-            [bucket],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1")
+        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
         .map_err(object_unavailable)
 }
 

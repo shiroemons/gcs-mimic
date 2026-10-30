@@ -69,6 +69,7 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
         .map_err(super::unavailable)?;
     for id in retired {
         connection
+            // xtask-lint: allow(text::uncached_statement) -- retired rows are removed only during open-time recovery
             .execute("DELETE FROM appendable_objects WHERE blob_id = ?1", [&id])
             .map_err(super::unavailable)?;
         unlink(&data_path(data_dir, &id).map_err(super::unavailable)?)
@@ -76,6 +77,7 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
     }
     // Startup takes no write lock unless there is work: an UPDATE matching nothing still would.
     let interrupted: bool = connection
+        // xtask-lint: allow(text::uncached_statement) -- interrupted finalizations are probed once at open
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE finalizing = 1)",
             [],
@@ -84,6 +86,7 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
         .map_err(super::unavailable)?;
     if interrupted {
         connection
+            // xtask-lint: allow(text::uncached_statement) -- interrupted finalizations are reset once at open
             .execute(
                 "UPDATE appendable_objects SET finalizing = 0 WHERE finalizing = 1",
                 [],
@@ -102,6 +105,7 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
             continue;
         }
         let referenced: bool = connection
+            // xtask-lint: allow(text::uncached_statement) -- orphaned data files are checked only during open-time recovery
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE blob_id = ?1)",
                 [&name],
@@ -258,11 +262,8 @@ fn data_path(data_dir: &Path, blob_id: &str) -> Result<PathBuf, ObjectError> {
 
 fn incarnation(connection: &Connection, bucket: &str) -> Result<Option<String>, ObjectError> {
     connection
-        .query_row(
-            "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-            [bucket],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1")
+        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
         .optional()
         .map_err(object_unavailable)
 }
@@ -276,10 +277,11 @@ enum Lookup {
 
 fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, ObjectError> {
     let row = connection
-        .query_row(
+        .prepare_cached(
             "SELECT generation, incarnation, blob_id, options, size, crc32c, time_created, updated, write_handle FROM appendable_objects WHERE bucket = ?1 AND name = ?2",
-            params![bucket, name],
-            |row| {
+        )
+        .and_then(|mut statement| {
+            statement.query_row(params![bucket, name], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
@@ -291,8 +293,8 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
                     row.get::<_, i64>(7)?,
                     row.get::<_, String>(8)?,
                 ))
-            },
-        )
+            })
+        })
         .optional()
         .map_err(object_unavailable)?;
     let Some((generation, stored, blob_id, options, size, crc32c, created, updated, handle)) = row
@@ -330,11 +332,12 @@ fn published_generation(
     generation: i64,
 ) -> Result<bool, ObjectError> {
     connection
-        .query_row(
+        .prepare_cached(
             "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3)",
-            params![bucket, name, generation],
-            |row| row.get(0),
         )
+        .and_then(|mut statement| {
+            statement.query_row(params![bucket, name, generation], |row| row.get(0))
+        })
         .map_err(object_unavailable)
 }
 
@@ -497,11 +500,13 @@ impl AppendWriter {
             .run_upload(move |connection| {
                 let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
                 let changed = connection
-                    .execute(
+                    .prepare_cached(
                         // A deleted or recreated bucket invalidates the writer as well.
                         "UPDATE appendable_objects SET size = ?1, crc32c = ?2, updated = ?3 WHERE bucket = ?4 AND name = ?5 AND generation = ?6 AND write_handle = ?7 AND incarnation = (SELECT incarnation FROM bucket_incarnations WHERE bucket = ?4)",
-                        params![size, crc32c, micros, bucket, name, generation, handle],
                     )
+                    .and_then(|mut statement| {
+                        statement.execute(params![size, crc32c, micros, bucket, name, generation, handle])
+                    })
                     .map_err(object_unavailable)?;
                 Ok((changed == 1).then_some(micros))
             })
@@ -618,10 +623,12 @@ impl AppendWriter {
             .catalog
             .run_upload(move |connection| {
                 connection
-                    .execute(
+                    .prepare_cached(
                         "UPDATE appendable_objects SET finalizing = ?1 WHERE bucket = ?2 AND name = ?3 AND generation = ?4 AND write_handle = ?5 AND incarnation = (SELECT incarnation FROM bucket_incarnations WHERE bucket = ?2)",
-                        params![finalizing, bucket, name, generation, handle],
                     )
+                    .and_then(|mut statement| {
+                        statement.execute(params![finalizing, bucket, name, generation, handle])
+                    })
                     .map_err(object_unavailable)
             })
             .await?;
@@ -668,10 +675,12 @@ pub(super) fn retire_published(
     record: &ObjectRecord,
 ) -> Result<(), ObjectError> {
     connection
-        .execute(
+        .prepare_cached(
             "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
-            params![record.bucket, record.name, record.generation],
         )
+        .and_then(|mut statement| {
+            statement.execute(params![record.bucket, record.name, record.generation])
+        })
         .map_err(object_unavailable)?;
     Ok(())
 }
@@ -786,7 +795,8 @@ impl Catalog {
             };
             if let Some(id) = &stale {
                 transaction
-                    .execute("DELETE FROM appendable_objects WHERE blob_id = ?1", [id])
+                    .prepare_cached("DELETE FROM appendable_objects WHERE blob_id = ?1")
+                    .and_then(|mut statement| statement.execute([id]))
                     .map_err(object_unavailable)?;
             }
             let current = match current {
@@ -800,21 +810,25 @@ impl Catalog {
             let incarnation = incarnation(&transaction, &bucket)?.ok_or(ObjectError::BucketNotFound)?;
             let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
             let last: i64 = transaction
-                .query_row("SELECT last_generation FROM object_generation WHERE singleton = 1", [], |row| row.get(0))
+                .prepare_cached("SELECT last_generation FROM object_generation WHERE singleton = 1")
+                .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
                 .map_err(object_unavailable)?;
             let generation = micros.max(
                 last.checked_add(1)
                     .ok_or_else(|| object_unavailable("generation exhausted"))?,
             );
             transaction
-                .execute("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation])
+                .prepare_cached("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1")
+                .and_then(|mut statement| statement.execute([generation]))
                 .map_err(object_unavailable)?;
             let encoded = encode_options(&options).to_string();
             transaction
-                .execute(
+                .prepare_cached(
                     "INSERT INTO appendable_objects VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, ?7, ?8, 0)",
-                    params![bucket, name, generation, incarnation, blob_id, encoded, micros, handle],
                 )
+                .and_then(|mut statement| {
+                    statement.execute(params![bucket, name, generation, incarnation, blob_id, encoded, micros, handle])
+                })
                 .map_err(object_unavailable)?;
             let time = system_time_micros(micros).map_err(object_unavailable)?;
             let row = Row {
@@ -883,10 +897,10 @@ impl Catalog {
                     }
                 }
                 transaction
-                    .execute(
+                    .prepare_cached(
                         "UPDATE appendable_objects SET write_handle = ?1 WHERE bucket = ?2 AND name = ?3",
-                        params![handle, owned_bucket, owned_name],
                     )
+                    .and_then(|mut statement| statement.execute(params![handle, owned_bucket, owned_name]))
                     .map_err(object_unavailable)?;
                 transaction.commit().map_err(object_unavailable)?;
                 Ok(Ok((row.blob_id, record)))
@@ -1002,10 +1016,8 @@ impl Catalog {
             )?;
             record.check_retention(clock.now())?;
             transaction
-                .execute(
-                    "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2",
-                    params![owned_bucket, owned_name],
-                )
+                .prepare_cached("DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2")
+                .and_then(|mut statement| statement.execute(params![owned_bucket, owned_name]))
                 .map_err(object_unavailable)?;
             transaction.commit().map_err(object_unavailable)?;
             unlink(&data_path(&data_dir, &row.blob_id)?).map_err(object_unavailable)

@@ -12,8 +12,12 @@ CREATE TABLE policy_revision (
 ) WITHOUT ROWID;
 PRAGMA user_version = 6;";
 
+const SELECT_BUCKET_PROJECT: &str = "SELECT project FROM buckets WHERE name = ?1";
+
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
+    // xtask-lint: allow(text::uncached_statement) -- validates catalog state once at open
     let valid: bool = connection.query_row("SELECT count(*) = 1 AND min(singleton) = 1 AND min(last_revision) >= (SELECT coalesce(max(revision), 0) FROM bucket_policies) FROM policy_revision", [], |row| row.get(0)).map_err(unavailable)?;
+    // xtask-lint: allow(text::uncached_statement) -- validates catalog state once at open
     let complete: bool = connection.query_row("SELECT NOT EXISTS(SELECT 1 FROM buckets LEFT JOIN bucket_policies ON name = bucket WHERE bucket IS NULL) AND NOT EXISTS(SELECT 1 FROM bucket_policies LEFT JOIN buckets ON bucket = name WHERE name IS NULL)", [], |row| row.get(0)).map_err(unavailable)?;
     if !valid || !complete {
         return Err(unavailable("invalid bucket policy catalog state"));
@@ -25,6 +29,7 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
     transaction.execute_batch(SCHEMA).map_err(unavailable)?;
     transaction
+        // xtask-lint: allow(text::uncached_statement) -- a one-time schema migration step
         .execute("INSERT INTO policy_revision VALUES (1, 0)", [])
         .map_err(unavailable)?;
     // Keyset iteration keeps migration memory independent of the number of buckets.
@@ -47,7 +52,10 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
 }
 
 fn next_revision(connection: &Connection) -> Result<i64, CatalogError> {
-    connection.query_row("UPDATE policy_revision SET last_revision = last_revision + 1 WHERE singleton = 1 AND last_revision < 9223372036854775807 RETURNING last_revision", [], |row| row.get(0)).map_err(unavailable)
+    connection
+        .prepare_cached("UPDATE policy_revision SET last_revision = last_revision + 1 WHERE singleton = 1 AND last_revision < 9223372036854775807 RETURNING last_revision")
+        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
+        .map_err(unavailable)
 }
 
 pub(super) fn insert_policy(
@@ -57,10 +65,14 @@ pub(super) fn insert_policy(
 ) -> Result<(), CatalogError> {
     let revision = next_revision(connection)?;
     connection
-        .execute(
-            "INSERT INTO bucket_policies VALUES (?1, ?2, ?3)",
-            params![bucket, policy.bindings_json().to_string(), revision],
-        )
+        .prepare_cached("INSERT INTO bucket_policies VALUES (?1, ?2, ?3)")
+        .and_then(|mut statement| {
+            statement.execute(params![
+                bucket,
+                policy.bindings_json().to_string(),
+                revision
+            ])
+        })
         .map_err(unavailable)?;
     Ok(())
 }
@@ -123,6 +135,7 @@ impl Catalog {
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
             transaction
+                // xtask-lint: allow(text::uncached_statement) -- parent policy is installed once at startup
                 .execute("DELETE FROM parent_public_access_prevention", [])
                 .map_err(unavailable)?;
             for project in &projects {
@@ -130,6 +143,7 @@ impl Catalog {
                     CatalogError::InvalidMetadata("Invalid parent policy project".into())
                 })?;
                 transaction
+                    // xtask-lint: allow(text::uncached_statement) -- parent policy is installed once at startup
                     .execute(
                         "INSERT OR IGNORE INTO parent_public_access_prevention VALUES (?1)",
                         [project],
@@ -155,11 +169,8 @@ impl Catalog {
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
             let project: Option<String> = transaction
-                .query_row(
-                    "SELECT project FROM buckets WHERE name = ?1",
-                    [&bucket],
-                    |row| row.get(0),
-                )
+                .prepare_cached(SELECT_BUCKET_PROJECT)
+                .and_then(|mut statement| statement.query_row([&bucket], |row| row.get(0)))
                 .optional()
                 .map_err(unavailable)?;
             if project.is_none()
@@ -225,10 +236,16 @@ impl Catalog {
             }
             let revision = next_revision(&transaction)?;
             transaction
-                .execute(
+                .prepare_cached(
                     "UPDATE bucket_policies SET bindings = ?2, revision = ?3 WHERE bucket = ?1",
-                    params![bucket, policy.bindings_json().to_string(), revision],
                 )
+                .and_then(|mut statement| {
+                    statement.execute(params![
+                        bucket,
+                        policy.bindings_json().to_string(),
+                        revision
+                    ])
+                })
                 .map_err(unavailable)?;
             super::change_journal::append(
                 &transaction,
@@ -274,11 +291,8 @@ fn authorize_policy(
     access: &BucketAccess,
 ) -> Result<(), CatalogError> {
     let project: String = connection
-        .query_row(
-            "SELECT project FROM buckets WHERE name = ?1",
-            [bucket],
-            |row| row.get(0),
-        )
+        .prepare_cached(SELECT_BUCKET_PROJECT)
+        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
         .optional()
         .map_err(unavailable)?
         .ok_or(CatalogError::NotFound)?;

@@ -174,6 +174,7 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
         .execute_batch(GENERATION_SCHEMA)
         .map_err(unavailable)?;
     transaction
+        // xtask-lint: allow(text::uncached_statement) -- a one-time schema migration at open
         .execute("INSERT INTO object_generation VALUES (1, 0)", [])
         .map_err(unavailable)?;
     transaction
@@ -318,11 +319,8 @@ pub(super) fn reclaim(
     id: &str,
 ) -> Result<(), ObjectError> {
     let referenced: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-            [id],
-            |r| r.get(0),
-        )
+        .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
+        .and_then(|mut statement| statement.query_row([id], |r| r.get(0)))
         .map_err(object_unavailable)?;
     if referenced {
         return Err(ObjectError::Unavailable(
@@ -341,10 +339,8 @@ pub(super) fn reclaim(
     #[cfg(not(unix))]
     let _ = shard;
     connection
-        .execute(
-            "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
-            [id],
-        )
+        .prepare_cached("DELETE FROM pending_blob_deletions WHERE blob_id = ?1")
+        .and_then(|mut statement| statement.execute([id]))
         .map_err(object_unavailable)?;
     Ok(())
 }
@@ -385,6 +381,7 @@ fn remove_unretained_staging(connection: &Connection, data_dir: &Path) -> Result
         if os_metadata(&entry) {
             continue;
         }
+        // xtask-lint: allow(text::uncached_statement) -- a recovery scan that runs once at open
         let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1)", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
         if retained {
             continue;
@@ -485,12 +482,10 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
                     blob.path().display()
                 )));
             }
+            // The same statement as `reclaim`, so this per-blob scan reuses its cache entry.
             let referenced: bool = connection
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-                    [&id],
-                    |r| r.get(0),
-                )
+                .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
+                .and_then(|mut statement| statement.query_row([&id], |r| r.get(0)))
                 .map_err(object_unavailable)?;
             if !referenced {
                 unlink(&blob.path()).map_err(|error| {
@@ -1042,11 +1037,8 @@ impl Catalog {
         self.run_upload(move |connection| {
             unlink(&stage).map_err(object_unavailable)?;
             let referenced: bool = connection
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-                    [&id],
-                    |r| r.get(0),
-                )
+                .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
+                .and_then(|mut statement| statement.query_row([&id], |r| r.get(0)))
                 .map_err(object_unavailable)?;
             if !referenced {
                 reclaim(connection, &data_dir, &id)?;
@@ -1229,13 +1221,15 @@ impl Catalog {
             record.updated = system_time_micros(micros).map_err(object_unavailable)?;
             let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
             transaction
-                .execute(
+                .prepare_cached(
                     "UPDATE objects SET metageneration = ?3, updated = ?4, content_type = ?5,
                     content_encoding = ?6, content_disposition = ?7, content_language = ?8,
                     cache_control = ?9, metadata = ?10, event_based_hold = ?11,
                     temporary_hold = ?13, custom_time = ?14, retention_mode = ?15, retain_until_time = ?16
                     WHERE bucket = ?1 AND name = ?2 AND generation = ?12",
-                    params![
+                )
+                .and_then(|mut statement| {
+                    statement.execute(params![
                         bucket,
                         name,
                         record.metageneration,
@@ -1252,8 +1246,8 @@ impl Catalog {
                         record.custom_time,
                         retention_mode,
                         retain_until
-                    ],
-                )
+                    ])
+                })
                 .map_err(object_unavailable)?;
             super::change_journal::object(
                 &transaction,
@@ -2091,11 +2085,8 @@ pub(super) fn publish_in_transaction<T>(
     prepare: impl FnOnce(i64) -> Result<(ObjectRecord, T), ObjectError>,
 ) -> Result<(ObjectRecord, Option<String>, T), ObjectError> {
     let last: i64 = transaction
-        .query_row(
-            "SELECT last_generation FROM object_generation WHERE singleton = 1",
-            [],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT last_generation FROM object_generation WHERE singleton = 1")
+        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
         .map_err(object_unavailable)?;
     let generation = match assignment {
         GenerationAssignment::Automatic => micros.max(
@@ -2105,7 +2096,12 @@ pub(super) fn publish_in_transaction<T>(
         GenerationAssignment::Imported(generation) => generation.get(),
     };
     let (mut record, prepared) = prepare(generation)?;
-    let period: Option<i64> = transaction.query_row("SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name = ?1", [&record.bucket], |row| row.get(0)).map_err(object_unavailable)?;
+    let period: Option<i64> = transaction
+        .prepare_cached(
+            "SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name = ?1",
+        )
+        .and_then(|mut statement| statement.query_row([&record.bucket], |row| row.get(0)))
+        .map_err(object_unavailable)?;
     record.retention_expiration_time = period
         .map(|period| {
             record
@@ -2124,10 +2120,16 @@ pub(super) fn publish_in_transaction<T>(
     retention::validate_publication(transaction, &record, now)?;
     let (retention_mode, retain_until) = retention::columns(record.retention.as_ref())?;
     if matches!(assignment, GenerationAssignment::Imported(_)) {
-        let exists: bool = transaction.query_row(
-            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3)",
-            params![record.bucket, record.name, generation], |row| row.get(0),
-        ).map_err(object_unavailable)?;
+        let exists: bool = transaction
+            .prepare_cached(
+                "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3)",
+            )
+            .and_then(|mut statement| {
+                statement.query_row(params![record.bucket, record.name, generation], |row| {
+                    row.get(0)
+                })
+            })
+            .map_err(object_unavailable)?;
         if exists {
             return Err(ObjectError::PreconditionFailed);
         }
@@ -2139,22 +2141,23 @@ pub(super) fn publish_in_transaction<T>(
     };
     let retired = retire_previous(transaction, previous, retirement, micros)?;
     transaction
-        .execute(
-            "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1",
-            [last.max(generation)],
-        )
+        .prepare_cached("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1")
+        .and_then(|mut statement| statement.execute([last.max(generation)]))
         .map_err(object_unavailable)?;
-    transaction.execute(
+    let size = i64::try_from(record.size).map_err(object_unavailable)?;
+    let time_created = unix_micros(record.time_created).map_err(object_unavailable)?;
+    let updated = unix_micros(record.updated).map_err(object_unavailable)?;
+    transaction.prepare_cached(
         "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time,retention_mode,retain_until_time,customer_key_sha256) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21,?22,?23,?24)",
-        params![record.bucket, record.name, generation, record.metageneration,
-            record.content_type, i64::try_from(record.size).map_err(object_unavailable)?,
-            &record.md5[..], record.crc32c, record.storage_class, unix_micros(record.time_created).map_err(object_unavailable)?, blob_id,
+    ).and_then(|mut statement| statement.execute(params![record.bucket, record.name, generation, record.metageneration,
+            record.content_type, size,
+            &record.md5[..], record.crc32c, record.storage_class, time_created, blob_id,
             record.content_encoding, record.content_disposition, record.content_language,
             record.cache_control, metadata, record.event_based_hold, record.component_count,
-            unix_micros(record.updated).map_err(object_unavailable)?, record.temporary_hold, record.custom_time,
+            updated, record.temporary_hold, record.custom_time,
             retention_mode, retain_until,
-            record.customer_key_sha256.as_ref().map(|sha256| &sha256[..])],
-    ).map_err(object_unavailable)?;
+            record.customer_key_sha256.as_ref().map(|sha256| &sha256[..])]))
+    .map_err(object_unavailable)?;
     super::acl::inherit_default_object_acl(transaction, &record.bucket, &record.name, generation)?;
     super::change_journal::object(
         transaction,
@@ -2203,11 +2206,10 @@ impl Catalog {
                         .map_err(object_unavailable)?;
                     for id in &ids {
                         let referenced: bool = connection
-                            .query_row(
+                            .prepare_cached(
                                 "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-                                [id],
-                                |row| row.get(0),
                             )
+                            .and_then(|mut statement| statement.query_row([id], |row| row.get(0)))
                             .map_err(object_unavailable)?;
                         if referenced {
                             return Err(object_unavailable(
@@ -2262,13 +2264,12 @@ impl Catalog {
                     let transaction = connection.transaction().map_err(object_unavailable)?;
                     for id in removed {
                         transaction
-                            .execute(
-                                "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
-                                [&id],
-                            )
+                            .prepare_cached("DELETE FROM pending_blob_deletions WHERE blob_id = ?1")
+                            .and_then(|mut statement| statement.execute([&id]))
                             .map_err(object_unavailable)?;
                         transaction
-                            .execute("DELETE FROM derived_deletions WHERE blob_id = ?1", [&id])
+                            .prepare_cached("DELETE FROM derived_deletions WHERE blob_id = ?1")
+                            .and_then(|mut statement| statement.execute([&id]))
                             .map_err(object_unavailable)?;
                     }
                     transaction.commit().map_err(object_unavailable)
@@ -2291,10 +2292,8 @@ pub(super) fn retire_previous(
     };
     if retirement == Retirement::Noncurrent {
         connection
-            .execute(
-                "UPDATE objects SET time_deleted = ?2 WHERE blob_id = ?1",
-                params![id, micros],
-            )
+            .prepare_cached("UPDATE objects SET time_deleted = ?2 WHERE blob_id = ?1")
+            .and_then(|mut statement| statement.execute(params![id, micros]))
             .map_err(object_unavailable)?;
         Ok(None)
     } else {
@@ -2307,14 +2306,21 @@ pub(super) fn retire_previous(
                         .ok_or(ObjectError::InvalidMetadata)?,
                 )
                 .ok_or(ObjectError::InvalidMetadata)?;
-            connection.execute("UPDATE objects SET time_deleted = COALESCE(time_deleted, ?2), soft_delete_time = ?2, hard_delete_time = ?3 WHERE blob_id = ?1", params![id, micros, deadline]).map_err(object_unavailable)?;
+            connection
+                .prepare_cached(
+                    "UPDATE objects SET time_deleted = COALESCE(time_deleted, ?2), soft_delete_time = ?2, hard_delete_time = ?3 WHERE blob_id = ?1",
+                )
+                .and_then(|mut statement| statement.execute(params![id, micros, deadline]))
+                .map_err(object_unavailable)?;
             return Ok(None);
         }
         connection
-            .execute("DELETE FROM objects WHERE blob_id = ?1", [id])
+            .prepare_cached("DELETE FROM objects WHERE blob_id = ?1")
+            .and_then(|mut statement| statement.execute([id]))
             .map_err(object_unavailable)?;
         connection
-            .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [id])
+            .prepare_cached("INSERT INTO pending_blob_deletions VALUES (?1)")
+            .and_then(|mut statement| statement.execute([id]))
             .map_err(object_unavailable)?;
         Ok(Some(id.clone()))
     }

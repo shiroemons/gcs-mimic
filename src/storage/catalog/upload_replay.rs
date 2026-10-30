@@ -28,6 +28,7 @@ pub(super) const SCHEMA: &str = "CREATE TABLE upload_replays (
 ) WITHOUT ROWID;
 CREATE INDEX upload_replays_deadline ON upload_replays(deadline, token);
 PRAGMA user_version = 35;";
+const SELECT_INCARNATION: &str = "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1";
 
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
@@ -36,8 +37,10 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
+    // The same statement as the per-upload `capacity` check, so validation reuses its entry.
     let count: i64 = connection
-        .query_row("SELECT count(*) FROM upload_replays", [], |r| r.get(0))
+        .prepare_cached("SELECT count(*) FROM upload_replays")
+        .and_then(|mut statement| statement.query_row([], |r| r.get(0)))
         .map_err(unavailable)?;
     if count > CAPACITY {
         return Err(unavailable("upload replay capacity exceeded"));
@@ -99,11 +102,8 @@ impl CopyReplay {
         self.replay
             .check_incarnation(connection, &self.destination_bucket)?;
         let incarnation: String = connection
-            .query_row(
-                "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-                [&self.source_bucket],
-                |row| row.get(0),
-            )
+            .prepare_cached(SELECT_INCARNATION)
+            .and_then(|mut statement| statement.query_row([&self.source_bucket], |row| row.get(0)))
             .map_err(objects::object_unavailable)?;
         if incarnation != self.source_incarnation {
             return Err(ObjectError::PreconditionFailed);
@@ -133,11 +133,12 @@ impl UploadReplay {
         connection: &Connection,
         now: i64,
     ) -> Result<Option<(Vec<u8>, Completion)>, ObjectError> {
-        let row = connection.query_row(
+        let row = connection.prepare_cached(
             "SELECT request, incarnation, fingerprint, completion FROM upload_replays WHERE token = ?1 AND deadline > ?2",
+        ).and_then(|mut statement| statement.query_row(
             params![self.token, now],
             |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?, r.get::<_, Vec<u8>>(2)?, r.get::<_, String>(3)?)),
-        ).optional().map_err(objects::object_unavailable)?;
+        )).optional().map_err(objects::object_unavailable)?;
         row.map(|(request, incarnation, fingerprint, completion)| {
             if request != self.request || incarnation != self.incarnation {
                 return Err(invalid());
@@ -190,9 +191,16 @@ impl UploadReplay {
             Err(ObjectError::Forbidden) => false,
             Err(error) => return Err(error),
         };
-        let (uniform, project): (bool, String) = connection.query_row("SELECT uniform_bucket_level_access_locked_time IS NOT NULL, project FROM buckets WHERE name = ?1", [&record.bucket], |r| Ok((r.get(0)?, r.get(1)?))).map_err(objects::object_unavailable)?;
+        let (uniform, project): (bool, String) = connection
+            .prepare_cached("SELECT uniform_bucket_level_access_locked_time IS NOT NULL, project FROM buckets WHERE name = ?1")
+            .and_then(|mut statement| statement.query_row([&record.bucket], |r| Ok((r.get(0)?, r.get(1)?))))
+            .map_err(objects::object_unavailable)?;
         let acl = if visible && !uniform {
-            let entries: Option<String> = connection.query_row("SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![record.bucket, record.name, record.generation], |r| r.get(0)).optional().map_err(objects::object_unavailable)?;
+            let entries: Option<String> = connection
+                .prepare_cached("SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3")
+                .and_then(|mut statement| statement.query_row(params![record.bucket, record.name, record.generation], |r| r.get(0)))
+                .optional()
+                .map_err(objects::object_unavailable)?;
             Some(
                 entries
                     .map(|v| serde_json::from_str(&v).map_err(objects::object_unavailable))
@@ -210,22 +218,22 @@ impl UploadReplay {
         if completion.len() > 65536 {
             return Err(ObjectError::InvalidMetadata);
         }
+        let deadline = now
+            .checked_add(LIFETIME_MICROS)
+            .ok_or_else(|| objects::object_unavailable("upload replay deadline overflow"))?;
         connection
-            .execute(
-                "INSERT INTO upload_replays VALUES (?1,?2,?3,?4,?5,?6,?7)",
-                params![
+            .prepare_cached("INSERT INTO upload_replays VALUES (?1,?2,?3,?4,?5,?6,?7)")
+            .and_then(|mut statement| {
+                statement.execute(params![
                     self.token,
                     self.request,
                     self.incarnation,
                     now,
-                    now.checked_add(LIFETIME_MICROS)
-                        .ok_or_else(|| objects::object_unavailable(
-                            "upload replay deadline overflow"
-                        ))?,
+                    deadline,
                     fingerprint,
                     completion
-                ],
-            )
+                ])
+            })
             .map_err(objects::object_unavailable)?;
         let _ = self.snapshot.set(acl);
         Ok(())
@@ -237,11 +245,8 @@ impl UploadReplay {
         bucket: &str,
     ) -> Result<(), ObjectError> {
         let incarnation: String = connection
-            .query_row(
-                "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-                [bucket],
-                |r| r.get(0),
-            )
+            .prepare_cached(SELECT_INCARNATION)
+            .and_then(|mut statement| statement.query_row([bucket], |r| r.get(0)))
             .map_err(objects::object_unavailable)?;
         if incarnation != self.incarnation {
             return Err(ObjectError::PreconditionFailed);
@@ -252,10 +257,12 @@ impl UploadReplay {
 
 pub(super) fn capacity(connection: &Connection, now: i64) -> Result<(), ObjectError> {
     connection
-        .execute("DELETE FROM upload_replays WHERE deadline <= ?1", [now])
+        .prepare_cached("DELETE FROM upload_replays WHERE deadline <= ?1")
+        .and_then(|mut statement| statement.execute([now]))
         .map_err(objects::object_unavailable)?;
     let count: i64 = connection
-        .query_row("SELECT count(*) FROM upload_replays", [], |r| r.get(0))
+        .prepare_cached("SELECT count(*) FROM upload_replays")
+        .and_then(|mut statement| statement.query_row([], |r| r.get(0)))
         .map_err(objects::object_unavailable)?;
     if count >= CAPACITY {
         return Err(objects::object_unavailable(
@@ -297,11 +304,10 @@ impl Catalog {
                 Ok((|| {
                     objects::authorized_bucket(connection, &source_query, &source_authority)?;
                     connection
-                        .query_row(
-                            "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-                            [&source_query],
-                            |row| row.get(0),
-                        )
+                        .prepare_cached(SELECT_INCARNATION)
+                        .and_then(|mut statement| {
+                            statement.query_row([&source_query], |row| row.get(0))
+                        })
                         .map_err(objects::object_unavailable)
                 })())
             })
@@ -396,11 +402,8 @@ impl Catalog {
                     let (_, allow_overwrite) =
                         objects::authorized_bucket(&transaction, &bucket, &access)?;
                     let incarnation = transaction
-                        .query_row(
-                            "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-                            [&bucket],
-                            |r| r.get(0),
-                        )
+                        .prepare_cached(SELECT_INCARNATION)
+                        .and_then(|mut statement| statement.query_row([&bucket], |r| r.get(0)))
                         .map_err(objects::object_unavailable)?;
                     if expected_incarnation
                         .as_ref()

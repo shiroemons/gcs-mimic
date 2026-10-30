@@ -72,10 +72,12 @@ impl Catalog {
                 .map_err(object_unavailable)?;
                 // Remove only the live source generation; its blob becomes the destination's blob.
                 transaction
-                    .execute(
+                    .prepare_cached(
                         "DELETE FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
-                        params![bucket, source, record.generation],
                     )
+                    .and_then(|mut statement| {
+                        statement.execute(params![bucket, source, record.generation])
+                    })
                     .map_err(object_unavailable)?;
                 record.name = destination;
                 record.metageneration = 1;

@@ -97,11 +97,8 @@ pub(crate) struct RewriteProgress {
 
 fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectError> {
     connection
-        .query_row(
-            "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-            [bucket],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1")
+        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
         .optional()
         .map_err(object_unavailable)?
         .ok_or(ObjectError::BucketNotFound)
@@ -264,6 +261,7 @@ fn session_consistent(session: &RewriteSession, transfer_id: Option<&str>) -> bo
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     let valid: bool = connection
+        // xtask-lint: allow(text::uncached_statement) -- catalog validation runs once at open
         .query_row("SELECT (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL)<=128 AND (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)<=128", [], |row| {
             row.get(0)
         })
@@ -283,6 +281,7 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
 
 pub(super) fn recover_due(connection: &mut Connection, now: i64) -> Result<(), CatalogError> {
     let due: bool = connection
+        // xtask-lint: allow(text::uncached_statement) -- expired sessions are probed once during open-time recovery
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM rewrite_sessions WHERE deadline<=?1)",
             [now],
@@ -293,10 +292,14 @@ pub(super) fn recover_due(connection: &mut Connection, now: i64) -> Result<(), C
         return Ok(());
     }
     let transaction = connection.transaction().map_err(super::unavailable)?;
+    // xtask-lint: allow(text::uncached_statement) -- open-time recovery journals expired outputs once
     transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions SELECT transfer_id FROM rewrite_sessions WHERE deadline<=?1 AND transfer_id IS NOT NULL",[now]).map_err(super::unavailable)?;
+    // xtask-lint: allow(text::uncached_statement) -- open-time recovery drops expired inputs once
     transaction.execute("DELETE FROM derived_inputs WHERE transfer_id IN (SELECT id FROM rewrite_sessions WHERE deadline<=?1)",[now]).map_err(super::unavailable)?;
+    // xtask-lint: allow(text::uncached_statement) -- open-time recovery drops expired transfers once
     transaction.execute("DELETE FROM derived_transfers WHERE id IN (SELECT id FROM rewrite_sessions WHERE deadline<=?1)",[now]).map_err(super::unavailable)?;
     transaction
+        // xtask-lint: allow(text::uncached_statement) -- open-time recovery drops expired sessions once
         .execute("DELETE FROM rewrite_sessions WHERE deadline<=?1", [now])
         .map_err(super::unavailable)?;
     transaction.commit().map_err(super::unavailable)
@@ -389,11 +392,10 @@ impl Catalog {
                 *callback_owner.lock().map_err(object_unavailable)? =
                     Some(catalog.guard_derived_request(&transfer.id));
                 let count: i64 = connection
-                    .query_row(
+                    .prepare_cached(
                         "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
-                        [],
-                        |row| row.get(0),
                     )
+                    .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
                     .map_err(object_unavailable)?;
                 if count >= 128 {
                     return Err(object_unavailable("rewrite session limit reached"));
@@ -403,24 +405,24 @@ impl Catalog {
                     &incarnation(connection, &start.binding.source_bucket)?,
                     &incarnation(connection, &start.binding.destination_bucket)?,
                 );
+                let deadline = unix_millis(transfer.deadline).map_err(object_unavailable)?;
                 connection
-                    .execute(
+                    .prepare_cached(
                         "INSERT INTO rewrite_sessions VALUES (?1,?2,NULL,?3,0,?4,?5,NULL,?1)",
-                        params![
+                    )
+                    .and_then(|mut statement| {
+                        statement.execute(params![
                             transfer.id,
                             token,
                             request.to_string(),
                             transfer.total as i64,
-                            unix_millis(transfer.deadline).map_err(object_unavailable)?
-                        ],
-                    )
+                            deadline
+                        ])
+                    })
                     .map_err(object_unavailable)?;
                 let session = connection
-                    .query_row(
-                        "SELECT * FROM rewrite_sessions WHERE id=?1",
-                        [&transfer.id],
-                        read,
-                    )
+                    .prepare_cached("SELECT * FROM rewrite_sessions WHERE id=?1")
+                    .and_then(|mut statement| statement.query_row([&transfer.id], read))
                     .map_err(object_unavailable)?;
                 check_source(connection, &session, &start.source_access).map(|_| ())
             },
@@ -447,11 +449,10 @@ impl Catalog {
         let session = self
             .run_object(move |connection| {
                 connection
-                    .query_row(
+                    .prepare_cached(
                         "SELECT * FROM rewrite_sessions WHERE token = ?1 OR previous_token = ?1",
-                        [token],
-                        read,
                     )
+                    .and_then(|mut statement| statement.query_row([token], read))
                     .optional()
                     .map_err(object_unavailable)
             })
@@ -549,15 +550,15 @@ impl Catalog {
             self.publish_derived_prepared(&id,destination,move |connection,record| {
                 if validate_session.deadline<=unix_millis(clock.now()).map_err(object_unavailable)? {return Err(ObjectError::DerivedTransferExpired);}
                 let source = check_source(connection,&validate_session,&source_access)?;
-                let same_location: bool = connection.query_row("SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1",params![source.bucket,record.bucket],|row|row.get(0)).map_err(object_unavailable)?;
+                let same_location: bool = connection.prepare_cached("SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1").and_then(|mut statement| statement.query_row(params![source.bucket,record.bucket],|row|row.get(0))).map_err(object_unavailable)?;
                 let location = if same_location { crate::json::DestinationLocation::Same } else { crate::json::DestinationLocation::Different };
                 record.component_count = crate::json::derived_component_count(&source,&record.storage_class,location);
                 Ok(())
             },move |connection,record| {
                 let response=json!({"offset":record.size,"resource":render(record)?});
-                connection.execute("UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1",params![session.id,response.to_string()]).map_err(object_unavailable)?;
+                connection.prepare_cached("UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1").and_then(|mut statement| statement.execute(params![session.id,response.to_string()])).map_err(object_unavailable)?;
                 // shortcut: eviction follows creation deadlines; add completion ordering for recent-finish retention.
-                connection.execute("DELETE FROM rewrite_sessions WHERE id IN (SELECT id FROM rewrite_sessions WHERE transfer_id IS NULL AND id!=?1 ORDER BY deadline,id LIMIT max((SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)-128,0))",[&session.id]).map_err(object_unavailable)?;
+                connection.prepare_cached("DELETE FROM rewrite_sessions WHERE id IN (SELECT id FROM rewrite_sessions WHERE transfer_id IS NULL AND id!=?1 ORDER BY deadline,id LIMIT max((SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)-128,0))").and_then(|mut statement| statement.execute([&session.id])).map_err(object_unavailable)?;
                 // The stored response remains authoritative if its network receiver disappears.
                 let _=sender.send(response);
                 Ok(())
@@ -577,7 +578,7 @@ impl Catalog {
         let id = session.id.clone();
         let now = unix_millis(self.0.clock.now())?;
         self.run_object(move |connection| {
-            let changed=connection.execute("UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5",params![id,next,current.offset as i64,saved,now]).map_err(object_unavailable)?;
+            let changed=connection.prepare_cached("UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5").and_then(|mut statement| statement.execute(params![id,next,current.offset as i64,saved,now])).map_err(object_unavailable)?;
             if changed!=1 {return Err(ObjectError::PreconditionFailed);}Ok(())
         }).await?;
         progress(&session, &response).map_err(Into::into)
@@ -618,6 +619,7 @@ impl Catalog {
                 }
                 self.run(move |connection| {
                     connection
+                        // xtask-lint: allow(text::uncached_statement) -- expired sessions are removed only by the maintenance sweep
                         .execute(
                             "DELETE FROM rewrite_sessions WHERE id=?1 AND deadline<=?2",
                             params![id, now],
@@ -630,6 +632,7 @@ impl Catalog {
         }
         self.run(move |connection| {
             let deadline: Option<i64> = connection
+                // xtask-lint: allow(text::uncached_statement) -- the next deadline is read once per maintenance pass
                 .query_row(
                     "SELECT min(deadline) FROM rewrite_sessions WHERE deadline>?1",
                     [now],

@@ -28,6 +28,7 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     // IDs are never reused within a bucket incarnation, so every row must be covered by its allocator.
     let valid: bool = connection
+        // xtask-lint: allow(text::uncached_statement) -- validates catalog state once at open
         .query_row(
             "SELECT NOT EXISTS(SELECT 1 FROM bucket_notifications n LEFT JOIN bucket_notification_ids i ON i.bucket = n.bucket WHERE i.last_id IS NULL OR n.id > i.last_id)",
             [],
@@ -46,11 +47,8 @@ fn authorize(
     access: &BucketAccess,
 ) -> Result<(), CatalogError> {
     let project: String = connection
-        .query_row(
-            "SELECT project FROM buckets WHERE name = ?1",
-            [bucket],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT project FROM buckets WHERE name = ?1")
+        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
         .optional()
         .map_err(unavailable)?
         .ok_or(CatalogError::NotFound)?;
@@ -96,11 +94,11 @@ fn touch_bucket(
     now_micros: i64,
 ) -> Result<(), CatalogError> {
     let updated = transaction
-        .execute(
+        .prepare_cached(
             "UPDATE buckets SET metageneration = metageneration + 1, updated = ?2
              WHERE name = ?1 AND metageneration < 9223372036854775807",
-            params![bucket, now_micros],
         )
+        .and_then(|mut statement| statement.execute(params![bucket, now_micros]))
         .map_err(unavailable)?;
     if updated != 1 {
         return Err(unavailable("bucket metageneration exhausted"));
@@ -144,21 +142,20 @@ impl Catalog {
             check_limits(&existing, &config)
                 .map_err(|error| CatalogError::InvalidMetadata(error.to_string()))?;
             let id: i64 = transaction
-                .query_row(
+                .prepare_cached(
                     "INSERT INTO bucket_notification_ids VALUES (?1, 1)
                      ON CONFLICT(bucket) DO UPDATE SET last_id = last_id + 1
                      WHERE last_id < 9223372036854775807 RETURNING last_id",
-                    [&bucket],
-                    |row| row.get(0),
                 )
+                .and_then(|mut statement| statement.query_row([&bucket], |row| row.get(0)))
                 .optional()
                 .map_err(unavailable)?
                 .ok_or_else(|| unavailable("notification ID exhausted"))?;
             transaction
-                .execute(
-                    "INSERT INTO bucket_notifications VALUES (?1, ?2, ?3)",
-                    params![bucket, id, config.to_stored()],
-                )
+                .prepare_cached("INSERT INTO bucket_notifications VALUES (?1, ?2, ?3)")
+                .and_then(|mut statement| {
+                    statement.execute(params![bucket, id, config.to_stored()])
+                })
                 .map_err(unavailable)?;
             touch_bucket(
                 &transaction,
@@ -186,11 +183,12 @@ impl Catalog {
             authorize(&transaction, &bucket, &access)?;
             let Some(id) = id else { return Ok(None) };
             let stored: Option<String> = transaction
-                .query_row(
+                .prepare_cached(
                     "SELECT config FROM bucket_notifications WHERE bucket = ?1 AND id = ?2",
-                    params![bucket, id],
-                    |row| row.get(0),
                 )
+                .and_then(|mut statement| {
+                    statement.query_row(params![bucket, id], |row| row.get(0))
+                })
                 .optional()
                 .map_err(unavailable)?;
             stored.map(|stored| record(id, &stored)).transpose()
@@ -231,10 +229,8 @@ impl Catalog {
             authorize(&transaction, &bucket, &access)?;
             let Some(id) = id else { return Ok(false) };
             let deleted = transaction
-                .execute(
-                    "DELETE FROM bucket_notifications WHERE bucket = ?1 AND id = ?2",
-                    params![bucket, id],
-                )
+                .prepare_cached("DELETE FROM bucket_notifications WHERE bucket = ?1 AND id = ?2")
+                .and_then(|mut statement| statement.execute(params![bucket, id]))
                 .map_err(unavailable)?;
             if deleted == 0 {
                 return Ok(false);

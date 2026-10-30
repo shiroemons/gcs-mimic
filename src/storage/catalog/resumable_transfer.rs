@@ -130,11 +130,8 @@ fn check_session_publishable(
     now: std::time::SystemTime,
 ) -> Result<(), ResumableError> {
     let stored = transaction
-        .query_row(
-            "SELECT * FROM resumable_sessions WHERE id = ?1",
-            [&session.id],
-            read_session,
-        )
+        .prepare_cached("SELECT * FROM resumable_sessions WHERE id = ?1")
+        .and_then(|mut statement| statement.query_row([&session.id], read_session))
         .map_err(object_unavailable)?;
     if now >= stored.deadline {
         return Err(ResumableError::NotFound);
@@ -143,11 +140,8 @@ fn check_session_publishable(
         return Err(ResumableError::Gone);
     }
     let incarnation: Option<String> = transaction
-        .query_row(
-            "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-            [&session.bucket],
-            |r| r.get(0),
-        )
+        .prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1")
+        .and_then(|mut statement| statement.query_row([&session.bucket], |r| r.get(0)))
         .optional()
         .map_err(object_unavailable)?;
     if incarnation.as_deref() != Some(&session.incarnation) {
@@ -210,11 +204,8 @@ impl Catalog {
         let committed = self
             .run_upload(move |connection| {
                 connection
-                    .query_row(
-                        "SELECT * FROM resumable_sessions WHERE id = ?1",
-                        [id],
-                        read_session,
-                    )
+                    .prepare_cached("SELECT * FROM resumable_sessions WHERE id = ?1")
+                    .and_then(|mut statement| statement.query_row([id], read_session))
                     .optional()
                     .map_err(object_unavailable)
             })
@@ -247,9 +238,9 @@ impl Catalog {
         let blob_id = lease.session.blob_id.clone();
         let changed = self.run_upload(move |connection| {
             let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(object_unavailable)?;
-            let changed = transaction.execute("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE'", [id]).map_err(object_unavailable)?;
+            let changed = transaction.prepare_cached("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE'").and_then(|mut statement| statement.execute([id])).map_err(object_unavailable)?;
             if changed == 1 {
-                transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [&blob_id]).map_err(object_unavailable)?;
+                transaction.prepare_cached("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)").and_then(|mut statement| statement.execute([&blob_id])).map_err(object_unavailable)?;
             }
             transaction.commit().map_err(object_unavailable)?;
             Ok(changed)
@@ -377,14 +368,14 @@ impl Catalog {
                             customer_key_sha256: None,
                         };
                         options.metadata.apply(&mut record)?;
-                        let period: Option<i64> = transaction.query_row("SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1", [&record.bucket], |row| row.get(0)).map_err(object_unavailable)?;
+                        let period: Option<i64> = transaction.prepare_cached("SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1").and_then(|mut statement| statement.query_row([&record.bucket], |row| row.get(0))).map_err(object_unavailable)?;
                         record.retention_expiration_time = period
                             .map(|period| time + std::time::Duration::from_secs(period as u64));
                         let resource = render(&record)?;
                         Ok((record, resource))
                     },
                 )?;
-                transaction.execute("UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'",params![resource.to_string(),session.id]).map_err(object_unavailable)?;
+                transaction.prepare_cached("UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'").and_then(|mut statement| statement.execute(params![resource.to_string(),session.id])).map_err(object_unavailable)?;
                 objects::commit_publication(transaction)?;
                 Ok(resource)
             };

@@ -125,6 +125,7 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let mut id = [0; 16];
     getrandom::fill(&mut id).map_err(unavailable)?;
     transaction
+        // xtask-lint: allow(text::uncached_statement) -- a one-time schema migration step
         .execute("INSERT INTO catalog_identity VALUES (1, ?1)", [id])
         .map_err(unavailable)?;
     transaction.commit().map_err(unavailable)
@@ -132,6 +133,7 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     let valid: bool = connection
+        // xtask-lint: allow(text::uncached_statement) -- validates catalog state once at open
         .query_row(
             "SELECT count(*) = 1 AND min(singleton) = 1 FROM catalog_identity",
             [],
@@ -147,11 +149,8 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
 
 fn catalog_id(connection: &Connection) -> Result<CatalogId, CatalogError> {
     connection
-        .query_row(
-            "SELECT id FROM catalog_identity WHERE singleton = 1",
-            [],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT id FROM catalog_identity WHERE singleton = 1")
+        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
         .map(CatalogId)
         .map_err(unavailable)
 }
@@ -162,11 +161,8 @@ pub(super) fn matching(
     bucket: &str,
 ) -> Result<(), ObjectError> {
     let incarnation: Option<String> = connection
-        .query_row(
-            "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-            [bucket],
-            |row| row.get(0),
-        )
+        .prepare_cached(SELECT_INCARNATION)
+        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
         .optional()
         .map_err(super::objects::object_unavailable)?;
     if binding.catalog != catalog_id(connection).map_err(super::objects::object_unavailable)?
@@ -188,22 +184,23 @@ pub(super) fn record_in_transaction(
     if fp.size != record.size || fp.md5 != record.md5 || fp.crc32c != record.crc32c {
         return Err(ObjectError::ChecksumMismatch);
     }
-    let occupied: bool = transaction.query_row(
+    let occupied: bool = transaction.prepare_cached(
         "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE path = ?1 AND (bucket != ?2 OR name != ?3))",
-        params![update.path,record.bucket,record.name], |row| row.get(0),
-    ).map_err(super::objects::object_unavailable)?;
+    ).and_then(|mut statement| statement.query_row(params![update.path,record.bucket,record.name], |row| row.get(0)))
+    .map_err(super::objects::object_unavailable)?;
     if occupied {
         return Err(ObjectError::PreconditionFailed);
     }
-    transaction.execute(
+    transaction.prepare_cached(
         "INSERT INTO sync_objects (bucket,name,incarnation,path,generation,size,mtime_ns,ctime_ns,inode,md5,crc32c,racy)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
          ON CONFLICT(bucket,name) DO UPDATE SET incarnation=excluded.incarnation,path=excluded.path,
          generation=excluded.generation,size=excluded.size,mtime_ns=excluded.mtime_ns,ctime_ns=excluded.ctime_ns,
          inode=excluded.inode,md5=excluded.md5,crc32c=excluded.crc32c,racy=excluded.racy",
+    ).and_then(|mut statement| statement.execute(
         params![record.bucket,record.name,update.binding.incarnation,update.path,record.generation,fp.size as i64,
             fp.mtime_ns.to_be_bytes(),fp.ctime_ns.to_be_bytes(),fp.inode.to_be_bytes(),fp.md5,fp.crc32c,fp.racy],
-    ).map_err(super::objects::object_unavailable)?;
+    )).map_err(super::objects::object_unavailable)?;
     Ok(())
 }
 
@@ -213,15 +210,18 @@ pub(super) fn delete_in_transaction(
     record: &ObjectRecord,
 ) -> Result<(), ObjectError> {
     matching(transaction, binding, &record.bucket)?;
-    let count = transaction.execute(
+    let count = transaction.prepare_cached(
         "DELETE FROM sync_objects WHERE bucket = ?1 AND name = ?2 AND incarnation = ?3 AND generation = ?4",
+    ).and_then(|mut statement| statement.execute(
         params![record.bucket,record.name,binding.incarnation,record.generation],
-    ).map_err(super::objects::object_unavailable)?;
+    )).map_err(super::objects::object_unavailable)?;
     if count != 1 {
         return Err(ObjectError::PreconditionFailed);
     }
     Ok(())
 }
+
+const SELECT_INCARNATION: &str = "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1";
 
 // A literal macro keeps the statements below static for the prepared statement cache.
 macro_rules! sync_columns {
@@ -278,11 +278,8 @@ impl SyncState {
         self.0
             .run_admin(move |connection| {
                 let incarnation = connection
-                    .query_row(
-                        "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
-                        [&bucket],
-                        |row| row.get(0),
-                    )
+                    .prepare_cached(SELECT_INCARNATION)
+                    .and_then(|mut statement| statement.query_row([&bucket], |row| row.get(0)))
                     .optional()
                     .map_err(unavailable)?
                     .ok_or(CatalogError::NotFound)?;

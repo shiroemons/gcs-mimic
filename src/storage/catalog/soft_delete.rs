@@ -7,10 +7,12 @@ use objects::{SELECT_SOFT_DELETED_GENERATION, authorized_bucket, object_unavaila
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 pub(super) fn retention_seconds(connection: &Connection, bucket: &str) -> Result<i64, ObjectError> {
-    connection.query_row(
-        "SELECT COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0) FROM buckets WHERE name = ?1",
-        [bucket], |row| row.get(0),
-    ).map_err(object_unavailable)
+    connection
+        .prepare_cached(
+            "SELECT COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0) FROM buckets WHERE name = ?1",
+        )
+        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
+        .map_err(object_unavailable)
 }
 
 pub(super) fn purge_expired(
@@ -21,14 +23,18 @@ pub(super) fn purge_expired(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(object_unavailable)?;
-    transaction.execute(
-        "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100",
-        params![bucket, now],
-    ).map_err(object_unavailable)?;
-    transaction.execute(
-        "DELETE FROM objects WHERE blob_id IN (SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100)",
-        params![bucket, now],
-    ).map_err(object_unavailable)?;
+    transaction
+        .prepare_cached(
+            "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100",
+        )
+        .and_then(|mut statement| statement.execute(params![bucket, now]))
+        .map_err(object_unavailable)?;
+    transaction
+        .prepare_cached(
+            "DELETE FROM objects WHERE blob_id IN (SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100)",
+        )
+        .and_then(|mut statement| statement.execute(params![bucket, now]))
+        .map_err(object_unavailable)?;
     transaction.commit().map_err(object_unavailable)
 }
 
@@ -109,7 +115,8 @@ impl Catalog {
                 let text = id.to_hex();
                 // Durable ownership precedes linking; recovery reclaims uncommitted output.
                 connection
-                    .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [&text])
+                    .prepare_cached("INSERT INTO pending_blob_deletions VALUES (?1)")
+                    .and_then(|mut statement| statement.execute([&text]))
                     .map_err(object_unavailable)?;
                 let stage = id.staging_path(&data_dir);
                 let result = (|| {
@@ -174,10 +181,8 @@ impl Catalog {
                         },
                     )?;
                     transaction
-                        .execute(
-                            "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
-                            [&text],
-                        )
+                        .prepare_cached("DELETE FROM pending_blob_deletions WHERE blob_id = ?1")
+                        .and_then(|mut statement| statement.execute([&text]))
                         .map_err(object_unavailable)?;
                     transaction.commit().map_err(object_unavailable)?;
                     Ok(record)

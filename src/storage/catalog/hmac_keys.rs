@@ -225,11 +225,10 @@ impl Catalog {
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(unavailable)?;
             let live: i64 = transaction
-                .query_row(
+                .prepare_cached(
                     "SELECT count(*) FROM hmac_keys WHERE project = ?1 AND service_account_email = ?2 AND state != 'DELETED'",
-                    [&project, &email],
-                    |row| row.get(0),
                 )
+                .and_then(|mut statement| statement.query_row([&project, &email], |row| row.get(0)))
                 .map_err(unavailable)?;
             if live >= MAX_KEYS_PER_SERVICE_ACCOUNT {
                 return Ok(Err(HmacKeyError::LimitReached));
@@ -237,22 +236,23 @@ impl Catalog {
             // A collision among 275 random bits is not expected; retrying keeps IDs unique anyway.
             let mut access_id = generate_access_id()?;
             while transaction
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM hmac_keys WHERE access_id = ?1)",
-                    [&access_id],
-                    |row| row.get::<_, bool>(0),
-                )
+                .prepare_cached("SELECT EXISTS(SELECT 1 FROM hmac_keys WHERE access_id = ?1)")
+                .and_then(|mut statement| {
+                    statement.query_row([&access_id], |row| row.get::<_, bool>(0))
+                })
                 .map_err(unavailable)?
             {
                 access_id = generate_access_id()?;
             }
             let secret = generate_secret()?;
             transaction
-                .execute(
+                .prepare_cached(
                     "INSERT INTO hmac_keys (access_id, project, service_account_email, secret, state, time_created, updated, revision)
                      VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?5, 1)",
-                    params![access_id, project, email, secret, now],
                 )
+                .and_then(|mut statement| {
+                    statement.execute(params![access_id, project, email, secret, now])
+                })
                 .map_err(unavailable)?;
             let record = select(&transaction, &project, &access_id)?
                 .ok_or_else(|| unavailable("inserted HMAC key is missing"))?;
@@ -338,10 +338,10 @@ impl Catalog {
                 return Ok(Err(HmacKeyError::Deleted));
             }
             transaction
-                .execute(
+                .prepare_cached(
                     "UPDATE hmac_keys SET state = ?1, updated = max(?2, time_created), revision = revision + 1 WHERE access_id = ?3",
-                    params![state.as_str(), now, access_id],
                 )
+                .and_then(|mut statement| statement.execute(params![state.as_str(), now, access_id]))
                 .map_err(unavailable)?;
             let record = select(&transaction, &project, &access_id)?
                 .ok_or_else(|| unavailable("updated HMAC key is missing"))?;
@@ -373,10 +373,10 @@ impl Catalog {
                 HmacKeyState::Inactive => {}
             }
             transaction
-                .execute(
+                .prepare_cached(
                     "UPDATE hmac_keys SET state = 'DELETED', secret = NULL, updated = max(?1, time_created), revision = revision + 1 WHERE access_id = ?2",
-                    params![now, access_id],
                 )
+                .and_then(|mut statement| statement.execute(params![now, access_id]))
                 .map_err(unavailable)?;
             transaction.commit().map_err(unavailable)?;
             Ok(Ok(()))

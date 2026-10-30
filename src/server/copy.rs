@@ -134,11 +134,10 @@ pub(super) async fn execute(
                 )?;
                 if source_record.component_count.is_some() {
                     let location: String = connection
-                        .query_row(
-                            "SELECT location FROM buckets WHERE name = ?1",
-                            [&destination.bucket],
-                            |row| row.get(0),
-                        )
+                        .prepare_cached("SELECT location FROM buckets WHERE name = ?1")
+                        .and_then(|mut statement| {
+                            statement.query_row([&destination.bucket], |row| row.get(0))
+                        })
                         .map_err(ObjectError::backend)?;
                     destination.component_count = json::derived_component_count(
                         &source_record,

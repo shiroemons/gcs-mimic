@@ -1,5 +1,6 @@
 //! Durable observations for names the working tree cannot represent.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
+// xtask-lint: allow-file(text::uncached_statement) -- findings are recorded only for the rare names a working tree cannot represent
 
 use super::super::{objects, unavailable};
 use super::{

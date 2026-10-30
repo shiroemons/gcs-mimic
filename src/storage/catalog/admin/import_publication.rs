@@ -21,6 +21,7 @@ impl Admin {
                 import_journal::check_publication(&transaction, &binding, expected_cursor)?;
                 let mut record = definition.0;
                 let exists: bool = transaction
+                    // xtask-lint: allow(text::uncached_statement) -- import publishes each bucket once
                     .query_row(
                         "SELECT EXISTS(SELECT 1 FROM buckets WHERE name = ?1)",
                         [&record.name],

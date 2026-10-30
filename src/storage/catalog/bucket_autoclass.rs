@@ -39,10 +39,8 @@ fn store(
         .transpose()
         .map_err(unavailable)?;
     transaction
-        .execute(
-            "UPDATE buckets SET autoclass = ?2 WHERE name = ?1",
-            rusqlite::params![bucket, value],
-        )
+        .prepare_cached("UPDATE buckets SET autoclass = ?2 WHERE name = ?1")
+        .and_then(|mut statement| statement.execute(rusqlite::params![bucket, value]))
         .map_err(unavailable)?;
     Ok(())
 }
@@ -87,10 +85,12 @@ pub(super) fn update(
             }
             // Enabling moves every object except soft-deleted ones to STANDARD storage.
             transaction
-                .execute(
+                .prepare_cached(
                     "UPDATE objects SET storage_class = ?2 WHERE bucket = ?1 AND soft_delete_time IS NULL AND storage_class != ?2",
-                    [record.name.as_str(), AUTOCLASS_STORAGE_CLASS],
                 )
+                .and_then(|mut statement| {
+                    statement.execute([record.name.as_str(), AUTOCLASS_STORAGE_CLASS])
+                })
                 .map_err(unavailable)?;
         }
         if config != record.autoclass {
@@ -116,11 +116,10 @@ pub(crate) fn object_storage_class(
     bucket_default: String,
 ) -> Result<String, CatalogError> {
     let config = connection
-        .query_row(
-            "SELECT autoclass FROM buckets WHERE name = ?1",
-            [bucket],
-            |row| row.get::<_, Option<String>>(0),
-        )
+        .prepare_cached("SELECT autoclass FROM buckets WHERE name = ?1")
+        .and_then(|mut statement| {
+            statement.query_row([bucket], |row| row.get::<_, Option<String>>(0))
+        })
         .optional()
         .map_err(unavailable)?
         .flatten()

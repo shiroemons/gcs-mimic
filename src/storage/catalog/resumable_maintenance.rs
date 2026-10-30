@@ -30,6 +30,7 @@ fn clean_record(
     clean_session_files(connection, data_dir, blob_id)?;
     if deadline <= now {
         connection
+            // xtask-lint: allow(text::uncached_statement) -- expired sessions are removed only by open-time recovery and the maintenance sweep
             .execute(
                 "DELETE FROM resumable_sessions WHERE id = ?1 AND deadline <= ?2",
                 params![id, now],
@@ -81,11 +82,8 @@ pub(super) fn clean_session_files(
     let blob = super::super::blob_id::BlobId::parse(blob_id)
         .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
     let live: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-            [blob_id],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
+        .and_then(|mut statement| statement.query_row([blob_id], |row| row.get(0)))
         .map_err(unavailable)?;
     unlink(&blob.staging_path(data_dir))?;
     // A completed object outlives its capability and must never be reclaimed with it.
@@ -93,10 +91,8 @@ pub(super) fn clean_session_files(
         unlink(&blob.blob_path(data_dir))?;
     }
     connection
-        .execute(
-            "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
-            [blob_id],
-        )
+        .prepare_cached("DELETE FROM pending_blob_deletions WHERE blob_id = ?1")
+        .and_then(|mut statement| statement.execute([blob_id]))
         .map_err(unavailable)?;
     Ok(())
 }
@@ -116,9 +112,9 @@ impl Catalog {
         let blob_id = lease.session.blob_id.clone();
         let changed = self.run(move |connection| {
             let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
-            let changed = transaction.execute("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2", params![id, now]).map_err(unavailable)?;
+            let changed = transaction.prepare_cached("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2").and_then(|mut statement| statement.execute(params![id, now])).map_err(unavailable)?;
             if changed == 1 {
-                transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [blob_id]).map_err(unavailable)?;
+                transaction.prepare_cached("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)").and_then(|mut statement| statement.execute([blob_id])).map_err(unavailable)?;
             }
             transaction.commit().map_err(unavailable)?;
             Ok(changed)
@@ -228,6 +224,7 @@ impl Catalog {
         let resumable_deadline = self
             .run(|connection| {
                 let deadline: Option<i64> = connection
+                    // xtask-lint: allow(text::uncached_statement) -- the next deadline is read once per maintenance pass
                     .query_row("SELECT min(deadline) FROM resumable_sessions", [], |row| {
                         row.get(0)
                     })

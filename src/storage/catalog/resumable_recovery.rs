@@ -34,12 +34,10 @@ pub(super) fn recover_prefix(
         .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
     let stage = id.staging_path(data_dir);
     let blob = id.blob_path(data_dir);
+    // Also runs after a failed resumable finalization request, so the statement is cached.
     let live: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-            [blob_id],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
+        .and_then(|mut statement| statement.query_row([blob_id], |row| row.get(0)))
         .map_err(unavailable)?;
     if live {
         return Err(unavailable(format!(

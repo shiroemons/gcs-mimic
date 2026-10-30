@@ -138,8 +138,16 @@ const SELECT_BUCKET: &str = concat!(
     bucket_columns!(),
     " FROM buckets WHERE name = ?1"
 );
-/// Bounds the parsed statements each connection keeps; request paths use a few dozen texts.
-const STATEMENT_CACHE_CAPACITY: usize = 64;
+const UPDATE_BUCKET: &str = "UPDATE buckets SET labels = ?2, storage_class = ?3,
+                     versioning_enabled = ?4, default_event_based_hold = ?5,
+                     metageneration = ?6, updated = ?7, cors = ?8, public_access_prevention_enforced = ?9,
+                     uniform_bucket_level_access_locked_time = ?10, lifecycle = ?11, retention_policy = ?12, soft_delete_policy = ?13 WHERE name = ?1";
+/// Bounds the parsed statements the catalog's single connection keeps. Request paths prepare
+/// about 150 distinct static SQL texts (some list and derived shapes are chosen at run time),
+/// so 256 keeps the whole hot set cached with room for new statements, while open-time and
+/// maintenance statements that pass through the LRU cannot evict it. A few hundred prepared
+/// statements cost on the order of a megabyte, bounded by this one connection.
+const STATEMENT_CACHE_CAPACITY: usize = 256;
 const BUCKET_PAP_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN public_access_prevention_enforced INTEGER NOT NULL DEFAULT 0 CHECK(public_access_prevention_enforced IN (0, 1));
 PRAGMA user_version = 13;";
 const BUCKET_CORS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN cors TEXT NOT NULL DEFAULT '[]';
@@ -316,6 +324,7 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
 
 fn validate_seed(connection: &Connection) -> Result<(), CatalogError> {
     let valid: bool = connection
+        // xtask-lint: allow(text::uncached_statement) -- schema validation runs once at open
         .query_row(
             "SELECT count(*) = 1 AND min(singleton) = 1 FROM startup_seed",
             [],
@@ -359,6 +368,7 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
         return Err(unavailable("catalog schema does not match its version"));
     }
     if version >= 3 {
+        // xtask-lint: allow(text::uncached_statement) -- schema validation runs once at open
         let valid: bool = connection.query_row("SELECT count(*) = 1 AND min(singleton) = 1 AND min(last_generation) >= (SELECT coalesce(max(generation), 0) FROM objects) FROM object_generation", [], |row| row.get(0)).map_err(unavailable)?;
         if !valid {
             return Err(unavailable("invalid generation allocator state"));
@@ -628,6 +638,7 @@ fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
         ));
     }
     let check: String = connection
+        // xtask-lint: allow(text::uncached_statement) -- an integrity check that runs once at open
         .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
         .map_err(unavailable)?;
     if check != "ok" {
@@ -637,6 +648,7 @@ fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
     }
     if version == 0 {
         let tables: i64 = connection
+            // xtask-lint: allow(text::uncached_statement) -- schema inspection runs once at open
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
                 [],
@@ -675,6 +687,7 @@ fn open_writable(path: &Path) -> Result<Connection, CatalogError> {
         .map_err(unavailable)?;
     if mode != "wal" {
         let mode: String = connection
+            // xtask-lint: allow(text::uncached_statement) -- switches the journal mode once at open
             .query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))
             .map_err(unavailable)?;
         if mode != "wal" {
@@ -705,9 +718,11 @@ fn initialize_catalog(connection: &mut Connection) -> Result<(), CatalogError> {
         transaction.execute_batch(schema).map_err(unavailable)?;
     }
     transaction
+        // xtask-lint: allow(text::uncached_statement) -- creates a new catalog once at open
         .execute("INSERT INTO object_generation VALUES (1, 0)", [])
         .map_err(unavailable)?;
     transaction
+        // xtask-lint: allow(text::uncached_statement) -- creates a new catalog once at open
         .execute("INSERT INTO startup_seed VALUES (1, 0)", [])
         .map_err(unavailable)?;
     transaction.commit().map_err(unavailable)
@@ -720,6 +735,7 @@ fn migrate_seed(connection: &mut Connection) -> Result<(), CatalogError> {
         .map_err(unavailable)?;
     // Older catalogs have already served user mutations, even if now empty.
     transaction
+        // xtask-lint: allow(text::uncached_statement) -- a one-time schema migration at open
         .execute("INSERT INTO startup_seed VALUES (1, 1)", [])
         .map_err(unavailable)?;
     transaction.commit().map_err(unavailable)
@@ -791,6 +807,7 @@ fn recover_on_open(
     clock: &dyn Clock,
 ) -> Result<(), CatalogError> {
     let pending: bool = connection
+        // xtask-lint: allow(text::uncached_statement) -- crash recovery runs once at open
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)",
             [],
@@ -798,9 +815,11 @@ fn recover_on_open(
         )
         .map_err(unavailable)?;
     if pending {
+        // xtask-lint: allow(text::uncached_statement) -- crash recovery runs once at open
         connection.execute("UPDATE sync_writeback_roots SET recovery=1 WHERE EXISTS(SELECT 1 FROM sync_writeback_ops p WHERE p.root_id=sync_writeback_roots.root_id AND p.phase!=4)",[]).map_err(unavailable)?;
     }
     let journal_enabled: bool = connection
+        // xtask-lint: allow(text::uncached_statement) -- crash recovery runs once at open
         .query_row(
             "SELECT enabled FROM change_journal_state WHERE singleton = 1",
             [],
@@ -810,6 +829,7 @@ fn recover_on_open(
     if journal_enabled {
         // shortcut: restart requires a full rescan, add durable consumer checkpoints when restart continuity is needed.
         connection
+            // xtask-lint: allow(text::uncached_statement) -- crash recovery runs once at open
             .execute(
                 "UPDATE change_journal_state SET enabled = 0, epoch = epoch + 1 WHERE singleton = 1",
                 [],
@@ -1224,11 +1244,9 @@ impl Catalog {
             record.uniform_bucket_level_access_locked_time = record.uniform_bucket_level_access_locked_time
                 .map(|time| unix_micros(time).and_then(|time| system_time_micros(time).map_err(unavailable))).transpose()?;
             transaction
+                .prepare_cached(UPDATE_BUCKET)
+                .map_err(unavailable)?
                 .execute(
-                    "UPDATE buckets SET labels = ?2, storage_class = ?3,
-                     versioning_enabled = ?4, default_event_based_hold = ?5,
-                     metageneration = ?6, updated = ?7, cors = ?8, public_access_prevention_enforced = ?9,
-                     uniform_bucket_level_access_locked_time = ?10, lifecycle = ?11, retention_policy = ?12, soft_delete_policy = ?13 WHERE name = ?1",
                     params![
                         name,
                         serde_json::to_string(&record.labels).map_err(unavailable)?,
@@ -1267,18 +1285,19 @@ impl Catalog {
         name: &str,
     ) -> Result<(objects::Versioning, bool), CatalogError> {
         transaction
-            .query_row(
+            .prepare_cached(
                 "SELECT versioning_enabled, default_event_based_hold FROM buckets WHERE name = ?1",
-                [name],
-                |row| {
+            )
+            .and_then(|mut statement| {
+                statement.query_row([name], |row| {
                     let versioning = if row.get(0)? {
                         objects::Versioning::Enabled
                     } else {
                         objects::Versioning::Disabled
                     };
                     Ok((versioning, row.get(1)?))
-                },
-            )
+                })
+            })
             .optional()
             .map_err(unavailable)?
             .ok_or(CatalogError::NotFound)
@@ -1389,11 +1408,10 @@ impl Catalog {
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(unavailable)?;
             let (metageneration, project): (i64, String) = transaction
-                .query_row(
-                    "SELECT metageneration, project FROM buckets WHERE name = ?1",
-                    [&name],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
+                .prepare_cached("SELECT metageneration, project FROM buckets WHERE name = ?1")
+                .and_then(|mut statement| {
+                    statement.query_row([&name], |r| Ok((r.get(0)?, r.get(1)?)))
+                })
                 .optional()
                 .map_err(unavailable)?
                 .ok_or(CatalogError::NotFound)?;
@@ -1404,17 +1422,24 @@ impl Catalog {
                 return Err(CatalogError::PreconditionFailed);
             }
             let nonempty: bool = transaction
-                .query_row(
+                .prepare_cached(
                     "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL)",
-                    [&name],
-                    |r| r.get(0),
                 )
+                .and_then(|mut statement| statement.query_row([&name], |r| r.get(0)))
                 .map_err(unavailable)?;
             if nonempty {
                 return Err(CatalogError::NotEmpty);
             }
-            transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1", [&name]).map_err(unavailable)?;
-            transaction.execute("DELETE FROM objects WHERE bucket = ?1", [&name]).map_err(unavailable)?;
+            let execute = |sql: &'static str| {
+                transaction
+                    .prepare_cached(sql)
+                    .and_then(|mut statement| statement.execute([&name]))
+                    .map_err(unavailable)
+            };
+            execute(
+                "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1",
+            )?;
+            execute("DELETE FROM objects WHERE bucket = ?1")?;
             change_journal::append(
                 &transaction,
                 change_journal::origin(&access),
@@ -1422,18 +1447,10 @@ impl Catalog {
                 &name,
                 None,
             )?;
-            transaction
-                .execute("DELETE FROM bucket_policies WHERE bucket = ?1", [&name])
-                .map_err(unavailable)?;
-            transaction
-                .execute("DELETE FROM bucket_incarnations WHERE bucket = ?1", [&name])
-                .map_err(unavailable)?;
-            transaction
-                .execute("DELETE FROM sync_objects WHERE bucket = ?1", [&name])
-                .map_err(unavailable)?;
-            transaction
-                .execute("DELETE FROM buckets WHERE name = ?1", [name])
-                .map_err(unavailable)?;
+            execute("DELETE FROM bucket_policies WHERE bucket = ?1")?;
+            execute("DELETE FROM bucket_incarnations WHERE bucket = ?1")?;
+            execute("DELETE FROM sync_objects WHERE bucket = ?1")?;
+            execute("DELETE FROM buckets WHERE name = ?1")?;
             transaction.commit().map_err(unavailable)
         })
         .await?;
@@ -1767,10 +1784,8 @@ fn insert_bucket_in_transaction(
         &Policy::default_for(&record.project),
     )?;
     transaction
-        .execute(
-            "INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))",
-            [&record.name],
-        )
+        .prepare_cached("INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))")
+        .and_then(|mut statement| statement.execute([&record.name]))
         .map_err(unavailable)?;
     Ok(())
 }

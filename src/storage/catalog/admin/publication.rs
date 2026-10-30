@@ -286,12 +286,10 @@ async fn cleanup(catalog: &Catalog, id: String) -> Result<(), AdminError> {
     let probe = id.clone();
     let referenced = catalog
         .run_upload(move |connection| {
+            // Shares the cached statement of the upload path's unreferenced-stage probe.
             connection
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-                    [probe],
-                    |row| row.get::<_, bool>(0),
-                )
+                .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
+                .and_then(|mut statement| statement.query_row([probe], |row| row.get::<_, bool>(0)))
                 .map_err(objects_error)
         })
         .await

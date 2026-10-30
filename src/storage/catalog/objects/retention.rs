@@ -104,11 +104,8 @@ pub(super) fn bucket_enabled(
     bucket: &str,
 ) -> Result<bool, ObjectError> {
     transaction
-        .query_row(
-            "SELECT object_retention_enabled FROM buckets WHERE name = ?1",
-            [bucket],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT object_retention_enabled FROM buckets WHERE name = ?1")
+        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
         .optional()
         .map_err(object_unavailable)?
         .ok_or(ObjectError::BucketNotFound)

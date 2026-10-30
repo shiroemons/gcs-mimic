@@ -173,6 +173,7 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
+    // xtask-lint: allow(text::uncached_statement) -- validates catalog state once at open
     let valid: bool = connection.query_row(
         "SELECT count(*) = 1 AND min(singleton) = 1 AND min(sequence) >= (SELECT coalesce(max(sequence), 0) FROM change_journal) AND (SELECT count(*) FROM change_journal) = min(sequence - floor) AND min(sequence - floor) <= 65536 AND NOT EXISTS(SELECT 1 FROM change_journal WHERE sequence <= (SELECT floor FROM change_journal_state)) FROM change_journal_state", [], |r| r.get(0)
     ).map_err(unavailable)?;
@@ -216,29 +217,28 @@ pub(super) fn append(
     object: Option<&ObjectRecord>,
 ) -> Result<(), CatalogError> {
     let enabled: bool = connection
-        .query_row(
-            "SELECT enabled FROM change_journal_state WHERE singleton = 1",
-            [],
-            |r| r.get(0),
-        )
+        .prepare_cached("SELECT enabled FROM change_journal_state WHERE singleton = 1")
+        .and_then(|mut statement| statement.query_row([], |r| r.get(0)))
         .map_err(unavailable)?;
     if !enabled {
         return Ok(());
     }
     connection
-        .execute(
+        .prepare_cached(
             "UPDATE change_journal_state SET sequence = sequence + 1 WHERE singleton = 1",
-            [],
         )
+        .and_then(|mut statement| statement.execute([]))
         .map_err(unavailable)?;
-    let inserted = connection.execute("INSERT INTO change_journal SELECT s.sequence, ?1, ?2, b.name, b.project, i.incarnation, ?4, ?5, coalesce(?6, b.metageneration) FROM change_journal_state s, buckets b JOIN bucket_incarnations i ON i.bucket = b.name WHERE b.name = ?3",
-        params![origin_name(origin), kind.as_str(), bucket, object.map(|o| &o.name), object.map(|o| o.generation), object.map(|o| o.metageneration)]).map_err(unavailable)?;
+    let inserted = connection.prepare_cached("INSERT INTO change_journal SELECT s.sequence, ?1, ?2, b.name, b.project, i.incarnation, ?4, ?5, coalesce(?6, b.metageneration) FROM change_journal_state s, buckets b JOIN bucket_incarnations i ON i.bucket = b.name WHERE b.name = ?3")
+        .and_then(|mut statement| statement.execute(params![origin_name(origin), kind.as_str(), bucket, object.map(|o| &o.name), object.map(|o| o.generation), object.map(|o| o.metageneration)])).map_err(unavailable)?;
     if inserted != 1 {
         return Err(unavailable("missing change journal bucket identity"));
     }
     // Each append evicts at most one record, even inside a larger mutation batch.
-    connection.execute("DELETE FROM change_journal WHERE sequence <= (SELECT sequence - 65536 FROM change_journal_state) AND sequence IN (SELECT sequence FROM change_journal ORDER BY sequence LIMIT 256)", []).map_err(unavailable)?;
-    connection.execute("UPDATE change_journal_state SET floor = max(floor, sequence - 65536) WHERE singleton = 1", []).map_err(unavailable)?;
+    connection.prepare_cached("DELETE FROM change_journal WHERE sequence <= (SELECT sequence - 65536 FROM change_journal_state) AND sequence IN (SELECT sequence FROM change_journal ORDER BY sequence LIMIT 256)")
+        .and_then(|mut statement| statement.execute([])).map_err(unavailable)?;
+    connection.prepare_cached("UPDATE change_journal_state SET floor = max(floor, sequence - 65536) WHERE singleton = 1")
+        .and_then(|mut statement| statement.execute([])).map_err(unavailable)?;
     Ok(())
 }
 
@@ -248,6 +248,7 @@ pub(super) fn parent_pap(connection: &Connection, projects: &[String]) -> Result
     projects.dedup();
     let value = serde_json::to_string(&projects).map_err(unavailable)?;
     let current: String = connection
+        // xtask-lint: allow(text::uncached_statement) -- parent policy is installed once at startup
         .query_row(
             "SELECT parent_pap FROM change_journal_state WHERE singleton = 1",
             [],
@@ -255,6 +256,7 @@ pub(super) fn parent_pap(connection: &Connection, projects: &[String]) -> Result
         )
         .map_err(unavailable)?;
     if current != value {
+        // xtask-lint: allow(text::uncached_statement) -- parent policy is installed once at startup
         connection.execute("UPDATE change_journal_state SET parent_pap = ?1, epoch = epoch + 1 WHERE singleton = 1", [value]).map_err(unavailable)?;
     }
     Ok(())
@@ -262,10 +264,11 @@ pub(super) fn parent_pap(connection: &Connection, projects: &[String]) -> Result
 
 fn state(connection: &Connection) -> Result<(JournalFence, i64, bool), CatalogError> {
     connection
-        .query_row(
+        .prepare_cached(
             "SELECT sequence, epoch, floor, enabled FROM change_journal_state WHERE singleton = 1",
-            [],
-            |r| {
+        )
+        .and_then(|mut statement| {
+            statement.query_row([], |r| {
                 Ok((
                     JournalFence {
                         sequence: JournalSeq(r.get::<_, i64>(0)? as u64),
@@ -274,8 +277,8 @@ fn state(connection: &Connection) -> Result<(JournalFence, i64, bool), CatalogEr
                     r.get(2)?,
                     r.get(3)?,
                 ))
-            },
-        )
+            })
+        })
         .map_err(unavailable)
 }
 
@@ -337,6 +340,7 @@ impl Catalog {
     ) -> Result<JournalFence, AdminError> {
         let enabled = switch == JournalSwitch::Enabled;
         self.run_admin(move |connection| {
+            // xtask-lint: allow(text::uncached_statement) -- consumers switch the journal at startup only
             connection.execute("UPDATE change_journal_state SET enabled = ?1, epoch = epoch + (enabled != ?1) WHERE singleton = 1", [enabled]).map_err(unavailable)?;
             Ok(state(connection)?.0)
         }).await

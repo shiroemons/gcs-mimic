@@ -35,6 +35,14 @@ CREATE TABLE acl_object_entries (
 ) WITHOUT ROWID;
 PRAGMA user_version = 33;";
 
+// Shared by metadata replacement and entry changes so both hit one cached statement.
+const UPSERT_BUCKET_ENTRIES: &str =
+    "INSERT INTO acl_bucket_entries (bucket, scope, entries) VALUES (?1, ?2, ?3)
+     ON CONFLICT(bucket, scope) DO UPDATE SET entries = excluded.entries";
+const UPSERT_OBJECT_ENTRIES: &str =
+    "INSERT INTO acl_object_entries (bucket, name, generation, entries) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(bucket, name, generation) DO UPDATE SET entries = excluded.entries";
+
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
     transaction.execute_batch(SCHEMA).map_err(unavailable)?;
@@ -49,11 +57,11 @@ pub(super) fn inherit_default_object_acl(
     generation: i64,
 ) -> Result<(), ObjectError> {
     connection
-        .execute(
+        .prepare_cached(
             "INSERT INTO acl_object_entries (bucket, name, generation, entries)
              SELECT bucket, ?2, ?3, entries FROM acl_bucket_entries WHERE bucket = ?1 AND scope = 'defaultObject'",
-            params![bucket, name, generation],
         )
+        .and_then(|mut statement| statement.execute(params![bucket, name, generation]))
         .map_err(object_unavailable)?;
     Ok(())
 }
@@ -121,17 +129,18 @@ struct BucketRow {
 
 fn bucket_row(connection: &Connection, bucket: &str) -> Result<Option<BucketRow>, CatalogError> {
     connection
-        .query_row(
+        .prepare_cached(
             "SELECT project, metageneration, uniform_bucket_level_access_locked_time IS NOT NULL FROM buckets WHERE name = ?1",
-            [bucket],
-            |row| {
+        )
+        .and_then(|mut statement| {
+            statement.query_row([bucket], |row| {
                 Ok(BucketRow {
                     project: row.get(0)?,
                     metageneration: row.get(1)?,
                     uniform_access: row.get(2)?,
                 })
-            },
-        )
+            })
+        })
         .optional()
         .map_err(unavailable)
 }
@@ -146,11 +155,10 @@ fn stored_bucket_entries(
     scope: &str,
 ) -> Result<Option<Vec<AclEntry>>, CatalogError> {
     connection
-        .query_row(
-            "SELECT entries FROM acl_bucket_entries WHERE bucket = ?1 AND scope = ?2",
-            params![bucket, scope],
-            |row| row.get::<_, String>(0),
-        )
+        .prepare_cached("SELECT entries FROM acl_bucket_entries WHERE bucket = ?1 AND scope = ?2")
+        .and_then(|mut statement| {
+            statement.query_row(params![bucket, scope], |row| row.get::<_, String>(0))
+        })
         .optional()
         .map_err(unavailable)?
         .map(|entries| decode(&entries))
@@ -164,11 +172,14 @@ fn stored_object_entries(
     generation: i64,
 ) -> Result<Option<Vec<AclEntry>>, CatalogError> {
     connection
-        .query_row(
+        .prepare_cached(
             "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
-            params![bucket, name, generation],
-            |row| row.get::<_, String>(0),
         )
+        .and_then(|mut statement| {
+            statement.query_row(params![bucket, name, generation], |row| {
+                row.get::<_, String>(0)
+            })
+        })
         .optional()
         .map_err(unavailable)?
         .map(|entries| decode(&entries))
@@ -287,19 +298,19 @@ pub(super) fn replace_resource_acl(
         ResolvedAclTarget::Object {
             name, generation, ..
         } => {
-            connection.execute(
-                "INSERT INTO acl_object_entries (bucket, name, generation, entries) VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT(bucket, name, generation) DO UPDATE SET entries = excluded.entries",
-                params![bucket, name, generation, entries],
-            ).map_err(unavailable)?;
+            connection
+                .prepare_cached(UPSERT_OBJECT_ENTRIES)
+                .and_then(|mut statement| {
+                    statement.execute(params![bucket, name, generation, entries])
+                })
+                .map_err(unavailable)?;
         }
         _ => {
             connection
-                .execute(
-                    "INSERT INTO acl_bucket_entries (bucket, scope, entries) VALUES (?1, ?2, ?3)
-                 ON CONFLICT(bucket, scope) DO UPDATE SET entries = excluded.entries",
-                    params![bucket, scope(target.kind()), entries],
-                )
+                .prepare_cached(UPSERT_BUCKET_ENTRIES)
+                .and_then(|mut statement| {
+                    statement.execute(params![bucket, scope(target.kind()), entries])
+                })
                 .map_err(unavailable)?;
         }
     }
@@ -440,17 +451,18 @@ impl Catalog {
                 match record {
                     None => {
                         transaction
-                            .execute(
-                                "INSERT INTO acl_bucket_entries (bucket, scope, entries) VALUES (?1, ?2, ?3)
-                                 ON CONFLICT(bucket, scope) DO UPDATE SET entries = excluded.entries",
-                                params![bucket, scope(target.kind()), entries],
-                            )
+                            .prepare_cached(UPSERT_BUCKET_ENTRIES)
+                            .and_then(|mut statement| {
+                                statement.execute(params![bucket, scope(target.kind()), entries])
+                            })
                             .map_err(unavailable)?;
                         transaction
-                            .execute(
+                            .prepare_cached(
                                 "UPDATE buckets SET metageneration = ?2, updated = ?3 WHERE name = ?1",
-                                params![bucket, state.metageneration, micros],
                             )
+                            .and_then(|mut statement| {
+                                statement.execute(params![bucket, state.metageneration, micros])
+                            })
                             .map_err(unavailable)?;
                         change_journal::append(
                             &transaction,
@@ -462,17 +474,18 @@ impl Catalog {
                     }
                     Some(mut record) => {
                         transaction
-                            .execute(
-                                "INSERT INTO acl_object_entries (bucket, name, generation, entries) VALUES (?1, ?2, ?3, ?4)
-                                 ON CONFLICT(bucket, name, generation) DO UPDATE SET entries = excluded.entries",
-                                params![bucket, record.name, record.generation, entries],
-                            )
+                            .prepare_cached(UPSERT_OBJECT_ENTRIES)
+                            .and_then(|mut statement| {
+                                statement.execute(params![bucket, record.name, record.generation, entries])
+                            })
                             .map_err(unavailable)?;
                         transaction
-                            .execute(
+                            .prepare_cached(
                                 "UPDATE objects SET metageneration = ?4, updated = ?5 WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
-                                params![bucket, record.name, record.generation, state.metageneration, micros],
                             )
+                            .and_then(|mut statement| {
+                                statement.execute(params![bucket, record.name, record.generation, state.metageneration, micros])
+                            })
                             .map_err(unavailable)?;
                         record.metageneration = state.metageneration;
                         record.updated = super::system_time_micros(micros).map_err(unavailable)?;
