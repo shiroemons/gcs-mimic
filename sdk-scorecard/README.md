@@ -71,7 +71,7 @@ sets across products, and differing shared case IDs across SDKs.
 | Go SDK | `cloud.google.com/go/storage` v1.70.0 (`go/go.mod`, same graph as `sdk-tests/go`) |
 | Ruby SDK | `google-cloud-storage` 1.62.1 (`ruby/Gemfile.lock`, same graph as `sdk-tests/ruby`) |
 | Node.js SDK | `@google-cloud/storage` 8.4.0 (`node/package-lock.json`); measured on Node.js 26.13.0, requires Node.js 24+ |
-| PHP SDK | `google/cloud-storage` 2.6.1 (`php/composer.lock`); official Composer 2.10.3 / PHP 8.5.12 image, digest pinned in `run.sh` |
+| PHP SDK | `google/cloud-storage` 2.6.1 (`php/composer.lock`); official Composer 2.11.0 / PHP 8.5.12 image, digest pinned in `run.sh` |
 | Python SDK | `google-cloud-storage` 3.17.1, `cryptography` 50.0.2 for offline RSA signing (`python/uv.lock`); Python 3.14.10 |
 | gcs-mimic | Release build of the checked-out source; the commit is recorded in `*.meta.json` |
 | fake-gcs-server | `fsouza/fake-gcs-server:1.56.1` |

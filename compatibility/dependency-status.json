@@ -187,12 +187,18 @@
     "status": "PINNED",
     "digests": [
       {
-        "repository": "library/composer", "reference": "composer:2.10.3",
-        "tag": "2.10.3", "latest_tag": "latest",
-        "digest": "sha256:2cf275428757e5435a667bfc0d038b14520ca02be2b1b70d44a05c8c19e2de48",
-        "platforms": {},
+        "repository": "library/composer", "reference": "composer:2.11.0",
+        "tag": "2.11.0", "latest_tag": "latest",
+        "digest": "sha256:278dfc7bd35169965d03f87194816f43bf4e6b6ea61707c2114e52ad12fe24ce",
+        "latest_verified_digest": "sha256:c7f68260503e3c1f0ece10bdbe84519fd98d48ba091f2c02f16ea94a7faae337",
+        "verification_status": "PUBLICATION_LAG",
+        "update_scope": "Composer 2.11.0 (released 2026-10-29; getcomposer.org lists it as the newest stable) with PHP 8.5.12. On 2026-10-30 the 2.11.0 and 2.11 tags resolve to this index, which lacks linux/riscv64 because riscv64/composer has not built 2.11.0 yet. The latest and 2 tags resolve to a different index whose linux/amd64 and linux/arm64 manifests are identical to this one but whose linux/riscv64 entry is still the 2.10.3 image. The version-consistent 2.11.0 index is pinned; see the composer-riscv64-publication-lag exception.",
+        "platforms": {
+          "linux/amd64": "sha256:e86de4d29f50ca4eb982db0f1fd57a38a5019972b5697a89f75c2f551c1451a6",
+          "linux/arm64": "sha256:f9a0252b680e7a7fe4d19319f2e4cf6d93f9bc577008763ed09972ca1db91559"
+        },
         "source_url": "https://hub.docker.com/_/composer",
-        "purpose": "Development-only official Composer 2.10.3 / PHP 8.5.12 runtime for the PHP SDK scorecard and the official PHP SDK suite. sdk-scorecard/run.sh and sdk-tests/php/run.sh pin this manifest index; daily detection checks replacement tags and digests."
+        "purpose": "Development-only official Composer 2.11.0 / PHP 8.5.12 runtime for the PHP SDK scorecard and the official PHP SDK suite. sdk-scorecard/run.sh, sdk-scorecard/test-tls.sh and sdk-tests/php/run.sh pin this manifest index; daily detection checks replacement tags and digests."
       },
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie",
@@ -310,14 +316,14 @@
       "checked_at_utc": "2026-10-29T07:58:33Z",
       "direct_dependencies": [{"name": "google/cloud-storage", "current": "2.6.1", "license": "Apache-2.0", "source_revision": "cf14f967fa45113e2a239fe9103bada8d7b92021"}],
       "source_urls": ["https://repo.packagist.org/p2/google/cloud-storage.json", "https://github.com/googleapis/google-cloud-php-storage"],
-      "resolution_constraints": "Development-only scorecard; composer.lock pins the graph. Google-maintained active release, PHP >=8.2. PHP 8.5.12 and Composer 2.10.3 run in the digest-pinned official Composer image."
+      "resolution_constraints": "Development-only scorecard; composer.lock pins the graph. Google-maintained active release, PHP >=8.2. PHP 8.5.12 and Composer 2.11.0 run in the digest-pinned official Composer image; composer install with 2.11.0 reproduces the committed lock unchanged."
     },
     {
       "ecosystem": "composer", "manifest": "sdk-tests/php/composer.json",
       "checked_at_utc": "2026-10-30T05:11:58Z",
       "direct_dependencies": [{"name": "google/cloud-storage", "current": "2.6.1", "license": "Apache-2.0", "source_revision": "cf14f967fa45113e2a239fe9103bada8d7b92021"}],
       "source_urls": ["https://repo.packagist.org/p2/google/cloud-storage.json", "https://github.com/googleapis/google-cloud-php-storage"],
-      "resolution_constraints": "Development-only official SDK suite; composer.lock pins the same 26-package graph as the scorecard. sdk-tests/php/run.sh runs it with PHP 8.5.12 and Composer 2.10.3 in the same digest-pinned official Composer image, which the container check reads from that script."
+      "resolution_constraints": "Development-only official SDK suite; composer.lock pins the same 26-package graph as the scorecard. sdk-tests/php/run.sh runs it with PHP 8.5.12 and Composer 2.11.0 in the same digest-pinned official Composer image, which the container check reads from that script."
     },
     {
       "ecosystem": "ruby",
@@ -450,5 +456,18 @@
       "source_url": "https://api.github.com/repos/Swatinem/rust-cache/git/ref/tags/v2.9.3"
     }
   ],
-  "exceptions": []
+  "exceptions": [
+    {
+      "id": "composer-riscv64-publication-lag",
+      "package": "docker library/composer:latest",
+      "current": "sha256:278dfc7bd35169965d03f87194816f43bf4e6b6ea61707c2114e52ad12fe24ce (composer:2.11.0)",
+      "latest": "sha256:c7f68260503e3c1f0ece10bdbe84519fd98d48ba091f2c02f16ea94a7faae337",
+      "upstream_reference": "https://hub.docker.com/r/riscv64/composer/tags",
+      "evidence": "cargo xtask dependencies check reports docker library/composer:latest UPDATE_AVAILABLE and exits 1; see docs/en/evidence/dependency-refresh.md. The official-images definition lists riscv64 for the 2.11.0, 2.11, 2 and latest tags, but riscv64/composer still publishes only 2.10.3, so latest keeps the 2.10.3 riscv64 image and differs from the 2.11.0 index.",
+      "impact": "None for supported hosts: linux/amd64 and linux/arm64 manifests are identical under both indexes. Only the daily check stays red.",
+      "owner": "project maintainer",
+      "next_action": "When riscv64/composer publishes 2.11.0 and the library tags are republished, pin the new 2.11.0 index digest in the three scripts and this snapshot, then remove this exception.",
+      "review_by": "2026-11-06"
+    }
+  ]
 }

@@ -174,7 +174,7 @@ edges. An older same-named transitive package remains part of the upstream graph
 it does not make the direct package's resolution ambiguous or exempt that direct
 package from checking.
 
-Run it at every slice start and before release. Review failed runs and `compatibility/dependency-status.json` exceptions at least weekly. Update toolchain, manifests, lockfiles and snapshot together after validation. There are no current freshness exceptions.
+Run it at every slice start and before release. Review failed runs and `compatibility/dependency-status.json` exceptions at least weekly. Update toolchain, manifests, lockfiles and snapshot together after validation. One freshness exception is open, `composer-riscv64-publication-lag` (review by 2026-11-06): the official `composer:latest` index still carries the 2.10.3 riscv64 image, so it differs from the pinned Composer 2.11.0 index although the amd64 and arm64 images are identical; see the [2026-10-30 refresh](evidence/dependency-refresh.md#refresh-2026-10-30).
 
 Configure daily dependency drift detection. The selected updater must cover Cargo, Rust toolchain, Docker tags/digests, GitHub Actions and the SDK example ecosystems actually present. The currently checked official Dependabot reference includes cargo, rust-toolchain, docker and other supported ecosystems; verify support again when configuring the repository.
 

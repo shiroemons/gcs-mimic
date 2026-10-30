@@ -13,7 +13,7 @@ bash "$root/scripts/tls-fixtures.sh" "$work/tls"
 port=$(cd "$root/sdk-tests/go" && GOTOOLCHAIN=auto go run ./cmd/free-port | cut -d: -f2)
 export SCORECARD_ENDPOINT="https://127.0.0.1:$port"
 export SCORECARD_SIGNING_KEY="$root/fixtures/signing/test-only-private.pem"
-php_image=composer:2.10.3@sha256:2cf275428757e5435a667bfc0d038b14520ca02be2b1b70d44a05c8c19e2de48
+php_image=composer:2.11.0@sha256:278dfc7bd35169965d03f87194816f43bf4e6b6ea61707c2114e52ad12fe24ce
 
 probe() {
   local sdk=$1 ca=$2
