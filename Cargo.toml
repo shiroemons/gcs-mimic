@@ -38,7 +38,7 @@ panic = "unwind"
 
 [package]
 name = "gcs-mimic"
-version = "0.6.0"
+version = "0.7.0"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

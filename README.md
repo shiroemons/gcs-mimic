@@ -15,7 +15,7 @@ Use the official Cloud Storage SDKs against it without a Google Cloud account.
 - **Works with your SDK**: Go, Ruby, Node.js, Python and PHP pass every case in
   the [SDK scorecard](#sdk-scorecard).
 - **Replaces fake-gcs-server**: swap the image; most old flags and
-  `FAKE_GCS_*` variables keep working (after 0.6.0; see
+  `FAKE_GCS_*` variables keep working (see
   [migrating](#migrating-from-fake-gcs-server)).
 - **One container**: preload files from a directory, keep data in a volume.
 
@@ -23,7 +23,7 @@ Use the official Cloud Storage SDKs against it without a Google Cloud account.
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.6.0
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.7.0
 curl --retry 5 --retry-all-errors -H 'Content-Type: application/json' \
   -d '{"name":"demo-bucket"}' 'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --data-binary 'hello' \
@@ -37,7 +37,7 @@ The last command prints `hello`. Next, [connect your SDK](#connect-your-sdk).
   unauthenticated requests by default.
 - Add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep data after the container
   is removed.
-- Docker Hub has the same image: `shiroemons/gcs-mimic:0.6.0`.
+- Docker Hub has the same image: `shiroemons/gcs-mimic:0.7.0`.
 - Without `GCS_MIMIC_SCHEME=http`, the emulator serves HTTPS with a built-in
   development certificate; see [local HTTPS](docs/en/local-https.md).
 
@@ -46,7 +46,7 @@ The last command prints `hello`. Next, [connect your SDK](#connect-your-sdk).
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -162,17 +162,13 @@ bucket and CORS setup, Rails in containers and CI.
 
 ## Migrating from fake-gcs-server
 
-> [!NOTE]
-> This needs a release newer than 0.6.0. With 0.6.0, old flags stop startup,
-> and the error names the `GCS_MIMIC_*` setting to use instead.
-
 Swap the image and mount a data volume. Most `command:` flags, `FAKE_GCS_*`
 variables and the `./data:/data` mount keep working:
 
 ```diff
  gcs:
 -  image: fsouza/fake-gcs-server:1.56.1
-+  image: ghcr.io/shiroemons/gcs-mimic:0.6.0
++  image: ghcr.io/shiroemons/gcs-mimic:0.7.0
    command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
    volumes:
      - ./data:/data
@@ -206,7 +202,7 @@ See the [migration guide](docs/en/fake-gcs-server-migration.md) and the
 | `GCS_MIMIC_AUTH_MODE` | `strict` checks local bearer tokens; see [strict authentication](docs/en/getting-started.md#strict-local-authentication) |
 | `GCS_MIMIC_LOG_LEVEL` | `debug`, `info` (default), `warn` or `error` |
 
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.6.0 --help` lists every option.
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.7.0 --help` lists every option.
 
 ## Features at a glance
 
@@ -268,7 +264,7 @@ means an ordinary SDK workflow works, not that the API is complete.
 - [Storage design](docs/en/storage-backends.md), [architecture](docs/en/design.md)
   and [roadmap](docs/en/roadmap.md)
 - [Development](docs/en/development.md) and [release policy](docs/en/release-policy.md)
-- [0.6.0 release notes](docs/en/releases/0.6.0.md) and
+- [0.7.0 release notes](docs/en/releases/0.7.0.md) and
   [all releases](https://github.com/shiroemons/gcs-mimic/releases)
 
 ## License

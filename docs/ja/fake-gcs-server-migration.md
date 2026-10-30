@@ -21,7 +21,7 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 既存アプリのサービスと`STORAGE_EMULATOR_HOST=gcs:4443`はそのまま残し、
 `gcs`サービスを置き換えます。よく使う5組のフラグは次のように書き換えます。
 移行前のCompose全体は[英語版の例](../en/fake-gcs-server-migration.md#replace-a-fake-gcs-server-compose-service)を参照してください。
-0.6.0より新しいリリースでは、古いフラグと`FAKE_GCS_*`も書き換えずに動き、置き換え先を警告で表示します。
+0.7.0以降は、古いフラグと`FAKE_GCS_*`も書き換えずに動き、置き換え先を警告で表示します。
 この手順ではnativeの名前を使います。[旧設定の読み替え（英語）](../en/slices/legacy-setting-aliases.md)を参照してください。
 
 | 書き換え前 | 書き換え後 | 必要な理由・違い |
@@ -87,7 +87,7 @@ Goでは削除前に`err`を確認してください。未設定での`softDelet
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
@@ -202,7 +202,7 @@ googleauth 1.17.6は、既定のuniverseのサービスアカウントではGoog
 
 | 症状 | 原因 | 直し方 |
 | --- | --- | --- |
-| `-scheme`や`FAKE_GCS_SCHEME`で起動が止まる | 0.6.0以前は旧設定名を読み替えない | 新しいリリースに上げるか、古いcommandやキーを消して`GCS_MIMIC_SCHEME: http`へ置き換える。 |
+| `-scheme`や`FAKE_GCS_SCHEME`で起動が止まる | 0.6.0以前は旧設定名を読み替えない | 0.7.0以降に上げるか、古いcommandやキーを消して`GCS_MIMIC_SCHEME: http`へ置き換える。 |
 | `-event.pubsub-topic`などの`FAKE_GCS_EVENT_*`で起動が止まる | イベント通知は未対応 | イベント設定を消す。通知が必要なテストはまだgcs-mimicでは動かせない。 |
 | SDKの開始は成功するが次の接続が失敗する | Locationがループバックかホスト専用のURL | コンテナ向けに`GCS_MIMIC_API_BASE_URL: http://gcs:4443`を指定し、サービスを再作成する。 |
 | ブラウザーが`gcs`を名前解決できない | コンテナDNSはホストでは使えない | この例では`http://localhost:14443`を使い、署名なしセッションのpath/queryを保って変換する。 |

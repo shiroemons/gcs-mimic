@@ -34,7 +34,7 @@ volumes:
 ```
 
 Five common option groups translate as follows. Old flags and `FAKE_GCS_*`
-variables also work unchanged in releases after 0.6.0, with a warning naming
+variables also work unchanged since 0.7.0, with a warning naming
 each native setting; this walkthrough uses the native names. See
 [legacy setting aliases](slices/legacy-setting-aliases.md).
 
@@ -130,7 +130,7 @@ existing app, edit the service in your own Compose file instead.
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
@@ -250,7 +250,7 @@ refresh the token at Google. The entry works only with the permissive profile.
 
 | Symptom | Cause | Repair |
 | --- | --- | --- |
-| Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | 0.6.0 and earlier do not translate source names | Upgrade, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
+| Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | 0.6.0 and earlier do not translate source names | Upgrade to 0.7.0 or later, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
 | Startup rejects `-event.pubsub-topic` or another `FAKE_GCS_EVENT_*` | Event publishing is unavailable | Remove the event settings; tests that need notifications cannot run against gcs-mimic yet. |
 | SDK initiation succeeds but its next request cannot connect | Location contains loopback or a host-only address | Set `GCS_MIMIC_API_BASE_URL: http://gcs:4443` for container clients and recreate the service. |
 | Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when translating unsigned URLs. |

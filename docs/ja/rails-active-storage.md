@@ -33,7 +33,7 @@ Google Cloud Storage向けの設定に、`Cache-Control`を足したものです
 # compose.yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -94,7 +94,7 @@ RailsはComposeのサービス名でエミュレーターに届きますが、�
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
     ports:
       - "127.0.0.1:4443:4443" # the host port must equal the container port
     environment:
@@ -128,7 +128,7 @@ config.active_storage.resolve_model_to_route = :rails_storage_proxy
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
     env:
       GCS_MIMIC_SCHEME: http
     ports:

@@ -13,7 +13,7 @@ gcs-mimicは、ローカル開発とCIで使うGoogle Cloud Storageエミュレ�
 Google Cloudのアカウントなしで、公式のCloud Storage SDKをそのまま使えます。
 
 - **SDKでそのまま動く**: Go・Ruby・Node.js・Python・PHPが[SDKスコアカード](#sdkスコアカード)の全ケースを通過します。
-- **fake-gcs-serverから乗り換えやすい**: イメージ名を変えるだけで、旧フラグや`FAKE_GCS_*`の多くがそのまま動きます（0.6.0の次のリリースから。[移行](#fake-gcs-serverから移行する)を参照）。
+- **fake-gcs-serverから乗り換えやすい**: イメージ名を変えるだけで、旧フラグや`FAKE_GCS_*`の多くがそのまま動きます（[移行](#fake-gcs-serverから移行する)を参照）。
 - **コンテナ1つ**: ディレクトリから初期ファイルを読み込み、ボリュームにデータを残せます。
 
 [English](../../README.md) ·
@@ -23,7 +23,7 @@ Google Cloudのアカウントなしで、公式のCloud Storage SDKをそのま
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.6.0
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.7.0
 curl --retry 5 --retry-all-errors -H 'Content-Type: application/json' \
   -d '{"name":"demo-bucket"}' 'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --data-binary 'hello' \
@@ -35,7 +35,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 
 - 既定では認証なしで受け付けるため、ポートは`127.0.0.1`にだけ公開します。
 - コンテナを消してもデータを残すには、`-v gcs-mimic-data:/var/lib/gcs-mimic`を付けます。
-- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:0.6.0`
+- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:0.7.0`
 - `GCS_MIMIC_SCHEME=http`を外すと、組み込みの開発用証明書でHTTPSになります。[ローカルHTTPS（英語）](../en/local-https.md)を参照してください。
 
 ## Docker Compose
@@ -43,7 +43,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -150,17 +150,13 @@ gcs_emulator:
 
 ## fake-gcs-serverから移行する
 
-> [!NOTE]
-> 0.6.0より新しいリリースが必要です。0.6.0では旧フラグで起動が止まり、
-> エラーに代わりの`GCS_MIMIC_*`設定が表示されます。
-
 イメージを替え、データ用のボリュームを付けます。
 `command:`のフラグ、`FAKE_GCS_*`環境変数、`./data:/data`のマウントは、多くがそのまま動きます。
 
 ```diff
  gcs:
 -  image: fsouza/fake-gcs-server:1.56.1
-+  image: ghcr.io/shiroemons/gcs-mimic:0.6.0
++  image: ghcr.io/shiroemons/gcs-mimic:0.7.0
    command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
    volumes:
      - ./data:/data
@@ -193,7 +189,7 @@ gcs_emulator:
 | `GCS_MIMIC_AUTH_MODE` | `strict`でローカルのbearer tokenを検査。[strict認証（英語）](../en/getting-started.md#strict-local-authentication) |
 | `GCS_MIMIC_LOG_LEVEL` | `debug`・`info`（既定）・`warn`・`error` |
 
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.6.0 --help`ですべての設定を確認できます。
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.7.0 --help`ですべての設定を確認できます。
 
 ## 機能の概要
 

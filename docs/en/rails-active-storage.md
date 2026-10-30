@@ -34,7 +34,7 @@ the service sets `cache_control`; without it, those uploads fail CORS.
 # compose.yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -102,7 +102,7 @@ Docker, so Rails and the browser use the same URL:
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
     ports:
       - "127.0.0.1:4443:4443" # the host port must equal the container port
     environment:
@@ -138,7 +138,7 @@ bucket. Right after startup the port can answer with an empty reply, which
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.6.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
     env:
       GCS_MIMIC_SCHEME: http
     ports:
