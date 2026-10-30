@@ -1433,7 +1433,11 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
             );
             connection.execute_batch("COMMIT").unwrap();
         }
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        // A hang guard, not a latency bound: cancellation waits for the blocking copy or
+        // hash step already running on the 64 MiB body, which took over 5 s on loaded
+        // runs. Ignoring SIGTERM still fails below, because the seed would commit the
+        // object or never exit.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
         loop {
             if let Some(status) = server.child.try_wait().unwrap() {
                 assert!(status.success());
