@@ -252,9 +252,13 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
         // Preserve extended paths and keep publication on the same volume. Windows
         // uses write-through publication, not Unix directory-fsync durability.
         let source = source.canonicalize()?;
-        let destination = shard
-            .canonicalize()?
-            .join(destination.file_name().expect("blob filename"));
+        let file_name = destination.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "blob destination has no file name",
+            )
+        })?;
+        let destination = shard.canonicalize()?.join(file_name);
         crate::fsutil::move_write_through(&source, &destination)
     }
 }
