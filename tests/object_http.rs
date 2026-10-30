@@ -1391,8 +1391,10 @@ fn resumable_files(
     )
 }
 
+/// A hang guard, not a latency bound: a boundary that is never reached fails here,
+/// while hashing a 64 MiB chunk in a debug build took over 5 s on loaded runs.
 fn wait_for_boundary(message: &str, mut reached: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while !reached() {
         assert!(Instant::now() < deadline, "{message}");
         thread::sleep(Duration::from_millis(1));
