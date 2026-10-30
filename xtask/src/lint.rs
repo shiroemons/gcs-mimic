@@ -4,8 +4,11 @@
 //! applies the text rules to production files. Any finding fails the gate. The only exceptions
 //! are reasoned suppressions (`#[expect(lint, reason = "..")]` for Clippy and rustc lints,
 //! `// xtask-lint: allow(text::..) -- reason` for text rules) and the one shared error-mapping
-//! helper in [`SHARED_HELPER_FILE`]. `--all-targets-report` lists the same Clippy lints across
-//! every workspace target for information; tests may unwrap, so it never fails.
+//! helper in [`SHARED_HELPER_FILE`]. `--target <triple>` repeats the Clippy pass for another
+//! target, so code behind that target's `cfg` is checked too. Rules in [`PENDING_RULES`] are
+//! reported as warnings until the code they reject is fixed. `--all-targets-report` lists the
+//! same Clippy lints across every workspace target for information; tests may unwrap, so it
+//! never fails.
 
 use serde_json::Value;
 use std::{
@@ -21,7 +24,7 @@ type Result<T> = std::result::Result<T, String>;
 /// Extra Clippy lints for production code; thresholds live in `clippy.toml`. A lint that passes
 /// on every workspace target belongs in `[workspace.lints]` instead: a `-W` here would lower
 /// that `deny` to a warning for this run.
-pub const CLIPPY_LINTS: [&str; 7] = [
+pub const CLIPPY_LINTS: [&str; 8] = [
     "clippy::unwrap_used",
     "clippy::expect_used",
     "clippy::panic",
@@ -29,33 +32,72 @@ pub const CLIPPY_LINTS: [&str; 7] = [
     "clippy::fn_params_excessive_bools",
     "clippy::needless_pass_by_value",
     "clippy::allow_attributes_without_reason",
+    // `#[expect]` fails once its lint stops firing; `#[allow]` silently outlives the reason.
+    ALLOW_ATTRIBUTES,
 ];
+
+const ALLOW_ATTRIBUTES: &str = "clippy::allow_attributes";
 
 /// The only file that may define `fn unavailable`, the shared storage error mapping.
 pub const SHARED_HELPER_FILE: &str = "src/storage/failure.rs";
+
+/// The only file that may call `tokio::spawn`: the supervised spawn helper, which keeps
+/// background-task panics and errors visible instead of dropping them with the `JoinHandle`.
+pub const SUPERVISED_SPAWN_FILE: &str = "src/task.rs";
 
 const PATH_ATTRIBUTE: &str = "text::path_attribute";
 const STRING_ERROR_RESULT: &str = "text::string_error_result";
 const UNAVAILABLE_HELPER: &str = "text::unavailable_helper";
 const ALLOW_TOO_MANY_ARGUMENTS: &str = "text::allow_too_many_arguments";
 const UNCACHED_PREPARE: &str = "text::uncached_prepare";
+const UNCACHED_STATEMENT: &str = "text::uncached_statement";
 const FORMAT_SQL: &str = "text::format_sql";
 const SYNC_WITHOUT_FLUSH: &str = "text::sync_without_flush";
+const STRING_ERROR_VARIANT: &str = "text::string_error_variant";
+const STRINGIFIED_ERROR: &str = "text::stringified_error";
+const UNSUPERVISED_SPAWN: &str = "text::unsupervised_spawn";
+
+/// Pseudo-rule for the findings of a `--target` run; listing it in [`PENDING_RULES`] reports
+/// every cross-target finding as pending.
+pub const CROSS_TARGET: &str = "target::cross";
+
+/// Rules reported as warnings instead of failures while existing code is migrated. Each entry
+/// is temporary: remove it (or empty the list) to enforce the rule once its findings are fixed.
+/// A pending rule still accepts suppressions, and stale or invalid suppressions still fail.
+pub const PENDING_RULES: &[&str] = &[
+    ALLOW_ATTRIBUTES,
+    ALLOW_TOO_MANY_ARGUMENTS,
+    UNCACHED_STATEMENT,
+    STRING_ERROR_VARIANT,
+    STRINGIFIED_ERROR,
+    UNSUPERVISED_SPAWN,
+    CROSS_TARGET,
+];
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
-pub const TEXT_RULES: [&str; 7] = [
+pub const TEXT_RULES: [&str; 11] = [
     PATH_ATTRIBUTE,
     STRING_ERROR_RESULT,
     UNAVAILABLE_HELPER,
     ALLOW_TOO_MANY_ARGUMENTS,
     UNCACHED_PREPARE,
+    UNCACHED_STATEMENT,
     FORMAT_SQL,
     SYNC_WITHOUT_FLUSH,
+    STRING_ERROR_VARIANT,
+    STRINGIFIED_ERROR,
+    UNSUPERVISED_SPAWN,
 ];
+
+/// Rules that `// xtask-lint: allow-file(..)` may suppress for a whole file: statements that
+/// run once at open or during maintenance, such as schema setup and migrations, cluster in
+/// modules where per-line comments would only repeat one reason.
+pub const FILE_SCOPE_RULES: [&str; 1] = [UNCACHED_STATEMENT];
 
 const SUPPRESSION_MARKER: &str = "xtask-lint:";
 const SUPPRESSION_SYNTAX: &str = "// xtask-lint: allow(<text rule>[, <text rule>]) -- <reason>";
+const FILE_SUPPRESSION_SYNTAX: &str = "// xtask-lint: allow-file(<text rule>) -- <reason>";
 /// Short enough for a real justification, long enough to reject `ok` or `legacy`.
 pub const MIN_REASON_CHARS: usize = 10;
 
@@ -75,10 +117,34 @@ const SQL_MARKERS: [&str; 7] = [
     " FROM ", " INTO ", " SET ", " TABLE ", " INDEX ", " VALUES", "PRAGMA ",
 ];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// rusqlite methods that prepare their SQL on every call, bypassing the statement cache.
+/// `execute_batch` is left out: it runs multi-statement DDL and has no cached form.
+const UNCACHED_METHODS: [&str; 3] = ["execute", "query_row", "query_one"];
+
+/// Error-variant names that describe an underlying failure rather than a client-facing
+/// message. `InvalidTopic(String)` names the rejected input and stays allowed;
+/// `Backend(String)` is an error that was stringified and lost its `source()`.
+const SOURCE_VARIANT_NAMES: [&str; 9] = [
+    "Backend",
+    "BodyAborted",
+    "Database",
+    "Internal",
+    "Io",
+    "Other",
+    "Sqlite",
+    "Storage",
+    "Unavailable",
+];
+
+const STRING_TYPES: [&str; 3] = ["String", "std::string::String", "alloc::string::String"];
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// Fail on any production finding.
     Gate,
+    /// Run only the Clippy pass for another target triple; text rules are target-independent
+    /// and already ran with the host gate.
+    Target(String),
     /// Print the Clippy lints across every workspace target; never fails on findings.
     AllTargetsReport,
 }
@@ -158,26 +224,82 @@ pub fn mode(args: &[String]) -> Option<Mode> {
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
         [] => Some(Mode::Gate),
         ["--all-targets-report"] => Some(Mode::AllTargetsReport),
+        ["--target", triple] if !triple.is_empty() && !triple.starts_with('-') => {
+            Some(Mode::Target(triple.to_owned()))
+        }
         _ => None,
     }
 }
 
 /// Runs the selected mode and returns whether it passed.
-pub fn run(root: &Path, mode: Mode) -> Result<bool> {
+pub fn run(root: &Path, mode: &Mode) -> Result<bool> {
     match mode {
         Mode::Gate => gate(root),
+        Mode::Target(triple) => Ok(target_gate(
+            triple,
+            clippy(root, Scope::Production, Some(triple))?,
+        )),
         Mode::AllTargetsReport => {
-            all_targets_report(&clippy(root, Scope::Workspace)?);
+            all_targets_report(&clippy(root, Scope::Workspace, None)?);
             Ok(true)
         }
     }
 }
 
+/// Splits findings into enforced ones and those of [`PENDING_RULES`]; with `cross_target`,
+/// every finding is pending while [`CROSS_TARGET`] is.
+pub fn split_pending(findings: Vec<Finding>, cross_target: bool) -> (Vec<Finding>, Vec<Finding>) {
+    let all_pending = cross_target && PENDING_RULES.contains(&CROSS_TARGET);
+    findings
+        .into_iter()
+        .partition(|f| !all_pending && !PENDING_RULES.contains(&f.rule.as_str()))
+}
+
+/// `N pending findings (rule: n, ..)` plus one `warning: pending` line per rule and file, so the
+/// migration workload stays visible without failing the gate.
+fn report_pending(pending: &[Finding]) -> String {
+    for ((rule, file), count) in counts_by_file(pending) {
+        eprintln!("warning: pending {rule}: {file}: {count}");
+    }
+    let mut by_rule = BTreeMap::<&str, usize>::new();
+    for finding in pending {
+        *by_rule.entry(&finding.rule).or_default() += 1;
+    }
+    let detail = by_rule
+        .iter()
+        .map(|(rule, n)| format!("{rule}: {n}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match pending.len() {
+        0 => "0 pending findings".to_owned(),
+        n => format!("{n} pending findings, not enforced yet ({detail})"),
+    }
+}
+
+fn target_gate(triple: &str, findings: Vec<Finding>) -> bool {
+    let (violations, pending) = split_pending(findings, true);
+    let pending = report_pending(&pending);
+    for finding in &violations {
+        eprintln!("error: {}: {}:{}", finding.rule, finding.file, finding.line);
+    }
+    if violations.is_empty() {
+        println!("lint --target {triple}: 0 production Clippy violations; {pending}");
+    } else {
+        eprintln!(
+            "lint --target {triple} failed: {} production Clippy violations; {pending}",
+            violations.len()
+        );
+    }
+    violations.is_empty()
+}
+
 fn gate(root: &Path) -> Result<bool> {
-    let mut findings = clippy(root, Scope::Production)?;
+    let mut findings = clippy(root, Scope::Production, None)?;
     let scan = scan_tree(root)?;
     findings.extend(scan.findings);
     findings.sort();
+    let (findings, pending) = split_pending(findings, false);
+    let pending = report_pending(&pending);
     let suppressions = suppression_summary(&scan.suppressed);
     for problem in &scan.problems {
         eprintln!(
@@ -186,7 +308,9 @@ fn gate(root: &Path) -> Result<bool> {
         );
     }
     if !scan.problems.is_empty() {
-        eprintln!("Suppressions use `{SUPPRESSION_SYNTAX}`; see docs/en/development.md.");
+        eprintln!(
+            "Suppressions use `{SUPPRESSION_SYNTAX}` or `{FILE_SUPPRESSION_SYNTAX}`; see docs/en/development.md."
+        );
     }
     let (violations, missing_helper) = violations(findings);
     for finding in &violations {
@@ -197,10 +321,10 @@ fn gate(root: &Path) -> Result<bool> {
     }
     let passed = violations.is_empty() && missing_helper.is_none() && scan.problems.is_empty();
     if passed {
-        println!("lint: 0 production violations; {suppressions}");
+        println!("lint: 0 production violations; {suppressions}; {pending}");
     } else {
         eprintln!(
-            "lint failed: {} production violations, {} suppression problems; {suppressions}",
+            "lint failed: {} production violations, {} suppression problems; {suppressions}; {pending}",
             violations.len() + usize::from(missing_helper.is_some()),
             scan.problems.len()
         );
@@ -286,14 +410,18 @@ pub fn ready_lints(workspace: &[Finding]) -> Vec<&'static str> {
         .collect()
 }
 
-fn clippy(root: &Path, scope: Scope) -> Result<Vec<Finding>> {
+fn clippy(root: &Path, scope: Scope, target: Option<&str>) -> Result<Vec<Finding>> {
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut command = Command::new(cargo);
     command
         .current_dir(root)
         .arg("clippy")
         .args(scope.cargo_args())
-        .args(["--locked", "--offline", "--message-format=json", "--"]);
+        .args(["--locked", "--offline", "--message-format=json"]);
+    if let Some(target) = target {
+        command.args(["--target", target]);
+    }
+    command.arg("--");
     for lint in CLIPPY_LINTS {
         command.args(["-W", lint]);
     }
@@ -381,11 +509,17 @@ fn normalize(path: &str) -> String {
 
 /// Whether a repository-relative path is server production code.
 pub fn production_file(path: &str) -> bool {
-    let name = path.rsplit('/').next().unwrap_or(path);
+    let mut parts: Vec<&str> = path.split('/').collect();
+    let name = parts.pop().unwrap_or(path);
+    // Children of a `tests` or `*_tests` module directory belong to that test module.
+    let test_directory = parts
+        .iter()
+        .any(|part| *part == "tests" || part.ends_with("_tests"));
     path.starts_with("src/")
         && path.ends_with(".rs")
         && !path.starts_with("src/grpc/generated/")
         && !path.starts_with("src/grpc/codegen/")
+        && !test_directory
         && !name.ends_with("_tests.rs")
         && name != "tests.rs"
         && name != "test_support.rs"
@@ -437,11 +571,15 @@ pub fn scan_source(file: &str, text: &str) -> Scan {
                 line: line_index(text, comment.start) + 1,
                 message,
             }),
-            Some(Ok(rules)) => suppressions.push(Suppression {
+            Some(Ok(parsed)) => suppressions.push(Suppression {
                 comment: line_index(text, comment.start),
-                target: suppression_target(&masked, comment.start),
-                used: vec![false; rules.len()],
-                rules,
+                target: match parsed.scope {
+                    SuppressionScope::Line => suppression_target(&masked, comment.start),
+                    SuppressionScope::File => None,
+                },
+                scope: parsed.scope,
+                used: vec![false; parsed.rules.len()],
+                rules: parsed.rules,
             }),
         }
     }
@@ -449,10 +587,16 @@ pub fn scan_source(file: &str, text: &str) -> Scan {
         problems,
         ..Scan::default()
     };
+    // Line suppressions first, so a file-wide one is stale only when no line one covers it.
+    suppressions.sort_by_key(|s| s.scope);
     for finding in findings {
         let matched = suppressions.iter_mut().find_map(|s| {
             let index = s.rules.iter().position(|rule| *rule == finding.rule)?;
-            (s.target == Some(finding.line - 1)).then_some((s, index))
+            let covers = match s.scope {
+                SuppressionScope::Line => s.target == Some(finding.line - 1),
+                SuppressionScope::File => true,
+            };
+            covers.then_some((s, index))
         });
         if let Some((suppression, index)) = matched {
             suppression.used[index] = true;
@@ -465,12 +609,14 @@ pub fn scan_source(file: &str, text: &str) -> Scan {
         for (rule, used) in suppression.rules.iter().zip(&suppression.used) {
             if !used {
                 // Like an unfulfilled `#[expect]`: a fix or a moved line must drop the comment.
+                let covered = match suppression.scope {
+                    SuppressionScope::Line => "the line it covers",
+                    SuppressionScope::File => "this file",
+                };
                 scan.problems.push(Problem {
                     file: file.to_owned(),
                     line: suppression.comment + 1,
-                    message: format!(
-                        "stale suppression: `{rule}` reports nothing on the line it covers"
-                    ),
+                    message: format!("stale suppression: `{rule}` reports nothing on {covered}"),
                 });
             }
         }
@@ -479,12 +625,30 @@ pub fn scan_source(file: &str, text: &str) -> Scan {
     scan
 }
 
-/// A parsed `// xtask-lint: allow(..) -- reason` comment.
+/// What a suppression comment covers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SuppressionScope {
+    /// `allow(..)`: one line.
+    Line,
+    /// `allow-file(..)`: the whole file, for [`FILE_SCOPE_RULES`] only.
+    File,
+}
+
+/// The accepted contents of a suppression comment.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParsedSuppression {
+    pub scope: SuppressionScope,
+    pub rules: Vec<String>,
+}
+
+/// A parsed `// xtask-lint: allow(..) -- reason` or `allow-file(..)` comment.
 struct Suppression {
     /// Zero-based line of the comment.
     comment: usize,
-    /// Zero-based line it covers: its own line after code, else the next line with code.
+    /// Zero-based line a line suppression covers: its own line after code, else the next line
+    /// with code. `None` for a file suppression.
     target: Option<usize>,
+    scope: SuppressionScope,
     rules: Vec<String>,
     used: Vec<bool>,
 }
@@ -509,8 +673,8 @@ fn suppression_target(masked: &str, offset: usize) -> Option<usize> {
 }
 
 /// Parses one line comment (including its `//`). `None` when it is not a suppression;
-/// otherwise the suppressed rules or why the comment is rejected.
-pub fn parse_suppression(comment: &str) -> Option<std::result::Result<Vec<String>, String>> {
+/// otherwise the suppressed rules and scope, or why the comment is rejected.
+pub fn parse_suppression(comment: &str) -> Option<std::result::Result<ParsedSuppression, String>> {
     let body = comment.strip_prefix("//")?;
     // Doc comments document; they never suppress.
     if body.starts_with('/') || body.starts_with('!') {
@@ -519,10 +683,15 @@ pub fn parse_suppression(comment: &str) -> Option<std::result::Result<Vec<String
     let rest = body.trim_start().strip_prefix(SUPPRESSION_MARKER)?;
     let malformed = || {
         Err(format!(
-            "malformed suppression; expected `{SUPPRESSION_SYNTAX}`"
+            "malformed suppression; expected `{SUPPRESSION_SYNTAX}` or `{FILE_SUPPRESSION_SYNTAX}`"
         ))
     };
-    let Some(rest) = rest.trim_start().strip_prefix("allow(") else {
+    let rest = rest.trim_start();
+    let (scope, rest) = if let Some(rest) = rest.strip_prefix("allow(") {
+        (SuppressionScope::Line, rest)
+    } else if let Some(rest) = rest.strip_prefix("allow-file(") {
+        (SuppressionScope::File, rest)
+    } else {
         return Some(malformed());
     };
     let Some((list, after)) = rest.split_once(')') else {
@@ -545,6 +714,12 @@ pub fn parse_suppression(comment: &str) -> Option<std::result::Result<Vec<String
                 TEXT_RULES.join(", ")
             )));
         }
+        if scope == SuppressionScope::File && !FILE_SCOPE_RULES.contains(&rule.as_str()) {
+            return Some(Err(format!(
+                "`{rule}` cannot be suppressed for a whole file; file-scope rules: {}",
+                FILE_SCOPE_RULES.join(", ")
+            )));
+        }
     }
     let after = after.trim();
     let reason = match after.strip_prefix("--") {
@@ -557,7 +732,7 @@ pub fn parse_suppression(comment: &str) -> Option<std::result::Result<Vec<String
             "suppression needs a reason of at least {MIN_REASON_CHARS} characters after ` -- `"
         )));
     }
-    Some(Ok(rules))
+    Some(Ok(ParsedSuppression { scope, rules }))
 }
 
 /// Raw text-rule findings in production code, before suppressions.
@@ -572,12 +747,6 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
         let trimmed = line.trim_start();
         if trimmed.starts_with("#[path ") || trimmed.starts_with("#[path=") {
             findings.push(Finding::new(PATH_ATTRIBUTE, file, index + 1));
-        }
-        let attribute = ["#[allow(", "#[expect(", "#![allow(", "#![expect("]
-            .iter()
-            .any(|prefix| trimmed.starts_with(prefix));
-        if attribute && trimmed.contains("clippy::too_many_arguments") {
-            findings.push(Finding::new(ALLOW_TOO_MANY_ARGUMENTS, file, index + 1));
         }
         for _ in line.matches(".prepare(") {
             findings.push(Finding::new(UNCACHED_PREPARE, file, index + 1));
@@ -612,7 +781,244 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
     for offset in unflushed_syncs(masked) {
         add(SYNC_WITHOUT_FLUSH, offset);
     }
+    for offset in too_many_arguments_attributes(masked) {
+        add(ALLOW_TOO_MANY_ARGUMENTS, offset);
+    }
+    for offset in uncached_statements(masked) {
+        add(UNCACHED_STATEMENT, offset);
+    }
+    for offset in string_error_variants(masked) {
+        add(STRING_ERROR_VARIANT, offset);
+    }
+    for offset in stringified_errors(text, masked) {
+        add(STRINGIFIED_ERROR, offset);
+    }
+    if file != SUPERVISED_SPAWN_FILE {
+        for offset in tokio_spawns(masked) {
+            add(UNSUPERVISED_SPAWN, offset);
+        }
+    }
     findings
+}
+
+/// Offsets of `#[..]` and `#![..]` attributes that allow or expect `clippy::too_many_arguments`,
+/// including `cfg_attr` forms and attributes split over several lines.
+fn too_many_arguments_attributes(masked: &str) -> Vec<usize> {
+    let bytes = masked.as_bytes();
+    let mut offsets = Vec::new();
+    for (hash, _) in masked.match_indices('#') {
+        let mut open = hash + 1;
+        if bytes.get(open) == Some(&b'!') {
+            open += 1;
+        }
+        if bytes.get(open) != Some(&b'[') {
+            continue;
+        }
+        let Some(close) = close_group(bytes, open) else {
+            continue;
+        };
+        let body: String = masked[open + 1..close - 1]
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        let level = ["allow(", "expect(", "cfg_attr("]
+            .iter()
+            .any(|prefix| body.starts_with(prefix));
+        if level && words(&body, "too_many_arguments").any(|i| body[..i].ends_with("clippy::")) {
+            offsets.push(hash);
+        }
+    }
+    offsets
+}
+
+/// Whether the last non-whitespace byte before `offset` is `.`, so a method call follows.
+fn after_dot(bytes: &[u8], offset: usize) -> bool {
+    bytes[..offset]
+        .iter()
+        .rev()
+        .find(|b| !b.is_ascii_whitespace())
+        == Some(&b'.')
+}
+
+/// Offsets of `.execute(`, `.query_row(` and `.query_one(` whose first argument is a string
+/// literal or an `UPPER_SNAKE` constant: rusqlite prepares that SQL again on every call.
+/// A call on a prepared statement passes parameters first and is not matched.
+fn uncached_statements(masked: &str) -> Vec<usize> {
+    let bytes = masked.as_bytes();
+    let mut offsets = Vec::new();
+    for method in UNCACHED_METHODS {
+        for offset in words(masked, method) {
+            if !after_dot(bytes, offset) {
+                continue;
+            }
+            let open = skip_space(bytes, offset + method.len());
+            if bytes.get(open) != Some(&b'(') {
+                continue;
+            }
+            let mut i = skip_space(bytes, open + 1);
+            if bytes.get(i) == Some(&b'&') {
+                i = skip_space(bytes, i + 1);
+            }
+            let literal = bytes.get(i) == Some(&b'"')
+                || (bytes.get(i) == Some(&b'r') && matches!(bytes.get(i + 1), Some(b'"' | b'#')));
+            let start = i;
+            while bytes.get(i).is_some_and(|&b| ident(b) || b == b':') {
+                i += 1;
+            }
+            let segment = masked[start..i].rsplit("::").next().unwrap_or_default();
+            let constant = segment.bytes().any(|b| b.is_ascii_uppercase())
+                && segment
+                    .bytes()
+                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                && matches!(bytes.get(skip_space(bytes, i)), Some(b',' | b')'));
+            if literal || constant {
+                offsets.push(offset);
+            }
+        }
+    }
+    offsets
+}
+
+/// The identifier starting at `start`, possibly empty.
+fn ident_at(masked: &str, start: usize) -> &str {
+    let bytes = masked.as_bytes();
+    let mut end = start;
+    while bytes.get(end).copied().is_some_and(ident) {
+        end += 1;
+    }
+    &masked[start..end]
+}
+
+/// Offsets of tuple variants `Name(String)` in enums named `*Error` whose name, from
+/// [`SOURCE_VARIANT_NAMES`], says they hold an underlying failure as text.
+fn string_error_variants(masked: &str) -> Vec<usize> {
+    let bytes = masked.as_bytes();
+    let mut offsets = Vec::new();
+    for offset in words(masked, "enum") {
+        let start = skip_space(bytes, offset + "enum".len());
+        let name = ident_at(masked, start);
+        if !name.ends_with("Error") {
+            continue;
+        }
+        let Some(open) = masked[start..].find('{').map(|n| start + n) else {
+            continue;
+        };
+        let Some(close) = close_group(bytes, open) else {
+            continue;
+        };
+        let mut i = open + 1;
+        while i < close - 1 {
+            match bytes[i] {
+                // Attributes, struct variants and discriminants never hold a tuple variant.
+                b'(' | b'[' | b'{' | b'<' => i = close_group(bytes, i).unwrap_or(close),
+                b if ident(b) && !ident(bytes[i - 1]) => {
+                    let variant = ident_at(masked, i);
+                    let after = i + variant.len();
+                    let paren = skip_space(bytes, after);
+                    if bytes.get(paren) == Some(&b'(')
+                        && SOURCE_VARIANT_NAMES.contains(&variant)
+                        && let Some(end) = close_group(bytes, paren)
+                    {
+                        let field: String = masked[paren + 1..end - 1]
+                            .chars()
+                            .filter(|c| !c.is_whitespace())
+                            .collect();
+                        if STRING_TYPES.contains(&field.trim_end_matches(',')) {
+                            offsets.push(i);
+                        }
+                    }
+                    i = after;
+                }
+                _ => i += 1,
+            }
+        }
+    }
+    offsets
+}
+
+/// Offsets of `map_err(|e| Path(e.to_string()))` and `map_err(|e| Path(format!(".. {e}")))`,
+/// where the only argument stringifies the error and drops it as `source()`. A call that also
+/// passes the error, such as `lock_failure(format!(..), e)`, keeps it and is not matched.
+fn stringified_errors(text: &str, masked: &str) -> Vec<usize> {
+    let bytes = masked.as_bytes();
+    let mut offsets = Vec::new();
+    for offset in words(masked, "map_err") {
+        let open = skip_space(bytes, offset + "map_err".len());
+        if bytes.get(open) != Some(&b'(') {
+            continue;
+        }
+        let bar = skip_space(bytes, open + 1);
+        if bytes.get(bar) != Some(&b'|') {
+            continue;
+        }
+        let param_start = skip_space(bytes, bar + 1);
+        let param = ident_at(masked, param_start);
+        let after_param = skip_space(bytes, param_start + param.len());
+        if param.is_empty() || param.starts_with('_') || bytes.get(after_param) != Some(&b'|') {
+            continue;
+        }
+        let path_start = skip_space(bytes, after_param + 1);
+        let mut i = path_start;
+        while bytes.get(i).is_some_and(|&b| ident(b) || b == b':') {
+            i += 1;
+        }
+        let call = skip_space(bytes, i);
+        if i == path_start || bytes.get(call) != Some(&b'(') {
+            continue;
+        }
+        let Some(end) = close_group(bytes, call) else {
+            continue;
+        };
+        if bytes.get(skip_space(bytes, end)) != Some(&b')') {
+            continue;
+        }
+        let argument = masked[call + 1..end - 1].trim();
+        let compact: String = argument.chars().filter(|c| !c.is_whitespace()).collect();
+        if compact == format!("{param}.to_string()")
+            || formats_param(text, masked, call + 1, end - 1, param)
+        {
+            offsets.push(offset);
+        }
+    }
+    offsets
+}
+
+/// Whether `masked[from..to]` is exactly one `format!(..)` that interpolates `param`.
+fn formats_param(text: &str, masked: &str, from: usize, to: usize, param: &str) -> bool {
+    let bytes = masked.as_bytes();
+    let start = skip_space(bytes, from);
+    if !masked[start..to].starts_with("format!") {
+        return false;
+    }
+    let open = skip_space(bytes, start + "format!".len());
+    let Some(close) = close_group(bytes, open) else {
+        return false;
+    };
+    if !masked[close..to]
+        .trim()
+        .trim_start_matches(',')
+        .trim()
+        .is_empty()
+    {
+        return false;
+    }
+    let literal = &text[open..close];
+    let inline =
+        literal.contains(&format!("{{{param}}}")) || literal.contains(&format!("{{{param}:"));
+    inline || words(&masked[open..close], param).next().is_some()
+}
+
+/// Offsets of `tokio::spawn(` and `task::spawn(` calls, which detach a task whose panic or
+/// error nobody observes once the `JoinHandle` is dropped.
+fn tokio_spawns(masked: &str) -> Vec<usize> {
+    let bytes = masked.as_bytes();
+    words(masked, "spawn")
+        .filter(|&offset| {
+            let prefix = &masked[..offset];
+            (prefix.ends_with("tokio::") || prefix.ends_with("task::"))
+                && bytes.get(skip_space(bytes, offset + "spawn".len())) == Some(&b'(')
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -976,7 +1382,52 @@ fn test_only(attribute: &str) -> bool {
             .is_some_and(|items| items.split(',').any(|item| item.trim() == "test"))
 }
 
-/// Marks the lines of each test-only item, from the attribute through its balanced end.
+/// The zero-based line of the first outer attribute in the stack that ends just before
+/// `line`, or `line` itself; attributes may span several lines.
+fn attribute_stack_start(masked: &str, line: usize) -> usize {
+    let Some(previous) = line.checked_sub(1) else {
+        return 0;
+    };
+    let bytes = masked.as_bytes();
+    let mut offset = masked
+        .match_indices('\n')
+        .nth(previous)
+        .map_or(0, |(n, _)| n + 1);
+    loop {
+        let Some(end) = bytes[..offset]
+            .iter()
+            .rposition(|b| !b.is_ascii_whitespace())
+        else {
+            return line_index(masked, offset);
+        };
+        if bytes[end] != b']' {
+            return line_index(masked, offset);
+        }
+        let mut depth = 0usize;
+        let mut open = None;
+        for j in (0..=end).rev() {
+            match bytes[j] {
+                b']' | b')' => depth += 1,
+                b'[' | b'(' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        open = Some(j);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Only `#[..]` outer attributes belong to the item; `#![..]` and indexing do not.
+        match open {
+            Some(j) if j > 0 && bytes[j - 1] == b'#' => offset = j - 1,
+            _ => return line_index(masked, offset),
+        }
+    }
+}
+
+/// Marks the lines of each test-only item, from the first attribute of its stack (which may
+/// precede the `cfg`) through its balanced end.
 pub fn test_lines(masked: &str) -> Vec<bool> {
     let lines: Vec<&str> = masked.lines().collect();
     let mut tests = vec![false; lines.len()];
@@ -986,7 +1437,7 @@ pub fn test_lines(masked: &str) -> Vec<bool> {
             i += 1;
             continue;
         }
-        let start = i;
+        let start = attribute_stack_start(masked, i);
         i += 1;
         while i < lines.len() && (lines[i].trim().starts_with("#[") || lines[i].trim().is_empty()) {
             i += 1;
@@ -1118,13 +1569,200 @@ let v = format!(\"select failed: {e}\");
         assert_eq!(
             rules("src/a.rs", text),
             [
-                (ALLOW_TOO_MANY_ARGUMENTS.to_owned(), 3),
-                (ALLOW_TOO_MANY_ARGUMENTS.to_owned(), 4),
                 (UNCACHED_PREPARE.to_owned(), 5),
                 (UNAVAILABLE_HELPER.to_owned(), 1),
                 (FORMAT_SQL.to_owned(), 6),
-                (FORMAT_SQL.to_owned(), 7)
+                (FORMAT_SQL.to_owned(), 7),
+                (ALLOW_TOO_MANY_ARGUMENTS.to_owned(), 3),
+                (ALLOW_TOO_MANY_ARGUMENTS.to_owned(), 4)
             ]
+        );
+    }
+
+    #[test]
+    fn too_many_arguments_attributes_are_found_across_lines() {
+        let text = "\
+#[allow(
+    clippy::too_many_arguments,
+    reason = \"The shared storage contract fixes this signature\"
+)]
+fn a() {}
+    #[expect(clippy::needless_pass_by_value, clippy::too_many_arguments, reason = \"x\")]
+#![allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), expect(
+    clippy::too_many_arguments
+))]
+#[allow(clippy::too_many_lines, reason = \"clippy::too_many_arguments is not set here\")]
+#[allow(clippy::too_many_arguments_extra)]
+#[doc = \"clippy::too_many_arguments\"]
+let index = values[clippy::too_many_arguments];
+#[allow(
+    clippy::too_many_arguments,
+    reason = \"test-only helper\"
+)]
+#[cfg(test)]
+fn test_only() {}
+";
+        assert_eq!(lines_of(ALLOW_TOO_MANY_ARGUMENTS, text), [1, 6, 7, 8]);
+    }
+
+    #[test]
+    fn uncached_statements_need_a_literal_or_constant_sql_argument() {
+        let text = "\
+connection.execute(\"DELETE FROM t WHERE a = ?1\", [a])?;
+let n = transaction
+    .query_row(
+        r#\"SELECT count(*) FROM t\"#,
+        [],
+        |row| row.get(0),
+    )?;
+tx.execute(&INSERT_OBJECT, params![a])?;
+tx.query_one(schema::SELECT_ROW, [], |row| row.get(0))?;
+statement.execute(params![a])?;
+statement.query_row([a], |row| row.get(0))?;
+cached.execute((a, b))?;
+tx.execute(&sql, [])?;
+tx.execute(SqlKind::Insert, [])?;
+connection.execute_batch(SCHEMA)?;
+executor.execute(\"not sql\");
+fn execute(\"x\") {}
+";
+        assert_eq!(lines_of(UNCACHED_STATEMENT, text), [1, 8, 16, 3, 9]);
+    }
+
+    #[test]
+    fn string_error_variants_are_found_only_for_source_names_in_error_enums() {
+        let text = "\
+pub(crate) enum AdminError {
+    /// Backend(String) in a doc comment.
+    #[allow(dead_code)]
+    Backend(String),
+    Invalid(String),
+    Unavailable(
+        std::string::String,
+    ),
+    Io(io::Error),
+    Internal { message: String },
+    Other(String, u8),
+    Storage(String) = 3,
+}
+enum Error { Sqlite(String), Database(Box<str>) }
+enum Outcome { Backend(String) }
+struct ParseError(String);
+";
+        assert_eq!(lines_of(STRING_ERROR_VARIANT, text), [4, 6, 12, 14]);
+    }
+
+    #[test]
+    fn stringified_errors_are_found_when_the_error_is_dropped() {
+        let text = "\
+.map_err(|error| AdminError::Backend(error.to_string()))?;
+.map_err(|e| io::Error::other(format!(\"seed import: {e}\")))?;
+.map_err(|e| invalid(
+    format!(\"bad value: {}\", e),
+))?;
+.map_err(|e| lock_failure(format!(\"open lock: {e}\"), e))?;
+.map_err(|_| JsonError::invalid_parameter(format!(\"{key} must be an int64\")))?;
+.map_err(|e| io::Error::other(e))?;
+.map_err(|e| Error::Io(e))?;
+.map_err(|e| invalid(format!(\"{key} is invalid\")))?;
+.map_err(|e| { log(e); Error::Backend(e.to_string()) })?;
+.map_err(Error::Backend)?;
+";
+        assert_eq!(lines_of(STRINGIFIED_ERROR, text), [1, 2, 3]);
+    }
+
+    #[test]
+    fn tokio_spawns_are_found_outside_the_supervised_helper() {
+        let text = "\
+tokio::spawn(async move {});
+let task = tokio::task::spawn(work());
+task::spawn(
+    work(),
+);
+std::thread::spawn(move || {});
+tokio::task::spawn_blocking(move || {});
+connections.spawn(serve());
+let spawn = 1;
+// tokio::spawn(x)
+";
+        assert_eq!(lines_of(UNSUPERVISED_SPAWN, text), [1, 2, 3]);
+        assert!(
+            scan_source(SUPERVISED_SPAWN_FILE, text).findings.is_empty(),
+            "the helper itself spawns"
+        );
+    }
+
+    #[test]
+    fn pending_rules_warn_and_cross_target_findings_are_pending() {
+        let enforced = Finding::new("clippy::expect_used", "src/a.rs", 1);
+        let pending = Finding::new(UNSUPERVISED_SPAWN, "src/a.rs", 2);
+        let all = vec![enforced.clone(), pending.clone()];
+        let host = split_pending(all.clone(), false);
+        let cross = split_pending(all.clone(), true);
+        for rule in PENDING_RULES {
+            assert!(
+                TEXT_RULES.contains(rule) || CLIPPY_LINTS.contains(rule) || *rule == CROSS_TARGET,
+                "{rule} is not a gate rule"
+            );
+        }
+        if PENDING_RULES.contains(&UNSUPERVISED_SPAWN) {
+            assert_eq!(host, (vec![enforced.clone()], vec![pending]));
+        } else {
+            assert_eq!(host, (all.clone(), Vec::new()));
+        }
+        if PENDING_RULES.contains(&CROSS_TARGET) {
+            assert_eq!(cross, (Vec::new(), all));
+        } else {
+            assert_eq!(cross.0.first(), Some(&enforced));
+        }
+    }
+
+    #[test]
+    fn file_suppressions_cover_a_whole_file_for_file_scope_rules_only() {
+        let text = "\
+// xtask-lint: allow-file(text::uncached_statement) -- schema setup runs once at open
+fn open(c: &Connection) {
+    c.execute(\"CREATE TABLE t (a)\", [])?;
+    // xtask-lint: allow(text::uncached_statement) -- a one-off repair at startup
+    c.execute(\"DELETE FROM t\", [])?;
+    c.query_row(\"SELECT 1\", [], |r| r.get(0))?;
+}
+";
+        let scan = scan_source("src/storage/a.rs", text);
+        assert_eq!(scan.problems, []);
+        assert!(scan.findings.is_empty(), "{:?}", scan.findings);
+        assert_eq!(
+            suppression_summary(&scan.suppressed),
+            "3 reasoned suppressions (text::uncached_statement: 3)"
+        );
+
+        let stale = scan_source(
+            "src/a.rs",
+            "// xtask-lint: allow-file(text::uncached_statement) -- schema setup runs once\nlet a = 1;\n",
+        );
+        assert_eq!(
+            stale
+                .problems
+                .iter()
+                .map(|p| p.message.as_str())
+                .collect::<Vec<_>>(),
+            ["stale suppression: `text::uncached_statement` reports nothing on this file"]
+        );
+        assert!(
+            parse_suppression(
+                "// xtask-lint: allow-file(text::format_sql) -- a long enough reason"
+            )
+            .is_some_and(|parsed| parsed.is_err_and(|e| e.contains("whole file")))
+        );
+        assert_eq!(
+            parse_suppression(
+                "// xtask-lint: allow-file(text::uncached_statement) -- migrations run once"
+            ),
+            Some(Ok(ParsedSuppression {
+                scope: SuppressionScope::File,
+                rules: vec![UNCACHED_STATEMENT.to_owned()]
+            }))
         );
     }
 
@@ -1142,6 +1780,8 @@ let v = format!(\"select failed: {e}\");
             "src/grpc/codegen/src/main.rs",
             "src/storage/catalog_tests.rs",
             "src/json/tests.rs",
+            "src/storage/resumable_http_tests/upload_replay.rs",
+            "src/storage/catalog/change_journal/tests/observation.rs",
             "src/test_support.rs",
             "tests/common/mod.rs",
             "xtask/src/lint.rs",
@@ -1228,11 +1868,19 @@ let v = format!(\"select failed: {e}\");
             mode(&args(&["--all-targets-report"])),
             Some(Mode::AllTargetsReport)
         );
+        assert_eq!(
+            mode(&args(&["--target", "x86_64-pc-windows-msvc"])),
+            Some(Mode::Target("x86_64-pc-windows-msvc".to_owned()))
+        );
         for bad in [
             &["--strict"][..],
             &["--update-baseline"],
             &["--all-targets-report", "x"],
             &["x"],
+            &["--target"],
+            &["--target", ""],
+            &["--target", "--all-targets-report"],
+            &["--target", "a", "--target", "b"],
         ] {
             assert_eq!(mode(&args(bad)), None);
         }
@@ -1428,7 +2076,10 @@ let s = \"// xtask-lint: allow(text::nope)\";
         assert_eq!(parse_suppression("// ordinary"), None);
         assert_eq!(
             parse_suppression("//xtask-lint: allow( text::format_sql ) --   ten chars!  "),
-            Some(Ok(vec![FORMAT_SQL.to_owned()]))
+            Some(Ok(ParsedSuppression {
+                scope: SuppressionScope::Line,
+                rules: vec![FORMAT_SQL.to_owned()]
+            }))
         );
     }
 
