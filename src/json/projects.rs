@@ -17,7 +17,7 @@ const MAX_EMAIL_BYTES: usize = 254;
 const MAX_TOKEN_BYTES: usize = 4096;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HmacKeyListParams {
+pub(crate) struct HmacKeyListParams {
     pub project: String,
     pub service_account_email: Option<String>,
     pub show_deleted_keys: bool,
@@ -27,7 +27,7 @@ pub struct HmacKeyListParams {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProjectRequest {
+pub(crate) enum ProjectRequest {
     CreateHmacKey {
         project: String,
         service_account_email: String,
@@ -52,13 +52,13 @@ pub enum ProjectRequest {
 
 /// The writable subset of an `HmacKeyMetadata` update body.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HmacKeyUpdate {
+pub(crate) struct HmacKeyUpdate {
     pub state: HmacKeyState,
     pub etag: Option<String>,
 }
 
 /// Match `/storage/v1/projects/{projectId}/...` before decoding the path segments.
-pub fn route_project(
+pub(crate) fn route_project(
     method: &Method,
     uri: &Uri,
 ) -> Option<Result<(ProjectRequest, Fields), JsonError>> {
@@ -220,7 +220,7 @@ fn validate_service_account_email(email: &str) -> Result<(), JsonError> {
 /// Parse a PUT body. Only `state` and the conditional `etag` are writable; output-only and
 /// unrecognized fields are ignored like other metadata updates, so read-modify-write clients
 /// can send back the whole resource.
-pub fn parse_hmac_key_update(bytes: &[u8]) -> Result<HmacKeyUpdate, JsonError> {
+pub(crate) fn parse_hmac_key_update(bytes: &[u8]) -> Result<HmacKeyUpdate, JsonError> {
     let value: Value = serde_json::from_slice(bytes).map_err(|_| {
         JsonError::new(
             StatusCode::BAD_REQUEST,
@@ -268,7 +268,10 @@ pub fn parse_hmac_key_update(bytes: &[u8]) -> Result<HmacKeyUpdate, JsonError> {
     })
 }
 
-pub fn hmac_key_metadata(record: &HmacKeyRecord, base_url: &str) -> Result<Value, JsonError> {
+pub(crate) fn hmac_key_metadata(
+    record: &HmacKeyRecord,
+    base_url: &str,
+) -> Result<Value, JsonError> {
     Ok(json!({
         "kind": "storage#hmacKeyMetadata",
         "id": format!("{}/{}", record.project, record.access_id),
@@ -288,7 +291,7 @@ pub fn hmac_key_metadata(record: &HmacKeyRecord, base_url: &str) -> Result<Value
     }))
 }
 
-pub fn hmac_key_resource(
+pub(crate) fn hmac_key_resource(
     record: &HmacKeyRecord,
     secret: &str,
     base_url: &str,
@@ -300,7 +303,7 @@ pub fn hmac_key_resource(
     }))
 }
 
-pub fn hmac_key_list(
+pub(crate) fn hmac_key_list(
     page: &HmacKeyPage,
     params: &HmacKeyListParams,
     base_url: &str,
@@ -333,7 +336,7 @@ fn project_number(project: &str) -> String {
 
 /// The deterministic local Cloud Storage service agent, in Google's
 /// `service-PROJECT_NUMBER@gs-project-accounts.iam.gserviceaccount.com` form.
-pub fn service_account(project: &str) -> Value {
+pub(crate) fn service_account(project: &str) -> Value {
     json!({
         "kind": "storage#serviceAccount",
         "email_address": format!(

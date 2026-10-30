@@ -18,7 +18,7 @@ use hyper::{Method, StatusCode, Uri};
 use serde_json::{Map, Value, json};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AclOperation {
+pub(crate) enum AclOperation {
     List,
     Get(String),
     Insert,
@@ -28,7 +28,7 @@ pub enum AclOperation {
 }
 
 #[derive(Clone, Debug)]
-pub struct AclRequest {
+pub(crate) struct AclRequest {
     pub target: AclTarget,
     pub operation: AclOperation,
     /// Bucket metageneration conditions; Discovery defines them only for default object ACL lists.
@@ -38,7 +38,7 @@ pub struct AclRequest {
 }
 
 /// Parse an ACL route. Other paths and methods return `None` so they keep their existing routing.
-pub fn route_acl(
+pub(crate) fn route_acl(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
@@ -153,7 +153,7 @@ fn parse_route(
 
 /// The entity and role a mutation applies; `role` is `None` only for a patch that omits it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AclBody {
+pub(crate) struct AclBody {
     pub entity: String,
     pub role: Option<String>,
 }
@@ -170,7 +170,7 @@ pub(crate) fn parse_entries(value: &Value, kind: AclKind) -> Result<Vec<AclEntry
 /// Validate an insert, patch or update body against the path entity and resource kind.
 ///
 /// Output-only resource fields and unknown fields are ignored, as JSON API resources do.
-pub fn parse_acl_body(
+pub(crate) fn parse_acl_body(
     bytes: &[u8],
     kind: AclKind,
     operation: &AclOperation,
@@ -275,7 +275,7 @@ fn entity_fields(resource: &mut Map<String, Value>, entity: &str) {
 
 /// The resource that owns rendered entries, with the version their etags carry.
 #[derive(Clone, Copy, Debug)]
-pub struct AclOwner<'a> {
+pub(crate) struct AclOwner<'a> {
     pub kind: AclKind,
     pub bucket: &'a str,
     /// Object name and generation for object ACLs.
@@ -283,7 +283,7 @@ pub struct AclOwner<'a> {
     pub metageneration: i64,
 }
 
-pub fn acl_entry_resource(base_url: &str, owner: AclOwner<'_>, entry: &AclEntry) -> Value {
+pub(crate) fn acl_entry_resource(base_url: &str, owner: AclOwner<'_>, entry: &AclEntry) -> Value {
     let base = base_url.trim_end_matches('/');
     let mut resource = Map::new();
     let kind = if owner.kind == AclKind::Bucket {
@@ -345,7 +345,11 @@ pub fn acl_entry_resource(base_url: &str, owner: AclOwner<'_>, entry: &AclEntry)
     Value::Object(resource)
 }
 
-pub fn acl_list_resource(base_url: &str, owner: AclOwner<'_>, entries: &[AclEntry]) -> Value {
+pub(crate) fn acl_list_resource(
+    base_url: &str,
+    owner: AclOwner<'_>,
+    entries: &[AclEntry],
+) -> Value {
     let kind = if owner.kind == AclKind::Bucket {
         "storage#bucketAccessControls"
     } else {
@@ -361,7 +365,7 @@ pub fn acl_list_resource(base_url: &str, owner: AclOwner<'_>, entries: &[AclEntr
 }
 
 /// Add `acl`, `defaultObjectAcl` and `owner` to a rendered bucket resource.
-pub fn add_bucket_acl_fields(
+pub(crate) fn add_bucket_acl_fields(
     resource: &mut Value,
     base_url: &str,
     project: &str,
@@ -390,7 +394,7 @@ pub fn add_bucket_acl_fields(
 }
 
 /// Add `acl` to a rendered object resource.
-pub fn add_object_acl_fields(resource: &mut Value, base_url: &str, acl: &[AclEntry]) {
+pub(crate) fn add_object_acl_fields(resource: &mut Value, base_url: &str, acl: &[AclEntry]) {
     let (Some(bucket), Some(name), Some(generation), Some(metageneration)) = (
         resource["bucket"].as_str().map(str::to_owned),
         resource["name"].as_str().map(str::to_owned),

@@ -39,7 +39,7 @@ pub(super) async fn replace_resumable_cleanup_obstacle(catalog: &Catalog, stage:
 pub(crate) mod resumable;
 mod resumable_transfer;
 mod upload_replay;
-pub use resumable::ResumableError;
+pub(crate) use resumable::ResumableError;
 #[cfg(test)]
 pub(crate) use resumable::ResumableSession;
 pub(crate) use resumable::{ResumableOptions, SessionState};
@@ -66,7 +66,7 @@ mod objects;
 #[cfg(test)]
 pub(crate) use objects::Versioning;
 mod soft_delete;
-pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
+pub(crate) use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
 
 mod derived;
 #[cfg(test)]
@@ -81,13 +81,13 @@ mod notifications;
 mod policies;
 use policies::{check_access, insert_policy};
 
-pub mod change_journal;
+pub(crate) mod change_journal;
 
 pub mod import_journal;
 
 pub mod sync_state;
 
-pub mod hmac_keys;
+pub(crate) mod hmac_keys;
 
 pub(crate) mod acl;
 
@@ -159,7 +159,7 @@ const BUCKET_SCHEMA: &str = "CREATE TABLE buckets (
                      PRAGMA user_version = 1;";
 
 /// A bounded keyset page. Continue after the last returned name when `has_more` is true.
-pub struct BucketListPage {
+pub(crate) struct BucketListPage {
     pub items: Vec<BucketRecord>,
     pub has_more: bool,
 }
@@ -1079,7 +1079,7 @@ impl Catalog {
             .await
     }
 
-    pub async fn patch_bucket(
+    pub(crate) async fn patch_bucket(
         &self,
         name: &str,
         update: BucketMetadataUpdate,
@@ -1098,7 +1098,7 @@ impl Catalog {
         .await
     }
 
-    pub async fn replace_bucket(
+    pub(crate) async fn replace_bucket(
         &self,
         name: &str,
         update: BucketMetadataUpdate,

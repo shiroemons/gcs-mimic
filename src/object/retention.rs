@@ -11,20 +11,20 @@ use std::time::{Duration, SystemTime};
 pub(crate) const MAX_RETENTION: Duration = Duration::from_secs(3_155_760_000);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum RetentionMode {
+pub(crate) enum RetentionMode {
     Unlocked,
     Locked,
 }
 
 impl RetentionMode {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Unlocked => "Unlocked",
             Self::Locked => "Locked",
         }
     }
 
-    pub fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "Unlocked" => Some(Self::Unlocked),
             "Locked" => Some(Self::Locked),
@@ -35,7 +35,7 @@ impl RetentionMode {
 
 /// Microsecond precision, matching other catalog timestamps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ObjectRetention {
+pub(crate) struct ObjectRetention {
     pub mode: RetentionMode,
     pub retain_until: SystemTime,
 }

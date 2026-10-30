@@ -12,7 +12,7 @@ pub fn paths_overlap(left: &Path, right: &Path) -> io::Result<bool> {
     Ok(paths_overlap_canonical(&left, &right))
 }
 
-pub fn paths_overlap_canonical(left: &Path, right: &Path) -> bool {
+pub(crate) fn paths_overlap_canonical(left: &Path, right: &Path) -> bool {
     left.starts_with(right) || right.starts_with(left)
 }
 
@@ -68,7 +68,7 @@ pub struct Walker {
 
 impl Walker {
     /// Call before the first `next()` to inspect the complete root snapshot.
-    pub fn root_entries(&self) -> impl Iterator<Item = &Path> {
+    pub(crate) fn root_entries(&self) -> impl Iterator<Item = &Path> {
         debug_assert!(
             !self.started,
             "root snapshot must be inspected before walking"

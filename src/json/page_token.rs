@@ -9,7 +9,7 @@ const MAX_TOKEN_BYTES: usize = 4096;
 const ALL_PROJECTS: &str = "b1*";
 
 /// Tokens detect accidental corruption; they are not authenticated authorization credentials.
-pub fn encode_page_token(
+pub(crate) fn encode_page_token(
     project: &str,
     prefix: &str,
     last_name: &str,
@@ -19,7 +19,10 @@ pub fn encode_page_token(
 }
 
 /// Encodes a cursor for a listing that spans every project the caller may list.
-pub fn encode_all_projects_page_token(prefix: &str, last_name: &str) -> Result<String, JsonError> {
+pub(crate) fn encode_all_projects_page_token(
+    prefix: &str,
+    last_name: &str,
+) -> Result<String, JsonError> {
     encode_bucket_cursor(ALL_PROJECTS, "", prefix, last_name)
 }
 
@@ -39,11 +42,18 @@ fn encode_bucket_cursor(
     Ok(format!("{encoded}.{:016x}", checksum(payload.as_bytes())))
 }
 
-pub fn decode_page_token(token: &str, project: &str, prefix: &str) -> Result<String, JsonError> {
+pub(crate) fn decode_page_token(
+    token: &str,
+    project: &str,
+    prefix: &str,
+) -> Result<String, JsonError> {
     decode_bucket_cursor(token, "b1", project, prefix)
 }
 
-pub fn decode_all_projects_page_token(token: &str, prefix: &str) -> Result<String, JsonError> {
+pub(crate) fn decode_all_projects_page_token(
+    token: &str,
+    prefix: &str,
+) -> Result<String, JsonError> {
     decode_bucket_cursor(token, ALL_PROJECTS, "", prefix)
 }
 

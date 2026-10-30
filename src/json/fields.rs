@@ -20,13 +20,13 @@ static SCHEMAS: LazyLock<Value> = LazyLock::new(|| {
 });
 
 #[derive(Clone, Debug, Default)]
-pub struct Fields {
+pub(crate) struct Fields {
     whole: bool,
     children: BTreeMap<String, Fields>,
 }
 
 impl Fields {
-    pub fn from_query(raw: Option<&str>, schema: &str) -> Result<Self, JsonError> {
+    pub(crate) fn from_query(raw: Option<&str>, schema: &str) -> Result<Self, JsonError> {
         let mut query = parse_query(raw.unwrap_or_default())?;
         Self::take(&mut query, schema)
     }
@@ -44,7 +44,7 @@ impl Fields {
         }
     }
 
-    pub fn parse(value: &str, schema: &str) -> Result<Self, JsonError> {
+    pub(crate) fn parse(value: &str, schema: &str) -> Result<Self, JsonError> {
         let fields = Self::parse_syntax(value)?;
         fields
             .validate(&SCHEMAS["schemas"][schema])
@@ -115,7 +115,7 @@ impl Fields {
         Ok(())
     }
 
-    pub fn apply(&self, value: &mut Value) {
+    pub(crate) fn apply(&self, value: &mut Value) {
         if self.whole {
             return;
         }

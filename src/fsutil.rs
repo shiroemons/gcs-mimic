@@ -4,8 +4,9 @@
 use std::{fs::File, io};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CopyMethod {
+pub(crate) enum CopyMethod {
     Clone,
+    #[cfg(target_os = "linux")]
     CopyFileRange,
     ReadWrite,
 }
@@ -154,7 +155,7 @@ pub fn directory_writable(directory: &File) -> io::Result<()> {
 }
 
 /// Removes one descriptor-relative name without following a symlink destination.
-pub fn unlink_file_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
+pub(crate) fn unlink_file_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<()> {
     validate_name(name)?;
     #[cfg(unix)]
     {
@@ -173,7 +174,7 @@ pub fn unlink_file_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<()
     }
 }
 
-pub fn open_directory(path: &std::path::Path) -> io::Result<File> {
+pub(crate) fn open_directory(path: &std::path::Path) -> io::Result<File> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(windows)]
@@ -216,7 +217,7 @@ pub fn open_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<F
     }
 }
 
-pub fn create_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<File> {
+pub(crate) fn create_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<File> {
     #[cfg(unix)]
     {
         open_at(directory, &component(name)?, FileOpen::CreateNew)
@@ -230,13 +231,13 @@ pub fn create_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result
 
 /// Whether a directory helper may create a missing directory or must find an existing one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DirectoryOpen {
+pub(crate) enum DirectoryOpen {
     Existing,
     CreateIfMissing,
 }
 
 /// Opens a single directory component, creating it only when explicitly requested.
-pub fn directory_at(
+pub(crate) fn directory_at(
     directory: &File,
     name: &std::ffi::OsStr,
     open: DirectoryOpen,
@@ -277,7 +278,8 @@ pub fn directory_at(
 }
 
 /// Walks an exact relative spelling without following redirects; creation syncs each parent.
-pub fn directory_path_at(
+#[cfg(all(test, unix))]
+pub(crate) fn directory_path_at(
     directory: &File,
     path: &std::path::Path,
     open: DirectoryOpen,
@@ -300,7 +302,7 @@ pub fn directory_path_at(
 }
 
 #[derive(Debug)]
-pub enum FsError {
+pub(crate) enum FsError {
     Io(io::Error),
     Unsupported,
 }
@@ -323,7 +325,7 @@ impl std::fmt::Display for FsError {
 impl std::error::Error for FsError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FileIdentity {
+pub(crate) struct FileIdentity {
     pub device: u64,
     pub inode: u64,
     pub size: u64,
@@ -343,18 +345,29 @@ impl FileIdentity {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum ReplaceOutcome {
+pub(crate) enum ReplaceOutcome {
     Created,
-    Replaced { displaced: FileIdentity },
-    Conflict { displaced: Option<FileIdentity> },
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos")),
+        expect(
+            dead_code,
+            reason = "only Linux and macOS renames can verify a displaced file"
+        )
+    )]
+    Replaced {
+        displaced: FileIdentity,
+    },
+    Conflict {
+        displaced: Option<FileIdentity>,
+    },
 }
 
 #[cfg(unix)]
-pub fn sync_dir(path: &std::path::Path) -> io::Result<()> {
+pub(crate) fn sync_dir(path: &std::path::Path) -> io::Result<()> {
     File::open(path)?.sync_all()
 }
 
-pub fn stat_identity(file: &File) -> Result<FileIdentity, FsError> {
+pub(crate) fn stat_identity(file: &File) -> Result<FileIdentity, FsError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -490,7 +503,11 @@ fn open_at(directory: &File, name: &std::ffi::CStr, open: FileOpen) -> io::Resul
 
 /// Creates a clone without copying; Unsupported leaves no new entry.
 /// Mutable-source staging can then fall back to its own single-pass copy and hash.
-pub fn clone_into(src: &File, directory: &File, name: &std::ffi::OsStr) -> Result<(), FsError> {
+pub(crate) fn clone_into(
+    src: &File,
+    directory: &File,
+    name: &std::ffi::OsStr,
+) -> Result<(), FsError> {
     validate_name(name)?;
     if !src.metadata()?.is_file() {
         return Err(
@@ -545,7 +562,7 @@ pub fn clone_into(src: &File, directory: &File, name: &std::ffi::OsStr) -> Resul
 
 /// Copies an immutable open blob. Mutable-source staging must hash its own read/write pass.
 /// The source offset is unchanged; a failed copy leaves its new entry for caller cleanup.
-pub fn clone_or_copy_into(
+pub(crate) fn clone_or_copy_into(
     src: &File,
     directory: &File,
     name: &std::ffi::OsStr,
@@ -617,7 +634,7 @@ fn copy_fallback(error: &io::Error) -> bool {
     )
 }
 
-pub fn read_at(file: &File, bytes: &mut [u8], offset: u64) -> io::Result<usize> {
+pub(crate) fn read_at(file: &File, bytes: &mut [u8], offset: u64) -> io::Result<usize> {
     #[cfg(unix)]
     {
         std::os::unix::fs::FileExt::read_at(file, bytes, offset)
@@ -685,7 +702,8 @@ fn identity_at(directory: &File, name: &std::ffi::CStr) -> Result<Option<FileIde
 
 /// Leaves the displaced entry at staged_name, including on an identity conflict.
 /// An error after rename may have applied the operation; callers must reconcile both names.
-pub fn durable_replace(
+#[cfg(all(test, unix))]
+pub(crate) fn durable_replace(
     directory: &File,
     staged_name: &std::ffi::OsStr,
     destination_name: &std::ffi::OsStr,
@@ -721,7 +739,7 @@ fn sync_replace_parent(directory: &File) -> io::Result<()> {
 }
 
 /// Retains displaced bytes under the source name; errors after rename require reconciliation.
-pub fn durable_replace_between(
+pub(crate) fn durable_replace_between(
     source_directory: &File,
     staged_name: &std::ffi::OsStr,
     destination_directory: &File,
@@ -899,9 +917,9 @@ pub(crate) fn move_write_through(
     }
 }
 
-pub const SOURCE_METADATA_CAP: usize = 65_536;
+pub(crate) const SOURCE_METADATA_CAP: usize = 65_536;
 
-pub struct SourceMetadataBuffer(Box<[u8; SOURCE_METADATA_CAP + 1]>);
+pub(crate) struct SourceMetadataBuffer(Box<[u8; SOURCE_METADATA_CAP + 1]>);
 
 impl Default for SourceMetadataBuffer {
     fn default() -> Self {
@@ -910,9 +928,23 @@ impl Default for SourceMetadataBuffer {
 }
 
 #[derive(Debug)]
-pub enum SourceMetadataError {
+pub(crate) enum SourceMetadataError {
     Unsupported,
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos", test)),
+        expect(
+            dead_code,
+            reason = "other platforms report every source as unsupported"
+        )
+    )]
     TooLarge,
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos")),
+        expect(
+            dead_code,
+            reason = "other platforms report every source as unsupported"
+        )
+    )]
     Io(io::Error),
 }
 
@@ -944,14 +976,7 @@ fn checked_length(length: usize) -> Result<Option<usize>, SourceMetadataError> {
 }
 
 /// The dedicated buffer prevents callers from supplying a smaller allocation.
-///
-/// ```compile_fail
-/// use gcs_mimic::fsutil::read_source_metadata;
-/// let file = std::fs::File::open("body").unwrap();
-/// let mut bytes = [0u8; 1];
-/// read_source_metadata(&file, &mut bytes);
-/// ```
-pub fn read_source_metadata<'a>(
+pub(crate) fn read_source_metadata<'a>(
     file: &File,
     buffer: &'a mut SourceMetadataBuffer,
 ) -> Result<Option<&'a [u8]>, SourceMetadataError> {
@@ -1000,6 +1025,21 @@ pub fn read_source_metadata<'a>(
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn source_metadata_reads_only_into_the_dedicated_buffer() {
+        // The signature is the guarantee: a caller cannot pass a byte slice or a smaller
+        // array, so the kernel never writes past the capped allocation.
+        type Read = for<'a> fn(
+            &File,
+            &'a mut SourceMetadataBuffer,
+        ) -> Result<Option<&'a [u8]>, SourceMetadataError>;
+        let _: Read = read_source_metadata;
+        assert_eq!(
+            SourceMetadataBuffer::default().0.len(),
+            SOURCE_METADATA_CAP + 1
+        );
+    }
 
     #[cfg(unix)]
     #[test]

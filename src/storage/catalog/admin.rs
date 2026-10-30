@@ -28,12 +28,12 @@ use rusqlite::{Connection, TransactionBehavior};
 use std::{fmt, io, num::NonZeroI64, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
-pub const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
-pub const MAX_BUCKETS: usize = 1000;
-pub const MAX_PAGE: usize = 256;
+pub(crate) const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const MAX_BUCKETS: usize = 1000;
+pub(crate) const MAX_PAGE: usize = 256;
 
-pub mod imported_identity;
-pub use imported_identity::ImportedIdentity;
+pub(crate) mod imported_identity;
+pub(crate) use imported_identity::ImportedIdentity;
 
 mod import_publication;
 
@@ -50,12 +50,12 @@ pub enum Origin {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AdminGrant {
+pub(crate) struct AdminGrant {
     origin: Origin,
 }
 
 impl AdminGrant {
-    pub fn origin(&self) -> Origin {
+    pub(crate) fn origin(&self) -> Origin {
         self.origin
     }
 }
@@ -69,7 +69,7 @@ impl BucketName {
             .map_err(|error| AdminError::Invalid(error.message))?;
         Ok(Self(value))
     }
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 }
@@ -83,7 +83,7 @@ impl ObjectName {
             .map_err(|error| AdminError::Invalid(error.message))?;
         Ok(Self(value))
     }
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 }
@@ -195,7 +195,8 @@ pub enum EnsureBucket {
     Existing(BucketRecord),
 }
 impl EnsureBucket {
-    pub fn record(&self) -> &BucketRecord {
+    #[cfg(test)]
+    pub(crate) fn record(&self) -> &BucketRecord {
         match self {
             Self::Created(record) | Self::Existing(record) => record,
         }
@@ -212,9 +213,7 @@ pub enum PublishMode {
 
 mod publication;
 pub(super) use publication::FileWorkers;
-pub use publication::{
-    BatchPublication, BatchResult, ImportedBatchResult, ImportedPublication, StagedObject,
-};
+pub(crate) use publication::{BatchPublication, ImportedPublication, StagedObject};
 
 pub struct Publication {
     pub content_type: String,
@@ -308,12 +307,16 @@ pub struct Admin {
     grant: AdminGrant,
 }
 
-pub struct BucketEntry {
+pub(crate) struct BucketEntry {
     pub bucket: BucketRecord,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "only unit tests read this field")
+    )]
     pub incarnation: String,
 }
 
-pub struct BucketPage {
+pub(crate) struct BucketPage {
     pub items: Vec<BucketEntry>,
     pub has_more: bool,
 }
@@ -396,7 +399,7 @@ impl Catalog {
 }
 
 impl Admin {
-    pub fn origin(&self) -> Origin {
+    pub(crate) fn origin(&self) -> Origin {
         self.grant.origin()
     }
 
@@ -437,7 +440,7 @@ impl Admin {
         Ok(self.ensure_buckets(vec![record]).await?.remove(0))
     }
 
-    pub async fn ensure_buckets(
+    pub(crate) async fn ensure_buckets(
         &self,
         records: Vec<BucketDefinition>,
     ) -> Result<Vec<EnsureBucket>, AdminError> {
@@ -507,7 +510,8 @@ impl Admin {
             .await
     }
 
-    pub async fn list_buckets(
+    #[cfg(test)]
+    pub(crate) async fn list_buckets(
         &self,
         project: &str,
         after: Option<&BucketName>,
@@ -536,7 +540,7 @@ impl Admin {
     }
 
     /// Binary keyset across every owner; continue after the last returned bucket name.
-    pub async fn list_all_buckets(
+    pub(crate) async fn list_all_buckets(
         &self,
         after: Option<&str>,
         limit: usize,
@@ -638,21 +642,6 @@ impl Admin {
             )
             .await
             .map_err(AdminError::from)
-    }
-
-    pub async fn check_upload(
-        &self,
-        bucket: &BucketName,
-        name: &ObjectName,
-        condition: Option<GenerationCondition>,
-    ) -> Result<(), AdminError> {
-        self.check_upload_until(
-            bucket,
-            name,
-            condition,
-            tokio::time::Instant::now() + WAIT_TIMEOUT,
-        )
-        .await
     }
 
     async fn check_upload_until(
@@ -777,7 +766,8 @@ impl Admin {
         self.delete_with_sync(bucket, name, condition, None).await
     }
 
-    pub async fn delete_synced_object(
+    #[cfg(test)]
+    pub(crate) async fn delete_synced_object(
         &self,
         bucket: &BucketName,
         name: &ObjectName,

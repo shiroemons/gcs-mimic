@@ -102,7 +102,7 @@ pub(super) fn clean_session_files(
 }
 
 impl Catalog {
-    pub async fn cancel_resumable_session(
+    pub(crate) async fn cancel_resumable_session(
         &self,
         id: &str,
         bucket: &str,
@@ -152,7 +152,10 @@ impl Catalog {
     }
 
     /// Runs bounded cleanup against the injected clock; failed records remain the retry journal.
-    pub async fn maintain_resumable_sessions(&self) -> Result<Option<SystemTime>, CatalogError> {
+    #[cfg(test)]
+    pub(crate) async fn maintain_resumable_sessions(
+        &self,
+    ) -> Result<Option<SystemTime>, CatalogError> {
         let result = self.run_resumable_maintenance().await;
         self.0.maintenance_wake.notify_one();
         result
@@ -169,7 +172,8 @@ impl Catalog {
         result
     }
 
-    pub fn resumable_maintenance_error(&self) -> Option<String> {
+    #[cfg(test)]
+    pub(crate) fn resumable_maintenance_error(&self) -> Option<String> {
         self.0
             .maintenance_error
             .lock()

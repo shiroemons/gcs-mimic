@@ -6,7 +6,7 @@ use crate::storage::{ObjectListPage, ObjectListQuery};
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ObjectListParams {
+pub(crate) struct ObjectListParams {
     pub query: ObjectListQuery,
     pub projection: Projection,
     pub max_results: usize,
@@ -124,7 +124,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
     })
 }
 
-pub fn object_list(
+pub(crate) fn object_list(
     page: &ObjectListPage,
     params: &ObjectListParams,
     base_url: &str,

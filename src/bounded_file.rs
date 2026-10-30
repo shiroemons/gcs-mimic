@@ -17,7 +17,7 @@ pub fn read(path: &Path, limit: u64) -> Result<Vec<u8>, ReadError> {
     read_from(file, limit)
 }
 
-pub fn read_from(reader: impl Read, limit: u64) -> Result<Vec<u8>, ReadError> {
+pub(crate) fn read_from(reader: impl Read, limit: u64) -> Result<Vec<u8>, ReadError> {
     let mut bytes = Vec::new();
     reader
         .take(limit.saturating_add(1))

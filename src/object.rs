@@ -3,7 +3,7 @@
 use crate::storage::failure::{BackendCause, IoCause};
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 
-pub mod retention;
+pub(crate) mod retention;
 
 /// Only a transport-confirmed EOF permits publication; a dropped producer is an abort.
 pub enum UploadChunk {
@@ -41,7 +41,7 @@ pub struct ObjectRecord {
     pub custom_time: Option<String>,
     /// Bucket retention policy expiration only; object retention is kept in `retention`.
     pub retention_expiration_time: Option<SystemTime>,
-    pub retention: Option<retention::ObjectRetention>,
+    pub(crate) retention: Option<retention::ObjectRetention>,
     /// SHA-256 of the customer-supplied AES256 key; the key itself is never stored.
     pub customer_key_sha256: Option<[u8; 32]>,
 }
@@ -128,7 +128,7 @@ pub(crate) fn custom_time_key(value: &str) -> Result<(i64, u32), ObjectError> {
 /// Content fields reset on PUT; holds only change when explicitly supplied.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ObjectMetadataUpdate {
-    pub acl: Option<Vec<crate::acl::AclEntry>>,
+    pub(crate) acl: Option<Vec<crate::acl::AclEntry>>,
     pub replace: bool,
     pub content_type: Option<Option<String>>,
     pub content_encoding: Option<Option<String>>,
@@ -140,7 +140,7 @@ pub struct ObjectMetadataUpdate {
     pub temporary_hold: Option<bool>,
     pub custom_time: Option<Option<String>>,
     /// `Some(None)` removes the configuration; transitions are checked by the catalog.
-    pub retention: Option<Option<retention::ObjectRetention>>,
+    pub(crate) retention: Option<Option<retention::ObjectRetention>>,
     pub override_unlocked_retention: bool,
     /// Set only by data writes that carry a customer-supplied key; metadata patches keep it.
     pub customer_key_sha256: Option<[u8; 32]>,
@@ -283,7 +283,7 @@ impl ObjectMetadataUpdate {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ObjectConditions {
+pub(crate) struct ObjectConditions {
     pub if_generation_match: Option<i64>,
     pub if_generation_not_match: Option<i64>,
     pub if_metageneration_match: Option<i64>,
@@ -305,7 +305,7 @@ pub struct ComposeSource {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum ObjectError {
+pub(crate) enum ObjectError {
     BucketNotFound,
     ObjectNotFound,
     PreconditionFailed,

@@ -26,11 +26,11 @@ use std::{
     time::SystemTime,
 };
 
-pub const FILE_LIMIT: usize = 1024 * 1024;
-pub const ENTRY_LIMIT: usize = 64 * 1024;
-pub const BUCKET_LIMIT: usize = 1000;
-pub const DIAGNOSTIC_LIMIT: usize = 256;
-pub const DIAGNOSTIC_BYTES_LIMIT: usize = 64 * 1024;
+pub(crate) const FILE_LIMIT: usize = 1024 * 1024;
+pub(crate) const ENTRY_LIMIT: usize = 64 * 1024;
+pub(crate) const BUCKET_LIMIT: usize = 1000;
+pub(crate) const DIAGNOSTIC_LIMIT: usize = 256;
+pub(crate) const DIAGNOSTIC_BYTES_LIMIT: usize = 64 * 1024;
 const ARRAY_DIAGNOSTIC_LIMIT: usize = 4;
 const ROOT_DIAGNOSTIC_LIMIT: usize = 16;
 const ROOT_BYTES_LIMIT: usize = 8 * 1024;
@@ -1071,7 +1071,7 @@ pub async fn apply(
 }
 
 /// Read one selected regular file; relative paths use the process working directory.
-pub fn load(
+pub(crate) fn load(
     file: &Path,
     seed_project: &str,
     clock: &dyn Clock,
@@ -1105,7 +1105,7 @@ pub fn load(
 }
 
 /// Validate the entire document before returning any records, always using native semantics.
-pub fn parse(
+pub(crate) fn parse(
     bytes: &[u8],
     seed_project: &str,
     clock: &dyn Clock,

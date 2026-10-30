@@ -12,7 +12,7 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
-pub const MAX_PAGE: usize = 256;
+pub(crate) const MAX_PAGE: usize = 256;
 pub(super) const SCHEMA: &str = "CREATE TABLE catalog_identity (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
     id BLOB NOT NULL CHECK(typeof(id) = 'blob' AND length(id) = 16)
@@ -40,9 +40,9 @@ mod tests;
 
 pub mod root;
 
-pub mod writeback;
+pub(crate) mod writeback;
 
-pub mod findings;
+pub(crate) mod findings;
 
 pub(crate) mod buckets;
 
@@ -52,9 +52,6 @@ impl CatalogId {
     pub fn from_bytes(bytes: [u8; 16]) -> Self {
         Self(bytes)
     }
-    pub fn as_bytes(self) -> [u8; 16] {
-        self.0
-    }
 }
 impl std::fmt::Display for CatalogId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -63,7 +60,7 @@ impl std::fmt::Display for CatalogId {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct SyncFingerprint {
+pub(crate) struct SyncFingerprint {
     pub size: u64,
     pub mtime_ns: i128,
     pub ctime_ns: i128,
@@ -79,20 +76,14 @@ pub struct SyncBinding {
     bucket: String,
     incarnation: String,
 }
-impl SyncBinding {
-    pub fn catalog_id(&self) -> CatalogId {
-        self.catalog
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SyncUpdate {
+pub(crate) struct SyncUpdate {
     binding: SyncBinding,
     path: String,
     fingerprint: SyncFingerprint,
 }
 impl SyncUpdate {
-    pub fn new(
+    pub(crate) fn new(
         binding: SyncBinding,
         path: String,
         fingerprint: SyncFingerprint,
@@ -115,7 +106,7 @@ pub struct SyncRecord {
     pub name: String,
     pub path: String,
     pub generation: Generation,
-    pub fingerprint: SyncFingerprint,
+    pub(crate) fingerprint: SyncFingerprint,
 }
 
 #[derive(Clone)]
@@ -278,7 +269,7 @@ impl Catalog {
     }
 }
 impl SyncState {
-    pub async fn catalog_id(&self) -> Result<CatalogId, AdminError> {
+    pub(crate) async fn catalog_id(&self) -> Result<CatalogId, AdminError> {
         self.0.run_admin(|connection| catalog_id(connection)).await
     }
 
@@ -305,7 +296,7 @@ impl SyncState {
     }
 
     /// Call only after durable file/parent writes; generation and hashes are rechecked atomically.
-    pub async fn acknowledge(
+    pub(crate) async fn acknowledge(
         &self,
         name: &ObjectName,
         generation: Generation,
@@ -366,7 +357,7 @@ impl SyncState {
     }
 
     /// Continue after the last returned path; an empty page terminates traversal.
-    pub async fn page(
+    pub(crate) async fn page(
         &self,
         binding: SyncBinding,
         after: String,

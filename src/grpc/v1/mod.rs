@@ -6,6 +6,8 @@ mod upload;
 
 #[allow(
     clippy::all,
+    dead_code,
+    unreachable_pub,
     rustdoc::broken_intra_doc_links,
     reason = "generated upstream code keeps its own style and documentation links"
 )]
@@ -26,13 +28,13 @@ use serde_json::json;
 use std::sync::Arc;
 use tonic::{Request, Response, Status, Streaming};
 
-pub struct Storage {
+pub(crate) struct Storage {
     state: Arc<State>,
     max_object_bytes: u64,
     compat_profile: crate::config::CompatProfile,
 }
 
-pub fn service(
+pub(crate) fn service(
     state: Arc<State>,
     max_object_bytes: u64,
     compat_profile: crate::config::CompatProfile,
@@ -46,7 +48,7 @@ pub fn service(
     .max_encoding_message_size(4 * 1024 * 1024)
 }
 
-pub fn known_method(path: &str) -> bool {
+pub(crate) fn known_method(path: &str) -> bool {
     path.strip_prefix("/google.storage.v1.Storage/")
         .is_some_and(|method| {
             matches!(

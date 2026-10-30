@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::storage::admin::{BucketName, ObjectName};
 
 pub const MARKER: &str = ".gcs-mimic-sync.json";
-pub const WORKSPACE: &str = ".gcs-mimic-sync-work";
+pub(crate) const WORKSPACE: &str = ".gcs-mimic-sync-work";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reason {

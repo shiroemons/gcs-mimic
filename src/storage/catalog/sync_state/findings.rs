@@ -69,7 +69,7 @@ fn read_reason(reason: &str) -> rusqlite::Result<Reason> {
 
 impl RootLease {
     /// Conflicts may refer to a deleted API object whose synchronized body is still tracked.
-    pub async fn record_export_conflict(
+    pub(crate) async fn record_export_conflict(
         &self,
         binding: SyncBinding,
         name: ObjectName,
@@ -94,7 +94,7 @@ impl RootLease {
     }
 
     /// Records only the selected live incarnation/generation; no filesystem path is required.
-    pub async fn record_finding(
+    pub(crate) async fn record_finding(
         &self,
         binding: SyncBinding,
         name: ObjectName,
@@ -144,7 +144,8 @@ impl RootLease {
     }
 
     /// Removal remains possible after deletion, but cannot erase a newer incarnation or observation.
-    pub async fn remove_finding(&self, finding: Finding) -> Result<bool, RootError> {
+    #[cfg(all(test, unix))]
+    pub(crate) async fn remove_finding(&self, finding: Finding) -> Result<bool, RootError> {
         if finding.catalog_id != self.status().catalog_id
             || finding.root_id != self.status().root_id
         {

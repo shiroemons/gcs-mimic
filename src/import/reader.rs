@@ -120,7 +120,7 @@ impl Fingerprint {
     /// Fingerprint of an open file. std metadata has no file identity or change
     /// time on Windows, so take the volume, file index and change time from the
     /// handle there; otherwise a same-size, same-mtime replacement goes unnoticed.
-    pub fn of_file(file: &File) -> io::Result<Self> {
+    pub(crate) fn of_file(file: &File) -> io::Result<Self> {
         let fingerprint = Self::of(&file.metadata()?)?;
         #[cfg(windows)]
         let fingerprint = {
@@ -136,7 +136,7 @@ impl Fingerprint {
         Ok(fingerprint)
     }
     /// Fingerprint of the entry a path names now, without following a symlink.
-    pub fn of_path(path: &Path) -> io::Result<Self> {
+    pub(crate) fn of_path(path: &Path) -> io::Result<Self> {
         #[cfg(windows)]
         {
             use std::os::windows::fs::OpenOptionsExt;
@@ -152,7 +152,7 @@ impl Fingerprint {
         #[cfg(not(windows))]
         Self::of(&fs::symlink_metadata(path)?)
     }
-    pub fn check(&self, other: &Self) -> Result<(), ImportFailure> {
+    pub(crate) fn check(&self, other: &Self) -> Result<(), ImportFailure> {
         let mut fields = Vec::new();
         if self.size != other.size {
             fields.push(ChangedField::Size);
@@ -225,9 +225,6 @@ impl BodyStream {
             read: 0,
             max_bytes,
         })
-    }
-    pub fn fingerprint(&self) -> &Fingerprint {
-        &self.before
     }
     pub fn next_chunk<'a>(
         &mut self,

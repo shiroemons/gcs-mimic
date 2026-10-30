@@ -1,6 +1,6 @@
 use tonic::Status;
 
-pub fn bucket_name(resource: &str) -> Result<&str, Status> {
+pub(crate) fn bucket_name(resource: &str) -> Result<&str, Status> {
     resource
         .strip_prefix("projects/_/buckets/")
         .filter(|name| {
@@ -13,7 +13,10 @@ pub fn bucket_name(resource: &str) -> Result<&str, Status> {
         })
 }
 
-pub fn object_name<'a>(bucket: &'a str, object: &'a str) -> Result<(&'a str, &'a str), Status> {
+pub(crate) fn object_name<'a>(
+    bucket: &'a str,
+    object: &'a str,
+) -> Result<(&'a str, &'a str), Status> {
     let bucket = bucket_name(bucket)?;
     if object.is_empty() || object.len() > 1024 || object.chars().any(char::is_control) {
         return Err(Status::invalid_argument(

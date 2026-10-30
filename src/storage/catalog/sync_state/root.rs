@@ -59,7 +59,7 @@ fn failure_boundary(path: &Path, phase: &str) -> Result<(), RootError> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RootId([u8; 16]);
 impl RootId {
-    pub fn as_bytes(self) -> [u8; 16] {
+    pub(crate) fn as_bytes(self) -> [u8; 16] {
         self.0
     }
 }
@@ -82,7 +82,8 @@ pub struct RootStatus {
     pub baseline: Baseline,
 }
 impl RootStatus {
-    pub fn permits_external_deletions(self) -> bool {
+    #[cfg(all(test, unix))]
+    pub(crate) fn permits_external_deletions(self) -> bool {
         self.baseline == Baseline::Complete
     }
 }
@@ -335,7 +336,7 @@ impl RootLease {
 
     /// Runs descriptor-relative work on the bounded dedicated workers, owning the lease until done.
     /// Callers must not retain descriptors or start work outside this owned closure.
-    pub async fn file_job<T: Send + 'static>(
+    pub(crate) async fn file_job<T: Send + 'static>(
         &self,
         job: impl FnOnce(&File) -> Result<T, AdminError> + Send + 'static,
     ) -> Result<T, RootError> {
@@ -356,7 +357,7 @@ impl RootLease {
     }
 
     /// The adapter calls this only after its complete durable initial merge.
-    pub async fn complete_baseline(&self) -> Result<RootStatus, RootError> {
+    pub(crate) async fn complete_baseline(&self) -> Result<RootStatus, RootError> {
         self.file_job(|_| Ok(())).await?;
         let id = self.status.root_id;
         let lease = self.clone();

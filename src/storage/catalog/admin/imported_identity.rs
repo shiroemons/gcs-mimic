@@ -1,20 +1,25 @@
 //! Source identities enter only through trusted, checksum-verified publication.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-use super::{Admin, AdminError, BucketName, Generation, ObjectName, Publication};
-use crate::object::{ObjectRecord, UploadChunk};
-use std::{io, time::SystemTime};
-use tokio::sync::mpsc;
+use super::{AdminError, Generation};
+use std::time::SystemTime;
+#[cfg(test)]
+use {
+    super::{Admin, BucketName, ObjectName, Publication},
+    crate::object::{ObjectRecord, UploadChunk},
+    std::io,
+    tokio::sync::mpsc,
+};
 
 #[derive(Clone, Copy, Debug)]
-pub struct ImportedIdentity {
+pub(crate) struct ImportedIdentity {
     generation: Generation,
     time_created: SystemTime,
     updated: SystemTime,
 }
 
 impl ImportedIdentity {
-    pub fn new(
+    pub(crate) fn new(
         generation: Generation,
         time_created: SystemTime,
         updated: SystemTime,
@@ -37,19 +42,20 @@ impl ImportedIdentity {
         })
     }
 
-    pub fn generation(self) -> Generation {
+    pub(crate) fn generation(self) -> Generation {
         self.generation
     }
-    pub fn time_created(self) -> SystemTime {
+    pub(crate) fn time_created(self) -> SystemTime {
         self.time_created
     }
-    pub fn updated(self) -> SystemTime {
+    pub(crate) fn updated(self) -> SystemTime {
         self.updated
     }
 }
 
+#[cfg(test)]
 impl Admin {
-    pub async fn publish_imported_object(
+    pub(crate) async fn publish_imported_object(
         &self,
         bucket: &BucketName,
         name: &ObjectName,

@@ -88,7 +88,7 @@ pub(crate) struct ResumableSession {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum ResumableError {
+pub(crate) enum ResumableError {
     NotFound,
     Gone,
     Invalid(String),

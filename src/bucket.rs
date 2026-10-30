@@ -7,9 +7,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-pub mod lifecycle;
+pub(crate) mod lifecycle;
 
-pub mod autoclass;
+pub(crate) mod autoclass;
 
 pub(crate) const UNIFORM_ACCESS_LOCK_PERIOD: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 
@@ -106,12 +106,12 @@ pub struct BucketRecord {
     pub location: String,
     pub location_type: String,
     pub storage_class: String,
-    pub autoclass: Option<autoclass::Autoclass>,
+    pub(crate) autoclass: Option<autoclass::Autoclass>,
     pub labels: BTreeMap<String, String>,
-    pub cors: Vec<CorsRule>,
+    pub(crate) cors: Vec<CorsRule>,
     pub lifecycle: Vec<serde_json::Value>,
-    pub retention_policy: Option<RetentionPolicy>,
-    pub soft_delete_policy: Option<SoftDeletePolicy>,
+    pub(crate) retention_policy: Option<RetentionPolicy>,
+    pub(crate) soft_delete_policy: Option<SoftDeletePolicy>,
     /// Set only at creation (`enableObjectRetention=true`); it can never be disabled.
     pub object_retention_enabled: bool,
     pub versioning_enabled: bool,
@@ -125,7 +125,7 @@ pub struct BucketRecord {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct BucketMetadataUpdate {
+pub(crate) struct BucketMetadataUpdate {
     pub acl: Option<Vec<crate::acl::AclEntry>>,
     pub default_object_acl: Option<Vec<crate::acl::AclEntry>>,
     pub cors: Option<Vec<CorsRule>>,
@@ -146,20 +146,20 @@ pub struct BucketMetadataUpdate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct RetentionPolicy {
+pub(crate) struct RetentionPolicy {
     pub retention_period: u64,
     pub effective_time: SystemTime,
     pub is_locked: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct SoftDeletePolicy {
+pub(crate) struct SoftDeletePolicy {
     pub retention_duration_seconds: u64,
     pub effective_time: SystemTime,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct CorsRule {
+pub(crate) struct CorsRule {
     pub origin: Vec<String>,
     pub method: Vec<String>,
     pub response_header: Vec<String>,
@@ -385,7 +385,7 @@ impl std::error::Error for CatalogError {
 /// deleted and recreated under another project before the operation runs, so the operation
 /// itself must confirm that the project it observes is one the caller was authorized for.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BucketAccess {
+pub(crate) enum BucketAccess {
     /// Permissive profile: no authorization applies and overwrites are allowed.
     Permissive,
     Admin(crate::storage::admin::AdminGrant),

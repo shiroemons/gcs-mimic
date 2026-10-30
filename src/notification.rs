@@ -7,21 +7,21 @@
 use std::{collections::BTreeMap, fmt};
 
 /// Event types listed in the Cloud Storage Pub/Sub notification documentation.
-pub const EVENT_TYPES: [&str; 4] = [
+pub(crate) const EVENT_TYPES: [&str; 4] = [
     "OBJECT_FINALIZE",
     "OBJECT_METADATA_UPDATE",
     "OBJECT_DELETE",
     "OBJECT_ARCHIVE",
 ];
-pub const PAYLOAD_FORMATS: [&str; 2] = ["JSON_API_V1", "NONE"];
+pub(crate) const PAYLOAD_FORMATS: [&str; 2] = ["JSON_API_V1", "NONE"];
 /// Documented per-bucket total, per-event-type and custom-attribute limits.
-pub const MAX_PER_BUCKET: usize = 100;
-pub const MAX_PER_EVENT_TYPE: usize = 10;
-pub const MAX_CUSTOM_ATTRIBUTES: usize = 10;
+pub(crate) const MAX_PER_BUCKET: usize = 100;
+pub(crate) const MAX_PER_EVENT_TYPE: usize = 10;
+pub(crate) const MAX_CUSTOM_ATTRIBUTES: usize = 10;
 const TOPIC_PREFIX: &str = "//pubsub.googleapis.com/";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NotificationConfig {
+pub(crate) struct NotificationConfig {
     /// Canonical `//pubsub.googleapis.com/projects/{project}/topics/{topic}` form.
     pub topic: String,
     pub payload_format: String,
@@ -34,7 +34,7 @@ pub struct NotificationConfig {
 
 /// A rejected notification configuration. `Display` is the client-visible JSON error message.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NotificationError {
+pub(crate) enum NotificationError {
     InvalidTopic(String),
     InvalidPayloadFormat(String),
     InvalidEventType(String),
@@ -92,21 +92,21 @@ impl fmt::Display for NotificationError {
 impl std::error::Error for NotificationError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NotificationRecord {
+pub(crate) struct NotificationRecord {
     pub id: i64,
     pub config: NotificationConfig,
 }
 
 impl NotificationConfig {
     /// Event types this configuration triggers on, used for the per-event-type limit.
-    pub fn effective_event_types(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn effective_event_types(&self) -> impl Iterator<Item = &str> {
         let all = self.event_types.is_empty();
         EVENT_TYPES
             .into_iter()
             .filter(move |event| all || self.event_types.iter().any(|value| value == event))
     }
 
-    pub fn to_stored(&self) -> String {
+    pub(crate) fn to_stored(&self) -> String {
         serde_json::json!({
             "topic": self.topic,
             "payload_format": self.payload_format,
@@ -118,7 +118,7 @@ impl NotificationConfig {
     }
 
     /// Re-validate stored rows so a corrupt catalog cannot render configurations the API rejects.
-    pub fn from_stored(stored: &str) -> Result<Self, &'static str> {
+    pub(crate) fn from_stored(stored: &str) -> Result<Self, &'static str> {
         let value: serde_json::Value =
             serde_json::from_str(stored).map_err(|_| "invalid stored notification")?;
         let string = |key: &str| {
@@ -172,7 +172,7 @@ impl NotificationConfig {
 
 /// Accept the documented full resource name and the relative `projects/.../topics/...` name
 /// that official SDKs send, and store only the full form.
-pub fn normalize_topic(topic: &str) -> Result<String, NotificationError> {
+pub(crate) fn normalize_topic(topic: &str) -> Result<String, NotificationError> {
     let relative = topic.strip_prefix(TOPIC_PREFIX).unwrap_or(topic);
     let invalid = || NotificationError::InvalidTopic(topic.to_owned());
     let mut parts = relative.split('/');
@@ -207,7 +207,7 @@ pub fn normalize_topic(topic: &str) -> Result<String, NotificationError> {
     Ok(format!("{TOPIC_PREFIX}projects/{project}/topics/{name}"))
 }
 
-pub fn validate_payload_format(format: &str) -> Result<(), NotificationError> {
+pub(crate) fn validate_payload_format(format: &str) -> Result<(), NotificationError> {
     if PAYLOAD_FORMATS.contains(&format) {
         Ok(())
     } else {
@@ -215,7 +215,7 @@ pub fn validate_payload_format(format: &str) -> Result<(), NotificationError> {
     }
 }
 
-pub fn validate_event_types(events: &[String]) -> Result<(), NotificationError> {
+pub(crate) fn validate_event_types(events: &[String]) -> Result<(), NotificationError> {
     for (index, event) in events.iter().enumerate() {
         if !EVENT_TYPES.contains(&event.as_str()) {
             return Err(NotificationError::InvalidEventType(event.clone()));
@@ -227,7 +227,7 @@ pub fn validate_event_types(events: &[String]) -> Result<(), NotificationError> 
     Ok(())
 }
 
-pub fn validate_custom_attributes(
+pub(crate) fn validate_custom_attributes(
     attributes: &BTreeMap<String, String>,
 ) -> Result<(), NotificationError> {
     if attributes.len() > MAX_CUSTOM_ATTRIBUTES {
@@ -245,7 +245,7 @@ pub fn validate_custom_attributes(
     Ok(())
 }
 
-pub fn validate_object_name_prefix(prefix: &str) -> Result<(), NotificationError> {
+pub(crate) fn validate_object_name_prefix(prefix: &str) -> Result<(), NotificationError> {
     // A prefix longer than the object-name limit could never match an object.
     if prefix.len() > 1024 {
         return Err(NotificationError::ObjectNamePrefixTooLong);
@@ -254,7 +254,7 @@ pub fn validate_object_name_prefix(prefix: &str) -> Result<(), NotificationError
 }
 
 /// Check the documented per-bucket and per-event-type limits before adding `candidate`.
-pub fn check_limits(
+pub(crate) fn check_limits(
     existing: &[NotificationConfig],
     candidate: &NotificationConfig,
 ) -> Result<(), NotificationError> {

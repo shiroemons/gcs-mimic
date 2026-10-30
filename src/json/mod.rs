@@ -8,7 +8,7 @@
 //! [`JsonError`] maps catalog failures and produces JSON HTTP error responses.
 //! The supported subset and deviations are recorded in `docs/en/slices/json-bucket-crud.md`.
 
-pub mod acl;
+pub(crate) mod acl;
 mod body;
 mod buckets;
 pub mod compose;
@@ -19,7 +19,7 @@ mod error;
 mod fields;
 mod iam;
 mod multipart;
-pub mod notifications;
+pub(crate) mod notifications;
 mod object_copy;
 mod object_list;
 mod object_metadata;
@@ -31,55 +31,59 @@ mod page_token;
 mod projects;
 mod query;
 pub(crate) mod resumable;
-pub mod resumable_cancel;
+pub(crate) mod resumable_cancel;
 pub(crate) mod rewrite;
 
-pub use body::read_body;
+pub(crate) use body::read_body;
+pub use buckets::parse_insert;
 pub(crate) use buckets::{
     PredefinedAclTarget, UniformAccess, bucket_etag, reject_predefined_acl, timestamp,
     validate_bucket_name_for_profile,
 };
-pub use buckets::{
-    bucket_list, bucket_list_with_profile, bucket_resource, bucket_resource_with_profile,
-    parse_bucket_patch, parse_bucket_replacement, parse_insert, parse_insert_with_profile,
-    validate_bucket_name,
+#[cfg(test)]
+pub(crate) use buckets::{bucket_list, bucket_resource};
+pub(crate) use buckets::{
+    bucket_list_with_profile, bucket_resource_with_profile, parse_bucket_patch,
+    parse_bucket_replacement, parse_insert_with_profile, validate_bucket_name,
 };
-pub use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
-pub use derived_metadata::{DestinationLocation, derived_component_count, derived_metadata};
+pub(crate) use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
+pub(crate) use derived_metadata::{DestinationLocation, derived_component_count, derived_metadata};
 pub use error::JsonError;
-pub use fields::Fields;
+pub(crate) use fields::Fields;
 pub(crate) use iam::policy_etag;
-pub use iam::{parse_policy, policy_resource, test_permissions_query};
-pub use multipart::{
+pub(crate) use iam::{parse_policy, policy_resource, test_permissions_query};
+pub(crate) use multipart::{
     Multipart, PartKind, form_data_boundary, multipart_boundary, multipart_metadata,
 };
-pub use object_copy::ObjectCopyParams;
-pub use object_list::{ObjectListParams, object_list};
+pub(crate) use object_copy::ObjectCopyParams;
+pub(crate) use object_list::{ObjectListParams, object_list};
 pub(crate) use object_metadata::parse_object_metadata_mutation;
 pub(crate) use object_metadata::validate_fixed_metadata;
-pub use object_metadata::{ObjectMetadataRequest, WriteMode, parse_object_metadata};
-pub use object_move::ObjectMoveParams;
+pub(crate) use object_metadata::{ObjectMetadataRequest, WriteMode, parse_object_metadata};
+pub(crate) use object_move::ObjectMoveParams;
 pub(crate) use objects::{
     EtagConditions, base64, decode_hash, object_etag, object_media_transcoding,
     validate_read_condition_headers,
 };
-pub use objects::{
+pub(crate) use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRead, ObjectRequest, RetentionOverride,
     object_media_headers, object_media_range, object_resource, parse_object_upload_headers,
     route_object, route_object_with_profile, validate_keyed_object_headers,
     validate_object_get_headers, validate_object_media_encoding, validate_object_name,
 };
-pub use page_token::{
+pub(crate) use page_token::{
     decode_all_projects_page_token, decode_page_token, encode_all_projects_page_token,
     encode_page_token,
 };
-pub use projects::{
-    HmacKeyListParams, HmacKeyUpdate, ProjectRequest, hmac_key_list, hmac_key_metadata,
-    hmac_key_resource, parse_hmac_key_update, route_project, service_account,
+pub(crate) use projects::{
+    ProjectRequest, hmac_key_list, hmac_key_metadata, hmac_key_resource, parse_hmac_key_update,
+    route_project, service_account,
 };
-pub use query::{
-    BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection, route,
-    route_with_profile, validate_project,
+#[cfg(test)]
+pub(crate) use query::route;
+pub(crate) use query::{
+    BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection, route_with_profile,
+    validate_project,
 };
 pub(crate) use query::{Decoding, decode, parse_query};
 

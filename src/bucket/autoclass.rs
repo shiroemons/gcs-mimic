@@ -17,7 +17,7 @@ const REENABLE_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
 /// Stored configuration. A disabled configuration is kept so `toggleTime` records when
 /// Autoclass was turned off; buckets that never enabled Autoclass have no configuration.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Autoclass {
+pub(crate) struct Autoclass {
     pub enabled: bool,
     pub toggle_time: SystemTime,
     pub terminal_storage_class: Option<String>,
@@ -26,7 +26,7 @@ pub struct Autoclass {
 
 /// A requested change. `None` fields keep the current value under patch semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct AutoclassUpdate {
+pub(crate) struct AutoclassUpdate {
     pub enabled: Option<bool>,
     pub terminal_storage_class: Option<String>,
 }

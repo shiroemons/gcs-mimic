@@ -5,13 +5,13 @@ use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord};
 /// count to one when either changes; adapters retain the source snapshot for this decision.
 /// Whether a copy's destination bucket shares the source bucket's location.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DestinationLocation {
+pub(crate) enum DestinationLocation {
     Same,
     Different,
 }
 
 impl DestinationLocation {
-    pub fn of(source: Option<&str>, destination: &str) -> Self {
+    pub(crate) fn of(source: Option<&str>, destination: &str) -> Self {
         if source == Some(destination) {
             Self::Same
         } else {
@@ -20,7 +20,7 @@ impl DestinationLocation {
     }
 }
 
-pub fn derived_component_count(
+pub(crate) fn derived_component_count(
     source: &ObjectRecord,
     destination_class: &str,
     location: DestinationLocation,
@@ -36,7 +36,7 @@ pub fn derived_component_count(
 
 /// Empty bodies inherit editable source metadata except holds. A supplied resource replaces
 /// that metadata, including `{}`; path bucket/name always win over resource values.
-pub fn derived_metadata(
+pub(crate) fn derived_metadata(
     bytes: &[u8],
     source: &ObjectRecord,
 ) -> Result<(ObjectMetadataUpdate, Option<String>, ExpectedHashes), JsonError> {

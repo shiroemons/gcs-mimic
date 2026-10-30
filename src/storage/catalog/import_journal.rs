@@ -5,7 +5,7 @@ use super::{Catalog, admin::AdminError, unavailable};
 use crate::bucket::CatalogError;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
-pub const MAX_PAGE: usize = 256;
+pub(crate) const MAX_PAGE: usize = 256;
 pub(super) const SCHEMA: &str = "CREATE TABLE import_journal (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
     source BLOB NOT NULL CHECK(typeof(source) = 'blob' AND length(source) = 32),
@@ -44,7 +44,7 @@ pub struct ImportBinding {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ImportElement {
+pub(crate) struct ImportElement {
     pub ordinal: i64,
     pub fingerprint: [u8; 32],
     pub inode: Option<u64>,
@@ -210,7 +210,7 @@ pub(super) fn validate_failure(connection: &Connection) -> Result<(), CatalogErr
 }
 
 impl ImportJournal {
-    pub async fn progress(&self) -> Result<Option<ImportProgress>, AdminError> {
+    pub(crate) async fn progress(&self) -> Result<Option<ImportProgress>, AdminError> {
         self.0
             .run_admin(|connection| {
                 let state = progress(connection)?;
@@ -222,7 +222,7 @@ impl ImportJournal {
             .await
     }
 
-    pub async fn fail(
+    pub(crate) async fn fail(
         &self,
         binding: ImportBinding,
         reason: impl Into<String>,
@@ -286,7 +286,7 @@ impl ImportJournal {
         }).await
     }
 
-    pub async fn page(
+    pub(crate) async fn page(
         &self,
         binding: ImportBinding,
         after: i64,
@@ -312,7 +312,7 @@ impl ImportJournal {
     }
 
     /// Caller must verify unchanged body digests before replacing a drifted observation.
-    pub async fn revalidate(
+    pub(crate) async fn revalidate(
         &self,
         binding: ImportBinding,
         before: ImportElement,

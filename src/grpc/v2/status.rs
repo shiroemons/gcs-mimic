@@ -2,7 +2,7 @@ use crate::grpc::generated::google::rpc::{ErrorInfo, Status as RpcStatus};
 use prost::Message;
 use tonic::{Code, Status};
 
-pub fn from_json(error: crate::json::JsonError) -> Status {
+pub(crate) fn from_json(error: crate::json::JsonError) -> Status {
     if error.message.starts_with("gcs-mimic does not support ") {
         return unsupported(&error.message);
     }
@@ -30,7 +30,7 @@ pub(super) fn unsupported_for(method: &str, caller: Option<crate::auth::Caller<'
     unsupported(method)
 }
 
-pub fn unsupported(method: &str) -> Status {
+pub(crate) fn unsupported(method: &str) -> Status {
     let message = format!(
         "gcs-mimic does not support gRPC {method}; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
     );

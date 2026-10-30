@@ -243,7 +243,10 @@ impl Config {
         }
     }
 
-    pub fn preflight(args: &[String], env: &BTreeMap<String, String>) -> ConfigurationReport {
+    pub(crate) fn preflight(
+        args: &[String],
+        env: &BTreeMap<String, String>,
+    ) -> ConfigurationReport {
         let mut inputs = Inputs::default();
         inputs.cli(args, CliCommand::Serve);
         inputs.environment(env);

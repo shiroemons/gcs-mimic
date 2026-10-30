@@ -2,7 +2,7 @@ use super::*;
 
 /// Private provenance for a prepared API copy, never for a displaced external body.
 #[derive(Clone)]
-pub struct Unpublished {
+pub(crate) struct Unpublished {
     token: Token,
     staged: Option<fsutil::FileIdentity>,
     target: Option<fsutil::FileIdentity>,
@@ -47,7 +47,7 @@ fn matches_body(file: &File, item: &Pending) -> Result<bool, Error> {
 
 impl Writeback {
     /// Stages only immutable API bytes before arming; publication still uses the existing file job.
-    pub async fn prepare_publish_copy(
+    pub(crate) async fn prepare_publish_copy(
         &self,
         bucket: &BucketName,
         name: &ObjectName,
@@ -101,7 +101,7 @@ impl Writeback {
     }
 
     /// Cancels only an unpublished intent with private copy provenance; the target is untouched.
-    pub async fn abandon_unpublished(&self, proof: Unpublished) -> Result<(), Error> {
+    pub(crate) async fn abandon_unpublished(&self, proof: Unpublished) -> Result<(), Error> {
         self.token(&proof.token)?;
         let this = self.clone();
         self.serial(async move {
@@ -168,7 +168,7 @@ impl Writeback {
     }
 
     /// Retires an obsolete but durably installed API copy, without claiming synchronized progress.
-    pub async fn finish_obsolete_publish(&self, proof: Unpublished) -> Result<(), Error> {
+    pub(crate) async fn finish_obsolete_publish(&self, proof: Unpublished) -> Result<(), Error> {
         self.token(&proof.token)?;
         let this = self.clone();
         self.serial(async move {

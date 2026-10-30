@@ -7,7 +7,7 @@ use hyper::{
     header::{CACHE_CONTROL, HeaderValue},
 };
 
-pub async fn cancel_response<B: Body + Unpin>(
+pub(crate) async fn cancel_response<B: Body + Unpin>(
     request: Request<B>,
     bucket: &str,
     id: &str,

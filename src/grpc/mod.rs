@@ -1,10 +1,12 @@
 //! Storage transports share domain state, never JSON wire representations.
-pub mod v1;
-pub mod v2;
+pub(crate) mod v1;
+pub(crate) mod v2;
 
 // Generated upstream code retains its own field names and documentation.
 #[allow(
     clippy::all,
+    dead_code,
+    unreachable_pub,
     rustdoc::broken_intra_doc_links,
     reason = "generated upstream code keeps its own style and documentation links"
 )]

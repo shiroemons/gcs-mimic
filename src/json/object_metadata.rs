@@ -4,13 +4,13 @@ use hyper::StatusCode;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
-pub struct ObjectMetadataRequest {
+pub(crate) struct ObjectMetadataRequest {
     pub update: ObjectMetadataUpdate,
     pub unchanged: Map<String, Value>,
 }
 
 impl ObjectMetadataRequest {
-    pub fn validate_unchanged(
+    pub(crate) fn validate_unchanged(
         unchanged: &Map<String, Value>,
         record: &ObjectRecord,
         base: &str,
@@ -32,7 +32,7 @@ impl ObjectMetadataRequest {
 
 /// Whether a metadata write merges into (PATCH) or replaces (PUT) the stored metadata.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WriteMode {
+pub(crate) enum WriteMode {
     Patch,
     Replace,
 }
@@ -46,7 +46,7 @@ enum AclField {
 }
 
 /// Parse metadata mutations separately from upload bodies and server-managed fields.
-pub fn parse_object_metadata(
+pub(crate) fn parse_object_metadata(
     bytes: &[u8],
     mode: WriteMode,
 ) -> Result<ObjectMetadataRequest, JsonError> {

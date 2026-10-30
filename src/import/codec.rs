@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, fmt};
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
-pub struct BucketAttrs {
+pub(crate) struct BucketAttrs {
     pub default_event_based_hold: bool,
     pub versioning_enabled: bool,
     #[serde(rename = "ACL")]
@@ -17,7 +17,7 @@ pub struct BucketAttrs {
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
-pub struct ObjectAttrs {
+pub(crate) struct ObjectAttrs {
     pub storage_class: String,
     pub content_type: String,
     pub content_encoding: String,
@@ -71,7 +71,8 @@ fn unique_metadata<'de, D: de::Deserializer<'de>>(
     deserializer.deserialize_option(Map)
 }
 
-pub fn path_escape(name: &str) -> String {
+#[cfg(test)]
+pub(crate) fn path_escape(name: &str) -> String {
     let mut result = String::new();
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     for byte in name.bytes() {
@@ -86,7 +87,7 @@ pub fn path_escape(name: &str) -> String {
     result
 }
 
-pub fn path_unescape(name: &str) -> Result<String, &'static str> {
+pub(crate) fn path_unescape(name: &str) -> Result<String, &'static str> {
     let mut result = Vec::with_capacity(name.len());
     let mut bytes = name.bytes();
     while let Some(byte) = bytes.next() {
@@ -109,7 +110,7 @@ pub fn path_unescape(name: &str) -> Result<String, &'static str> {
         .map_err(|_| "decoded bucket must be UTF-8; restore the original snapshot")
 }
 
-pub fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
+pub(crate) fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
     let invalid = "invalid source timestamp; supply a complete RFC3339 source timestamp";
     let bytes = input.as_bytes();
     if bytes.len() < 20
@@ -197,7 +198,7 @@ pub fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
     )
 }
 
-pub fn is_unset_time(input: &str) -> Result<bool, &'static str> {
+pub(crate) fn is_unset_time(input: &str) -> Result<bool, &'static str> {
     Ok(input.is_empty() || parse_timestamp(input)? == -62_135_596_800_000_000)
 }
 

@@ -1,7 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Glob {
+pub(crate) struct Glob {
     pattern: String,
     states: Vec<State>,
     start: usize,
@@ -29,7 +29,7 @@ enum Token {
 }
 
 impl Glob {
-    pub fn parse(pattern: &str) -> Result<Self, &'static str> {
+    pub(crate) fn parse(pattern: &str) -> Result<Self, &'static str> {
         if pattern.len() > 1024 {
             return Err(
                 "matchGlob must be at most 1024 UTF-8 bytes; use a shorter pattern such as **/*.txt",
@@ -46,7 +46,7 @@ impl Glob {
         Ok(glob)
     }
 
-    pub fn pattern(&self) -> &str {
+    pub(crate) fn pattern(&self) -> &str {
         &self.pattern
     }
 
@@ -103,7 +103,7 @@ impl Glob {
         }
     }
 
-    pub fn matches(&self, name: &str) -> bool {
+    pub(crate) fn matches(&self, name: &str) -> bool {
         // NFA state sets avoid exponential backtracking and brace expansion.
         let mut active = vec![false; self.states.len()];
         let mut next = active.clone();

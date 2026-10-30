@@ -11,7 +11,7 @@ use std::{
 };
 use tokio_rustls::rustls::pki_types::{PrivateKeyDer, SubjectPublicKeyInfoDer, pem::PemObject};
 
-pub const PARAMETERS: &[&str] = &[
+pub(crate) const PARAMETERS: &[&str] = &[
     "X-Goog-Algorithm",
     "X-Goog-Credential",
     "X-Goog-Date",
@@ -21,7 +21,7 @@ pub const PARAMETERS: &[&str] = &[
 ];
 const ALGORITHM: &str = "GOOG4-RSA-SHA256";
 pub(crate) const MAX_EXPIRES: u64 = 604800;
-pub const V2_PARAMETERS: &[&str] = &["GoogleAccessId", "Expires", "Signature"];
+pub(crate) const V2_PARAMETERS: &[&str] = &["GoogleAccessId", "Expires", "Signature"];
 
 mod v2;
 
@@ -39,7 +39,7 @@ pub enum Failure {
 
 /// A `public_keys` entry that is not a supported RSA SubjectPublicKeyInfo PEM.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct InvalidPublicKey;
+pub(crate) struct InvalidPublicKey;
 
 impl fmt::Display for InvalidPublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -204,7 +204,7 @@ fn integer<'a>(input: &mut &'a [u8]) -> Option<&'a [u8]> {
     }
 }
 
-pub fn is_signed(query: Option<&str>) -> bool {
+pub(crate) fn is_signed(query: Option<&str>) -> bool {
     query.is_some_and(|query| {
         query.split('&').any(|pair| {
             let key = super::lenient_decode(pair.split('=').next().unwrap_or_default());
@@ -293,7 +293,7 @@ impl Auth {
     /// Verify a V4 POST policy: RSA-SHA256 over the exact base64 `policy` field value.
     /// The permissive profile ignores credentials, as it does for signed URLs; policy
     /// conditions and expiration are form constraints that the adapter always enforces.
-    pub fn authenticate_policy(
+    pub(crate) fn authenticate_policy(
         &self,
         algorithm: &str,
         credential: &str,

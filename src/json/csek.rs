@@ -16,12 +16,12 @@ impl From<CsekError> for JsonError {
 }
 
 /// The key for the addressed (or destination) object: `x-goog-encryption-*`.
-pub fn request_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, JsonError> {
+pub(crate) fn request_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, JsonError> {
     CustomerKey::from_headers(headers, DESTINATION_PREFIX).map_err(JsonError::from)
 }
 
 /// The copy/rewrite source key: `x-goog-copy-source-encryption-*`.
-pub fn source_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, JsonError> {
+pub(crate) fn source_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, JsonError> {
     CustomerKey::from_headers(headers, SOURCE_PREFIX).map_err(JsonError::from)
 }
 
@@ -42,7 +42,7 @@ pub(super) fn render(object: &ObjectRecord, value: &mut Value) {
 }
 
 /// Render a resource for a caller whose `key` has already been verified against `object`.
-pub fn object_resource_keyed(
+pub(crate) fn object_resource_keyed(
     object: &ObjectRecord,
     base_url: &str,
     projection: super::Projection,
@@ -59,7 +59,7 @@ pub fn object_resource_keyed(
 }
 
 /// Response headers identifying the key of an encrypted object's data.
-pub fn insert_response_headers(object: &ObjectRecord, headers: &mut HeaderMap) {
+pub(crate) fn insert_response_headers(object: &ObjectRecord, headers: &mut HeaderMap) {
     if let Some(sha256) = object.customer_key_sha256 {
         headers.insert(
             "x-goog-encryption-algorithm",

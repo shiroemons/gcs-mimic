@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// The documented per-resource ACL entry limit.
-pub const MAX_ENTRIES: usize = 100;
+pub(crate) const MAX_ENTRIES: usize = 100;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AclKind {
+pub(crate) enum AclKind {
     Bucket,
     DefaultObject,
     Object,
@@ -28,7 +28,7 @@ impl AclKind {
 
 /// The resource whose ACL an operation reads or changes.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AclTarget {
+pub(crate) enum AclTarget {
     Bucket(String),
     DefaultObject(String),
     Object {
@@ -40,7 +40,7 @@ pub enum AclTarget {
 }
 
 impl AclTarget {
-    pub fn kind(&self) -> AclKind {
+    pub(crate) fn kind(&self) -> AclKind {
         match self {
             Self::Bucket(_) => AclKind::Bucket,
             Self::DefaultObject(_) => AclKind::DefaultObject,
@@ -48,7 +48,7 @@ impl AclTarget {
         }
     }
 
-    pub fn bucket(&self) -> &str {
+    pub(crate) fn bucket(&self) -> &str {
         match self {
             Self::Bucket(bucket) | Self::DefaultObject(bucket) | Self::Object { bucket, .. } => {
                 bucket
@@ -58,14 +58,14 @@ impl AclTarget {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AclEntry {
+pub(crate) struct AclEntry {
     pub entity: String,
     pub role: String,
 }
 
 /// A rejected ACL entry or entry list. `Display` is the client-visible JSON error message.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AclError {
+pub(crate) enum AclError {
     TooManyEntries,
     DuplicateEntity(String),
     InvalidEntity(String),
@@ -109,7 +109,7 @@ pub(crate) fn validate_entries(kind: AclKind, entries: &[AclEntry]) -> Result<()
 
 /// Entity kinds from the pinned Discovery `entity` description.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Entity<'a> {
+pub(crate) enum Entity<'a> {
     AllUsers,
     AllAuthenticatedUsers,
     UserEmail(&'a str),
@@ -121,7 +121,7 @@ pub enum Entity<'a> {
 }
 
 impl<'a> Entity<'a> {
-    pub fn parse(entity: &'a str) -> Result<Self, AclError> {
+    pub(crate) fn parse(entity: &'a str) -> Result<Self, AclError> {
         let invalid = || AclError::InvalidEntity(entity.to_owned());
         let email = |value: &str| {
             value.split_once('@').is_some_and(|(local, domain)| {
@@ -177,7 +177,7 @@ impl<'a> Entity<'a> {
         })
     }
 
-    pub fn is_public(self) -> bool {
+    pub(crate) fn is_public(self) -> bool {
         matches!(self, Self::AllUsers | Self::AllAuthenticatedUsers)
     }
 }
@@ -194,7 +194,7 @@ fn valid_domain(domain: &str) -> bool {
         })
 }
 
-pub fn validate_role(kind: AclKind, role: &str) -> Result<(), AclError> {
+pub(crate) fn validate_role(kind: AclKind, role: &str) -> Result<(), AclError> {
     if kind.roles().contains(&role) {
         return Ok(());
     }
@@ -206,7 +206,7 @@ pub fn validate_role(kind: AclKind, role: &str) -> Result<(), AclError> {
 
 /// The project number rendered by bucket resources: numeric project IDs are used verbatim and
 /// other local project IDs map to `0`, because the local registry has no project numbers.
-pub fn project_number(project: &str) -> String {
+pub(crate) fn project_number(project: &str) -> String {
     if project.bytes().all(|byte| byte.is_ascii_digit()) {
         project.parse::<u64>().unwrap_or(0).to_string()
     } else {
@@ -215,7 +215,7 @@ pub fn project_number(project: &str) -> String {
 }
 
 /// The `projectPrivate` canned ACL used for buckets and objects without stored entries.
-pub fn project_private(project: &str) -> Vec<AclEntry> {
+pub(crate) fn project_private(project: &str) -> Vec<AclEntry> {
     let number = project_number(project);
     [
         ("owners", "OWNER"),

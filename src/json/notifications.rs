@@ -13,7 +13,7 @@ use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NotificationRequest {
+pub(crate) enum NotificationRequest {
     Insert {
         bucket: String,
     },
@@ -31,7 +31,7 @@ pub enum NotificationRequest {
 }
 
 impl NotificationRequest {
-    pub fn bucket(&self) -> &str {
+    pub(crate) fn bucket(&self) -> &str {
         match self {
             Self::Insert { bucket }
             | Self::List { bucket }
@@ -42,7 +42,7 @@ impl NotificationRequest {
 }
 
 /// Match `b/{bucket}/notificationConfigs[/{notification}]` before any other bucket route.
-pub fn route(
+pub(crate) fn route(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
@@ -113,7 +113,7 @@ fn invalid(message: impl Into<String>) -> JsonError {
 /// Parse a notifications.insert body. Output-only `id`, `etag` and `selfLink` are ignored,
 /// following the server-assigned semantics of those Discovery fields; other unknown fields
 /// follow the bucket insert ignored-input rule.
-pub fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, JsonError> {
+pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, JsonError> {
     let value: Value = serde_json::from_slice(bytes).map_err(|_| {
         JsonError::new(
             StatusCode::BAD_REQUEST,
@@ -196,7 +196,11 @@ pub fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, JsonError>
 }
 
 /// Render a stored configuration. Configurations are immutable, so the ID doubles as the etag.
-pub fn notification_resource(record: &NotificationRecord, bucket: &str, base_url: &str) -> Value {
+pub(crate) fn notification_resource(
+    record: &NotificationRecord,
+    bucket: &str,
+    base_url: &str,
+) -> Value {
     let id = record.id.to_string();
     let config = &record.config;
     let mut value = json!({
@@ -229,7 +233,11 @@ pub fn notification_resource(record: &NotificationRecord, bucket: &str, base_url
     value
 }
 
-pub fn notification_list(records: &[NotificationRecord], bucket: &str, base_url: &str) -> Value {
+pub(crate) fn notification_list(
+    records: &[NotificationRecord],
+    bucket: &str,
+    base_url: &str,
+) -> Value {
     let mut value = json!({"kind": "storage#notifications"});
     if !records.is_empty() {
         value["items"] = records
@@ -240,7 +248,7 @@ pub fn notification_list(records: &[NotificationRecord], bucket: &str, base_url:
     value
 }
 
-pub fn notification_not_found() -> JsonError {
+pub(crate) fn notification_not_found() -> JsonError {
     JsonError::new(
         StatusCode::NOT_FOUND,
         "notFound",

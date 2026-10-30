@@ -6,11 +6,9 @@ pub mod mapping;
 mod mirror;
 pub use mirror::{Reconciliation, Task, reconcile, start};
 
-pub const SETTLE_MS: u64 = 1000;
-pub const DELETE_MIN_OBJECTS: u64 = 100;
-pub const DELETE_PERCENT: u64 = 50;
-pub const CONFLICT_MAX_BYTES: u64 = 1_073_741_824;
-pub const CONFLICT_MAX_ENTRIES: u64 = 1000;
+pub(crate) const SETTLE_MS: u64 = 1000;
+pub(crate) const CONFLICT_MAX_BYTES: u64 = 1_073_741_824;
+pub(crate) const CONFLICT_MAX_ENTRIES: u64 = 1000;
 
 use crate::{
     config::Config,
@@ -27,7 +25,7 @@ use std::{io, path::Path};
 
 /// A `sync_reinitialize` value that is not a lowercase 32-digit hexadecimal catalog ID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct InvalidCatalogId;
+pub(crate) struct InvalidCatalogId;
 
 impl std::fmt::Display for InvalidCatalogId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -37,7 +35,7 @@ impl std::fmt::Display for InvalidCatalogId {
 
 impl std::error::Error for InvalidCatalogId {}
 
-pub fn parse_catalog_id(value: &str) -> Result<CatalogId, InvalidCatalogId> {
+pub(crate) fn parse_catalog_id(value: &str) -> Result<CatalogId, InvalidCatalogId> {
     if value.len() != 32
         || !value
             .bytes()
@@ -53,7 +51,7 @@ pub fn parse_catalog_id(value: &str) -> Result<CatalogId, InvalidCatalogId> {
     Ok(CatalogId::from_bytes(bytes))
 }
 
-pub fn validate_directory(root: &Path, data: &Path, seed: Option<&Path>) -> io::Result<()> {
+pub(crate) fn validate_directory(root: &Path, data: &Path, seed: Option<&Path>) -> io::Result<()> {
     fsutil::open_directory_nofollow(root).and_then(|root| fsutil::directory_writable(&root)).map_err(|error| {
         io::Error::other(if error.kind() == io::ErrorKind::Unsupported {
             "directory synchronization is supported on Linux and macOS only; remove sync_dir on this platform"

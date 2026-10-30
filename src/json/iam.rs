@@ -41,7 +41,9 @@ pub(super) fn route_test_permissions(
     })())
 }
 
-pub fn test_permissions_query(raw: Option<&str>) -> Result<(Vec<String>, Fields), JsonError> {
+pub(crate) fn test_permissions_query(
+    raw: Option<&str>,
+) -> Result<(Vec<String>, Fields), JsonError> {
     let raw = raw.unwrap_or_default();
     if raw.len() > 16 * 1024 {
         return Err(JsonError::invalid_parameter("Query exceeds 16 KiB"));
@@ -101,7 +103,7 @@ fn invalid(message: &str) -> JsonError {
     JsonError::new(StatusCode::BAD_REQUEST, "invalid", message)
 }
 
-pub fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
+pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
     let value: Value = serde_json::from_slice(bytes).map_err(|_| {
         JsonError::new(StatusCode::BAD_REQUEST, "parseError", "Invalid JSON policy")
     })?;
@@ -250,7 +252,7 @@ fn validate_member(member: &str) -> Result<(), JsonError> {
     }
 }
 
-pub fn policy_resource(policy: &Policy, bucket: &str) -> Value {
+pub(crate) fn policy_resource(policy: &Policy, bucket: &str) -> Value {
     json!({"kind": "storage#policy", "resourceId": format!("projects/_/buckets/{bucket}"),
         "version": 1, "etag": policy.etag, "bindings": policy.bindings_json()})
 }

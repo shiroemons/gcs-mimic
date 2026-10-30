@@ -77,7 +77,7 @@ impl FileWorkers {
 }
 
 /// Verified private bytes; dropping schedules owned cleanup, never synchronous I/O.
-pub struct StagedObject {
+pub(crate) struct StagedObject {
     catalog: Catalog,
     id: Option<String>,
     permit: Option<OwnedSemaphorePermit>,
@@ -90,21 +90,21 @@ pub struct StagedObject {
 }
 
 impl StagedObject {
-    pub fn with_sync_state(mut self, update: super::super::sync_state::SyncUpdate) -> Self {
+    pub(crate) fn with_sync_state(mut self, update: super::super::sync_state::SyncUpdate) -> Self {
         self.sync_update = Some(update);
         self
     }
-    pub async fn discard(self) -> Result<(), AdminError> {
+    pub(crate) async fn discard(self) -> Result<(), AdminError> {
         let runtime = self.runtime.clone();
         runtime
             .spawn(self.cleanup())
             .await
             .map_err(|error| AdminError::Backend(error.to_string()))?
     }
-    pub fn size(&self) -> u64 {
+    pub(crate) fn size(&self) -> u64 {
         self.size
     }
-    pub fn hashes(&self) -> crate::hashing::Hashes {
+    pub(crate) fn hashes(&self) -> crate::hashing::Hashes {
         self.hashes
     }
 
@@ -134,14 +134,14 @@ impl Drop for StagedObject {
     }
 }
 
-pub struct BatchPublication {
+pub(crate) struct BatchPublication {
     pub bucket: BucketName,
     pub name: ObjectName,
     pub request: Publication,
     pub staged: StagedObject,
 }
 
-pub struct BatchResult {
+pub(crate) struct BatchResult {
     pub results: Vec<Result<ObjectRecord, AdminError>>,
     pub unattempted: Vec<BatchPublication>,
     pub budget_exceeded: bool,
@@ -149,15 +149,19 @@ pub struct BatchResult {
 
 use super::super::import_journal::{self, ImportBinding, ImportElement};
 
-pub struct ImportedPublication {
+pub(crate) struct ImportedPublication {
     pub publication: BatchPublication,
     pub identity: ImportedIdentity,
     pub element: ImportElement,
 }
 
-pub struct ImportedBatchResult {
+pub(crate) struct ImportedBatchResult {
     pub results: Vec<Result<ObjectRecord, AdminError>>,
     pub unattempted: Vec<ImportedPublication>,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "only unit tests read this field")
+    )]
     pub budget_exceeded: bool,
 }
 
@@ -314,7 +318,7 @@ async fn cleanup(catalog: &Catalog, id: String) -> Result<(), AdminError> {
 }
 
 impl Admin {
-    pub async fn stage_from_file(
+    pub(crate) async fn stage_from_file(
         &self,
         source: File,
         expected: ExpectedHashes,
@@ -406,7 +410,7 @@ impl Admin {
             .ok_or_else(|| AdminError::Backend("single publication was not attempted".into()))?
     }
 
-    pub async fn publish_objects(
+    pub(crate) async fn publish_objects(
         &self,
         entries: Vec<BatchPublication>,
     ) -> Result<BatchResult, AdminError> {
@@ -424,7 +428,7 @@ impl Admin {
         self.publish_batch(entries, budget, None).await
     }
 
-    pub async fn publish_import_objects(
+    pub(crate) async fn publish_import_objects(
         &self,
         binding: ImportBinding,
         expected_cursor: i64,

@@ -50,8 +50,9 @@ pub(super) fn notify_on_write<T, E>(
     result
 }
 
-pub const MAX_RECORDS: i64 = 65_536;
-pub const MAX_PAGE: usize = 256;
+#[cfg(test)]
+pub(crate) const MAX_RECORDS: i64 = 65_536;
+pub(crate) const MAX_PAGE: usize = 256;
 pub(super) const SCHEMA: &str = "CREATE TABLE change_journal_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
     enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
@@ -91,7 +92,7 @@ pub struct JournalFence {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ChangeKind {
+pub(crate) enum ChangeKind {
     Publish,
     Metadata,
     Delete,
@@ -102,7 +103,7 @@ pub enum ChangeKind {
 }
 
 impl ChangeKind {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Publish => "publish",
             Self::Metadata => "metadata",
@@ -129,7 +130,7 @@ impl ChangeKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Change {
+pub(crate) struct Change {
     pub sequence: JournalSeq,
     pub origin: Origin,
     pub kind: ChangeKind,
@@ -141,16 +142,20 @@ pub struct Change {
     pub metageneration: Option<i64>,
 }
 
-pub struct ChangePage {
+pub(crate) struct ChangePage {
     pub items: Vec<Change>,
     pub next: JournalFence,
     pub fence: JournalFence,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "only unit tests read this field")
+    )]
     pub has_more: bool,
     pub rescan_required: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ChangeObservation {
+pub(crate) struct ChangeObservation {
     pub fence: JournalFence,
     pub rescan_required: bool,
 }
@@ -276,7 +281,7 @@ fn state(connection: &Connection) -> Result<(JournalFence, i64, bool), CatalogEr
 
 impl Catalog {
     /// Effect-free and cancellable; no catalog permits are retained while asleep.
-    pub async fn wait_for_changes(
+    pub(crate) async fn wait_for_changes(
         &self,
         after: JournalFence,
     ) -> Result<ChangeObservation, AdminError> {
@@ -338,7 +343,7 @@ impl Catalog {
     }
 
     /// `None` requests a baseline fence. Scan current catalog state, then resume from it.
-    pub async fn read_changes(
+    pub(crate) async fn read_changes(
         &self,
         after: Option<JournalFence>,
         fence: Option<JournalFence>,

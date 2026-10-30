@@ -29,7 +29,7 @@ fn failure(root: RootId, phase: &str) -> Result<(), Error> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LiveResult {
+pub(crate) enum LiveResult {
     Pending,
     Complete,
     Conflict,
@@ -37,7 +37,7 @@ pub enum LiveResult {
 }
 
 #[derive(Clone)]
-pub struct LiveExport(Arc<tokio::sync::Mutex<LiveOperation>>);
+pub(crate) struct LiveExport(Arc<tokio::sync::Mutex<LiveOperation>>);
 
 struct LiveOperation {
     item: Pending,
@@ -189,7 +189,7 @@ fn install_target(
 
 impl Writeback {
     /// A missing source observes an identical live body, or removes an API-deleted tracked body.
-    pub async fn begin_live_export(
+    pub(crate) async fn begin_live_export(
         &self,
         binding: SyncBinding,
         name: ObjectName,
@@ -244,7 +244,10 @@ impl Writeback {
     }
 
     /// Each call owns a complete file/SQL transition; callers may cancel only between calls.
-    pub async fn advance_live_export(&self, operation: LiveExport) -> Result<LiveResult, Error> {
+    pub(crate) async fn advance_live_export(
+        &self,
+        operation: LiveExport,
+    ) -> Result<LiveResult, Error> {
         let this = self.clone();
         self.serial(async move {
             let mut operation = operation.0.lock().await;

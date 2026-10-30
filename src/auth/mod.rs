@@ -10,7 +10,7 @@ mod policy;
 pub(crate) mod roles;
 pub mod signature;
 pub(crate) use policy::PublicAccess;
-pub use policy::{Binding, Policy};
+pub(crate) use policy::{Binding, Policy};
 
 use hyper::{HeaderMap, header::AUTHORIZATION};
 use serde_json::Value;
@@ -21,27 +21,28 @@ use std::{
     str::FromStr,
 };
 
-pub const BUCKETS_CREATE: &str = "storage.buckets.create";
-pub const BUCKETS_DELETE: &str = "storage.buckets.delete";
-pub const BUCKETS_GET: &str = "storage.buckets.get";
-pub const BUCKETS_UPDATE: &str = "storage.buckets.update";
-pub const BUCKETS_LIST: &str = "storage.buckets.list";
-pub const BUCKETS_GET_IAM: &str = "storage.buckets.getIamPolicy";
-pub const BUCKETS_SET_IAM: &str = "storage.buckets.setIamPolicy";
-pub const OBJECTS_CREATE: &str = "storage.objects.create";
-pub const OBJECTS_DELETE: &str = "storage.objects.delete";
-pub const OBJECTS_GET: &str = "storage.objects.get";
-pub const OBJECTS_LIST: &str = "storage.objects.list";
-pub const OBJECTS_UPDATE: &str = "storage.objects.update";
-pub const OBJECTS_RESTORE: &str = "storage.objects.restore";
-pub const BUCKETS_ENABLE_OBJECT_RETENTION: &str = "storage.buckets.enableObjectRetention";
-pub const OBJECTS_SET_RETENTION: &str = "storage.objects.setRetention";
-pub const OBJECTS_OVERRIDE_UNLOCKED_RETENTION: &str = "storage.objects.overrideUnlockedRetention";
-pub const OBJECTS_GET_IAM: &str = "storage.objects.getIamPolicy";
-pub const OBJECTS_SET_IAM: &str = "storage.objects.setIamPolicy";
+pub(crate) const BUCKETS_CREATE: &str = "storage.buckets.create";
+pub(crate) const BUCKETS_DELETE: &str = "storage.buckets.delete";
+pub(crate) const BUCKETS_GET: &str = "storage.buckets.get";
+pub(crate) const BUCKETS_UPDATE: &str = "storage.buckets.update";
+pub(crate) const BUCKETS_LIST: &str = "storage.buckets.list";
+pub(crate) const BUCKETS_GET_IAM: &str = "storage.buckets.getIamPolicy";
+pub(crate) const BUCKETS_SET_IAM: &str = "storage.buckets.setIamPolicy";
+pub(crate) const OBJECTS_CREATE: &str = "storage.objects.create";
+pub(crate) const OBJECTS_DELETE: &str = "storage.objects.delete";
+pub(crate) const OBJECTS_GET: &str = "storage.objects.get";
+pub(crate) const OBJECTS_LIST: &str = "storage.objects.list";
+pub(crate) const OBJECTS_UPDATE: &str = "storage.objects.update";
+pub(crate) const OBJECTS_RESTORE: &str = "storage.objects.restore";
+pub(crate) const BUCKETS_ENABLE_OBJECT_RETENTION: &str = "storage.buckets.enableObjectRetention";
+pub(crate) const OBJECTS_SET_RETENTION: &str = "storage.objects.setRetention";
+pub(crate) const OBJECTS_OVERRIDE_UNLOCKED_RETENTION: &str =
+    "storage.objects.overrideUnlockedRetention";
+pub(crate) const OBJECTS_GET_IAM: &str = "storage.objects.getIamPolicy";
+pub(crate) const OBJECTS_SET_IAM: &str = "storage.objects.setIamPolicy";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Permission {
+pub(crate) enum Permission {
     BucketsCreate,
     BucketsDelete,
     BucketsGet,
@@ -62,7 +63,7 @@ pub enum Permission {
 }
 
 impl Permission {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::BucketsCreate => BUCKETS_CREATE,
             Self::BucketsDelete => BUCKETS_DELETE,
@@ -233,7 +234,7 @@ impl Identity {
     }
 
     /// Whether any granted role in `project` contains `permission`.
-    pub fn allows(&self, permission: &str, project: &str) -> bool {
+    pub(crate) fn allows(&self, permission: &str, project: &str) -> bool {
         self.permissions
             .get(project)
             .is_some_and(|permissions| permissions.contains(permission))
@@ -242,20 +243,20 @@ impl Identity {
     /// Whether any role is granted in `project`. The pinned snapshot keeps only `storage.*`
     /// permissions, so this stands in for project-level checks such as
     /// `resourcemanager.projects.get`.
-    pub fn has_project_grant(&self, project: &str) -> bool {
+    pub(crate) fn has_project_grant(&self, project: &str) -> bool {
         self.permissions
             .get(project)
             .is_some_and(|permissions| !permissions.is_empty())
     }
 
-    pub fn allows_anywhere(&self, permission: &str) -> bool {
+    pub(crate) fn allows_anywhere(&self, permission: &str) -> bool {
         self.permissions
             .values()
             .any(|permissions| permissions.contains(permission))
     }
 
     /// Projects in which any granted role contains `permission`.
-    pub fn projects_allowing(&self, permission: &str) -> Vec<String> {
+    pub(crate) fn projects_allowing(&self, permission: &str) -> Vec<String> {
         self.permissions
             .iter()
             .filter(|(_, permissions)| permissions.contains(permission))
@@ -284,7 +285,11 @@ impl<'a> Caller<'a> {
     /// `None` means the target bucket does not exist. The local rule returns success (so the
     /// operation reports 404) only when the caller holds the permission in at least one
     /// project; otherwise the caller cannot learn whether the bucket exists.
-    pub fn authorize(self, permission: &str, project: Option<&str>) -> Result<(), AuthFailure> {
+    pub(crate) fn authorize(
+        self,
+        permission: &str,
+        project: Option<&str>,
+    ) -> Result<(), AuthFailure> {
         let identity = self.principal()?;
         let allowed = match project {
             Some(project) => identity.allows(permission, project),
@@ -367,7 +372,7 @@ impl Registry {
         Self::parse(&bytes)
     }
 
-    pub fn parse(bytes: &[u8]) -> Result<Self, RegistryError> {
+    pub(crate) fn parse(bytes: &[u8]) -> Result<Self, RegistryError> {
         let error = |reason: String| RegistryError::Invalid {
             entry: None,
             reason,
@@ -475,12 +480,8 @@ impl Registry {
         })
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.identities.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.identities.is_empty()
     }
 }
 
@@ -631,7 +632,7 @@ impl Auth {
     /// Resolve the caller from request metadata only; never reads a body or the catalog.
     ///
     /// Returns `Ok(None)` in permissive mode, where no permission checks apply.
-    pub fn authenticate(
+    pub(crate) fn authenticate(
         &self,
         headers: &HeaderMap,
         query: Option<&str>,

@@ -5,7 +5,7 @@ use super::super::import_journal::{self, ImportBinding, ImportElement};
 use super::*;
 
 impl Admin {
-    pub async fn publish_import_bucket(
+    pub(crate) async fn publish_import_bucket(
         &self,
         binding: ImportBinding,
         expected_cursor: i64,

@@ -26,7 +26,7 @@ PRAGMA user_version = 32;";
 /// Cloud Storage allows at most this many non-deleted keys per service account. The local
 /// catalog counts them per project as well: the emulator does not know which project owns
 /// a service account, so a global count would let one project exhaust another's quota.
-pub const MAX_KEYS_PER_SERVICE_ACCOUNT: i64 = 10;
+pub(crate) const MAX_KEYS_PER_SERVICE_ACCOUNT: i64 = 10;
 
 /// Service-account access IDs are 61 characters: the `GOOG1E` prefix and 55 characters.
 const ACCESS_ID_PREFIX: &str = "GOOG1E";
@@ -41,14 +41,14 @@ pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), Cat
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HmacKeyState {
+pub(crate) enum HmacKeyState {
     Active,
     Inactive,
     Deleted,
 }
 
 impl HmacKeyState {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Active => "ACTIVE",
             Self::Inactive => "INACTIVE",
@@ -56,7 +56,7 @@ impl HmacKeyState {
         }
     }
 
-    pub fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "ACTIVE" => Some(Self::Active),
             "INACTIVE" => Some(Self::Inactive),
@@ -67,7 +67,7 @@ impl HmacKeyState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HmacKeyRecord {
+pub(crate) struct HmacKeyRecord {
     pub access_id: String,
     pub project: String,
     pub service_account_email: String,
@@ -78,20 +78,20 @@ pub struct HmacKeyRecord {
 }
 
 impl HmacKeyRecord {
-    pub fn etag(&self) -> String {
+    pub(crate) fn etag(&self) -> String {
         crate::json::policy_etag(self.revision)
     }
 }
 
 /// A newly created key; the secret is returned only from creation.
 #[derive(Debug)]
-pub struct CreatedHmacKey {
+pub(crate) struct CreatedHmacKey {
     pub record: HmacKeyRecord,
     pub secret: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HmacKeyListQuery {
+pub(crate) struct HmacKeyListQuery {
     pub project: String,
     pub service_account_email: Option<String>,
     pub show_deleted: bool,
@@ -99,13 +99,13 @@ pub struct HmacKeyListQuery {
     pub limit: usize,
 }
 
-pub struct HmacKeyPage {
+pub(crate) struct HmacKeyPage {
     pub items: Vec<HmacKeyRecord>,
     pub has_more: bool,
 }
 
 #[derive(Debug)]
-pub enum HmacKeyError {
+pub(crate) enum HmacKeyError {
     NotFound,
     PreconditionFailed,
     /// The key is ACTIVE; it must be deactivated before deletion.

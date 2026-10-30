@@ -51,7 +51,7 @@ impl State {
     }
 }
 
-pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
+pub(crate) const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
 mod buckets;
 mod context;
@@ -315,7 +315,7 @@ pub async fn serve(
     serve_with_tls(vec![(listener, acceptor)], config, state, shutdown).await
 }
 
-pub async fn serve_with_tls(
+pub(crate) async fn serve_with_tls(
     listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
     config: impl Into<Arc<Config>>,
     state: Arc<State>,
@@ -324,7 +324,7 @@ pub async fn serve_with_tls(
     serve_with_tls_and_drain(listeners, config, state, shutdown, async { Ok(()) }).await
 }
 
-pub async fn serve_with_tls_and_drain(
+pub(crate) async fn serve_with_tls_and_drain(
     listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
     config: impl Into<Arc<Config>>,
     state: Arc<State>,

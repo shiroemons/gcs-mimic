@@ -6,7 +6,7 @@ use crate::{config::CompatProfile, object::ObjectConditions};
 use hyper::{Method, StatusCode, Uri};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ObjectCopyParams {
+pub(crate) struct ObjectCopyParams {
     pub source_bucket: String,
     pub source_name: String,
     pub bucket: String,

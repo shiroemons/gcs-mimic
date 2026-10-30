@@ -54,7 +54,11 @@ impl JsonError {
         Self::new(StatusCode::SERVICE_UNAVAILABLE, "backendError", message)
     }
 
-    pub fn new(status: StatusCode, reason: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(
+        status: StatusCode,
+        reason: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             status,
             reason,
@@ -64,15 +68,15 @@ impl JsonError {
         }
     }
 
-    pub fn invalid_parameter(message: impl Into<String>) -> Self {
+    pub(crate) fn invalid_parameter(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalidParameter", message)
     }
 
-    pub fn invalid_argument(message: impl Into<String>) -> Self {
+    pub(crate) fn invalid_argument(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalidArgument", message)
     }
 
-    pub fn forbidden() -> Self {
+    pub(crate) fn forbidden() -> Self {
         Self::new(StatusCode::FORBIDDEN, "forbidden", "Forbidden")
     }
 
@@ -96,7 +100,7 @@ impl JsonError {
         )
     }
 
-    pub fn value(&self) -> Value {
+    pub(crate) fn value(&self) -> Value {
         let mut item = json!({"message": self.message, "domain": "global", "reason": self.reason});
         if let Some(location) = self.header_location {
             item["locationType"] = "header".into();
@@ -105,7 +109,7 @@ impl JsonError {
         json!({"error": {"code": self.status.as_u16(), "message": self.message, "errors": [item]}})
     }
 
-    pub fn into_response(self) -> Response<Full<Bytes>> {
+    pub(crate) fn into_response(self) -> Response<Full<Bytes>> {
         if self.status == StatusCode::NOT_MODIFIED {
             let mut response = Response::new(Full::new(Bytes::new()));
             *response.status_mut() = self.status;

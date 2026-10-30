@@ -14,19 +14,19 @@ use std::collections::BTreeMap;
 /// Whether an object update asks to override an Unlocked retention configuration
 /// (`overrideUnlockedRetention=true`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RetentionOverride {
+pub(crate) enum RetentionOverride {
     Requested,
     NotRequested,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ObjectInsertParams {
+pub(crate) struct ObjectInsertParams {
     pub conditions: ObjectConditions,
     pub projection: Projection,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ObjectGetParams {
+pub(crate) struct ObjectGetParams {
     pub generation: Option<i64>,
     pub conditions: ObjectConditions,
     pub projection: Projection,
@@ -35,7 +35,7 @@ pub struct ObjectGetParams {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ObjectRequest {
+pub(crate) enum ObjectRequest {
     Restore {
         bucket: String,
         name: String,
@@ -88,11 +88,11 @@ pub enum ObjectRequest {
 }
 
 /// Match raw path segments before decoding object names exactly once.
-pub fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, JsonError>> {
+pub(crate) fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, JsonError>> {
     route_object_with_profile(method, uri, CompatProfile::Native)
 }
 
-pub fn route_object_with_profile(
+pub(crate) fn route_object_with_profile(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
@@ -194,7 +194,7 @@ pub fn route_object_with_profile(
 }
 
 /// Validate the flat-namespace requirements, not optional CLI/filesystem recommendations.
-pub fn validate_object_name(name: &str) -> Result<(), JsonError> {
+pub(crate) fn validate_object_name(name: &str) -> Result<(), JsonError> {
     if name.is_empty()
         || name.len() > 1024
         || name.contains(['\r', '\n'])
@@ -501,7 +501,7 @@ fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), JsonErr
 
 /// Parse upload metadata without consuming or collecting the body. Callers read the
 /// destination customer-supplied key separately with [`super::request_key`].
-pub fn parse_object_upload_headers(
+pub(crate) fn parse_object_upload_headers(
     headers: &HeaderMap,
     _conditions: ObjectConditions,
 ) -> Result<(String, ExpectedHashes), JsonError> {
@@ -585,19 +585,22 @@ pub fn parse_object_upload_headers(
 /// What an object request returns. Only media reads honor ranges, so only they must reject the
 /// unsupported `If-Range` validator.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ObjectRead {
+pub(crate) enum ObjectRead {
     Metadata,
     Media,
 }
 
 /// Reject unsupported encryption and range-validator headers explicitly.
 // shortcut: GET/DELETE tokens do not deduplicate retries; add replay storage for strict retry fidelity.
-pub fn validate_object_get_headers(headers: &HeaderMap, read: ObjectRead) -> Result<(), JsonError> {
+pub(crate) fn validate_object_get_headers(
+    headers: &HeaderMap,
+    read: ObjectRead,
+) -> Result<(), JsonError> {
     validate_keyed_object_headers(headers, read, &[])
 }
 
 /// As [`validate_object_get_headers`], leaving the listed key header prefixes to the caller.
-pub fn validate_keyed_object_headers(
+pub(crate) fn validate_keyed_object_headers(
     headers: &HeaderMap,
     read: ObjectRead,
     keys: &[&str],
@@ -642,7 +645,10 @@ pub(crate) fn validate_read_condition_headers(
 }
 
 /// Resolve one byte range against the selected representation; ignored ranges return None.
-pub fn object_media_range(headers: &HeaderMap, size: u64) -> Result<Option<(u64, u64)>, JsonError> {
+pub(crate) fn object_media_range(
+    headers: &HeaderMap,
+    size: u64,
+) -> Result<Option<(u64, u64)>, JsonError> {
     let mut values = headers.get_all("range").iter();
     let Some(value) = values.next() else {
         return Ok(None);
@@ -710,7 +716,7 @@ pub fn object_media_range(headers: &HeaderMap, size: u64) -> Result<Option<(u64,
 }
 
 /// Render the selected immutable generation using the configured advertised endpoint.
-pub fn object_resource(
+pub(crate) fn object_resource(
     object: &ObjectRecord,
     base_url: &str,
     projection: Projection,
@@ -787,7 +793,7 @@ pub fn object_resource(
 }
 
 /// Representation headers for an untranscoded media download.
-pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonError> {
+pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonError> {
     let mut headers = HeaderMap::new();
     for (key, value) in [
         // The transport substitutes stored/default cache metadata only for an allUsers read grant.
@@ -930,7 +936,7 @@ pub(crate) fn object_media_transcoding(
 }
 
 /// XML expansion remains outside the JSON media transcoding scope.
-pub fn validate_object_media_encoding(
+pub(crate) fn validate_object_media_encoding(
     headers: &HeaderMap,
     object: &ObjectRecord,
 ) -> Result<(), JsonError> {

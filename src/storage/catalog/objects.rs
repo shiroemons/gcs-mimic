@@ -55,7 +55,7 @@ pub(super) const SELECT_SOFT_DELETED_GENERATION: &str = concat!(
 );
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ObjectListCursor {
+pub(crate) struct ObjectListCursor {
     pub name: String,
     pub is_prefix: bool,
     pub generation: Option<i64>,
@@ -66,20 +66,20 @@ pub struct ObjectListQuery {
     pub bucket: String,
     pub prefix: String,
     pub delimiter: String,
-    pub match_glob: Option<crate::match_glob::Glob>,
+    pub(crate) match_glob: Option<crate::match_glob::Glob>,
     pub start_offset: String,
     pub end_offset: String,
     pub include_trailing_delimiter: bool,
     pub versions: bool,
     pub soft_deleted: bool,
-    pub cursor: Option<ObjectListCursor>,
+    pub(crate) cursor: Option<ObjectListCursor>,
 }
 
 #[derive(Debug)]
 pub struct ObjectListPage {
     pub items: Vec<ObjectRecord>,
     pub prefixes: Vec<String>,
-    pub next: Option<ObjectListCursor>,
+    pub(crate) next: Option<ObjectListCursor>,
 }
 
 pub(super) const SCHEMA: &str = "CREATE TABLE objects (
@@ -295,6 +295,10 @@ pub(super) fn reclaim(
     if shard.exists() {
         sync_dir(shard).map_err(object_unavailable)?;
     }
+    // Windows has no directory fsync; the shard is still resolved so both platforms reject
+    // the same malformed blob paths.
+    #[cfg(not(unix))]
+    let _ = shard;
     connection
         .execute(
             "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
@@ -482,7 +486,7 @@ impl ObjectReader {
         self.file.into_std().await
     }
 
-    pub async fn set_range(&mut self, offset: u64, length: u64) -> io::Result<()> {
+    pub(crate) async fn set_range(&mut self, offset: u64, length: u64) -> io::Result<()> {
         self.file.seek(io::SeekFrom::Start(offset)).await?;
         self.remaining = length;
         Ok(())

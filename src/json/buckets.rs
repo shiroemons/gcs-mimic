@@ -28,7 +28,7 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "website",
 ];
 
-pub fn validate_bucket_name(name: &str) -> Result<(), JsonError> {
+pub(crate) fn validate_bucket_name(name: &str) -> Result<(), JsonError> {
     let invalid = || JsonError::invalid_parameter("Invalid bucket name");
     let alphanumeric = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
     if name.len() < 3
@@ -221,7 +221,7 @@ fn insert_labels(
     Ok(labels)
 }
 
-pub fn parse_insert_with_profile(
+pub(crate) fn parse_insert_with_profile(
     bytes: &[u8],
     project: &str,
     now: SystemTime,
@@ -338,14 +338,14 @@ pub fn parse_insert_with_profile(
     })
 }
 
-pub fn parse_bucket_patch(
+pub(crate) fn parse_bucket_patch(
     bytes: &[u8],
     profile: CompatProfile,
 ) -> Result<BucketMetadataUpdate, JsonError> {
     parse_bucket_update(bytes, profile, WriteMode::Patch)
 }
 
-pub fn parse_bucket_replacement(
+pub(crate) fn parse_bucket_replacement(
     bytes: &[u8],
     profile: CompatProfile,
 ) -> Result<BucketMetadataUpdate, JsonError> {
@@ -679,7 +679,8 @@ pub(crate) fn reject_predefined_acl(
 }
 
 /// Render supported metadata using a caller-validated advertised origin/base path.
-pub fn bucket_resource(
+#[cfg(test)]
+pub(crate) fn bucket_resource(
     bucket: &BucketRecord,
     base_url: &str,
     projection: Projection,
@@ -687,7 +688,7 @@ pub fn bucket_resource(
     bucket_resource_with_profile(bucket, base_url, projection, CompatProfile::Native)
 }
 
-pub fn bucket_resource_with_profile(
+pub(crate) fn bucket_resource_with_profile(
     bucket: &BucketRecord,
     base_url: &str,
     projection: Projection,
@@ -777,7 +778,8 @@ pub(crate) fn bucket_etag(bucket: &BucketRecord) -> String {
 }
 
 /// Render one already bounded, sorted catalog page; the caller decides whether a token is due.
-pub fn bucket_list(
+#[cfg(test)]
+pub(crate) fn bucket_list(
     buckets: &[BucketRecord],
     next_page_token: Option<&str>,
     base_url: &str,
@@ -792,7 +794,7 @@ pub fn bucket_list(
     )
 }
 
-pub fn bucket_list_with_profile(
+pub(crate) fn bucket_list_with_profile(
     buckets: &[BucketRecord],
     next_page_token: Option<&str>,
     base_url: &str,

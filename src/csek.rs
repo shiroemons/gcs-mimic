@@ -9,15 +9,15 @@
 use hyper::HeaderMap;
 
 /// The only algorithm Cloud Storage accepts for customer-supplied keys.
-pub const ALGORITHM: &str = "AES256";
+pub(crate) const ALGORITHM: &str = "AES256";
 
 /// Header prefix carrying the key that encrypts (or decrypts) the addressed object.
-pub const DESTINATION_PREFIX: &str = "x-goog-encryption-";
+pub(crate) const DESTINATION_PREFIX: &str = "x-goog-encryption-";
 /// Header prefix carrying the source object's key on copy and rewrite.
-pub const SOURCE_PREFIX: &str = "x-goog-copy-source-encryption-";
+pub(crate) const SOURCE_PREFIX: &str = "x-goog-copy-source-encryption-";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CsekError {
+pub(crate) enum CsekError {
     AlgorithmInvalid,
     KeyFormatInvalid,
     KeySha256Invalid,
@@ -37,7 +37,7 @@ impl CsekError {
     ];
 
     /// JSON API error reason; every CSEK failure is a 400 in both APIs.
-    pub fn reason(self) -> &'static str {
+    pub(crate) fn reason(self) -> &'static str {
         match self {
             Self::AlgorithmInvalid => "customerEncryptionAlgorithmIsInvalid",
             Self::KeyFormatInvalid => "customerEncryptionKeyFormatIsInvalid",
@@ -49,7 +49,7 @@ impl CsekError {
     }
 
     /// XML API error code for the same condition.
-    pub fn xml_code(self) -> &'static str {
+    pub(crate) fn xml_code(self) -> &'static str {
         match self {
             Self::AlgorithmInvalid => "CustomerEncryptionAlgorithmIsInvalid",
             Self::KeyFormatInvalid => "CustomerEncryptionKeyFormatIsInvalid",
@@ -60,7 +60,7 @@ impl CsekError {
         }
     }
 
-    pub fn message(self) -> &'static str {
+    pub(crate) fn message(self) -> &'static str {
         match self {
             Self::AlgorithmInvalid => {
                 "Missing an encryption algorithm, or the provided algorithm is not \"AES256\"."
@@ -81,7 +81,7 @@ impl CsekError {
         }
     }
 
-    pub fn from_reason(reason: &str) -> Option<Self> {
+    pub(crate) fn from_reason(reason: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|error| error.reason() == reason)
     }
 }
@@ -94,21 +94,21 @@ impl std::fmt::Display for CsekError {
 
 /// A verified key reduced to its SHA-256 fingerprint; the raw key is never retained.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CustomerKey {
+pub(crate) struct CustomerKey {
     sha256: [u8; 32],
 }
 
 impl CustomerKey {
-    pub fn from_sha256(sha256: [u8; 32]) -> Self {
+    pub(crate) fn from_sha256(sha256: [u8; 32]) -> Self {
         Self { sha256 }
     }
 
-    pub fn sha256(self) -> [u8; 32] {
+    pub(crate) fn sha256(self) -> [u8; 32] {
         self.sha256
     }
 
     /// Validate the algorithm, the 256-bit key and its declared fingerprint.
-    pub fn parse(
+    pub(crate) fn parse(
         algorithm: Option<&[u8]>,
         key: Option<&[u8]>,
         sha256: Option<&[u8]>,
@@ -135,7 +135,10 @@ impl CustomerKey {
     }
 
     /// Read one key from `prefix` + `algorithm` / `key` / `key-sha256`; repeated headers are invalid.
-    pub fn from_headers(headers: &HeaderMap, prefix: &str) -> Result<Option<Self>, CsekError> {
+    pub(crate) fn from_headers(
+        headers: &HeaderMap,
+        prefix: &str,
+    ) -> Result<Option<Self>, CsekError> {
         let single = |suffix: &str, error: CsekError| {
             let name = format!("{prefix}{suffix}");
             let mut values = headers.get_all(name.as_str()).iter();
@@ -154,7 +157,7 @@ impl CustomerKey {
 }
 
 /// Reading object data requires exactly the key the object was written with.
-pub fn check_data(
+pub(crate) fn check_data(
     stored: Option<[u8; 32]>,
     supplied: Option<CustomerKey>,
 ) -> Result<(), CsekError> {
@@ -168,7 +171,7 @@ pub fn check_data(
 
 /// Metadata is readable without a key; a supplied key must still be the right one.
 /// Returns whether hashes of the stored bytes may be revealed.
-pub fn check_metadata(
+pub(crate) fn check_metadata(
     stored: Option<[u8; 32]>,
     supplied: Option<CustomerKey>,
 ) -> Result<bool, CsekError> {
@@ -180,13 +183,13 @@ pub fn check_metadata(
 
 /// Whether `name` is one of the three key headers under `prefix`. Other names sharing the
 /// prefix (for example `x-goog-encryption-kms-key-name`) are not customer-supplied keys.
-pub fn is_key_header(name: &str, prefix: &str) -> bool {
+pub(crate) fn is_key_header(name: &str, prefix: &str) -> bool {
     name.strip_prefix(prefix)
         .is_some_and(|suffix| matches!(suffix, "algorithm" | "key" | "key-sha256"))
 }
 
 /// Keys apply only to object data routes; other routes reject them instead of ignoring them.
-pub fn has_headers(headers: &HeaderMap, prefix: &str) -> Option<String> {
+pub(crate) fn has_headers(headers: &HeaderMap, prefix: &str) -> Option<String> {
     headers
         .keys()
         .find(|name| is_key_header(name.as_str(), prefix))

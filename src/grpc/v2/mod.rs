@@ -1,10 +1,10 @@
 mod append;
 mod bidi_read;
 mod buckets;
-pub mod convert;
-pub mod names;
+pub(crate) mod convert;
+pub(crate) mod names;
 mod object_io;
-pub mod status;
+pub(crate) mod status;
 #[cfg(test)]
 mod tests;
 mod update_copy;
@@ -17,15 +17,15 @@ use crate::{
 use std::{pin::Pin, sync::Arc};
 use tonic::{Request, Response, Status, Streaming};
 
-pub type ResponseStream<T> =
+pub(crate) type ResponseStream<T> =
     Pin<Box<dyn tonic::codegen::tokio_stream::Stream<Item = Result<T, Status>> + Send>>;
 
-pub struct Storage {
+pub(crate) struct Storage {
     pub state: Arc<State>,
     pub max_object_bytes: u64,
 }
 
-pub fn service(
+pub(crate) fn service(
     state: Arc<State>,
     max_object_bytes: u64,
 ) -> pb::storage_server::StorageServer<Storage> {
@@ -37,7 +37,7 @@ pub fn service(
     .max_encoding_message_size(4 * 1024 * 1024)
 }
 
-pub fn known_method(path: &str) -> bool {
+pub(crate) fn known_method(path: &str) -> bool {
     path.strip_prefix("/google.storage.v2.Storage/")
         .is_some_and(|method| {
             matches!(
@@ -71,7 +71,10 @@ pub fn known_method(path: &str) -> bool {
 }
 
 impl Storage {
-    pub fn authenticate<T>(&self, request: &Request<T>) -> Result<Option<Caller<'_>>, Status> {
+    pub(crate) fn authenticate<T>(
+        &self,
+        request: &Request<T>,
+    ) -> Result<Option<Caller<'_>>, Status> {
         let headers = request.metadata().clone().into_headers();
         let caller = self
             .state

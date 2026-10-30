@@ -24,7 +24,7 @@ use std::{fs::File, io, sync::Arc};
 mod live_export;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) use live_export::inject_failure as inject_live_export_failure;
-pub use live_export::{LiveExport, LiveResult};
+pub(crate) use live_export::{LiveExport, LiveResult};
 
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_writeback_roots (
     root_id BLOB PRIMARY KEY REFERENCES sync_roots(root_id),
@@ -77,7 +77,7 @@ pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), Cat
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Error {
+pub(crate) enum Error {
     Admin(AdminError),
     Root(RootError),
     Capacity,
@@ -134,12 +134,12 @@ fn stale() -> Error {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Limits {
+pub(crate) struct Limits {
     bytes: u64,
     entries: u64,
 }
 impl Limits {
-    pub fn new(bytes: u64, entries: u64) -> Result<Self, Error> {
+    pub(crate) fn new(bytes: u64, entries: u64) -> Result<Self, Error> {
         if !(1..=1_099_511_627_776).contains(&bytes) || !(1..=1_000_000).contains(&entries) {
             return Err(AdminError::Invalid("invalid write-back limits".into()).into());
         }
@@ -148,12 +148,12 @@ impl Limits {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind {
+pub(crate) enum Kind {
     Publish,
     Remove,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Phase {
+pub(crate) enum Phase {
     Prepared,
     Armed,
     Protected,
@@ -173,27 +173,33 @@ impl Phase {
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Token {
+pub(crate) struct Token {
     catalog: CatalogId,
     root: RootId,
     id: String,
     revision: i64,
 }
 impl Token {
-    pub fn id(&self) -> &str {
+    #[cfg(all(test, unix))]
+    pub(crate) fn id(&self) -> &str {
         &self.id
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WorkspaceEntry(String);
+pub(crate) struct WorkspaceEntry(String);
 impl WorkspaceEntry {
-    pub fn name(&self) -> &str {
+    #[cfg(all(test, unix))]
+    pub(crate) fn name(&self) -> &str {
         &self.0
     }
 }
 #[derive(Clone, Debug)]
-pub struct Pending {
+pub(crate) struct Pending {
     pub token: Token,
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(dead_code, reason = "only unit tests read this field")
+    )]
     pub ordinal: i64,
     pub owner: String,
     pub bucket: String,
@@ -203,7 +209,15 @@ pub struct Pending {
     pub generation: Generation,
     pub kind: Kind,
     pub phase: Phase,
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(dead_code, reason = "only unit tests read this field")
+    )]
     pub fence: JournalFence,
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(dead_code, reason = "only unit tests read this field")
+    )]
     pub workspace_entry: WorkspaceEntry,
     pub reserved_bytes: u64,
     pub retained_bytes: Option<u64>,
@@ -212,7 +226,7 @@ pub struct Pending {
     crc32c: u32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Stop {
+pub(crate) enum Stop {
     Ready,
     RecoveryRequired,
     ProtectedBody,
@@ -220,7 +234,7 @@ pub enum Stop {
     IoFailure,
 }
 #[derive(Clone, Debug)]
-pub struct Status {
+pub(crate) struct Status {
     pub reserved_bytes: u128,
     pub retained_bytes: u128,
     pub entries: u64,
@@ -252,22 +266,23 @@ impl Status {
 }
 
 /// Created only after storage verifies file and parent durability on its owned worker.
-pub struct DurableReceipt {
+#[cfg(all(test, unix))]
+pub(crate) struct DurableReceipt {
     token: Token,
     fingerprint: Option<SyncFingerprint>,
     lease: RootLease,
 }
 
 #[derive(Clone)]
-pub struct Writeback {
+pub(crate) struct Writeback {
     lease: RootLease,
     workspace: Arc<File>,
 }
 
+#[cfg(all(test, unix))]
 mod unpublished;
-pub use unpublished::Unpublished;
 impl RootLease {
-    pub async fn writeback(&self, limits: Limits) -> Result<Writeback, Error> {
+    pub(crate) async fn writeback(&self, limits: Limits) -> Result<Writeback, Error> {
         let permit = self
             .catalog()
             .wait_admin(
@@ -347,6 +362,7 @@ macro_rules! pending_columns {
         "id,ordinal,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,retained,size,md5,crc32c"
     };
 }
+#[cfg(all(test, unix))]
 const SELECT_PENDING_PAGE: &str = concat!(
     "SELECT ",
     pending_columns!(),
@@ -605,7 +621,8 @@ impl Writeback {
     }
     /// Keeps the selected workspace descriptor and root/catalog leases through worker drain.
     /// The closure must finish its work before returning; directory descriptors must not escape it.
-    pub async fn file_job<T: Send + 'static>(
+    #[cfg(all(test, unix))]
+    pub(crate) async fn file_job<T: Send + 'static>(
         &self,
         token: Token,
         job: impl FnOnce(&File, &File) -> Result<T, AdminError> + Send + 'static,
@@ -693,7 +710,7 @@ impl Writeback {
         }
         Ok(())
     }
-    pub async fn status(&self) -> Result<Status, Error> {
+    pub(crate) async fn status(&self) -> Result<Status, Error> {
         let this = self.clone();
         self.serial(async move { this.status_inner().await }).await
     }
@@ -702,11 +719,13 @@ impl Writeback {
         let root = self.identities().1;
         self.db(move |c| status(c, root)).await
     }
-    pub async fn page(&self, after: i64, limit: usize) -> Result<Vec<Pending>, Error> {
+    #[cfg(all(test, unix))]
+    pub(crate) async fn page(&self, after: i64, limit: usize) -> Result<Vec<Pending>, Error> {
         let this = self.clone();
         self.serial(async move { this.page_inner(after, limit).await })
             .await
     }
+    #[cfg(all(test, unix))]
     async fn page_inner(&self, after: i64, limit: usize) -> Result<Vec<Pending>, Error> {
         if after < 0 || !(1..=256).contains(&limit) {
             return Err(AdminError::Invalid("invalid pending page".into()).into());
@@ -722,13 +741,15 @@ impl Writeback {
         })
         .await
     }
-    pub async fn get(&self, id: &str) -> Result<Pending, Error> {
+    #[cfg(all(test, unix))]
+    pub(crate) async fn get(&self, id: &str) -> Result<Pending, Error> {
         if BlobId::parse(id).is_none() {
             return Err(stale());
         }
         let (this, id) = (self.clone(), id.to_owned());
         self.serial(async move { this.get_inner(&id).await }).await
     }
+    #[cfg(all(test, unix))]
     async fn get_inner(&self, id: &str) -> Result<Pending, Error> {
         self.fs(|_, _| Ok(())).await?;
         if BlobId::parse(id).is_none() {
@@ -738,7 +759,8 @@ impl Writeback {
         let id = id.to_owned();
         self.db(move |c| load(c, catalog, root, &id)).await
     }
-    pub async fn prepare(
+    #[cfg(all(test, unix))]
+    pub(crate) async fn prepare(
         &self,
         bucket: &BucketName,
         name: &ObjectName,
@@ -753,6 +775,7 @@ impl Writeback {
         })
         .await
     }
+    #[cfg(all(test, unix))]
     async fn prepare_inner(
         &self,
         bucket: &BucketName,
@@ -798,12 +821,14 @@ impl Writeback {
             usage.entries+=1;usage.reserved_bytes+=u128::from(reservation);save_status(&tx,root,&usage)?;tx.commit()?;Ok(item)
         }).await
     }
-    pub async fn arm(&self, token: Token) -> Result<Pending, Error> {
+    #[cfg(all(test, unix))]
+    pub(crate) async fn arm(&self, token: Token) -> Result<Pending, Error> {
         self.token(&token)?;
         let this = self.clone();
         self.serial(async move { this.arm_inner(token).await })
             .await
     }
+    #[cfg(all(test, unix))]
     async fn arm_inner(&self, token: Token) -> Result<Pending, Error> {
         self.token(&token)?;
         self.fs(|_, _| Ok(())).await?;
@@ -834,7 +859,8 @@ impl Writeback {
         })
         .await
     }
-    pub async fn inspect(&self, token: Token) -> Result<Pending, Error> {
+    #[cfg(all(test, unix))]
+    pub(crate) async fn inspect(&self, token: Token) -> Result<Pending, Error> {
         self.token(&token)?;
         let this = self.clone();
         self.serial(async move { this.inspect_inner(token).await })
@@ -894,12 +920,14 @@ impl Writeback {
         }
         Ok(next)
     }
-    pub async fn durable(&self, token: Token) -> Result<DurableReceipt, Error> {
+    #[cfg(all(test, unix))]
+    pub(crate) async fn durable(&self, token: Token) -> Result<DurableReceipt, Error> {
         self.token(&token)?;
         let this = self.clone();
         self.serial(async move { this.durable_inner(token).await })
             .await
     }
+    #[cfg(all(test, unix))]
     async fn durable_inner(&self, token: Token) -> Result<DurableReceipt, Error> {
         let item = self.inspect_inner(token).await?;
         if item.phase == Phase::Protected {
@@ -937,7 +965,8 @@ impl Writeback {
             lease: self.lease.clone(),
         })
     }
-    pub async fn acknowledge(
+    #[cfg(all(test, unix))]
+    pub(crate) async fn acknowledge(
         &self,
         receipt: DurableReceipt,
         progress: Option<JournalFence>,
@@ -947,6 +976,7 @@ impl Writeback {
         self.serial(async move { this.ack_inner(receipt, progress).await })
             .await
     }
+    #[cfg(all(test, unix))]
     async fn ack_inner(
         &self,
         receipt: DurableReceipt,
@@ -1004,10 +1034,12 @@ impl Writeback {
             tx.commit()?;Ok(complete)
         }).await
     }
-    pub async fn resume(&self) -> Result<Status, Error> {
+    #[cfg(all(test, unix))]
+    pub(crate) async fn resume(&self) -> Result<Status, Error> {
         let this = self.clone();
         self.serial(async move { this.resume_inner().await }).await
     }
+    #[cfg(all(test, unix))]
     async fn resume_inner(&self) -> Result<Status, Error> {
         self.fs(|_, _| Ok(())).await?;
         let root = self.identities().1;
@@ -1030,11 +1062,13 @@ impl Writeback {
         })
         .await
     }
-    pub async fn checkpoint(&self, fence: JournalFence) -> Result<(), Error> {
+    #[cfg(all(test, unix))]
+    pub(crate) async fn checkpoint(&self, fence: JournalFence) -> Result<(), Error> {
         let this = self.clone();
         self.serial(async move { this.checkpoint_inner(fence).await })
             .await
     }
+    #[cfg(all(test, unix))]
     async fn checkpoint_inner(&self, fence: JournalFence) -> Result<(), Error> {
         self.fs(|_, _| Ok(())).await?;
         let root = self.identities().1;
@@ -1073,6 +1107,7 @@ fn checked(c: &Connection, token: &Token) -> Result<Pending, Error> {
     }
     Ok(item)
 }
+#[cfg(all(test, unix))]
 fn advance(
     tx: &Transaction<'_>,
     root: RootId,

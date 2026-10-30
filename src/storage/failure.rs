@@ -30,7 +30,7 @@ pub struct BackendCause {
 
 impl BackendCause {
     /// A cause with a fixed or formatted message and no underlying error.
-    pub fn new(message: impl Into<Cow<'static, str>>) -> Self {
+    pub(crate) fn new(message: impl Into<Cow<'static, str>>) -> Self {
         Self {
             message: message.into(),
             source: None,
@@ -38,7 +38,7 @@ impl BackendCause {
     }
 
     /// A cause whose message is the error's `Display` text.
-    pub fn from_error(error: impl Error + Send + Sync + 'static) -> Self {
+    pub(crate) fn from_error(error: impl Error + Send + Sync + 'static) -> Self {
         Self {
             message: error.to_string().into(),
             source: Some(Arc::new(error)),
@@ -46,7 +46,7 @@ impl BackendCause {
     }
 
     /// A cause with a contextual message that already describes `error`.
-    pub fn with_source(
+    pub(crate) fn with_source(
         message: impl Into<Cow<'static, str>>,
         error: impl Error + Send + Sync + 'static,
     ) -> Self {
@@ -56,11 +56,11 @@ impl BackendCause {
         }
     }
 
-    pub fn message(&self) -> &str {
+    pub(crate) fn message(&self) -> &str {
         &self.message
     }
 
-    pub fn source(&self) -> Option<&(dyn Error + 'static)> {
+    pub(crate) fn source(&self) -> Option<&(dyn Error + 'static)> {
         self.source
             .as_deref()
             .map(|error| error as &(dyn Error + 'static))
@@ -114,11 +114,11 @@ pub struct IoCause {
 }
 
 impl IoCause {
-    pub fn kind(&self) -> io::ErrorKind {
+    pub(crate) fn kind(&self) -> io::ErrorKind {
         self.kind
     }
 
-    pub fn source(&self) -> Option<&(dyn Error + 'static)> {
+    pub(crate) fn source(&self) -> Option<&(dyn Error + 'static)> {
         self.source
             .as_deref()
             .map(|error| error as &(dyn Error + 'static))

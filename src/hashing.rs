@@ -8,15 +8,19 @@ use md5::{
 };
 use std::io;
 
+#[cfg(test)]
 const STATE_FORMAT: u8 = 1;
 const MD5_STATE_BYTES: usize = <Md5 as SerializableState>::SerializedStateSize::USIZE;
 const _: () = assert!(MD5_STATE_BYTES == 88);
+#[cfg(test)]
 const MD5_STATE_START: usize = 1 + size_of::<u64>();
+#[cfg(test)]
 const CRC32C_START: usize = MD5_STATE_START + MD5_STATE_BYTES;
-pub const HASHER_STATE_BYTES: usize = CRC32C_START + size_of::<u32>();
+#[cfg(test)]
+pub(crate) const HASHER_STATE_BYTES: usize = CRC32C_START + size_of::<u32>();
 
 #[derive(Clone, Default)]
-pub struct Hasher {
+pub(crate) struct Hasher {
     md5: Md5,
     crc32c: u32,
     bytes: u64,
@@ -24,18 +28,20 @@ pub struct Hasher {
 
 /// Format 1 pins md-5 0.11's ABI; incompatible upgrades require rehashing bodies.
 #[derive(Clone)]
-pub struct HasherState(Hasher);
+#[cfg(test)]
+pub(crate) struct HasherState(Hasher);
 
 fn invalid_state() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "invalid serialized hash state")
 }
 
+#[cfg(test)]
 impl HasherState {
-    pub fn bytes(&self) -> u64 {
+    pub(crate) fn bytes(&self) -> u64 {
         self.0.bytes
     }
 
-    pub fn to_bytes(&self) -> [u8; HASHER_STATE_BYTES] {
+    pub(crate) fn to_bytes(&self) -> [u8; HASHER_STATE_BYTES] {
         let mut bytes = [0; HASHER_STATE_BYTES];
         bytes[0] = STATE_FORMAT;
         bytes[1..MD5_STATE_START].copy_from_slice(&self.0.bytes.to_be_bytes());
@@ -44,7 +50,7 @@ impl HasherState {
         bytes
     }
 
-    pub fn from_bytes(input: &[u8]) -> io::Result<Self> {
+    pub(crate) fn from_bytes(input: &[u8]) -> io::Result<Self> {
         let input: &[u8; HASHER_STATE_BYTES] = input.try_into().map_err(|_| invalid_state())?;
         if input[0] != STATE_FORMAT {
             return Err(invalid_state());
@@ -78,7 +84,7 @@ impl HasherState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-pub struct Hashes {
+pub(crate) struct Hashes {
     pub md5: [u8; 16],
     pub crc32c: u32,
 }
@@ -108,23 +114,25 @@ impl Hasher {
         (self.md5.serialize().into(), self.crc32c)
     }
 
-    pub fn update(&mut self, bytes: &[u8]) {
+    pub(crate) fn update(&mut self, bytes: &[u8]) {
         // Object-size admission bounds callers far below the u64 byte-count limit.
         debug_assert!(self.bytes.checked_add(bytes.len() as u64).is_some());
         self.bytes = self.bytes.wrapping_add(bytes.len() as u64);
         self.md5.update(bytes);
         self.crc32c = crc32c::crc32c_append(self.crc32c, bytes);
     }
-    pub fn finish(self) -> Hashes {
+    pub(crate) fn finish(self) -> Hashes {
         Hashes {
             md5: self.md5.finalize().into(),
             crc32c: self.crc32c,
         }
     }
-    pub fn save(&self) -> HasherState {
+    #[cfg(test)]
+    pub(crate) fn save(&self) -> HasherState {
         HasherState(self.clone())
     }
-    pub fn resume(state: HasherState, offset: u64) -> io::Result<Self> {
+    #[cfg(test)]
+    pub(crate) fn resume(state: HasherState, offset: u64) -> io::Result<Self> {
         if state.bytes() != offset {
             return Err(invalid_state());
         }

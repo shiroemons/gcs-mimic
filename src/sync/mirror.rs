@@ -64,15 +64,21 @@ pub struct Reconciliation {
 pub struct Task {
     stop: tokio::sync::watch::Sender<bool>,
     done: tokio::sync::oneshot::Receiver<()>,
+    // Holding the sender keeps the worker's rescan channel open for the task's lifetime.
+    #[cfg_attr(
+        not(all(test, any(target_os = "linux", target_os = "macos"))),
+        expect(dead_code, reason = "only unit tests request a rescan")
+    )]
     rescan: tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<io::Result<Reconciliation>>>,
 }
 impl Task {
-    pub async fn rescan(&self) -> io::Result<Reconciliation> {
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) async fn rescan(&self) -> io::Result<Reconciliation> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         self.rescan.send(sender).await.map_err(io::Error::other)?;
         receiver.await.map_err(io::Error::other)?
     }
-    pub fn stop(&self) {
+    pub(crate) fn stop(&self) {
         self.stop.send_replace(true);
     }
     pub async fn finish(self) -> io::Result<()> {

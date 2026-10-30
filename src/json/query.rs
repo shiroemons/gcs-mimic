@@ -5,33 +5,33 @@ use hyper::{Method, StatusCode, Uri};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Projection {
+pub(crate) enum Projection {
     #[default]
     NoAcl,
     Full,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Conditions {
+pub(crate) struct Conditions {
     pub if_metageneration_match: Option<i64>,
     pub if_metageneration_not_match: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InsertParams {
+pub(crate) struct InsertParams {
     pub project: String,
     pub projection: Projection,
     pub enable_object_retention: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct GetParams {
+pub(crate) struct GetParams {
     pub conditions: Conditions,
     pub projection: Projection,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ListParams {
+pub(crate) struct ListParams {
     pub project: String,
     pub projection: Projection,
     pub max_results: u32,
@@ -41,7 +41,7 @@ pub struct ListParams {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BucketRequest {
+pub(crate) enum BucketRequest {
     LockRetentionPolicy {
         bucket: String,
         metageneration: i64,
@@ -77,7 +77,8 @@ pub enum BucketRequest {
 }
 
 /// Match the raw URI before decoding any bucket path segment.
-pub fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, JsonError>> {
+#[cfg(test)]
+pub(crate) fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, JsonError>> {
     route_with_profile(method, uri, CompatProfile::Native, "local-project")
 }
 
@@ -160,7 +161,7 @@ fn parse_iam(
     }
 }
 
-pub fn route_with_profile(
+pub(crate) fn route_with_profile(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
@@ -431,7 +432,7 @@ fn project(query: &mut BTreeMap<String, String>) -> Result<String, JsonError> {
     Ok(project)
 }
 
-pub fn validate_project(project: &str) -> Result<(), JsonError> {
+pub(crate) fn validate_project(project: &str) -> Result<(), JsonError> {
     if project.is_empty()
         || project.len() > 256
         || project

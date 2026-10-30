@@ -85,7 +85,7 @@ fn content_type(value: &str) -> Result<(String, Vec<(String, String)>), JsonErro
     Ok((mime.to_ascii_lowercase(), params))
 }
 
-pub fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
+pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
     let value = headers
         .get("content-type")
         .ok_or_else(invalid)?
@@ -106,7 +106,7 @@ pub fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
 }
 
 /// XML POST Object forms use the same RFC 2046 boundary grammar as multipart/related.
-pub fn form_data_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
+pub(crate) fn form_data_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
     let value = headers
         .get("content-type")
         .ok_or_else(invalid)?
@@ -147,7 +147,7 @@ fn boundary(params: &[(String, String)]) -> Result<String, JsonError> {
 /// Which part of a multipart upload a header block introduces. The metadata part must be
 /// `application/json`; the media part may declare any valid content type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PartKind {
+pub(crate) enum PartKind {
     Metadata,
     Media,
 }
@@ -159,7 +159,7 @@ enum LineEnd {
     CrlfOrEof,
 }
 
-pub struct Multipart<B> {
+pub(crate) struct Multipart<B> {
     body: B,
     pending: Bytes,
     buffer: BytesMut,
@@ -169,7 +169,7 @@ pub struct Multipart<B> {
 }
 
 impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
-    pub fn new(body: B, boundary: &str) -> Self {
+    pub(crate) fn new(body: B, boundary: &str) -> Self {
         Self {
             body,
             pending: Bytes::new(),
@@ -242,7 +242,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         Ok(())
     }
 
-    pub async fn start(&mut self) -> Result<(), JsonError> {
+    pub(crate) async fn start(&mut self) -> Result<(), JsonError> {
         let mut discarded = 0;
         loop {
             if let Some(index) = self
@@ -269,11 +269,11 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 
     /// Whether the closing delimiter has been read, so no further part follows.
-    pub fn closed(&self) -> bool {
+    pub(crate) fn closed(&self) -> bool {
         self.closed
     }
 
-    pub async fn headers(&mut self, part: PartKind) -> Result<Option<String>, JsonError> {
+    pub(crate) async fn headers(&mut self, part: PartKind) -> Result<Option<String>, JsonError> {
         let headers = self.part_headers().await?;
         let value = headers
             .get("content-type")
@@ -300,7 +300,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 
     /// Read one bounded part header block; form-data callers need Content-Disposition.
-    pub async fn part_headers(&mut self) -> Result<HeaderMap, JsonError> {
+    pub(crate) async fn part_headers(&mut self) -> Result<HeaderMap, JsonError> {
         if self.closed {
             return Err(invalid());
         }
@@ -336,7 +336,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         Ok(headers)
     }
 
-    pub async fn next_chunk(&mut self) -> Result<Option<Bytes>, JsonError> {
+    pub(crate) async fn next_chunk(&mut self) -> Result<Option<Bytes>, JsonError> {
         loop {
             if let Some(index) = self
                 .buffer
@@ -360,7 +360,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         }
     }
 
-    pub async fn metadata(&mut self) -> Result<Vec<u8>, JsonError> {
+    pub(crate) async fn metadata(&mut self) -> Result<Vec<u8>, JsonError> {
         self.start().await?;
         self.headers(PartKind::Metadata).await?;
         let mut bytes = Vec::new();
@@ -380,7 +380,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         Ok(bytes)
     }
 
-    pub async fn finish(&mut self) -> Result<(), JsonError> {
+    pub(crate) async fn finish(&mut self) -> Result<(), JsonError> {
         if !self.closed {
             return Err(invalid());
         }
@@ -399,7 +399,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         }
     }
 
-    pub async fn checksums(
+    pub(crate) async fn checksums(
         &mut self,
         expected: ExpectedHashes,
     ) -> Result<ExpectedHashes, JsonError> {
@@ -440,7 +440,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 }
 
-pub fn multipart_metadata(
+pub(crate) fn multipart_metadata(
     bytes: &[u8],
     query_name: Option<String>,
     expected: ExpectedHashes,

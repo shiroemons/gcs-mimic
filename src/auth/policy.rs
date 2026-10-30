@@ -10,13 +10,13 @@ pub(crate) enum PublicAccess {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Binding {
+pub(crate) struct Binding {
     pub role: String,
     pub members: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Policy {
+pub(crate) struct Policy {
     pub bindings: Vec<Binding>,
     pub etag: Option<String>,
 }

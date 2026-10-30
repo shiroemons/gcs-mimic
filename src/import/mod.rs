@@ -1,7 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 //! Read-only inspection of pinned fake-gcs-server durable filesystem snapshots.
 
-pub mod codec;
+pub(crate) mod codec;
 mod filesystem;
 mod reader;
 #[cfg(test)]
@@ -23,11 +23,11 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-pub const SOURCE_REVISION: &str = "896ece51e49eed0946089f3089f6343855c0d106";
-pub const PAGE_SIZE: usize = 256;
+pub(crate) const SOURCE_REVISION: &str = "896ece51e49eed0946089f3089f6343855c0d106";
+pub(crate) const PAGE_SIZE: usize = 256;
 const PUBLICATION_PAGE_SIZE: usize = 8;
-pub const FINGERPRINT_FORMAT: u8 = 1;
-pub const HELP: &str = "Usage: gcs-mimic import fake-gcs-server --source DIR --data-dir NEW
+pub(crate) const FINGERPRINT_FORMAT: u8 = 1;
+pub(crate) const HELP: &str = "Usage: gcs-mimic import fake-gcs-server --source DIR --data-dir NEW
        --metadata-mode xattr|sidecar --source-platform unix|windows [--dry-run [--verify-bodies]]
 
 Import a stopped writer's durable filesystem snapshot without changing the source.
@@ -175,7 +175,7 @@ impl Options {
 }
 
 #[derive(Debug, Serialize)]
-pub struct Finding {
+pub(crate) struct Finding {
     pub diagnostic: Diagnostic,
     pub reason: String,
     pub blocking: bool,
@@ -187,7 +187,7 @@ pub struct Finding {
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum Record {
+pub(crate) enum Record {
     Bucket {
         path: String,
         name: String,
@@ -218,7 +218,7 @@ pub enum Record {
 }
 
 #[derive(Default, Serialize)]
-pub struct Page {
+pub(crate) struct Page {
     pub records: Vec<Record>,
     pub findings: Vec<Finding>,
 }

@@ -6,7 +6,10 @@ use hyper::{
 };
 
 /// Collect at most `cap` bytes; the caller must also bound transport frames and read time.
-pub async fn read_body<B: Body + Unpin>(mut body: B, cap: usize) -> Result<Vec<u8>, JsonError> {
+pub(crate) async fn read_body<B: Body + Unpin>(
+    mut body: B,
+    cap: usize,
+) -> Result<Vec<u8>, JsonError> {
     let too_large = || {
         JsonError::new(
             StatusCode::PAYLOAD_TOO_LARGE,

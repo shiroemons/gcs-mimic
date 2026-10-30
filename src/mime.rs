@@ -28,7 +28,7 @@ static TYPES: LazyLock<BTreeMap<&str, &str>> = LazyLock::new(|| {
 });
 
 impl SeedContentType {
-    pub fn for_name(self, name: &str) -> &'static str {
+    pub(crate) fn for_name(self, name: &str) -> &'static str {
         if self == Self::Extension {
             let leaf = name.rsplit('/').next().unwrap_or(name);
             if let Some(dot) = leaf.rfind('.') {

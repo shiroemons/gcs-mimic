@@ -95,7 +95,7 @@ pub struct PublicOrigin {
 }
 
 impl PublicOrigin {
-    pub fn parse(value: &str) -> Result<Self, UrlError> {
+    pub(crate) fn parse(value: &str) -> Result<Self, UrlError> {
         let base = normalize_base_url(value)?;
         let uri: hyper::Uri = base.parse().map_err(|_| UrlError::InvalidBaseUrl)?;
         if !uri.path().trim_matches('/').is_empty() {
@@ -155,7 +155,7 @@ impl PublicOrigin {
         &self.base
     }
 
-    pub fn dns_name(&self) -> Option<&str> {
+    pub(crate) fn dns_name(&self) -> Option<&str> {
         match &self.host {
             OriginHost::Dns(name) => Some(name),
             _ => None,
@@ -169,7 +169,7 @@ impl PublicOrigin {
 
 /// Validate an advertised base URL with the same rules as `api_base_url` and trim trailing
 /// slashes so callers can append `/<path>` without producing `//`.
-pub fn normalize_base_url(value: &str) -> Result<String, UrlError> {
+pub(crate) fn normalize_base_url(value: &str) -> Result<String, UrlError> {
     let uri: hyper::Uri = value.parse().map_err(|_| UrlError::InvalidBaseUrl)?;
     if !matches!(uri.scheme_str(), Some("http" | "https"))
         || uri.authority().is_none_or(|a| a.as_str().contains('@'))
@@ -186,7 +186,7 @@ pub fn normalize_base_url(value: &str) -> Result<String, UrlError> {
 }
 
 /// Normalize a public origin before deriving routing domains or signing helper URLs.
-pub fn normalize_public_base_url(value: &str) -> Result<String, UrlError> {
+pub(crate) fn normalize_public_base_url(value: &str) -> Result<String, UrlError> {
     PublicOrigin::parse(value).map(|origin| origin.base)
 }
 

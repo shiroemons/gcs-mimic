@@ -5,7 +5,7 @@ use crate::{
 };
 use prost_types::{Duration, Timestamp};
 
-pub fn bucket(record: &BucketRecord) -> pb::Bucket {
+pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
     pb::Bucket {
         name: format!("projects/_/buckets/{}", record.name),
         bucket_id: record.name.clone(),
@@ -82,7 +82,7 @@ pub fn bucket(record: &BucketRecord) -> pb::Bucket {
     }
 }
 
-pub fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status> {
+pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status> {
     let custom_time = record.custom_time.as_ref().map(|time| {
         crate::object::custom_time_key(time)
             .map(|(seconds, nanos)| Timestamp { seconds, nanos: nanos as i32 })
