@@ -5,7 +5,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 host=$(rustc -vV | sed -n 's/^host: //p')
-targets=(x86_64-pc-windows-msvc x86_64-unknown-linux-musl aarch64-apple-darwin)
+# The glibc target matches the CI Rust jobs. musl alone is not enough: std gives
+# Linux glibc types such as `fs::Metadata` extra statx fields, so size lints like
+# `large_enum_variant` fire only there.
+targets=(x86_64-pc-windows-msvc x86_64-unknown-linux-gnu x86_64-unknown-linux-musl aarch64-apple-darwin)
 stub="$PWD/scripts/cross-cc-stub.sh"
 installed=$(rustup target list --installed)
 for target in "${targets[@]}"; do

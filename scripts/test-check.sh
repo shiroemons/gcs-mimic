@@ -51,7 +51,7 @@ echo 'host: aarch64-apple-darwin'
 SH
 cat >"$work/bin/rustup" <<'SH'
 #!/usr/bin/env bash
-printf '%s\n' x86_64-pc-windows-msvc x86_64-unknown-linux-musl aarch64-apple-darwin
+printf '%s\n' x86_64-pc-windows-msvc x86_64-unknown-linux-gnu x86_64-unknown-linux-musl aarch64-apple-darwin
 SH
 chmod +x "$work/bin/cargo" "$work/bin/rustc" "$work/bin/rustup" "$work"/tests/*
 export PATH="$work/bin:$PATH"
@@ -64,6 +64,8 @@ clippy --workspace --all-targets --locked --offline -- -D warnings
 xtask lint
 clippy --workspace --all-targets --locked --offline --target x86_64-pc-windows-msvc -- -D warnings
 xtask lint --target x86_64-pc-windows-msvc
+clippy --workspace --all-targets --locked --offline --target x86_64-unknown-linux-gnu -- -D warnings
+xtask lint --target x86_64-unknown-linux-gnu
 clippy --workspace --all-targets --locked --offline --target x86_64-unknown-linux-musl -- -D warnings
 xtask lint --target x86_64-unknown-linux-musl
 build --locked --offline
