@@ -68,6 +68,9 @@ No benchmark, performance measurement, real-cloud test, HTTPS-mode SDK rerun, re
 
 ## Refresh: 2026-10-30
 
+The final check at `2026-10-30T05:48:19Z` exited 1: 68 of 69 inputs were `CURRENT`.
+The remaining `docker library/composer:latest` drift is the open `composer-riscv64-publication-lag` freshness exception described below; no direct dependency was added.
+
 | Input | Previous | Adopted |
 | --- | --- | --- |
 | tonic, tonic-prost, tonic-prost-build (tonic-build transitively) | 0.14.8 | 0.14.9; no other Cargo.lock package changes |
@@ -84,3 +87,22 @@ No benchmark, performance measurement, real-cloud test, HTTPS-mode SDK rerun, re
 - The 2.11.0 and 2.11 tags resolve to `sha256:278dfc7b…`; its linux/amd64 (`sha256:e86de4d2…`) and linux/arm64 (`sha256:f9a0252b…`) manifests are now recorded in the snapshot. The `latest` and `2` tags resolve to `sha256:c7f68260…`, which has the same amd64 and arm64 manifests but still lists the 2.10.3 linux/riscv64 image (`sha256:e6d3961e…`), because <https://hub.docker.com/r/riscv64/composer/tags> has not published 2.11.0. The version-consistent 2.11.0 index is pinned, and the `composer-riscv64-publication-lag` exception in the snapshot keeps the resulting `latest` drift visible until the next review on 2026-11-06. Republishing the tags with riscv64 will also change the 2.11.0 index digest, which then needs a re-pin.
 - Python 3.15.2, released 2026-10-25, is the newest published non-prerelease release in the python.org release API. All 21 locked packages declare a `requires-python` range that includes 3.15; the compiled ones ship wheels for it: cffi 2.1.1, charset-normalizer 3.5.2 and google-crc32c 1.9.0 have cp315 wheels, cryptography 50.0.2 and protobuf 7.36.2 have abi3 wheels. No transitive update was needed, and `uv sync --locked` installs the graph without building from source. google-crc32c loads its C implementation.
 - uv 0.13.6 is the first release that offers the managed CPython 3.15.2 build; the same release added 3.14.10, so the uv requirement is unchanged. Re-locking with it also moves the `sdk-tests/python` lock to lock revision 5, matching the scorecard lock.
+
+### Validation performed on 2026-10-30
+
+| Command or check | Result |
+| --- | --- |
+| `cargo check --workspace --all-targets --locked` | PASS |
+| `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo xtask lint` | PASS; lint reports 0 production violations |
+| `cargo test -p xtask --locked` | PASS: 63 tests, including the grpc-rust notice exception for 0.14.9 |
+| `cargo xtask release prepare aarch64-apple-darwin` with a local debug build | PASS: tonic-prost and tonic-prost-build 0.14.9 notices contain the reviewed LICENSE |
+| `cargo test --locked --test grpc_foundation`, `cargo test --locked --lib grpc` | PASS: 2 and 44 tests |
+| `bash scripts/test-rust.sh` | PASS: 49 test binaries and doctests, 1343 tests without failures or ignores |
+| `bash scripts/sdk-go.sh --with-python --with-php` (HTTP) | PASS: Go suite; Python 3.15.2 permissive and strict suites (50 tests); PHP 8.5.12 self-check, migration, permissive and strict suites in the Composer 2.11.0 image. The V2 signed URL Go test skips by design outside HTTPS mode |
+| `GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-python --with-php` | PASS: the same Go, Python and PHP suites over HTTPS |
+| `composer install` and `composer validate` in the Composer 2.11.0 image | PASS: both committed `composer.lock` files install unchanged |
+| `bash scripts/check-docs.sh` | PASS |
+| `cargo xtask dependencies check` | Exit 1: 68 of 69 inputs `CURRENT`; `docker library/composer:latest` `UPDATE_AVAILABLE` under the open exception |
+
+The SDK suites ran with uv 0.13.6. Container images, AMD64 execution and the SDK scorecard were not run.
+No benchmark, performance measurement, real-cloud test, remote CI, push, publication or release was performed.

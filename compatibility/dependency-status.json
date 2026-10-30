@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-29T10:30:27Z",
-  "scope": "SDK integration adds flate2 1.1.10 with its pure-Rust backend for bounded JSON media gzip expansion. Existing Rust/Go/Ruby toolchains, Storage SDK pins, Dockerfile inputs and catalog schema are unchanged from the preceding refresh.",
+  "checked_at_utc": "2026-10-30T05:48:19Z",
+  "scope": "The 2026-10-30 refresh adopts tonic, tonic-prost and tonic-prost-build 0.14.9, the Composer 2.11.0 image and Python 3.15.2 for the Python SDK suites. Rust/Go/Ruby/Node.js toolchains, Storage SDK pins, Dockerfile inputs and catalog schema are unchanged.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
-    "exit_code": 0,
-    "result": "CURRENT",
-    "artifact": "docs/en/slices/sdk-scorecard-integration.md",
-    "follow_up": "All checked inputs are CURRENT, including the new flate2 direct dependency; no freshness exception remains."
+    "exit_code": 1,
+    "result": "UPDATE_AVAILABLE",
+    "artifact": "docs/en/evidence/dependency-refresh.md",
+    "follow_up": "68 of 69 inputs are CURRENT. docker library/composer:latest differs from the pinned composer:2.11.0 index only because its riscv64 entry is still the 2.10.3 image; tracked by the composer-riscv64-publication-lag exception."
   },
   "toolchain": {
     "channel": "stable",
@@ -291,7 +291,7 @@
     },
     {
       "ecosystem": "pypi", "manifest": "sdk-scorecard/python/pyproject.toml",
-      "checked_at_utc": "2026-10-30T05:11:58Z",
+      "checked_at_utc": "2026-10-30T05:48:19Z",
       "toolchain": {"version": "3.15.2", "pin": "sdk-scorecard/python/.python-version", "source_url": "https://www.python.org/api/v2/downloads/release/?is_published=true&pre_release=false"},
       "direct_dependencies": [
         {"name": "google-cloud-storage", "current": "3.17.1", "license": "Apache-2.0", "wheel_bytes": 345706},
@@ -302,7 +302,7 @@
     },
     {
       "ecosystem": "pypi", "manifest": "sdk-tests/python/pyproject.toml",
-      "checked_at_utc": "2026-10-30T05:11:58Z",
+      "checked_at_utc": "2026-10-30T05:48:19Z",
       "toolchain": {"version": "3.15.2", "pin": "sdk-tests/python/.python-version", "source_url": "https://www.python.org/api/v2/downloads/release/?is_published=true&pre_release=false"},
       "direct_dependencies": [
         {"name": "google-cloud-storage", "current": "3.17.1", "license": "Apache-2.0", "wheel_bytes": 345706},
@@ -313,14 +313,14 @@
     },
     {
       "ecosystem": "composer", "manifest": "sdk-scorecard/php/composer.json",
-      "checked_at_utc": "2026-10-29T07:58:33Z",
+      "checked_at_utc": "2026-10-30T05:48:19Z",
       "direct_dependencies": [{"name": "google/cloud-storage", "current": "2.6.1", "license": "Apache-2.0", "source_revision": "cf14f967fa45113e2a239fe9103bada8d7b92021"}],
       "source_urls": ["https://repo.packagist.org/p2/google/cloud-storage.json", "https://github.com/googleapis/google-cloud-php-storage"],
       "resolution_constraints": "Development-only scorecard; composer.lock pins the graph. Google-maintained active release, PHP >=8.2. PHP 8.5.12 and Composer 2.11.0 run in the digest-pinned official Composer image; composer install with 2.11.0 reproduces the committed lock unchanged."
     },
     {
       "ecosystem": "composer", "manifest": "sdk-tests/php/composer.json",
-      "checked_at_utc": "2026-10-30T05:11:58Z",
+      "checked_at_utc": "2026-10-30T05:48:19Z",
       "direct_dependencies": [{"name": "google/cloud-storage", "current": "2.6.1", "license": "Apache-2.0", "source_revision": "cf14f967fa45113e2a239fe9103bada8d7b92021"}],
       "source_urls": ["https://repo.packagist.org/p2/google/cloud-storage.json", "https://github.com/googleapis/google-cloud-php-storage"],
       "resolution_constraints": "Development-only official SDK suite; composer.lock pins the same 26-package graph as the scorecard. sdk-tests/php/run.sh runs it with PHP 8.5.12 and Composer 2.11.0 in the same digest-pinned official Composer image, which the container check reads from that script."
