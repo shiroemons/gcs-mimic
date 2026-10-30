@@ -166,8 +166,11 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(unavailable)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "validates catalog state once at open"
+)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    // xtask-lint: allow(text::uncached_statement) -- validates catalog state once at open
     let valid: bool = connection.query_row(
         "SELECT count(*) = 1 AND min(singleton) = 1 AND min(sequence) >= (SELECT coalesce(max(sequence), 0) FROM change_journal) AND (SELECT count(*) FROM change_journal) = min(sequence - floor) AND min(sequence - floor) <= 65536 AND NOT EXISTS(SELECT 1 FROM change_journal WHERE sequence <= (SELECT floor FROM change_journal_state)) FROM change_journal_state", [], |r| r.get(0)
     ).map_err(unavailable)?;
@@ -236,13 +239,16 @@ pub(super) fn append(
     Ok(())
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "parent policy is installed once at startup"
+)]
 pub(super) fn parent_pap(connection: &Connection, projects: &[String]) -> Result<(), CatalogError> {
     let mut projects = projects.to_vec();
     projects.sort();
     projects.dedup();
     let value = serde_json::to_string(&projects).map_err(unavailable)?;
     let current: String = connection
-        // xtask-lint: allow(text::uncached_statement) -- parent policy is installed once at startup
         .query_row(
             "SELECT parent_pap FROM change_journal_state WHERE singleton = 1",
             [],
@@ -250,7 +256,6 @@ pub(super) fn parent_pap(connection: &Connection, projects: &[String]) -> Result
         )
         .map_err(unavailable)?;
     if current != value {
-        // xtask-lint: allow(text::uncached_statement) -- parent policy is installed once at startup
         connection.execute("UPDATE change_journal_state SET parent_pap = ?1, epoch = epoch + 1 WHERE singleton = 1", [value]).map_err(unavailable)?;
     }
     Ok(())
@@ -333,9 +338,12 @@ impl Catalog {
         clippy::fn_params_excessive_bools,
         reason = "forwards the stored enabled column; enable_change_journal and disable_change_journal name each direction"
     )]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "only the sync mirror switches the journal, once per reconciliation pass; no API request reaches it"
+    )]
     async fn set_change_journal(&self, enabled: bool) -> Result<JournalFence, AdminError> {
         self.run_admin(move |connection| {
-            // xtask-lint: allow(text::uncached_statement) -- only the sync mirror switches the journal, once per reconciliation pass; no API request reaches it
             connection.execute("UPDATE change_journal_state SET enabled = ?1, epoch = epoch + (enabled != ?1) WHERE singleton = 1", [enabled]).map_err(unavailable)?;
             Ok(state(connection)?.0)
         }).await

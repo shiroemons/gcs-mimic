@@ -259,9 +259,12 @@ fn session_consistent(session: &RewriteSession, transfer_id: Option<&str>) -> bo
         && session.offset <= session.total
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "catalog validation runs once at open"
+)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     let valid: bool = connection
-        // xtask-lint: allow(text::uncached_statement) -- catalog validation runs once at open
         .query_row("SELECT (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL)<=128 AND (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)<=128", [], |row| {
             row.get(0)
         })
@@ -279,9 +282,12 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     Ok(())
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "open-time recovery probes and drops expired sessions once"
+)]
 pub(super) fn recover_due(connection: &mut Connection, now: i64) -> Result<(), CatalogError> {
     let due: bool = connection
-        // xtask-lint: allow(text::uncached_statement) -- expired sessions are probed once during open-time recovery
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM rewrite_sessions WHERE deadline<=?1)",
             [now],
@@ -292,14 +298,10 @@ pub(super) fn recover_due(connection: &mut Connection, now: i64) -> Result<(), C
         return Ok(());
     }
     let transaction = connection.transaction().map_err(super::unavailable)?;
-    // xtask-lint: allow(text::uncached_statement) -- open-time recovery journals expired outputs once
     transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions SELECT transfer_id FROM rewrite_sessions WHERE deadline<=?1 AND transfer_id IS NOT NULL",[now]).map_err(super::unavailable)?;
-    // xtask-lint: allow(text::uncached_statement) -- open-time recovery drops expired inputs once
     transaction.execute("DELETE FROM derived_inputs WHERE transfer_id IN (SELECT id FROM rewrite_sessions WHERE deadline<=?1)",[now]).map_err(super::unavailable)?;
-    // xtask-lint: allow(text::uncached_statement) -- open-time recovery drops expired transfers once
     transaction.execute("DELETE FROM derived_transfers WHERE id IN (SELECT id FROM rewrite_sessions WHERE deadline<=?1)",[now]).map_err(super::unavailable)?;
     transaction
-        // xtask-lint: allow(text::uncached_statement) -- open-time recovery drops expired sessions once
         .execute("DELETE FROM rewrite_sessions WHERE deadline<=?1", [now])
         .map_err(super::unavailable)?;
     transaction.commit().map_err(super::unavailable)

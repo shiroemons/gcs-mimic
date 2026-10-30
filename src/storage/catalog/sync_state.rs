@@ -119,21 +119,27 @@ fn valid_path(path: &str) -> bool {
         && path.split('/').all(|part| !matches!(part, "" | "." | ".."))
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a one-time schema migration step"
+)]
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
     transaction.execute_batch(SCHEMA).map_err(unavailable)?;
     let mut id = [0; 16];
     getrandom::fill(&mut id).map_err(unavailable)?;
     transaction
-        // xtask-lint: allow(text::uncached_statement) -- a one-time schema migration step
         .execute("INSERT INTO catalog_identity VALUES (1, ?1)", [id])
         .map_err(unavailable)?;
     transaction.commit().map_err(unavailable)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "validates catalog state once at open"
+)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     let valid: bool = connection
-        // xtask-lint: allow(text::uncached_statement) -- validates catalog state once at open
         .query_row(
             "SELECT count(*) = 1 AND min(singleton) = 1 FROM catalog_identity",
             [],

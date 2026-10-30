@@ -202,6 +202,10 @@ pub(super) fn migrate_versioning(connection: &mut Connection) -> Result<(), Cata
     transaction.commit().map_err(unavailable)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a one-time schema migration at open"
+)]
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
     transaction.execute_batch(SCHEMA).map_err(unavailable)?;
@@ -209,7 +213,6 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
         .execute_batch(GENERATION_SCHEMA)
         .map_err(unavailable)?;
     transaction
-        // xtask-lint: allow(text::uncached_statement) -- a one-time schema migration at open
         .execute("INSERT INTO object_generation VALUES (1, 0)", [])
         .map_err(unavailable)?;
     transaction
@@ -416,13 +419,16 @@ pub(super) fn recover(
 }
 
 /// Removes staging entries no active upload or derived transfer still owns.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a recovery scan that runs once at open"
+)]
 fn remove_unretained_staging(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
     for entry in fs::read_dir(data_dir.join("staging")).map_err(object_unavailable)? {
         let entry = entry.map_err(object_unavailable)?;
         if os_metadata(&entry) {
             continue;
         }
-        // xtask-lint: allow(text::uncached_statement) -- a recovery scan that runs once at open
         let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1)", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
         if retained {
             continue;

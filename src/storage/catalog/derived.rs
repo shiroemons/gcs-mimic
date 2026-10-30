@@ -895,6 +895,10 @@ impl Catalog {
     }
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "deferred derived deletions are reclaimed only during open-time recovery"
+)]
 fn reclaim_derived_deletions(
     connection: &Connection,
     data_dir: &Path,
@@ -907,7 +911,6 @@ fn reclaim_derived_deletions(
         match objects::reclaim(connection, data_dir, &id) {
             Ok(()) => {
                 connection
-                    // xtask-lint: allow(text::uncached_statement) -- deferred derived deletions are reclaimed only during open-time recovery
                     .execute("DELETE FROM derived_deletions WHERE blob_id = ?1", [id])
                     .map_err(object_unavailable)?;
             }
@@ -962,13 +965,16 @@ fn restore_stage(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
     Ok(stage)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "transfer quotas and each retained transfer are inspected once during open-time recovery"
+)]
 pub(super) fn recover(
     connection: &Connection,
     data_dir: &Path,
     now: i64,
 ) -> Result<(), ObjectError> {
     reclaim_derived_deletions(connection, data_dir, None)?;
-    // xtask-lint: allow(text::uncached_statement) -- transfer quotas are validated once during open-time recovery
     let over_limit: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM derived_transfers GROUP BY ephemeral HAVING count(*) > ?1)",
         [MAX_TRANSFERS_PER_KIND as i64],
@@ -991,7 +997,6 @@ pub(super) fn recover(
     }
     for id in ids {
         let (ephemeral, deadline): (bool, i64) = connection
-            // xtask-lint: allow(text::uncached_statement) -- each retained transfer is inspected once during open-time recovery
             .query_row(
                 "SELECT ephemeral, deadline FROM derived_transfers WHERE id = ?1",
                 [&id],

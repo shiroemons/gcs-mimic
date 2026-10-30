@@ -157,11 +157,14 @@ fn random_id<const N: usize>() -> Result<String, CatalogError> {
     Ok(crate::hashing::encode_lower(&bytes))
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the schema migration backfills incarnations once"
+)]
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
     transaction.execute_batch(SCHEMA).map_err(unavailable)?;
     transaction
-        // xtask-lint: allow(text::uncached_statement) -- the schema migration backfills incarnations once
         .execute(
             "INSERT INTO bucket_incarnations SELECT name, lower(hex(randomblob(16))) FROM buckets",
             [],
@@ -170,8 +173,11 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(unavailable)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "catalog validation runs once at open"
+)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    // xtask-lint: allow(text::uncached_statement) -- catalog validation runs once at open
     let valid: bool = connection.query_row("SELECT NOT EXISTS(SELECT 1 FROM buckets LEFT JOIN bucket_incarnations ON name = bucket WHERE bucket IS NULL) AND NOT EXISTS(SELECT 1 FROM bucket_incarnations LEFT JOIN buckets ON bucket = name WHERE name IS NULL) AND (SELECT count(*) FROM resumable_sessions) <= 128", [], |r| r.get(0)).map_err(unavailable)?;
     if !valid {
         return Err(unavailable("invalid resumable catalog state"));

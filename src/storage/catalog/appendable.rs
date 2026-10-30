@@ -58,6 +58,10 @@ const COPY_CHUNK: usize = 64 * 1024;
 
 /// Runs at catalog open, before requests: resolves interrupted finalizations, rows of deleted
 /// buckets and data files that never received a row.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "open-time recovery probes and resets each kind of interrupted state once"
+)]
 pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError> {
     let retired = connection
         .prepare_cached(
@@ -70,7 +74,6 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
         .map_err(super::unavailable)?;
     for id in retired {
         connection
-            // xtask-lint: allow(text::uncached_statement) -- retired rows are removed only during open-time recovery
             .execute("DELETE FROM appendable_objects WHERE blob_id = ?1", [&id])
             .map_err(super::unavailable)?;
         unlink(&data_path(data_dir, &id).map_err(super::unavailable)?)
@@ -78,7 +81,6 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
     }
     // Startup takes no write lock unless there is work: an UPDATE matching nothing still would.
     let interrupted: bool = connection
-        // xtask-lint: allow(text::uncached_statement) -- interrupted finalizations are probed once at open
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE finalizing = 1)",
             [],
@@ -87,7 +89,6 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
         .map_err(super::unavailable)?;
     if interrupted {
         connection
-            // xtask-lint: allow(text::uncached_statement) -- interrupted finalizations are reset once at open
             .execute(
                 "UPDATE appendable_objects SET finalizing = 0 WHERE finalizing = 1",
                 [],
@@ -106,7 +107,6 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
             continue;
         }
         let referenced: bool = connection
-            // xtask-lint: allow(text::uncached_statement) -- orphaned data files are checked only during open-time recovery
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE blob_id = ?1)",
                 [&name],

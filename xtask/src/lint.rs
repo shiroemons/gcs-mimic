@@ -47,8 +47,6 @@ const PATH_ATTRIBUTE: &str = "text::path_attribute";
 const STRING_ERROR_RESULT: &str = "text::string_error_result";
 const UNAVAILABLE_HELPER: &str = "text::unavailable_helper";
 const ALLOW_TOO_MANY_ARGUMENTS: &str = "text::allow_too_many_arguments";
-const UNCACHED_PREPARE: &str = "text::uncached_prepare";
-const UNCACHED_STATEMENT: &str = "text::uncached_statement";
 const FORMAT_SQL: &str = "text::format_sql";
 const SYNC_WITHOUT_FLUSH: &str = "text::sync_without_flush";
 const STRING_ERROR_VARIANT: &str = "text::string_error_variant";
@@ -65,39 +63,19 @@ pub const PENDING_RULES: &[&str] = &[];
 
 /// Rules that `// xtask-lint: allow(..)` may suppress. Clippy and rustc lints use
 /// `#[expect(lint, reason = "..")]` instead, which the compiler already checks for staleness.
-pub const TEXT_RULES: [&str; 10] = [
+pub const TEXT_RULES: [&str; 8] = [
     PATH_ATTRIBUTE,
     STRING_ERROR_RESULT,
     UNAVAILABLE_HELPER,
     ALLOW_TOO_MANY_ARGUMENTS,
-    UNCACHED_PREPARE,
-    UNCACHED_STATEMENT,
     FORMAT_SQL,
     SYNC_WITHOUT_FLUSH,
     STRING_ERROR_VARIANT,
     STRINGIFIED_ERROR,
 ];
 
-/// Rules that `// xtask-lint: allow-file(..)` may suppress for a whole file: statements that no
-/// API request reaches, such as schema setup, migrations and the sync mirror's worker, cluster
-/// in modules where per-line comments would only repeat one reason.
-pub const FILE_SCOPE_RULES: [&str; 1] = [UNCACHED_STATEMENT];
-
-/// The request adapters, where every module serves API requests, so no file there is
-/// request-free and a file-scope suppression would only hide request-path findings. A
-/// directory also covers its `<dir>.rs` module root.
-pub const FILE_SCOPE_FORBIDDEN_DIRS: [&str; 4] = ["src/server", "src/json", "src/xml", "src/grpc"];
-
-fn file_scope_forbidden(file: &str) -> bool {
-    FILE_SCOPE_FORBIDDEN_DIRS.iter().any(|dir| {
-        file.strip_prefix(dir)
-            .is_some_and(|rest| rest.starts_with('/') || rest == ".rs")
-    })
-}
-
 const SUPPRESSION_MARKER: &str = "xtask-lint:";
 const SUPPRESSION_SYNTAX: &str = "// xtask-lint: allow(<text rule>[, <text rule>]) -- <reason>";
-const FILE_SUPPRESSION_SYNTAX: &str = "// xtask-lint: allow-file(<text rule>) -- <reason>";
 /// Short enough for a real justification, long enough to reject `ok` or `legacy`.
 pub const MIN_REASON_CHARS: usize = 10;
 
@@ -116,10 +94,6 @@ const SQL_KEYWORDS: [&str; 10] = [
 const SQL_MARKERS: [&str; 7] = [
     " FROM ", " INTO ", " SET ", " TABLE ", " INDEX ", " VALUES", "PRAGMA ",
 ];
-
-/// rusqlite methods that prepare their SQL on every call, bypassing the statement cache.
-/// `execute_batch` is left out: it runs multi-statement DDL and has no cached form.
-const UNCACHED_METHODS: [&str; 3] = ["execute", "query_row", "query_one"];
 
 /// Error-variant names that describe an underlying failure rather than a client-facing
 /// message. `InvalidTopic(String)` names the rejected input and stays allowed;
@@ -308,9 +282,7 @@ fn gate(root: &Path) -> Result<bool> {
         );
     }
     if !scan.problems.is_empty() {
-        eprintln!(
-            "Suppressions use `{SUPPRESSION_SYNTAX}` or `{FILE_SUPPRESSION_SYNTAX}`; see docs/en/development.md."
-        );
+        eprintln!("Suppressions use `{SUPPRESSION_SYNTAX}`; see docs/en/development.md.");
     }
     let (violations, missing_helper) = violations(findings);
     for finding in &violations {
@@ -571,27 +543,11 @@ pub fn scan_source(file: &str, text: &str) -> Scan {
                 line: line_index(text, comment.start) + 1,
                 message,
             }),
-            Some(Ok(parsed))
-                if parsed.scope == SuppressionScope::File && file_scope_forbidden(file) =>
-            {
-                problems.push(Problem {
-                    file: file.to_owned(),
-                    line: line_index(text, comment.start) + 1,
-                    message: format!(
-                        "`allow-file` is not accepted in the request adapters ({}); use line suppressions",
-                        FILE_SCOPE_FORBIDDEN_DIRS.join(", ")
-                    ),
-                });
-            }
-            Some(Ok(parsed)) => suppressions.push(Suppression {
+            Some(Ok(rules)) => suppressions.push(Suppression {
                 comment: line_index(text, comment.start),
-                target: match parsed.scope {
-                    SuppressionScope::Line => suppression_target(&masked, comment.start),
-                    SuppressionScope::File => None,
-                },
-                scope: parsed.scope,
-                used: vec![false; parsed.rules.len()],
-                rules: parsed.rules,
+                target: suppression_target(&masked, comment.start),
+                used: vec![false; rules.len()],
+                rules,
             }),
         }
     }
@@ -599,16 +555,10 @@ pub fn scan_source(file: &str, text: &str) -> Scan {
         problems,
         ..Scan::default()
     };
-    // Line suppressions first, so a file-wide one is stale only when no line one covers it.
-    suppressions.sort_by_key(|s| s.scope);
     for finding in findings {
         let matched = suppressions.iter_mut().find_map(|s| {
             let index = s.rules.iter().position(|rule| *rule == finding.rule)?;
-            let covers = match s.scope {
-                SuppressionScope::Line => s.target == Some(finding.line - 1),
-                SuppressionScope::File => true,
-            };
-            covers.then_some((s, index))
+            (s.target == Some(finding.line - 1)).then_some((s, index))
         });
         if let Some((suppression, index)) = matched {
             suppression.used[index] = true;
@@ -621,14 +571,12 @@ pub fn scan_source(file: &str, text: &str) -> Scan {
         for (rule, used) in suppression.rules.iter().zip(&suppression.used) {
             if !used {
                 // Like an unfulfilled `#[expect]`: a fix or a moved line must drop the comment.
-                let covered = match suppression.scope {
-                    SuppressionScope::Line => "the line it covers",
-                    SuppressionScope::File => "this file",
-                };
                 scan.problems.push(Problem {
                     file: file.to_owned(),
                     line: suppression.comment + 1,
-                    message: format!("stale suppression: `{rule}` reports nothing on {covered}"),
+                    message: format!(
+                        "stale suppression: `{rule}` reports nothing on the line it covers"
+                    ),
                 });
             }
         }
@@ -637,30 +585,12 @@ pub fn scan_source(file: &str, text: &str) -> Scan {
     scan
 }
 
-/// What a suppression comment covers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SuppressionScope {
-    /// `allow(..)`: one line.
-    Line,
-    /// `allow-file(..)`: the whole file, for [`FILE_SCOPE_RULES`] only.
-    File,
-}
-
-/// The accepted contents of a suppression comment.
-#[derive(Debug, PartialEq, Eq)]
-pub struct ParsedSuppression {
-    pub scope: SuppressionScope,
-    pub rules: Vec<String>,
-}
-
-/// A parsed `// xtask-lint: allow(..) -- reason` or `allow-file(..)` comment.
+/// A parsed `// xtask-lint: allow(..) -- reason` comment.
 struct Suppression {
     /// Zero-based line of the comment.
     comment: usize,
-    /// Zero-based line a line suppression covers: its own line after code, else the next line
-    /// with code. `None` for a file suppression.
+    /// Zero-based line it covers: its own line after code, else the next line with code.
     target: Option<usize>,
-    scope: SuppressionScope,
     rules: Vec<String>,
     used: Vec<bool>,
 }
@@ -685,8 +615,8 @@ fn suppression_target(masked: &str, offset: usize) -> Option<usize> {
 }
 
 /// Parses one line comment (including its `//`). `None` when it is not a suppression;
-/// otherwise the suppressed rules and scope, or why the comment is rejected.
-pub fn parse_suppression(comment: &str) -> Option<std::result::Result<ParsedSuppression, String>> {
+/// otherwise the suppressed rules, or why the comment is rejected.
+pub fn parse_suppression(comment: &str) -> Option<std::result::Result<Vec<String>, String>> {
     let body = comment.strip_prefix("//")?;
     // Doc comments document; they never suppress.
     if body.starts_with('/') || body.starts_with('!') {
@@ -695,15 +625,10 @@ pub fn parse_suppression(comment: &str) -> Option<std::result::Result<ParsedSupp
     let rest = body.trim_start().strip_prefix(SUPPRESSION_MARKER)?;
     let malformed = || {
         Err(format!(
-            "malformed suppression; expected `{SUPPRESSION_SYNTAX}` or `{FILE_SUPPRESSION_SYNTAX}`"
+            "malformed suppression; expected `{SUPPRESSION_SYNTAX}`"
         ))
     };
-    let rest = rest.trim_start();
-    let (scope, rest) = if let Some(rest) = rest.strip_prefix("allow(") {
-        (SuppressionScope::Line, rest)
-    } else if let Some(rest) = rest.strip_prefix("allow-file(") {
-        (SuppressionScope::File, rest)
-    } else {
+    let Some(rest) = rest.trim_start().strip_prefix("allow(") else {
         return Some(malformed());
     };
     let Some((list, after)) = rest.split_once(')') else {
@@ -726,12 +651,6 @@ pub fn parse_suppression(comment: &str) -> Option<std::result::Result<ParsedSupp
                 TEXT_RULES.join(", ")
             )));
         }
-        if scope == SuppressionScope::File && !FILE_SCOPE_RULES.contains(&rule.as_str()) {
-            return Some(Err(format!(
-                "`{rule}` cannot be suppressed for a whole file; file-scope rules: {}",
-                FILE_SCOPE_RULES.join(", ")
-            )));
-        }
     }
     let after = after.trim();
     let reason = match after.strip_prefix("--") {
@@ -744,7 +663,7 @@ pub fn parse_suppression(comment: &str) -> Option<std::result::Result<ParsedSupp
             "suppression needs a reason of at least {MIN_REASON_CHARS} characters after ` -- `"
         )));
     }
-    Some(Ok(ParsedSuppression { scope, rules }))
+    Some(Ok(rules))
 }
 
 /// Raw text-rule findings in production code, before suppressions.
@@ -759,9 +678,6 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
         let trimmed = line.trim_start();
         if trimmed.starts_with("#[path ") || trimmed.starts_with("#[path=") {
             findings.push(Finding::new(PATH_ATTRIBUTE, file, index + 1));
-        }
-        for _ in line.matches(".prepare(") {
-            findings.push(Finding::new(UNCACHED_PREPARE, file, index + 1));
         }
     }
     let mut add = |rule: &str, offset: usize| {
@@ -795,9 +711,6 @@ fn text_findings(file: &str, text: &str, masked: &str) -> Vec<Finding> {
     }
     for offset in too_many_arguments_attributes(masked) {
         add(ALLOW_TOO_MANY_ARGUMENTS, offset);
-    }
-    for offset in uncached_statements(masked) {
-        add(UNCACHED_STATEMENT, offset);
     }
     for offset in string_error_variants(masked) {
         add(STRING_ERROR_VARIANT, offset);
@@ -833,54 +746,6 @@ fn too_many_arguments_attributes(masked: &str) -> Vec<usize> {
             .any(|prefix| body.starts_with(prefix));
         if level && words(&body, "too_many_arguments").any(|i| body[..i].ends_with("clippy::")) {
             offsets.push(hash);
-        }
-    }
-    offsets
-}
-
-/// Whether the last non-whitespace byte before `offset` is `.`, so a method call follows.
-fn after_dot(bytes: &[u8], offset: usize) -> bool {
-    bytes[..offset]
-        .iter()
-        .rev()
-        .find(|b| !b.is_ascii_whitespace())
-        == Some(&b'.')
-}
-
-/// Offsets of `.execute(`, `.query_row(` and `.query_one(` whose first argument is a string
-/// literal or an `UPPER_SNAKE` constant: rusqlite prepares that SQL again on every call.
-/// A call on a prepared statement passes parameters first and is not matched.
-fn uncached_statements(masked: &str) -> Vec<usize> {
-    let bytes = masked.as_bytes();
-    let mut offsets = Vec::new();
-    for method in UNCACHED_METHODS {
-        for offset in words(masked, method) {
-            if !after_dot(bytes, offset) {
-                continue;
-            }
-            let open = skip_space(bytes, offset + method.len());
-            if bytes.get(open) != Some(&b'(') {
-                continue;
-            }
-            let mut i = skip_space(bytes, open + 1);
-            if bytes.get(i) == Some(&b'&') {
-                i = skip_space(bytes, i + 1);
-            }
-            let literal = bytes.get(i) == Some(&b'"')
-                || (bytes.get(i) == Some(&b'r') && matches!(bytes.get(i + 1), Some(b'"' | b'#')));
-            let start = i;
-            while bytes.get(i).is_some_and(|&b| ident(b) || b == b':') {
-                i += 1;
-            }
-            let segment = masked[start..i].rsplit("::").next().unwrap_or_default();
-            let constant = segment.bytes().any(|b| b.is_ascii_uppercase())
-                && segment
-                    .bytes()
-                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
-                && matches!(bytes.get(skip_space(bytes, i)), Some(b',' | b')'));
-            if literal || constant {
-                offsets.push(offset);
-            }
         }
     }
     offsets
@@ -1544,7 +1409,7 @@ fn e() -> Result<Box<dyn Fn() -> u8>, std::string::String>;
     }
 
     #[test]
-    fn helper_attribute_prepare_and_sql_rules_match_only_code() {
+    fn helper_attribute_and_sql_rules_match_only_code() {
         let text = "\
 fn unavailable(e: impl Display) -> Error { todo() }
 fn unavailable_count() {}
@@ -1563,7 +1428,6 @@ let v = format!(\"select failed: {e}\");
         assert_eq!(
             rules("src/a.rs", text),
             [
-                (UNCACHED_PREPARE.to_owned(), 5),
                 (UNAVAILABLE_HELPER.to_owned(), 1),
                 (FORMAT_SQL.to_owned(), 6),
                 (FORMAT_SQL.to_owned(), 7),
@@ -1598,30 +1462,6 @@ let index = values[clippy::too_many_arguments];
 fn test_only() {}
 ";
         assert_eq!(lines_of(ALLOW_TOO_MANY_ARGUMENTS, text), [1, 6, 7, 8]);
-    }
-
-    #[test]
-    fn uncached_statements_need_a_literal_or_constant_sql_argument() {
-        let text = "\
-connection.execute(\"DELETE FROM t WHERE a = ?1\", [a])?;
-let n = transaction
-    .query_row(
-        r#\"SELECT count(*) FROM t\"#,
-        [],
-        |row| row.get(0),
-    )?;
-tx.execute(&INSERT_OBJECT, params![a])?;
-tx.query_one(schema::SELECT_ROW, [], |row| row.get(0))?;
-statement.execute(params![a])?;
-statement.query_row([a], |row| row.get(0))?;
-cached.execute((a, b))?;
-tx.execute(&sql, [])?;
-tx.execute(SqlKind::Insert, [])?;
-connection.execute_batch(SCHEMA)?;
-executor.execute(\"not sql\");
-fn execute(\"x\") {}
-";
-        assert_eq!(lines_of(UNCACHED_STATEMENT, text), [1, 8, 16, 3, 9]);
     }
 
     #[test]
@@ -1689,101 +1529,6 @@ struct ParseError(String);
         } else {
             assert_eq!(cross.0.first(), Some(&enforced));
         }
-    }
-
-    #[test]
-    fn file_suppressions_cover_a_whole_file_for_file_scope_rules_only() {
-        let text = "\
-// xtask-lint: allow-file(text::uncached_statement) -- schema setup runs once at open
-fn open(c: &Connection) {
-    c.execute(\"CREATE TABLE t (a)\", [])?;
-    // xtask-lint: allow(text::uncached_statement) -- a one-off repair at startup
-    c.execute(\"DELETE FROM t\", [])?;
-    c.query_row(\"SELECT 1\", [], |r| r.get(0))?;
-}
-";
-        let scan = scan_source("src/storage/a.rs", text);
-        assert_eq!(scan.problems, []);
-        assert!(scan.findings.is_empty(), "{:?}", scan.findings);
-        assert_eq!(
-            suppression_summary(&scan.suppressed),
-            "3 reasoned suppressions (text::uncached_statement: 3)"
-        );
-
-        let stale = scan_source(
-            "src/a.rs",
-            "// xtask-lint: allow-file(text::uncached_statement) -- schema setup runs once\nlet a = 1;\n",
-        );
-        assert_eq!(
-            stale
-                .problems
-                .iter()
-                .map(|p| p.message.as_str())
-                .collect::<Vec<_>>(),
-            ["stale suppression: `text::uncached_statement` reports nothing on this file"]
-        );
-        assert!(
-            parse_suppression(
-                "// xtask-lint: allow-file(text::format_sql) -- a long enough reason"
-            )
-            .is_some_and(|parsed| parsed.is_err_and(|e| e.contains("whole file")))
-        );
-        assert_eq!(
-            parse_suppression(
-                "// xtask-lint: allow-file(text::uncached_statement) -- migrations run once"
-            ),
-            Some(Ok(ParsedSuppression {
-                scope: SuppressionScope::File,
-                rules: vec![UNCACHED_STATEMENT.to_owned()]
-            }))
-        );
-    }
-
-    #[test]
-    fn file_suppressions_are_rejected_in_request_adapters() {
-        let text = "\
-// xtask-lint: allow-file(text::uncached_statement) -- request-free module, supposedly
-fn handle(c: &Connection) {
-    c.execute(\"DELETE FROM t\", [])?;
-}
-";
-        for file in [
-            "src/server/upload.rs",
-            "src/server.rs",
-            "src/json/mod.rs",
-            "src/xml/post.rs",
-            "src/grpc/v2/objects.rs",
-        ] {
-            let scan = scan_source(file, text);
-            assert_eq!(
-                scan.problems
-                    .iter()
-                    .map(|p| (p.line, p.message.contains("request adapters")))
-                    .collect::<Vec<_>>(),
-                [(1, true)],
-                "{file}"
-            );
-            // The rejected comment suppresses nothing, so the finding still fails the gate.
-            assert_eq!(scan.findings.len(), 1, "{file}");
-            assert!(scan.suppressed.is_empty(), "{file}");
-        }
-        for file in [
-            "src/serverless.rs",
-            "src/storage/catalog/sync_state/root.rs",
-        ] {
-            let scan = scan_source(file, text);
-            assert_eq!(scan.problems, [], "{file}");
-            assert_eq!(scan.suppressed.len(), 1, "{file}");
-        }
-        let line = "\
-fn handle(c: &Connection) {
-    // xtask-lint: allow(text::uncached_statement) -- a one-off repair at startup
-    c.execute(\"DELETE FROM t\", [])?;
-}
-";
-        let scan = scan_source("src/server/upload.rs", line);
-        assert_eq!(scan.problems, []);
-        assert_eq!(scan.suppressed.len(), 1);
     }
 
     #[test]
@@ -1979,8 +1724,8 @@ let a = format!(\"SELECT {C} FROM t\"); // xtask-lint: allow(text::format_sql) -
 // xtask-lint: allow(text::format_sql) -- schema migration builds DDL
 // from a fixed table of names.
 let b = format!(\"CREATE TABLE {name} (a)\");
-// xtask-lint: allow(text::uncached_prepare, text::format_sql) -- one-off startup migration
-let c = conn.prepare(&format!(\"DELETE FROM {t} WHERE a = 1\"));
+// xtask-lint: allow(text::stringified_error, text::format_sql) -- one-off startup migration
+let c = run(&format!(\"DELETE FROM {t} WHERE a = 1\")).map_err(|e| Error::Io(e.to_string()));
 let d = format!(\"SELECT {C} FROM t\");
 ";
         let scan = scan_source("src/a.rs", text);
@@ -1996,15 +1741,15 @@ let d = format!(\"SELECT {C} FROM t\");
                 .map(|f| (f.rule.as_str(), f.line))
                 .collect::<Vec<_>>(),
             [
-                (UNCACHED_PREPARE, 6),
                 (FORMAT_SQL, 1),
                 (FORMAT_SQL, 4),
-                (FORMAT_SQL, 6)
+                (FORMAT_SQL, 6),
+                (STRINGIFIED_ERROR, 6)
             ]
         );
         assert_eq!(
             suppression_summary(&scan.suppressed),
-            "4 reasoned suppressions (text::format_sql: 3, text::uncached_prepare: 1)"
+            "4 reasoned suppressions (text::format_sql: 3, text::stringified_error: 1)"
         );
         assert_eq!(suppression_summary(&[]), "0 reasoned suppressions");
     }
@@ -2068,7 +1813,7 @@ let d = format!(\"SELECT {C} FROM t\");
         );
         assert_eq!(
             problems(&format!(
-                "// xtask-lint: allow(text::uncached_prepare, text::format_sql) -- static column list\n{sql}\n"
+                "// xtask-lint: allow(text::path_attribute, text::format_sql) -- static column list\n{sql}\n"
             ))
             .len(),
             1
@@ -2096,10 +1841,7 @@ let s = \"// xtask-lint: allow(text::nope)\";
         assert_eq!(parse_suppression("// ordinary"), None);
         assert_eq!(
             parse_suppression("//xtask-lint: allow( text::format_sql ) --   ten chars!  "),
-            Some(Ok(ParsedSuppression {
-                scope: SuppressionScope::Line,
-                rules: vec![FORMAT_SQL.to_owned()]
-            }))
+            Some(Ok(vec![FORMAT_SQL.to_owned()]))
         );
     }
 

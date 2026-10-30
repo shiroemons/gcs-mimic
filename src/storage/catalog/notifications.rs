@@ -33,10 +33,13 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(unavailable)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "validates catalog state once at open"
+)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     // IDs are never reused within a bucket incarnation, so every row must be covered by its allocator.
     let valid: bool = connection
-        // xtask-lint: allow(text::uncached_statement) -- validates catalog state once at open
         .query_row(
             "SELECT NOT EXISTS(SELECT 1 FROM bucket_notifications n LEFT JOIN bucket_notification_ids i ON i.bucket = n.bucket WHERE i.last_id IS NULL OR n.id > i.last_id)",
             [],

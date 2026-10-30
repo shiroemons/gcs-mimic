@@ -19,8 +19,9 @@ disallowed-types = [
 ]
 
 # `disallowed_methods` is allowed in `[workspace.lints]` and enabled only by `cargo xtask lint`
-# for production code, so tests may spawn helper tasks freely. The supervised helpers in
-# src/task.rs keep their calls under a reasoned `#[expect(clippy::disallowed_methods)]`.
+# for production code, so tests may spawn tasks and run ad-hoc SQL freely. The supervised
+# helpers in src/task.rs and request-free catalog code keep their calls under a reasoned
+# `#[expect(clippy::disallowed_methods)]`.
 disallowed-methods = [
     # A dropped JoinHandle or a dead thread hides the panic or error.
     { path = "tokio::spawn", reason = "unsupervised; use crate::task::spawn_supervised" },
@@ -30,6 +31,12 @@ disallowed-methods = [
     { path = "tokio::runtime::Runtime::spawn", reason = "unsupervised; use crate::task::spawn_supervised_on" },
     { path = "std::thread::spawn", reason = "unsupervised; use crate::task::spawn_thread" },
     { path = "std::thread::Builder::spawn", reason = "unsupervised; use crate::task::spawn_thread" },
+    # These prepare their SQL on every call, which wastes CPU on request paths. Calls through
+    # a Transaction resolve to them too; Statement methods from prepare_cached do not.
+    { path = "rusqlite::Connection::execute", reason = "prepares on every call; use prepare_cached" },
+    { path = "rusqlite::Connection::query_row", reason = "prepares on every call; use prepare_cached" },
+    { path = "rusqlite::Connection::query_one", reason = "prepares on every call; use prepare_cached" },
+    { path = "rusqlite::Connection::prepare", reason = "prepares on every call; use prepare_cached" },
 ]
 
 # Tests may unwrap and expect; production code must not.

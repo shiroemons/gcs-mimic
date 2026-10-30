@@ -1,4 +1,3 @@
-// xtask-lint: allow-file(text::uncached_statement) -- request-free: only the sync mirror's background worker calls this module, and each step's fsync dwarfs statement preparation
 use super::*;
 
 /// Private provenance for a prepared API copy, never for a displaced external body.

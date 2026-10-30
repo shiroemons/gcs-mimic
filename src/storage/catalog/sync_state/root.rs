@@ -1,6 +1,9 @@
 //! Root identity, exclusive ownership and fail-closed baseline activation.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
-// xtask-lint: allow-file(text::uncached_statement) -- request-free: startup acquires the root and the sync mirror activates its baseline, once per sync session
+#![expect(
+    clippy::disallowed_methods,
+    reason = "request-free: startup acquires the root and the sync mirror activates its baseline, once per sync session"
+)]
 
 use super::{CatalogId, SyncState, catalog_id};
 use crate::{

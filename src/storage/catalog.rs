@@ -188,6 +188,10 @@ fn migrate_bucket_settings(connection: &mut Connection) -> Result<(), CatalogErr
     transaction.commit().map_err(unavailable)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a one-time schema migration at open"
+)]
 fn migrate_timestamp_precision(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
     // SQLite promotes overflowing integer multiplication to REAL, losing precision.
@@ -327,9 +331,12 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
     (35, upload_replay::SCHEMA, Some(upload_replay::validate)),
 ];
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "schema validation runs once at open"
+)]
 fn validate_seed(connection: &Connection) -> Result<(), CatalogError> {
     let valid: bool = connection
-        // xtask-lint: allow(text::uncached_statement) -- schema validation runs once at open
         .query_row(
             "SELECT count(*) = 1 AND min(singleton) = 1 FROM startup_seed",
             [],
@@ -343,6 +350,10 @@ fn validate_seed(connection: &Connection) -> Result<(), CatalogError> {
     }
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "schema validation runs once at open"
+)]
 fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogError> {
     let expected = Connection::open_in_memory().map_err(unavailable)?;
     expected.execute_batch(BUCKET_SCHEMA).map_err(unavailable)?;
@@ -373,7 +384,6 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
         return Err(unavailable("catalog schema does not match its version"));
     }
     if version >= 3 {
-        // xtask-lint: allow(text::uncached_statement) -- schema validation runs once at open
         let valid: bool = connection.query_row("SELECT count(*) = 1 AND min(singleton) = 1 AND min(last_generation) >= (SELECT coalesce(max(generation), 0) FROM objects) FROM object_generation", [], |row| row.get(0)).map_err(unavailable)?;
         if !valid {
             return Err(unavailable("invalid generation allocator state"));
@@ -598,6 +608,10 @@ pub struct Catalog(Arc<Inner>);
 
 /// Reads and validates an existing catalog without writing to it; returns its stored schema
 /// version, or 0 when the catalog is new.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "integrity and schema inspection run once at open"
+)]
 fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
     // A read-write connection can checkpoint a rejected catalog's hot WAL on close.
     let connection = if path.try_exists().map_err(unavailable)? {
@@ -639,7 +653,6 @@ fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
         ));
     }
     let check: String = connection
-        // xtask-lint: allow(text::uncached_statement) -- an integrity check that runs once at open
         .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
         .map_err(unavailable)?;
     if check != "ok" {
@@ -649,7 +662,6 @@ fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
     }
     if version == 0 {
         let tables: i64 = connection
-            // xtask-lint: allow(text::uncached_statement) -- schema inspection runs once at open
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
                 [],
@@ -669,6 +681,10 @@ fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
 }
 
 /// Opens the catalog for writing in WAL mode with full synchronization.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "switches the journal mode once at open"
+)]
 fn open_writable(path: &Path) -> Result<Connection, CatalogError> {
     let connection = Connection::open(path).map_err(unavailable)?;
     connection
@@ -688,7 +704,6 @@ fn open_writable(path: &Path) -> Result<Connection, CatalogError> {
         .map_err(unavailable)?;
     if mode != "wal" {
         let mode: String = connection
-            // xtask-lint: allow(text::uncached_statement) -- switches the journal mode once at open
             .query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))
             .map_err(unavailable)?;
         if mode != "wal" {
@@ -704,6 +719,10 @@ fn open_writable(path: &Path) -> Result<Connection, CatalogError> {
 }
 
 /// Creates a new catalog at schema version 5, the base the migrations continue from.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "creates a new catalog once at open"
+)]
 fn initialize_catalog(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
     transaction
@@ -719,16 +738,18 @@ fn initialize_catalog(connection: &mut Connection) -> Result<(), CatalogError> {
         transaction.execute_batch(schema).map_err(unavailable)?;
     }
     transaction
-        // xtask-lint: allow(text::uncached_statement) -- creates a new catalog once at open
         .execute("INSERT INTO object_generation VALUES (1, 0)", [])
         .map_err(unavailable)?;
     transaction
-        // xtask-lint: allow(text::uncached_statement) -- creates a new catalog once at open
         .execute("INSERT INTO startup_seed VALUES (1, 0)", [])
         .map_err(unavailable)?;
     transaction.commit().map_err(unavailable)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a one-time schema migration at open"
+)]
 fn migrate_seed(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
     transaction
@@ -736,7 +757,6 @@ fn migrate_seed(connection: &mut Connection) -> Result<(), CatalogError> {
         .map_err(unavailable)?;
     // Older catalogs have already served user mutations, even if now empty.
     transaction
-        // xtask-lint: allow(text::uncached_statement) -- a one-time schema migration at open
         .execute("INSERT INTO startup_seed VALUES (1, 1)", [])
         .map_err(unavailable)?;
     transaction.commit().map_err(unavailable)
@@ -802,13 +822,16 @@ const MIGRATIONS: &[(i64, Migration)] = &[
 ];
 
 /// Resets volatile state and completes crash recovery before the catalog serves requests.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "crash recovery runs once at open"
+)]
 fn recover_on_open(
     connection: &mut Connection,
     data_dir: &Path,
     clock: &dyn Clock,
 ) -> Result<(), CatalogError> {
     let pending: bool = connection
-        // xtask-lint: allow(text::uncached_statement) -- crash recovery runs once at open
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)",
             [],
@@ -816,11 +839,9 @@ fn recover_on_open(
         )
         .map_err(unavailable)?;
     if pending {
-        // xtask-lint: allow(text::uncached_statement) -- crash recovery runs once at open
         connection.execute("UPDATE sync_writeback_roots SET recovery=1 WHERE EXISTS(SELECT 1 FROM sync_writeback_ops p WHERE p.root_id=sync_writeback_roots.root_id AND p.phase!=4)",[]).map_err(unavailable)?;
     }
     let journal_enabled: bool = connection
-        // xtask-lint: allow(text::uncached_statement) -- crash recovery runs once at open
         .query_row(
             "SELECT enabled FROM change_journal_state WHERE singleton = 1",
             [],
@@ -830,8 +851,7 @@ fn recover_on_open(
     if journal_enabled {
         // shortcut: restart requires a full rescan, add durable consumer checkpoints when restart continuity is needed.
         connection
-            // xtask-lint: allow(text::uncached_statement) -- crash recovery runs once at open
-            .execute(
+                        .execute(
                 "UPDATE change_journal_state SET enabled = 0, epoch = epoch + 1 WHERE singleton = 1",
                 [],
             )

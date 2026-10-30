@@ -17,10 +17,12 @@ PRAGMA user_version = 6;";
 
 const SELECT_BUCKET_PROJECT: &str = "SELECT project FROM buckets WHERE name = ?1";
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "validates catalog state once at open"
+)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    // xtask-lint: allow(text::uncached_statement) -- validates catalog state once at open
     let valid: bool = connection.query_row("SELECT count(*) = 1 AND min(singleton) = 1 AND min(last_revision) >= (SELECT coalesce(max(revision), 0) FROM bucket_policies) FROM policy_revision", [], |row| row.get(0)).map_err(unavailable)?;
-    // xtask-lint: allow(text::uncached_statement) -- validates catalog state once at open
     let complete: bool = connection.query_row("SELECT NOT EXISTS(SELECT 1 FROM buckets LEFT JOIN bucket_policies ON name = bucket WHERE bucket IS NULL) AND NOT EXISTS(SELECT 1 FROM bucket_policies LEFT JOIN buckets ON bucket = name WHERE name IS NULL)", [], |row| row.get(0)).map_err(unavailable)?;
     if !valid || !complete {
         return Err(unavailable("invalid bucket policy catalog state"));
@@ -28,11 +30,14 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     Ok(())
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a one-time schema migration step"
+)]
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
     transaction.execute_batch(SCHEMA).map_err(unavailable)?;
     transaction
-        // xtask-lint: allow(text::uncached_statement) -- a one-time schema migration step
         .execute("INSERT INTO policy_revision VALUES (1, 0)", [])
         .map_err(unavailable)?;
     // Keyset iteration keeps migration memory independent of the number of buckets.
@@ -130,6 +135,10 @@ pub(super) fn check_access(
 
 impl Catalog {
     /// Install a startup-only local simulation of effective parent policy; never persisted as bucket metadata.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "parent policy is installed once at startup"
+    )]
     pub async fn configure_public_access_prevention(
         &self,
         projects: &[String],
@@ -143,7 +152,6 @@ impl Catalog {
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
             transaction
-                // xtask-lint: allow(text::uncached_statement) -- parent policy is installed once at startup
                 .execute("DELETE FROM parent_public_access_prevention", [])
                 .map_err(unavailable)?;
             for project in &projects {
@@ -151,7 +159,6 @@ impl Catalog {
                     CatalogError::InvalidMetadata("Invalid parent policy project".into())
                 })?;
                 transaction
-                    // xtask-lint: allow(text::uncached_statement) -- parent policy is installed once at startup
                     .execute(
                         "INSERT OR IGNORE INTO parent_public_access_prevention VALUES (?1)",
                         [project],

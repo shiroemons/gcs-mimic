@@ -1,4 +1,7 @@
-// xtask-lint: allow-file(text::uncached_statement) -- request-free: only the sync mirror's background worker calls this module, and each step's fsync dwarfs statement preparation
+#![expect(
+    clippy::disallowed_methods,
+    reason = "request-free: only the sync mirror's background worker calls this module, and each step's fsync dwarfs statement preparation"
+)]
 use super::super::SyncRecord;
 use super::*;
 

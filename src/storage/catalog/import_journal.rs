@@ -1,6 +1,9 @@
 //! Durable local import progress; adapters own source verification, never SQL.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
-// xtask-lint: allow-file(text::uncached_statement) -- request-free: only migration, open validation, the startup import check and the offline import command call this module
+#![expect(
+    clippy::disallowed_methods,
+    reason = "request-free: only migration, open validation, the startup import check and the offline import command call this module"
+)]
 
 use super::{Catalog, admin::AdminError, unavailable};
 use crate::bucket::CatalogError;

@@ -436,12 +436,15 @@ impl Admin {
             .await
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "marks the startup seed complete once"
+    )]
     pub(crate) async fn finish_seed(&self) -> Result<(), AdminError> {
         self.catalog
             .run_admin(|connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
                 transaction
-                    // xtask-lint: allow(text::uncached_statement) -- marks the startup seed complete once
                     .execute(
                         "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
                         [],

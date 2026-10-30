@@ -1,5 +1,8 @@
 //! Durable directory observations survive API bucket deletion.
-// xtask-lint: allow-file(text::uncached_statement) -- request-free: only the sync mirror's directory scan calls this module, once per bucket per scan
+#![expect(
+    clippy::disallowed_methods,
+    reason = "request-free: only the sync mirror's directory scan calls this module, once per bucket per scan"
+)]
 use super::{
     MAX_PAGE,
     root::{RootError, RootLease},

@@ -1,6 +1,9 @@
 //! Durable observations for names the working tree cannot represent.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
-// xtask-lint: allow-file(text::uncached_statement) -- request-free: only the sync mirror records findings, for the rare names a working tree cannot represent
+#![expect(
+    clippy::disallowed_methods,
+    reason = "request-free: only the sync mirror records findings, for the rare names a working tree cannot represent"
+)]
 
 use super::super::{objects, unavailable};
 use super::{
