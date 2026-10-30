@@ -119,9 +119,10 @@ fn walk_error(error: WalkError) -> io::Error {
 
 /// One message from the walk thread. The walk ends only with [`Walked::Done`]: a thread that
 /// panicked or stopped early drops its sender without one, and a closed channel alone would
-/// otherwise look like the end of a complete walk and mark a partial seed complete.
+/// otherwise look like the end of a complete walk and mark a partial seed complete. The entry is
+/// boxed because Linux `Metadata` carries statx fields that make an unboxed variant over 200 bytes.
 enum Walked {
-    Entry(Entry),
+    Entry(Box<Entry>),
     Done,
 }
 
@@ -131,7 +132,7 @@ fn entries(root: PathBuf) -> io::Result<mpsc::Receiver<Walked>> {
         let walk = match Walker::new(&root, MAX_ENTRIES, MAX_DEPTH) {
             Ok(walk) => walk,
             Err(error) => {
-                let _ = send.blocking_send(Walked::Entry(Err(walk_error(error))));
+                let _ = send.blocking_send(Walked::Entry(Box::new(Err(walk_error(error)))));
                 return;
             }
         };
@@ -142,7 +143,7 @@ fn entries(root: PathBuf) -> io::Result<mpsc::Receiver<Walked>> {
         });
         for entry in walk {
             if send
-                .blocking_send(Walked::Entry(entry.map_err(walk_error)))
+                .blocking_send(Walked::Entry(Box::new(entry.map_err(walk_error))))
                 .is_err()
             {
                 return;
@@ -182,7 +183,7 @@ async fn import_directory(
     let mut counts = Counts::default();
     loop {
         let entry = match entries.recv().await {
-            Some(Walked::Entry(entry)) => entry,
+            Some(Walked::Entry(entry)) => *entry,
             Some(Walked::Done) => break,
             // The thread already reported its panic; failing here keeps the seed incomplete.
             None => {
