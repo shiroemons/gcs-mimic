@@ -6,7 +6,7 @@ publish = false
 license.workspace = true
 
 [dependencies]
-tonic-prost-build = "0.14.8"
+tonic-prost-build = "0.14.9"
 
 [lints]
 workspace = true

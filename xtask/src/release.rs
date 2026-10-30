@@ -20,11 +20,11 @@ const TARGETS: [&str; 8] = [
 ];
 const MUSL_SOURCE_SHA256: &str = "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4";
 // These MIT crates were published from one grpc-rust revision without their license text. The
-// supplied text is that revision's repository-root LICENSE, which tonic 0.14.8 packages verbatim.
-const GRPC_RUST_REVISION: &str = "541379959bf197057a7c04eeca7f1d976f5ba7c6";
-const GRPC_RUST_LICENSE: &str = "distribution/notices/grpc-rust-54137995/LICENSE";
+// supplied text is that revision's repository-root LICENSE, which tonic 0.14.9 packages verbatim.
+const GRPC_RUST_REVISION: &str = "4c0f455c264fe2ec9f9ab5d0cc7fd2824d5daf70";
+const GRPC_RUST_LICENSE: &str = "distribution/notices/grpc-rust-4c0f455c/LICENSE";
 const GRPC_RUST_SUPPLIED: [&str; 2] = ["tonic-prost", "tonic-prost-build"];
-const GRPC_RUST_VERSION: &str = "0.14.8";
+const GRPC_RUST_VERSION: &str = "0.14.9";
 
 fn grpc_rust_supplied(package: &Value) -> Result<bool> {
     if !GRPC_RUST_SUPPLIED.contains(&text(package, "name")?) {
@@ -402,7 +402,7 @@ fn write_notices(root: &Path, target: &str, metadata: &Value, output: &Path) -> 
                 "basis": "The published crate declares MIT but omits the license text, so LICENSE is the repository-root text from the revision it was published from.",
                 "upstream_revision": GRPC_RUST_REVISION,
                 "upstream_source": format!("https://raw.githubusercontent.com/grpc/grpc-rust/{GRPC_RUST_REVISION}/LICENSE"),
-                "review_scope": "tonic-prost and tonic-prost-build 0.14.8 only; other versions require a fresh notice review.",
+                "review_scope": "tonic-prost and tonic-prost-build 0.14.9 only; other versions require a fresh notice review.",
             }));
         }
         if package["name"] == "libsqlite3-sys" {
@@ -663,14 +663,14 @@ mod tests {
         let package_dir = directory.0.join("tonic-prost");
         fs::create_dir(&package_dir).unwrap();
         let mut package = json!({
-            "name": "tonic-prost", "version": "0.14.8", "license": "MIT",
+            "name": "tonic-prost", "version": "0.14.9", "license": "MIT",
             "source": "registry+https://github.com/rust-lang/crates.io-index",
             "manifest_path": package_dir.join("Cargo.toml"),
         });
         let output = directory.0.join("notices");
         let metadata = json!({"packages": [package.clone()], "workspace_members": []});
         write_notices(&directory.0, TARGETS[0], &metadata, &output).unwrap();
-        let crate_notices = output.join("third-party-licenses/crates/tonic-prost-0.14.8");
+        let crate_notices = output.join("third-party-licenses/crates/tonic-prost-0.14.9");
         assert_eq!(
             fs::read_to_string(crate_notices.join("LICENSE")).unwrap(),
             "grpc-rust MIT text"
@@ -690,10 +690,10 @@ mod tests {
             GRPC_RUST_REVISION
         );
         // An unreviewed version, or an unrelated crate without notices, still fails closed.
-        package["version"] = json!("0.14.9");
+        package["version"] = json!("0.14.8");
         assert!(package_notices(&package).is_err());
         package["name"] = json!("other");
-        package["version"] = json!("0.14.8");
+        package["version"] = json!("0.14.9");
         assert!(package_notices(&package).is_err());
     }
 }
