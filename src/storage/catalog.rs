@@ -1046,7 +1046,15 @@ impl Catalog {
             .admission
             .clone()
             .try_acquire_owned()
-            .map_err(|_| CatalogError::Unavailable("catalog operation limit reached".into()))?;
+            // A closed catalog is not full: reporting a limit would invite retries at shutdown.
+            .map_err(|error| {
+                CatalogError::Unavailable(match error {
+                    tokio::sync::TryAcquireError::Closed => "catalog is closed".into(),
+                    tokio::sync::TryAcquireError::NoPermits => {
+                        "catalog operation limit reached".into()
+                    }
+                })
+            })?;
         self.run_admitted(admission, operation).await
     }
 
@@ -1907,6 +1915,33 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Shutdown must not look like overload: only a full catalog asks the client to retry.
+    #[tokio::test]
+    async fn a_closed_catalog_reports_closed_and_a_full_one_reports_its_limit() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let record =
+            crate::json::parse_insert(br#"{"name":"admission"}"#, "project", UNIX_EPOCH).unwrap();
+        let held = catalog
+            .0
+            .admission
+            .clone()
+            .try_acquire_many_owned(u32::try_from(MAX_IN_FLIGHT).unwrap())
+            .unwrap();
+        let full = catalog.insert_bucket(record.clone()).await.unwrap_err();
+        assert!(
+            matches!(&full, CatalogError::Unavailable(cause) if *cause == "catalog operation limit reached"),
+            "{full}"
+        );
+        drop(held);
+        catalog.close().await.unwrap();
+        let closed = catalog.insert_bucket(record).await.unwrap_err();
+        assert!(
+            matches!(&closed, CatalogError::Unavailable(cause) if *cause == "catalog is closed"),
+            "{closed}"
+        );
+    }
 
     #[tokio::test]
     async fn bucket_patch_rechecks_revocation_and_bucket_recreation() {
