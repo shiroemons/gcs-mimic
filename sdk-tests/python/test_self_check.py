@@ -48,7 +48,7 @@ class TrustSelfCheck(unittest.TestCase):
         context = trust_context(str(DEVELOPMENT_CA))
         self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
         self.assertTrue(context.check_hostname)
-        self.assertFalse(context.verify_flags & ssl.VERIFY_X509_STRICT)
+        self.assertTrue(context.verify_flags & ssl.VERIFY_X509_STRICT)
         # Only the supplied CA is trusted; the system store is not loaded.
         self.assertEqual(len(context.get_ca_certs()), 1)
 

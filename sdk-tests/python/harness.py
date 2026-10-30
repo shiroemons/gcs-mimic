@@ -77,13 +77,10 @@ def require_localhost_loopback(origin):
 def trust_context(ca_cert):
     """Builds an SSL context that trusts only ca_cert and verifies the peer and hostname.
 
-    Python 3.13+ enables VERIFY_X509_STRICT by default, which rejects the emulator's built-in
-    development leaf certificate because it lacks an Authority Key Identifier extension. Only
-    that RFC 5280 strictness flag is cleared; chain, expiry and hostname checks stay enabled.
+    The default flags are kept, including VERIFY_X509_STRICT on Python 3.13+, so the
+    built-in development certificate must satisfy RFC 5280 strict chain checks.
     """
-    context = ssl.create_default_context(cafile=ca_cert)
-    context.verify_flags &= ~ssl.VERIFY_X509_STRICT
-    return context
+    return ssl.create_default_context(cafile=ca_cert)
 
 
 class _TrustAdapter(HTTPAdapter):

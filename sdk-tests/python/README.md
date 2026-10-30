@@ -70,7 +70,8 @@ holds the public key from `fixtures/signing/test-only-public.pem`.
   google-auth credential refreshes it. Signed and anonymous requests use a
   separate guarded session without the token.
 - HTTPS trusts only `GCS_MIMIC_CA_CERT` and keeps peer and hostname
-  verification. A live case also verifies that the public trust store rejects
+  verification with Python's default flags, including `VERIFY_X509_STRICT` on
+  Python 3.13+. A live case also verifies that the public trust store rejects
   the local certificate.
 
 ## Journeys
@@ -124,11 +125,6 @@ contacts its `token_uri`.
   replacement PUT cases use a fresh resource object holding only the replacement
   fields; there is no separate generated client layer like Ruby's
   `Google::Apis::StorageV1`.
-- Python 3.13+ enables `VERIFY_X509_STRICT`, which rejects the emulator's
-  built-in development leaf certificate because it lacks an Authority Key
-  Identifier extension. The suite clears only that flag; CA pinning, chain,
-  expiry and hostname verification stay enabled. Remove this adaptation once the
-  built-in certificate carries the extension.
 - The V4 signer binds the client endpoint's `host:port` by default, so unlike
   Ruby no bucket-bound hostname adaptation is needed and URLs are used unchanged.
 - `localhost` is checked through the resolver at startup instead of pinning the
