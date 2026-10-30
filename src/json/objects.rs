@@ -5,19 +5,11 @@ use super::{
 };
 use crate::{
     config::CompatProfile,
-    object::{ExpectedHashes, ObjectConditions, ObjectRecord},
+    object::{ExpectedHashes, ObjectConditions, ObjectRecord, retention::UnlockedOverride},
 };
 use hyper::{HeaderMap, Method, StatusCode, Uri, header::HeaderValue};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-
-/// Whether an object update asks to override an Unlocked retention configuration
-/// (`overrideUnlockedRetention=true`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RetentionOverride {
-    Requested,
-    NotRequested,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectInsertParams {
@@ -56,7 +48,7 @@ pub(crate) enum ObjectRequest {
         name: String,
         params: ObjectGetParams,
         mode: WriteMode,
-        retention_override: RetentionOverride,
+        retention_override: UnlockedOverride,
     },
     Insert {
         bucket: String,
@@ -398,9 +390,9 @@ fn parse_named_object_query(
             projection(&mut query)?
         };
         let retention_override = if boolean(&mut query, "overrideUnlockedRetention")? {
-            RetentionOverride::Requested
+            UnlockedOverride::Requested
         } else {
-            RetentionOverride::NotRequested
+            UnlockedOverride::NotRequested
         };
         finish(&query)?;
         return Ok(ObjectRequest::Update {

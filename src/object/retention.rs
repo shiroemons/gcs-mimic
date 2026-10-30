@@ -57,11 +57,13 @@ pub(crate) enum BucketRetention {
     Disabled,
 }
 
-/// Whether the request set `overrideUnlockedRetention=true`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Whether an object update set `overrideUnlockedRetention=true`. The server checks the
+/// override permission before the catalog applies a requested override.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum UnlockedOverride {
-    Allowed,
-    Denied,
+    Requested,
+    #[default]
+    NotRequested,
 }
 
 /// Validates a configuration that a publication or metadata change would store.
@@ -120,7 +122,7 @@ pub(crate) fn check_transition(
         }
         RetentionMode::Unlocked => {
             let locking = next.is_some_and(|next| next.mode == RetentionMode::Locked);
-            if (shortened || locking) && unlocked == UnlockedOverride::Denied {
+            if (shortened || locking) && unlocked == UnlockedOverride::NotRequested {
                 return Err(invalid(
                     "Removing, shortening or locking an Unlocked retention configuration requires overrideUnlockedRetention=true",
                 ));
@@ -148,8 +150,8 @@ mod tests {
         let unlocked = config(Unlocked, 100);
         let locked = config(Locked, 100);
         // Any first configuration is allowed; permissions and bucket state are checked elsewhere.
-        assert!(check_transition(None, Some(&locked), UnlockedOverride::Denied).is_ok());
-        assert!(check_transition(None, None, UnlockedOverride::Denied).is_ok());
+        assert!(check_transition(None, Some(&locked), UnlockedOverride::NotRequested).is_ok());
+        assert!(check_transition(None, None, UnlockedOverride::NotRequested).is_ok());
         for (next, allowed_without_override) in [
             (Some(config(Unlocked, 100)), true),
             (Some(config(Unlocked, 200)), true),
@@ -158,12 +160,18 @@ mod tests {
             (None, false),
         ] {
             assert_eq!(
-                check_transition(Some(&unlocked), next.as_ref(), UnlockedOverride::Denied).is_ok(),
+                check_transition(
+                    Some(&unlocked),
+                    next.as_ref(),
+                    UnlockedOverride::NotRequested
+                )
+                .is_ok(),
                 allowed_without_override,
                 "{next:?}"
             );
             assert!(
-                check_transition(Some(&unlocked), next.as_ref(), UnlockedOverride::Allowed).is_ok()
+                check_transition(Some(&unlocked), next.as_ref(), UnlockedOverride::Requested)
+                    .is_ok()
             );
         }
         for (next, allowed) in [
@@ -173,7 +181,7 @@ mod tests {
             (Some(config(Unlocked, 200)), false),
             (None, false),
         ] {
-            for unlocked in [UnlockedOverride::Denied, UnlockedOverride::Allowed] {
+            for unlocked in [UnlockedOverride::NotRequested, UnlockedOverride::Requested] {
                 assert_eq!(
                     check_transition(Some(&locked), next.as_ref(), unlocked).is_ok(),
                     allowed,

@@ -1219,11 +1219,7 @@ impl Catalog {
                 })?;
             }
             let previous_retention = record.retention;
-            let override_unlocked = if update.override_unlocked_retention {
-                crate::object::retention::UnlockedOverride::Allowed
-            } else {
-                crate::object::retention::UnlockedOverride::Denied
-            };
+            let override_unlocked = update.override_unlocked_retention;
             update.apply(&mut record)?;
             if record.retention != previous_retention {
                 crate::object::retention::check_transition(

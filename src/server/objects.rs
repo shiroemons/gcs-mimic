@@ -13,7 +13,7 @@ use crate::{
     auth,
     bucket::{BucketAccess, CatalogError},
     json::{self, JsonError, ObjectRequest},
-    object::ObjectError,
+    object::{ObjectError, retention::UnlockedOverride},
     storage::{MoveAccess, ObjectSelector},
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri, body::Incoming};
@@ -388,7 +388,7 @@ struct UpdateTarget {
     name: String,
     params: json::ObjectGetParams,
     mode: json::WriteMode,
-    retention_override: json::RetentionOverride,
+    retention_override: UnlockedOverride,
 }
 
 async fn update(

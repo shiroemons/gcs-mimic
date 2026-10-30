@@ -7,7 +7,7 @@
 //! actually locks, shortens or removes an Unlocked configuration.
 
 use super::{BucketAccess, JsonError, State, auth};
-use crate::{json::RetentionOverride, object::ObjectMetadataUpdate};
+use crate::object::{ObjectMetadataUpdate, retention::UnlockedOverride};
 
 async fn require(
     state: &State,
@@ -41,14 +41,13 @@ pub(super) async fn authorize_update(
     access: &BucketAccess,
     bucket: &str,
     update: &mut ObjectMetadataUpdate,
-    retention_override: RetentionOverride,
+    retention_override: UnlockedOverride,
 ) -> Result<(), JsonError> {
     if update.retention.is_none() {
         return Ok(());
     }
     require(state, access, bucket, auth::OBJECTS_SET_RETENTION).await?;
-    let override_unlocked_retention = retention_override == RetentionOverride::Requested;
-    if override_unlocked_retention {
+    if retention_override == UnlockedOverride::Requested {
         require(
             state,
             access,
@@ -57,6 +56,6 @@ pub(super) async fn authorize_update(
         )
         .await?;
     }
-    update.override_unlocked_retention = override_unlocked_retention;
+    update.override_unlocked_retention = retention_override;
     Ok(())
 }

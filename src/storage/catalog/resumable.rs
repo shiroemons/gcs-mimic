@@ -491,7 +491,7 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, InvalidOptio
             event_based_hold: serde_json::from_value(v["metadata"]["eventBasedHold"].clone())
                 .map_err(|_| invalid())?,
             retention: super::objects::retention::from_session(&v["metadata"]["retention"])?,
-            override_unlocked_retention: false,
+            override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
             customer_key_sha256: serde_json::from_value::<Option<Vec<u8>>>(
                 v["metadata"]["customerKeySha256"].clone(),
             )

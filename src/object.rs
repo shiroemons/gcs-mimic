@@ -141,7 +141,7 @@ pub struct ObjectMetadataUpdate {
     pub custom_time: Option<Option<String>>,
     /// `Some(None)` removes the configuration; transitions are checked by the catalog.
     pub(crate) retention: Option<Option<retention::ObjectRetention>>,
-    pub override_unlocked_retention: bool,
+    pub(crate) override_unlocked_retention: retention::UnlockedOverride,
     /// Set only by data writes that carry a customer-supplied key; metadata patches keep it.
     pub customer_key_sha256: Option<[u8; 32]>,
     /// Requested class for a new generation; creation resolves it against the bucket's

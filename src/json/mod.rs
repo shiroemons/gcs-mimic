@@ -66,10 +66,10 @@ pub(crate) use objects::{
     validate_read_condition_headers,
 };
 pub(crate) use objects::{
-    ObjectGetParams, ObjectInsertParams, ObjectRead, ObjectRequest, RetentionOverride,
-    object_media_headers, object_media_range, object_resource, parse_object_upload_headers,
-    route_object, route_object_with_profile, validate_keyed_object_headers,
-    validate_object_get_headers, validate_object_media_encoding, validate_object_name,
+    ObjectGetParams, ObjectInsertParams, ObjectRead, ObjectRequest, object_media_headers,
+    object_media_range, object_resource, parse_object_upload_headers, route_object,
+    route_object_with_profile, validate_keyed_object_headers, validate_object_get_headers,
+    validate_object_media_encoding, validate_object_name,
 };
 pub(crate) use page_token::{
     decode_all_projects_page_token, decode_page_token, encode_all_projects_page_token,

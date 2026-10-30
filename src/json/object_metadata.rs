@@ -128,7 +128,7 @@ fn parse_metadata(
                 .get("retention")
                 .map(super::object_retention::parse)
                 .transpose()?,
-            override_unlocked_retention: false,
+            override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
             customer_key_sha256: None,
             storage_class: None,
         },
