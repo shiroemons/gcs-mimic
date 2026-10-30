@@ -488,6 +488,7 @@ async fn resumable_chunk_and_finalization_failures_keep_the_acknowledged_prefix(
 }
 
 /// The staged blob ID of the session at `path`.
+#[cfg(unix)]
 async fn session_blob(h: &Harness, path: &str) -> String {
     let id = path.split("upload_id=").nth(1).unwrap();
     h.state
