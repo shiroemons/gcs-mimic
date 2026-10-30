@@ -292,18 +292,18 @@
     {
       "ecosystem": "pypi", "manifest": "sdk-scorecard/python/pyproject.toml",
       "checked_at_utc": "2026-10-30T05:11:58Z",
-      "toolchain": {"version": "3.14.10", "pin": "sdk-scorecard/python/.python-version", "source_url": "https://www.python.org/api/v2/downloads/release/?is_published=true&pre_release=false"},
+      "toolchain": {"version": "3.15.2", "pin": "sdk-scorecard/python/.python-version", "source_url": "https://www.python.org/api/v2/downloads/release/?is_published=true&pre_release=false"},
       "direct_dependencies": [
         {"name": "google-cloud-storage", "current": "3.17.1", "license": "Apache-2.0", "wheel_bytes": 345706},
         {"name": "cryptography", "current": "50.0.2", "license": "Apache-2.0 OR BSD-3-Clause", "purpose": "Offline RSA signing using google-auth's supported cryptography backend."}
       ],
       "source_urls": ["https://pypi.org/pypi/google-cloud-storage/json", "https://pypi.org/pypi/cryptography/json", "https://github.com/googleapis/google-cloud-python/tree/main/packages/google-cloud-storage", "https://github.com/pyca/cryptography"],
-      "resolution_constraints": "Development-only scorecard; uv.lock records the complete hash-pinned graph. Both projects actively maintained; the former googleapis/python-storage repository is archived and the package is developed in googleapis/google-cloud-python. Daily detection checks non-yanked stable X.Y.Z releases including new majors and the .python-version pin against the newest published stable Python release."
+      "resolution_constraints": "Development-only scorecard; uv.lock records the complete hash-pinned graph, resolved for requires-python >=3.15; every compiled package ships cp315 or abi3 wheels. Both projects actively maintained; the former googleapis/python-storage repository is archived and the package is developed in googleapis/google-cloud-python. Daily detection checks non-yanked stable X.Y.Z releases including new majors and the .python-version pin against the newest published stable Python release."
     },
     {
       "ecosystem": "pypi", "manifest": "sdk-tests/python/pyproject.toml",
       "checked_at_utc": "2026-10-30T05:11:58Z",
-      "toolchain": {"version": "3.14.10", "pin": "sdk-tests/python/.python-version", "source_url": "https://www.python.org/api/v2/downloads/release/?is_published=true&pre_release=false"},
+      "toolchain": {"version": "3.15.2", "pin": "sdk-tests/python/.python-version", "source_url": "https://www.python.org/api/v2/downloads/release/?is_published=true&pre_release=false"},
       "direct_dependencies": [
         {"name": "google-cloud-storage", "current": "3.17.1", "license": "Apache-2.0", "wheel_bytes": 345706},
         {"name": "cryptography", "current": "50.0.2", "license": "Apache-2.0 OR BSD-3-Clause", "purpose": "google-auth's offline RSA signer for the strict-profile signed URL journeys."}

@@ -72,7 +72,7 @@ sets across products, and differing shared case IDs across SDKs.
 | Ruby SDK | `google-cloud-storage` 1.62.1 (`ruby/Gemfile.lock`, same graph as `sdk-tests/ruby`) |
 | Node.js SDK | `@google-cloud/storage` 8.4.0 (`node/package-lock.json`); measured on Node.js 26.13.0, requires Node.js 24+ |
 | PHP SDK | `google/cloud-storage` 2.6.1 (`php/composer.lock`); official Composer 2.11.0 / PHP 8.5.12 image, digest pinned in `run.sh` |
-| Python SDK | `google-cloud-storage` 3.17.1, `cryptography` 50.0.2 for offline RSA signing (`python/uv.lock`); Python 3.14.10 |
+| Python SDK | `google-cloud-storage` 3.17.1, `cryptography` 50.0.2 for offline RSA signing (`python/uv.lock`); Python 3.15.2 |
 | gcs-mimic | Release build of the checked-out source; the commit is recorded in `*.meta.json` |
 | fake-gcs-server | `fsouza/fake-gcs-server:1.56.1` |
 | gcp-storage-emulator | `oittaa/gcp-storage-emulator:v2026.07.19` |
@@ -155,7 +155,7 @@ browser behavior.
 ## Running
 
 Requires Bash, Rust, Go, Ruby 4.0.9 with Bundler, Node.js 24+ with npm, uv,
-Docker, curl and jq. uv selects Python 3.14.10; PHP and Composer run in Docker.
+Docker, curl and jq. uv selects Python 3.15.2; PHP and Composer run in Docker.
 
 ```sh
 bash sdk-scorecard/run.sh                       # all products, results/<UTC date>/

@@ -12,7 +12,7 @@ milestone and local transport, rather than full Python compatibility.
 
 | Input | Pin | License | Verified source |
 | --- | --- | --- | --- |
-| Python | 3.14.10 (`.python-version`, selected by uv) | PSF-2.0 | python.org release API: newest published 3.14 release, 2026-10-25 |
+| Python | 3.15.2 (`.python-version`, selected by uv) | PSF-2.0 | python.org release API: newest published stable release, 2026-10-25 |
 | `google-cloud-storage` | 3.17.1 | Apache-2.0 | PyPI: latest, not yanked, uploaded 2026-10-15 |
 | `cryptography` | 50.0.2 | Apache-2.0 OR BSD-3-Clause | PyPI: latest, not yanked, uploaded 2026-09-30 |
 
