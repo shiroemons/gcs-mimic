@@ -12,7 +12,11 @@ strict_endpoint=${GCS_MIMIC_STRICT_ENDPOINT:?GCS_MIMIC_STRICT_ENDPOINT must name
 command -v docker >/dev/null || { echo 'The PHP SDK suite requires Docker' >&2; exit 2; }
 
 container="gcs-mimic-sdk-php-$$"
-cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+ca_copy="$root/sdk-tests/php/.ca/ca-$$.pem"
+cleanup() {
+  docker rm -f "$container" >/dev/null 2>&1 || true
+  rm -f "$ca_copy"
+}
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -35,7 +39,11 @@ ca_args=()
 if [[ $endpoint == https://* || $strict_endpoint == https://* ]]; then
   ca=${GCS_MIMIC_CA_CERT:?HTTPS endpoints require GCS_MIMIC_CA_CERT}
   [[ -f $ca && -r $ca ]] || { echo 'GCS_MIMIC_CA_CERT is unreadable' >&2; exit 2; }
-  ca_args=(-v "$(cd "$(dirname "$ca")" && pwd)/$(basename "$ca"):/run/gcs-mimic-ca.pem:ro" -e GCS_MIMIC_CA_CERT=/run/gcs-mimic-ca.pem)
+  # Docker Desktop cannot bind-mount files from every host volume (the macOS test RAM disk
+  # fails with "file exists"), so the CA travels inside the checkout the suite already mounts.
+  mkdir -p "${ca_copy%/*}"
+  cp "$ca" "$ca_copy"
+  ca_args=(-e "GCS_MIMIC_CA_CERT=/work/sdk-tests/php/.ca/${ca_copy##*/}")
 fi
 
 # Run as the invoking user so vendor/ stays removable; the image's COMPOSER_HOME is world-writable.
