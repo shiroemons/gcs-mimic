@@ -72,6 +72,10 @@ also include the pinned upstream musl source archive to retain individual source
 file notices. That source archive supplies notices, not a claim that the shipped
 runtime is an unpatched upstream build.
 
+The release profile uses thin LTO with one codegen unit, trading build time for
+size: in one measurement each, a clean macOS release build went from about 53 s
+to about 130 s and the stripped binary shrank from about 17.6 MB to 13.9 MB.
+
 Rust and Cargo.lock are pinned and Actions use commit SHAs. Builds remap checkout
 and Cargo cache paths, and Unix archives normalize ownership rather than shipping
 the builder's account name. BUILD-INFO records the packaging checkout, dirty-tree

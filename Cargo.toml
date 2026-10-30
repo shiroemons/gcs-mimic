@@ -25,6 +25,9 @@ unimplemented = "deny"
 redundant_clone = "deny"
 
 [profile.release]
+# Thin LTO with one codegen unit trades a longer release build (about 53 s to
+# 130 s on macOS) for a smaller binary (17.6 MB to 13.9 MB stripped); see
+# docs/en/binary-distribution.md.
 lto = "thin"
 codegen-units = 1
 # Panics stay unwinding: the server isolates a panic to its connection or task
