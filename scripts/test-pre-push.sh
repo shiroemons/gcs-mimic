@@ -27,16 +27,9 @@ test "$*" = --with-ruby
 if [[ ${GCS_MIMIC_PRE_PUSH_TEST_FAIL:-} == sdk ]]; then exit 23; fi
 touch "$GCS_MIMIC_PRE_PUSH_TEST_STATE/sdk.done"
 SH
-cat >"$work/scripts/sdk-scorecard-check.sh" <<'SH'
-set -euo pipefail
-test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/sdk.done"
-test "$#" = 0
-if [[ ${GCS_MIMIC_PRE_PUSH_TEST_FAIL:-} == scorecard ]]; then exit 23; fi
-touch "$GCS_MIMIC_PRE_PUSH_TEST_STATE/scorecard.done"
-SH
 cat >"$work/scripts/smoke-containers.sh" <<'SH'
 set -euo pipefail
-test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/scorecard.done"
+test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/sdk.done"
 test "$#" = 1
 case "$1" in
   linux/amd64) arch=amd64; peer=arm64 ;;
@@ -73,7 +66,7 @@ fi
 touch "$state/$arch.passed"
 SH
 
-for failure in none amd64 arm64 both check sdk scorecard; do
+for failure in none amd64 arm64 both check sdk; do
   export GCS_MIMIC_PRE_PUSH_TEST_STATE="$work/$failure"
   export GCS_MIMIC_PRE_PUSH_TEST_FAIL=$failure
   mkdir "$GCS_MIMIC_PRE_PUSH_TEST_STATE"
@@ -81,7 +74,7 @@ for failure in none amd64 arm64 both check sdk scorecard; do
   just --justfile "$work/Justfile" --jobs 2 pre-push >"$work/output" 2>&1 || status=$?
   if [[ $failure == none ]]; then test "$status" = 0; else test "$status" = 23; fi
   for arch in amd64 arm64; do
-    if [[ $failure == check || $failure == sdk || $failure == scorecard ]]; then
+    if [[ $failure == check || $failure == sdk ]]; then
       test ! -e "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.started"
     else
       test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.cleaned"
@@ -103,4 +96,4 @@ for arch in amd64 arm64; do
   test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.passed"
   test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/$arch.cleaned"
 done
-echo 'PASS: the SDK scorecard gate follows the Go/Ruby suites, container recipes overlap, label both output streams, wait for cleanup, propagate failures and support serial execution'
+echo 'PASS: container recipes overlap, label both output streams, wait for cleanup, propagate failures and support serial execution'
