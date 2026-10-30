@@ -667,13 +667,7 @@ impl Catalog {
                     remaining -= length as u64;
                 }
             }
-            #[cfg(test)]
-            fault::hit(&catalog.0.data_dir, Step::BodyFlush).map_err(object_unavailable)?;
-            // sync_all drops the error of tokio's background tail write; flush reports it.
-            output.flush().await.map_err(object_unavailable)?;
-            #[cfg(test)]
-            fault::hit(&catalog.0.data_dir, Step::BodySync).map_err(object_unavailable)?;
-            output.sync_all().await.map_err(object_unavailable)?;
+            objects::make_durable(&mut output, #[cfg(test)] &catalog.0.data_dir).await?;
             catalog.run_upload(move |connection| {
                 let (md5_state, crc) = hasher.md5_state();
                 connection.prepare_cached("UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4 WHERE id = ?1").and_then(|mut statement| statement.execute(params![id, progress.offset as i64, md5_state.as_slice(), crc])).map_err(object_unavailable)?;

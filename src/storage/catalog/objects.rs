@@ -226,7 +226,10 @@ pub(super) fn blob_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectErro
 
 #[cfg(unix)]
 pub(super) fn sync_dir(path: &Path) -> io::Result<()> {
-    crate::fsutil::sync_dir(path)
+    crate::fsutil::sync_dir(path)?;
+    #[cfg(test)]
+    fault::dir_synced(path);
+    Ok(())
 }
 
 static SHARD_CREATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -257,8 +260,9 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
             .parent()
             .ok_or_else(|| io::Error::other("blob shard has no parent directory"))?;
         match fs::create_dir(shard) {
-            Ok(()) =>
-            {
+            Ok(()) => {
+                #[cfg(all(test, unix))]
+                fault::dir_created(shard);
                 #[cfg(unix)]
                 if let Err(error) = sync_dir(blobs) {
                     fs::remove_dir(shard)?;
@@ -281,6 +285,8 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
     #[cfg(unix)]
     {
         fs::rename(source, destination)?;
+        #[cfg(test)]
+        fault::renamed(source, destination);
         sync_dir(shard)
     }
     #[cfg(windows)]
@@ -1503,14 +1509,12 @@ async fn write_body(
     {
         return Err(ObjectError::ChecksumMismatch);
     }
-    #[cfg(test)]
-    fault::hit(data_dir, Step::BodyFlush).map_err(object_unavailable)?;
-    // tokio finishes the last write in the background, and sync_all drops its error;
-    // flush reports it, so a failed tail cannot publish a short blob at the full size.
-    file.flush().await.map_err(object_unavailable)?;
-    #[cfg(test)]
-    fault::hit(data_dir, Step::BodySync).map_err(object_unavailable)?;
-    file.sync_all().await.map_err(object_unavailable)?;
+    make_durable(
+        &mut file,
+        #[cfg(test)]
+        data_dir,
+    )
+    .await?;
     Ok((
         size,
         md5,
@@ -1521,6 +1525,33 @@ async fn write_body(
             .try_into()
             .map_err(object_unavailable)?,
     ))
+}
+
+/// Makes every byte written to a staged body durable before it can be published.
+///
+/// Tests record the synced length for power-loss snapshots from the `sync_all` result
+/// itself, so a write path that skips this call, or a sync dropped from it together with
+/// the result it yields, leaves its bytes volatile and fails the power-loss crash tests.
+pub(super) async fn make_durable(
+    file: &mut tokio::fs::File,
+    #[cfg(test)] data_dir: &Path,
+) -> Result<(), ObjectError> {
+    #[cfg(test)]
+    fault::hit(data_dir, Step::BodyFlush).map_err(object_unavailable)?;
+    // tokio finishes the last write in the background, and sync_all drops its error;
+    // flush reports it, so a failed tail cannot publish a short blob at the full size.
+    file.flush().await.map_err(object_unavailable)?;
+    #[cfg(test)]
+    fault::hit(data_dir, Step::BodySync).map_err(object_unavailable)?;
+    let synced = file.sync_all().await;
+    #[cfg(test)]
+    if synced.is_ok() {
+        fault::file_synced(
+            data_dir,
+            &file.metadata().await.map_err(object_unavailable)?,
+        );
+    }
+    synced.map_err(object_unavailable)
 }
 
 pub(super) use crate::storage::failure::object_unavailable;

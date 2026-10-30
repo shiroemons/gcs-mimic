@@ -86,17 +86,17 @@ async fn receive_chunk(
                 }
             }
         }
-        #[cfg(test)]
-        fault::hit(data_dir, Step::BodyFlush).map_err(object_unavailable)?;
-        // sync_all drops the error of tokio's background tail write; flush reports it.
-        file.flush().await.map_err(object_unavailable)?;
-        #[cfg(test)]
-        fault::hit(data_dir, Step::BodySync).map_err(object_unavailable)?;
-        file.sync_all().await.map_err(object_unavailable)
+        objects::make_durable(
+            &mut file,
+            #[cfg(test)]
+            data_dir,
+        )
+        .await
     }
     .await;
     if let Err(error) = transfer {
         file.set_len(durable).await.map_err(object_unavailable)?;
+        // xtask-lint: allow(text::sync_without_flush) -- set_len waits for tokio's in-flight write and cuts the file back to the prefix synced earlier, so no failed tail write survives
         file.sync_all().await.map_err(object_unavailable)?;
         return Err(error);
     }
