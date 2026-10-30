@@ -79,12 +79,6 @@ PRAGMA user_version = 15;";
 pub struct JournalSeq(pub u64);
 
 /// Capture once, then page to this position without chasing concurrent mutations.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum JournalSwitch {
-    Enabled,
-    Disabled,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct JournalFence {
     pub sequence: JournalSeq,
@@ -326,19 +320,20 @@ impl Catalog {
     /// Startup configuration belongs to consumers; activation always requires a fresh scan.
     /// Starts recording changes; returns the fence a consumer starts reading after.
     pub async fn enable_change_journal(&self) -> Result<JournalFence, AdminError> {
-        self.switch_change_journal(JournalSwitch::Enabled).await
+        self.set_change_journal(true).await
     }
 
     /// Stops recording changes; a later enable starts a new epoch.
     pub async fn disable_change_journal(&self) -> Result<JournalFence, AdminError> {
-        self.switch_change_journal(JournalSwitch::Disabled).await
+        self.set_change_journal(false).await
     }
 
-    async fn switch_change_journal(
-        &self,
-        switch: JournalSwitch,
-    ) -> Result<JournalFence, AdminError> {
-        let enabled = switch == JournalSwitch::Enabled;
+    /// Stores `enabled` as the journal's state; the public API names each direction.
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "forwards the stored enabled column; enable_change_journal and disable_change_journal name each direction"
+    )]
+    async fn set_change_journal(&self, enabled: bool) -> Result<JournalFence, AdminError> {
         self.run_admin(move |connection| {
             // xtask-lint: allow(text::uncached_statement) -- consumers switch the journal at startup only
             connection.execute("UPDATE change_journal_state SET enabled = ?1, epoch = epoch + (enabled != ?1) WHERE singleton = 1", [enabled]).map_err(unavailable)?;

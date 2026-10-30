@@ -1,5 +1,4 @@
 use super::*;
-use crate::storage::change_journal::JournalSwitch;
 use std::{sync::Arc, time::Duration};
 
 async fn setup() -> (TestDir, Catalog) {
@@ -394,11 +393,7 @@ async fn sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require
     }
     for change in ["disable", "enable", "parent-pap"] {
         let current = catalog
-            .switch_change_journal(if change == "enable" {
-                JournalSwitch::Disabled
-            } else {
-                JournalSwitch::Enabled
-            })
+            .set_change_journal(change != "enable")
             .await
             .unwrap();
         let phase = if change == "enable" {
@@ -414,11 +409,7 @@ async fn sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require
                 .unwrap();
         } else {
             catalog
-                .switch_change_journal(if change == "enable" {
-                    JournalSwitch::Enabled
-                } else {
-                    JournalSwitch::Disabled
-                })
+                .set_change_journal(change == "enable")
                 .await
                 .unwrap();
         }
