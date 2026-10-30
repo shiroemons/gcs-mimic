@@ -245,6 +245,52 @@ impl Drop for SlotHandle {
     }
 }
 
+/// A paused append write: `entered` reports that the write job runs, and the job waits on
+/// `release` before it touches the file.
+#[cfg(test)]
+struct WritePause {
+    data_dir: PathBuf,
+    entered: tokio::sync::oneshot::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+#[cfg(test)]
+static WRITE_PAUSES: Mutex<Vec<WritePause>> = Mutex::new(Vec::new());
+
+/// Pauses the next append write of the catalog in `data_dir` inside its blocking job.
+#[cfg(test)]
+fn arm_write_pause(
+    data_dir: &Path,
+) -> (
+    tokio::sync::oneshot::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+) {
+    let (entered, on_entered) = tokio::sync::oneshot::channel();
+    let (release, on_release) = std::sync::mpsc::channel();
+    WRITE_PAUSES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(WritePause {
+            data_dir: data_dir.to_owned(),
+            entered,
+            release: on_release,
+        });
+    (on_entered, release)
+}
+
+#[cfg(test)]
+fn pause_append_write(data_dir: &Path) {
+    let pause = {
+        let mut pauses = WRITE_PAUSES.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(index) = pauses.iter().position(|pause| pause.data_dir == data_dir) else {
+            return;
+        };
+        pauses.remove(index)
+    };
+    let _ = pause.entered.send(());
+    let _ = pause.release.recv();
+}
+
 #[cfg(test)]
 fn slot_count(data_dir: &Path) -> usize {
     slots()
@@ -451,8 +497,7 @@ impl AppendWriter {
             .checked_add(added.len() as u64)
             .filter(|end| *end <= max_bytes)
             .ok_or(ObjectError::TooLarge)?;
-        let slot = self.slot();
-        let guard = slot.lock().await;
+        let guard = self.slot().lock_owned().await;
         if guard.owner.as_deref() != Some(self.handle.as_str()) {
             return Err(AppendError::Superseded);
         }
@@ -462,6 +507,12 @@ impl AppendWriter {
         #[cfg(test)]
         let data_dir = self.catalog.0.data_dir.clone();
         tokio::task::spawn_blocking(move || -> Result<(), ObjectError> {
+            // The guard lives in the blocking job, not the future: a dropped append still
+            // holds the slot until its write ends, so a takeover cannot truncate the file and
+            // accept new bytes that this late write through the old descriptor overwrites.
+            let _guard = guard;
+            #[cfg(test)]
+            pause_append_write(&data_dir);
             #[cfg(test)]
             super::fault::hit(&data_dir, super::fault::Step::AppendWrite)
                 .map_err(object_unavailable)?;
@@ -472,7 +523,6 @@ impl AppendWriter {
         })
         .await
         .map_err(object_unavailable)??;
-        drop(guard);
         self.crc32c = crc32c::crc32c_append(self.crc32c, &added);
         self.end = end;
         Ok(())
@@ -480,8 +530,7 @@ impl AppendWriter {
 
     /// Makes every received byte durable, then publishes the new size to readers.
     pub(crate) async fn flush(&mut self) -> Result<u64, AppendError> {
-        let slot = self.slot();
-        let guard = slot.lock().await;
+        let guard = self.slot().lock_owned().await;
         if guard.owner.as_deref() != Some(self.handle.as_str()) {
             return Err(AppendError::Superseded);
         }
@@ -491,15 +540,19 @@ impl AppendWriter {
         let file = self.file.clone();
         #[cfg(test)]
         let data_dir = self.catalog.0.data_dir.clone();
-        let synced = tokio::task::spawn_blocking(move || -> Result<(), ObjectError> {
+        // As in `append`, the blocking job owns the guard while it touches the file, so a
+        // dropped flush cannot let a takeover truncate the file under a sync in flight. The
+        // size update below runs on the catalog executor, which finishes a queued job even
+        // when its caller is dropped, and its write-handle check rejects a superseded writer.
+        let (guard, synced) = tokio::task::spawn_blocking(move || {
             #[cfg(test)]
-            super::fault::hit(&data_dir, super::fault::Step::AppendSync)
-                .map_err(object_unavailable)?;
-            file.sync_data().map_err(object_unavailable)
+            if let Err(injected) = super::fault::hit(&data_dir, super::fault::Step::AppendSync) {
+                return (Some(guard), Err(object_unavailable(injected)));
+            }
+            (Some(guard), file.sync_data().map_err(object_unavailable))
         })
         .await
-        .map_err(object_unavailable)
-        .and_then(|synced| synced);
+        .unwrap_or_else(|error| (None, Err(object_unavailable(error))));
         if let Err(error) = synced {
             // After a failed sync the unflushed bytes may be lost even though a retried sync
             // would succeed, so they must be received and written again before any flush.
@@ -557,6 +610,9 @@ impl AppendWriter {
         if expected_crc32c.is_some_and(|crc| crc != self.crc32c) {
             return Err(ObjectError::ChecksumMismatch.into());
         }
+        // Unlike `append` and `flush`, the guard may stay in this future: finalization only
+        // reads the data file, and a dropped publication either commits on the catalog
+        // executor, which removes the appendable row, or leaves the generation appendable.
         let slot = self.slot();
         let mut guard = slot.lock().await;
         if guard.owner.as_deref() != Some(self.handle.as_str()) {

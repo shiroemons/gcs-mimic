@@ -566,6 +566,53 @@ async fn take_over(catalog: &Catalog, name: &str, generation: i64) -> AppendWrit
         .unwrap()
 }
 
+/// A dropped append whose blocking write is still running must keep the slot until the write
+/// ends. Otherwise a takeover truncates the file, the new writer commits bytes, and the late
+/// write through the old descriptor overwrites them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dropped_append_cannot_overwrite_bytes_committed_after_a_takeover() {
+    let dir = TestDir::new();
+    let catalog = catalog_with_bucket(&dir).await;
+    let mut writer = catalog
+        .create_appendable("append", "dropped", options())
+        .await
+        .unwrap();
+    writer
+        .append(0, Bytes::from_static(b"kept"), 1024)
+        .await
+        .unwrap();
+    assert_eq!(writer.flush().await, Ok(4));
+    let generation = writer.record().generation;
+    let (entered, release) = arm_write_pause(&catalog.0.data_dir);
+    {
+        let append = writer.append(4, Bytes::from_static(b"LATE"), 1024);
+        tokio::pin!(append);
+        tokio::select! {
+            result = &mut append => panic!("the paused write finished: {result:?}"),
+            entered = entered => entered.unwrap(),
+        }
+        // Dropping the future here leaves its blocking write in flight.
+    }
+    let taker = catalog.clone();
+    let mut takeover = tokio::spawn(async move {
+        let mut next = take_over(&taker, "dropped", generation).await;
+        next.append(4, Bytes::from_static(b"next"), 1024)
+            .await
+            .unwrap();
+        next.flush().await.unwrap()
+    });
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(200), &mut takeover)
+            .await
+            .is_err(),
+        "the takeover waits for the in-flight write"
+    );
+    release.send(()).unwrap();
+    assert_eq!(takeover.await.unwrap(), 8);
+    assert_eq!(persisted_content(&catalog, "dropped").await, b"keptnext");
+    drop(writer);
+}
+
 #[tokio::test]
 async fn failed_append_write_is_not_received_and_can_be_retried() {
     use super::super::fault::{Fault, Step};
