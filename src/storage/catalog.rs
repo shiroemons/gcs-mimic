@@ -51,6 +51,8 @@ pub(crate) use upload_replay::{CopyReplay, CopyReplaySource, ReplayInvocation};
 
 mod resumable_maintenance;
 
+mod executor;
+
 mod resumable_recovery;
 
 mod compose;
@@ -384,6 +386,7 @@ struct Inner {
     resources: Mutex<Option<Resources>>,
     admission: Arc<Semaphore>,
     execution: Arc<Semaphore>,
+    executor: executor::Executor,
     reclamation: Arc<Semaphore>,
     uploads: Mutex<UploadState>,
     uploads_idle: Notify,
@@ -545,16 +548,6 @@ impl Inner {
         } else {
             Err(RollbackError::StillOpen)
         }
-    }
-}
-
-/// A blocking catalog task fails as a whole only by panicking or when the
-/// runtime shuts down; either way the request gets a retryable error.
-fn join_unavailable(error: &tokio::task::JoinError) -> CatalogError {
-    if error.is_panic() {
-        CatalogError::Unavailable("catalog operation panicked".into())
-    } else {
-        CatalogError::Unavailable("catalog operation was cancelled".into())
     }
 }
 
@@ -893,6 +886,7 @@ impl Catalog {
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),
+                executor: executor::Executor::start().map_err(unavailable)?,
                 reclamation: Arc::new(Semaphore::new(1)),
                 uploads: Mutex::new(UploadState::default()),
                 uploads_idle: Notify::new(),
@@ -1016,23 +1010,31 @@ impl Catalog {
             .await
             .map_err(unavailable)?;
         let inner = self.0.clone();
-        tokio::task::spawn_blocking(move || {
-            let _execution = execution;
-            // Poison must not prevent shutdown from closing the connection and its lock.
-            let mut resources = inner
-                .resources
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            if let Some(Resources { connection, lock }) = resources.take() {
-                connection
-                    .close()
-                    .map_err(|(_, error)| unavailable(error))?;
-                lock.release().map_err(unavailable)?;
-            }
-            Ok(())
-        })
-        .await
-        .map_err(unavailable)?
+        let closed = self
+            .0
+            .executor
+            .run_last(move || {
+                let _execution = execution;
+                // Poison must not prevent shutdown from closing the connection and its lock.
+                let mut resources = inner
+                    .resources
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if let Some(Resources { connection, lock }) = resources.take() {
+                    connection
+                        .close()
+                        .map_err(|(_, error)| unavailable(error))?;
+                    lock.release().map_err(unavailable)?;
+                }
+                Ok(())
+            })
+            .await;
+        match closed {
+            Ok(result) => result,
+            // An earlier close already released the connection and stopped the thread.
+            Err(executor::ExecutorError::Closed) => Ok(()),
+            Err(error) => Err(unavailable(error)),
+        }
     }
 
     async fn run<T: Send + 'static>(
@@ -1075,21 +1077,23 @@ impl Catalog {
             .await
             .map_err(unavailable)?;
         let inner = self.0.clone();
-        tokio::task::spawn_blocking(move || {
-            let (_admission, _execution) = (admission, execution);
-            let result = match inner.with_connection(operation) {
-                Ok(result) => result,
-                Err(ConnectionUnavailable::Closed) => {
-                    Err(CatalogError::Unavailable("catalog is closed".into()))
-                }
-                Err(error) => Err(unavailable(error)),
-            };
-            // Release ownership before Tokio publishes completion to an immediate reopen.
-            drop(inner);
-            result
-        })
-        .await
-        .map_err(|error| join_unavailable(&error))?
+        self.0
+            .executor
+            .run(move || {
+                let (_admission, _execution) = (admission, execution);
+                let result = match inner.with_connection(operation) {
+                    Ok(result) => result,
+                    Err(ConnectionUnavailable::Closed) => {
+                        Err(CatalogError::Unavailable("catalog is closed".into()))
+                    }
+                    Err(error) => Err(unavailable(error)),
+                };
+                // Release ownership before the reply publishes completion to an immediate reopen.
+                drop(inner);
+                result
+            })
+            .await
+            .map_err(unavailable)?
     }
 
     pub(crate) async fn insert_bucket(
@@ -2185,6 +2189,33 @@ mod tests {
         assert!(Catalog::open(&dir).await.is_err());
         reopened.close().await.unwrap();
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn catalog_operations_do_not_wait_for_a_saturated_blocking_pool() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let dir = crate::test_support::TestDir::new();
+            let catalog = Catalog::open(&dir.0).await.unwrap();
+            let (release, held) = std::sync::mpsc::channel::<()>();
+            let (entered, blocked) = tokio::sync::oneshot::channel();
+            // File I/O and gzip work share this pool; here it holds the only thread.
+            let blocker = tokio::task::spawn_blocking(move || {
+                entered.send(()).unwrap();
+                held.recv()
+            });
+            blocked.await.unwrap();
+            let lookup =
+                tokio::time::timeout(Duration::from_secs(5), catalog.get_bucket("missing")).await;
+            release.send(()).unwrap();
+            blocker.await.unwrap().unwrap();
+            assert!(lookup.unwrap().unwrap().is_none());
+            catalog.close().await.unwrap();
+        });
     }
 
     /// Opens a raw transaction that rusqlite will not roll back on unwind, then panics.

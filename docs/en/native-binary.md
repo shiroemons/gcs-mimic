@@ -174,10 +174,10 @@ These inspected bounds are not an RSS/cgroup/CPU benchmark; the 1 GiB default ca
 been verified by a 1 GiB transfer under the Compose limit.
 Unknown routes return 404 without body reads; probes retain
 GET/HEAD support and body rejection. Catalog work has 32 admitted calls, one
-executing blocking job, a 2 MiB SQLite cache, at most 64 cached prepared statements
-and no memory map. The runtime bounds
-blocking threads; queued/cancelled operations retain directory ownership until
-execution finishes. Before confirmed EOF, a timeout/disconnect aborts the upload without
+executing job on a dedicated catalog thread, a 2 MiB SQLite cache, at most 64 cached
+prepared statements and no memory map. The runtime bounds the blocking threads used
+for file I/O; catalog jobs do not wait for them. Queued/cancelled operations retain
+directory ownership until execution finishes. Before confirmed EOF, a timeout/disconnect aborts the upload without
 publishing partial bytes. Early rejections send a response and half-close the socket, then
 discard at most 256 KiB for at most 100 ms. Generic admitted catalog writes and completed
 upload bodies can still commit after the client disconnects; clients must read back state

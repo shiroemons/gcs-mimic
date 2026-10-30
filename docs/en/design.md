@@ -124,7 +124,7 @@ restarts it with exponential backoff (100 ms doubling to 30 s), and
 `/_internal/ready` reports not ready until the replacement starts; unlike a
 poisoned catalog, this gap does not revoke readiness for good.
 
-Startup validates config, supplied TLS files and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running blocking work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Initial seed import completes before bind/readiness; resumable expiry uses the injected clock and one explicit deadline scheduler before readiness; other lifecycle scheduling remains future work.
+Startup validates config, supplied TLS files and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running catalog work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Initial seed import completes before bind/readiness; resumable expiry uses the injected clock and one explicit deadline scheduler before readiness; other lifecycle scheduling remains future work.
 
 The default HTTPS-only listener uses a built-in development certificate/key;
 an optional supplied PEM pair replaces it. A single supplied path fails. Explicit
@@ -188,8 +188,13 @@ permanently revokes readiness; subsequent catalog operations return unavailable
 until a later call confirms the rollback.
 
 Each operation has immediate bounded admission (32 calls), then awaits one execution
-permit before scheduling one blocking job. The runtime's configured blocking pool
-remains bounded. Inserts enforce globally unique local names in SQL; delete checks
+permit before queuing its job on a dedicated catalog thread that owns no other work.
+File I/O and gzip decoding stay on the runtime's bounded blocking pool, so a
+saturated pool cannot hold the execution permit while catalog work waits for a pool
+thread. A queued job runs to completion even if its caller is cancelled, and a
+panicking job fails only its own call. Closing the catalog runs the last job, which
+closes the connection and releases the directory lock before close returns; the
+thread then exits. Inserts enforce globally unique local names in SQL; delete checks
 metageneration and removes the record in one immediate transaction. GET renders
 the exact selected record after its checks. Bucket listing uses indexed keyset bounds,
 the projection-specific item cap and a 256 KiB expanded-metadata charge budget.
@@ -206,9 +211,9 @@ SQLite performs committed-WAL recovery while the directory lock is held. Tests c
 process exit without drop after a committed write, immediate close/reopen, schema/corruption
 rejection and a second server process failing to acquire the directory. The connection
 is dropped before explicitly unlocking the lock file. Closing a file alone can leave
-the lock held by an unrelated child between fork and exec. Blocking jobs explicitly
+the lock held by an unrelated child between fork and exec. Catalog jobs explicitly
 release captured ownership before publishing completion. `Catalog::close()` stops
-admission across all clones, waits for blocking execution, closes SQLite and releases
+admission across all clones, waits for the running catalog job, closes SQLite and releases
 the directory even when old handles remain alive. Repeated close/drop of old handles
 cannot unlock a reopened catalog. Without explicit close, the last handle or running
 job still owns the resources until its synchronous drop. See the

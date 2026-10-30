@@ -828,18 +828,20 @@ impl Catalog {
         operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
     ) -> Result<T, ObjectError> {
         let inner = self.0.clone();
-        tokio::task::spawn_blocking(move || {
-            let _execution = execution;
-            match inner.with_connection(operation) {
-                Ok(result) => result,
-                Err(super::ConnectionUnavailable::Closed) => {
-                    Err(object_unavailable("catalog is closed"))
+        self.0
+            .executor
+            .run(move || {
+                let _execution = execution;
+                match inner.with_connection(operation) {
+                    Ok(result) => result,
+                    Err(super::ConnectionUnavailable::Closed) => {
+                        Err(object_unavailable("catalog is closed"))
+                    }
+                    Err(error) => Err(object_unavailable(error)),
                 }
-                Err(error) => Err(object_unavailable(error)),
-            }
-        })
-        .await
-        .map_err(|error| ObjectError::from(super::join_unavailable(&error)))?
+            })
+            .await
+            .map_err(object_unavailable)?
     }
 
     pub(super) async fn run_object<T: Send + 'static>(

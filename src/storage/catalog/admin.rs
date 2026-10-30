@@ -396,18 +396,23 @@ impl Catalog {
             .await?;
         let execution = self.wait_admin(self.0.execution.clone(), deadline).await?;
         let inner = self.0.clone();
-        tokio::task::spawn_blocking(move || {
-            let (_admission, _execution) = (admission, execution);
-            let result = match inner.with_connection(operation) {
-                Ok(result) => result.map_err(AdminError::from),
-                Err(super::ConnectionUnavailable::Closed) => Err(AdminError::Closed),
-                Err(error) => Err(AdminError::backend(error)),
-            };
-            drop(inner);
-            result
-        })
-        .await
-        .map_err(AdminError::backend)?
+        self.0
+            .executor
+            .run(move || {
+                let (_admission, _execution) = (admission, execution);
+                let result = match inner.with_connection(operation) {
+                    Ok(result) => result.map_err(AdminError::from),
+                    Err(super::ConnectionUnavailable::Closed) => Err(AdminError::Closed),
+                    Err(error) => Err(AdminError::backend(error)),
+                };
+                drop(inner);
+                result
+            })
+            .await
+            .map_err(|error| match error {
+                super::executor::ExecutorError::Closed => AdminError::Closed,
+                error @ super::executor::ExecutorError::Panicked => AdminError::backend(error),
+            })?
     }
 }
 
