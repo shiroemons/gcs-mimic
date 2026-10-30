@@ -137,6 +137,18 @@ pub(crate) fn closed_by_server(error: &std::io::Error) -> bool {
     )
 }
 
+/// Waits for the server to close a connection whose response announced
+/// `Connection: close`, so the client never sends the first FIN. The side that
+/// closes first keeps the address pair in TIME_WAIT (30 s on macOS); on the
+/// client that holds an ephemeral port, and harnesses opening one connection per
+/// request used up the range under concurrent suites, failing connects with
+/// `AddrNotAvailable` and servers binding port 0. The response is already read,
+/// so an error here only means the server reset input it did not read.
+#[allow(dead_code)]
+pub(crate) fn await_server_close(reader: &mut impl std::io::Read) {
+    let _ = std::io::copy(reader, &mut std::io::sink());
+}
+
 /// Starts a child from an empty environment, keeping only what the platform
 /// needs to create a process: Windows cannot initialize Winsock without
 /// `SystemRoot`, so servers exited before readiness there.

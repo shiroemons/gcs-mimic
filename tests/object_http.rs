@@ -106,8 +106,10 @@ impl Server {
         Reply::read(stream)
     }
 
+    /// One-shot requests ask for `Connection: close`, so the server closes first
+    /// (see [`common::await_server_close`]).
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-        let mut request = format!("{method} {path} HTTP/1.1\r\nHost: untrusted.invalid\r\nX-Forwarded-Host: evil.invalid\r\nContent-Length: {}\r\n{headers}\r\n", body.len()).into_bytes();
+        let mut request = format!("{method} {path} HTTP/1.1\r\nHost: untrusted.invalid\r\nX-Forwarded-Host: evil.invalid\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n", body.len()).into_bytes();
         request.extend_from_slice(body);
         self.raw(&request)
     }
@@ -208,6 +210,12 @@ impl Reply {
             "HTTP {status} body ended after {} of {length} bytes ({read:?}); headers: {headers:?}",
             body.len()
         );
+        if headers
+            .get("connection")
+            .is_some_and(|value| value == "close")
+        {
+            common::await_server_close(&mut reader);
+        }
         Self {
             status,
             headers,

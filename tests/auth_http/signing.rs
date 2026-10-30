@@ -63,7 +63,7 @@ fn send(server: &Server, method: &str, url: &str, headers: &str) -> Reply {
         uri.authority().unwrap()
     );
     let raw = if method == "HEAD" {
-        close_after_head(raw.as_bytes())
+        close_after_response(raw.as_bytes())
     } else {
         raw.into_bytes()
     };

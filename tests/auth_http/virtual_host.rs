@@ -234,7 +234,7 @@ fn request(
     .into_bytes();
     request.extend_from_slice(body);
     if method == "HEAD" {
-        request = close_after_head(&request);
+        request = close_after_response(&request);
     }
     stream.write_all(&request).unwrap();
     Reply::read_body(stream, method == "HEAD")

@@ -28,7 +28,7 @@ pub(super) fn request(
     .into_bytes();
     raw.extend_from_slice(body);
     if method == "HEAD" {
-        raw = close_after_head(&raw);
+        raw = close_after_response(&raw);
     }
     let mut stream = server.stream();
     stream.write_all(&raw).unwrap();

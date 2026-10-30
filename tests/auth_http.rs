@@ -142,13 +142,9 @@ impl Server {
         )
         .into_bytes();
         request.extend_from_slice(body);
-        if method == "HEAD" {
-            let mut stream = self.stream();
-            stream.write_all(&close_after_head(&request)).unwrap();
-            Reply::read_body(stream, true)
-        } else {
-            self.raw(&request)
-        }
+        let mut stream = self.stream();
+        stream.write_all(&close_after_response(&request)).unwrap();
+        Reply::read_body(stream, method == "HEAD")
     }
 
     fn create_bucket(&self, auth: &str, project: &str, name: &str) -> Reply {
@@ -203,8 +199,9 @@ impl Drop for Server {
 }
 
 /// Adds `Connection: close` after the request line, so the server closes the
-/// persistent connection and a HEAD reply can be checked for stray body bytes.
-fn close_after_head(request: &[u8]) -> Vec<u8> {
+/// connection first (see [`common::await_server_close`]) and a HEAD reply can be
+/// checked for stray body bytes.
+fn close_after_response(request: &[u8]) -> Vec<u8> {
     let line = request
         .windows(2)
         .position(|bytes| bytes == b"\r\n")
@@ -225,7 +222,7 @@ impl Reply {
     }
 
     /// A HEAD reply is checked for stray body bytes until EOF, so callers send HEAD
-    /// requests through [`close_after_head`] to have the persistent connection closed.
+    /// requests through [`close_after_response`] to have the persistent connection closed.
     fn read_body(stream: TcpStream, head: bool) -> Self {
         let mut reader = BufReader::new(stream);
         let mut bytes = Vec::new();
@@ -265,6 +262,11 @@ impl Reply {
             let mut extra = Vec::new();
             reader.read_to_end(&mut extra).unwrap();
             assert!(extra.is_empty(), "HEAD emitted a response body");
+        } else if headers
+            .get("connection")
+            .is_some_and(|value| value == "close")
+        {
+            common::await_server_close(&mut reader);
         }
         Self {
             status,

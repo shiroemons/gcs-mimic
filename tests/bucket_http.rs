@@ -52,12 +52,14 @@ impl Server {
         raw(&self.address, request)
     }
 
+    /// One-shot requests ask for `Connection: close`, so the server closes first
+    /// (see [`common::await_server_close`]).
     fn request(&self, method: &str, path: &str, body: &str) -> Reply {
-        self.raw(&format!("{method} {path} HTTP/1.1\r\nHost: untrusted.invalid\r\nX-Forwarded-Host: evil.invalid\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()))
+        self.raw(&format!("{method} {path} HTTP/1.1\r\nHost: untrusted.invalid\r\nX-Forwarded-Host: evil.invalid\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()))
     }
 
     fn authorized(&self, token: &str, method: &str, path: &str, body: &str) -> Reply {
-        self.raw(&format!("{method} {path} HTTP/1.1\r\nHost: local.invalid\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()))
+        self.raw(&format!("{method} {path} HTTP/1.1\r\nHost: local.invalid\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()))
     }
 
     fn insert(&self, name: &str, project: &str) -> Reply {
@@ -115,11 +117,13 @@ fn raw(address: &str, request: &str) -> Reply {
         .set_write_timeout(Some(Duration::from_secs(5)))
         .unwrap();
     stream.write_all(request.as_bytes()).unwrap();
-    let reply =
-        common::read_http_response(&mut BufReader::new(stream), request.starts_with("HEAD "))
-            .unwrap();
+    let mut reader = BufReader::new(stream);
+    let reply = common::read_http_response(&mut reader, request.starts_with("HEAD ")).unwrap();
     let reply = String::from_utf8(reply).unwrap();
     let (headers, body) = reply.split_once("\r\n\r\n").unwrap();
+    if headers.contains("\r\nconnection: close") {
+        common::await_server_close(&mut reader);
+    }
     Reply {
         status: headers.split_whitespace().nth(1).unwrap().parse().unwrap(),
         headers: headers.into(),
@@ -3888,7 +3892,9 @@ fn bkt_http_deadline_before_response_returns_backend_error() {
     // An external reserved lock keeps the catalog write waiting past the connection deadline.
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
-    let blocked = server.insert("blocked-bucket", "deadline");
+    // A persistent request, so the closing announcement below comes from the deadline.
+    let body = r#"{"name":"blocked-bucket"}"#;
+    let blocked = server.raw(&format!("POST /storage/v1/b?project=deadline HTTP/1.1\r\nHost: local.invalid\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()));
     blocked.error(503, "backendError");
     assert!(
         blocked

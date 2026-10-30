@@ -345,7 +345,8 @@ fn xml_head_matches_get_headers_and_selected_metadata() {
     let mut head_headers = head.headers;
     get_headers.remove("date");
     head_headers.remove("date");
-    // The HEAD helper asks the server to close the connection, which hyper echoes.
+    // The request helper asks the server to close the connection, which hyper echoes.
+    assert_eq!(get_headers.remove("connection").as_deref(), Some("close"));
     assert_eq!(head_headers.remove("connection").as_deref(), Some("close"));
     assert_eq!(get_headers, head_headers);
     assert_eq!(get.headers["etag"], "\"5eb63bbbe01eeed093cb22bb8f5acdc3\"");
