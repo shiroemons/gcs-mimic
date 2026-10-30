@@ -4,10 +4,14 @@ use std::sync::{Arc, Barrier};
 pub(super) const IAM: &str = "/storage/v1/b/iam-bucket/iam";
 
 pub(super) fn fixture() -> (TestDir, TestDir, Server) {
+    fixture_with(&[])
+}
+
+pub(super) fn fixture_with(options: &[&str]) -> (TestDir, TestDir, Server) {
     let config = TestDir::new();
     let identities = identity_file(&config);
     let data = TestDir::new();
-    let server = Server::strict(&data, &identities);
+    let server = Server::strict_with(&data, &identities, options);
     server.create_bucket(ADMIN, "project-a", "iam-bucket").ok();
     (config, data, server)
 }

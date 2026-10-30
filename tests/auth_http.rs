@@ -71,6 +71,14 @@ impl Server {
         } else {
             &["--api-base-url", "http://127.0.0.1:4443"]
         };
+        // The connection deadline also bounds a whole non-object request and the gaps
+        // between response chunks. A short one answered ordinary requests with 503 or
+        // cut a download short under loaded runs, so only deadline tests set their own.
+        let timeout_options: &[&str] = if auth.contains(&"--connection-timeout-ms") {
+            &[]
+        } else {
+            &["--connection-timeout-ms", "20000"]
+        };
         let mut child = common::server_command()
             .args([
                 "serve",
@@ -81,7 +89,7 @@ impl Server {
                 "--data-dir",
             ])
             .arg(&dir.0)
-            .args(["--connection-timeout-ms", "2000"])
+            .args(timeout_options)
             .args(api_options)
             .args(auth)
             .stdout(Stdio::piped())
@@ -104,15 +112,18 @@ impl Server {
     }
 
     fn strict(dir: &TestDir, identities: &Path) -> Self {
-        let (server, ready) = Self::start(
-            dir,
-            &[
-                "--auth-mode",
-                "strict",
-                "--identity-file",
-                identities.to_str().unwrap(),
-            ],
-        );
+        Self::strict_with(dir, identities, &[])
+    }
+
+    fn strict_with(dir: &TestDir, identities: &Path, options: &[&str]) -> Self {
+        let mut args = vec![
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            identities.to_str().unwrap(),
+        ];
+        args.extend_from_slice(options);
+        let (server, ready) = Self::start(dir, &args);
         assert_eq!(ready["auth_mode"], "strict");
         assert_eq!(ready["identities"], 6);
         server
@@ -120,11 +131,13 @@ impl Server {
 
     fn stream(&self) -> TcpStream {
         let stream = TcpStream::connect(&self.address).unwrap();
+        // A hang guard, not a latency bound; it outlasts the server's connection deadline
+        // so a stalled request reports the server's answer rather than a client timeout.
         stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
+            .set_read_timeout(Some(Duration::from_secs(30)))
             .unwrap();
         stream
-            .set_write_timeout(Some(Duration::from_secs(5)))
+            .set_write_timeout(Some(Duration::from_secs(30)))
             .unwrap();
         stream
     }

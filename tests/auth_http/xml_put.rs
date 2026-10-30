@@ -28,7 +28,11 @@ fn xml_error(reply: &Reply, status: u16, code: &str) {
 }
 
 fn fixture() -> (TestDir, TestDir, Server) {
-    let (config, data, server) = iam::fixture();
+    fixture_with(&[])
+}
+
+fn fixture_with(options: &[&str]) -> (TestDir, TestDir, Server) {
+    let (config, data, server) = iam::fixture_with(options);
     server
         .request(
             "PUT",
@@ -653,7 +657,9 @@ fn xml_put_rechecks_create_delete_and_bucket_grants_at_publication() {
 
 #[test]
 fn xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts() {
-    let (_config, data, mut server) = fixture();
+    // A graceful stop below waits for a stalled upload, which only the connection
+    // deadline ends before the 5 s shutdown timeout.
+    let (_config, data, mut server) = fixture_with(&["--connection-timeout-ms", "2000"]);
     let before = snapshot(&server, &data);
     let mut stream = expect_continue(&server, OBJECT, ADMIN, 99999);
     stream.write_all(b"partial").unwrap();
@@ -702,7 +708,8 @@ fn xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts() {
 #[test]
 fn xml_put_chunked_trailers_and_body_deadlines_cannot_publish() {
     let data = TestDir::new();
-    let (mut server, _) = Server::start(&data, &[]);
+    // The stalled body below must meet the connection deadline before the client's hang guard.
+    let (mut server, _) = Server::start(&data, &["--connection-timeout-ms", "2000"]);
     server.create_bucket("", "project-a", "iam-bucket").ok();
     server.request("PUT", OBJECT, "", b"previous").ok();
     let before = snapshot(&server, &data);
