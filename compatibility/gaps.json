@@ -1254,6 +1254,47 @@
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Compose (src/storage/catalog/compose.rs), derived copy/rewrite transfers (src/storage/catalog/derived.rs, rewrite.rs) and resumable chunk transfer (src/storage/catalog/resumable_transfer.rs) now map backend failures through the shared classified object_unavailable, and object_unclassified was removed, so no write path can report a classified failure as generic. SQLite corruption returns 503 backendError 'stored data is corrupt; restore a valid data directory', and disk-full or other filesystem errors return 503 backendError 'storage I/O error (<kind>); check data directory permissions and available disk space', the same text single-shot uploads return. Non-I/O causes such as 'Acknowledged upload prefix is missing', 'catalog is closing' and SQLite busy remain unavailable with unchanged text. Status codes are unchanged. Fault-injection tests in src/storage/resumable_http_tests/fault_injection.rs inject disk-full, other I/O and corrupt-database failures at body write, tail flush, fsync, rename and publication commit on compose, copy, rewrite and resumable chunk/finalization requests and assert the exact classified 503 message; no Rust wire or SDK test depended on the generic text.",
       "required_resolution": "Decide whether the four paths should use the classified mapping so corruption and disk-full failures carry the same actionable message as single-shot uploads. Changing it alters only local 503 backendError message text; confirm no SDK or wire test depends on the generic text, switch object_unclassified call sites to object_unavailable, add fault-injection tests for StorageFull and corruption on each path, and remove object_unclassified when unused."
+    },
+    {
+      "id": "SPEC-JSON-UNKNOWN-QUERY",
+      "title": "Provider treatment of query parameters that a JSON API method does not declare is unestablished",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-BUCKETS-008",
+        "JSON-BUCKETS-013",
+        "DESIGN-082"
+      ],
+      "source_urls": [
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://docs.cloud.google.com/apis/docs/system-parameters",
+        "https://registry.npmjs.org/@google-cloud/storage/-/storage-8.4.0.tgz"
+      ],
+      "observed_at": "2026-10-30",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Node.js Storage 8.4.0 Bucket#addLifecycleRule(rule, {append: false}) passes its options object to setMetadata, so the buckets.patch request carries append=false as a query parameter (build/cjs/src/bucket.js). Discovery declares no append parameter on buckets.patch or buckets.update. The JSON parameters reference lists alt, callback, fields, prettyPrint, quotaUser and userProject and says not all parameters apply to all requests; the system-parameters page lists the platform parameters. Neither states whether an undeclared query parameter is ignored or rejected. Locally every JSON method returns 400 invalidParameter 'Unknown query parameter for this method: <name>' and leaves the resource unchanged (bucket_http sdk_append_query_and_array_lifecycle_fail_without_changing_the_bucket); the Node suite replaces rules with setMetadata instead. Recognized Discovery parameters with unsupported semantics, such as includeFoldersAsPrefixes, are a separate rule: they fail fast with 400 badRequest under SPEC-SDK-UNSUPPORTED and the SDK suites' unsupported-fails-fast cases, and any future change here must keep them rejected. No real-service request was made.",
+      "required_resolution": "Obtain an authoritative statement or explicitly authorized real-service evidence of how the JSON API treats undeclared query parameters. If they are ignored, accept only names that no Discovery method or system parameter defines, keep recognized-but-unsupported parameters rejected, and promote the Node addLifecycleRule append=false journey; otherwise keep the actionable 400."
+    },
+    {
+      "id": "SPEC-LIFECYCLE-ARRAY",
+      "title": "Provider treatment of an array-valued bucket lifecycle field is unestablished",
+      "status": "OPEN",
+      "affected_features": [
+        "BEHAVIOR-LIFECYCLE-001",
+        "JSON-BUCKETS-005",
+        "JSON-BUCKETS-008",
+        "JSON-BUCKETS-013"
+      ],
+      "source_urls": [
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/lifecycle-configurations",
+        "https://docs.cloud.google.com/storage/docs/managing-lifecycles",
+        "https://github.com/googleapis/google-cloud-php-storage/tree/cf14f967fa45113e2a239fe9103bada8d7b92021"
+      ],
+      "observed_at": "2026-10-30",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Discovery defines Bucket.lifecycle as an object whose rule property is an array. The lifecycle-configurations page removes all rules with {\"lifecycle\": {\"rule\": []}}, and managing-lifecycles says to set an empty lifecycle configuration. PHP Storage Lifecycle::clearRules() leaves an empty PHP array that the SDK encodes as \"lifecycle\": []. No official source says whether the JSON API treats an array there as an empty configuration or rejects it as the wrong type. Locally the request returns 400 'Invalid lifecycle configuration; use {\"rule\":[]}' (invalidArgument in the native profile, invalid in the legacy-emulator profile) and leaves the bucket unchanged; null, {}, {\"rule\": null} and {\"rule\": []} clear the rules. The PHP suite clears rules with ['lifecycle' => ['rule' => []]]. No real-service request was made.",
+      "required_resolution": "Obtain an authoritative statement or explicitly authorized real-service evidence for \"lifecycle\": []. If the provider clears rules, accept only the empty array as an empty configuration (nonempty arrays stay invalid) and promote the PHP clearRules() journey; otherwise keep the actionable 400."
     }
   ],
   "resolved_research_items": [

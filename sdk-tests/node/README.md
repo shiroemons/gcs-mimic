@@ -139,8 +139,11 @@ These are properties of `@google-cloud/storage` 8.4.0 observed by this suite:
   initiates sessions without credentials. The strict run creates the session
   with `File#createResumableUpload` (which forwards it) and passes `uri`.
 - **`addLifecycleRule(rule, {append: false})` sends `append=false`** as a JSON
-  API query parameter, which gcs-mimic rejects as unknown. The suite replaces
-  rules with `setMetadata` and uses the default append mode.
+  API query parameter, which gcs-mimic rejects as unknown. Official sources do
+  not say how Cloud Storage treats undeclared query parameters, so the
+  rejection stays until `SPEC-JSON-UNKNOWN-QUERY` in
+  `compatibility/gaps.json` is resolved. The suite replaces rules with
+  `setMetadata` and uses the default append mode.
 - The signer client's `credentials` option prints a deprecation warning from
   `google-auth-library`; the replacement `JWT` client would probe the metadata
   server for `getCredentials`, so the warning is accepted.

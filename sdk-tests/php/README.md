@@ -164,8 +164,9 @@ signer; signing never requests a token, and no bearer header is attached.
 - `Lifecycle::clearRules()` leaves an empty PHP array that the SDK sends as
   `"lifecycle": []`, which gcs-mimic rejects with guidance to use
   `{"rule": []}`. The suite clears rules with the documented array form
-  `['lifecycle' => ['rule' => []]]`. How Cloud Storage itself treats
-  `"lifecycle": []` has not been verified.
+  `['lifecycle' => ['rule' => []]]`. Official sources do not say how Cloud
+  Storage itself treats `"lifecycle": []`; the question is recorded as
+  `SPEC-LIFECYCLE-ARRAY` in `compatibility/gaps.json`.
 - Notification options use the SDK's snake_case names (`event_types`,
   `object_name_prefix`, `custom_attributes`, `payload_format`); camelCase
   names are silently dropped by the SDK request builder.

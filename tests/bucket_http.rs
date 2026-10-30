@@ -331,6 +331,59 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
     }
 }
 
+/// SDK request shapes whose provider treatment is an open source question
+/// (SPEC-JSON-UNKNOWN-QUERY and SPEC-LIFECYCLE-ARRAY): until it is resolved they fail with
+/// actionable 400s and leave the bucket unchanged rather than guessing a meaning.
+#[test]
+fn sdk_append_query_and_array_lifecycle_fail_without_changing_the_bucket() {
+    for profile in PROFILES {
+        let invalid_reason = if profile == "native" {
+            "invalidArgument"
+        } else {
+            "invalid"
+        };
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        let path = "/storage/v1/b/sdk-lifecycle";
+        let rules = json!({"rule":[{"action":{"type":"Delete"},"condition":{"age":30}}]});
+        let created = server.request(
+            "POST",
+            "/storage/v1/b?project=project",
+            &json!({"name":"sdk-lifecycle","lifecycle":rules}).to_string(),
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        let before = server.request("GET", path, "").json();
+
+        // Node.js addLifecycleRule(rule, {append: false}) forwards its option as a query.
+        let replacement = json!({"lifecycle":{"rule":[]}}).to_string();
+        let reply = server.request("PATCH", &format!("{path}?append=false"), &replacement);
+        reply.error(400, "invalidParameter");
+        assert_eq!(
+            reply.json()["error"]["message"],
+            "Unknown query parameter for this method: append"
+        );
+        assert_eq!(server.request("GET", path, "").json(), before);
+
+        // PHP Lifecycle::clearRules() serializes the cleared configuration as an empty array.
+        let reply = server.request("PATCH", path, r#"{"lifecycle":[]}"#);
+        reply.error(400, invalid_reason);
+        assert_eq!(
+            reply.json()["error"]["message"],
+            r#"Invalid lifecycle configuration; use {"rule":[]}"#
+        );
+        assert_eq!(server.request("GET", path, "").json(), before);
+
+        // The documented {"rule": []} form without the extra query clears the rules.
+        let cleared = server.request("PATCH", path, &replacement);
+        assert_eq!(cleared.status, 200, "{}", cleared.body);
+        assert!(
+            cleared.json().get("lifecycle").is_none(),
+            "{}",
+            cleared.body
+        );
+    }
+}
+
 #[test]
 fn unsupported_legacy_profile() {
     for profile in PROFILES {
