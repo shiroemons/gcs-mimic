@@ -1,6 +1,6 @@
 //! Durable write-back intent and protected recovery metadata; no adapter SQL or cleanup.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
-// xtask-lint: allow-file(text::uncached_statement) -- only the sync mirror's background worker runs these, and each step's fsync dwarfs statement preparation
+// xtask-lint: allow-file(text::uncached_statement) -- request-free: only the sync mirror's background worker calls this module, and each step's fsync dwarfs statement preparation
 
 use super::super::{
     admin::{AdminError, BucketName, Generation, ObjectName, WAIT_TIMEOUT},

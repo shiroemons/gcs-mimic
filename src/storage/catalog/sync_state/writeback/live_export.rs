@@ -1,4 +1,4 @@
-// xtask-lint: allow-file(text::uncached_statement) -- only the sync mirror's background worker runs these, and each step's fsync dwarfs statement preparation
+// xtask-lint: allow-file(text::uncached_statement) -- request-free: only the sync mirror's background worker calls this module, and each step's fsync dwarfs statement preparation
 use super::super::SyncRecord;
 use super::*;
 

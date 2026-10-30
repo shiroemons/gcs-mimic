@@ -335,7 +335,7 @@ impl Catalog {
     )]
     async fn set_change_journal(&self, enabled: bool) -> Result<JournalFence, AdminError> {
         self.run_admin(move |connection| {
-            // xtask-lint: allow(text::uncached_statement) -- consumers switch the journal at startup only
+            // xtask-lint: allow(text::uncached_statement) -- only the sync mirror switches the journal, once per reconciliation pass; no API request reaches it
             connection.execute("UPDATE change_journal_state SET enabled = ?1, epoch = epoch + (enabled != ?1) WHERE singleton = 1", [enabled]).map_err(unavailable)?;
             Ok(state(connection)?.0)
         }).await

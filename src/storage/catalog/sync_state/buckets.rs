@@ -1,5 +1,5 @@
 //! Durable directory observations survive API bucket deletion.
-// xtask-lint: allow-file(text::uncached_statement) -- sync observes each bucket directory once per scan, not per API request
+// xtask-lint: allow-file(text::uncached_statement) -- request-free: only the sync mirror's directory scan calls this module, once per bucket per scan
 use super::{
     MAX_PAGE,
     root::{RootError, RootLease},

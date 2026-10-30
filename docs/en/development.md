@@ -326,18 +326,32 @@ let sql = format!("SELECT {COLUMNS} FROM objects"); // xtask-lint: allow(text::f
   comment when the code no longer needs it.
 - Doc comments and string contents never suppress anything.
 
-Statements that run once at open, during a schema migration or in
-maintenance, rather than per request, are the intended exception to
-`text::uncached_statement`. When a whole module consists of them, one
-file-scope comment replaces per-line ones:
+Statements that no API request reaches are the intended exception to
+`text::uncached_statement`: those that run at open, during a schema
+migration, at startup or only in a background worker. A request reaches a
+statement indirectly too, through a wakeup it triggers. Resumable session,
+rewrite and derived-transfer requests wake the maintenance sweep, so the
+sweep's statements use `prepare_cached` like any request path.
+
+When no statement in a module runs on an API request path, because only
+startup or a background worker calls it, one file-scope comment replaces
+per-line ones. The reason names what makes the module request-free:
 
 ```rust
-// xtask-lint: allow-file(text::uncached_statement) -- schema setup runs once at open
+// xtask-lint: allow-file(text::uncached_statement) -- request-free: only the sync mirror's background worker calls this module
 ```
+
+File scope has a cost: it also hides a request-path statement added to the
+module later. Trace the callers before adding a statement to such a module,
+and replace the file scope with line suppressions once any caller is
+request-driven.
 
 Only the rules in `FILE_SCOPE_RULES` (currently `text::uncached_statement`)
 accept `allow-file`. It covers every finding of that rule in the file that no
-line suppression covers, and it is stale when the file has none.
+line suppression covers, and it is stale when the file has none. The tool
+rejects `allow-file` in files under the request adapters (`src/server`,
+`src/json`, `src/xml` and `src/grpc`, listed in `FILE_SCOPE_FORBIDDEN_DIRS`),
+because every module there serves requests.
 
 #### `#[expect]` for restriction lints
 
