@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage='Usage: bash scripts/sdk-go.sh [--with-ruby] [--with-node] [--with-python] [--with-php]'
 with_ruby=false
-case "${1:-}" in
-  --help) echo 'Usage: bash scripts/sdk-go.sh [--with-ruby]'; exit 0 ;;
-  --with-ruby) with_ruby=true; shift ;;
-esac
-if [[ $# != 0 ]]; then echo 'Usage: bash scripts/sdk-go.sh [--with-ruby]' >&2; exit 2; fi
+# Each listed suite provides sdk-tests/<sdk>/run.sh, which reads GCS_MIMIC_ENDPOINT,
+# GCS_MIMIC_STRICT_ENDPOINT and, for HTTPS, GCS_MIMIC_CA_CERT.
+suites=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help) echo "$usage"; exit 0 ;;
+    --with-ruby) with_ruby=true ;;
+    --with-node) suites+=(node) ;;
+    --with-python) suites+=(python) ;;
+    --with-php) suites+=(php) ;;
+    *) echo "$usage" >&2; exit 2 ;;
+  esac
+  shift
+done
 
 cd "$(dirname "$0")/.."
+root=$PWD
 env -u RUSTUP_TOOLCHAIN cargo build --locked
 server="$(env -u RUSTUP_TOOLCHAIN cargo metadata --locked --offline --no-deps --format-version 1 | jq -er .target_directory)/debug/gcs-mimic"
 work=$(mktemp -d "${TMPDIR:-/tmp}/gcs-mimic-sdk-go.XXXXXX")
@@ -134,4 +145,12 @@ if [[ $with_ruby == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
   env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" bundle exec ruby https.rb --migration-scenario
   env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" bundle exec ruby https.rb
   GCS_MIMIC_ENDPOINT="$strict_endpoint" GCS_MIMIC_TOKEN=local-admin-token GCS_MIMIC_SIGNED_TESTS=1 bundle exec ruby https.rb
+fi
+
+if [[ -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
+  for sdk in ${suites[@]+"${suites[@]}"}; do
+    echo "== $sdk SDK suite" >&2
+    GCS_MIMIC_ENDPOINT="$endpoint" GCS_MIMIC_STRICT_ENDPOINT="$strict_endpoint" \
+      bash "$root/sdk-tests/$sdk/run.sh"
+  done
 fi
