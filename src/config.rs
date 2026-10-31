@@ -129,6 +129,8 @@ pub struct Config {
     pub seed_project: String,
     pub seed_content_type: crate::mime::SeedContentType,
     pub default_location: String,
+    /// Soft delete retention (seconds) given to a new bucket that names no policy; 0 disables it.
+    pub default_soft_delete_retention_seconds: u64,
     pub buckets_file: Option<PathBuf>,
     pub api_base_url: Option<String>,
     pub public_base_url: Option<PublicOrigin>,
@@ -183,6 +185,7 @@ impl Default for Config {
             seed_project: "local-project".into(),
             seed_content_type: crate::mime::SeedContentType::Extension,
             default_location: "US".into(),
+            default_soft_delete_retention_seconds: 604_800,
             buckets_file: None,
             api_base_url: None,
             public_base_url: None,
@@ -506,8 +509,16 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         "backend" | "memory_max_bytes" | "memory_catalog_max_bytes" => {
             storage::apply(config, key, &value)
         }
-        "data_dir" | "seed_dir" | "default_seed_dir" | "sync_dir" | "sync_delete_guard"
-        | "sync_reinitialize" | "seed_project" | "seed_content_type" | "default_location"
+        "data_dir"
+        | "seed_dir"
+        | "default_seed_dir"
+        | "sync_dir"
+        | "sync_delete_guard"
+        | "sync_reinitialize"
+        | "seed_project"
+        | "seed_content_type"
+        | "default_location"
+        | "default_soft_delete_retention_seconds"
         | "buckets_file" => apply_storage_setting(config, key, value),
         "auth_mode" | "compat_profile" | "cors_fallback" | "identity_file" | "admin_enabled"
         | "admin_principal" => apply_access_setting(config, key, value),
@@ -641,6 +652,14 @@ fn apply_storage_setting(config: &mut Config, key: &str, value: String) -> Resul
                 .map_err(|_| "default_location must be a supported bucket location; use US or ASIA-NORTHEAST1")?
                 .0
                 .to_owned();
+        }
+        "default_soft_delete_retention_seconds" => {
+            // Cloud Storage accepts 0 (disabled) or 7 to 90 days.
+            config.default_soft_delete_retention_seconds = value
+                .parse::<u64>()
+                .ok()
+                .filter(|seconds| *seconds == 0 || (604_800..=7_776_000).contains(seconds))
+                .ok_or("default_soft_delete_retention_seconds must be 0 (no soft delete) or 604800..=7776000; use 604800 for the Cloud Storage default")?;
         }
         "buckets_file" => {
             if value.is_empty() {
@@ -792,6 +811,22 @@ impl ConfigurationReport {
                 "default_location requires compat_profile=native; use --compat-profile native --default-location EU or remove the default_location setting.",
             ));
             self.invalid.insert("default_location".into());
+        }
+        // Zero is what the legacy profile does anyway, so only a positive request conflicts.
+        if config.compat_profile == CompatProfile::LegacyEmulator
+            && config.default_soft_delete_retention_seconds != 0
+            && let Some(input) = settings.get("default_soft_delete_retention_seconds")
+            && !self
+                .invalid
+                .contains("default_soft_delete_retention_seconds")
+        {
+            self.diagnostics.errors.push(Diagnostic::new(
+                input.source,
+                &input.key,
+                "default_soft_delete_retention_seconds requires compat_profile=native; the legacy emulator profile never applies a default soft delete policy. Use --compat-profile native or remove the setting.",
+            ));
+            self.invalid
+                .insert("default_soft_delete_retention_seconds".into());
         }
     }
 

@@ -56,7 +56,8 @@ impl Admin {
                 let result = if exists {
                     Err(AdminError::Precondition)
                 } else {
-                    super::super::insert_bucket_in_transaction(&transaction, &mut record)?;
+                    // An import reproduces its source, so it invents no default soft delete policy.
+                    super::super::insert_bucket_in_transaction(&transaction, &mut record, 0)?;
                     if let Some(created) = source_created {
                         super::super::bucket_timestamps::store_imported(
                             &transaction,

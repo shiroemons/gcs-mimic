@@ -22,6 +22,7 @@ Usage: gcs-mimic serve [--config PATH] [OPTIONS]
 
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
   --default-location US|EU|ASIA  Native bucket creation default (US); explicit locations win
+  --default-soft-delete-retention-seconds N  604800 (new buckets without a softDeletePolicy; 0 or 604800..7776000; 0 keeps no deleted data)
   --listen IP:PORT             127.0.0.1:4443
   --log-level LEVEL            info (debug|info|warn|error; warning aliases warn)
   --scheme MODE                https (http|https|both; both uses HTTPS on --listen)

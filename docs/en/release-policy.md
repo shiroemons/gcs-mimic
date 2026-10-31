@@ -66,6 +66,17 @@ explicitly and use a minor release under the rules above; never assign a patch
 or imply that the existing 0.7.0 image includes it. Scoped Go subprocess adapters,
 local Pub/Sub and RAM storage do not by themselves close the 1.0.0 gate.
 
+Unreleased user-visible changes that the next minor release notes must state:
+
+- A new native bucket created without `softDeletePolicy` now gets Cloud Storage's
+  seven-day soft delete, so deleted objects and buckets keep their bytes for
+  seven days. Set `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0` (or
+  `--default-soft-delete-retention-seconds 0`) to keep permanent deletion.
+  Existing buckets and the legacy-emulator profile are unchanged.
+- Native bucket resources carry `satisfiesPZI: true`, nanosecond-scale
+  19-digit `generation` values (schema 46 rescales stored ones) and
+  millisecond timestamps; JSON media responses no longer send `accept-ranges`.
+
 ## The 1.0.0 gate
 
 `1.0.0` means a verified functional superset of the **pinned fake-gcs-server

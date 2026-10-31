@@ -58,7 +58,8 @@ impl RootLease {
                 let known: bool = tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)").and_then(|mut statement|statement.query_row(params![root,name], |r|r.get(0))).map_err(unavailable)?;
                 if known || create.is_none() { return Ok(false); }
                 let record = create.as_mut().ok_or_else(|| unavailable("missing default bucket"))?;
-                insert_bucket_in_transaction(&tx, record)?;
+                // A bucket mirroring a working tree keeps no deletion history on disk.
+                insert_bucket_in_transaction(&tx, record, 0)?;
                 change_journal::append(&tx, Origin::SyncIngest, change_journal::ChangeKind::BucketCreate, &name, None)?;
                 incarnation = Some(tx.prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket=?1").and_then(|mut statement|statement.query_row([&name], |r|r.get(0))).map_err(unavailable)?);
             }

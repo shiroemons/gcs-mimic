@@ -12,7 +12,10 @@ use rusqlite::{
 };
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock, atomic::AtomicBool},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU64},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{Notify, OwnedRwLockReadGuard, RwLock, Semaphore};
@@ -445,6 +448,8 @@ struct Inner {
     change_wake: Notify,
     notification_wake: Arc<Notify>,
     notification_started: AtomicBool,
+    /// Retention a new bucket without an explicit softDeletePolicy receives; 0 gives none.
+    default_soft_delete_retention: AtomicU64,
     notification_attempts: Arc<Semaphore>,
     data_dir: PathBuf,
     memory: Option<Arc<super::memory::Store>>,
@@ -1070,6 +1075,7 @@ impl Catalog {
                 change_wake: Notify::new(),
                 notification_wake: Arc::new(Notify::new()),
                 notification_started: AtomicBool::new(false),
+                default_soft_delete_retention: AtomicU64::new(0),
                 notification_attempts: Arc::new(Semaphore::new(1)),
                 data_dir,
                 memory: memory_limits.map(|(bytes, _)| super::memory::Store::new(bytes)),
@@ -1296,16 +1302,32 @@ impl Catalog {
             .map_err(unavailable)?
     }
 
+    /// Sets the soft delete retention that a bucket created without a policy receives. The
+    /// server applies its configuration before any bucket is created; an embedded catalog keeps
+    /// 0, which leaves such buckets without a policy.
+    pub fn set_default_soft_delete_retention(&self, seconds: u64) {
+        self.0
+            .default_soft_delete_retention
+            .store(seconds, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn default_soft_delete_retention(&self) -> u64 {
+        self.0
+            .default_soft_delete_retention
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub(crate) async fn insert_bucket(
         &self,
         mut record: BucketRecord,
     ) -> Result<BucketRecord, CatalogError> {
+        let default_retention = self.default_soft_delete_retention();
         self.run(move |connection| {
             validate_cors(&record.cors)?;
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(unavailable)?;
-            insert_bucket_in_transaction(&transaction, &mut record)?;
+            insert_bucket_in_transaction(&transaction, &mut record, default_retention)?;
             change_journal::append(
                 &transaction,
                 admin::Origin::Api,
@@ -1990,7 +2012,17 @@ fn bucket_metadata_charge(row: &Row<'_>) -> Result<usize, CatalogError> {
 fn insert_bucket_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
     record: &mut BucketRecord,
+    default_soft_delete_retention: u64,
 ) -> Result<(), CatalogError> {
+    // Cloud Storage gives a new bucket that names no policy a seven-day one whose
+    // effectiveTime is the creation time. An explicit policy, zero included, is kept as
+    // sent. A zero default leaves the bucket without a policy, as before the default existed.
+    if record.soft_delete_policy.is_none() && default_soft_delete_retention > 0 {
+        record.soft_delete_policy = Some(crate::bucket::SoftDeletePolicy {
+            retention_duration_seconds: default_soft_delete_retention,
+            effective_time: record.time_created,
+        });
+    }
     crate::bucket::lifecycle::validate(&record.lifecycle)?;
     crate::bucket::lifecycle::validate_location(&record.lifecycle, &record.location_type)?;
     let created = unix_micros(record.time_created)?;

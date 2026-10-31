@@ -536,6 +536,7 @@ impl Admin {
         }
         let origin = self.origin();
         let grant = self.grant.clone();
+        let default_retention = self.catalog.default_soft_delete_retention();
         self.catalog
             .run_admin(move |connection| {
                 let transaction = connection
@@ -570,7 +571,11 @@ impl Admin {
                         results.push(EnsureBucket::Existing(existing));
                         continue;
                     }
-                    super::insert_bucket_in_transaction(&transaction, &mut record)?;
+                    super::insert_bucket_in_transaction(
+                        &transaction,
+                        &mut record,
+                        default_retention,
+                    )?;
                     super::change_journal::append(
                         &transaction,
                         origin,

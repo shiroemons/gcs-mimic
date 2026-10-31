@@ -32,6 +32,7 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "sync_delete_guard",
     "sync_reinitialize",
     "default_location",
+    "default_soft_delete_retention_seconds",
     "buckets_file",
     "api_base_url",
     "public_base_url",

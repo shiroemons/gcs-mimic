@@ -381,6 +381,7 @@ fn commit(
                 crate::storage::catalog::insert_bucket_in_transaction(
                     &transaction,
                     &mut record.clone(),
+                    batch.admin.catalog.default_soft_delete_retention(),
                 )?;
                 crate::storage::catalog::change_journal::append(
                     &transaction,

@@ -231,6 +231,17 @@ async fn open_catalog(
                 .await
             }
         };
+        // Applied before seeding, bucket files and listeners create any bucket. The reference
+        // emulator profile never gets a default policy.
+        if let Ok(catalog) = &opened {
+            catalog.set_default_soft_delete_retention(
+                if config.compat_profile == gcs_mimic::config::CompatProfile::LegacyEmulator {
+                    0
+                } else {
+                    config.default_soft_delete_retention_seconds
+                },
+            );
+        }
         opened.map_err(|error| match error {
             CatalogError::NewerSchema { version, supported } => phase(DiagnosticSource::Catalog, "data_dir", &format!("catalog schema version {version} was written by a newer gcs-mimic release; this release reads schema {supported} and older. Start a release that supports schema {version}, restore a backup taken before the upgrade, or choose a different data directory; migrated catalogs cannot be downgraded.")),
             _ => phase(DiagnosticSource::Catalog, "data_dir", "catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state."),

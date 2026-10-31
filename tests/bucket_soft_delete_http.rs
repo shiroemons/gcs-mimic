@@ -458,3 +458,124 @@ fn strict_soft_deleted_bucket_access_uses_project_permissions() {
         generation
     );
 }
+
+/// The suite's servers start with the default off (see `common::server_command`); this option
+/// turns on Cloud Storage's seven-day default for new buckets.
+const DEFAULT_ON: [&str; 2] = ["--default-soft-delete-retention-seconds", "604800"];
+
+#[test]
+fn new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &DEFAULT_ON);
+    let bucket = create(&server, "defaulted", None);
+    // Cloud Storage returns the policy with effectiveTime equal to timeCreated.
+    assert_eq!(
+        bucket["softDeletePolicy"],
+        json!({"retentionDurationSeconds": "604800", "effectiveTime": bucket["timeCreated"]})
+    );
+    let generation = generation(&bucket);
+    assert_eq!(
+        server
+            .request("DELETE", "/storage/v1/b/defaulted", "")
+            .status,
+        204
+    );
+    // The deletion is soft: the version is listed and restorable.
+    let soft = server
+        .request(
+            "GET",
+            &format!("/storage/v1/b/defaulted?softDeleted=true&generation={generation}"),
+            "",
+        )
+        .ok();
+    assert_eq!(soft["name"], "defaulted");
+    server
+        .request(
+            "POST",
+            &format!("/storage/v1/b/defaulted/restore?generation={generation}"),
+            "",
+        )
+        .ok();
+}
+
+#[test]
+fn explicit_zero_policy_overrides_the_default_and_deletes_permanently() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &DEFAULT_ON);
+    let bucket = create(
+        &server,
+        "opt-out",
+        Some(r#"{"retentionDurationSeconds":"0"}"#),
+    );
+    assert_eq!(bucket["softDeletePolicy"]["retentionDurationSeconds"], "0");
+    let generation = generation(&bucket);
+    assert_eq!(
+        server.request("DELETE", "/storage/v1/b/opt-out", "").status,
+        204
+    );
+    server
+        .request(
+            "GET",
+            &format!("/storage/v1/b/opt-out?softDeleted=true&generation={generation}"),
+            "",
+        )
+        .error(404, "notFound");
+}
+
+#[test]
+fn zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, &[]);
+    let bucket = create(&server, "plain", None);
+    assert!(bucket.get("softDeletePolicy").is_none(), "{bucket}");
+    server.stop();
+    // Raising the default later does not rewrite a bucket created before.
+    let server = Server::start(&dir, &DEFAULT_ON);
+    let kept = server.request("GET", "/storage/v1/b/plain", "").ok();
+    assert!(kept.get("softDeletePolicy").is_none(), "{kept}");
+    let fresh = create(&server, "fresh", None);
+    assert_eq!(
+        fresh["softDeletePolicy"]["retentionDurationSeconds"],
+        "604800"
+    );
+}
+
+#[test]
+fn invalid_default_retention_is_rejected_at_startup() {
+    for value in ["1", "604799", "7776001", "-1", "week"] {
+        let output = common::server_command()
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+                "--default-soft-delete-retention-seconds",
+                value,
+            ])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{value}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("default_soft_delete_retention_seconds"),
+            "{value}: {stderr}"
+        );
+    }
+    // The reference emulator profile never applies a default policy, so a positive one conflicts.
+    let output = common::server_command()
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            "127.0.0.1:0",
+            "--compat-profile",
+            "legacy-emulator",
+            "--default-soft-delete-retention-seconds",
+            "604800",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}

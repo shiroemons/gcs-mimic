@@ -30,9 +30,18 @@ for the separate diagnostic checks; no HTTP response is changed.
 - SOFT-DELETE-CONFIG: insert/PATCH/PUT accept integral retention seconds, 0 or
   604800 through 7776000; get/list return retentionDurationSeconds/effectiveTime.
   Invalid values return 400 without mutation; null/empty means unspecified.
-- SOFT-DELETE-DEFAULT: omitted policy disables retention locally, preserving
-  existing delete behavior and avoiding unexpected disk retention. Omission and
-  retentionDurationSeconds=0 both allow softDeleted=true listing (200, empty
+- SOFT-DELETE-DEFAULT: a new bucket created without a policy receives Cloud
+  Storage's default, `retentionDurationSeconds` 604800 with `effectiveTime`
+  equal to `timeCreated` (observed 2026-10-31). The server setting
+  `default_soft_delete_retention_seconds` (`--default-soft-delete-retention-seconds`,
+  `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`, JSON `default_soft_delete_retention_seconds`;
+  0 or 604800 through 7776000, default 604800) changes it; 0 stores no policy, so
+  deletion is permanent and uses no extra disk, as before the default existed.
+  An explicit policy in the request, zero included, is kept as sent. Existing
+  buckets keep their stored policy. Buckets created by `import`, directory sync
+  or the legacy-emulator profile get no default; seed files and the buckets file
+  use it. A bucket with no policy (an older bucket, or a zero default) and a
+  bucket with an explicit zero both allow softDeleted=true listing (200, empty
   unless retained generations remain); missing soft-deleted generations return
   404 notFound on metadata GET and restore.
 - SOFT-DELETE-DELETE: shared JSON/XML delete preserves bytes and immutable
@@ -84,8 +93,9 @@ The bucket reference says less than 90 days while the overview says 7–90 days;
 the local inclusive upper boundary follows the requested range and overview.
 effectiveTime changes on increases; policy changes do not change existing object
 deadlines. Null/empty behavior lacks an explicit provider guarantee and is a
-local normalization. Unlike GCS's seven-day default, local new buckets disable
-soft delete. Bucket soft deletion follows the bucket's policy at deletion time.
+local normalization. Like GCS, new native buckets default to seven days; the
+server setting above turns that off. Bucket soft deletion follows the bucket's
+policy at deletion time.
 The official list and restore references require a soft delete policy and
 document 400 errors when it is absent. Locally omission and explicit zero are
 equivalent: listing and generation lookup depend on retained objects, not on
