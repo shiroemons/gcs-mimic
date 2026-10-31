@@ -58,19 +58,22 @@ fn truncate_to_millis(time: SystemTime) -> SystemTime {
     }
 }
 
-/// Resolves a client echoing the millisecond time a response displayed.
+/// Resolves a Locked configuration echoed with the millisecond time a response displayed.
 ///
-/// Configurations stored before writes were truncated keep microseconds. When the requested time
-/// is exactly the stored time cut to milliseconds, the stored time is kept unchanged, so the echo
-/// is neither a shortening nor an overwrite. Any other time is returned as requested and is then
-/// compared exactly by [`check_transition`].
+/// When the requested time is exactly the stored time cut to milliseconds, the stored time is
+/// kept unchanged, so the echo is neither a shortening nor an overwrite. Cloud Storage was
+/// observed (2026-10-31) to refuse the same echo for an Unlocked configuration without
+/// `overrideUnlockedRetention`, so Unlocked is compared exactly; the Locked echo was not
+/// observed (a Locked lock is irreversible) and keeping it accepted is a local choice. Any other
+/// time is returned as requested and is then compared exactly by [`check_transition`].
 pub(crate) fn keep_stored_time(
     current: Option<&ObjectRetention>,
     next: Option<ObjectRetention>,
 ) -> Option<ObjectRetention> {
     match (current, next) {
         (Some(current), Some(next))
-            if truncate_to_millis(current.retain_until) == next.retain_until =>
+            if current.mode == RetentionMode::Locked
+                && truncate_to_millis(current.retain_until) == next.retain_until =>
         {
             Some(ObjectRetention {
                 mode: next.mode,
@@ -250,17 +253,28 @@ mod tests {
     }
 
     #[test]
-    fn echoing_the_displayed_millisecond_time_keeps_the_stored_microsecond_value() {
-        for mode in [RetentionMode::Locked, RetentionMode::Unlocked] {
-            let stored = micros(mode, 5_000, 456);
-            let kept = write(
-                &stored,
-                micros(mode, 5_000, 0),
-                UnlockedOverride::NotRequested,
-            )
-            .unwrap();
-            assert_eq!(kept, Some(stored), "{mode:?}");
-        }
+    fn echoing_the_displayed_millisecond_time_keeps_a_locked_microsecond_value() {
+        let stored = micros(RetentionMode::Locked, 5_000, 456);
+        let kept = write(
+            &stored,
+            micros(RetentionMode::Locked, 5_000, 0),
+            UnlockedOverride::NotRequested,
+        )
+        .unwrap();
+        assert_eq!(kept, Some(stored));
+    }
+
+    /// Cloud Storage refused the displayed millisecond time of an Unlocked configuration whose
+    /// stored time had a finer fraction, unless the override was requested (observed 2026-10-31).
+    #[test]
+    fn echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening() {
+        let stored = micros(RetentionMode::Unlocked, 5_000, 456);
+        let echo = micros(RetentionMode::Unlocked, 5_000, 0);
+        assert!(write(&stored, echo, UnlockedOverride::NotRequested).is_err());
+        assert_eq!(
+            write(&stored, echo, UnlockedOverride::Requested).unwrap(),
+            Some(echo)
+        );
     }
 
     #[test]

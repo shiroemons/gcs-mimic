@@ -51,15 +51,15 @@ pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError>
     } else {
         UNIX_EPOCH.checked_add(offset)
     };
-    // Responses render millisecond precision, so a value is stored at that precision too: a
-    // client that writes back what it read must get exactly the stored time. A finer fraction
-    // rounds up, never down: a retention period must not end earlier than the client asked.
+    // Cloud Storage kept the full nanosecond value for comparisons while responses showed only
+    // the millisecond (observed 2026-10-31, including .123999999 displayed as .123). The catalog
+    // stores microseconds, so the nanosecond remainder is dropped; rounding it up would change
+    // the displayed millisecond. Rendering truncates to milliseconds.
     let out_of_range = || invalid("retention.retainUntilTime is outside the supported range");
-    let millis = u64::from(nanos.div_ceil(1_000_000));
+    let micros = u64::from(nanos / 1000);
     let retain_until = base
-        .and_then(|time| time.checked_add(Duration::from_millis(millis)))
+        .and_then(|time| time.checked_add(Duration::from_micros(micros)))
         .ok_or_else(out_of_range)?;
-    // Rounding up can carry past year 9999, which no response could render.
     timestamp(retain_until).map_err(|_| out_of_range())?;
     Ok(Some(ObjectRetention { mode, retain_until }))
 }
@@ -117,7 +117,7 @@ mod tests {
         );
         assert_eq!(
             render(&parsed).unwrap(),
-            json!({"mode":"Locked","retainUntilTime":"2030-01-01T18:04:05.124Z"})
+            json!({"mode":"Locked","retainUntilTime":"2030-01-01T18:04:05.123Z"})
         );
         for removal in [
             Value::Null,
@@ -153,8 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn retain_until_rounds_a_finer_fraction_up_to_the_millisecond() {
-        // No fraction and an exact millisecond are kept as sent.
+    fn retain_until_displays_milliseconds_and_keeps_microseconds() {
         assert_eq!(
             parsed_render("2030-01-01T00:00:00Z").unwrap(),
             "2030-01-01T00:00:00.000Z"
@@ -163,37 +162,43 @@ mod tests {
             parsed_render("2030-01-01T00:00:00.123Z").unwrap(),
             "2030-01-01T00:00:00.123Z"
         );
-        // Any sub-millisecond remainder, even one nanosecond, rounds up and never shortens.
-        assert_eq!(
-            parsed_render("2030-01-01T00:00:00.123000001Z").unwrap(),
-            "2030-01-01T00:00:00.124Z"
+        // Cloud Storage displayed the millisecond truncation of a finer time (observed
+        // 2026-10-31), never a rounded-up one.
+        for fraction in ["123000001", "123456789", "123999999"] {
+            assert_eq!(
+                parsed_render(&format!("2030-01-01T00:00:00.{fraction}Z")).unwrap(),
+                "2030-01-01T00:00:00.123Z",
+                "{fraction}"
+            );
+        }
+        let stored = |time: &str| {
+            parse(&json!({"mode":"Unlocked","retainUntilTime":time}))
+                .unwrap()
+                .unwrap()
+                .retain_until
+        };
+        // The microsecond is kept, so times a microsecond apart still compare as different.
+        assert_ne!(
+            stored("2030-01-01T00:00:00.123456Z"),
+            stored("2030-01-01T00:00:00.123457Z")
         );
         assert_eq!(
-            parsed_render("2030-01-01T00:00:00.123999999Z").unwrap(),
-            "2030-01-01T00:00:00.124Z"
-        );
-        // The carry crosses the second boundary.
-        assert_eq!(
-            parsed_render("2030-01-01T00:00:00.9995Z").unwrap(),
-            "2030-01-01T00:00:01.000Z"
+            stored("2030-01-01T00:00:00.123456789Z"),
+            stored("2030-01-01T00:00:00.123456Z")
         );
     }
 
     #[test]
-    fn retain_until_rounding_up_never_carries_past_the_supported_range() {
+    fn retain_until_at_the_end_of_the_supported_range() {
         assert_eq!(
-            parsed_render("9999-12-31T23:59:59.999Z").unwrap(),
+            parsed_render("9999-12-31T23:59:59.999999999Z").unwrap(),
             "9999-12-31T23:59:59.999Z"
         );
-        // Rounding up would reach year 10000, which no response can render.
         assert_eq!(
-            parsed_render("9999-12-31T23:59:59.9995Z")
-                .unwrap_err()
-                .reason,
+            parsed_render("10000-01-01T00:00:00Z").unwrap_err().reason,
             "invalidArgument"
         );
     }
-
     #[test]
     fn bucket_object_retention_echo_values() {
         assert_eq!(parse_bucket(None).unwrap(), None);

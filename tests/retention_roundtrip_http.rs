@@ -119,9 +119,17 @@ fn locked_retention_read_back_is_accepted_and_a_shorter_time_is_not() {
     let stored = set_retention(&server, "locked", "Locked");
     assert_eq!(
         stored["retention"]["retainUntilTime"],
-        "2099-01-02T03:04:05.124Z"
+        "2099-01-02T03:04:05.123Z"
     );
 
+    // Sending the same nanosecond time again changes nothing (Locked behaviour is unobserved).
+    let (status, body) = server.request(
+        "PATCH",
+        &object_path("locked"),
+        &json!({"retention":{"mode":"Locked","retainUntilTime":FINE}}).to_string(),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["retention"], stored["retention"]);
     for method in ["PATCH", "PUT"] {
         let (status, body) = server.request(
             method,
@@ -135,34 +143,49 @@ fn locked_retention_read_back_is_accepted_and_a_shorter_time_is_not() {
     let (status, body) = server.request(
         "PATCH",
         &object_path("locked"),
-        r#"{"retention":{"mode":"Locked","retainUntilTime":"2099-01-02T03:04:05.123Z"}}"#,
+        r#"{"retention":{"mode":"Locked","retainUntilTime":"2099-01-02T03:04:05.122Z"}}"#,
     );
     assert_eq!(status, 400, "{body}");
     assert_eq!(body["error"]["errors"][0]["reason"], "invalidArgument");
     server.stop();
 }
 
+/// Cloud Storage kept the nanosecond value of an Unlocked time for comparisons while showing
+/// milliseconds (observed 2026-10-31): the same time again was accepted, a later one was
+/// accepted, and the displayed millisecond time counted as a shortening. gcs-mimic compares
+/// at microseconds (the catalog precision), so only differences above that are refused.
 #[test]
-fn unlocked_retention_read_back_needs_no_override_and_a_shorter_time_does() {
+fn unlocked_retention_compares_below_the_displayed_millisecond() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir);
     setup(&server, &["unlocked"]);
     let stored = set_retention(&server, "unlocked", "Unlocked");
-
-    for method in ["PATCH", "PUT"] {
-        let (status, body) = server.request(
-            method,
-            &object_path("unlocked"),
-            &json!({"retention":stored["retention"]}).to_string(),
-        );
-        assert_eq!(status, 200, "{method} {body}");
-    }
-    let (status, body) = server.request(
-        "PATCH",
-        &object_path("unlocked"),
-        r#"{"retention":{"mode":"Unlocked","retainUntilTime":"2099-01-02T03:04:05.123Z"}}"#,
+    assert_eq!(
+        stored["retention"]["retainUntilTime"],
+        "2099-01-02T03:04:05.123Z"
     );
-    assert_eq!(status, 400, "{body}");
+    let send = |server: &Server, time: &str, query: &str| {
+        server.request(
+            "PATCH",
+            &format!("{}{query}", object_path("unlocked")),
+            &json!({"retention":{"mode":"Unlocked","retainUntilTime":time}}).to_string(),
+        )
+    };
+    let (status, body) = send(&server, FINE, "");
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = send(&server, "2099-01-02T03:04:05.123456790Z", "");
+    assert_eq!(status, 200, "{body}");
+    // The displayed time is earlier than the stored one, so it is a shortening.
+    for earlier in ["2099-01-02T03:04:05.123Z", "2099-01-02T03:04:05.123455Z"] {
+        let (status, body) = send(&server, earlier, "");
+        assert_eq!(status, 400, "{earlier} {body}");
+    }
+    let (status, body) = send(
+        &server,
+        "2099-01-02T03:04:05.123Z",
+        "?overrideUnlockedRetention=true",
+    );
+    assert_eq!(status, 200, "{body}");
     server.stop();
 }
 
