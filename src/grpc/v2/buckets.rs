@@ -323,9 +323,7 @@ impl Storage {
         bucket.default_object_acl = acl
             .default_object
             .iter()
-            .map(|entry| {
-                convert::object_access_control(&rendered(AclKind::DefaultObject, entry))
-            })
+            .map(|entry| convert::object_access_control(&rendered(AclKind::DefaultObject, entry)))
             .collect();
         Ok(())
     }
@@ -441,7 +439,10 @@ impl Storage {
         }
         // As in JSON, only the request flag enables object retention; the bucket field is
         // output-only and may only repeat the flag.
-        if bucket.object_retention.take().is_some_and(|retention| retention.enabled)
+        if bucket
+            .object_retention
+            .take()
+            .is_some_and(|retention| retention.enabled)
             && !request.enable_object_retention
         {
             return Err(Status::invalid_argument(
@@ -1087,7 +1088,14 @@ mod tests {
         // A new bucket reports the projectPrivate defaults, like JSON projection=full.
         assert!(!current.acl.is_empty() && !current.default_object_acl.is_empty());
         assert!(current.acl.iter().all(|entry| !entry.etag.is_empty()));
-        assert!(current.owner.as_ref().unwrap().entity.starts_with("project-owners-"));
+        assert!(
+            current
+                .owner
+                .as_ref()
+                .unwrap()
+                .entity
+                .starts_with("project-owners-")
+        );
         let listed = storage
             .list_buckets(
                 Request::new(pb::ListBucketsRequest {
@@ -1135,7 +1143,12 @@ mod tests {
             .await
             .unwrap()
             .into_inner();
-        assert!(updated.acl.iter().any(|e| e.entity == "allAuthenticatedUsers" && e.role == "READER"));
+        assert!(
+            updated
+                .acl
+                .iter()
+                .any(|e| e.entity == "allAuthenticatedUsers" && e.role == "READER")
+        );
         let mut default_object_acl = current.default_object_acl.clone();
         default_object_acl.push(object_entry);
         storage
@@ -1158,10 +1171,12 @@ mod tests {
             .unwrap()
             .into_inner();
         assert_eq!(fetched.acl.len(), current.acl.len() + 1);
-        assert!(fetched
-            .default_object_acl
-            .iter()
-            .any(|e| e.entity == "allAuthenticatedUsers" && e.role == "READER"));
+        assert!(
+            fetched
+                .default_object_acl
+                .iter()
+                .any(|e| e.entity == "allAuthenticatedUsers" && e.role == "READER")
+        );
         // JSON observes the same stored ACL.
         let stored = storage
             .state
@@ -1170,7 +1185,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(stored.bucket.iter().any(|e| e.entity == "allAuthenticatedUsers"));
+        assert!(
+            stored
+                .bucket
+                .iter()
+                .any(|e| e.entity == "allAuthenticatedUsers")
+        );
 
         let (bad, _) = reader("not-an-entity");
         let error = storage
@@ -1197,7 +1217,10 @@ mod tests {
             }),
             ..Default::default()
         });
-        storage.create_bucket(Request::new(request), None).await.unwrap();
+        storage
+            .create_bucket(Request::new(request), None)
+            .await
+            .unwrap();
         let uniform = storage
             .get_bucket(Request::new(get("uniform-bucket")), None)
             .await

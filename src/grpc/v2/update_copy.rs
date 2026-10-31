@@ -868,7 +868,9 @@ impl Storage {
         let r = request.into_inner();
         common(&r.common_object_request_params)?;
         if !r.predefined_acl.is_empty() {
-            return Err(unsupported("UpdateObject predefined_acl; omit predefined_acl"));
+            return Err(unsupported(
+                "UpdateObject predefined_acl; omit predefined_acl",
+            ));
         }
         let retention_override = if r.override_unlocked_retention {
             crate::object::retention::UnlockedOverride::Requested
@@ -966,14 +968,18 @@ impl Storage {
         object: &mut pb::Object,
     ) -> Result<(), Status> {
         use crate::{acl::AclKind, json::acl::AclOwner};
-        let access =
-            match authorize_bucket(&self.state, caller, auth::OBJECTS_GET_IAM, &record.bucket)
-                .await
-            {
-                Ok(access) => access,
-                Err(e) if matches!(e.status.as_u16(), 401 | 403) => return Ok(()),
-                Err(e) => return Err(error(e)),
-            };
+        let access = match authorize_bucket(
+            &self.state,
+            caller,
+            auth::OBJECTS_GET_IAM,
+            &record.bucket,
+        )
+        .await
+        {
+            Ok(access) => access,
+            Err(e) if matches!(e.status.as_u16(), 401 | 403) => return Ok(()),
+            Err(e) => return Err(error(e)),
+        };
         let generations = vec![(record.name.clone(), record.generation)];
         let Some(acl) = self
             .state
@@ -1298,7 +1304,13 @@ mod tests {
                 Code::Unimplemented
             );
         }
-        for path in ["*", "acl.entity", "owner", "contexts.custom", "retention.mode"] {
+        for path in [
+            "*",
+            "acl.entity",
+            "owner",
+            "contexts.custom",
+            "retention.mode",
+        ] {
             assert_eq!(
                 object_patch(&pb::Object::default(), &[path.into()])
                     .unwrap_err()
@@ -1511,8 +1523,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
-        let request = |bucket: &str, name: &str, seconds: Option<i64>, force: bool| {
-            pb::UpdateObjectRequest {
+        let request =
+            |bucket: &str, name: &str, seconds: Option<i64>, force: bool| pb::UpdateObjectRequest {
                 object: Some(pb::Object {
                     bucket: format!("projects/_/buckets/{bucket}"),
                     name: name.into(),
@@ -1528,13 +1540,15 @@ mod tests {
                 update_mask: update_mask(&["retention"]),
                 override_unlocked_retention: force,
                 ..Default::default()
-            }
-        };
+            };
         assert_eq!(
-            s.update_object(Request::new(request("update-copy-bucket", "plain", Some(3600), false)), None)
-                .await
-                .unwrap_err()
-                .code(),
+            s.update_object(
+                Request::new(request("update-copy-bucket", "plain", Some(3600), false)),
+                None
+            )
+            .await
+            .unwrap_err()
+            .code(),
             Code::InvalidArgument
         );
         let object = s
@@ -1590,11 +1604,22 @@ mod tests {
         let current = s
             .state
             .catalog
-            .get_object("retention-objects", "kept", None, ObjectConditions::default())
+            .get_object(
+                "retention-objects",
+                "kept",
+                None,
+                ObjectConditions::default(),
+            )
             .await
             .unwrap();
         assert_eq!(
-            convert::object(&current).unwrap().retention.unwrap().retain_until_time.unwrap().seconds,
+            convert::object(&current)
+                .unwrap()
+                .retention
+                .unwrap()
+                .retain_until_time
+                .unwrap()
+                .seconds,
             now + 3600
         );
         let shortened = s
@@ -1606,7 +1631,12 @@ mod tests {
             .unwrap()
             .into_inner();
         assert_eq!(
-            shortened.retention.unwrap().retain_until_time.unwrap().seconds,
+            shortened
+                .retention
+                .unwrap()
+                .retain_until_time
+                .unwrap()
+                .seconds,
             now + 60
         );
         let removed = s
@@ -1649,7 +1679,10 @@ mod tests {
             .unwrap()
             .into_inner();
         assert_eq!(
-            live.objects.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(),
+            live.objects
+                .iter()
+                .map(|o| o.name.as_str())
+                .collect::<Vec<_>>(),
             ["live"]
         );
         let soft = s
@@ -1794,7 +1827,12 @@ mod tests {
         assert!(
             s.state
                 .catalog
-                .get_object("update-copy-bucket", "object", None, ObjectConditions::default())
+                .get_object(
+                    "update-copy-bucket",
+                    "object",
+                    None,
+                    ObjectConditions::default()
+                )
                 .await
                 .unwrap()
                 .retention
@@ -1831,10 +1869,12 @@ mod tests {
             .unwrap()
             .into_inner();
         assert_eq!(object.metageneration, source.metageneration + 1);
-        assert!(object
-            .acl
-            .iter()
-            .any(|e| e.entity == "allUsers" && e.role == "READER" && !e.etag.is_empty()));
+        assert!(
+            object
+                .acl
+                .iter()
+                .any(|e| e.entity == "allUsers" && e.role == "READER" && !e.etag.is_empty())
+        );
         let stored = s
             .state
             .catalog
