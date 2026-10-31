@@ -1,0 +1,3 @@
+# This standalone SDK probe does not depend on the production application's API set.
+# Keep probe functions within the repository's function length limit.
+too-many-lines-threshold = 120
