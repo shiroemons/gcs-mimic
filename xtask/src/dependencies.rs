@@ -894,6 +894,17 @@ fn code_lines(source: &str) -> impl Iterator<Item = &str> {
         .lines()
         .filter(|line| !line.trim_start().starts_with('#'))
 }
+/// Whether a line runs an apt front end's `install` subcommand, whatever options sit between the
+/// two words. A trailing ` #` comment is dropped; quoting is not parsed, so a quoted mention can
+/// also match, which only makes the check stricter.
+fn installs_packages(line: &str) -> bool {
+    let code = line.split(" #").next().unwrap_or(line);
+    let mut words = code
+        .split_whitespace()
+        .map(|word| word.trim_matches(|c: char| matches!(c, '\'' | '"' | '(' | ')' | ';')));
+    words.any(|word| matches!(word, "apt-get" | "apt" | "aptitude"))
+        && words.any(|word| word == "install")
+}
 
 /// Offline part of the apt pin check: the install script must carry the same snapshot and version
 /// the snapshot file records, every caller must run the script by its in-container path, and no
@@ -914,8 +925,8 @@ fn verify_apt_pin(package: &Value, script: &str, callers: &[(&str, &str)]) -> Re
         if !code_lines(source).any(|line| line.contains(&invocation)) {
             return Err(format!("apt install script not used: {caller}"));
         }
-        if code_lines(source).any(|line| line.contains("apt-get install")) {
-            return Err(format!("unpinned apt-get install in {caller}"));
+        if code_lines(source).any(installs_packages) {
+            return Err(format!("unpinned apt install in {caller}"));
         }
     }
     Ok(())
@@ -1832,6 +1843,49 @@ mod tests {
         let caller = format!("{APT_CALLER}apt-get install -y socat\n");
         let err = verify_apt_pin(&apt_package(), APT_SCRIPT, &[("run.sh", &caller)]).unwrap_err();
         assert!(err.contains("unpinned"), "{err}");
+    }
+
+    #[test]
+    fn apt_install_is_detected_in_every_spelling() {
+        for line in [
+            "apt-get install -y socat",
+            "apt-get -qq install socat",
+            "apt-get -y install",
+            "apt install socat",
+            "apt-get  install socat",
+            "apt-get -o Acquire::Retries=3 install -y socat >&2",
+            "aptitude install socat",
+            "  'apt-get install socat'",
+            "apt-get update && apt-get install socat",
+        ] {
+            assert!(installs_packages(line), "{line}");
+        }
+    }
+
+    #[test]
+    fn apt_install_ignores_other_commands_and_trailing_comments() {
+        for line in [
+            "apt-get update -qq",
+            "bash /app/sdk-scorecard/install-socat.sh",
+            "echo install socat",
+            "apt-get update # then install socat",
+        ] {
+            assert!(!installs_packages(line), "{line}");
+        }
+    }
+
+    #[test]
+    fn apt_pin_rejects_every_spelling_of_a_leftover_install() {
+        for line in [
+            "apt-get -qq install socat",
+            "apt install socat",
+            "apt-get -o X=Y install socat",
+        ] {
+            let caller = format!("{APT_CALLER}{line}\n");
+            let err =
+                verify_apt_pin(&apt_package(), APT_SCRIPT, &[("run.sh", &caller)]).unwrap_err();
+            assert!(err.contains("unpinned"), "{line}: {err}");
+        }
     }
 
     #[test]
