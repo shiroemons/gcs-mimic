@@ -712,8 +712,8 @@ fn soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_ove
     assert_eq!(retention("default-bucket"), "604800");
     assert_eq!(retention("seeded-bucket"), "604800");
     assert_eq!(retention("long-bucket"), "1209600");
-    // An explicit zero is kept as sent, which stores no retention for the bucket.
-    assert_ne!(retention("permanent-bucket"), "604800");
+    // An explicit zero is kept as sent and reported as "0": the bucket is deleted permanently.
+    assert_eq!(retention("permanent-bucket"), "0");
     server.stop();
 }
 
