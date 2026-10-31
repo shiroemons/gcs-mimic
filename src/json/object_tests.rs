@@ -173,9 +173,12 @@ fn obj_route_002_namespace_and_method_boundaries() {
             Method::POST,
             "GET, HEAD, DELETE, PATCH, PUT",
         ),
-        ("/download/storage/v1/b/abc/o/file", Method::DELETE, "GET"),
+        (
+            "/download/storage/v1/b/abc/o/file",
+            Method::DELETE,
+            "GET, HEAD",
+        ),
         ("/storage/v1/b/abc/o", Method::HEAD, "GET"),
-        ("/download/storage/v1/b/abc/o/file", Method::HEAD, "GET"),
     ] {
         let error = request(method, path).unwrap_err();
         assert_eq!(error.status, StatusCode::METHOD_NOT_ALLOWED);
@@ -188,8 +191,20 @@ fn obj_route_002_namespace_and_method_boundaries() {
             ..
         }
     ));
+    for path in [
+        "/storage/v1/b/abc/o/file?alt=media",
+        "/download/storage/v1/b/abc/o/file?alt=media",
+    ] {
+        assert!(matches!(
+            request(Method::HEAD, path).unwrap(),
+            ObjectRequest::Get {
+                params: ObjectGetParams { media: true, .. },
+                ..
+            }
+        ));
+    }
     assert_eq!(
-        request(Method::HEAD, "/storage/v1/b/abc/o/file?alt=media")
+        request(Method::HEAD, "/download/storage/v1/b/abc/o/file")
             .unwrap_err()
             .status,
         StatusCode::BAD_REQUEST

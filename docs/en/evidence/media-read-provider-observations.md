@@ -104,3 +104,28 @@ bodies fail 400, a decoded body above `max_object_bytes` fails 413, and codings
 other than one `gzip` fail 400. The provider's 400 on a later identity GET of a
 decompressed object that still declares `contentEncoding: gzip` is not
 reproduced; gcs-mimic aborts that download like any other invalid stored gzip.
+
+## JSON media HEAD
+
+Observed **2026-10-31** on the 49-byte gzip object above and a 16-byte
+identity object, on `/storage/v1/b/{bucket}/o/{object}?alt=media` and
+`/download/storage/v1/b/{bucket}/o/{object}?alt=media`.
+
+| Request | Status | Notable headers |
+| --- | --- | --- |
+| gzip object, no `Accept-Encoding` or `identity`, either endpoint | 200, no body | the GET headers: weak `etag: W/...`, both transformation fields, stored-object `x-goog-hash`, no Content-Length |
+| gzip object, `Accept-Encoding: gzip` | 200, no body | strong ETag, `content-encoding: gzip`, `vary: Origin`, `vary: X-Origin`, `vary: Accept-Encoding`, no Content-Length (the matching GET sends `content-length: 49`) |
+| identity object | 200, no body | the GET headers including `content-length: 16` |
+
+gcs-mimic previously returned 400 on `/storage/v1` and 405 on `/download`.
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| HEAD sends the media GET headers without a body | Both endpoints; the object body is not read | `json_media_head_sends_get_headers_without_a_body` |
+| Only the identity HEAD sends Content-Length | Removed for stored-gzip HEAD, gunzipped or compressed | the same test |
+
+The weak ETag on gunzipped responses is not reproduced: gcs-mimic keeps its
+opaque strong ETag on every representation. HEAD with `Range` on a stored-gzip
+object sent compressed was not observed; locally it states the range length.

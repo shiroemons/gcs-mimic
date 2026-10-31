@@ -12,8 +12,8 @@ use crate::{
         read_etag_not_modified, read_metadata_response,
     },
 };
-use http_body_util::BodyExt;
-use hyper::{HeaderMap, Request, Response, StatusCode, header::HeaderValue};
+use http_body_util::{BodyExt, Full};
+use hyper::{HeaderMap, Method, Request, Response, StatusCode, body::Bytes, header::HeaderValue};
 
 pub(super) async fn get(
     request: &Request<Incoming>,
@@ -112,20 +112,30 @@ async fn media(
             &headers["cache-control"],
         )));
     }
+    // A media HEAD sends the GET headers without reading the object (observed 2026-10-31).
+    let head = request.method() == Method::HEAD;
     if transcode {
         // Range is ignored while gunzipping: the whole expanded object is sent with 200.
         gzip::insert_transcoded_headers(&mut headers);
-        let mut response = Response::new(gzip::body(
-            reader,
-            record.size,
-            ctx.config.max_object_bytes,
-            ctx.activity,
-        ));
+        let mut response = if head {
+            boxed(Response::new(Full::new(Bytes::new())))
+        } else {
+            Response::new(gzip::body(
+                reader,
+                record.size,
+                ctx.config.max_object_bytes,
+                ctx.activity,
+            ))
+        };
         *response.headers_mut() = headers;
         return Ok(response);
     }
     if json::object_media_negotiable(&record) {
         gzip::insert_negotiated_vary(&mut headers);
+        if head {
+            // Cloud Storage states no length for a stored-gzip HEAD even when sent compressed.
+            headers.remove("content-length");
+        }
     }
     let range = match json::object_media_range(request.headers(), record.size) {
         Ok(range) => range,
@@ -149,7 +159,11 @@ async fn media(
         insert_content_range(&mut headers, offset, length, record.size);
         range_hashes(&mut headers, &record, offset, length)?;
     }
-    let mut response = Response::new(object_body(reader, ctx.activity));
+    let mut response = if head {
+        boxed(Response::new(Full::new(Bytes::new())))
+    } else {
+        Response::new(object_body(reader, ctx.activity))
+    };
     if range.is_some() {
         *response.status_mut() = StatusCode::PARTIAL_CONTENT;
     }

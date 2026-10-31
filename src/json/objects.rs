@@ -135,7 +135,7 @@ pub(crate) fn route_object_with_profile(
         method == Method::POST
     } else {
         method == Method::GET
-            || (method == Method::HEAD && object.is_some() && !download)
+            || (method == Method::HEAD && object.is_some())
             || (!download
                 && object.is_some()
                 && matches!(*method, Method::DELETE | Method::PATCH | Method::PUT))
@@ -148,8 +148,10 @@ pub(crate) fn route_object_with_profile(
         );
         error.allow = Some(if upload {
             "POST"
-        } else if download || object.is_none() {
+        } else if object.is_none() {
             "GET"
+        } else if download {
+            "GET, HEAD"
         } else {
             "GET, HEAD, DELETE, PATCH, PUT"
         });
@@ -218,8 +220,12 @@ fn parse_object_query(
     let content_encoding = take_common_parameters(method, &mut query)?;
     let media = match query.remove("alt").as_deref() {
         None | Some("json") => false,
-        Some("media") if method == Method::GET => true,
-        Some("media") => return Err(JsonError::invalid_parameter("alt=media requires GET")),
+        Some("media") if matches!(*method, Method::GET | Method::HEAD) => true,
+        Some("media") => {
+            return Err(JsonError::invalid_parameter(
+                "alt=media requires GET or HEAD",
+            ));
+        }
         Some(_) => {
             return Err(JsonError::new(
                 StatusCode::BAD_REQUEST,

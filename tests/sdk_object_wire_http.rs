@@ -171,6 +171,81 @@ fn xml_gzip_gunzips_whole_object_and_keeps_stored_hashes() {
     );
 }
 
+/// Cloud Storage answers a JSON media HEAD with the GET headers and no body; only the
+/// identity representation states its Content-Length (observed 2026-10-31).
+#[test]
+fn json_media_head_sends_get_headers_without_a_body() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, true);
+    server.bucket();
+    server.put("plain", b"0123456789abcdef").json();
+    gzip_object(&server, "gzip", &gzip(b"hello gzip transcoding world\n"));
+    // Framing and date fields differ between a streamed GET and its HEAD by design.
+    let framed = |reply: &object_effects_support::Reply| {
+        let mut headers = reply.headers.clone();
+        for name in ["date", "content-length", "transfer-encoding"] {
+            headers.remove(name);
+        }
+        headers
+    };
+    for prefix in ["/storage/v1", "/download/storage/v1"] {
+        for (object, extra, length) in [
+            ("plain", "", Some("16")),
+            ("gzip", "", None),
+            ("gzip", "Accept-Encoding: identity\r\n", None),
+            ("gzip", "Accept-Encoding: gzip\r\n", None),
+        ] {
+            let path = format!("{prefix}/b/test-bucket/o/{object}?alt=media");
+            let headers = format!("{ADMIN}{extra}");
+            let get = server.request("GET", &path, &headers, b"");
+            let head = server.request("HEAD", &path, &headers, b"");
+            assert_eq!(head.status, 200, "{path} {extra}");
+            assert_eq!(
+                head.headers.get("content-length").map(String::as_str),
+                length,
+                "{path} {extra}"
+            );
+            assert_eq!(framed(&head), framed(&get), "{path} {extra}");
+            assert!(!head.headers.contains_key("transfer-encoding"));
+        }
+    }
+    let gunzipped = server.request(
+        "HEAD",
+        "/storage/v1/b/test-bucket/o/gzip?alt=media",
+        ADMIN,
+        b"",
+    );
+    assert_eq!(
+        gunzipped.headers["x-guploader-response-body-transformations"],
+        "gunzipped"
+    );
+    let compressed = server.request(
+        "HEAD",
+        "/download/storage/v1/b/test-bucket/o/gzip?alt=media",
+        &format!("{ADMIN}Accept-Encoding: gzip\r\n"),
+        b"",
+    );
+    assert_eq!(compressed.headers["content-encoding"], "gzip");
+    assert!(compressed.headers["vary"].ends_with("Accept-Encoding"));
+    for (path, headers, status) in [
+        ("/download/storage/v1/b/test-bucket/o/plain", ADMIN, 400),
+        ("/storage/v1/b/test-bucket/o/missing?alt=media", ADMIN, 404),
+        (
+            "/storage/v1/b/test-bucket/o/plain?alt=media",
+            "Authorization: Bearer creator\r\n",
+            403,
+        ),
+        (
+            "/storage/v1/b/test-bucket/o/plain?alt=media&ifGenerationMatch=1",
+            ADMIN,
+            412,
+        ),
+    ] {
+        let response = server.request("HEAD", path, headers, b"");
+        assert_eq!(response.status, status, "{path}");
+    }
+}
+
 #[test]
 fn json_media_upload_content_encoding_query_sets_stored_encoding() {
     let dir = TestDir::new();
