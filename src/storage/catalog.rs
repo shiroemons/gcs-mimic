@@ -1850,7 +1850,6 @@ fn apply_retention_policy(
     Ok(())
 }
 
-/// Applies a label update; `None` clears every label and a replace starts from none.
 /// Applies the settings that only validate and replace a stored value.
 fn apply_plain_settings(
     record: &mut BucketRecord,
@@ -1881,6 +1880,7 @@ fn apply_plain_settings(
     Ok(())
 }
 
+/// Applies a label update; `None` clears every label and a replace starts from none.
 fn apply_labels(
     record: &mut BucketRecord,
     labels: Option<std::collections::BTreeMap<String, Option<String>>>,

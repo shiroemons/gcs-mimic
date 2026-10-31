@@ -4165,3 +4165,25 @@ fn bucket_cors_large_metadata_lists_page_without_loss() {
         }
     }
 }
+
+/// A PATCH without a writable setting is a no-op (observed on Cloud Storage), but its
+/// metageneration precondition is still evaluated first (the order was not observed).
+#[test]
+fn empty_patch_checks_if_metageneration_match_and_keeps_the_metageneration() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        server.insert("empty-patch", "project");
+        let path = "/storage/v1/b/empty-patch";
+        server
+            .request("PATCH", &format!("{path}?ifMetagenerationMatch=2"), "{}")
+            .error(412, "conditionNotMet");
+        let reply = server.request("PATCH", &format!("{path}?ifMetagenerationMatch=1"), "{}");
+        assert_eq!(reply.status, 200, "{profile}");
+        assert_eq!(reply.json()["metageneration"], "1", "{profile}");
+        assert_eq!(
+            server.request("GET", path, "").json()["metageneration"],
+            "1"
+        );
+    }
+}
