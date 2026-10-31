@@ -79,6 +79,16 @@ Unreleased user-visible changes that the next minor release notes must state:
 - Native bucket resources carry `satisfiesPZI: true`, nanosecond-scale
   19-digit `generation` values (schema 46 rescales stored ones) and
   millisecond timestamps; JSON media responses no longer send `accept-ranges`.
+- A bucket insert, PATCH or PUT body that carries `satisfiesPZS` no longer gets
+  400; the member is ignored and never emitted, as Cloud Storage did. A bucket
+  PATCH that carries no writable setting (for example `{}` or only
+  `satisfiesPZI`) no longer advances `metageneration` or `updated`.
+- Shortening or removing an Unlocked object retention without
+  `overrideUnlockedRetention=true` now returns 403 `forbidden` (gRPC
+  `PERMISSION_DENIED`) instead of 400 `invalidArgument`. `retainUntilTime` is
+  compared to the nanosecond and displayed truncated to the millisecond, so
+  writing back the displayed millisecond value is a shortening for an Unlocked
+  retention. Data stored by 0.7.0 (microseconds) reads unchanged.
 
 ## The 1.0.0 gate
 
