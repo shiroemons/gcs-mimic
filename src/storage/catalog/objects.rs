@@ -1435,6 +1435,10 @@ impl Catalog {
             let previous_retention = record.retention;
             let override_unlocked = update.override_unlocked_retention;
             update.apply(&mut record)?;
+            record.retention = crate::object::retention::keep_stored_time(
+                previous_retention.as_ref(),
+                record.retention,
+            );
             if record.retention != previous_retention {
                 crate::object::retention::check_transition(
                     previous_retention.as_ref(),

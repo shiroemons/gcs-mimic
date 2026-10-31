@@ -58,6 +58,29 @@ fn truncate_to_millis(time: SystemTime) -> SystemTime {
     }
 }
 
+/// Resolves a client echoing the millisecond time a response displayed.
+///
+/// Configurations stored before writes were truncated keep microseconds. When the requested time
+/// is exactly the stored time cut to milliseconds, the stored time is kept unchanged, so the echo
+/// is neither a shortening nor an overwrite. Any other time is returned as requested and is then
+/// compared exactly by [`check_transition`].
+pub(crate) fn keep_stored_time(
+    current: Option<&ObjectRetention>,
+    next: Option<ObjectRetention>,
+) -> Option<ObjectRetention> {
+    match (current, next) {
+        (Some(current), Some(next))
+            if truncate_to_millis(current.retain_until) == next.retain_until =>
+        {
+            Some(ObjectRetention {
+                mode: next.mode,
+                retain_until: current.retain_until,
+            })
+        }
+        (_, next) => next,
+    }
+}
+
 fn invalid(message: &str) -> ObjectError {
     ObjectError::InvalidFixedMetadata(message.into())
 }
@@ -123,12 +146,9 @@ pub(crate) fn check_transition(
     let Some(current) = current else {
         return Ok(());
     };
-    // Responses show milliseconds, so a client echoes the displayed time. Configurations stored
-    // before writes were truncated keep microseconds; comparing at millisecond precision keeps
-    // their echo from counting as a shortening.
-    let shortened = next.is_none_or(|next| {
-        truncate_to_millis(next.retain_until) < truncate_to_millis(current.retain_until)
-    });
+    // Exact comparison: a Locked time must never move earlier, not even by a microsecond.
+    // `keep_stored_time` has already resolved the echo of a displayed millisecond value.
+    let shortened = next.is_none_or(|next| next.retain_until < current.retain_until);
     match current.mode {
         RetentionMode::Locked => {
             if shortened || next.is_some_and(|next| next.mode != RetentionMode::Locked) {
@@ -208,34 +228,68 @@ mod tests {
         }
     }
 
-    #[test]
-    fn echoing_the_displayed_millisecond_time_of_a_microsecond_record_is_not_a_shortening() {
-        use RetentionMode::{Locked, Unlocked};
-        let micros = |mode, extra: u64| ObjectRetention {
+    /// Applies a write the way the catalog does: resolve the echo, then check the transition.
+    fn write(
+        current: &ObjectRetention,
+        next: ObjectRetention,
+        unlocked: UnlockedOverride,
+    ) -> Result<Option<ObjectRetention>, ObjectError> {
+        let resolved = keep_stored_time(Some(current), Some(next));
+        check_transition(Some(current), resolved.as_ref(), unlocked)?;
+        Ok(resolved)
+    }
+
+    /// A record stored with microseconds, as before writes were truncated.
+    fn micros(mode: RetentionMode, millis: u64, extra_micros: u64) -> ObjectRetention {
+        ObjectRetention {
             mode,
-            retain_until: UNIX_EPOCH + Duration::from_millis(5_000) + Duration::from_micros(extra),
-        };
-        for mode in [Locked, Unlocked] {
-            let stored = micros(mode, 456);
+            retain_until: UNIX_EPOCH
+                + Duration::from_millis(millis)
+                + Duration::from_micros(extra_micros),
+        }
+    }
+
+    #[test]
+    fn echoing_the_displayed_millisecond_time_keeps_the_stored_microsecond_value() {
+        for mode in [RetentionMode::Locked, RetentionMode::Unlocked] {
+            let stored = micros(mode, 5_000, 456);
+            let kept = write(
+                &stored,
+                micros(mode, 5_000, 0),
+                UnlockedOverride::NotRequested,
+            )
+            .unwrap();
+            assert_eq!(kept, Some(stored), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn a_time_even_one_millisecond_shorter_is_refused() {
+        let locked = micros(RetentionMode::Locked, 5_000, 456);
+        let unlocked = micros(RetentionMode::Unlocked, 5_000, 456);
+        for next in [4_999, 1_000] {
             assert!(
-                check_transition(
-                    Some(&stored),
-                    Some(&micros(mode, 0)),
-                    UnlockedOverride::NotRequested
-                )
-                .is_ok()
-            );
-            let earlier = ObjectRetention {
-                mode,
-                retain_until: UNIX_EPOCH + Duration::from_millis(4_999),
-            };
-            assert!(
-                check_transition(
-                    Some(&stored),
-                    Some(&earlier),
-                    UnlockedOverride::NotRequested
+                write(
+                    &locked,
+                    micros(RetentionMode::Locked, next, 0),
+                    UnlockedOverride::Requested
                 )
                 .is_err()
+            );
+            let shorter = micros(RetentionMode::Unlocked, next, 0);
+            assert!(write(&unlocked, shorter, UnlockedOverride::NotRequested).is_err());
+            assert!(write(&unlocked, shorter, UnlockedOverride::Requested).is_ok());
+        }
+    }
+
+    #[test]
+    fn a_longer_time_is_accepted_and_stored_as_requested() {
+        for mode in [RetentionMode::Locked, RetentionMode::Unlocked] {
+            let stored = micros(mode, 5_000, 456);
+            let longer = micros(mode, 5_001, 0);
+            assert_eq!(
+                write(&stored, longer, UnlockedOverride::NotRequested).unwrap(),
+                Some(longer)
             );
         }
     }
