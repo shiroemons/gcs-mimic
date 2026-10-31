@@ -798,7 +798,6 @@ fn obj_render_002_media_headers_match_selected_generation_and_hashes() {
     for (name, value) in [
         ("content-type", "text/plain; charset=utf-8"),
         ("content-length", "5"),
-        ("accept-ranges", "bytes"),
         ("x-goog-generation", "9007199254740993"),
         ("x-goog-metageneration", "2"),
         (
@@ -811,11 +810,13 @@ fn obj_render_002_media_headers_match_selected_generation_and_hashes() {
     ] {
         assert_eq!(headers[name], value);
     }
+    // Cloud Storage sends no accept-ranges on a JSON media response (observed 2026-10-31).
+    assert!(!headers.contains_key("accept-ranges"));
     assert_eq!(
         headers["cache-control"],
         "no-cache, no-store, max-age=0, must-revalidate"
     );
-    assert_eq!(headers.len(), 10);
+    assert_eq!(headers.len(), 9);
     let mut object = object;
     object.size = u64::MAX;
     assert_eq!(

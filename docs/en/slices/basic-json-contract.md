@@ -101,7 +101,7 @@ fields stay absent after fields selection. IDs, ETags, URL spelling and timestam
 precision are local choices under SPEC-012 and the bucket provider gaps.
 
 Successful media uses stored Content-Type or application/octet-stream,
-Content-Length, Accept-Ranges, ETag, x-goog-generation/metageneration/hash,
+Content-Length, ETag, x-goog-generation/metageneration/hash,
 x-goog-stored-content-length/encoding and present content encoding/disposition/
 language. A 206 adds Content-Range and uses the selected byte length; hashes
 remain full-object hashes. JSON nonpublic media Cache-Control is `no-cache, no-store, max-age=0, must-revalidate` (recorded); a supported

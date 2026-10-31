@@ -78,7 +78,7 @@ All values come from the same selected record as the opened blob.
 | --- | --- | --- |
 | `Content-Range` | `bytes first-last/size` | JSON header reference and RFC range contract |
 | `Content-Length` | Number of selected bytes | JSON Content-Length definition |
-| `Accept-Ranges` | `bytes`, also on successful complete media responses | RFC advertisement; exact Google presence is unverified |
+| `Accept-Ranges` | Not sent on JSON media (200, 206, HEAD); the XML API sends `bytes` | Observed on Cloud Storage 2026-10-31 |
 | `Content-Type` | Stored type, or `application/octet-stream` | Existing media behavior; partial parity tested locally |
 | `Content-Disposition`, `Content-Language` | Stored values when present | Retained representation metadata; complete Google partial header set is unverified |
 | `Cache-Control` | `no-cache, no-store, max-age=0, must-revalidate` (recorded) | Existing JSON nonpublic-object rule; stored public cache metadata does not grant public access |

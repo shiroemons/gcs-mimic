@@ -275,7 +275,8 @@ fn obj_range_http_single_ranges_and_representation_headers() {
                 reply.headers["x-goog-generation"],
                 object["generation"].as_str().unwrap()
             );
-            assert_eq!(reply.headers["accept-ranges"], "bytes");
+            // Cloud Storage sends no accept-ranges on a JSON media response (observed 2026-10-31).
+            assert!(!reply.headers.contains_key("accept-ranges"), "{range}");
             assert_eq!(
                 reply.headers["cache-control"],
                 "no-cache, no-store, max-age=0, must-revalidate"
@@ -288,6 +289,7 @@ fn obj_range_http_single_ranges_and_representation_headers() {
         "crc32c=KAwGng==,md5=eB5eJF1ptWaXm4bijSPyxw=="
     );
     assert!(!full.headers.contains_key("content-range"));
+    assert!(!full.headers.contains_key("accept-ranges"));
     server.stop();
 }
 

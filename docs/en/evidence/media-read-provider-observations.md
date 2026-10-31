@@ -317,5 +317,5 @@ authenticated read of a public object was not observed.
 
 Local limits: the condition for the allowed-resources vary is the public
 classification, because the observation cannot separate anonymity from public
-readability. The JSON media 200 `accept-ranges` (absent in the observation,
-sent locally) is a remaining difference.
+readability. The JSON media 200, 206 and HEAD send no `accept-ranges`
+(observed 2026-10-31), matching the local behavior.

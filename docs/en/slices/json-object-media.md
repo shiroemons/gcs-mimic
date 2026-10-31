@@ -222,7 +222,7 @@ Successful whole-media responses must describe the exact opened generation:
 | `x-goog-stored-content-encoding` | `identity` for the supported unencoded subset |
 
 The [range contract](json-object-range.md) adds `Content-Range` on 206/416 and
-`Accept-Ranges: bytes` on successful media responses. JSON resources/errors
+(no `Accept-Ranges`: Cloud Storage omits it from JSON media). JSON resources/errors
 use `application/json; charset=UTF-8`; media must never inherit that JSON content type.
 No provider trace IDs, production caching/authorization policy or complete header parity is
 claimed. Response headers and media stream must be bound to one selected generation even

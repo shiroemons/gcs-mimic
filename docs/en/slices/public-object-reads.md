@@ -149,7 +149,7 @@ parity remains open under SPEC-RANGE-FALLBACK.
 | `Content-Type` | Stored type, otherwise `application/octet-stream` |
 | `Content-Encoding`, `Content-Disposition`, `Content-Language` | Stored fixed metadata when present; no invented encoding |
 | `Content-Range` | `bytes start-end/size` for 206 on GET and HEAD; `bytes */size` for a 416 |
-| `Accept-Ranges` | `bytes` on successful object responses |
+| `Accept-Ranges` | `bytes` on successful XML object responses; absent on JSON media |
 | `x-goog-generation`, `x-goog-metageneration` | Decimal values from the same selected record as the bytes |
 | `x-goog-hash` | Whole-object CRC32C and MD5 in base64, including on partial reads; these are not checksums of the selected interval |
 | `x-goog-stored-content-length`, `x-goog-stored-content-encoding` | Full stored size and stored encoding, using `identity` when absent |

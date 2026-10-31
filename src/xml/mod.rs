@@ -913,6 +913,8 @@ fn element(body: &mut String, name: &str, value: &str) {
 
 pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<HeaderMap, Error> {
     let mut headers = json::object_media_headers(record)?;
+    // Only the XML API advertises ranges; the JSON media response omits the field.
+    headers.insert("accept-ranges", HeaderValue::from_static("bytes"));
     let cache = record.cache_control.as_deref().unwrap_or(match scope {
         CacheScope::Public => "public, max-age=3600",
         CacheScope::Private => PRIVATE_CACHE_CONTROL,

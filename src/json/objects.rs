@@ -857,7 +857,6 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
             },
         ),
         ("content-length", object.size.to_string()),
-        ("accept-ranges", "bytes".to_owned()),
         ("x-goog-generation", object.generation.to_string()),
         ("x-goog-metageneration", object.metageneration.to_string()),
         (
