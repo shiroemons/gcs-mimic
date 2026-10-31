@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # Keep this pin identical to sdk-scorecard/run.sh; daily detection checks it there.
-image=composer:2.11.0@sha256:278dfc7bd35169965d03f87194816f43bf4e6b6ea61707c2114e52ad12fe24ce
+image=composer:2.11.1@sha256:537fb03057ed901ae06bde7ef25af348903485ae1acc7fc789b80d8bac666f35
 root=$(cd "$(dirname "$0")/../.." && pwd)
 endpoint=${GCS_MIMIC_ENDPOINT:?GCS_MIMIC_ENDPOINT must name the permissive emulator origin}
 strict_endpoint=${GCS_MIMIC_STRICT_ENDPOINT:?GCS_MIMIC_STRICT_ENDPOINT must name the strict emulator origin}
@@ -62,7 +62,7 @@ php() {
     -e GCS_MIMIC_DOCKER_GATEWAY="$gateway" ${docker_args[@]+"${docker_args[@]}"} \
     -v "$root:/work:ro" -w /work/sdk-tests/php "$image" php "$@"
 }
-for file in harness.php migration_scenario.php signed.php suite.php; do
+for file in harness.php migration_scenario.php migration_adapters.php signed.php suite.php; do
   php -- -l "$file" >/dev/null
 done
 php -- suite.php --self-check

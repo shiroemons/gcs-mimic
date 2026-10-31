@@ -45,7 +45,7 @@ No update was deferred, no freshness exception remains, and no direct dependency
 | go.opentelemetry.io/otel, metric, sdk, sdk/metric, trace (indirect) | v1.45.0 | v1.47.0; otel/log v1.47.0 added |
 | curlimages/curl:8.23.0 | sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac | sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93 |
 
-### Upstream changes reviewed
+### Upstream changes reviewed on 2026-10-29
 
 - rusqlite v0.41.1 skips the PRAGMA name check under SQLCipher and fixes a panic with a zero-argument deterministic scalar function. The catalog enables neither SQLCipher nor custom scalar functions, so no code change was needed.
 - google-api-go-client v0.310.0 contains only regenerated Discovery clients. gax-go v2.27.0 adds a path expression helper. No harness migration was needed.
@@ -77,7 +77,7 @@ The remaining `docker library/composer:latest` drift is the open `composer-riscv
 | composer:2.10.3 image (PHP 8.5.12) | sha256:2cf275428757e5435a667bfc0d038b14520ca02be2b1b70d44a05c8c19e2de48 | composer:2.11.0, sha256:278dfc7bd35169965d03f87194816f43bf4e6b6ea61707c2114e52ad12fe24ce (PHP 8.5.12) |
 | Python for `sdk-scorecard/python` and `sdk-tests/python` | 3.14.10, `requires-python >=3.14` | 3.15.2, `requires-python >=3.15`; both `uv.lock` files keep every package version and drop only the cp314 wheels |
 
-### Upstream changes reviewed
+### Upstream changes reviewed on 2026-10-30
 
 - The grpc-rust 0.14.9 releases, published 2026-10-29 from revision `4c0f455c264fe2ec9f9ab5d0cc7fd2824d5daf70`, add h2 reset-stream settings to the transport `Endpoint` and apply hyper's header read timeout on tonic's HTTP/1 server connections. gcs-mimic enables only the `codegen` feature and drives connections through its own Hyper server, so neither change is reachable. tonic-prost relaxes codec `Default` bounds; the generated code does not depend on them.
 - tonic 0.14.9 requires hyper `^1.10`, which the locked graph already satisfies. Minimum Rust stays 1.88.
@@ -106,3 +106,96 @@ The remaining `docker library/composer:latest` drift is the open `composer-riscv
 
 The SDK suites ran with uv 0.13.6. Container images, AMD64 execution and the SDK scorecard were not run.
 No benchmark, performance measurement, real-cloud test, remote CI, push, publication or release was performed.
+
+## Refresh: 2026-10-31
+
+The coordinator's pre-update `cargo +1.99.1 xtask dependencies check` exited 1.
+All fifteen declared SDK manifests were inspected; Rust 1.99.1 and the
+non-Composer direct packages and runtimes were `CURRENT`. The fixed
+fake-gcs-server source remained `PINNED_REFERENCE`. Composer had a new stable
+patch, so the earlier publication-lag exception alone could not justify keeping
+2.11.0. This Composer update changes no package or lockfile graph. The separate
+XML bucket slice adds quick-xml 0.42.0, as recorded in the dependency snapshot;
+its parser checks and package notices require separate verification. Legacy
+header signing also promotes the already resolved httpdate package as described
+below; that direct edge adds no resolved package or version.
+
+### HTTP-date parser direct edge
+
+`httpdate` 1.0.3 is reused for legacy GOOG1/AWS header signature time checks.
+The [official registry index](https://index.crates.io/ht/tp/httpdate) identifies
+it as the latest non-yanked stable, and the
+[publisher's package documentation](https://docs.rs/crate/httpdate/1.0.3)
+records its 2023-08-13 release. The packaged manifest requires Rust 1.56,
+declares `MIT OR Apache-2.0` and has no runtime dependencies. Both license
+texts are packaged. Its compressed archive is **10,639 bytes**, with SHA-256
+`df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9`;
+the documentation's 32.9 kB figure describes unpacked source, not that archive.
+
+The manifest and root lockfile add the application's direct edge to the
+existing Hyper dependency. The resolved package version and checksum do not
+change. `cargo metadata --locked --offline` and
+`CARGO_INCREMENTAL=0 cargo check -p xtask --all-targets --locked --offline`
+pass after the edge is recorded. An accepted `+0000` date spelling is normalized
+only for parsing; the canonical signature message retains the original bytes.
+This package check does not establish complete legacy signature acceptance,
+release-notice output or a post-update full freshness run.
+
+### Composer inputs verified
+
+The [official download page](https://getcomposer.org/download/) identifies
+2.11.1, released 2026-10-30, as current stable. Its
+[changelog](https://getcomposer.org/changelog/2.11.1) fixes GitLab registry
+authentication, invalid platform-extension names, preservation of empty
+manifest keys and invalid custom-header configuration. This repository uses
+neither GitLab job-token authentication nor manifest-changing Composer commands.
+The Composer license remains MIT; the official container source is
+[revision 2af913cf6c428737e8eec2a3e9297d12d96eeac6](https://github.com/composer/docker/tree/2af913cf6c428737e8eec2a3e9297d12d96eeac6).
+
+| Input | Verified digest |
+| --- | --- |
+| Adopted `composer:2.11.1` index | `sha256:537fb03057ed901ae06bde7ef25af348903485ae1acc7fc789b80d8bac666f35` |
+| `composer:latest` index | `sha256:4ed71c38c6d788eb4e4e3747b5332f5b40d5b5a6fcadd5062a1a70986a118e0a` |
+| Both indexes, linux/amd64 | `sha256:22844d23aacc7140fccf24992829ae98bc2c92e0240ccca3b35716bf5d82ed70` |
+| Both indexes, linux/arm64 | `sha256:9c383fb6f07d2b2cbbf0f21133789b335a55996c4c857c0f2775d16f31922872` |
+| Only `latest`, linux/riscv64 | `sha256:e6d3961eaef409a8425cb992665e1d48202c4a8f1cb967ac5e226131cc211db0` |
+
+`docker buildx imagetools inspect composer:2.11.1` and the raw `latest` index
+confirm these platform mappings. The exact-version index omits riscv64;
+`latest` still points its riscv64 entry at Composer 2.10.3. The supported amd64
+and arm64 manifests match each other across the two new indexes, but both
+changed from the old 2.11.0 pin. The three PHP runner pins and the dependency
+snapshot now use the exact 2.11.1 index. The existing
+`composer-riscv64-publication-lag` exception retains its **2026-11-06** review
+deadline; the exception does not hide the supported-platform update or extend
+its deadline.
+
+### Validation performed on 2026-10-31
+
+All runtime commands below use
+`composer:2.11.1@sha256:537fb03057ed901ae06bde7ef25af348903485ae1acc7fc789b80d8bac666f35`.
+The host executes linux/arm64; amd64 was inspected, not executed.
+
+| Command or check | Result |
+| --- | --- |
+| `cargo check -p xtask --all-targets --locked --offline` | PASS |
+| `bash -n sdk-scorecard/run.sh sdk-scorecard/test-tls.sh sdk-tests/php/run.sh` | PASS |
+| `docker pull` of the adopted index | PASS |
+| `docker run --rm --network none IMAGE --version` | PASS: Composer 2.11.1, build time 2026-10-30 14:52:10 |
+| `docker run --rm --network none IMAGE php --version` | PASS: PHP 8.5.12, Zend Engine 4.5.12 |
+| `composer install --no-interaction --no-scripts --prefer-dist --no-progress` in both PHP projects | PASS: the locked platform graph is accepted; existing vendor trees need no package changes; autoload files regenerate |
+| `docker run --rm --network none` with the read-only checkout and `php suite.php --self-check` | PASS: lifecycle-clear adapter wire check and local-origin rejection check, no emulator or external connection |
+
+Lockfile SHA-256 values remain
+`92736800893dff84c8baa4c4087f496441b9a1f55984dadaa2c7b6200195ab34`
+for `sdk-scorecard/php/composer.lock` and
+`68d4658fdcc5346a4a3200c60946a18de6d944fe715f1f88950f87cd2d26d2d1`
+for `sdk-tests/php/composer.lock`.
+Composer reports the existing root-package-version fallback and funding notices;
+neither is suppressed. Historical 2.11.0 results above remain unchanged.
+
+Full PHP API/TLS suites, a clean-vendor install, amd64 execution and a post-update
+complete freshness run have not been executed at this checkpoint. The
+coordinator owns final SDK/container checks for the accepted source. No
+application image build, benchmark, real-cloud test, publication or release was
+performed for this runtime update.
