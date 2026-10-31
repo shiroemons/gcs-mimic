@@ -1,0 +1,20 @@
+[package]
+name = "gcs-mimic-rust-sdk-scenarios"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+publish = false
+
+[workspace]
+
+[dependencies]
+bytes = "=1.12.1"
+google-cloud-storage = "=1.21.0"
+google-cloud-auth = "=1.18.0"
+object_store = { version = "=0.14.2", default-features = false, features = ["gcp-base", "reqwest", "ring"] }
+futures-util = "=0.3.34"
+tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread"] }
+url = "=2.5.8"
+
+[lints.rust]
+unsafe_code = "deny"

@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-30T05:48:19Z",
-  "scope": "The 2026-10-30 refresh adopts tonic, tonic-prost and tonic-prost-build 0.14.9, the Composer 2.11.0 image and Python 3.15.2 for the Python SDK suites. Rust/Go/Ruby/Node.js toolchains, Storage SDK pins, Dockerfile inputs and catalog schema are unchanged.",
+  "checked_at_utc": "2026-10-31T01:14:16Z",
+  "scope": "The 2026-10-31 refresh adopts Composer 2.11.1 with PHP 8.5.12, records the approved quick-xml 0.42.0 addition for bounded XML parsing and promotes the already resolved httpdate 1.0.3 to a direct dependency for legacy signature dates. The httpdate edge adds no resolved package or version. The other Cargo, SDK and runtime graph is retained. All fifteen SDK manifests are covered by daily detection. Hyper client support reuses the existing runtime graph. This snapshot does not establish final combined SDK/container/browser success for the current source.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
     "exit_code": 1,
     "result": "UPDATE_AVAILABLE",
     "artifact": "docs/en/evidence/dependency-refresh.md",
-    "follow_up": "68 of 69 inputs are CURRENT. docker library/composer:latest differs from the pinned composer:2.11.0 index only because its riscv64 entry is still the 2.10.3 image; tracked by the composer-riscv64-publication-lag exception."
+    "follow_up": "The 2026-10-31 check reached all fifteen SDK manifests: Rust 1.99.1 and non-Composer packages/runtimes were CURRENT; fake-gcs-server v1.56.1 was PINNED_REFERENCE. Composer 2.11.1 changed both supported platform images and is now adopted. Its latest index still includes the old 2.10.3 riscv64 image, unlike the pinned version-consistent 2.11.1 index; the composer-riscv64-publication-lag exception retains its 2026-11-06 review deadline. Post-update full freshness and final PHP suites require their own results. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-10-31."
   },
   "toolchain": {
     "channel": "stable",
@@ -17,6 +17,8 @@
     "release_url": "https://blog.rust-lang.org/2026/10/15/Rust-1.99.1/"
   },
   "direct_dependencies": [
+    {"name":"httpdate","current":"1.0.3","latest_non_yanked_stable":"1.0.3","license":"MIT OR Apache-2.0","compressed_crate_bytes":10639,"minimum_rust":"1.56","purpose":"Reuse the already locked HTTP-date parser for GOOG1/AWS legacy header signature time checks instead of implementing a second date grammar. Date bytes remain unchanged in the canonical signature message.","features":[],"maintenance":"Publisher-controlled repository and package inspected on 2026-10-31; 1.0.3, published 2023-08-13, remains the latest non-yanked stable in the official Cargo index. This small parser has no runtime dependencies.","source_urls":["https://index.crates.io/ht/tp/httpdate","https://static.crates.io/crates/httpdate/httpdate-1.0.3.crate","https://docs.rs/crate/httpdate/1.0.3","https://github.com/pyfisch/httpdate"],"source_sha256":"df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9","resolution_constraints":"Promoted from the existing Hyper transitive graph; only the application's direct lockfile edge is added, with no new resolved package, version or checksum. Package manifest and both license texts are present. Locked offline metadata and xtask compilation pass; complete legacy signature, release-notice and final combined verification require their own results. Evidence: docs/en/evidence/dependency-refresh.md#http-date-parser-direct-edge."},
+    {"name":"quick-xml","current":"0.42.0","latest_non_yanked_stable":"0.42.0","license":"MIT","compressed_crate_bytes":233019,"minimum_rust":"1.86","purpose":"Bounded bucket-creation and multipart-completion XML parsing with explicit root, namespace, attribute, depth and DTD/entity validation; avoids a hand-written XML grammar at the request boundary.","features":[],"maintenance":"Official tafia/quick-xml v0.42.0 released 2026-08-22 at revision 36a2c52; latest non-yanked stable verified in the official Cargo index on 2026-10-31. The active release includes malformed-input and namespace-depth fixes.","source_urls":["https://index.crates.io/qu/ic/quick-xml","https://static.crates.io/crates/quick-xml/quick-xml-0.42.0.crate","https://github.com/tafia/quick-xml/releases/tag/v0.42.0"],"source_sha256":"41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b","resolution_constraints":"Default features disabled; no Serde, encoding, async reader or external entity resolver. The runtime dependency is the already locked memchr. Scoped parser tests and the existing release-notice collector pass; the collected MIT license matches the registry package. Final combined source and release-artifact verification remains pending. Evidence: docs/en/evidence/migration-integration.md#scoped-source-checkpoint-2026-10-31."},
     {"name":"flate2","current":"1.1.10","latest_non_yanked_stable":"1.1.10","license":"MIT OR Apache-2.0","compressed_crate_bytes":80244,"minimum_rust":"1.67.0","purpose":"Bounded JSON media gzip expansion using the existing blocking pool; XML transcoding remains unsupported.","features":["rust_backend"],"maintenance":"Latest non-yanked stable verified in the official Cargo index on 2026-10-29; published 2026-08-28. Official rust-lang repository is not archived and last pushed 2026-10-18T12:37:23Z.","source_urls":["https://index.crates.io/fl/at/flate2","https://static.crates.io/crates/flate2/flate2-1.1.10.crate","https://api.github.com/repos/rust-lang/flate2-rs"],"source_sha256":"6e634e2e0ebac1ee034020da1ca582e17ffe4e0f5e985823721e168928136dcb","resolution_constraints":"Default features disabled, rust_backend only; Cargo.lock adds flate2 and four pure-Rust checksum/DEFLATE dependencies. Both compressed input and expanded output are bounded per blocking step, with no worker held across response backpressure."},
     {"name":"tonic","current":"0.14.9","latest_non_yanked_stable":"0.14.9","license":"MIT","compressed_crate_bytes":117678,"minimum_rust":"1.88","purpose":"Storage v2 generated gRPC service, metadata and canonical status; only codegen enabled, Hyper supplies the existing bounded HTTP/2 connection driver.","features":["codegen"],"maintenance":"Official grpc/grpc-rust 0.14.9 family released 2026-10-29 from revision 4c0f455c264fe2ec9f9ab5d0cc7fd2824d5daf70; non-yanked latest stable independently verified in the official Cargo index on 2026-10-30. The repository is not archived.","source_urls":["https://index.crates.io/to/ni/tonic","https://github.com/grpc/grpc-rust/releases/tag/tonic-v0.14.9"],"source_sha256":"e2cdfc673aabd30fe8fee92e65837b644c37c5d47f0f97ae6d5e0f1237d15e1b","resolution_constraints":"No tonic transport/client/router, compression or TLS features; protoc is not invoked by the application build. 0.14.9 raises its hyper requirement to ^1.10, already satisfied by the locked graph."},
     {"name":"tonic-prost","current":"0.14.9","latest_non_yanked_stable":"0.14.9","license":"MIT","compressed_crate_bytes":7912,"minimum_rust":"1.88","purpose":"Approved Prost codec split out of tonic in 0.14.","features":[],"maintenance":"Same actively maintained official tonic release family; latest stable checked 2026-10-30.","source_urls":["https://index.crates.io/to/ni/tonic-prost","https://github.com/grpc/grpc-rust/releases/tag/tonic-prost-v0.14.9"],"source_sha256":"eba464054e2226f182a34489b8b079bf4c6e3e7ab5fd7fc30e024f24aa92a484","resolution_constraints":"The published crate still omits its license text; release notices supply the byte-identical repository-root LICENSE of revision 4c0f455c264fe2ec9f9ab5d0cc7fd2824d5daf70, reviewed for 0.14.9 only."},
@@ -103,10 +105,10 @@
       "name": "hyper", "current": "1.12.0", "latest_non_yanked_stable": "1.12.0",
       "license": "MIT", "compressed_crate_bytes": 172269, "minimum_rust": "1.63",
       "purpose": "HTTP/1 JSON/XML and HTTP/2 gRPC with shared connection admission, parser bounds, inactivity limits and graceful drain.",
-      "features": ["http1", "http2", "server"],
+      "features": ["http1", "http2", "server", "client"],
       "maintenance": "Official publisher release 2026-10-06; actively maintained.",
       "source_urls": ["https://crates.io/api/v1/crates/hyper", "https://index.crates.io/hy/pe/hyper", "https://github.com/hyperium/hyper"],
-      "resolution_constraints": "HTTP/2 enabled for the separate opt-in h2c listener; no Hyper TLS or client features. Latest stable direct release independently verified."
+      "resolution_constraints": "HTTP/2 serves the separate opt-in h2c listener. The existing Hyper client feature supplies bounded local Pub/Sub delivery and one-shot synchronization controls, without a new HTTP framework. It adds want 0.3.2 (MIT, 7311 compressed bytes, SHA-256 ec4cdd0dd910afe868b7ef477227d8d538b46b3075031afee8a9f2acb0a2ed0b) and try-lock 0.2.5 (MIT, 4314 compressed bytes, SHA-256 e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b), verified latest non-yanked stable with active nonarchived publisher repositories on 2026-10-30. Package sizes are not measured binary growth. Evidence: docs/en/slices/pubsub-notification-delivery.md. Latest stable direct Hyper release independently verified."
     },
     {
       "name": "hyper-util", "current": "0.1.21", "latest_non_yanked_stable": "0.1.21",
@@ -182,23 +184,23 @@
       "resolution_constraints": "Already locked transitively with windows-link 0.2.1; direct use only on Windows, with console/threading features limited to tests. No additional package version is introduced."
     }
   ],
-  "lockfiles": ["Cargo.lock", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock", "sdk-scorecard/node/package-lock.json", "sdk-scorecard/php/composer.lock", "sdk-scorecard/python/uv.lock", "sdk-tests/node/package-lock.json", "sdk-tests/php/composer.lock", "sdk-tests/python/uv.lock"],
+  "lockfiles": ["Cargo.lock", "go/go.sum", "go/sourceexport/go.sum", "sdk-tests/rust/Cargo.lock", "sdk-tests/java/dependencies.lock", "sdk-tests/dotnet/packages.lock.json", "sdk-tests/testcontainers/node/package-lock.json", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock", "sdk-scorecard/node/package-lock.json", "sdk-scorecard/php/composer.lock", "sdk-scorecard/python/uv.lock", "sdk-tests/node/package-lock.json", "sdk-tests/php/composer.lock", "sdk-tests/python/uv.lock"],
   "docker": {
     "status": "PINNED",
     "digests": [
       {
-        "repository": "library/composer", "reference": "composer:2.11.0", "release_input": false,
-        "tag": "2.11.0", "latest_tag": "latest",
-        "digest": "sha256:278dfc7bd35169965d03f87194816f43bf4e6b6ea61707c2114e52ad12fe24ce",
-        "latest_verified_digest": "sha256:c7f68260503e3c1f0ece10bdbe84519fd98d48ba091f2c02f16ea94a7faae337",
+        "repository": "library/composer", "reference": "composer:2.11.1", "release_input": false,
+        "tag": "2.11.1", "latest_tag": "latest",
+        "digest": "sha256:537fb03057ed901ae06bde7ef25af348903485ae1acc7fc789b80d8bac666f35",
+        "latest_verified_digest": "sha256:4ed71c38c6d788eb4e4e3747b5332f5b40d5b5a6fcadd5062a1a70986a118e0a",
         "verification_status": "PUBLICATION_LAG",
-        "update_scope": "Composer 2.11.0 (released 2026-10-29; getcomposer.org lists it as the newest stable) with PHP 8.5.12. On 2026-10-30 the 2.11.0 and 2.11 tags resolve to this index, which lacks linux/riscv64 because riscv64/composer has not built 2.11.0 yet. The latest and 2 tags resolve to a different index whose linux/amd64 and linux/arm64 manifests are identical to this one but whose linux/riscv64 entry is still the 2.10.3 image. The version-consistent 2.11.0 index is pinned; see the composer-riscv64-publication-lag exception.",
+        "update_scope": "Composer 2.11.1 (released 2026-10-30; official download and changelog verified 2026-10-31) with PHP 8.5.12. The official composer/docker revision is 2af913cf6c428737e8eec2a3e9297d12d96eeac6. The exact 2.11.1 index lacks linux/riscv64. The latest index has the same new amd64 and arm64 manifests but retains riscv64 Composer 2.10.3. Both supported manifests changed from the old 2.11.0 pin; their checks must be rerun. See the composer-riscv64-publication-lag exception.",
         "platforms": {
-          "linux/amd64": "sha256:e86de4d29f50ca4eb982db0f1fd57a38a5019972b5697a89f75c2f551c1451a6",
-          "linux/arm64": "sha256:f9a0252b680e7a7fe4d19319f2e4cf6d93f9bc577008763ed09972ca1db91559"
+          "linux/amd64": "sha256:22844d23aacc7140fccf24992829ae98bc2c92e0240ccca3b35716bf5d82ed70",
+          "linux/arm64": "sha256:9c383fb6f07d2b2cbbf0f21133789b335a55996c4c857c0f2775d16f31922872"
         },
         "source_url": "https://hub.docker.com/_/composer",
-        "purpose": "Development-only official Composer 2.11.0 / PHP 8.5.12 runtime for the PHP SDK scorecard and the official PHP SDK suite. sdk-scorecard/run.sh, sdk-scorecard/test-tls.sh and sdk-tests/php/run.sh pin this manifest index; daily detection checks replacement tags and digests."
+        "purpose": "Development-only official Composer 2.11.1 / PHP 8.5.12 runtime for the PHP SDK scorecard and the official PHP SDK suite. sdk-scorecard/run.sh, sdk-scorecard/test-tls.sh and sdk-tests/php/run.sh pin this manifest index; daily detection checks replacement tags and digests."
       },
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie", "release_input": true,
@@ -273,6 +275,71 @@
   },
   "sdk_ecosystems": [
     {
+      "ecosystem": "go", "manifest": "go/go.mod", "source_checked_at": "2026-10-30",
+      "toolchain": {"version": "1.27.3", "go": "1.27.0", "toolchain": "go1.27.3"},
+      "direct_dependencies": [
+        {"name": "cloud.google.com/go/storage", "current": "v1.70.0", "license": "Apache-2.0"},
+        {"name": "google.golang.org/api", "current": "v0.310.0", "license": "BSD-3-Clause"}
+      ],
+      "resolution_constraints": "Separate subprocess facade module and origin guard; exact Go requirements and go.sum are checked. Reuses the official SDK suite's verified graph. Runtime integration remains a final-source gate."
+    },
+    {
+      "ecosystem": "go", "manifest": "go/sourceexport/go.mod", "source_checked_at": "2026-10-30",
+      "toolchain": {"version": "1.27.3", "go": "1.27.0", "toolchain": "go1.27.3"},
+      "direct_dependencies": [
+        {"name": "github.com/fsouza/fake-gcs-server", "current": "v1.56.1", "license": "BSD-2-Clause", "compressed_module_bytes": 188125, "source_revision": "896ece51e49eed0946089f3089f6343855c0d106", "sha256": "27643a0846d610906fa817c979768d40fb57728fafd3623a199eeb553bd55e13"},
+        {"name": "golang.org/x/sys", "current": "v0.49.0", "license": "BSD-3-Clause", "compressed_module_bytes": 2115196, "source_revision": "b6b8557e8e2974925aec7a136ba0e323eedc5f43", "sha256": "e73a06591ca0d7016ce3ccb45c36a8ed7128468aecc1a357f94d815c760c6b31"}
+      ],
+      "source_urls": ["https://proxy.golang.org/github.com/fsouza/fake-gcs-server/@v/v1.56.1.info", "https://proxy.golang.org/golang.org/x/sys/@v/v0.49.0.info"],
+      "resolution_constraints": "Read-only migration adapter, separate from application/runtime dependencies. fake-gcs-server is a fixed migration reference, reported PINNED_REFERENCE with newest available release separately; other direct dependencies and the exact Go toolchain follow normal freshness. x/sys supplies no-replace directory publication. Evidence: docs/en/slices/go-source-memory-export.md."
+    },
+    {
+      "ecosystem": "cargo", "manifest": "sdk-tests/rust/Cargo.toml", "source_checked_at": "2026-10-30",
+      "toolchain": {"version": "1.99.1", "pin": "rust-toolchain.toml"},
+      "direct_dependencies": [
+        {"name": "bytes", "current": "1.12.1", "license": "MIT"},
+        {"name": "google-cloud-storage", "current": "1.21.0", "license": "Apache-2.0", "compressed_crate_bytes": 523750, "sha256": "8343454507711c984d4b367ccd79fe66284b63f7e90299c800e2d407e9bbe626"},
+        {"name": "google-cloud-auth", "current": "1.18.0", "license": "Apache-2.0", "compressed_crate_bytes": 185594, "sha256": "d563c7b987f40249c274a4e6a671661df6be2d084f08476dda2f0f931576cfcf"},
+        {"name": "object_store", "current": "0.14.2", "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 310684, "sha256": "f1796bc93603f78c5760a69f2d58badc9618d22adade0a95385bb2adbae4eb94"},
+        {"name": "futures-util", "current": "0.3.34", "license": "MIT OR Apache-2.0"},
+        {"name": "tokio", "current": "1.54.1", "license": "MIT"},
+        {"name": "url", "current": "2.5.8", "license": "MIT OR Apache-2.0"}
+      ],
+      "resolution_constraints": "Standalone locked Cargo graph, outside the application workspace. Daily checks use actual locked offline Cargo metadata and verify every direct registry resolution. Official Google and Arrow adapters have separate acceptance; compilation does not establish runtime compatibility."
+    },
+    {
+      "ecosystem": "maven", "manifest": "sdk-tests/java/pom.xml", "source_checked_at": "2026-10-30",
+      "toolchain": {"version": "27.0.1.0.2+1", "pin": "sdk-tests/java/.java-version"},
+      "maven_version": "3.10.0",
+      "direct_dependencies": [
+        {"name": "com.google.cloud:google-cloud-storage", "current": "2.76.0", "license": "Apache-2.0", "jar_bytes": 1536327},
+        {"name": "org.testcontainers:testcontainers", "current": "2.0.5", "license": "MIT", "jar_bytes": 17789146}
+      ],
+      "plugins": [
+        {"name": "org.apache.maven.plugins:maven-compiler-plugin", "current": "3.16.0"},
+        {"name": "org.codehaus.mojo:exec-maven-plugin", "current": "3.6.4"},
+        {"name": "org.apache.maven.plugins:maven-dependency-plugin", "current": "3.11.0"}
+      ],
+      "resolution_constraints": "Exact literal Maven pins; dependencies.lock records the independent graph. Daily checks cover packages, build plugins, Maven and the newest Temurin GA runtime. Source target Java 17 is a minimum, separate from the verified runtime. Package sizes/provenance and maintenance: docs/en/slices/sdk-client-adapters.md."
+    },
+    {
+      "ecosystem": "nuget", "manifest": "sdk-tests/dotnet/Scenario.csproj", "source_checked_at": "2026-10-30",
+      "toolchain": {"version": "10.0.403", "pin": "sdk-tests/dotnet/global.json"},
+      "direct_dependencies": [
+        {"name": "Google.Cloud.Storage.V1", "current": "5.0.0", "license": "Apache-2.0", "nupkg_bytes": 291825},
+        {"name": "Testcontainers", "current": "4.16.0", "license": "MIT", "nupkg_bytes": 1441518}
+      ],
+      "resolution_constraints": "Exact NuGet references, requested/resolved lock graph and content hashes; rollForward disabled. Daily checks discover semver2 registration resources, exclude unlisted/prerelease releases and compare the newest supported stable .NET SDK across channels. Compile/self-check evidence is separate from runtime acceptance."
+    },
+    {
+      "ecosystem": "npm", "manifest": "sdk-tests/testcontainers/node/package.json", "source_checked_at": "2026-10-30",
+      "direct_dependencies": [
+        {"name": "@google-cloud/storage", "current": "8.4.0", "license": "Apache-2.0"},
+        {"name": "testcontainers", "current": "12.2.1", "license": "MIT", "compressed_package_bytes": 55241}
+      ],
+      "resolution_constraints": "Independent exact npm graph and integrity lock; Node engines is a lower bound, not an exact runtime pin. Runtime/container acceptance remains a final-source gate."
+    },
+    {
       "ecosystem": "npm", "manifest": "sdk-scorecard/node/package.json",
       "checked_at_utc": "2026-10-29T07:58:33Z",
       "direct_dependencies": [{"name": "@google-cloud/storage", "current": "8.4.0", "license": "Apache-2.0", "unpacked_bytes": 1688266}],
@@ -316,14 +383,14 @@
       "checked_at_utc": "2026-10-30T05:48:19Z",
       "direct_dependencies": [{"name": "google/cloud-storage", "current": "2.6.1", "license": "Apache-2.0", "source_revision": "cf14f967fa45113e2a239fe9103bada8d7b92021"}],
       "source_urls": ["https://repo.packagist.org/p2/google/cloud-storage.json", "https://github.com/googleapis/google-cloud-php-storage"],
-      "resolution_constraints": "Development-only scorecard; composer.lock pins the graph. Google-maintained active release, PHP >=8.2. PHP 8.5.12 and Composer 2.11.0 run in the digest-pinned official Composer image; composer install with 2.11.0 reproduces the committed lock unchanged."
+      "resolution_constraints": "Development-only scorecard; composer.lock pins the graph. Google-maintained active release, PHP >=8.2. PHP 8.5.12 and Composer 2.11.1 run in the digest-pinned official Composer image. The 2.11.0 locked-install evidence remains historical; the 2.11.1 result is recorded separately."
     },
     {
       "ecosystem": "composer", "manifest": "sdk-tests/php/composer.json",
       "checked_at_utc": "2026-10-30T05:48:19Z",
       "direct_dependencies": [{"name": "google/cloud-storage", "current": "2.6.1", "license": "Apache-2.0", "source_revision": "cf14f967fa45113e2a239fe9103bada8d7b92021"}],
       "source_urls": ["https://repo.packagist.org/p2/google/cloud-storage.json", "https://github.com/googleapis/google-cloud-php-storage"],
-      "resolution_constraints": "Development-only official SDK suite; composer.lock pins the same 26-package graph as the scorecard. sdk-tests/php/run.sh runs it with PHP 8.5.12 and Composer 2.11.0 in the same digest-pinned official Composer image, which the container check reads from that script."
+      "resolution_constraints": "Development-only official SDK suite; composer.lock pins the same 26-package graph as the scorecard. sdk-tests/php/run.sh runs it with PHP 8.5.12 and Composer 2.11.1 in the same digest-pinned official Composer image, which the container check reads from that script."
     },
     {
       "ecosystem": "ruby",
@@ -426,6 +493,11 @@
   ],
   "github_actions": [
     {
+      "repository": "actions/setup-dotnet", "tag": "v6.0.0",
+      "sha": "a98b56852c35b8e3190ac28c8c2271da59106c68", "license": "MIT",
+      "source_url": "https://api.github.com/repos/actions/setup-dotnet/git/ref/tags/v6.0.0"
+    },
+    {
       "repository": "actions/checkout",
       "tag": "v7.0.1",
       "sha": "3d3c42e5aac5ba805825da76410c181273ba90b1",
@@ -460,13 +532,13 @@
     {
       "id": "composer-riscv64-publication-lag",
       "package": "docker library/composer:latest",
-      "current": "sha256:278dfc7bd35169965d03f87194816f43bf4e6b6ea61707c2114e52ad12fe24ce (composer:2.11.0)",
-      "latest": "sha256:c7f68260503e3c1f0ece10bdbe84519fd98d48ba091f2c02f16ea94a7faae337",
+      "current": "sha256:537fb03057ed901ae06bde7ef25af348903485ae1acc7fc789b80d8bac666f35 (composer:2.11.1)",
+      "latest": "sha256:4ed71c38c6d788eb4e4e3747b5332f5b40d5b5a6fcadd5062a1a70986a118e0a",
       "upstream_reference": "https://hub.docker.com/r/riscv64/composer/tags",
-      "evidence": "cargo xtask dependencies check reports docker library/composer:latest UPDATE_AVAILABLE and exits 1; see docs/en/evidence/dependency-refresh.md. The official-images definition lists riscv64 for the 2.11.0, 2.11, 2 and latest tags, but riscv64/composer still publishes only 2.10.3, so latest keeps the 2.10.3 riscv64 image and differs from the 2.11.0 index.",
-      "impact": "None for supported hosts: linux/amd64 and linux/arm64 manifests are identical under both indexes. Only the daily check stays red.",
+      "evidence": "The 2026-10-31 pre-update cargo xtask dependencies check reports docker library/composer:latest UPDATE_AVAILABLE and exits 1. The official-images definition at composer/docker revision 2af913cf6c428737e8eec2a3e9297d12d96eeac6 declares 2.11.1 and riscv64, but the exact 2.11.1 index omits riscv64 while latest retains its 2.10.3 image. See docs/en/evidence/dependency-refresh.md#refresh-2026-10-31.",
+      "impact": "After adopting 2.11.1, supported linux/amd64 and linux/arm64 manifests match latest; riscv64 still has 2.10.3. Both supported manifests differ from the old 2.11.0 pin, so old runtime checks do not validate this update. The index-level freshness discrepancy remains visible.",
       "owner": "project maintainer",
-      "next_action": "When riscv64/composer publishes 2.11.0 and the library tags are republished, pin the new 2.11.0 index digest in the three scripts and this snapshot, then remove this exception.",
+      "next_action": "Verify the new 2.11.1 runtime on supported hosts. When riscv64/composer publishes the current stable release and the library tags are republished, recheck every platform, pin the new exact-version index in the three scripts and this snapshot, then remove this exception.",
       "review_by": "2026-11-06"
     }
   ]

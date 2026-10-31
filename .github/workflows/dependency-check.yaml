@@ -19,7 +19,8 @@ jobs:
           rustup toolchain install "$pin" --profile minimal
           echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
       - run: cargo fetch --locked
-      - name: Check Rust, Go, Ruby, Node.js, PHP, Python, Actions and containers
+      - run: cargo fetch --locked --manifest-path sdk-tests/rust/Cargo.toml
+      - name: Check application, all SDK ecosystems, toolchains, Actions and containers
         run: cargo xtask dependencies check
         env:
           GITHUB_TOKEN: ${{ github.token }}

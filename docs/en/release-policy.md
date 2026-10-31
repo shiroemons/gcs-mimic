@@ -57,6 +57,15 @@ edits do not require a product release. Update the application manifest and
 lockfile, user examples, release notes and artifact references together when
 preparing the chosen release. A local preview image is not a published version.
 
+The current migration additions are unreleased source, even while the package
+version still reads 0.7.0. Their final SDK/container/browser gates are recorded
+in [migration integration](evidence/migration-integration.md). Atomic seed replay
+changes the previous per-file protection skip: a differing held/retained fixture
+now rejects the whole replay and prevents readiness. Document that migration
+explicitly and use a minor release under the rules above; never assign a patch
+or imply that the existing 0.7.0 image includes it. Scoped Go subprocess adapters,
+local Pub/Sub and RAM storage do not by themselves close the 1.0.0 gate.
+
 ## The 1.0.0 gate
 
 `1.0.0` means a verified functional superset of the **pinned fake-gcs-server

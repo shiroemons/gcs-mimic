@@ -1,0 +1,7 @@
+{
+  "name": "gcs-mimic-testcontainers-node",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=24"},
+  "dependencies": {"@google-cloud/storage": "8.4.0", "testcontainers": "12.2.1"}
+}

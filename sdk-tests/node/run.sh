@@ -34,7 +34,7 @@ run() {
   node --test --test-reporter=spec --test-timeout=60000 "$@"
 }
 
-run 'origin self-check' self-check.test.mjs
+run 'origin and adapter self-check' self-check.test.mjs migration-adapters.test.mjs
 GCS_MIMIC_ENDPOINT="$GCS_MIMIC_ENDPOINT" run 'migration scenario (anonymous)' migration-scenario.test.mjs
 GCS_MIMIC_ENDPOINT="$GCS_MIMIC_ENDPOINT" run 'permissive suite (anonymous)' suite.test.mjs
 GCS_MIMIC_ENDPOINT="$GCS_MIMIC_STRICT_ENDPOINT" GCS_MIMIC_TOKEN=local-admin-token GCS_MIMIC_SIGNED_TESTS=1 \

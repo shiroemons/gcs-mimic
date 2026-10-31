@@ -8,8 +8,30 @@ fn sdk_scopes_and_lockfiles_are_declared() {
     )
     .unwrap();
     let scopes = status["sdk_ecosystems"].as_array().unwrap();
-    assert_eq!(scopes.len(), 9);
+    assert_eq!(scopes.len(), 15);
     for (ecosystem, manifest, lockfile) in [
+        ("go", "go/go.mod", "go/go.sum"),
+        ("go", "go/sourceexport/go.mod", "go/sourceexport/go.sum"),
+        (
+            "cargo",
+            "sdk-tests/rust/Cargo.toml",
+            "sdk-tests/rust/Cargo.lock",
+        ),
+        (
+            "maven",
+            "sdk-tests/java/pom.xml",
+            "sdk-tests/java/dependencies.lock",
+        ),
+        (
+            "nuget",
+            "sdk-tests/dotnet/Scenario.csproj",
+            "sdk-tests/dotnet/packages.lock.json",
+        ),
+        (
+            "npm",
+            "sdk-tests/testcontainers/node/package.json",
+            "sdk-tests/testcontainers/node/package-lock.json",
+        ),
         ("go", "sdk-tests/go/go.mod", "sdk-tests/go/go.sum"),
         (
             "ruby",

@@ -16,6 +16,20 @@ check-dependencies:
 check-sdk:
     env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php
 
+# Run additional pinned native clients and the Go facade/export adapter.
+check-sdk-clients:
+    env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-clients
+
+# Exercise strict local JWT authentication and final-origin Rails signing.
+check-active-storage-strict:
+    bash sdk-tests/ruby/active_storage/run-strict.sh
+
+# Use an already built final-source image; no duplicate image build is performed.
+check-client-containers image:
+    GCS_MIMIC_IMAGE={{ quote(image) }} bash sdk-tests/java/run.sh --container
+    GCS_MIMIC_IMAGE={{ quote(image) }} bash sdk-tests/dotnet/run.sh --container
+    cd sdk-tests/testcontainers/node && npm ci --ignore-scripts --no-audit --no-fund && GCS_MIMIC_IMAGE={{ quote(image) }} node scenario.mjs
+
 # Report Rails GCS compatibility cases independently; known failures return nonzero.
 check-active-storage:
     bash scripts/sdk-active-storage.sh

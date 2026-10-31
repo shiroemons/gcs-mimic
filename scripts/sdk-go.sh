@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-usage='Usage: bash scripts/sdk-go.sh [--with-ruby] [--with-node] [--with-python] [--with-php]'
+usage='Usage: bash scripts/sdk-go.sh [--with-ruby] [--with-node] [--with-python] [--with-php] [--with-clients]'
 with_ruby=false
+with_clients=false
 # Each listed suite provides sdk-tests/<sdk>/run.sh, which reads GCS_MIMIC_ENDPOINT,
 # GCS_MIMIC_STRICT_ENDPOINT and, for HTTPS, GCS_MIMIC_CA_CERT.
 suites=()
@@ -13,6 +14,7 @@ while [[ $# -gt 0 ]]; do
     --with-node) suites+=(node) ;;
     --with-python) suites+=(python) ;;
     --with-php) suites+=(php) ;;
+    --with-clients) with_clients=true; suites+=(java dotnet rust) ;;
     *) echo "$usage" >&2; exit 2 ;;
   esac
   shift
@@ -20,14 +22,19 @@ done
 
 cd "$(dirname "$0")/.."
 root=$PWD
+scheme=${GCS_MIMIC_SDK_SCHEME:-http}
+if [[ $with_clients == true && $scheme != http ]]; then
+  echo 'Additional client harnesses currently require the HTTP profile' >&2
+  exit 2
+fi
 env -u RUSTUP_TOOLCHAIN cargo build --locked
 server="$(env -u RUSTUP_TOOLCHAIN cargo metadata --locked --offline --no-deps --format-version 1 | jq -er .target_directory)/debug/gcs-mimic"
+export GCS_MIMIC_BINARY="$server"
 work=$(mktemp -d "${TMPDIR:-/tmp}/gcs-mimic-sdk-go.XXXXXX")
 pid=
 strict_pid=
 grpc_endpoint=
 strict_grpc_endpoint=
-scheme=${GCS_MIMIC_SDK_SCHEME:-http}
 tls_args=()
 health_args=()
 stop_server() {
@@ -97,10 +104,10 @@ start_server() {
   if [[ ! $grpc_address =~ ^127\.0\.0\.1:[0-9]+$ || $grpc_address == "$address" ]]; then echo 'Invalid or duplicate gRPC loopback address; rerun to select distinct free ports' >&2; exit 1; fi
   env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_ENDPOINT -u GCS_MIMIC_STRICT_ENDPOINT -u GCS_MIMIC_ALLOWED_HOSTS \
     -u GCS_MIMIC_GO_TEST_RUN -u GCS_MIMIC_AUTH_MODE -u GCS_MIMIC_IDENTITY_FILE \
-    -u GCS_MIMIC_GRPC_LISTEN -u GCS_MIMIC_STRICT_GRPC_ENDPOINT \
+    -u GCS_MIMIC_GRPC_LISTEN -u GCS_MIMIC_GRPC_ENDPOINT -u GCS_MIMIC_STRICT_GRPC_ENDPOINT \
     -u GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS \
     -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY -u GCS_MIMIC_CA_CERT -u GCS_MIMIC_SDK_SCHEME \
-    -u GCS_MIMIC_TLS_DIR -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT \
+    -u GCS_MIMIC_TLS_DIR -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT -u GCS_MIMIC_BINARY \
     "$server" serve --scheme "$scheme" --listen "$address" --grpc-listen "$grpc_address" --api-base-url "$origin" ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
   server_pid=$!
   printf -v "$pid_var" '%s' "$server_pid"
@@ -138,6 +145,11 @@ export STORAGE_EMULATOR_HOST_GRPC="$grpc_endpoint" GCS_MIMIC_STRICT_GRPC_ENDPOIN
 GOTOOLCHAIN=auto go vet ./...
 GOTOOLCHAIN=auto go test -count=1 -v -run "${GCS_MIMIC_GO_TEST_RUN:-.}" ./...
 
+if [[ $with_clients == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
+  (cd "$root/go" && GOTOOLCHAIN=auto go test -race -tags integration ./...)
+  (cd "$root/go/sourceexport" && GOTOOLCHAIN=auto go test -race ./...)
+fi
+
 if [[ $with_ruby == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
   cd ../ruby
   BUNDLE_FROZEN=true bundle check
@@ -150,7 +162,10 @@ fi
 if [[ -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
   for sdk in ${suites[@]+"${suites[@]}"}; do
     echo "== $sdk SDK suite" >&2
-    GCS_MIMIC_ENDPOINT="$endpoint" GCS_MIMIC_STRICT_ENDPOINT="$strict_endpoint" \
-      bash "$root/sdk-tests/$sdk/run.sh"
+    (
+      if [[ $sdk == rust ]]; then export GCS_MIMIC_GRPC_ENDPOINT="$grpc_endpoint"; fi
+      GCS_MIMIC_ENDPOINT="$endpoint" GCS_MIMIC_STRICT_ENDPOINT="$strict_endpoint" \
+        bash "$root/sdk-tests/$sdk/run.sh"
+    )
   done
 fi

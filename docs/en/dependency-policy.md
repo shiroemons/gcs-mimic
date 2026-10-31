@@ -57,6 +57,14 @@ Resolve transitive dependencies to the newest versions allowed by the selected d
 
 Use only necessary crate features and dependencies. “Latest” does not mean enable every optional feature, install extra infrastructure or replace a smaller suitable dependency without a demonstrated reason.
 
+The legacy signature adapter promotes the already resolved `httpdate` 1.0.3 to
+a direct dependency for HTTP-date parsing. This adds no resolved package or
+version and avoids a second date grammar. Parsing may normalize an accepted
+UTC spelling, but the verifier signs the original date value. The dated
+[dependency evidence](evidence/dependency-refresh.md#http-date-parser-direct-edge)
+records the license, package digest, size and scoped checks; daily detection
+discovers this actual manifest edge through locked Cargo metadata.
+
 Sources:
 
 - <https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html>
@@ -148,6 +156,26 @@ Official sources checked on 2026-10-23:
 
 ## Daily update detection and bounded upgrade work
 
+The source checkout adds the separate `go/go.mod` facade and
+`go/sourceexport/go.mod` capture modules, standalone Rust SDK Cargo graph,
+Java Maven dependencies/plugins and Temurin/Maven pins, .NET NuGet/global.json,
+and Node Testcontainers manifest. All fifteen SDK manifest snapshots are read
+by the same daily detector; an omitted declared manifest fails. Locks are checked
+against actual direct pins, and standalone Cargo metadata remains locked and
+offline after `cargo fetch --locked --manifest-path sdk-tests/rust/Cargo.toml`.
+The capture's fake-gcs-server dependency is the fixed migration baseline: the
+detector prints PINNED_REFERENCE plus the latest available version, rather than
+silently upgrading the contract or labeling it an unexamined CURRENT input.
+
+Maven package/plugin pins use literal supported XML and a separate dependency
+graph lock. NuGet discovery follows the official semver2 registration resource,
+checks listed stable releases and fails on invalid/paged metadata. Full Temurin
+release names retain hotfix build components; the shorter API openjdk_version
+field is insufficient. .NET uses the newest supported stable SDK across release
+channels. Registry bodies, including gzip responses, retain the 8 MiB cap.
+CI installs the exact Java/Maven archive digests and .NET global pin; local
+syntax/compile results do not establish remote CI or runtime SDK success.
+
 The optional [SDK scorecard](../../sdk-scorecard/README.md) and the official
 [Node.js](../../sdk-tests/node/README.md), [Python](../../sdk-tests/python/README.md)
 and [PHP](../../sdk-tests/php/README.md) SDK suites add exact npm, PyPI and
@@ -174,7 +202,7 @@ edges. An older same-named transitive package remains part of the upstream graph
 it does not make the direct package's resolution ambiguous or exempt that direct
 package from checking.
 
-Run it at every slice start and before release. Review failed runs and `compatibility/dependency-status.json` exceptions at least weekly. Update toolchain, manifests, lockfiles and snapshot together after validation. One freshness exception is open, `composer-riscv64-publication-lag` (review by 2026-11-06): the official `composer:latest` index still carries the 2.10.3 riscv64 image, so it differs from the pinned Composer 2.11.0 index although the amd64 and arm64 images are identical; see the [2026-10-30 refresh](evidence/dependency-refresh.md#refresh-2026-10-30).
+Run it at every slice start and before release. Review failed runs and `compatibility/dependency-status.json` exceptions at least weekly. Update toolchain, manifests, lockfiles and snapshot together after validation. One freshness exception is open, `composer-riscv64-publication-lag` (review by 2026-11-06): the official `composer:latest` index still carries the 2.10.3 riscv64 image, so it differs from the pinned Composer 2.11.1 index. The supported amd64 and arm64 manifests match latest after adopting 2.11.1, but both changed from the old 2.11.0 pin and require their own verification; see the [2026-10-31 refresh](evidence/dependency-refresh.md#refresh-2026-10-31).
 
 Configure daily dependency drift detection. The selected updater must cover Cargo, Rust toolchain, Docker tags/digests, GitHub Actions and the SDK example ecosystems actually present. The currently checked official Dependabot reference includes cargo, rust-toolchain, docker and other supported ecosystems; verify support again when configuring the repository.
 

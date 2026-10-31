@@ -7,8 +7,10 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {rootCertificates} from 'node:tls';
 import {after, before, test} from 'node:test';
+import {fileURLToPath} from 'node:url';
 import {createSigner, createStorage, emulatorOrigin, guardSockets, observeHttp, projectId, rawRequest,
   scrubEnvironment, signerEmail, signingPublicKey} from './harness.mjs';
+import {replaceLifecycleRules, signV4WithCli, uploadWithLocalAuth} from './migration-adapters.mjs';
 
 const origin = emulatorOrigin(process.env.GCS_MIMIC_ENDPOINT);
 if (origin.protocol === 'https:') {
@@ -207,14 +209,12 @@ test('node-bucket-lifecycle-rules', async () => {
   await withBucket('lifecycle', {lifecycle: {rule: [{action: {type: 'Delete'}, condition: {age: 30}}]}}, async b => {
     let rules = (await metadata(b)).lifecycle.rule;
     assert.deepEqual(rules.map(r => [r.action.type, r.condition.age]), [['Delete', 30]]);
-    // addLifecycleRule(rule, {append: false}) forwards `append=false` as a JSON API query parameter,
-    // so replacement uses setMetadata and addLifecycleRule keeps its default read-modify-append path.
-    await b.setMetadata({lifecycle: {rule: [{action: {type: 'Delete'}, condition: {age: 60}}]}});
+    await replaceLifecycleRules(b, [{action: {type: 'Delete'}, condition: {age: 60}}]);
     await b.addLifecycleRule({action: {type: 'SetStorageClass', storageClass: 'COLDLINE'}, condition: {age: 60}});
     rules = (await metadata(b)).lifecycle.rule;
     assert.deepEqual(rules.map(r => [r.action.type, r.action.storageClass, r.condition.age]),
       [['Delete', undefined, 60], ['SetStorageClass', 'COLDLINE', 60]]);
-    await b.setMetadata({lifecycle: null});
+    await replaceLifecycleRules(b, []);
     assert.equal((await metadata(b)).lifecycle?.rule?.length ?? 0, 0, 'lifecycle not cleared');
   });
 });
@@ -308,14 +308,7 @@ test('node-resumable-upload-three-chunks', async () => {
   observed.locations.length = 0;
   const preconditionOpts = {ifGenerationMatch: 0};
   const options = {destination: name, resumable: true, chunkSize: chunk, preconditionOpts};
-  if (strict) {
-    // 8.4.0's streaming upload path (File#startResumableUpload_) omits useAuthWithCustomEndpoint,
-    // so at a custom endpoint it initiates the session without the bearer token. The public
-    // createResumableUpload passes it; the SDK then sends chunks to that session URI, which acts as
-    // the upload capability as in Cloud Storage.
-    [options.uri] = await bucket.file(name).createResumableUpload({preconditionOpts});
-  }
-  [object] = await bucket.upload(source, options);
+  [object] = strict ? await uploadWithLocalAuth(bucket, source, {origin, ...options}) : await bucket.upload(source, options);
   // A supplied session URI first gets a `bytes */*` status query; count only data chunks.
   const chunks = observed.requests.slice(start)
     .filter(r => r.method === 'PUT' && /^bytes \d+-\d+\//.test(r.contentRange ?? ''));
@@ -336,7 +329,9 @@ if (process.env.GCS_MIMIC_SIGNED_TESTS === '1') {
     const headers = {};
     if (contentType) headers['content-type'] = contentType;
     if (host) headers.host = host;
-    return rawRequest(origin, url, {method, headers, body});
+    // Verify the original TLS endpoint while tampering only with the signed HTTP Host.
+    const tlsOptions = host ? {servername: origin.hostname === 'localhost' ? 'localhost' : ''} : {};
+    return rawRequest(origin, url, {method, headers, body, tlsOptions});
   };
   const denied = async (url, options) => {
     const response = await send(url, options);
@@ -412,6 +407,23 @@ if (process.env.GCS_MIMIC_SIGNED_TESTS === '1') {
       await denied(url.href);
     } finally {
       await file.delete({ignoreNotFound: true});
+    }
+  });
+
+  test('node-signed-v4-cli-adapter-keeps-final-host-port', async () => {
+    const options = {bucket: bucket.name, object: 'v4-adapter.txt', signer: signerEmail,
+      privateKey: fileURLToPath(new URL('../../fixtures/signing/test-only-private.pem', import.meta.url))};
+    try {
+      const put = await signV4WithCli(origin, {...options, method: 'PUT', headers: {'content-type': 'text/plain'}});
+      assert.equal((await send(put, {method: 'PUT', contentType: 'text/plain', body: 'Node strict V4 adapter bytes'})).status, 200);
+      const get = await signV4WithCli(origin, options);
+      const response = await send(get);
+      assert.equal(response.status, 200);
+      assert.equal(response.body.toString(), 'Node strict V4 adapter bytes');
+      await denied(get, {method: 'PUT', body: 'tampered'});
+      await denied(get, {host: 'wrong.example.invalid'});
+    } finally {
+      await bucket.file(options.object).delete({ignoreNotFound: true});
     }
   });
 }

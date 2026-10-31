@@ -4,6 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/harness.php';
 require __DIR__ . '/migration_scenario.php';
 require __DIR__ . '/signed.php';
+require __DIR__ . '/migration_adapters.php';
 
 use Google\Cloud\Core\Exception\BadRequestException;
 use Google\Cloud\Core\Exception\ServiceException;
@@ -17,6 +18,24 @@ $mode = $argv[1] ?? '';
 $runner = new Runner();
 
 if ($mode === '--self-check') {
+    $runner->run('php-lifecycle-clear-adapter-wire', function () {
+        $history = [];
+        $stack = HandlerStack::create(new MockHandler([new Response(200, [], '{"name":"sdk-php-fixture","lifecycle":{"rule":[]}}')]));
+        $stack->push(\GuzzleHttp\Middleware::history($history));
+        $http = new Client(['handler' => $stack]);
+        $storage = new \Google\Cloud\Storage\StorageClient(['projectId' => 'local-project',
+            'apiEndpoint' => 'http://127.0.0.1:4443', 'retries' => 0,
+            'credentialsFetcher' => new \Google\Cloud\Core\AnonymousCredentials(),
+            'httpHandler' => \Google\Auth\HttpHandler\HttpHandlerFactory::build($http)]);
+        \GcsMimic\Migration\clearLifecycleRules($storage->bucket('sdk-php-fixture'));
+        check(count($history) === 1, 'lifecycle adapter did not use one request');
+        $request = $history[0]['request'];
+        check($request->getMethod() === 'PATCH', 'lifecycle adapter did not PATCH');
+        check(json_decode((string)$request->getBody(), true, flags: JSON_THROW_ON_ERROR) === ['lifecycle' => ['rule' => []]],
+            'lifecycle adapter did not send the JSON object form');
+        check($request->getUri()->getHost() === '127.0.0.1', 'lifecycle adapter left the mock endpoint');
+        return 'official SDK sends lifecycle:{rule:[]} without a server';
+    });
     $runner->run('php-origin-self-check', function () {
         check(emulatorOrigin('https://127.0.0.1:4443')[2] === 4443, 'loopback rejected');
         check(emulatorOrigin('https://localhost:4443')[1] === 'localhost', 'localhost rejected');
@@ -226,9 +245,7 @@ try {
                 ->addSetStorageClassRule('COLDLINE', ['age' => 60])]);
             $rules = $lifecycle->reload()['lifecycle']['rule'];
             check(count($rules) === 2 && $rules[1]['action']['storageClass'] === 'COLDLINE', 'updated lifecycle differs');
-            // Lifecycle::clearRules() collapses to an empty PHP array, which the SDK sends as
-            // "lifecycle": []; the documented array form sends the JSON API's {"rule": []}.
-            $lifecycle->update(['lifecycle' => ['rule' => []]]);
+            \GcsMimic\Migration\clearLifecycleRules($lifecycle);
             check(($lifecycle->reload()['lifecycle']['rule'] ?? []) === [], 'lifecycle not cleared');
         } finally {
             dropBucket($lifecycle);

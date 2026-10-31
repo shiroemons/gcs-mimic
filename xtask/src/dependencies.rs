@@ -5,6 +5,7 @@ use std::{
     path::Path,
     process::{Command, Stdio},
 };
+mod clients;
 
 type Result<T> = std::result::Result<T, String>;
 const MAX_RESPONSE: u64 = 8 * 1024 * 1024;
@@ -39,6 +40,7 @@ fn fetch_response(url: &str, headers: &[String], include_headers: bool) -> Resul
         "--disable",
         "--silent",
         "--show-error",
+        "--compressed",
         "--location",
         "--proto",
         "=https",
@@ -381,12 +383,31 @@ fn latest_stable_go(
 }
 
 fn check_go(root: &Path, scope: &Value) -> Result<bool> {
-    if text(scope, "ecosystem")? != "go" || text(scope, "manifest")? != "sdk-tests/go/go.mod" {
+    if text(scope, "ecosystem")? != "go"
+        || !matches!(
+            text(scope, "manifest")?,
+            "sdk-tests/go/go.mod" | "go/go.mod" | "go/sourceexport/go.mod"
+        )
+    {
         return Err("unsupported SDK ecosystem or manifest".into());
     }
     let module = go_mod(
         &std::fs::read_to_string(root.join(text(scope, "manifest")?)).map_err(|e| e.to_string())?,
     )?;
+    clients::snapshot_pins(scope, &module.direct)?;
+    if scope["toolchain"]["version"] != module.toolchain || scope["toolchain"]["go"] != module.go {
+        return Err("Go toolchain snapshot mismatch".into());
+    }
+    let sum = std::fs::read_to_string(root.join(text(scope, "manifest")?).with_file_name("go.sum"))
+        .map_err(|e| e.to_string())?;
+    for (name, pin) in &module.direct {
+        if !sum
+            .lines()
+            .any(|line| line.starts_with(&format!("{name} {pin} h1:")))
+        {
+            return Err(format!("Go checksum lock mismatch: {name}"));
+        }
+    }
     let releases = json(&fetch("https://go.dev/dl/?mode=json", &[], false)?)?;
     let latest = releases
         .as_array()
@@ -417,6 +438,19 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
         } else {
             latest_go_dependency(&name, proxy)?
         };
+        if text(scope, "manifest")? == "go/sourceexport/go.mod"
+            && name == "github.com/fsouza/fake-gcs-server"
+        {
+            if current != "v1.56.1" {
+                return Err(
+                    "source exporter must retain its explicit v1.56.1 reference baseline".into(),
+                );
+            }
+            println!(
+                "{name}: PINNED_REFERENCE current={current} latest={latest}; migration contract is revision 896ece51e49eed0946089f3089f6343855c0d106"
+            );
+            continue;
+        }
         drift |= compare(&name, &current, &latest);
     }
     Ok(drift)
@@ -620,6 +654,11 @@ const REGISTRY_MANIFESTS: &[RegistryManifest] = &[
         runtime_pin: None,
     },
     RegistryManifest {
+        ecosystem: "npm",
+        manifest: "sdk-tests/testcontainers/node/package.json",
+        runtime_pin: None,
+    },
+    RegistryManifest {
         ecosystem: "pypi",
         manifest: "sdk-scorecard/python/pyproject.toml",
         runtime_pin: Some("sdk-scorecard/python/.python-version"),
@@ -780,6 +819,14 @@ fn check_registry_sdk(root: &Path, scope: &Value) -> Result<bool> {
         &std::fs::read_to_string(root.join(entry.manifest)).map_err(|e| e.to_string())?,
         ecosystem,
     )?;
+    if ecosystem == "npm" {
+        let lock = std::fs::read_to_string(
+            root.join(entry.manifest)
+                .with_file_name("package-lock.json"),
+        )
+        .map_err(|e| e.to_string())?;
+        npm_lock(&json(&lock)?, &pins)?;
+    }
     let declared = scope["direct_dependencies"]
         .as_array()
         .ok_or("missing SDK dependency snapshot")?;
@@ -815,6 +862,22 @@ fn check_registry_sdk(root: &Path, scope: &Value) -> Result<bool> {
         );
     }
     Ok(drift)
+}
+
+fn npm_lock(lock: &Value, pins: &BTreeMap<String, String>) -> Result<()> {
+    let locked: BTreeMap<String, String> =
+        serde_json::from_value(lock["packages"][""]["dependencies"].clone())
+            .map_err(|e| e.to_string())?;
+    if &locked != pins {
+        return Err("npm root lock differs from exact manifest pins".into());
+    }
+    for (name, pin) in pins {
+        let package = &lock["packages"][format!("node_modules/{name}")];
+        if package["version"] != *pin || package["integrity"].as_str().is_none_or(str::is_empty) {
+            return Err(format!("npm locked dependency mismatch: {name}"));
+        }
+    }
+    Ok(())
 }
 
 fn json(source: &str) -> Result<Value> {
@@ -1134,6 +1197,7 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
             "go" => check_go(root, scope)?,
             "ruby" => check_ruby(root, scope)?,
             "npm" | "pypi" | "composer" => check_registry_sdk(root, scope)?,
+            "cargo" | "maven" | "nuget" => clients::check(root, scope)?,
             _ => return Err(format!("unsupported SDK ecosystem: {ecosystem}")),
         };
     }
@@ -1141,6 +1205,17 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
         return Err("expected the declared Go and Ruby SDK ecosystems".into());
     }
     missing_registry_manifests(&manifests)?;
+    for manifest in [
+        "go/go.mod",
+        "go/sourceexport/go.mod",
+        "sdk-tests/rust/Cargo.toml",
+        "sdk-tests/java/pom.xml",
+        "sdk-tests/dotnet/Scenario.csproj",
+    ] {
+        if !manifests.contains(manifest) {
+            return Err(format!("undeclared SDK manifest: {manifest}"));
+        }
+    }
     Ok(drift)
 }
 

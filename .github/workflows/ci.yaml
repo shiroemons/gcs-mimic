@@ -131,7 +131,7 @@ jobs:
       - run: bash scripts/smoke-containers.sh '${{ matrix.platform }}'
   sdk-go:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -148,5 +148,37 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: sdk-tests/dotnet/global.json
+      - name: Install exact Java and Maven client tooling
+        shell: bash
+        run: |
+          tools="$RUNNER_TEMP/gcs-mimic-client-tools"
+          mkdir -p "$tools/java"
+          java_pin=$(tr -d '\r\n' < sdk-tests/java/.java-version)
+          maven_pin=$(tr -d '\r\n' < sdk-tests/java/.maven-version)
+          curl --disable --fail --location --proto '=https' --max-time 300 \
+            "https://github.com/adoptium/temurin${java_pin%%.*}-binaries/releases/download/jdk-${java_pin/+/%2B}/OpenJDK${java_pin%%.*}U-jdk_x64_linux_hotspot_${java_pin/+/_}.tar.gz" -o "$tools/java.tar.gz"
+          echo "30cb129f6cf299c852cec0feca9ea2a596d2ee9f26d8605d3a253951f6c8b20f  $tools/java.tar.gz" | sha256sum -c -
+          tar -xzf "$tools/java.tar.gz" -C "$tools/java" --strip-components=1
+          curl --disable --fail --location --proto '=https' --max-time 300 \
+            "https://archive.apache.org/dist/maven/maven-3/$maven_pin/binaries/apache-maven-$maven_pin-bin.tar.gz" -o "$tools/maven.tar.gz"
+          echo "908b1501bfb420bf7c8affb855534a9c407fd6099367bfb9f2f2dcb8e9799102bffb84518cde74c679bd76870247c6528683abdd620581bffa90f95d92d175aa  $tools/maven.tar.gz" | sha512sum -c -
+          tar -xzf "$tools/maven.tar.gz" -C "$tools"
+          echo "JAVA_HOME=$tools/java" >> "$GITHUB_ENV"
+          echo "$tools/java/bin" >> "$GITHUB_PATH"
+          echo "$tools/apache-maven-$maven_pin/bin" >> "$GITHUB_PATH"
       - run: bash -n scripts/sdk-go.sh
-      - run: bash scripts/sdk-go.sh
+      - run: bash scripts/sdk-go.sh --with-clients
+      - name: Build the image once for Testcontainers clients
+        run: docker build --tag gcs-mimic:client-ci .
+      - name: Run the three independent Testcontainers adapters
+        env:
+          GCS_MIMIC_IMAGE: gcs-mimic:client-ci
+        run: |
+          bash sdk-tests/java/run.sh --container
+          bash sdk-tests/dotnet/run.sh --container
+          cd sdk-tests/testcontainers/node
+          npm ci --ignore-scripts --no-audit --no-fund
+          node scenario.mjs
