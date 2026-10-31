@@ -23,6 +23,18 @@ pub(crate) fn from_json(error: crate::json::JsonError) -> Status {
     }
 }
 
+/// Object-level permissions are decided only after the catalog selects a generation and its
+/// ACL, past the handlers' bucket-stage anonymous mapping; apply JSON's rule to the whole RPC.
+pub(crate) fn anonymous(status: Status, caller: Option<crate::auth::Caller<'_>>) -> Status {
+    if matches!(caller, Some(crate::auth::Caller::Anonymous))
+        && status.code() == Code::PermissionDenied
+    {
+        from_json(crate::auth::AuthFailure::LoginRequired.into())
+    } else {
+        status
+    }
+}
+
 pub(super) fn unsupported_for(method: &str, caller: Option<crate::auth::Caller<'_>>) -> Status {
     if matches!(caller, Some(crate::auth::Caller::Anonymous)) {
         return super::auth_error(crate::auth::AuthFailure::InvalidCredentials);

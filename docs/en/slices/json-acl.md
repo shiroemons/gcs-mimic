@@ -5,8 +5,9 @@
 Scope: JSON-BUCKETACCESSCONTROLS-001..006, JSON-DEFAULTOBJECTACCESSCONTROLS-001..006,
 JSON-OBJECTACCESSCONTROLS-001..006, the ACL part of BEHAVIOR-COMMON-005,
 DESIGN-018 and DESIGN-020. Contract checked on 2026-10-29; the feature ledger
-owns status. Every row stays PARTIAL: ACL entries are stored, rendered and
-managed, but they do not grant access (DESIGN-017).
+owns status. Every broad row stays PARTIAL. This checkpoint covers stored,
+rendered and managed ACLs; subsequent selected-generation object read grants
+and remaining permission work are recorded in [ACL permission effects](acl-permission-effects.md).
 
 ## Acceptance contract
 
@@ -116,8 +117,9 @@ routes retain 400 `invalid`. Exact mixed-error precedence is unverified.
 
 ## Limitations
 
-- ACL entries never grant or deny access; authorization remains IAM-only
-  (DESIGN-017 stays NOT_STARTED).
+- The original storage checkpoint did not evaluate ACL grants. Selected-generation
+  object READER/OWNER reads now have [permission evidence](acl-permission-effects.md);
+  bucket, owner, membership and canned/default ACL work remains scoped separately.
 - The uploader's `user-` OWNER entry and the object `owner` field are not
   modeled.
 - `predefinedAcl`, `predefinedDefaultObjectAcl` and `destinationPredefinedAcl`

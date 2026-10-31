@@ -195,6 +195,13 @@ pub(crate) fn request(
         let (key, value) = line.trim_end().split_once(':').unwrap();
         headers.insert(key.to_ascii_lowercase(), value.trim().to_owned());
     }
+    if method == "HEAD" {
+        return Reply {
+            status,
+            headers,
+            body: Vec::new(),
+        };
+    }
     let mut body = Vec::new();
     if headers
         .get("transfer-encoding")
@@ -214,17 +221,11 @@ pub(crate) fn request(
             reader.read_exact(&mut crlf).unwrap();
             assert_eq!(&crlf, b"\r\n");
         }
+    } else if let Some(length) = headers.get("content-length") {
+        body.resize(length.parse().unwrap(), 0);
+        reader.read_exact(&mut body).unwrap();
     } else {
         reader.read_to_end(&mut body).unwrap();
-        if let Some(length) = headers.get("content-length")
-            && method != "HEAD"
-        {
-            assert_eq!(
-                body.len().to_string(),
-                *length,
-                "server closed {method} {path} before the declared body ended"
-            );
-        }
     }
     Reply {
         status,

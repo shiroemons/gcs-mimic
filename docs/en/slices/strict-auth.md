@@ -81,15 +81,32 @@ The registry is a JSON file read once at startup, bounded to 64 KiB:
 
 | Field | Rule |
 | --- | --- |
-| Top level | Object with exactly `identities`; other keys fail |
-| `identities` | 1..=256 objects with only `id`, `tokens` and optional `project_roles` |
+| Top level | Object with required `identities` and optional `public_access_prevention_projects`; other keys fail |
+| `identities` | 1..=256 objects with `id`, `tokens` and optional `project_roles`/`public_keys`/`acl_entity` |
 | `id` | 1..=254 bytes of visible ASCII (0x21..=0x7E), unique |
-| `tokens` | 1..=16 per identity, each 1..=512 bytes of visible ASCII, unique across the registry |
+| `tokens` | Required array of 0..=16 per identity, each token 1..=512 bytes of visible ASCII, unique across the registry |
 | `project_roles` | 0..=64 project IDs validated like `buckets.insert`/`buckets.list`; each value is 1..=32 distinct role names from the snapshot |
+| `public_keys` | Optional array of 1..=8 RSA SubjectPublicKeyInfo PEM strings, each at most 4096 bytes; see the [key contract](signed-download.md#keys-and-profiles) |
+| `acl_entity` | Optional canonical `user-EMAIL` or `user-ID`, at most 259 bytes; unique across every principal's explicit alias and natural user entity |
+| `public_access_prevention_projects` | Optional array of at most 64 validated project IDs; startup-only local parent-policy simulation |
+
+An empty token array registers a principal for separately authenticated RSA/JWT
+keys or catalog-managed HMAC keys. Registration alone grants no authenticated
+caller: missing credentials remain anonymous, and empty/unknown bearer tokens
+or unverified JWTs are rejected. HMAC authentication requires a known ACTIVE
+key and a valid signature; the principal ID is never a bearer credential.
+
+`acl_entity` maps a local ID such as `local:operator` to an explicitly trusted
+ACL user entity. Existing email or alphanumeric IDs keep their natural
+`user-ID` matching. An alias cannot capture another principal's natural entity,
+and group/domain/project entities are not user aliases. Requests and JWT
+claims cannot choose an alias. A local ID without a canonical user form or an
+explicit alias remains usable in IAM; no Google canonical identity is invented.
 
 Unknown roles, including the basic `roles/owner`, `roles/editor` and `roles/viewer`,
-fail startup. An identity without `project_roles` authenticates but holds no
-permission. Startup errors name the field and identity index; they never include a
+fail startup. An identity without `project_roles` has no project-role permission;
+separate bucket IAM and object ACL grants still apply to an authenticated caller.
+Startup errors name the field and identity index; they never include a
 token value. The registry never contacts Google or the metadata server.
 
 The repository fixture `config/identities.json` defines `local-admin`,

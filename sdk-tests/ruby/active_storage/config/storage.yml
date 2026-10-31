@@ -40,3 +40,24 @@ gcs_emulator_cache_control:
     client_email: local@example.invalid
     universe_domain: gcs-emulator.invalid
     private_key: <%= OpenSSL::PKey::RSA.generate(2048).to_pem.dump if Rails.env.local? %>
+
+# Strict mode trusts this test identity's public key, never the private key.
+gcs_emulator_strict: &gcs_emulator_strict
+  service: GCS
+  project: local-project
+  bucket: <%= ENV.fetch("GCS_EMULATOR_BUCKET", "local-bucket") %>
+  endpoint: <%= ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443").delete_suffix("/") %>/
+  universe_domain: gcs-emulator.invalid
+  credentials:
+    type: service_account
+    project_id: local-project
+    client_email: local-admin@example.invalid
+    universe_domain: gcs-emulator.invalid
+    private_key: <%= File.read(Rails.root.join("../../../fixtures/signing/test-only-private.pem")).dump %>
+
+# This explicit adapter signs the final browser host and port with the SDK's public API.
+gcs_emulator_strict_browser:
+  <<: *gcs_emulator_strict
+  service: EmulatorGcs
+  public_endpoint: <%= ENV.fetch("GCS_EMULATOR_PUBLIC_ENDPOINT", ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443")) %>
+  cache_control: "public, max-age=3600"

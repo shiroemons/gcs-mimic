@@ -77,6 +77,10 @@ pub(crate) fn known_method(path: &str) -> bool {
 fn object_error(error: ObjectError) -> Status {
     from_json(error.into())
 }
+/// Object reads and updates defer their ACL decision to the catalog, past `access`.
+fn object_access_error(error: ObjectError, caller: Option<Caller<'_>>) -> Status {
+    crate::grpc::v2::status::anonymous(object_error(error), caller)
+}
 fn catalog_error(error: CatalogError) -> Status {
     if matches!(error, CatalogError::NotEmpty) {
         Status::failed_precondition("Bucket is not empty; delete objects and versions first")
@@ -230,7 +234,7 @@ impl Storage {
                 "legacy billing metadata; omit x-goog-user-project",
             ));
         }
-        self.state.auth.authenticate(&request.metadata().clone().into_headers(), None)
+        self.state.auth.authenticate_at(&request.metadata().clone().into_headers(), None, self.state.clock.as_ref())
             .map_err(|_| Status::unauthenticated("Use a registered local token, for example authorization: Bearer local-admin-token with identity_file"))
     }
 
@@ -307,7 +311,7 @@ impl Storage {
                 &access,
             )
             .await
-            .map_err(object_error)?;
+            .map_err(|error| object_access_error(error, caller))?;
         Ok(Response::new(convert::object(&record)?))
     }
 }
@@ -573,7 +577,7 @@ impl pb::storage_server::Storage for Storage {
                 &access,
             )
             .await
-            .map_err(object_error)?;
+            .map_err(|error| object_access_error(error, caller))?;
         Ok(Response::new(convert::object(&record)?))
     }
 

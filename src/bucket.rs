@@ -316,6 +316,7 @@ pub(crate) fn validate_storage_class(storage_class: &str) -> Result<(), CatalogE
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CatalogError {
+    AuthenticationAlreadyConfigured,
     AlreadyExists,
     NotFound,
     NotEmpty,
@@ -340,6 +341,9 @@ pub enum CatalogError {
 impl fmt::Display for CatalogError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::AuthenticationAlreadyConfigured => {
+                formatter.write_str("Catalog authentication is already configured")
+            }
             Self::AlreadyExists => formatter.write_str("bucket already exists"),
             Self::NotFound => formatter.write_str("bucket not found"),
             Self::NotEmpty => formatter.write_str("bucket is not empty"),

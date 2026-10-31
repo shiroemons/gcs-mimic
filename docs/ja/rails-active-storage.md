@@ -163,9 +163,20 @@ Pumaで動かしたRailsアプリでも、Chromeで確認しました。Railsを
 
 制限:
 
-- 既定のpermissiveプロファイルでだけ使えます。
+公開済み0.7.0の上のレシピはpermissive用です。開発中ソースでは、登録したテスト用公開鍵で
+[ローカルJWTを検証するstrict手順（英語）](../en/slices/strict-service-account-jwt.md)があります。
+固定したローカル署名鍵を使い、対応する公開鍵・ID・権限を登録します。
+起動ごとに生成した未登録の鍵ではstrict認証できません。
+V4でブラウザー向けの最終host・portを署名する場合は、明示的に`EmulatorGcs`アダプターを選びます。
+署名後にhostを書き換えません。`just check-active-storage-strict`では、JWTによる送受信と
+V2/V4ダイレクトアップロードCORSの3シナリオが統合ソースで成功しました。
+匿名の非公開読込と署名ヘッダー改変の拒否も維持しています。
+これはRailsモデルとNet::HTTPの検証で、strictの実RailsブラウザーUIは未確認です。
+GoogleのOAuth発行・検証を再現する機能ではありません。
+
+- 公開済みの上のレシピは既定のpermissiveプロファイルで使います。
   `GCS_MIMIC_AUTH_MODE=strict`では、アップロードが`401 Invalid Credentials`で失敗します。
-  strictモードはIDファイルに登録したトークンしか受け付けないためです。
+  公開版は自己署名JWTを検証しないためです。ソース版では、明示した登録済みJWTの範囲だけを受け付けます。
   このとき、エミュレーターのログに`auth_self_signed_jwt_rejected`の警告が1回出ます。
 - googleauthが`googleapis.com`以外で自分でトークンに署名する動作に依存しています。googleauth 1.17.6と1.17.7で確認しました。版を固定し、更新後に確認し直してください。より簡単なエミュレーター設定を追加する[google-cloud-ruby#34023](https://github.com/googleapis/google-cloud-ruby/pull/34023)は、2026-10-30時点で未マージです。
 

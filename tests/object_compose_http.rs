@@ -659,7 +659,24 @@ fn compose_source_generation_change_never_deletes_the_replacement() {
     let generation: i64 = source["generation"].as_str().unwrap().parse().unwrap();
     let destination = server.put("destination", b"preserved").json();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    connection.execute_batch("CREATE TRIGGER replace_compose_source AFTER UPDATE OF offset ON derived_transfers BEGIN UPDATE objects SET generation = generation + 1 WHERE name = 'a'; UPDATE object_generation SET last_generation = max(last_generation, (SELECT max(generation) FROM objects)); END;").unwrap();
+    connection
+        .execute_batch("PRAGMA foreign_keys = ON; SAVEPOINT generation_only;")
+        .unwrap();
+    let error = connection.execute("UPDATE objects SET generation = generation + 1 WHERE bucket = 'test-bucket' AND name = 'a'", []).unwrap_err();
+    assert!(
+        matches!(&error, rusqlite::Error::SqliteFailure(cause, _) if cause.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY),
+        "{error}"
+    );
+    connection
+        .execute_batch("ROLLBACK TO generation_only; RELEASE generation_only;")
+        .unwrap();
+    // Replacement must move the generation-bound ACL with its parent rather than corrupt its FK.
+    connection.execute_batch("CREATE TABLE compose_source_acl AS SELECT bucket, name, entries FROM acl_object_entries WHERE bucket = 'test-bucket' AND name = 'a';
+        CREATE TRIGGER replace_compose_source AFTER UPDATE OF offset ON derived_transfers BEGIN
+        DELETE FROM acl_object_entries WHERE bucket = 'test-bucket' AND name = 'a';
+        UPDATE objects SET generation = generation + 1 WHERE bucket = 'test-bucket' AND name = 'a';
+        INSERT INTO acl_object_entries SELECT o.bucket, o.name, o.generation, a.entries FROM objects o JOIN compose_source_acl a ON o.bucket = a.bucket AND o.name = a.name;
+        UPDATE object_generation SET last_generation = max(last_generation, (SELECT max(generation) FROM objects)); END;").unwrap();
     compose(
         &server,
         "destination",
@@ -667,8 +684,15 @@ fn compose_source_generation_change_never_deletes_the_replacement() {
     )
     .error(404, "notFound");
     connection
-        .execute_batch("DROP TRIGGER replace_compose_source;")
+        .execute_batch("DROP TRIGGER replace_compose_source; DROP TABLE compose_source_acl;")
         .unwrap();
+    assert!(
+        !connection
+            .prepare("PRAGMA foreign_key_check")
+            .unwrap()
+            .exists([])
+            .unwrap()
+    );
     assert_eq!(
         server.get("a").json()["generation"],
         (generation + 1).to_string()

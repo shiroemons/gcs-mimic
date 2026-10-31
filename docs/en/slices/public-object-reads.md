@@ -268,6 +268,12 @@ but cannot erase a response already stored in an external browser/proxy cache.
 
 ### Restrictions and unsupported operations
 
+This section records the original public-read checkpoint. Later PAP, UBLA,
+ACL storage and selected-generation ACL read grants have their own contracts;
+see [ACL permission effects](acl-permission-effects.md) for current scope and
+remaining acceptance. The restrictions below are historical, not a current
+IAM-only authorization claim.
+
 PAP, UBLA, ACLs and default ACLs are not modeled. Recognized bucket configuration
 or ACL inputs that would imply these semantics must be rejected explicitly,
 without installing a policy or exposing data. Reject PAP `enforced` and

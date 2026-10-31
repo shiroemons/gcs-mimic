@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -375,13 +376,23 @@ func TestStrictAuthObjectCreator(t *testing.T) {
 	requireStrictError(t, err, http.StatusForbidden, "forbidden")
 	requireStrictObjectUnchanged(t, ctx, adminBucket, created, original)
 
-	_, err = object.Attrs(creatorCtx)
-	requireStrictError(t, err, http.StatusForbidden, "forbidden")
-	reader, err := object.NewReader(creatorCtx)
-	if reader != nil {
-		if closeErr := reader.Close(); closeErr != nil {
-			t.Errorf("close unexpected reader: %v", closeErr)
-		}
+	// Outside uniform bucket-level access the uploader owns its generation, so it may read it
+	// even without storage.objects.get; ownership still grants no deletion.
+	attrs, err := object.Attrs(creatorCtx)
+	if err != nil || attrs.Generation != created.Generation {
+		t.Fatalf("creator reads its own object: got %+v, %v", attrs, err)
 	}
-	requireStrictError(t, err, http.StatusForbidden, "forbidden")
+	reader, err := object.NewReader(creatorCtx)
+	if err != nil {
+		t.Fatalf("creator opens its own object: %v", err)
+	}
+	body, err := io.ReadAll(reader)
+	if closeErr := reader.Close(); closeErr != nil {
+		t.Errorf("close creator reader: %v", closeErr)
+	}
+	if err != nil || !bytes.Equal(body, original) {
+		t.Fatalf("creator media: got %q, %v", body, err)
+	}
+	requireStrictError(t, object.Delete(creatorCtx), http.StatusForbidden, "forbidden")
+	requireStrictObjectUnchanged(t, ctx, adminBucket, created, original)
 }

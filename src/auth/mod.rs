@@ -3,9 +3,12 @@
 //! `permissive` ignores credentials and performs no permission checks. `strict` resolves the
 //! caller from a local identity registry loaded once at startup and evaluates permissions from
 //! the pinned predefined-role snapshot in [`roles`] and scoped bucket policies.
-//! ACLs are not modeled. Strict XML query signatures use registered RSA public keys.
+//! Selected object generations also evaluate ACL read grants in catalog transactions.
+//! Strict XML query signatures use registered RSA public keys.
 //! Nothing here contacts Google or the metadata server.
 
+mod acl_identity;
+mod jwt;
 mod policy;
 pub(crate) mod roles;
 pub mod signature;
@@ -22,8 +25,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-/// A client that signs its own JWT, such as googleauth outside googleapis.com, fails every
-/// request, and the documented 401 body cannot say why, so the log says it once per process.
+/// The documented 401 body cannot explain JWT setup failures, so log guidance once.
 static WARNED_SELF_SIGNED_JWT: AtomicBool = AtomicBool::new(false);
 
 pub(crate) const BUCKETS_CREATE: &str = "storage.buckets.create";
@@ -65,6 +67,10 @@ pub(crate) enum Permission {
     ObjectsOverrideUnlockedRetention,
     ObjectsGetIam,
     ObjectsSetIam,
+    MultipartCreate,
+    MultipartAbort,
+    MultipartList,
+    MultipartListParts,
 }
 
 impl Permission {
@@ -87,6 +93,10 @@ impl Permission {
             Self::ObjectsOverrideUnlockedRetention => OBJECTS_OVERRIDE_UNLOCKED_RETENTION,
             Self::ObjectsGetIam => OBJECTS_GET_IAM,
             Self::ObjectsSetIam => OBJECTS_SET_IAM,
+            Self::MultipartCreate => "storage.multipartUploads.create",
+            Self::MultipartAbort => "storage.multipartUploads.abort",
+            Self::MultipartList => "storage.multipartUploads.list",
+            Self::MultipartListParts => "storage.multipartUploads.listParts",
         }
     }
 }
@@ -112,6 +122,10 @@ impl TryFrom<&str> for Permission {
             Self::ObjectsOverrideUnlockedRetention,
             Self::ObjectsGetIam,
             Self::ObjectsSetIam,
+            Self::MultipartCreate,
+            Self::MultipartAbort,
+            Self::MultipartList,
+            Self::MultipartListParts,
         ]
         .into_iter()
         .find(|permission| permission.as_str() == value)
@@ -141,6 +155,12 @@ const CREDENTIAL_QUERY_PARAMETERS: &[&str] = &[
     "X-Goog-SignedHeaders",
     "Signature",
     "GoogleAccessId",
+    "X-Amz-Algorithm",
+    "X-Amz-Credential",
+    "X-Amz-Date",
+    "X-Amz-Expires",
+    "X-Amz-SignedHeaders",
+    "X-Amz-Signature",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -198,7 +218,9 @@ impl std::error::Error for AuthFailure {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity {
     id: String,
+    acl_entity: Option<String>,
     permissions: BTreeMap<String, BTreeSet<&'static str>>,
+    explicit_storage_admin_projects: BTreeSet<String>,
 }
 
 impl Identity {
@@ -231,11 +253,20 @@ impl Identity {
             }
             permissions.insert(project.clone(), set);
         }
-        Ok(Self { id, permissions })
+        Ok(Self {
+            id,
+            acl_entity: None,
+            permissions,
+            explicit_storage_admin_projects: BTreeSet::new(),
+        })
     }
 
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    pub(crate) fn has_explicit_storage_admin(&self, project: &str) -> bool {
+        self.explicit_storage_admin_projects.contains(project)
     }
 
     /// Whether any granted role in `project` contains `permission`.
@@ -450,7 +481,7 @@ impl Registry {
             if let Some(key) = entry.keys().find(|key| {
                 !matches!(
                     key.as_str(),
-                    "id" | "tokens" | "project_roles" | "public_keys"
+                    "id" | "tokens" | "project_roles" | "public_keys" | "acl_entity"
                 )
             }) {
                 return Err(error(format!("unknown field: {key}")));
@@ -476,11 +507,9 @@ impl Registry {
                 .ok_or_else(|| error("missing required field: tokens".into()))?
                 .as_array()
                 .ok_or_else(|| error("tokens must be an array".into()))?;
-            if token_values.len() > MAX_TOKENS
-                || (token_values.is_empty() && !signing_keys.contains_key(id))
-            {
+            if token_values.len() > MAX_TOKENS {
                 return Err(error(format!(
-                    "tokens must contain 1..={MAX_TOKENS} entries"
+                    "tokens must contain 0..={MAX_TOKENS} entries"
                 )));
             }
             for token in token_values {
@@ -503,9 +532,14 @@ impl Registry {
             };
             identities.push(Identity {
                 id: id.to_owned(),
+                acl_entity: acl_identity::parse_entity(entry.get("acl_entity"), index)?,
                 permissions,
+                explicit_storage_admin_projects: explicit_storage_admin_projects(
+                    entry.get("project_roles"),
+                ),
             });
         }
+        acl_identity::validate_aliases(&identities)?;
         Ok(Self {
             identities,
             tokens,
@@ -629,6 +663,23 @@ fn parse_project_roles(
     Ok(permissions)
 }
 
+// Read only after parse_project_roles has validated the bounded project/role inventory.
+fn explicit_storage_admin_projects(projects: Option<&Value>) -> BTreeSet<String> {
+    projects
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|projects| projects.iter())
+        .filter(|(_, roles)| {
+            roles.as_array().is_some_and(|roles| {
+                roles
+                    .iter()
+                    .any(|role| role.as_str() == Some("roles/storage.admin"))
+            })
+        })
+        .map(|(project, _)| project.clone())
+        .collect()
+}
+
 fn visible_ascii(value: &str, max: usize) -> bool {
     (1..=max).contains(&value.len()) && value.bytes().all(|byte| (0x21..=0x7e).contains(&byte))
 }
@@ -662,6 +713,12 @@ impl Auth {
         self.registry.as_ref().map(Registry::len)
     }
 
+    pub(crate) fn principals(&self) -> Option<&[Identity]> {
+        self.registry
+            .as_ref()
+            .map(|registry| registry.identities.as_slice())
+    }
+
     /// Local simulation of the effective parent organization policy, loaded before readiness.
     pub fn public_access_prevention_projects(&self) -> &[String] {
         self.registry
@@ -672,10 +729,20 @@ impl Auth {
     /// Resolve the caller from request metadata only; never reads a body or the catalog.
     ///
     /// Returns `Ok(None)` in permissive mode, where no permission checks apply.
+    #[cfg(test)]
     pub(crate) fn authenticate(
         &self,
         headers: &HeaderMap,
         query: Option<&str>,
+    ) -> Result<Option<Caller<'_>>, AuthFailure> {
+        self.authenticate_at(headers, query, &crate::clock::SystemClock)
+    }
+
+    pub(crate) fn authenticate_at(
+        &self,
+        headers: &HeaderMap,
+        query: Option<&str>,
+        clock: &dyn crate::clock::Clock,
     ) -> Result<Option<Caller<'_>>, AuthFailure> {
         let Some(registry) = &self.registry else {
             return Ok(None);
@@ -699,17 +766,24 @@ impl Auth {
         }
         let token = token.trim_start_matches(' ');
         // Registry tokens are visible ASCII, so an empty or space-containing token never matches.
-        registry
-            .tokens
-            .get(token)
-            .map(|index| Some(Caller::Principal(&registry.identities[*index])))
+        let identity = if token.split('.').count() == 3 {
+            // A registered token must never bypass verification of JWT-shaped credentials.
+            jwt::authenticate(registry, token, clock)
+        } else {
+            registry
+                .tokens
+                .get(token)
+                .map(|index| &registry.identities[*index])
+        };
+        identity
+            .map(|identity| Some(Caller::Principal(identity)))
             .ok_or_else(|| {
                 if looks_like_jwt(token) && !WARNED_SELF_SIGNED_JWT.swap(true, Ordering::Relaxed) {
                     crate::diagnostics::emit(
                         crate::diagnostics::LogLevel::Warn,
                         "auth_self_signed_jwt_rejected",
                         serde_json::json!({
-                            "message": "strict authentication rejected a JWT bearer token, such as the self-signed token googleauth sends for a non-Google universe_domain; strict mode accepts only tokens listed in the identity file, so use the default permissive profile for that client or give it an identity-file token",
+                            "message": "strict authentication rejected a self-signed JWT; register its issuer and RSA public_keys in the identity file, use RS256 with matching issuer/subject, devstorage.full_control scope, no audience and a valid lifetime of at most one hour; the permissive profile remains available for unauthenticated local clients",
                         }),
                     );
                 }
@@ -838,7 +912,9 @@ mod tests {
         catalog.insert_bucket(record.clone()).await.unwrap();
         let identity = Identity {
             id: "local".into(),
+            acl_entity: None,
             permissions: BTreeMap::from([("project".into(), BTreeSet::from([BUCKETS_UPDATE]))]),
+            explicit_storage_admin_projects: BTreeSet::new(),
         };
         let access = BucketAccess::Policy {
             identity: Some(identity),
@@ -948,7 +1024,9 @@ mod tests {
                 let access = BucketAccess::Policy {
                     identity: Some(Identity {
                         id: "local".into(),
+                        acl_entity: None,
                         permissions: BTreeMap::from([("project".into(), permissions)]),
+                        explicit_storage_admin_projects: BTreeSet::new(),
                     }),
                     permission: Permission::BucketsUpdate,
                     project: Some("project".into()),
@@ -1158,8 +1236,21 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(acl.entries.len(), 1);
-            assert_eq!(acl.entries[0].entity, "user-new@example.test");
+            let mut entries = acl.entries;
+            entries.sort_by(|a, b| a.entity.cmp(&b.entity));
+            assert_eq!(
+                entries,
+                vec![
+                    crate::acl::AclEntry {
+                        entity: "project-owners-0".into(),
+                        role: "OWNER".into()
+                    },
+                    crate::acl::AclEntry {
+                        entity: "user-new@example.test".into(),
+                        role: "OWNER".into()
+                    },
+                ]
+            );
         }
         stop.send(()).unwrap();
         running.await.unwrap().unwrap();
@@ -1277,6 +1368,24 @@ mod tests {
         )
     }
 
+    #[test]
+    fn sync_authority_requires_the_explicit_project_admin_role_and_is_not_in_upload_snapshots() {
+        let registry=Registry::parse(br#"{"identities":[{"id":"admin","tokens":["admin-token"],"project_roles":{"owned":["roles/storage.admin"],"other":["roles/storage.objectAdmin","roles/storage.objectViewer"]}},{"id":"reader","tokens":["reader-token"],"project_roles":{"owned":["roles/storage.objectViewer"]}}]}"#).unwrap();
+        let admin = &registry.identities[0];
+        assert!(admin.has_explicit_storage_admin("owned"));
+        assert!(!admin.has_explicit_storage_admin("other"));
+        assert!(!admin.has_explicit_storage_admin("missing"));
+        assert!(admin.allows(OBJECTS_DELETE, "owned") && admin.allows(OBJECTS_DELETE, "other"));
+        assert!(!registry.identities[1].has_explicit_storage_admin("owned"));
+        let restored = Identity::from_upload_snapshot(&admin.upload_snapshot()).unwrap();
+        assert_eq!(restored.id(), admin.id());
+        assert!(restored.allows(OBJECTS_CREATE, "owned"));
+        assert!(!restored.has_explicit_storage_admin("owned"));
+        let mut forged = admin.upload_snapshot();
+        forged["projects"]["owned"] = serde_json::json!(["roles/storage.admin"]);
+        assert!(Identity::from_upload_snapshot(&forged).is_err());
+    }
+
     fn headers(values: &[&[u8]]) -> HeaderMap {
         let mut headers = HeaderMap::new();
         for value in values {
@@ -1338,6 +1447,12 @@ mod tests {
             "Signature=x&GoogleAccessId=y",
             "access%5Ftoken=tok-a",
             "oauth_token=tok-a",
+            "X-Amz-Algorithm=AWS4-HMAC-SHA256",
+            "x-amz-credential=local",
+            "X-Amz-Date=20261031T000000Z",
+            "X-Amz-Expires=60",
+            "X-Amz-SignedHeaders=host",
+            "X-Amz-Signature=00",
         ] {
             assert_eq!(
                 id(auth.authenticate(&headers(&[b"Bearer tok-a"]), Some(query))),
@@ -1354,6 +1469,37 @@ mod tests {
         assert!(matches!(
             permissive.authenticate(&headers(&[b"Basic garbage", b"x"]), Some("access_token=x")),
             Ok(None)
+        ));
+    }
+
+    #[test]
+    fn registered_principal_without_tokens_does_not_gain_bearer_or_jwt_authentication() {
+        let registry = Registry::parse(
+            br#"{"identities":[{"id":"hmac-only@example.test","tokens":[],"project_roles":{"local":["roles/storage.admin"]}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(registry.len(), 1);
+        assert!(registry.tokens.is_empty());
+        assert!(registry.signing_keys.is_empty());
+        let auth = Auth::strict(registry);
+        let anonymous = auth.authenticate(&headers(&[]), None).unwrap().unwrap();
+        assert!(matches!(anonymous, Caller::Anonymous));
+        assert_eq!(anonymous.principal(), Err(AuthFailure::LoginRequired));
+        for credential in [
+            &b"Bearer"[..],
+            b"Bearer ",
+            b"Bearer hmac-only@example.test",
+            b"Bearer unknown",
+            b"Bearer eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJobWFjLW9ubHlAZXhhbXBsZS50ZXN0In0.AA",
+        ] {
+            assert!(matches!(
+                auth.authenticate(&headers(&[credential]), None),
+                Err(AuthFailure::InvalidCredentials)
+            ));
+        }
+        assert!(matches!(
+            auth.authenticate(&headers(&[]), Some("X-Goog-Credential=unknown")),
+            Err(AuthFailure::InvalidCredentials)
         ));
     }
 
@@ -1404,7 +1550,6 @@ mod tests {
                 "duplicate id",
                 valid(r#"{"id":"a","tokens":["t"]},{"id":"a","tokens":["u"]}"#),
             ),
-            ("no tokens", valid(r#"{"id":"a","tokens":[]}"#)),
             ("missing tokens", valid(r#"{"id":"a"}"#)),
             (
                 "too many tokens",

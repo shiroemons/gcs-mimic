@@ -470,14 +470,19 @@ fn bucket_put_replaces_omitted_fields_and_preserves_resources() {
                 r#"{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#,
             )
             .json();
+        let after_policy = server.request("GET", path, "").json();
+        assert_eq!(original["metageneration"], "1");
+        assert_eq!(after_policy["metageneration"], "2");
         let populated = server.request("PUT", path, r#"{"labels":{"keep":"yes","replace":"old"},"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#);
         assert_eq!(populated.status, 200, "{}", populated.body);
+        assert_eq!(populated.json()["metageneration"], "3");
         let merged = server
             .request("PATCH", path, r#"{"labels":{"replace":"new"}}"#)
             .json();
         assert_eq!(merged["labels"], json!({"keep":"yes","replace":"new"}));
         assert_eq!(merged["storageClass"], "ARCHIVE");
         assert_settings(&merged, profile, true, true);
+        assert_eq!(merged["metageneration"], "4");
         let replaced = server.request("PUT", path, r#"{"labels":{"replace":"only"}}"#);
         assert_eq!(replaced.status, 200, "{}", replaced.body);
         assert_eq!(replaced.json()["owner"]["entity"], "project-owners-42");
@@ -485,7 +490,7 @@ fn bucket_put_replaces_omitted_fields_and_preserves_resources() {
         assert_eq!(value["labels"], json!({"replace":"only"}));
         assert_eq!(value["storageClass"], "ARCHIVE");
         assert_settings(&value, profile, true, true);
-        assert_eq!(value["metageneration"], "4");
+        assert_eq!(value["metageneration"], "5");
         assert_ne!(value["etag"], merged["etag"]);
         for field in [
             "name",
@@ -1442,10 +1447,11 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
         assert_eq!(after["labels"], json!({"after":"yes"}));
         assert_settings(&after, profile, true, true);
         assert_ne!(after["etag"], populated["etag"]);
-        assert_eq!(
-            server.request("GET", &format!("{path}/iam"), "").json(),
-            policy
-        );
+        let cleared_policy = server.request("GET", &format!("{path}/iam"), "").json();
+        assert_eq!(cleared_policy["bindings"], json!([]));
+        assert_ne!(cleared_policy["etag"], policy["etag"]);
+        assert_eq!(populated["metageneration"], "2");
+        assert_eq!(after["metageneration"], "3");
         let reply = server.request("PUT", path, r#"{"versioning":{"enabled":true,"future":1}}"#);
         assert_eq!(reply.status, 200, "{}", reply.body);
         let after = without_acl(reply.json());
@@ -1457,7 +1463,7 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
         assert_eq!(server.request("GET", path, "").json(), after);
         assert_eq!(
             server.request("GET", &format!("{path}/iam"), "").json(),
-            policy
+            cleared_policy
         );
     }
 }
@@ -1897,8 +1903,8 @@ fn bucket_metadata_permissions(method: &str) {
             r#"{"labels":{"access":"granted"}}"#,
         );
         assert_eq!(reply.status, 200, "{}", reply.body);
-        // The bucket-granted storage.admin role includes getIamPolicy, so ACLs are rendered.
-        assert_eq!(reply.json()["acl"].as_array().unwrap().len(), 3);
+        // storage.admin permits ACL inspection but does not create a legacy bucket ACL grant.
+        assert_eq!(reply.json()["acl"], json!([]));
         assert_eq!(
             server.authorized("admin", "GET", &policy_path, "").json(),
             policy
@@ -1909,13 +1915,11 @@ fn bucket_metadata_permissions(method: &str) {
             reply.json()
         );
         server.authorized("admin", "PUT", &policy_path, r#"{"bindings":[]}"#);
+        let revoked = server.authorized("admin", "GET", &full, "").json();
         server
             .authorized("granted", method, path, "{}")
             .error(403, "forbidden");
-        assert_eq!(
-            server.authorized("admin", "GET", &full, "").json(),
-            reply.json()
-        );
+        assert_eq!(server.authorized("admin", "GET", &full, "").json(), revoked);
     }
 }
 
@@ -3098,7 +3102,25 @@ fn bucket_core_migrates_v7_settings() {
     for profile in PROFILES {
         let dir = TestDir::new();
         let mut server = profile_server(&dir, profile);
-        let created = server.insert("migrated-bucket", "project").json();
+        assert_eq!(server.insert("migrated-bucket", "project").status, 200);
+        server.stop();
+        let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+        let current_version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        // Schema 7 stores milliseconds, so its fixture must be losslessly representable there.
+        connection
+            .execute_batch(
+                "UPDATE buckets SET
+                 time_created = (time_created / 1000 - (time_created % 1000 < 0)) * 1000,
+                 updated = (updated / 1000 - (updated % 1000 < 0)) * 1000;",
+            )
+            .unwrap();
+        drop(connection);
+        let mut server = profile_server(&dir, profile);
+        let created = server
+            .request("GET", "/storage/v1/b/migrated-bucket", "")
+            .json();
         server.stop();
         let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
         common::downgrade_object_schema(&connection);
@@ -3115,7 +3137,7 @@ fn bucket_core_migrates_v7_settings() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            35
+            current_version
         );
     }
 }

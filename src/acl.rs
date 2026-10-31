@@ -63,6 +63,32 @@ pub(crate) struct AclEntry {
     pub role: String,
 }
 
+pub(crate) fn bucket_iam_role(role: &str) -> Option<&'static str> {
+    match role {
+        "READER" => Some("roles/storage.legacyBucketReader"),
+        "WRITER" => Some("roles/storage.legacyBucketWriter"),
+        "OWNER" => Some("roles/storage.legacyBucketOwner"),
+        _ => None,
+    }
+}
+
+pub(crate) fn object_permission(permission: crate::auth::Permission) -> bool {
+    use crate::auth::Permission;
+    matches!(
+        permission,
+        Permission::ObjectsGet
+            | Permission::ObjectsUpdate
+            | Permission::ObjectsGetIam
+            | Permission::ObjectsSetIam
+    )
+}
+
+pub(crate) fn object_role_allows(role: &str, permission: crate::auth::Permission) -> bool {
+    object_permission(permission)
+        && (role == "OWNER"
+            || (role == "READER" && permission == crate::auth::Permission::ObjectsGet))
+}
+
 /// A rejected ACL entry or entry list. `Display` is the client-visible JSON error message.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AclError {
@@ -179,6 +205,25 @@ impl<'a> Entity<'a> {
 
     pub(crate) fn is_public(self) -> bool {
         matches!(self, Self::AllUsers | Self::AllAuthenticatedUsers)
+    }
+
+    pub(crate) fn matches(
+        self,
+        identity: Option<&crate::auth::Identity>,
+        public: crate::auth::PublicAccess,
+    ) -> bool {
+        match self {
+            Self::AllUsers => public == crate::auth::PublicAccess::Allowed,
+            Self::AllAuthenticatedUsers => {
+                public == crate::auth::PublicAccess::Allowed && identity.is_some()
+            }
+            Self::UserEmail(user) | Self::UserId(user) => {
+                identity.is_some_and(|id| id.matches_acl_user(user))
+            }
+            Self::GroupEmail(_) | Self::GroupId(_) | Self::Domain(_) | Self::ProjectTeam { .. } => {
+                false
+            }
+        }
     }
 }
 

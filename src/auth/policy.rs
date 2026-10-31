@@ -56,7 +56,7 @@ impl Policy {
                         member
                             .strip_prefix("user:")
                             .or_else(|| member.strip_prefix("serviceAccount:"))
-                            == Some(identity.id())
+                            .is_some_and(|user| identity.matches_acl_user(user))
                     })
             }) && roles::PREDEFINED_ROLES
                 .iter()

@@ -175,12 +175,30 @@ with Rails in Compose using `gcs.localhost` (on other free ports, otherwise as
 written here): images, direct uploads with Active Storage's JavaScript, and
 uploads through Rails all worked. Other browsers were not tried.
 
-Limits:
+The recipe above describes the published permissive profile. For the
+**unreleased source checkout**, [strict local JWT authentication](slices/strict-service-account-jwt.md)
+verifies a registered test service-account public key and applies existing IAM
+permissions. Keep a stable local signing key, register its public key and identity,
+and use the same non-Google universe in both settings. A fresh unregistered key
+generated at each boot cannot authenticate to that strict registry.
+
+Stock GCS service URLs use the scoped V2 flow. For final-origin V4 URLs, including
+`cache_control` direct uploads and distinct Compose/browser origins, explicitly
+select the supplied `EmulatorGcs` service adapter. It signs the final browser
+host/port/path before emitting the URL; never rewrite the authority afterward.
+`just check-active-storage-strict` passes three integrated native scenarios:
+JWT upload/download and V2/V4 direct-upload CORS, with private unsigned reads
+and changed signed headers still rejected. This is the Rails model/Net::HTTP
+fixture; an actual strict Rails browser UI remains unverified. This local
+identity simulation does not issue or validate Google OAuth credentials.
+
+Limits of the published recipe:
 
 - The entry works only with the default permissive profile. With
   `GCS_MIMIC_AUTH_MODE=strict`, uploads fail with `401 Invalid Credentials`,
-  because strict mode accepts only tokens listed in its identity file. The
-  emulator log then shows one `auth_self_signed_jwt_rejected` warning.
+  because the published version does not verify the self-signed JWT. The
+  emulator log then shows one `auth_self_signed_jwt_rejected` warning. Source
+  builds accept only the explicitly documented registered JWT subset.
 - The recipe relies on googleauth signing its own token outside
   `googleapis.com`. Checked with googleauth 1.17.6 and 1.17.7; pin your
   versions and recheck after upgrades.

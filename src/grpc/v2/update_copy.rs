@@ -796,7 +796,17 @@ impl Storage {
         let mut permissions = Vec::new();
         for p in requested {
             match authorize_bucket(&self.state, caller, &p, bucket).await {
-                Ok(_) => permissions.push(p),
+                Ok(access)
+                    if self
+                        .state
+                        .catalog
+                        .has_bucket_permission(bucket, &access)
+                        .await
+                        .map_err(error)? =>
+                {
+                    permissions.push(p)
+                }
+                Ok(_) => {}
                 Err(e) if e.status == hyper::StatusCode::FORBIDDEN => {}
                 Err(e) => return Err(error(e)),
             }

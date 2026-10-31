@@ -7,12 +7,21 @@ use ring::digest::{SHA256, digest};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::sync::{Arc, OnceLock};
 
-pub(crate) type UploadAclSnapshot = Arc<OnceLock<Option<Vec<crate::acl::AclEntry>>>>;
+pub(crate) type UploadAclSnapshot = Arc<OnceLock<Option<super::acl::ObjectAclSnapshot>>>;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Completion {
     record: ObjectRecord,
     acl: Option<Vec<crate::acl::AclEntry>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<CopySource>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(super) struct CopySource {
+    bucket: String,
+    name: String,
+    generation: i64,
 }
 
 const CAPACITY: i64 = 4096;
@@ -42,6 +51,8 @@ pub(crate) struct ReplayInvocation<'a> {
 #[derive(Clone, Copy)]
 pub(crate) struct CopyReplaySource<'a> {
     pub(crate) bucket: &'a str,
+    pub(crate) name: &'a str,
+    pub(crate) generation: Option<i64>,
     pub(crate) access: &'a BucketAccess,
 }
 
@@ -85,6 +96,7 @@ pub(super) struct UploadReplay {
     request: Vec<u8>,
     incarnation: String,
     snapshot: UploadAclSnapshot,
+    principals: Option<super::principals::Profile>,
 }
 
 #[derive(Clone)]
@@ -92,6 +104,8 @@ pub(crate) struct CopyReplay {
     replay: UploadReplay,
     fingerprint: Vec<u8>,
     source_bucket: String,
+    source_name: String,
+    source_generation: Option<i64>,
     source_incarnation: String,
     source_access: BucketAccess,
     destination_bucket: String,
@@ -99,6 +113,9 @@ pub(crate) struct CopyReplay {
 }
 
 impl CopyReplay {
+    pub(crate) fn bind_source(&mut self, source: &ObjectRecord) {
+        self.source_generation = Some(source.generation);
+    }
     pub(crate) fn acl_snapshot(&self) -> UploadAclSnapshot {
         self.replay.snapshot.clone()
     }
@@ -113,7 +130,6 @@ impl CopyReplay {
             &self.destination_bucket,
             &self.destination_access,
         )?;
-        objects::authorized_bucket(connection, &self.source_bucket, &self.source_access)?;
         self.replay
             .check_incarnation(connection, &self.destination_bucket)?;
         let incarnation: String = connection
@@ -122,6 +138,26 @@ impl CopyReplay {
             .map_err(objects::object_unavailable)?;
         if incarnation != self.source_incarnation {
             return Err(ObjectError::PreconditionFailed);
+        }
+        let cached = self.replay.cached(connection, now)?;
+        let Some((_, completion)) = cached else {
+            return Ok(None);
+        };
+        match completion.source {
+            Some(source)
+                if source.bucket == self.source_bucket && source.name == self.source_name =>
+            {
+                objects::authorize_generation(
+                    connection,
+                    &source.bucket,
+                    &source.name,
+                    source.generation,
+                    &self.source_access,
+                )?;
+            }
+            _ => {
+                objects::authorized_bucket(connection, &self.source_bucket, &self.source_access)?;
+            }
         }
         self.replay.replay(connection, now, &self.fingerprint)
     }
@@ -138,6 +174,13 @@ impl CopyReplay {
             &self.fingerprint,
             record,
             &self.destination_access,
+            Some(CopySource {
+                bucket: self.source_bucket.clone(),
+                name: self.source_name.clone(),
+                generation: self
+                    .source_generation
+                    .ok_or_else(|| objects::object_unavailable("Missing copy source generation"))?,
+            }),
         )
     }
 }
@@ -173,11 +216,21 @@ impl UploadReplay {
         fingerprint: &[u8],
     ) -> Result<Option<ObjectRecord>, ObjectError> {
         self.cached(connection, now)?
-            .map(|(original, completion)| {
+            .map(|(original, mut completion)| {
                 if original != fingerprint {
                     return Err(invalid());
                 }
-                let _ = self.snapshot.set(completion.acl);
+                if let Some(owner) = &mut completion.record.owner {
+                    super::object_owner::canonicalize(owner, self.principals.as_ref());
+                }
+                let snapshot = completion.acl.map(|entries| {
+                    super::acl::ObjectAclSnapshot::new(
+                        &completion.record,
+                        entries,
+                        &self.incarnation,
+                    )
+                });
+                let _ = self.snapshot.set(snapshot);
                 Ok(completion.record)
             })
             .transpose()
@@ -190,6 +243,7 @@ impl UploadReplay {
         fingerprint: &[u8],
         record: &ObjectRecord,
         access: &BucketAccess,
+        source: Option<CopySource>,
     ) -> Result<(), ObjectError> {
         let acl_access = match access {
             BucketAccess::Policy {
@@ -201,7 +255,13 @@ impl UploadReplay {
             },
             other => other.clone(),
         };
-        let visible = match objects::authorized_bucket(connection, &record.bucket, &acl_access) {
+        let visible = match objects::authorize_generation(
+            connection,
+            &record.bucket,
+            &record.name,
+            record.generation,
+            &acl_access,
+        ) {
             Ok(_) => true,
             Err(ObjectError::Forbidden) => false,
             Err(error) => return Err(error),
@@ -228,6 +288,7 @@ impl UploadReplay {
         let completion = serde_json::to_string(&Completion {
             record: record.clone(),
             acl: acl.clone(),
+            source,
         })
         .map_err(objects::object_unavailable)?;
         if completion.len() > 65536 {
@@ -250,7 +311,9 @@ impl UploadReplay {
                 ])
             })
             .map_err(objects::object_unavailable)?;
-        let _ = self.snapshot.set(acl);
+        let snapshot = acl
+            .map(|entries| super::acl::ObjectAclSnapshot::new(record, entries, &self.incarnation));
+        let _ = self.snapshot.set(snapshot);
         Ok(())
     }
 
@@ -291,6 +354,53 @@ pub(super) fn fingerprint(value: &impl std::fmt::Debug) -> Vec<u8> {
     hash(format!("upload-v1:{value:?}").as_bytes())
 }
 
+fn copy_source_generation(
+    connection: &Connection,
+    source: CopyReplaySource<'_>,
+    token: &[u8],
+    now: i64,
+) -> Result<Option<i64>, ObjectError> {
+    if objects::object_acl_authority(connection, source.bucket, source.access)?.is_none() {
+        return Ok(source.generation);
+    }
+    let stored: Option<String> = connection
+        .prepare_cached("SELECT completion FROM upload_replays WHERE token=?1 AND deadline>?2")
+        .and_then(|mut statement| statement.query_row(params![token, now], |row| row.get(0)))
+        .optional()
+        .map_err(objects::object_unavailable)?;
+    let generation = match stored {
+        Some(stored) => {
+            let completion: Completion =
+                serde_json::from_str(&stored).map_err(objects::object_unavailable)?;
+            match completion.source {
+                Some(original)
+                    if original.bucket == source.bucket && original.name == source.name =>
+                {
+                    original.generation
+                }
+                _ => return Err(ObjectError::Forbidden),
+            }
+        }
+        None => match source.generation {
+            Some(generation) => generation,
+            None => {
+                objects::lookup(connection, source.bucket, source.name)?
+                    .ok_or(ObjectError::Forbidden)?
+                    .0
+                    .generation
+            }
+        },
+    };
+    objects::authorize_generation(
+        connection,
+        source.bucket,
+        source.name,
+        generation,
+        source.access,
+    )?;
+    Ok(Some(generation))
+}
+
 impl Catalog {
     /// Copy replay binds both resource authorities and the exact invocation.
     pub(crate) async fn prepare_copy_replay(
@@ -306,19 +416,38 @@ impl Catalog {
             return Ok(None);
         }
         let source_bucket = source.bucket.to_owned();
+        let source_name = source.name.to_owned();
+        let source_requested_generation = source.generation;
         let source_access = source.access.clone();
         let source_query = source_bucket.clone();
+        let source_object = source_name.clone();
         let source_authority = source_access.clone();
-        let source_incarnation: String = self
+        let token = hash(invocation.token.unwrap_or_default().as_bytes());
+        let now = unix_micros(self.0.clock.now()).map_err(objects::object_unavailable)?;
+        let (source_incarnation, source_generation): (String, Option<i64>) = self
             .run_waiting(move |connection| {
                 Ok((|| {
-                    objects::authorized_bucket(connection, &source_query, &source_authority)?;
-                    connection
+                    let transaction = connection
+                        .transaction()
+                        .map_err(objects::object_unavailable)?;
+                    let generation = copy_source_generation(
+                        &transaction,
+                        CopyReplaySource {
+                            bucket: &source_query,
+                            name: &source_object,
+                            generation: source_requested_generation,
+                            access: &source_authority,
+                        },
+                        &token,
+                        now,
+                    )?;
+                    let incarnation = transaction
                         .prepare_cached(SELECT_INCARNATION)
                         .and_then(|mut statement| {
                             statement.query_row([&source_query], |row| row.get(0))
                         })
-                        .map_err(objects::object_unavailable)
+                        .map_err(objects::object_unavailable)?;
+                    Ok::<_, ObjectError>((incarnation, generation))
                 })())
             })
             .await
@@ -346,6 +475,8 @@ impl Catalog {
             replay,
             fingerprint: fingerprint(&request),
             source_bucket,
+            source_name,
+            source_generation,
             source_incarnation,
             source_access,
             destination_bucket: bucket.to_owned(),
@@ -360,9 +491,15 @@ impl Catalog {
         let replay = replay.clone();
         let clock = self.0.clock.clone();
         self.run_waiting(move |connection| {
-            Ok(unix_micros(clock.now())
-                .map_err(objects::object_unavailable)
-                .and_then(|now| replay.cached(connection, now)))
+            Ok((|| {
+                let transaction = connection
+                    .transaction()
+                    .map_err(objects::object_unavailable)?;
+                replay.cached(
+                    &transaction,
+                    unix_micros(clock.now()).map_err(objects::object_unavailable)?,
+                )
+            })())
         })
         .await
         .map_err(objects::object_unavailable)?
@@ -402,6 +539,7 @@ impl Catalog {
                 .as_slice(),
         );
         let clock = self.0.clock.clone();
+        let principals = self.0.principals.get().cloned();
         let replay = self
             .run_waiting(move |connection| {
                 Ok((|| {
@@ -425,6 +563,7 @@ impl Catalog {
                         request,
                         incarnation,
                         snapshot: Arc::new(OnceLock::new()),
+                        principals,
                     };
                     let now = unix_micros(clock.now()).map_err(objects::object_unavailable)?;
                     if replay.cached(&transaction, now)?.is_none() {

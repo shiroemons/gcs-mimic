@@ -113,6 +113,47 @@ fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<(), Status> {
 }
 
 impl Storage {
+    async fn resume_read_handle(
+        &self,
+        spec: &pb::BidiReadObjectSpec,
+        access: &BucketAccess,
+        caller: Option<Caller<'_>>,
+    ) -> Result<(Arc<Selected>, Vec<u8>), Status> {
+        let handle = spec.read_handle.as_ref().ok_or_else(|| {
+            Status::invalid_argument("Missing read_handle; reopen without read_handle")
+        })?;
+        let (bucket, object) = names::object_name(&spec.bucket, &spec.object)?;
+        let entries = handles().lock().await;
+        let entry = entries
+            .iter()
+            .find(|entry| {
+                entry.token == handle.handle && entry.state.ptr_eq(&Arc::downgrade(&self.state))
+            })
+            .ok_or_else(|| {
+                Status::failed_precondition(
+                    "Read handle is unknown or expired; reopen without read_handle",
+                )
+            })?;
+        check_handle_project(entry.project.as_deref(), access)?;
+        if entry.selected.record.bucket != bucket
+            || entry.selected.record.name != object
+            || (spec.generation != 0 && spec.generation != entry.selected.record.generation)
+        {
+            return Err(Status::invalid_argument(
+                "Read handle does not match bucket, object or generation; use the original object or reopen without read_handle",
+            ));
+        }
+        let selected = entry.selected.clone();
+        let token = entry.token.clone();
+        drop(entries);
+        self.state
+            .catalog
+            .authorize_object_snapshot(&selected.record, access)
+            .await
+            .map_err(|failure| error(failure, caller))?;
+        Ok((selected, token))
+    }
+
     pub(super) async fn bidi_read_object(
         &self,
         request: Request<Streaming<pb::BidiReadObjectRequest>>,
@@ -142,28 +183,8 @@ impl Storage {
             .await
             .map_err(|e| error(e, caller))?;
         let resumed = spec.read_handle.is_some();
-        let (selected, token) = if let Some(handle) = spec.read_handle {
-            let entries = handles().lock().await;
-            let entry = entries
-                .iter()
-                .find(|entry| {
-                    entry.token == handle.handle && entry.state.ptr_eq(&Arc::downgrade(&self.state))
-                })
-                .ok_or_else(|| {
-                    Status::failed_precondition(
-                        "Read handle is unknown or expired; reopen without read_handle",
-                    )
-                })?;
-            check_handle_project(entry.project.as_deref(), &access)?;
-            if entry.selected.record.bucket != bucket
-                || entry.selected.record.name != object
-                || (spec.generation != 0 && spec.generation != entry.selected.record.generation)
-            {
-                return Err(Status::invalid_argument(
-                    "Read handle does not match bucket, object or generation; use the original object or reopen without read_handle",
-                ));
-            }
-            (entry.selected.clone(), entry.token.clone())
+        let (selected, token) = if resumed {
+            self.resume_read_handle(&spec, &access, caller).await?
         } else {
             let conditions = ObjectConditions {
                 if_generation_match: spec.if_generation_match,

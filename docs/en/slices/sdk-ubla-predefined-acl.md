@@ -21,9 +21,10 @@ remain pending.
 - Schema 22 migrates existing buckets to disabled uniform access.
 - Pinned Go and Ruby high-level clients create, inspect and disable access;
   Go Writer predefined ACL fails without publishing an object.
-- Existing authorization remains IAM-only. ACL CRUD, ACL restoration/default
-  grants, initialization-file settings and remaining ACL/UBLA/PAP interactions
-  remain pending.
+- Authorization at this original checkpoint was IAM-only. Subsequent ACL CRUD
+  and selected-generation object read grants have separate [storage](json-acl.md)
+  and [permission evidence](acl-permission-effects.md). Bucket/owner/membership,
+  canned/default ACL effects and remaining ACL/UBLA/PAP interactions stay pending.
 
 ## Sources and local choices
 

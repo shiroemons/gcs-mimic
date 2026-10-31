@@ -345,6 +345,10 @@ fn initialized_settings_are_independent_and_api_changes_survive_restart() {
         "/storage/v1/b/assets-bucket/iam",
         json!({"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}),
     );
+    let after_policy = server.json("GET", "/storage/v1/b/assets-bucket", Value::Null);
+    assert_eq!(changed["metageneration"], "2");
+    assert_eq!(after_policy["metageneration"], "3");
+    assert_ne!(after_policy["etag"], changed["etag"]);
     let object = server.json("GET", "/storage/v1/b/assets-bucket/o/file", Value::Null);
     server.stop();
     input(
@@ -355,7 +359,7 @@ fn initialized_settings_are_independent_and_api_changes_survive_restart() {
     counts(&server, 1, 1, 0);
     assert_eq!(
         server.json("GET", "/storage/v1/b/assets-bucket", Value::Null),
-        changed
+        after_policy
     );
     assert_eq!(
         server.json("GET", "/storage/v1/b/assets-bucket/iam", Value::Null),

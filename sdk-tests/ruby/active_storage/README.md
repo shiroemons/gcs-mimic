@@ -76,3 +76,21 @@ redirect target, proxy mode, V2 and V4 (`cache_control`, from the
 requests, an upload 400 days after startup and `purge`. `attachments.rb --production` then checks that a
 production boot generates no emulator key. The runner fails if any script
 fails. See the [Rails guide page](../../../docs/en/rails-active-storage.md).
+
+Strict local JWT authentication has a separate scenario and explicit final-host
+V4 signing adapter. After building the final emulator, run:
+
+```sh
+cargo build --locked
+bash sdk-tests/ruby/active_storage/run-strict.sh
+```
+
+The runner registers only the public test key, grants its local identity the
+local-project admin role, starts an isolated strict server and cleans up its own
+data. `strict.rb` verifies stock Rails V2 and the explicit `EmulatorGcs` V4
+service, private access, PAP and browser-equivalent CORS with signatures kept
+intact. It does not remove OAuth authorization or rewrite signed URLs.
+The [strict JWT contract](../../../docs/en/slices/strict-service-account-jwt.md)
+lists accepted claims, scope restrictions, key rotation and split API/browser
+origins. Actual browser and container execution remains a separate integration
+check; inspect the final evidence before claiming those environments pass.
