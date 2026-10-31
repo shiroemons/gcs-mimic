@@ -5,10 +5,7 @@ use super::super::import_journal::{self, ImportBinding, ImportElement};
 use super::*;
 
 impl Admin {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "import publishes each bucket once"
-    )]
+    #[cfg(test)]
     pub(crate) async fn publish_import_bucket(
         &self,
         binding: ImportBinding,
@@ -16,7 +13,32 @@ impl Admin {
         element: ImportElement,
         definition: BucketDefinition,
     ) -> Result<EnsureBucket, AdminError> {
+        self.publish_import_bucket_with_acl(
+            binding,
+            expected_cursor,
+            element,
+            definition,
+            None,
+            None,
+        )
+        .await
+    }
+
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "import publishes each bucket once"
+    )]
+    pub(crate) async fn publish_import_bucket_with_acl(
+        &self,
+        binding: ImportBinding,
+        expected_cursor: i64,
+        element: ImportElement,
+        definition: BucketDefinition,
+        acl: Option<Vec<crate::acl::AclEntry>>,
+        source_created: Option<std::time::SystemTime>,
+    ) -> Result<EnsureBucket, AdminError> {
         let origin = self.origin();
+        let principals = self.catalog.0.principals.get().cloned();
         self.catalog
             .run_admin(move |connection| {
                 let transaction = connection
@@ -35,6 +57,26 @@ impl Admin {
                     Err(AdminError::Precondition)
                 } else {
                     super::super::insert_bucket_in_transaction(&transaction, &mut record)?;
+                    if let Some(created) = source_created {
+                        super::super::bucket_timestamps::store_imported(
+                            &transaction,
+                            &mut record,
+                            created,
+                        )?;
+                    }
+                    if let Some(entries) = &acl {
+                        super::super::acl::replace_resource_acl(
+                            &transaction,
+                            super::super::acl::ResolvedAclTarget::Bucket(&record.name),
+                            entries,
+                            &BucketAccess::Admin(AdminGrant {
+                                control: None,
+                                origin,
+                                notification_mode: crate::notification::NotificationMode::Suppress,
+                            }),
+                            principals.as_ref(),
+                        )?;
+                    }
                     super::super::change_journal::append(
                         &transaction,
                         origin,

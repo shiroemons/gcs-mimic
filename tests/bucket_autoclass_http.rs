@@ -117,18 +117,25 @@ fn resumable(server: &Server, bucket: &str, name: &str, metadata: Value) -> Repl
     )
 }
 
-/// Server-computed Autoclass times fall within the mutating request; RFC 3339 strings with
-/// the same millisecond format order lexicographically.
+/// Server-computed Autoclass times fall within the mutating request. Rendering trims trailing
+/// fractional zeroes beyond the third digit, so pad the fraction before comparing UTC
+/// RFC 3339 strings lexicographically.
 fn assert_between(before: &Value, time: &Value, after: &Value) {
-    let (before, time, after) = (
-        before.as_str().unwrap(),
-        time.as_str().unwrap(),
-        after.as_str().unwrap(),
-    );
+    let (before, time, after) = (comparable(before), comparable(time), comparable(after));
     assert!(
         before <= time && time <= after,
         "{before} <= {time} <= {after}"
     );
+}
+
+fn comparable(time: &Value) -> String {
+    let time = time.as_str().unwrap();
+    let (seconds, fraction) = time
+        .strip_suffix('Z')
+        .unwrap()
+        .split_once('.')
+        .unwrap_or((time.strip_suffix('Z').unwrap(), ""));
+    format!("{seconds}.{fraction:0<9}Z")
 }
 
 fn object(server: &Server, bucket: &str, name: &str) -> Value {

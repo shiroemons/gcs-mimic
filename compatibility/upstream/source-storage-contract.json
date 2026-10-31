@@ -1,11 +1,18 @@
 {
-  "checked_at": "2026-10-24",
+  "checked_at": "2026-10-30",
   "scope": "Read-only source inspection for docs/en/slices/source-storage-contract.md; no upstream runtime test or import implementation claim.",
   "reference": {
     "product": "fake-gcs-server",
     "version": "v1.56.1",
     "repository": "https://github.com/fsouza/fake-gcs-server",
     "commit": "896ece51e49eed0946089f3089f6343855c0d106",
+    "module_archive": {
+      "url": "https://proxy.golang.org/github.com/fsouza/fake-gcs-server/@v/v1.56.1.zip",
+      "bytes": 188125,
+      "sha256": "27643a0846d610906fa817c979768d40fb57728fafd3623a199eeb553bd55e13",
+      "license": "BSD-2-Clause",
+      "scope": "Separate quiesced source capture module; not linked into the Rust emulator. Runtime capture/import evidence is docs/en/slices/go-source-memory-export.md."
+    },
     "tree_url": "https://api.github.com/repos/fsouza/fake-gcs-server/git/trees/896ece51e49eed0946089f3089f6343855c0d106?recursive=1",
     "git_blobs": [
       { "path": "Dockerfile", "blob": "eae4233c02a17c4572e5cb528beb60428d46f307" },
@@ -31,10 +38,16 @@
     "catalog_unit": "signed Unix microseconds",
     "fraction_rule": "Accept variable-length fractional seconds and zone offsets; block any nonzero digit after the sixth fractional digit, without truncating before validation.",
     "lossy_ms_mode": false,
-    "json_rendering": "Unchanged RFC 3339 with three fractional digits, floored toward negative infinity",
+    "json_rendering": "RFC 3339 UTC object resources retain stored microseconds with three to six fractional digits; bucket resources emit nine digits when their checked sub-microsecond remainder is nonzero",
     "xml_rendering": "Unchanged HTTP-date representation and supported range",
     "lossless_scope": "Exact timestamps within the declared preservation subset require representable microseconds, all preserved fields/generations verified, no unsupported source semantics and completed import acceptance; generated native ETags, metagenerations and bucket times are reported separately.",
     "owner": "docs/en/slices/catalog-timestamp-precision.md"
+  },
+  "bucket_timestamp_contract": {
+    "catalog_schema_version": 39,
+    "catalog_unit": "signed floor microseconds plus checked 0..999 nanosecond remainder",
+    "scope": "Snapshot bucket created/updated timestamps retain exact source precision. Object timestamps keep their independent microsecond validation; actual macOS source capture has zero sub-microsecond remainder and nonzero nanoseconds have synthetic reader coverage.",
+    "contract": "docs/en/slices/source-memory-snapshot.md"
   },
   "mime_profile": {
     "note": "Deterministic selected profile, not a reconstruction of every published reference image. The merged table is embedded; no host MIME databases are read at runtime.",
@@ -80,7 +93,7 @@
       "source_mirror_url": "https://distfiles.alpinelinux.org/distfiles/v3.24/mailcap-2.1.54.tar.xz",
       "source_sha512": "a80caba013b644111f163d8ef74fe801d7266cf4edd38ca723f98fb12a103a24e84a8fca0c569beb05ca0f407437ed1282306b30303c38327b744194c6fe80b2",
       "source_member": "mailcap-2.1.54/mime.types",
-      "verification_note": "The pinned APKBUILD source tarball and SHA-512 are an independent route when the APK CDN retires revisions; source_member must match member_sha256. The source URL returned HTTP 404 on 2026-10-24; the mirror passed. import-seed-adapter must add the generated table path and SHA-256 here.",
+      "verification_note": "The pinned APKBUILD source tarball and SHA-512 are an independent route when the APK CDN retires revisions; source_member must match member_sha256. The source URL returned HTTP 404 on 2026-10-24; the mirror passed. The generated table path, SHA-256 and entry count are recorded in mime_profile.generated_table.",
       "license_declared_by_package": "Public Domain",
       "package_url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/mailcap-2.1.54-r0.apk",
       "package_bytes": 21404,

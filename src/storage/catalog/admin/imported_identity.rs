@@ -13,9 +13,10 @@ use {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ImportedIdentity {
-    generation: Generation,
+    generation: Option<Generation>,
     time_created: SystemTime,
     updated: SystemTime,
+    time_deleted: Option<SystemTime>,
 }
 
 impl ImportedIdentity {
@@ -24,8 +25,21 @@ impl ImportedIdentity {
         time_created: SystemTime,
         updated: SystemTime,
     ) -> Result<Self, AdminError> {
+        Self::fixture(Some(generation), time_created, updated)
+    }
+
+    pub(crate) fn fixture(
+        generation: Option<Generation>,
+        time_created: SystemTime,
+        updated: SystemTime,
+    ) -> Result<Self, AdminError> {
         for time in [time_created, updated] {
             let micros = super::super::unix_micros(time).map_err(AdminError::from)?;
+            if !crate::clock::rfc3339_micros(i128::from(micros)) {
+                return Err(AdminError::Invalid(
+                    "imported timestamps must be within the supported RFC3339 UTC range".into(),
+                ));
+            }
             if super::super::system_time_micros(micros)
                 // xtask-lint: allow(text::stringified_error) -- an out-of-range imported timestamp is rejected operator input, which AdminError::Invalid reports as text
                 .map_err(|error| AdminError::Invalid(error.to_string()))?
@@ -40,10 +54,11 @@ impl ImportedIdentity {
             generation,
             time_created,
             updated,
+            time_deleted: None,
         })
     }
 
-    pub(crate) fn generation(self) -> Generation {
+    pub(crate) fn generation(self) -> Option<Generation> {
         self.generation
     }
     pub(crate) fn time_created(self) -> SystemTime {
@@ -51,6 +66,19 @@ impl ImportedIdentity {
     }
     pub(crate) fn updated(self) -> SystemTime {
         self.updated
+    }
+    pub(crate) fn archived(mut self, time_deleted: SystemTime) -> Result<Self, AdminError> {
+        Self::fixture(self.generation, time_deleted, time_deleted)?;
+        if self.generation.is_none() {
+            return Err(AdminError::Invalid(
+                "archived publication requires a source generation".into(),
+            ));
+        }
+        self.time_deleted = Some(time_deleted);
+        Ok(self)
+    }
+    pub(crate) fn time_deleted(self) -> Option<SystemTime> {
+        self.time_deleted
     }
 }
 
@@ -181,7 +209,10 @@ mod tests {
             let Ok(time) = time else {
                 continue;
             };
-            assert!(ImportedIdentity::new(generation, time, time).is_ok());
+            assert_eq!(
+                ImportedIdentity::new(generation, time, time).is_ok(),
+                crate::clock::rfc3339_micros(i128::from(micros))
+            );
         }
         let beyond = UNIX_EPOCH.checked_add(Duration::from_micros(i64::MAX as u64 + 1));
         assert!(beyond.is_some() || cfg!(windows));
@@ -198,7 +229,7 @@ mod tests {
             .publish_imported_object(&bucket, &name, request(), source, body())
             .await
             .unwrap();
-        assert_eq!(record.generation, source.generation().get());
+        assert_eq!(record.generation, source.generation().unwrap().get());
         assert_eq!(
             (record.time_created, record.updated),
             (source.time_created(), source.updated())
@@ -226,13 +257,13 @@ mod tests {
         );
         assert_eq!(
             admin
-                .get_object(&bucket, &name, Some(source.generation()))
+                .get_object(&bucket, &name, source.generation())
                 .await
                 .unwrap(),
             record
         );
         let mut stale = request();
-        stale.condition = Some(GenerationCondition::Is(source.generation()));
+        stale.condition = Some(GenerationCondition::Is(source.generation().unwrap()));
         assert_eq!(
             admin
                 .publish_imported_object(&bucket, &name, stale, identity(8), body())
@@ -246,13 +277,13 @@ mod tests {
         let admin = catalog.admin(Origin::Import);
         assert_eq!(
             admin
-                .get_object(&bucket, &name, Some(source.generation()))
+                .get_object(&bucket, &name, source.generation())
                 .await
                 .unwrap(),
             record
         );
         let (_, mut reader) = admin
-            .open_object(&bucket, &name, Some(source.generation()))
+            .open_object(&bucket, &name, source.generation())
             .await
             .unwrap();
         assert_eq!(reader.next_chunk().await.unwrap().unwrap(), &b"data"[..]);
@@ -261,7 +292,7 @@ mod tests {
             .publish_object(&bucket, &name, request(), body())
             .await
             .unwrap();
-        assert_eq!(ordinary.generation, source.generation().get() + 1);
+        assert_eq!(ordinary.generation, source.generation().unwrap().get() + 1);
         catalog.close().await.unwrap();
     }
 

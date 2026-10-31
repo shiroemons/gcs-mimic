@@ -111,7 +111,7 @@ mod tests {
         );
         assert_eq!(
             render(&parsed).unwrap(),
-            json!({"mode":"Locked","retainUntilTime":"2030-01-01T18:04:05.123Z"})
+            json!({"mode":"Locked","retainUntilTime":"2030-01-01T18:04:05.123456Z"})
         );
         for removal in [
             Value::Null,

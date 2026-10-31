@@ -283,7 +283,13 @@ fn obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket() {
     let generation = value["generation"].as_str().unwrap();
     assert!(generation.parse::<i64>().unwrap() > 0);
     let time = value["timeCreated"].as_str().unwrap();
-    assert!(time.ends_with('Z') && time.len() == 24);
+    assert!(time.ends_with('Z') && (24..=27).contains(&time.len()));
+    assert_eq!(time.as_bytes()[19], b'.');
+    assert!(
+        time.as_bytes()[20..time.len() - 1]
+            .iter()
+            .all(u8::is_ascii_digit)
+    );
     assert_eq!(
         value,
         json!({
