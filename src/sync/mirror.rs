@@ -1,3 +1,4 @@
+use super::control::Command;
 use super::mapping::{self, PathMapping, Reason};
 use crate::{
     bucket::CatalogError,
@@ -9,17 +10,18 @@ use crate::{
     storage::{
         Catalog, ObjectListQuery,
         admin::{Admin, AdminError, BucketName, Generation, ObjectName, Origin},
-        change_journal::{ChangeKind, JournalFence},
+        change_journal::{ChangeKind, ChangePage, JournalFence},
         sync_state::{
             SyncBinding, SyncRecord,
             root::{RootError, RootLease},
-            writeback::{self, Limits, LiveExport, LiveResult, Stop, Writeback},
+            writeback::{self, Limits, LiveExport, LiveResult, LiveSource, Stop, Writeback},
         },
     },
 };
 use std::{
     ffi::{OsStr, OsString},
     fs::File,
+    future::Future,
     io,
     path::{Path, PathBuf},
     time::Duration,
@@ -49,6 +51,8 @@ async fn export_checkpoint(phase: &str) {
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
 
+mod wait;
+
 #[derive(Default, Debug, serde::Serialize)]
 pub struct Reconciliation {
     pub ingested: u64,
@@ -71,13 +75,102 @@ pub struct Task {
         not(all(test, any(target_os = "linux", target_os = "macos"))),
         expect(dead_code, reason = "only unit tests request a rescan")
     )]
-    rescan: tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<io::Result<Reconciliation>>>,
+    rescan: tokio::sync::mpsc::Sender<Command>,
+}
+
+struct DirectoryWatch {
+    watch: crate::source_tree::watch::Watch,
+    // Vnode descriptors must close before the lease can release exclusive root ownership.
+    _root: RootLease,
+}
+
+impl DirectoryWatch {
+    async fn new(root: &RootLease) -> io::Result<Self> {
+        let lease = root.clone();
+        let native = root
+            .file_job(|root| crate::source_tree::watch::build(root).map_err(AdminError::backend))
+            .await
+            .map_err(io::Error::other)?;
+        Ok(Self {
+            watch: crate::source_tree::watch::Watch::new(native)?,
+            _root: lease,
+        })
+    }
+
+    async fn rebuild(
+        &mut self,
+        root: &RootLease,
+        stopping: &tokio::sync::watch::Receiver<bool>,
+        health: &crate::task::TaskHealth,
+    ) -> io::Result<()> {
+        let mut delay = RETRY_DELAY_MIN;
+        let mut failures = 0;
+        let mut stopping = stopping.clone();
+        loop {
+            if *stopping.borrow() {
+                return Ok(());
+            }
+            match Self::new(root).await {
+                Ok(watcher) => {
+                    *self = watcher;
+                    health.pass_succeeded();
+                    return Ok(());
+                }
+                Err(error) if watch_retryable(&error) => {
+                    failures += 1;
+                    health.pass_failed();
+                    #[cfg(test)]
+                    export_checkpoint("retry").await;
+                    if failures >= 3 {
+                        return Err(error);
+                    }
+                    diagnostics::emit(
+                        LogLevel::Error,
+                        "sync_watch_retry",
+                        serde_json::json!({
+                            "reason":error.to_string(),"delay_ms":delay.as_millis(),
+                            "remedy":"Restore read/search permissions on the sync tree; observation remains unhealthy until every subtree is watched"
+                        }),
+                    );
+                    tokio::select! {
+                        _ = stopping.changed() => return Ok(()),
+                        () = tokio::time::sleep(delay) => {},
+                    }
+                    delay = delay.saturating_mul(2).min(RETRY_DELAY_MAX);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+
+fn watch_retryable(error: &io::Error) -> bool {
+    if is_transient(error) {
+        return true;
+    }
+    let mut next = Some(error as &(dyn std::error::Error + 'static));
+    while let Some(cause) = next {
+        if cause
+            .downcast_ref::<io::Error>()
+            .is_some_and(|error| error.kind() == io::ErrorKind::PermissionDenied)
+        {
+            return true;
+        }
+        next = cause.source();
+    }
+    false
 }
 impl Task {
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) async fn rescan(&self) -> io::Result<Reconciliation> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
-        self.rescan.send(sender).await.map_err(io::Error::other)?;
+        self.rescan
+            .send(Command::Rescan {
+                reply: sender,
+                identity: None,
+            })
+            .await
+            .map_err(io::Error::other)?;
         receiver.await.map_err(io::Error::other)?
     }
     pub(crate) fn stop(&self) {
@@ -150,37 +243,72 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
     let config = config.clone();
     let runtime = tokio::runtime::Handle::current();
     let (stop, mut stopping) = tokio::sync::watch::channel(false);
+    let root = std::sync::Arc::new(root.with_shutdown(stopping.clone()));
     let (done, completion) = tokio::sync::oneshot::channel();
     let (rescan, mut requests) = tokio::sync::mpsc::channel(1);
+    catalog
+        .register_sync_controls(&root, rescan.clone())
+        .map_err(io::Error::other)?;
     // A transient failure (catalog contention, a timeout) is retried with backoff and counts as
     // a failed pass, so readiness drops only once failures repeat and recovers with the next
-    // successful pass. Any other error or a panic stops the mirror for good and keeps readiness
-    // off: the server would otherwise report ready while the working tree silently stopped
-    // syncing, and retrying an invalid name or a permission error cannot fix it.
+    // successful pass. Persistent failures pause intake but retain ownership and controls;
+    // only an explicit rescan after repair may restore synchronization readiness.
     let health = crate::task::TaskHealth::default();
     catalog.watch_background_task(health.clone());
     crate::task::spawn_thread("sync-mirror", move || {
         let mut delay = RETRY_DELAY_MIN;
-        let reason = loop {
+        let mut resume = None;
+        loop {
             let started = std::time::Instant::now();
             let result = crate::task::catch_job("sync-mirror", || {
                 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
                 tests::injected_live_failure(&config)?;
                 runtime.block_on(run_live_config(
-                    &catalog,
-                    &root,
+                    LiveRun {
+                        catalog: &catalog,
+                        root: &root,
+                        config: &config,
+                        health: &health,
+                        resume: resume.take(),
+                    },
                     &mut stopping,
-                    &config,
                     &mut requests,
-                    &health,
                 ))
             });
             let error = match result {
-                Ok(Ok(())) => break None,
-                Ok(Err(error)) if is_transient(&error) => error,
-                Ok(Err(error)) => break Some(error.to_string()),
-                Err(panicked) => break Some(panicked.to_string()),
+                Ok(Ok(())) => break,
+                Ok(Err(error)) => error,
+                Err(error) => io::Error::other(error),
             };
+            if !is_transient(&error) {
+                health.mark_restarting();
+                diagnostics::emit(
+                    LogLevel::Error,
+                    "sync_paused",
+                    serde_json::json!({"reason":error.to_string(),"remedy":"Preserve pending data, correct the reported condition and request an explicit rescan"}),
+                );
+                if let Err(error) =
+                    runtime.block_on(root.observation_pause(Some(pause_reason(&error).into())))
+                {
+                    diagnostics::emit(
+                        LogLevel::Error,
+                        "sync_pause_unrecorded",
+                        serde_json::json!({"reason":error.to_string()}),
+                    );
+                }
+                resume = runtime.block_on(await_resume(
+                    &catalog,
+                    &root,
+                    &config,
+                    &mut requests,
+                    &mut stopping,
+                ));
+                if resume.is_none() {
+                    break;
+                }
+                delay = RETRY_DELAY_MIN;
+                continue;
+            }
             health.pass_failed();
             // A run that lasted longer than the cap had recovered, so its failure starts over.
             if started.elapsed() >= RETRY_DELAY_MAX {
@@ -201,41 +329,31 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                 }
             });
             if stopped {
-                break None;
+                break;
             }
             delay = delay.saturating_mul(2).min(RETRY_DELAY_MAX);
-        };
+        }
         drop(requests);
-        if let Some(reason) = reason {
+        if let Err(error) = catalog.clear_sync_controls() {
             health.mark_stopped();
             diagnostics::emit(
                 LogLevel::Error,
-                "sync_stopped",
-                serde_json::json!({
-                    "reason": reason,
-                    "remedy": "Preserve the working tree and workspace. Correct unsafe names or permissions; for unresolved write-back recovery, back up the tree and select a fresh unassociated sync_dir."
-                }),
+                "sync_controls_closed",
+                serde_json::json!({"reason":error.to_string()}),
             );
         }
-        runtime.block_on(async move {
-            // Idle ownership must also release when the server closes after a listener error.
-            let mut fence = catalog
-                .read_changes(None, None, 1)
-                .await
-                .ok()
-                .map(|p| p.fence);
-            while !*stopping.borrow() {
-                let Some(current) = fence else { break };
+        if health.is_down() {
+            health.mark_stopped();
+        }
+        runtime.block_on(async {
+            if !*stopping.borrow() {
                 tokio::select! {
-                    _ = stopping.changed() => break,
-                    observed = catalog.wait_for_changes(current) => match observed {
-                        Ok(observed) if !observed.rescan_required => fence = Some(observed.fence),
-                        _ => break,
-                    }
+                    _=stopping.changed()=>{},
+                    ()=catalog.wait_for_sync_shutdown()=>{},
                 }
             }
-            drop(root);
         });
+        drop(root);
         let _ = done.send(());
     })?;
     Ok(Task {
@@ -253,52 +371,125 @@ async fn run_live(
 ) -> io::Result<()> {
     let (_sender, mut receiver) = tokio::sync::mpsc::channel(1);
     let health = crate::task::TaskHealth::default();
+    let config = Config::default();
     run_live_config(
-        catalog,
-        root,
+        LiveRun {
+            catalog,
+            root,
+            config: &config,
+            health: &health,
+            resume: None,
+        },
         stopping,
-        &Config::default(),
         &mut receiver,
-        &health,
     )
     .await
 }
 
-async fn run_live_config(
+struct LiveRun<'a> {
+    catalog: &'a Catalog,
+    root: &'a RootLease,
+    config: &'a Config,
+    health: &'a crate::task::TaskHealth,
+    resume: Option<Resume>,
+}
+
+struct Resume {
+    reply: tokio::sync::oneshot::Sender<io::Result<Reconciliation>>,
+    authority: crate::storage::sync_state::authority::ControlAuthority,
+}
+
+async fn await_resume(
     catalog: &Catalog,
     root: &RootLease,
-    stopping: &mut tokio::sync::watch::Receiver<bool>,
     config: &Config,
-    requests: &mut tokio::sync::mpsc::Receiver<
-        tokio::sync::oneshot::Sender<io::Result<Reconciliation>>,
-    >,
-    health: &crate::task::TaskHealth,
-) -> io::Result<()> {
-    catalog
-        .enable_change_journal()
-        .await
-        .map_err(io::Error::other)?;
-    let mut cursor = catalog
-        .read_changes(None, None, 1)
-        .await
-        .map_err(io::Error::other)?
-        .fence;
-    let ingested = super::ingest::rescan(catalog, root, config, stopping).await?;
-    diagnostics::emit(LogLevel::Info, "sync_ingested", &ingested);
-    let mut ingest_complete = BaselineGate::after_ingest(&ingested);
-    let mut summary = reconcile_until(catalog, root, stopping, ingest_complete).await?;
-    summary.ingested = ingested.ingested;
-    let mut baseline_complete = summary.baseline_complete;
-    diagnostics::emit(LogLevel::Info, "sync_reconciled", &summary);
-    health.pass_succeeded();
-    let writeback = root
-        .writeback(
-            Limits::new(super::CONFLICT_MAX_BYTES, super::CONFLICT_MAX_ENTRIES)
-                .map_err(io::Error::other)?,
-        )
-        .await
-        .map_err(io::Error::other)?;
+    requests: &mut tokio::sync::mpsc::Receiver<Command>,
+    stopping: &mut tokio::sync::watch::Receiver<bool>,
+) -> Option<Resume> {
+    let mut after = 0;
+    loop {
+        match root
+            .recovery_page(
+                after,
+                128,
+                crate::storage::sync_state::authority::ControlAuthority::Permissive,
+            )
+            .await
+        {
+            Ok(page) if page.is_empty() => break,
+            Ok(page) => after = page.last().map_or(after, |item| item.ordinal),
+            Err(error) => {
+                diagnostics::emit(
+                    LogLevel::Error,
+                    "sync_recovery_observation_failed",
+                    serde_json::json!({"reason":error.to_string(),"remedy":"Preserve the workspace and inspect the retained entry before attempting recovery"}),
+                );
+                break;
+            }
+        }
+        if *stopping.borrow() {
+            return None;
+        }
+    }
     while !*stopping.borrow() {
+        tokio::select! {
+            biased;
+            _=stopping.changed()=>return None,
+            request=requests.recv()=>match request? {
+                Command::Rescan {reply,identity}=> {
+                    match root.authorize_controls(config.seed_project.clone(),identity.clone()).await {
+                        Ok(())=>return Some(Resume {reply,authority:crate::storage::sync_state::authority::ControlAuthority::new(config.seed_project.clone(),identity)}),
+                        Err(error)=>{let _=reply.send(Err(io::Error::other(error)));}
+                    }
+                }
+                Command::Approve {reply,..}=>{let _=reply.send(Err(io::Error::new(io::ErrorKind::WouldBlock,"Synchronization is paused; correct the condition and request a rescan")));}
+                Command::Wait {reply,..}=>{let _=reply.send(Ok(super::control::WaitResult {completed:false,timed_out:false,journal_fence:None,reconciliation:None,reason:"Paused"}));}
+                Command::Resolve {request,reply,identity}=> {
+                    let authority=crate::storage::sync_state::authority::ControlAuthority::new(config.seed_project.clone(),identity);
+                    let result=root.resolve_conflict(request,authority,config.max_object_bytes).await;
+                    let _=reply.send(result);
+                }
+            },
+            ()=catalog.wait_for_sync_shutdown()=>return None,
+        }
+    }
+    None
+}
+
+async fn run_live_config(
+    run: LiveRun<'_>,
+    stopping: &mut tokio::sync::watch::Receiver<bool>,
+    requests: &mut tokio::sync::mpsc::Receiver<Command>,
+) -> io::Result<()> {
+    let (catalog, root, config, health) = (run.catalog, run.root, run.config, run.health);
+    let Initialized {
+        mut cursor,
+        mut watcher,
+        mut ingest_complete,
+        mut baseline_complete,
+        writeback,
+    } = initialize_live(run, stopping).await?;
+    while !*stopping.borrow() {
+        if let Ok(request) = requests.try_recv() {
+            if matches!(&request, Command::Rescan { .. } | Command::Wait { .. }) {
+                watcher.rebuild(root, stopping, health).await?;
+            }
+            if *stopping.borrow() {
+                break;
+            }
+            LiveControl {
+                catalog,
+                root,
+                config,
+                stopping,
+                ingest_complete: &mut ingest_complete,
+                baseline_complete: &mut baseline_complete,
+                cursor: &mut cursor,
+            }
+            .handle(request)
+            .await?;
+            continue;
+        }
         let page = catalog
             .read_changes(Some(cursor), None, 256)
             .await
@@ -313,80 +504,393 @@ async fn run_live_config(
             #[cfg(test)]
             export_checkpoint("idle").await;
             tokio::select! {
+                biased;
                 _ = stopping.changed() => break,
+                observed = watcher.watch.changed() => {
+                    observed?;
+                    root.invalidate_deletions().await.map_err(io::Error::other)?;
+                    // Register before scanning so edits during reconciliation cause another pass.
+                    watcher.rebuild(root,stopping,health).await?;
+                    if *stopping.borrow() { break }
+                    let summary = ingest_external(catalog, root, config, stopping, &mut ingest_complete, &mut baseline_complete).await?;
+                    diagnostics::emit(LogLevel::Info, "sync_ingested", &summary);
+                    health.pass_succeeded();
+                }
                 Some(request) = requests.recv() => {
-                    let summary = async {
-                        let mut summary = super::ingest::rescan(catalog, root, config, stopping).await?;
-                        ingest_complete = BaselineGate::after_ingest(&summary);
-                        if !baseline_complete && ingest_complete == BaselineGate::Allowed && !*stopping.borrow() {
-                            let merged = reconcile_until(catalog, root, stopping, BaselineGate::Allowed).await?;
-                            baseline_complete = merged.baseline_complete;
-                        }
-                        summary.baseline_complete = baseline_complete;
-                        Ok::<_, io::Error>(summary)
-                    }.await;
-                    if let Ok(summary) = &summary {
-                        diagnostics::emit(LogLevel::Info, "sync_ingested", summary);
+                    if matches!(&request,Command::Rescan {..}|Command::Wait {..}) {
+                        watcher.rebuild(root,stopping,health).await?;
                     }
-                    let _ = request.send(summary);
+                    if *stopping.borrow() { break }
+                    LiveControl {catalog,root,config,stopping,ingest_complete:&mut ingest_complete,baseline_complete:&mut baseline_complete,cursor:&mut cursor}.handle(request).await?;
                 }
                 result = catalog.wait_for_changes(cursor) => { result.map_err(io::Error::other)?; }
             }
             continue;
         }
-        let mut summary = Reconciliation::default();
-        // A page bounds the work set; each selected key reads current live state once.
-        let mut keys = std::collections::BTreeSet::new();
-        for change in page.items {
-            if change.origin == Origin::SyncIngest {
-                continue;
-            }
-            if matches!(
-                change.kind,
-                ChangeKind::Publish
-                    | ChangeKind::Delete
-                    | ChangeKind::Metadata
-                    | ChangeKind::BucketCreate
-            ) {
-                keys.insert((change.bucket, change.object));
-            }
-        }
-        for (bucket, name) in keys {
-            if *stopping.borrow() {
-                return Ok(());
-            }
-            let Ok(bucket) = BucketName::new(bucket) else {
-                continue;
-            };
-            if let Some(name) = name {
-                reconcile_live_object(
-                    catalog,
-                    root,
-                    &writeback,
-                    &bucket,
-                    &ObjectName::new(name).map_err(io::Error::other)?,
-                    page.fence,
-                    &mut summary,
-                )
-                .await?;
-            } else {
-                if !root
-                    .remember_sync_bucket(&bucket)
-                    .await
-                    .map_err(io::Error::other)?
-                {
-                    summary.deferred += 1;
-                    continue;
-                }
-                let directory = PathBuf::from(bucket.as_str());
-                create_directory(root, directory).await?;
-            }
-        }
         cursor = page.next;
+        let summary = replay_page(catalog, root, &writeback, page, stopping).await?;
         diagnostics::emit(LogLevel::Info, "sync_exported", &summary);
         health.pass_succeeded();
     }
     Ok(())
+}
+
+async fn replay_page(
+    catalog: &Catalog,
+    root: &RootLease,
+    writeback: &Writeback,
+    page: ChangePage,
+    stopping: &tokio::sync::watch::Receiver<bool>,
+) -> io::Result<Reconciliation> {
+    let mut summary = Reconciliation::default();
+    // A page bounds the work set; each selected key reads current live state once.
+    let mut keys = std::collections::BTreeSet::new();
+    for change in page.items {
+        if change.origin == Origin::SyncIngest {
+            continue;
+        }
+        if matches!(
+            change.kind,
+            ChangeKind::Publish
+                | ChangeKind::Delete
+                | ChangeKind::Metadata
+                | ChangeKind::BucketCreate
+        ) {
+            keys.insert((change.bucket, change.object));
+        }
+    }
+    for (bucket, name) in keys {
+        if *stopping.borrow() {
+            return Ok(summary);
+        }
+        let Ok(bucket) = BucketName::new(bucket) else {
+            continue;
+        };
+        if let Some(name) = name {
+            reconcile_live_object(
+                catalog,
+                root,
+                writeback,
+                &bucket,
+                &ObjectName::new(name).map_err(io::Error::other)?,
+                page.fence,
+                &mut summary,
+            )
+            .await?;
+        } else {
+            if !root
+                .remember_sync_bucket(&bucket)
+                .await
+                .map_err(io::Error::other)?
+            {
+                summary.deferred += 1;
+                continue;
+            }
+            let directory = PathBuf::from(bucket.as_str());
+            create_directory(root, directory).await?;
+        }
+    }
+    Ok(summary)
+}
+
+struct Initialized {
+    cursor: JournalFence,
+    watcher: DirectoryWatch,
+    ingest_complete: BaselineGate,
+    baseline_complete: bool,
+    writeback: Writeback,
+}
+
+fn pause_reason(error: &io::Error) -> &'static str {
+    let mut next = Some(error as &(dyn std::error::Error + 'static));
+    while let Some(cause) = next {
+        if matches!(
+            cause.downcast_ref::<crate::storage::sync_state::conflicts::Error>(),
+            Some(crate::storage::sync_state::conflicts::Error::Capacity)
+        ) || matches!(
+            cause.downcast_ref::<writeback::Error>(),
+            Some(writeback::Error::Capacity)
+        ) {
+            return "ConflictCapacity";
+        }
+        if matches!(
+            cause.downcast_ref::<writeback::Error>(),
+            Some(writeback::Error::RecoveryRequired | writeback::Error::Protected)
+        ) {
+            return "RecoveryRequired";
+        }
+        if matches!(
+            cause.downcast_ref::<AdminError>(),
+            Some(AdminError::DiskFull | AdminError::Io(_))
+        ) {
+            return "IoFailure";
+        }
+        next = cause
+            .downcast_ref::<io::Error>()
+            .and_then(|error| {
+                error
+                    .get_ref()
+                    .map(|cause| cause as &(dyn std::error::Error + 'static))
+            })
+            .or_else(|| cause.source());
+    }
+    "observer-failure"
+}
+
+async fn initialize_live(
+    run: LiveRun<'_>,
+    stopping: &tokio::sync::watch::Receiver<bool>,
+) -> io::Result<Initialized> {
+    let LiveRun {
+        catalog,
+        root,
+        config,
+        health,
+        resume,
+    } = run;
+    let initial_root = resume
+        .as_ref()
+        .map(|request| root.with_authority(request.authority.clone()));
+    let operation_root = initial_root.as_ref().unwrap_or(root);
+    catalog
+        .enable_change_journal()
+        .await
+        .map_err(io::Error::other)?;
+    let cursor = catalog
+        .read_changes(None, None, 1)
+        .await
+        .map_err(io::Error::other)?
+        .fence;
+    let watcher = DirectoryWatch::new(root).await?;
+    let mut writeback = recover_writeback(operation_root).await?;
+    root.invalidate_deletions()
+        .await
+        .map_err(io::Error::other)?;
+    let ingested = super::ingest::rescan(catalog, operation_root, config, stopping).await?;
+    diagnostics::emit(LogLevel::Info, "sync_ingested", &ingested);
+    let ingest_complete = BaselineGate::after_ingest(&ingested);
+    let mut summary = reconcile_until(catalog, operation_root, stopping, ingest_complete).await?;
+    summary.ingested = ingested.ingested;
+    let baseline_complete = summary.baseline_complete;
+    diagnostics::emit(LogLevel::Info, "sync_reconciled", &summary);
+    observe_deletions(catalog, operation_root, config, &summary, stopping).await?;
+    root.observation_pause(None)
+        .await
+        .map_err(io::Error::other)?;
+    health.pass_succeeded();
+    if let Some(request) = resume {
+        let _ = request.reply.send(Ok(summary));
+        writeback = root
+            .writeback(
+                Limits::new(super::CONFLICT_MAX_BYTES, super::CONFLICT_MAX_ENTRIES)
+                    .map_err(io::Error::other)?,
+            )
+            .await
+            .map_err(io::Error::other)?;
+    }
+    Ok(Initialized {
+        cursor,
+        watcher,
+        ingest_complete,
+        baseline_complete,
+        writeback,
+    })
+}
+
+async fn recover_writeback(root: &RootLease) -> io::Result<Writeback> {
+    let writeback = root
+        .writeback(
+            Limits::new(super::CONFLICT_MAX_BYTES, super::CONFLICT_MAX_ENTRIES)
+                .map_err(io::Error::other)?,
+        )
+        .await
+        .map_err(io::Error::other)?;
+    writeback
+        .recover_pending()
+        .await
+        .map_err(io::Error::other)?;
+    let recovered = writeback
+        .preserve_protected()
+        .await
+        .map_err(io::Error::other)?;
+    if recovered.stop != Stop::Ready {
+        return Err(io::Error::other(match recovered.stop {
+            Stop::ConflictCapacity => writeback::Error::Capacity,
+            Stop::IoFailure => writeback::Error::Admin(AdminError::Io(io::ErrorKind::Other)),
+            _ => writeback::Error::RecoveryRequired,
+        }));
+    }
+    Ok(writeback)
+}
+
+async fn ingest_external(
+    catalog: &Catalog,
+    root: &RootLease,
+    config: &Config,
+    stopping: &tokio::sync::watch::Receiver<bool>,
+    ingest_complete: &mut BaselineGate,
+    baseline_complete: &mut bool,
+) -> io::Result<Reconciliation> {
+    root.file_job(|_| Ok(())).await.map_err(io::Error::other)?;
+    let mut summary = super::ingest::rescan(catalog, root, config, stopping).await?;
+    *ingest_complete = BaselineGate::after_ingest(&summary);
+    if !*baseline_complete && *ingest_complete == BaselineGate::Allowed && !*stopping.borrow() {
+        // Nested control rescans otherwise retain reconciliation state on the observer's stack.
+        let merged = Box::pin(reconcile_until(
+            catalog,
+            root,
+            stopping,
+            BaselineGate::Allowed,
+        ))
+        .await?;
+        *baseline_complete = merged.baseline_complete;
+    }
+    root.file_job(|_| Ok(())).await.map_err(io::Error::other)?;
+    summary.baseline_complete = *baseline_complete;
+    observe_deletions(catalog, root, config, &summary, stopping).await?;
+    Ok(summary)
+}
+
+async fn observe_deletions(
+    catalog: &Catalog,
+    root: &RootLease,
+    config: &Config,
+    summary: &Reconciliation,
+    stopping: &tokio::sync::watch::Receiver<bool>,
+) -> io::Result<()> {
+    let inventory = super::deletion::inventory(root, config, summary, stopping).await;
+    match inventory {
+        Ok(Some(set)) => {
+            super::deletion::execute(catalog, root, set, stopping).await?;
+        }
+        Ok(None) => {}
+        Err(error) if super::deletion::stale(&error) => {}
+        Err(error) => return Err(error),
+    }
+    Ok(())
+}
+
+struct LiveControl<'a> {
+    catalog: &'a Catalog,
+    root: &'a RootLease,
+    config: &'a Config,
+    stopping: &'a tokio::sync::watch::Receiver<bool>,
+    ingest_complete: &'a mut BaselineGate,
+    baseline_complete: &'a mut bool,
+    cursor: &'a mut JournalFence,
+}
+impl LiveControl<'_> {
+    async fn rescan(&mut self) -> io::Result<Reconciliation> {
+        let _writeback = recover_writeback(self.root).await?;
+        ingest_external(
+            self.catalog,
+            self.root,
+            self.config,
+            self.stopping,
+            self.ingest_complete,
+            self.baseline_complete,
+        )
+        .await
+    }
+
+    fn handle(&mut self, request: Command) -> impl Future<Output = io::Result<()>> + '_ {
+        // The single worker boxes one control future to bound nested reconciliation stack use.
+        Box::pin(async move {
+            let identity = match &request {
+                Command::Rescan { identity, .. }
+                | Command::Approve { identity, .. }
+                | Command::Wait { identity, .. }
+                | Command::Resolve { identity, .. } => identity.clone(),
+            };
+            let scoped = self.root.with_authority(
+                crate::storage::sync_state::authority::ControlAuthority::new(
+                    self.config.seed_project.clone(),
+                    identity,
+                ),
+            );
+            LiveControl {
+                catalog: self.catalog,
+                root: &scoped,
+                config: self.config,
+                stopping: self.stopping,
+                ingest_complete: self.ingest_complete,
+                baseline_complete: self.baseline_complete,
+                cursor: self.cursor,
+            }
+            .handle_authorized(request)
+            .await
+        })
+    }
+
+    async fn handle_authorized(&mut self, request: Command) -> io::Result<()> {
+        match request {
+            Command::Resolve {
+                request,
+                reply,
+                identity,
+            } => {
+                let authority = crate::storage::sync_state::authority::ControlAuthority::new(
+                    self.config.seed_project.clone(),
+                    identity,
+                );
+                let result = self
+                    .root
+                    .resolve_conflict(request, authority, self.config.max_object_bytes)
+                    .await;
+                let _ = reply.send(result);
+            }
+            Command::Wait {
+                deadline,
+                reply,
+                identity,
+            } => {
+                let result = match self
+                    .root
+                    .authorize_controls(self.config.seed_project.clone(), identity)
+                    .await
+                {
+                    Ok(()) => self.wait(deadline).await,
+                    Err(error) => Err(io::Error::other(error)),
+                };
+                let _ = reply.send(result);
+            }
+            Command::Rescan { reply, identity } => {
+                let summary = match self
+                    .root
+                    .authorize_controls(self.config.seed_project.clone(), identity)
+                    .await
+                {
+                    Ok(()) => self.rescan().await,
+                    Err(error) => Err(io::Error::other(error)),
+                };
+                let _ = reply.send(summary);
+            }
+            Command::Approve {
+                revision,
+                reply,
+                identity,
+            } => {
+                let approved = match self
+                    .root
+                    .authorize_controls(self.config.seed_project.clone(), identity)
+                    .await
+                {
+                    Ok(()) => self
+                        .root
+                        .approve_deletions(revision)
+                        .await
+                        .map_err(io::Error::other),
+                    Err(error) => Err(io::Error::other(error)),
+                };
+                let set = approved.as_ref().ok().cloned();
+                let _ = reply.send(approved);
+                if let Some(set) = set {
+                    super::deletion::execute(self.catalog, self.root, set, self.stopping).await?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 async fn reconcile_live_object(
@@ -408,6 +912,59 @@ async fn reconcile_live_object(
         return Ok(());
     };
     object.export(writeback, fence, plan, summary).await
+}
+
+pub(super) async fn restore_from_catalog(
+    catalog: &Catalog,
+    root: &RootLease,
+    bucket: &BucketName,
+    name: &ObjectName,
+) -> io::Result<()> {
+    let fence = catalog
+        .read_changes(None, None, 1)
+        .await
+        .map_err(io::Error::other)?
+        .fence;
+    let writeback = root
+        .writeback(
+            Limits::new(super::CONFLICT_MAX_BYTES, super::CONFLICT_MAX_ENTRIES)
+                .map_err(io::Error::other)?,
+        )
+        .await
+        .map_err(io::Error::other)?;
+    let object = LiveObject {
+        catalog,
+        root,
+        bucket,
+        name,
+    };
+    let Some(plan) = object.plan(&mut Reconciliation::default()).await? else {
+        return Ok(());
+    };
+    let Some(source) = plan.source else {
+        return Ok(());
+    };
+    let operation = match writeback
+        .begin_live_export(
+            plan.binding,
+            name.clone(),
+            plan.generation,
+            plan.tracked,
+            fence,
+            LiveSource::ProtectedRestore(source),
+        )
+        .await
+    {
+        Ok(operation) => operation,
+        Err(error) if concurrent_change(&error) => return Ok(()),
+        Err(error) => return Err(io::Error::other(error)),
+    };
+    loop {
+        match advance_with_retry(&writeback, operation.clone()).await? {
+            LiveResult::Pending => {}
+            LiveResult::Complete | LiveResult::Conflict | LiveResult::Obsolete => return Ok(()),
+        }
+    }
 }
 
 /// One object whose catalog state a live export reconciles with the working tree.
@@ -457,10 +1014,10 @@ impl LiveObject<'_> {
     /// with any finding or deferral already counted in `summary`.
     async fn plan(&self, summary: &mut Reconciliation) -> io::Result<Option<LivePlan>> {
         let (catalog, bucket, name) = (self.catalog, self.bucket, self.name);
-        let admin = catalog.admin(Origin::SyncIngest);
+        let admin = self.root.sync_admin();
         #[cfg(test)]
         export_checkpoint("before-binding").await;
-        let binding = match catalog.sync_state().binding(bucket).await {
+        let binding = match self.root.sync_binding(bucket).await {
             Ok(binding) => binding,
             Err(AdminError::NotFound) => return Ok(None),
             Err(error) => return Err(io::Error::other(error)),
@@ -510,17 +1067,14 @@ impl LiveObject<'_> {
                 content: Content::Changed,
             }));
         };
-        let Some(content) = self
-            .check_target(&admin, &record, path, tracked.as_ref(), summary)
-            .await?
-        else {
+        let Some(content) = self.check_target(&admin, &record, path, summary).await? else {
             return Ok(None);
         };
         let generation = Generation::new(record.generation).map_err(io::Error::other)?;
         let source = match admin.open_object(bucket, name, Some(generation)).await {
             Ok((_, reader)) => match content {
                 Content::Identical => None,
-                Content::Changed => Some(reader.into_file().await),
+                Content::Changed => Some(reader.into_file().await?),
             },
             Err(AdminError::NotFound | AdminError::Precondition) => {
                 summary.deferred += 1;
@@ -544,7 +1098,6 @@ impl LiveObject<'_> {
         admin: &Admin,
         record: &ObjectRecord,
         path: PathBuf,
-        tracked: Option<&SyncRecord>,
         summary: &mut Reconciliation,
     ) -> io::Result<Option<Content>> {
         let collision = match hierarchy_collision(admin, self.bucket, self.name).await {
@@ -566,11 +1119,6 @@ impl LiveObject<'_> {
                 Ok(None)
             }
             Target::Identical => Ok(Some(Content::Identical)),
-            Target::Conflicting if tracked.is_none() => {
-                self.finding(record, Reason::Collision, summary).await?;
-                summary.conflicting += 1;
-                Ok(None)
-            }
             _ => Ok(Some(Content::Changed)),
         }
     }
@@ -579,48 +1127,24 @@ impl LiveObject<'_> {
         &self,
         writeback: &Writeback,
         fence: JournalFence,
-        plan: LivePlan,
+        mut plan: LivePlan,
         summary: &mut Reconciliation,
     ) -> io::Result<()> {
         let (bucket, name) = (self.bucket, self.name);
-        let LivePlan {
-            binding,
-            tracked,
-            generation,
-            source,
-            content,
-        } = plan;
         #[cfg(test)]
         export_checkpoint("after-get-path").await;
-        let mut seconds = 1;
-        let operation = loop {
-            match writeback
-                .begin_live_export(
-                    binding.clone(),
-                    name.clone(),
-                    generation,
-                    tracked.clone(),
-                    fence,
-                    source.as_ref().map(File::try_clone).transpose()?,
-                )
-                .await
-            {
-                Ok(operation) => break operation,
-                Err(error) if concurrent_change(&error) => {
-                    summary.deferred += 1;
-                    return Ok(());
-                }
-                Err(error) if retryable(&error) => wait_retry(&error, &mut seconds).await,
-                Err(error) => return Err(io::Error::other(error)),
-            }
+        let Some(mut operation) = self.begin_export(writeback, fence, &plan, None).await? else {
+            summary.deferred += 1;
+            return Ok(());
         };
         #[cfg(test)]
         export_checkpoint("after-prepare").await;
+        let mut preserved = false;
         loop {
             match advance_with_retry(writeback, operation.clone()).await? {
                 LiveResult::Pending => {}
                 LiveResult::Complete => {
-                    if content == Content::Identical {
+                    if plan.content == Content::Identical {
                         summary.identical += 1;
                     } else {
                         #[cfg(test)]
@@ -637,14 +1161,24 @@ impl LiveObject<'_> {
                 }
                 LiveResult::Conflict => {
                     summary.conflicting += 1;
+                    if !preserved {
+                        let Some(retry) = self.preserve_export(writeback, fence, &mut plan).await?
+                        else {
+                            summary.deferred += 1;
+                            return Ok(());
+                        };
+                        operation = retry;
+                        preserved = true;
+                        continue;
+                    }
                     self.root
-                        .record_export_conflict(binding.clone(), name.clone(), generation)
+                        .record_export_conflict(plan.binding.clone(), name.clone(), plan.generation)
                         .await
                         .map_err(io::Error::other)?;
                     diagnostics::emit(
                         LogLevel::Warn,
                         "sync_external_conflict",
-                        serde_json::json!({"bucket":bucket.as_str(),"object":name.as_str(),"remedy":"Preserve or back up the edited file, then restore its previously exported contents or select a fresh sync_dir; automatic conflict transfer is pending"}),
+                        serde_json::json!({"bucket":bucket.as_str(),"object":name.as_str(),"remedy":"A newer external edit arrived after preservation; stop the writer and rescan. Inspect retained conflicts before restoring or discarding a revision"}),
                     );
                     break;
                 }
@@ -652,6 +1186,120 @@ impl LiveObject<'_> {
         }
         Ok(())
     }
+
+    async fn begin_export(
+        &self,
+        writeback: &Writeback,
+        fence: JournalFence,
+        plan: &LivePlan,
+        captured: Option<crate::storage::sync_state::conflicts::CapturedConflict>,
+    ) -> io::Result<Option<LiveExport>> {
+        let mut seconds = 1;
+        let mut protected = false;
+        loop {
+            let source = if protected {
+                plan.source
+                    .as_ref()
+                    .map(File::try_clone)
+                    .transpose()?
+                    .map_or(
+                        LiveSource::ProtectedObservation,
+                        LiveSource::ProtectedRestore,
+                    )
+            } else {
+                live_source(&plan.source, captured.clone())?
+            };
+            match writeback
+                .begin_live_export(
+                    plan.binding.clone(),
+                    self.name.clone(),
+                    plan.generation,
+                    plan.tracked.clone(),
+                    fence,
+                    source,
+                )
+                .await
+            {
+                Ok(operation) => return Ok(Some(operation)),
+                Err(error) if concurrent_change(&error) => return Ok(None),
+                Err(writeback::Error::Admin(AdminError::Hold))
+                    if !protected && captured.is_none() =>
+                {
+                    protected = true;
+                }
+                Err(error) if retryable(&error) => {
+                    if !wait_retry(&error, &mut seconds, self.root).await {
+                        return Err(io::Error::other(error));
+                    }
+                }
+                Err(error) => return Err(io::Error::other(error)),
+            }
+        }
+    }
+
+    async fn preserve_export(
+        &self,
+        writeback: &Writeback,
+        fence: JournalFence,
+        plan: &mut LivePlan,
+    ) -> io::Result<Option<LiveExport>> {
+        let expected_generation = (plan.content == Content::Identical || plan.source.is_some())
+            .then_some(plan.generation);
+        let captured = match self
+            .root
+            .capture_path(crate::storage::sync_state::conflicts::CaptureRequest {
+                binding: plan.binding.clone(),
+                name: self.name.clone(),
+                expected_generation,
+                source_op: None,
+            })
+            .await
+        {
+            Ok(captured) => captured,
+            Err(
+                crate::storage::sync_state::conflicts::Error::TargetChanged
+                | crate::storage::sync_state::conflicts::Error::Admin(
+                    AdminError::Precondition
+                    | AdminError::NotFound
+                    | AdminError::Io(io::ErrorKind::NotFound),
+                ),
+            ) => return Ok(None),
+            Err(error) => return Err(io::Error::other(error)),
+        };
+        diagnostics::emit(
+            LogLevel::Warn,
+            "sync_conflict_preserved",
+            serde_json::json!({"bucket":self.bucket.as_str(),"object":self.name.as_str(),"conflict_id":captured.id(),"remedy":"Inspect this retained revision before restoring it or explicitly discarding it"}),
+        );
+        if expected_generation.is_some() && plan.source.is_none() {
+            match self
+                .root
+                .sync_admin()
+                .open_object(self.bucket, self.name, expected_generation)
+                .await
+            {
+                Ok((_, reader)) => plan.source = Some(reader.into_file().await?),
+                Err(AdminError::Precondition | AdminError::NotFound) => return Ok(None),
+                Err(error) => return Err(io::Error::other(error)),
+            }
+        }
+        self.begin_export(writeback, fence, plan, Some(captured))
+            .await
+    }
+}
+
+fn live_source(
+    source: &Option<File>,
+    captured: Option<crate::storage::sync_state::conflicts::CapturedConflict>,
+) -> io::Result<LiveSource> {
+    let source = source.as_ref().map(File::try_clone).transpose()?;
+    Ok(match captured {
+        Some(conflict) => LiveSource::Preserved {
+            source,
+            conflict: Box::new(conflict),
+        },
+        None => source.map_or(LiveSource::Observe, LiveSource::ApiCopy),
+    })
 }
 
 fn retryable(error: &writeback::Error) -> bool {
@@ -672,17 +1320,32 @@ fn retryable(error: &writeback::Error) -> bool {
     )
 }
 
-async fn wait_retry(error: &writeback::Error, seconds: &mut u64) {
+async fn wait_retry(error: &writeback::Error, seconds: &mut u64, root: &RootLease) -> bool {
+    if *seconds >= 4 {
+        return false;
+    }
+    #[cfg(test)]
+    export_checkpoint("retry").await;
     diagnostics::emit(
         LogLevel::Error,
         "sync_export_retry",
         serde_json::json!({
             "reason":error.to_string(),"retry_seconds":*seconds,
-            "remedy":"Free space on the sync_dir and data_dir volumes (for example, remove unrelated temporary files), restore write permission, and keep this server running; the pending object will retry automatically"
+            "remedy":"A transient failure is retried twice. Persistent failure pauses synchronization; free disk space or restore permissions, inspect retained work and request a rescan"
         }),
     );
-    tokio::time::sleep(std::time::Duration::from_secs(*seconds)).await;
+    let delay = std::time::Duration::from_secs(*seconds);
+    let completed = if let Some(mut stopping) = root.stop_signal() {
+        if *stopping.borrow() {
+            return false;
+        }
+        tokio::select! {_=stopping.changed()=>false,()=tokio::time::sleep(delay)=>true}
+    } else {
+        tokio::time::sleep(delay).await;
+        true
+    };
     *seconds = (*seconds * 2).min(30);
+    completed
 }
 
 async fn file_job_retry<T: Send + 'static>(
@@ -698,13 +1361,15 @@ async fn file_job_retry<T: Send + 'static>(
                 if !retryable(&error) {
                     return Err(io::Error::other(error));
                 }
-                wait_retry(&error, &mut seconds).await;
+                if !wait_retry(&error, &mut seconds, root).await {
+                    return Err(io::Error::other(error));
+                }
             }
         }
     }
 }
 
-async fn create_directory(root: &RootLease, directory: PathBuf) -> io::Result<bool> {
+pub(super) async fn create_directory(root: &RootLease, directory: PathBuf) -> io::Result<bool> {
     file_job_retry(root, move |root| {
         match parent(root, &directory, fsutil::DirectoryOpen::CreateIfMissing) {
             Ok(_) => Ok(true),
@@ -723,7 +1388,11 @@ async fn advance_with_retry(
     loop {
         match writeback.advance_live_export(operation.clone()).await {
             Ok(result) => return Ok(result),
-            Err(error) if retryable(&error) => wait_retry(&error, &mut seconds).await,
+            Err(error) if retryable(&error) => {
+                if !wait_retry(&error, &mut seconds, writeback.root_lease()).await {
+                    return Err(io::Error::other(error));
+                }
+            }
             Err(error) => return Err(io::Error::other(error)),
         }
     }
@@ -742,7 +1411,7 @@ fn same_inode(left: &File, right: &File) -> Result<bool, AdminError> {
     Ok(a.device == b.device && a.inode == b.inode)
 }
 
-fn exact_entry(directory: &File, name: &OsStr) -> io::Result<bool> {
+pub(super) fn exact_entry(directory: &File, name: &OsStr) -> io::Result<bool> {
     let mut after = None;
     loop {
         let page = fsutil::directory_names_after(directory, after.as_deref(), 256)?;
@@ -994,7 +1663,7 @@ async fn export(
         Err(AdminError::NotFound | AdminError::Precondition) => return Ok(false),
         Err(error) => return Err(io::Error::other(error)),
     };
-    let source = reader.into_file().await;
+    let source = reader.into_file().await?;
     let (pending, proof) = match writeback
         .prepare_publish_copy(
             bucket,
@@ -1148,14 +1817,14 @@ async fn reconcile_until(
         .map_err(io::Error::other)?;
     if writeback.status().await.map_err(io::Error::other)?.stop != Stop::Ready {
         return Err(io::Error::other(
-            "Unfinished write-back requires recovery; preserve workspace entries and select a fresh root after backup until recovery controls are available",
+            "Unfinished write-back requires recovery; inspect retained conflicts and workspace findings, resolve the exact retained revision and rescan",
         ));
     }
     let reconciler = Reconciler {
         catalog,
         root,
         stopping,
-        admin: catalog.admin(Origin::SyncIngest),
+        admin: root.sync_admin(),
         writeback,
         fence,
     };
@@ -1292,9 +1961,9 @@ impl Reconciler<'_> {
         }
         let name = ObjectName::new(record.name.clone()).map_err(io::Error::other)?;
         if let PathMapping::File(path) = mapping::name_to_path(bucket, &name) {
-            let binding = catalog
-                .sync_state()
-                .binding(bucket)
+            let binding = self
+                .root
+                .sync_binding(bucket)
                 .await
                 .map_err(io::Error::other)?;
             if catalog
@@ -1340,7 +2009,7 @@ impl Reconciler<'_> {
             Target::Finding(reason) => {
                 finding(catalog, self.root, bucket, &name, record, reason, summary).await?
             }
-            Target::Conflicting => summary.conflicting += 1,
+            Target::Conflicting => self.live_object(bucket, &name, summary).await?,
             Target::Identical | Target::Absent => {
                 self.live_object(bucket, &name, summary).await?;
             }
@@ -1355,9 +2024,8 @@ impl Reconciler<'_> {
         summary: &mut Reconciliation,
     ) -> io::Result<Step> {
         let binding = self
-            .catalog
-            .sync_state()
-            .binding(bucket)
+            .root
+            .sync_binding(bucket)
             .await
             .map_err(io::Error::other)?;
         let mut after_path = String::new();

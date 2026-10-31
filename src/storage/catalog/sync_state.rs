@@ -46,6 +46,12 @@ pub(crate) mod findings;
 
 pub(crate) mod buckets;
 
+pub(crate) mod deletions;
+
+pub(crate) mod authority;
+pub(crate) mod conflicts;
+pub(crate) mod observation;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CatalogId([u8; 16]);
 impl CatalogId {
@@ -75,6 +81,18 @@ pub struct SyncBinding {
     catalog: CatalogId,
     bucket: String,
     incarnation: String,
+    deletion: Option<deletions::Permit>,
+    control: Option<authority::ControlScope>,
+}
+impl SyncBinding {
+    pub(crate) fn bucket_name(&self) -> &str {
+        &self.bucket
+    }
+
+    pub(crate) fn with_control(mut self, scope: authority::ControlScope) -> Self {
+        self.control = Some(scope);
+        self
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SyncUpdate {
@@ -166,6 +184,12 @@ pub(super) fn matching(
     binding: &SyncBinding,
     bucket: &str,
 ) -> Result<(), ObjectError> {
+    if let Some(scope) = &binding.control {
+        scope.authorize(connection).map_err(|error| match error {
+            CatalogError::Forbidden => ObjectError::Forbidden,
+            error => ObjectError::from(error),
+        })?;
+    }
     let incarnation: Option<String> = connection
         .prepare_cached(SELECT_INCARNATION)
         .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
@@ -207,6 +231,10 @@ pub(super) fn record_in_transaction(
         params![record.bucket,record.name,update.binding.incarnation,update.path,record.generation,fp.size as i64,
             fp.mtime_ns.to_be_bytes(),fp.ctime_ns.to_be_bytes(),fp.inode.to_be_bytes(),fp.md5,fp.crc32c,fp.racy],
     )).map_err(super::objects::object_unavailable)?;
+    if let Some(scope) = &update.binding.control {
+        transaction.prepare_cached("DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4")
+            .and_then(|mut statement|statement.execute(params![scope.root_id().as_bytes(),record.bucket,record.name,update.binding.incarnation])).map_err(super::objects::object_unavailable)?;
+    }
     Ok(())
 }
 
@@ -216,6 +244,9 @@ pub(super) fn delete_in_transaction(
     record: &ObjectRecord,
 ) -> Result<(), ObjectError> {
     matching(transaction, binding, &record.bucket)?;
+    if let Some(permit) = &binding.deletion {
+        deletions::consume(transaction, permit, record)?;
+    }
     let count = transaction.prepare_cached(
         "DELETE FROM sync_objects WHERE bucket = ?1 AND name = ?2 AND incarnation = ?3 AND generation = ?4",
     ).and_then(|mut statement| statement.execute(
@@ -293,6 +324,8 @@ impl SyncState {
                     catalog: catalog_id(connection)?,
                     bucket,
                     incarnation,
+                    deletion: None,
+                    control: None,
                 })
             })
             .await

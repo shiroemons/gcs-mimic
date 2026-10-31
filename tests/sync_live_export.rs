@@ -32,6 +32,9 @@ struct SyncServer {
 }
 impl SyncServer {
     fn start(data: &std::path::Path, tree: &std::path::Path) -> Self {
+        Self::start_with_args(data, tree, &[])
+    }
+    fn start_with_args(data: &std::path::Path, tree: &std::path::Path, extra: &[&str]) -> Self {
         let mut child = common::server_command()
             .args([
                 "serve",
@@ -44,6 +47,7 @@ impl SyncServer {
             .arg(data)
             .arg("--sync-dir")
             .arg(tree)
+            .args(extra)
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
@@ -65,6 +69,37 @@ impl SyncServer {
         common::stop_server(&mut self.child, &mut self.stdout);
     }
 }
+
+#[test]
+fn live_wait_observes_source_work_beyond_the_connection_inactivity_budget() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let mut server =
+        SyncServer::start_with_args(&data.0, &tree.0, &["--connection-timeout-ms", "100"]);
+    assert_eq!(
+        server.request("POST", "/_internal/sync/wait", b"{}").status,
+        200
+    );
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/body"), b"waited body").unwrap();
+    let started = std::time::Instant::now();
+    let waited = server.request("POST", "/_internal/sync/wait", br#"{"timeout_ms":5000}"#);
+    assert_eq!(
+        waited.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&waited.body)
+    );
+    assert!(waited.json()["completed"].as_bool().unwrap());
+    assert!(started.elapsed() >= Duration::from_millis(100));
+    assert_eq!(
+        server
+            .request("GET", "/storage/v1/b/test-bucket/o/body?alt=media", b"")
+            .body,
+        b"waited body"
+    );
+    server.stop();
+}
 impl Drop for SyncServer {
     fn drop(&mut self) {
         if self.child.try_wait().unwrap().is_none() {
@@ -72,6 +107,71 @@ impl Drop for SyncServer {
             self.child.wait().unwrap();
         }
     }
+}
+
+#[test]
+fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_errors() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/body"), b"initial").unwrap();
+    let mut server = SyncServer::start(&data.0, &tree.0);
+    let scanned = server.request("POST", "/_internal/sync/rescan", b"{}");
+    assert_eq!(
+        scanned.status,
+        202,
+        "{}",
+        String::from_utf8_lossy(&scanned.body)
+    );
+    let status = server.request("GET", "/_internal/sync", b"").json();
+    assert_eq!(status["auth_mode"], "permissive");
+    assert_eq!(status["state"], "Ready");
+    server
+        .request("PUT", "/_internal/sync", b"{}")
+        .error(405, "methodNotAllowed");
+    server
+        .request("GET", "/_internal/sync?limit=1", b"")
+        .error(400, "invalidArgument");
+    let waited = server.request("POST", "/_internal/sync/wait", b"{}");
+    assert_eq!(
+        waited.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&waited.body)
+    );
+    assert_eq!(waited.json()["completed"], true);
+    fs::remove_file(tree.0.join("test-bucket/body")).unwrap();
+    assert_eq!(
+        server
+            .request("POST", "/_internal/sync/rescan", b"{}")
+            .status,
+        202
+    );
+    server
+        .request("GET", "/storage/v1/b/test-bucket/o/body", b"")
+        .error(404, "notFound");
+    server
+        .request(
+            "POST",
+            "/_internal/sync/approve",
+            br#"{"deletion_set":"00000000000000000000000000000000"}"#,
+        )
+        .error(409, "conflict");
+    fs::write(tree.0.join("test-bucket/body"), b"recreated externally").unwrap();
+    assert_eq!(
+        server
+            .request("POST", "/_internal/sync/rescan", b"{}")
+            .status,
+        202
+    );
+    assert_eq!(
+        server
+            .request("GET", "/storage/v1/b/test-bucket/o/body?alt=media", b"")
+            .body,
+        b"recreated externally"
+    );
+    assert!(tree.0.join("test-bucket").is_dir());
+    server.stop();
 }
 
 async fn publish(catalog: &Catalog, bucket: &BucketName, name: &str, body: &[u8]) -> i64 {
@@ -157,7 +257,7 @@ async fn setup() -> (TestDir, TestDir, Catalog, BucketName, Config) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn live_export_creates_replaces_deletes_and_preserves_edited_files() {
-    let (_data, tree, catalog, bucket, config) = setup().await;
+    let (data, tree, catalog, bucket, config) = setup().await;
     let root = sync::preflight(&catalog, &config).await.unwrap().unwrap();
     let worker = sync::start(catalog.clone(), root.clone(), &config).unwrap();
     let path = tree.0.join("test-bucket/body");
@@ -168,7 +268,7 @@ async fn live_export_creates_replaces_deletes_and_preserves_edited_files() {
     wait_generation(&catalog, &bucket, "test-bucket/body", generation).await;
     wait_body(&path, Some(b"second")).await;
     fs::write(&path, b"external overwrite").unwrap();
-    publish(&catalog, &bucket, "body", b"third").await;
+    let winner = publish(&catalog, &bucket, "body", b"third").await;
     let delete_generation = publish(&catalog, &bucket, "delete", b"api delete").await;
     wait_generation(&catalog, &bucket, "test-bucket/delete", delete_generation).await;
     let delete_path = tree.0.join("test-bucket/delete");
@@ -197,9 +297,43 @@ async fn live_export_creates_replaces_deletes_and_preserves_edited_files() {
         .unwrap();
     wait_body(&tree.0.join("test-bucket/clean"), None).await;
     worker.finish().await.unwrap();
-    assert_eq!(fs::read(path).unwrap(), b"external overwrite");
-    assert_eq!(fs::read(delete_path).unwrap(), b"external delete");
-    assert_eq!(root.findings_page(0, 256).await.unwrap().len(), 2);
+    assert_eq!(fs::read(path).unwrap(), b"third");
+    assert!(!delete_path.exists());
+    assert_eq!(
+        catalog
+            .admin(Origin::Api)
+            .get_object(&bucket, &ObjectName::new("body").unwrap(), None)
+            .await
+            .unwrap()
+            .generation,
+        winner
+    );
+    assert!(matches!(
+        catalog
+            .admin(Origin::Api)
+            .get_object(&bucket, &ObjectName::new("delete").unwrap(), None)
+            .await,
+        Err(gcs_mimic::storage::admin::AdminError::NotFound)
+    ));
+    let retained = fs::read_dir(data.0.join("sync-conflicts"))
+        .unwrap()
+        .map(|entry| fs::read(entry.unwrap().path()).unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        retained,
+        std::collections::BTreeSet::from([
+            b"external overwrite".to_vec(),
+            b"external delete".to_vec()
+        ])
+    );
+    let findings = root.findings_page(0, 256).await.unwrap();
+    assert_eq!(
+        findings
+            .iter()
+            .map(|finding| finding.name.as_str())
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::new()
+    );
     drop(root);
     catalog.close().await.unwrap();
 }
@@ -404,7 +538,12 @@ async fn live_export_sigterm_during_api_writes_restarts_to_the_committed_live_bo
         .await
         .unwrap();
     let mut body = Vec::new();
-    reader.into_file().await.read_to_end(&mut body).unwrap();
+    reader
+        .into_file()
+        .await
+        .unwrap()
+        .read_to_end(&mut body)
+        .unwrap();
     catalog.close().await.unwrap();
     let mut restarted = SyncServer::start(&data.0, &tree.0);
     wait_body(&tree.0.join("test-bucket/body"), Some(&body)).await;

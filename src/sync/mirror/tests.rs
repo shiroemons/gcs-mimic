@@ -7,6 +7,7 @@ use crate::{
     test_support::TestDir,
 };
 use bytes::Bytes;
+use std::fs;
 
 async fn publish(catalog: &Catalog, bucket: &BucketName, body: &[u8]) -> ObjectRecord {
     publish_origin(catalog, bucket, body, Origin::SyncIngest).await
@@ -61,6 +62,242 @@ async fn live_fixture() -> (TestDir, TestDir, Catalog, BucketName, RootLease) {
         .unwrap()
         .unwrap();
     (data, tree, catalog, bucket, root)
+}
+
+#[tokio::test]
+async fn api_priority_preserves_external_conflicts_and_keeps_protected_api_metadata_unchanged() {
+    for (held, tracked) in [(false, false), (false, true), (true, false), (true, true)] {
+        let (data, tree, catalog, bucket, root) = live_fixture().await;
+        publish_origin(&catalog, &bucket, b"old API", Origin::Api).await;
+        if tracked {
+            assert!(
+                reconcile(&catalog, &root, &Config::default())
+                    .await
+                    .unwrap()
+                    .baseline_complete
+            );
+        } else {
+            fs::create_dir(tree.0.join("test-bucket")).unwrap();
+        }
+        fs::write(tree.0.join("test-bucket/object"), b"external saved body").unwrap();
+        publish_origin(&catalog, &bucket, b"API winner", Origin::Api).await;
+        if held {
+            catalog
+                .update_object_metadata(
+                    bucket.as_str(),
+                    "object",
+                    None,
+                    Default::default(),
+                    crate::object::ObjectMetadataUpdate {
+                        temporary_hold: Some(true),
+                        ..Default::default()
+                    },
+                    |_| Ok(()),
+                )
+                .await
+                .unwrap();
+        }
+        let name = ObjectName::new("object").unwrap();
+        let incarnation = catalog
+            .admin(Origin::Api)
+            .list_all_buckets(None, 1)
+            .await
+            .unwrap()
+            .items[0]
+            .incarnation
+            .clone();
+        let winner = catalog
+            .admin(Origin::Api)
+            .get_object(&bucket, &name, None)
+            .await
+            .unwrap();
+        root.record_export_conflict(
+            root.sync_binding(&bucket).await.unwrap(),
+            name.clone(),
+            Generation::new(winner.generation).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(root.observation().await.unwrap().mapping_findings, 1);
+        let summary = reconcile(&catalog, &root, &Config::default())
+            .await
+            .unwrap();
+        assert_eq!(summary.conflicting, 1);
+        assert_eq!(summary.exported, 1);
+        assert_eq!(root.observation().await.unwrap().mapping_findings, 0);
+        assert_eq!(
+            fs::read(tree.0.join("test-bucket/object")).unwrap(),
+            b"API winner"
+        );
+        assert_eq!(
+            catalog
+                .admin(Origin::Api)
+                .get_object(&bucket, &name, None)
+                .await
+                .unwrap(),
+            winner
+        );
+        let page = root
+            .conflict_page(
+                None,
+                0,
+                256,
+                crate::storage::sync_state::authority::ControlAuthority::Permissive,
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].owner_project, "owner");
+        assert_eq!(page.items[0].generation, Some(winner.generation));
+        assert_eq!(page.items[0].bucket, bucket.as_str());
+        assert_eq!(page.items[0].bucket_incarnation, incarnation);
+        assert_eq!(page.usage.entries, 1);
+        assert_eq!(
+            fs::read(
+                data.0
+                    .join("sync-conflicts")
+                    .join(&page.items[0].conflict_id)
+            )
+            .unwrap(),
+            b"external saved body"
+        );
+        assert_eq!(
+            reconcile(&catalog, &root, &Config::default())
+                .await
+                .unwrap()
+                .identical,
+            1
+        );
+        assert_eq!(
+            root.conflict_page(
+                None,
+                0,
+                256,
+                crate::storage::sync_state::authority::ControlAuthority::Permissive
+            )
+            .await
+            .unwrap()
+            .items
+            .len(),
+            1
+        );
+        root.resolve_conflict(
+            crate::storage::sync_state::conflicts::ResolveRequest {
+                operation_id: "discard-preserved-revision".into(),
+                action: crate::storage::sync_state::conflicts::Action::Discard,
+                target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict {
+                    conflict_id: page.items[0].conflict_id.clone(),
+                    revision: page.items[0].revision.clone(),
+                    expected_generation: Some(winner.generation),
+                },
+            },
+            crate::storage::sync_state::authority::ControlAuthority::Permissive,
+            4096,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            catalog
+                .admin(Origin::Api)
+                .get_object(&bucket, &name, None)
+                .await
+                .unwrap(),
+            winner
+        );
+        assert_eq!(root.observation().await.unwrap().unresolved_conflicts, 0);
+        drop(root);
+        catalog.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn api_deletion_preserves_divergent_external_bytes_for_an_explicit_restore() {
+    let (data, tree, catalog, bucket, root) = live_fixture().await;
+    let original = publish_origin(&catalog, &bucket, b"old API", Origin::Api).await;
+    reconcile(&catalog, &root, &Config::default())
+        .await
+        .unwrap();
+    fs::write(
+        tree.0.join("test-bucket/object"),
+        b"retained external bytes",
+    )
+    .unwrap();
+    let name = ObjectName::new("object").unwrap();
+    root.record_export_conflict(
+        root.sync_binding(&bucket).await.unwrap(),
+        name.clone(),
+        Generation::new(original.generation).unwrap(),
+    )
+    .await
+    .unwrap();
+    catalog
+        .admin(Origin::Api)
+        .delete_object(
+            &bucket,
+            &name,
+            GenerationCondition::Is(Generation::new(original.generation).unwrap()),
+        )
+        .await
+        .unwrap();
+    let summary = reconcile(&catalog, &root, &Config::default())
+        .await
+        .unwrap();
+    assert_eq!(summary.conflicting, 1);
+    assert_eq!(root.observation().await.unwrap().mapping_findings, 0);
+    assert!(!tree.0.join("test-bucket/object").exists());
+    assert!(matches!(
+        catalog
+            .admin(Origin::Api)
+            .get_object(&bucket, &name, None)
+            .await,
+        Err(AdminError::NotFound)
+    ));
+    let page = root
+        .conflict_page(
+            None,
+            0,
+            256,
+            crate::storage::sync_state::authority::ControlAuthority::Permissive,
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(
+        fs::read(
+            data.0
+                .join("sync-conflicts")
+                .join(&page.items[0].conflict_id)
+        )
+        .unwrap(),
+        b"retained external bytes"
+    );
+    let restored = root
+        .resolve_conflict(
+            crate::storage::sync_state::conflicts::ResolveRequest {
+                operation_id: "restore-after-api-deletion".into(),
+                action: crate::storage::sync_state::conflicts::Action::Restore,
+                target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict {
+                    conflict_id: page.items[0].conflict_id.clone(),
+                    revision: page.items[0].revision.clone(),
+                    expected_generation: Some(0),
+                },
+            },
+            crate::storage::sync_state::authority::ControlAuthority::Permissive,
+            4096,
+        )
+        .await
+        .unwrap();
+    assert!(restored.result_generation.unwrap() > original.generation);
+    let record = catalog
+        .admin(Origin::Api)
+        .get_object(&bucket, &name, None)
+        .await
+        .unwrap();
+    assert_eq!(record.size, b"retained external bytes".len() as u64);
+    assert_eq!(record.crc32c, crc32c::crc32c(b"retained external bytes"));
+    assert_eq!(root.observation().await.unwrap().unresolved_conflicts, 0);
+    drop(root);
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -220,7 +457,7 @@ async fn live_export_identical_observation_preserves_edits_before_durable_and_ac
                 Generation::new(record.generation).unwrap(),
                 None,
                 fence,
-                None,
+                LiveSource::Observe,
             )
             .await
             .unwrap();
@@ -332,7 +569,7 @@ async fn live_export_retries_file_and_parent_permissions_without_advancing_the_c
         publish_origin(&catalog, &bucket, b"before", Origin::Api).await;
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
         let hook = Arc::new(ExportHook {
-            phase: "idle",
+            phase: "idle,retry",
             entered: Default::default(),
             release: Default::default(),
         });
@@ -352,17 +589,29 @@ async fn live_export_retries_file_and_parent_permissions_without_advancing_the_c
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o0)).unwrap();
         publish_origin(&catalog, &bucket, b"after", Origin::Api).await;
         hook.release.notify_one();
-        let advanced =
-            tokio::time::timeout(Duration::from_millis(100), hook.entered.notified()).await;
+        tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
+            .await
+            .unwrap();
         std::fs::set_permissions(
             &path,
             std::fs::Permissions::from_mode(if parent { 0o700 } else { 0o600 }),
         )
         .unwrap();
-        assert!(
-            advanced.is_err(),
-            "permission failure must not become a durable finding"
+        assert_eq!(
+            std::fs::read(tree.0.join("test-bucket/object")).unwrap(),
+            b"before"
         );
+        assert_eq!(
+            root.writeback(Limits::new(4096, 10).unwrap())
+                .await
+                .unwrap()
+                .status()
+                .await
+                .unwrap()
+                .protected_entries,
+            0
+        );
+        hook.release.notify_one();
         tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
             .await
             .unwrap();
@@ -581,7 +830,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
         });
         let worker_catalog = catalog.clone();
         let worker_root = root.clone();
-        let worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
+        let mut worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
             run_live(&worker_catalog, &worker_root, &mut stopping).await
         }));
         tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
@@ -615,16 +864,81 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             publish_origin(&catalog, &bucket, b"after\0\xff", Origin::Api).await
         };
         hook.release.notify_one();
+        if phase == "installed" {
+            assert!(
+                tokio::time::timeout(Duration::from_secs(3), worker)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .is_err()
+            );
+            let recovering = root
+                .writeback(
+                    Limits::new(
+                        super::super::CONFLICT_MAX_BYTES,
+                        super::super::CONFLICT_MAX_ENTRIES,
+                    )
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+            let usage = recovering.status().await.unwrap();
+            assert_eq!(usage.stop, Stop::IoFailure);
+            assert_eq!(usage.protected_entries, 1);
+            assert_eq!(usage.retained_bytes, b"before".len() as u128);
+            let pending = recovering.page(0, 256).await.unwrap();
+            assert_eq!(pending.len(), 1);
+            assert_eq!(
+                fs::read(
+                    tree.0
+                        .join(mapping::WORKSPACE)
+                        .join(pending[0].workspace_entry.name())
+                )
+                .unwrap(),
+                b"before"
+            );
+            recovering.recover_pending().await.unwrap();
+            assert_eq!(
+                recovering.preserve_protected().await.unwrap().stop,
+                Stop::Ready
+            );
+            let copies = root
+                .conflict_page(
+                    None,
+                    0,
+                    256,
+                    crate::storage::sync_state::authority::ControlAuthority::Permissive,
+                )
+                .await
+                .unwrap();
+            assert_eq!(copies.items.len(), 1);
+            assert_eq!(copies.items[0].owner_project, "owner");
+            assert_eq!(
+                copies.items[0].generation,
+                Some(pending[0].generation.get())
+            );
+            assert_eq!(copies.items[0].bucket_incarnation, pending[0].incarnation);
+            assert_eq!(
+                fs::read(
+                    data.0
+                        .join("sync-conflicts")
+                        .join(&copies.items[0].conflict_id)
+                )
+                .unwrap(),
+                b"before"
+            );
+            let worker_catalog = catalog.clone();
+            let worker_root = root.clone();
+            let mut stopping = stop.subscribe();
+            worker = tokio::spawn(EXPORT_HOOK.scope(hook.clone(), async move {
+                run_live(&worker_catalog, &worker_root, &mut stopping).await
+            }));
+        }
         tokio::time::timeout(Duration::from_secs(10), hook.entered.notified())
             .await
-            .unwrap();
+            .unwrap_or_else(|error| panic!("phase {phase}, remove={remove}: {error}"));
         if remove {
             assert!(!tree.0.join("test-bucket/object").exists());
-        } else if phase == "cancel" {
-            assert_eq!(
-                std::fs::read(tree.0.join("test-bucket/object")).unwrap(),
-                b"external"
-            );
         } else {
             assert_eq!(
                 std::fs::read(tree.0.join("test-bucket/object")).unwrap(),
@@ -635,15 +949,34 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
         let binding = catalog.sync_state().binding(&bucket).await.unwrap();
         let tracked = catalog
             .sync_state()
-            .get_path(binding, "test-bucket/object".into())
+            .get_path(binding.clone(), "test-bucket/object".into())
             .await
             .unwrap();
         if remove {
             assert!(tracked.is_none());
-        } else if phase == "cancel" {
-            assert_ne!(tracked.unwrap().generation.get(), record.generation);
         } else {
             assert_eq!(tracked.unwrap().generation.get(), record.generation);
+        }
+        if phase == "cancel" {
+            let page = root
+                .conflict_page(
+                    None,
+                    0,
+                    256,
+                    crate::storage::sync_state::authority::ControlAuthority::Permissive,
+                )
+                .await
+                .unwrap();
+            assert_eq!(page.items.len(), 1);
+            let conflict = &page.items[0];
+            assert_eq!(conflict.owner_project, "owner");
+            assert_eq!(conflict.generation, Some(record.generation));
+            assert_eq!(conflict.bucket, bucket.as_str());
+            assert!(!conflict.bucket_incarnation.is_empty());
+            assert_eq!(
+                fs::read(data.0.join("sync-conflicts").join(&conflict.conflict_id)).unwrap(),
+                b"external"
+            );
         }
         let writeback = root
             .writeback(
@@ -670,7 +1003,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             assert!(matches!(opened, Err(AdminError::NotFound)));
         } else {
             let (_, reader) = opened.unwrap();
-            let file = reader.into_file().await;
+            let file = reader.into_file().await.unwrap();
             let mut body = [0; 8];
             assert_eq!(fsutil::read_at(&file, &mut body, 0).unwrap(), 7);
             assert_eq!(&body[..7], b"after\0\xff");
@@ -774,7 +1107,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
         }
         if action == "overwrite" {
             let (_, reader) = admin.open_object(&bucket, &name, None).await.unwrap();
-            let mut file = reader.into_file().await;
+            let mut file = reader.into_file().await.unwrap();
             let mut bytes = Vec::new();
             std::io::Read::read_to_end(&mut file, &mut bytes).unwrap();
             assert_eq!(bytes, b"new-api");
@@ -847,8 +1180,7 @@ async fn started_mirror_failing(failures: &[LiveFailure]) -> (TestDir, TestDir, 
     (data, tree, catalog, task)
 }
 
-/// The mirror never restarts, so a stop on an error or a panic must keep readiness off
-/// instead of serving as ready while the working tree no longer syncs.
+/// An error or panic must keep readiness off until an explicit rescan succeeds.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stopped_mirror_turns_readiness_off() {
     for failure in [LiveFailure::Error, LiveFailure::Panic] {
@@ -864,6 +1196,13 @@ async fn a_stopped_mirror_turns_readiness_off() {
             catalog.is_healthy(),
             "a stopped mirror does not poison the catalog"
         );
+        let (control, root) = catalog.sync_controls().unwrap().unwrap();
+        await_paused(&root).await;
+        assert!(
+            !catalog.background_tasks_running(),
+            "inspection cannot resume a paused observer"
+        );
+        drop((control, root));
         task.finish().await.unwrap();
         assert!(!catalog.background_tasks_running(), "the stop is permanent");
         catalog.close().await.unwrap();
@@ -872,6 +1211,256 @@ async fn a_stopped_mirror_turns_readiness_off() {
         crate::task::tests::reported_panics("sync-mirror"),
         ["injected live sync panic"]
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_rescan_recovers_a_paused_observer_and_shutdown_releases_ownership() {
+    let (_data, tree, catalog, task) = started_mirror(Some(LiveFailure::Error)).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while catalog.background_tasks_running() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(matches!(
+        catalog
+            .sync_state()
+            .activate_root(&tree.0, crate::storage::sync_state::root::Activation::Open)
+            .await,
+        Err(RootError::InUse)
+    ));
+    let (_, root) = catalog.sync_controls().unwrap().unwrap();
+    await_paused(&root).await;
+    fs::create_dir_all(tree.0.join("test-bucket")).unwrap();
+    fs::write(
+        tree.0.join("test-bucket/operator-note"),
+        b"preserve while paused",
+    )
+    .unwrap();
+    assert!(!catalog.background_tasks_running());
+    assert!(
+        tokio::time::timeout(Duration::from_secs(10), task.rescan())
+            .await
+            .unwrap()
+            .unwrap()
+            .baseline_complete
+    );
+    assert!(root.observation().await.unwrap().paused_reason.is_none());
+    assert!(catalog.background_tasks_running());
+    drop(root);
+    task.finish().await.unwrap();
+    assert!(catalog.sync_controls().unwrap().is_none());
+    let root = catalog
+        .sync_state()
+        .activate_root(&tree.0, crate::storage::sync_state::root::Activation::Open)
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read(tree.0.join("test-bucket/operator-note")).unwrap(),
+        b"preserve while paused"
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+async fn await_paused(root: &RootLease) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while root.observation().await.unwrap().paused_reason.is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn persistent_disk_full_pauses_for_controls_and_shutdown_releases_the_root() {
+    let (_data, tree, catalog, task) = started_mirror(None).await;
+    task.rescan().await.unwrap();
+    let (_, root) = catalog.sync_controls().unwrap().unwrap();
+    crate::storage::sync_state::writeback::inject_live_export_failure(
+        root.status().root_id,
+        "copy",
+        100,
+    );
+    let bucket = BucketName::new("test-bucket").unwrap();
+    let record = publish_origin(&catalog, &bucket, b"API winner survives", Origin::Api).await;
+    await_paused(&root).await;
+    assert!(!catalog.background_tasks_running());
+    assert!(catalog.sync_controls().unwrap().is_some());
+    let page = root
+        .conflict_page(
+            None,
+            0,
+            256,
+            crate::storage::sync_state::authority::ControlAuthority::Permissive,
+        )
+        .await
+        .unwrap();
+    assert!(page.items.is_empty());
+    let (reply, receive) = tokio::sync::oneshot::channel();
+    let (control, _) = catalog.sync_controls().unwrap().unwrap();
+    control
+        .sender
+        .try_send(Command::Resolve {
+            request: crate::storage::sync_state::conflicts::ResolveRequest {
+                operation_id: "missing-but-observed".into(),
+                action: crate::storage::sync_state::conflicts::Action::Discard,
+                target: crate::storage::sync_state::conflicts::ResolveTarget::Conflict {
+                    conflict_id: "0".repeat(32),
+                    revision: "0".repeat(32),
+                    expected_generation: Some(record.generation),
+                },
+            },
+            reply,
+            identity: None,
+        })
+        .unwrap();
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), receive)
+            .await
+            .unwrap()
+            .unwrap(),
+        Err(crate::storage::sync_state::conflicts::Error::RevisionMismatch)
+    ));
+    assert_eq!(
+        catalog
+            .admin(Origin::Api)
+            .get_object(&bucket, &ObjectName::new("object").unwrap(), None)
+            .await
+            .unwrap(),
+        record
+    );
+    drop((control, root));
+    tokio::time::timeout(Duration::from_secs(2), task.finish())
+        .await
+        .unwrap()
+        .unwrap();
+    let root = catalog
+        .sync_state()
+        .activate_root(&tree.0, crate::storage::sync_state::root::Activation::Open)
+        .await
+        .unwrap();
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_interrupts_a_persistent_io_retry_after_its_owned_transition() {
+    let (_data, tree, catalog, task) = started_mirror(None).await;
+    task.rescan().await.unwrap();
+    let (_, root) = catalog.sync_controls().unwrap().unwrap();
+    crate::storage::sync_state::writeback::inject_live_export_failure(
+        root.status().root_id,
+        "copy",
+        100,
+    );
+    publish_origin(
+        &catalog,
+        &BucketName::new("test-bucket").unwrap(),
+        b"API body",
+        Origin::Api,
+    )
+    .await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while root.observation().await.unwrap().pending_writeback == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    drop(root);
+    tokio::time::timeout(Duration::from_secs(2), task.finish())
+        .await
+        .unwrap()
+        .unwrap();
+    let root = catalog
+        .sync_state()
+        .activate_root(&tree.0, crate::storage::sync_state::root::Activation::Open)
+        .await
+        .unwrap();
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes() {
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    catalog.enable_change_journal().await.unwrap();
+    let config = Config::default();
+    assert!(
+        reconcile(&catalog, &root, &config)
+            .await
+            .unwrap()
+            .baseline_complete
+    );
+    let mut cursor = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    publish_origin(&catalog, &bucket, b"captured", Origin::Api).await;
+    let mut gate = BaselineGate::Allowed;
+    let mut baseline = true;
+    let (_sender, stopping) = tokio::sync::watch::channel(false);
+    let mut control = LiveControl {
+        catalog: &catalog,
+        root: &root,
+        config: &config,
+        stopping: &stopping,
+        ingest_complete: &mut gate,
+        baseline_complete: &mut baseline,
+        cursor: &mut cursor,
+    };
+    assert!(
+        control
+            .wait(tokio::time::Instant::now())
+            .await
+            .unwrap()
+            .timed_out
+    );
+    let hook = std::sync::Arc::new(ExportHook {
+        phase: "wait-fence",
+        entered: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    let (result, ()) = EXPORT_HOOK
+        .scope(hook.clone(), async {
+            tokio::join!(
+                control.wait(tokio::time::Instant::now() + Duration::from_secs(10)),
+                async {
+                    hook.entered.notified().await;
+                    let other = BucketName::new("later-bucket").unwrap();
+                    catalog
+                        .admin(Origin::Api)
+                        .ensure_bucket(
+                            BucketDefinition::default_for(&other, "owner", &SystemClock).unwrap(),
+                        )
+                        .await
+                        .unwrap();
+                    publish_origin(&catalog, &other, b"after capture", Origin::Api).await;
+                    hook.release.notify_one();
+                }
+            )
+        })
+        .await;
+    let result = result.unwrap();
+    assert!(result.completed, "{}", result.reason);
+    assert!(!result.timed_out);
+    assert!(
+        result.journal_fence.unwrap().sequence
+            < catalog
+                .read_changes(None, None, 1)
+                .await
+                .unwrap()
+                .fence
+                .sequence
+                .0
+    );
+    assert_eq!(
+        fs::read(tree.0.join("test-bucket/object")).unwrap(),
+        b"captured"
+    );
+    assert!(!tree.0.join("later-bucket/object").exists());
+    drop(root);
+    catalog.close().await.unwrap();
 }
 
 /// Contention that outlasts the catalog wait must not take the server out of readiness until
@@ -934,5 +1523,28 @@ async fn a_mirror_stopped_by_shutdown_stays_ready() {
     assert!(catalog.background_tasks_running());
     task.finish().await.unwrap();
     assert!(catalog.background_tasks_running());
+    catalog.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn native_watch_permission_retry_lowers_readiness_and_shutdown_releases_the_root() {
+    use std::{os::unix::fs::PermissionsExt, time::Duration};
+    let (_data, tree, catalog, task) = started_mirror(None).await;
+    task.rescan().await.unwrap();
+    let bucket = tree.0.join("test-bucket");
+    std::fs::set_permissions(&bucket, std::fs::Permissions::from_mode(0o0)).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while catalog.background_tasks_running() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), task.finish())
+        .await
+        .unwrap()
+        .unwrap();
+    std::fs::set_permissions(&bucket, std::fs::Permissions::from_mode(0o700)).unwrap();
     catalog.close().await.unwrap();
 }

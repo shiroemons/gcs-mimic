@@ -14,6 +14,28 @@ fn settings(root: &TestDir) -> Vec<String> {
     ]
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn strict_synchronization_requires_a_registry_and_keeps_strict_authentication() {
+    let root = TestDir::new();
+    let mut args = settings(&root);
+    args.extend(["--auth-mode".into(), "strict".into()]);
+    assert!(
+        Config::load(&args, &BTreeMap::new())
+            .unwrap_err()
+            .errors
+            .iter()
+            .any(|error| error.fix.contains("requires identity_file"))
+    );
+    let registry = root.0.join("identities.json");
+    fs::write(&registry, r#"{"identities":[{"id":"local-admin","tokens":["test-token"],"project_roles":{"test-project":["roles/storage.admin"]}}]}"#).unwrap();
+    args.extend(["--identity-file".into(), registry.to_str().unwrap().into()]);
+    let config = Config::load(&args, &BTreeMap::new()).unwrap();
+    assert_eq!(config.auth_mode, gcs_mimic::auth::AuthMode::Strict);
+    assert_eq!(config.sync_dir, Some(root.0.join("tree")));
+    assert_eq!(config.identity_file, Some(registry));
+}
+
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 #[test]
 fn sync_dir_is_rejected_where_synchronization_is_unsupported() {

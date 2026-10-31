@@ -13,6 +13,26 @@ use crate::{
 };
 use std::fs;
 
+fn control_identity(projects: &[&str]) -> crate::auth::Identity {
+    let projects: std::collections::BTreeMap<_, _> = projects
+        .iter()
+        .map(|project| (*project, vec!["roles/storage.admin"]))
+        .collect();
+    let registry=crate::auth::Registry::parse(&serde_json::to_vec(&serde_json::json!({"identities":[{"id":"admin","tokens":["control-token"],"project_roles":projects}]})).unwrap()).unwrap();
+    let auth = crate::auth::Auth::strict(registry);
+    let mut headers = hyper::HeaderMap::new();
+    headers.insert(
+        "authorization",
+        hyper::header::HeaderValue::from_static("Bearer control-token"),
+    );
+    auth.authenticate_at(&headers, None, &SystemClock)
+        .unwrap()
+        .unwrap()
+        .principal()
+        .unwrap()
+        .clone()
+}
+
 async fn publish(catalog: &Catalog, data: &TestDir, bucket: &BucketName, name: &str) -> Generation {
     let admin = catalog.admin(Origin::SyncIngest);
     let source = data.0.join("source");
@@ -189,6 +209,14 @@ async fn sync_findings_reject_foreign_bindings_and_stale_incarnations() {
         assert_eq!(lease.findings_page(0, 1).await.unwrap()[0].reason, reason);
     }
     let old = lease.findings_page(0, 1).await.unwrap().remove(0);
+    let seed_and_current = control_identity(&["seed", "new-owner"]);
+    let all_owners = control_identity(&["seed", "owner", "new-owner"]);
+    assert!(matches!(
+        lease
+            .authorize_controls("seed".into(), Some(seed_and_current.clone()))
+            .await,
+        Err(RootError::Admin(AdminError::Forbidden))
+    ));
     catalog
         .admin(Origin::SyncIngest)
         .delete_object(&bucket, &name, GenerationCondition::Is(generation))
@@ -196,6 +224,16 @@ async fn sync_findings_reject_foreign_bindings_and_stale_incarnations() {
         .unwrap();
     catalog
         .delete_bucket(bucket.as_str(), None, None)
+        .await
+        .unwrap();
+    assert!(matches!(
+        lease
+            .authorize_controls("seed".into(), Some(seed_and_current.clone()))
+            .await,
+        Err(RootError::Admin(AdminError::Forbidden))
+    ));
+    lease
+        .authorize_controls("seed".into(), Some(all_owners.clone()))
         .await
         .unwrap();
     catalog
@@ -215,12 +253,183 @@ async fn sync_findings_reject_foreign_bindings_and_stale_incarnations() {
         .record_finding(new_binding, name, new_generation, Reason::InvalidName)
         .await
         .unwrap();
+    assert!(matches!(
+        lease
+            .authorize_controls("seed".into(), Some(seed_and_current.clone()))
+            .await,
+        Err(RootError::Admin(AdminError::Forbidden))
+    ));
+    lease
+        .authorize_controls("seed".into(), Some(all_owners.clone()))
+        .await
+        .unwrap();
     assert!(!lease.remove_finding(old.clone()).await.unwrap());
     let current = lease.findings_page(0, 1).await.unwrap().remove(0);
     assert_ne!(old.incarnation, current.incarnation);
+    drop(lease);
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let lease = catalog
+        .sync_state()
+        .activate_root(&root.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    assert!(matches!(
+        lease
+            .authorize_controls("seed".into(), Some(seed_and_current.clone()))
+            .await,
+        Err(RootError::Admin(AdminError::Forbidden))
+    ));
+    lease
+        .authorize_controls("seed".into(), Some(all_owners.clone()))
+        .await
+        .unwrap();
+    catalog
+        .run_admin(|connection| {
+            connection
+                .execute(
+                    "UPDATE sync_finding_owners SET owner_project=NULL WHERE owner_project='owner'",
+                    [],
+                )
+                .map_err(unavailable)?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        lease
+            .authorize_controls("seed".into(), Some(all_owners))
+            .await,
+        Err(RootError::Admin(AdminError::Forbidden))
+    ));
     assert!(lease.remove_finding(current).await.unwrap());
+    lease
+        .authorize_controls("seed".into(), Some(seed_and_current))
+        .await
+        .unwrap();
     drop(lease);
     foreign.close().await.unwrap();
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn finding_owner_migration_backfills_only_proven_incarnations_and_rolls_back_atomically() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let lease = catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    for name in ["current-bucket", "deleted-bucket", "reused-bucket"] {
+        let bucket = BucketName::new(name).unwrap();
+        catalog
+            .admin(Origin::Api)
+            .ensure_bucket(
+                BucketDefinition::default_for(&bucket, "old-owner", &SystemClock).unwrap(),
+            )
+            .await
+            .unwrap();
+        let generation = publish(&catalog, &data, &bucket, "a//b").await;
+        lease
+            .record_finding(
+                catalog.sync_state().binding(&bucket).await.unwrap(),
+                ObjectName::new("a//b").unwrap(),
+                generation,
+                Reason::InvalidName,
+            )
+            .await
+            .unwrap();
+        if name != "current-bucket" {
+            catalog
+                .admin(Origin::Api)
+                .delete_object(
+                    &bucket,
+                    &ObjectName::new("a//b").unwrap(),
+                    GenerationCondition::Is(generation),
+                )
+                .await
+                .unwrap();
+            catalog.delete_bucket(name, None, None).await.unwrap();
+            if name == "reused-bucket" {
+                catalog
+                    .admin(Origin::Api)
+                    .ensure_bucket(
+                        BucketDefinition::default_for(&bucket, "new-owner", &SystemClock).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+    drop(lease);
+    catalog.close().await.unwrap();
+    let mut connection = Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+    crate::storage::catalog::test_support::downgrade_deletion_schema(&connection);
+    connection.pragma_update(None, "user_version", 39).unwrap();
+    connection.execute_batch("CREATE TEMP TRIGGER fail_owner_migration BEFORE UPDATE ON sync_findings BEGIN SELECT RAISE(ABORT,'injected owner migration failure'); END;").unwrap();
+    assert!(
+        crate::storage::catalog::Migration::Statements(super::super::deletions::SCHEMA)
+            .apply(&mut connection)
+            .is_err()
+    );
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        39
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM sync_findings", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        3
+    );
+    assert!(!connection.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('sync_findings') WHERE name='owner_project')",[],|row|row.get::<_,bool>(0)).unwrap());
+    connection
+        .execute_batch("DROP TRIGGER fail_owner_migration;")
+        .unwrap();
+    drop(connection);
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let owners = catalog
+        .run_admin(|connection| {
+            connection
+                .prepare_cached("SELECT bucket,owner_project FROM sync_findings ORDER BY bucket")
+                .map_err(unavailable)?
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                })
+                .map_err(unavailable)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(unavailable)
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        owners,
+        vec![
+            ("current-bucket".into(), Some("old-owner".into())),
+            ("deleted-bucket".into(), None),
+            ("reused-bucket".into(), None)
+        ]
+    );
+    let lease = catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    assert!(matches!(
+        lease
+            .authorize_controls(
+                "seed".into(),
+                Some(control_identity(&["seed", "old-owner", "new-owner"]))
+            )
+            .await,
+        Err(RootError::Admin(AdminError::Forbidden))
+    ));
+    drop(lease);
     catalog.close().await.unwrap();
 }
 

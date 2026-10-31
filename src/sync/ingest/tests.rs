@@ -2,6 +2,7 @@
 use super::*;
 use crate::{
     object::{ObjectMetadataUpdate, UploadChunk},
+    storage::admin::Origin,
     test_support::TestDir,
 };
 use std::{collections::BTreeMap, fs, sync::Arc, time::Duration};
@@ -25,6 +26,192 @@ async fn fixture() -> (TestDir, TestDir, Catalog, RootLease, Config) {
 async fn scan(catalog: &Catalog, root: &RootLease, config: &Config) -> Reconciliation {
     let (_stop, stopping) = tokio::sync::watch::channel(false);
     rescan(catalog, root, config, &stopping).await.unwrap()
+}
+
+#[tokio::test]
+async fn complete_scan_clears_a_changing_source_finding_after_that_source_disappears() {
+    let (_data, tree, catalog, root, config) = fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    scan(&catalog, &root, &config).await;
+    let binding = root
+        .sync_binding(&BucketName::new("test-bucket").unwrap())
+        .await
+        .unwrap();
+    root.record_path_stop(
+        binding,
+        ObjectName::new("disappeared").unwrap(),
+        PathStop::SourceChanging,
+    )
+    .await
+    .unwrap();
+    assert_eq!(root.observation().await.unwrap().path_stops, 1);
+    assert_eq!(scan(&catalog, &root, &config).await.deferred, 0);
+    assert_eq!(root.observation().await.unwrap().path_stops, 0);
+    assert!(root.observation().await.unwrap().scan_stop.is_none());
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn recovery_rechecks_a_project_added_after_control_authorization() {
+    use crate::storage::sync_state::writeback::{Kind, Limits};
+    let (_data, tree, catalog, root, config) = fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/body"), b"API winner").unwrap();
+    scan(&catalog, &root, &config).await;
+    catalog.enable_change_journal().await.unwrap();
+    let scoped = root.with_authority(control_authority(&[&config.seed_project]));
+    let writeback = scoped
+        .writeback(
+            Limits::new(
+                super::super::CONFLICT_MAX_BYTES,
+                super::super::CONFLICT_MAX_ENTRIES,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    let name = ObjectName::new("body").unwrap();
+    let winner = object(&catalog, "test-bucket/body").await;
+    let fence = catalog.read_changes(None, None, 1).await.unwrap().fence;
+    let pending = writeback
+        .prepare(
+            &bucket,
+            &name,
+            Generation::new(winner.generation).unwrap(),
+            Kind::Publish,
+            fence,
+        )
+        .await
+        .unwrap();
+    let pending = writeback.arm(pending.token).await.unwrap();
+    let path = tree
+        .0
+        .join(mapping::WORKSPACE)
+        .join(pending.workspace_entry.name());
+    fs::write(&path, b"retained original").unwrap();
+    writeback.inspect(pending.token).await.unwrap();
+    let authority = control_authority(&[&config.seed_project]);
+    scoped.observation_for(authority).await.unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(
+            crate::storage::admin::BucketDefinition::default_for(
+                &BucketName::new("other-bucket").unwrap(),
+                "other-project",
+                &crate::clock::SystemClock,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let refused = writeback.preserve_protected().await;
+    assert!(
+        matches!(
+            &refused,
+            Err(crate::storage::sync_state::writeback::Error::Root(
+                RootError::Admin(AdminError::Forbidden)
+            ))
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"retained original");
+    assert_eq!(object(&catalog, "test-bucket/body").await, winner);
+    drop((writeback, scoped));
+    let scoped = root.with_authority(control_authority(&[&config.seed_project, "other-project"]));
+    let writeback = scoped
+        .writeback(
+            Limits::new(
+                super::super::CONFLICT_MAX_BYTES,
+                super::super::CONFLICT_MAX_ENTRIES,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    writeback.preserve_protected().await.unwrap();
+    assert!(!path.exists());
+    assert_eq!(object(&catalog, "test-bucket/body").await, winner);
+    drop((writeback, scoped, root));
+    catalog.close().await.unwrap();
+}
+
+fn control_authority(projects: &[&str]) -> crate::storage::sync_state::authority::ControlAuthority {
+    let roles: std::collections::BTreeMap<_, _> = projects
+        .iter()
+        .map(|project| (*project, vec!["roles/storage.admin"]))
+        .collect();
+    let auth=crate::auth::Auth::strict(crate::auth::Registry::parse(&serde_json::to_vec(&serde_json::json!({"identities":[{"id":"operator","tokens":["control-token"],"project_roles":roles}]})).unwrap()).unwrap());
+    let mut headers = hyper::HeaderMap::new();
+    headers.insert(
+        "authorization",
+        hyper::header::HeaderValue::from_static("Bearer control-token"),
+    );
+    let identity = auth
+        .authenticate_at(&headers, None, &crate::clock::SystemClock)
+        .unwrap()
+        .unwrap()
+        .principal()
+        .unwrap()
+        .clone();
+    crate::storage::sync_state::authority::ControlAuthority::new(projects[0].into(), Some(identity))
+}
+
+#[tokio::test]
+async fn publication_rechecks_a_project_added_after_source_staging() {
+    let (_data, tree, catalog, root, config) = fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/body"), b"preserved external body").unwrap();
+    let scoped = root.with_authority(control_authority(&[&config.seed_project]));
+    let hook = Arc::new(Hook {
+        phase: "publish",
+        entered: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    let (_sender, stopping) = tokio::sync::watch::channel(false);
+    let (result, ()) = HOOK
+        .scope(hook.clone(), async {
+            tokio::join!(rescan(&catalog, &scoped, &config, &stopping), async {
+                hook.entered.notified().await;
+                catalog
+                    .admin(Origin::Api)
+                    .ensure_bucket(
+                        crate::storage::admin::BucketDefinition::default_for(
+                            &BucketName::new("other-bucket").unwrap(),
+                            "other-project",
+                            &crate::clock::SystemClock,
+                        )
+                        .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                hook.release.notify_one();
+            })
+        })
+        .await;
+    assert!(result.is_err());
+    assert!(matches!(
+        catalog
+            .admin(Origin::Api)
+            .get_object(
+                &BucketName::new("test-bucket").unwrap(),
+                &ObjectName::new("body").unwrap(),
+                None
+            )
+            .await,
+        Err(AdminError::NotFound)
+    ));
+    assert_eq!(
+        fs::read(tree.0.join("test-bucket/body")).unwrap(),
+        b"preserved external body"
+    );
+    drop(scoped);
+    let scoped = root.with_authority(control_authority(&[&config.seed_project, "other-project"]));
+    assert_eq!(scan(&catalog, &scoped, &config).await.ingested, 1);
+    assert_eq!(object(&catalog, "test-bucket/body").await.size, 23);
+    drop((scoped, root));
+    catalog.close().await.unwrap();
 }
 
 async fn object(catalog: &Catalog, path: &str) -> crate::object::ObjectRecord {
@@ -63,6 +250,108 @@ async fn api_put(catalog: &Catalog, path: &str, bytes: &'static [u8]) {
         .unwrap();
 }
 
+async fn wait_observed(catalog: &Catalog, path: &str, bytes: &[u8]) -> crate::object::ObjectRecord {
+    let (bucket, name) = mapping::path_to_name(std::path::Path::new(path)).unwrap();
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            if let Ok(record) = catalog
+                .admin(Origin::Api)
+                .get_object(&bucket, &name, None)
+                .await
+                && record.size == bytes.len() as u64
+                && record.crc32c == crc32c::crc32c(bytes)
+            {
+                return record;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+
+async fn wait_absent(catalog: &Catalog, path: &str) {
+    let (bucket, name) = mapping::path_to_name(std::path::Path::new(path)).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            match catalog
+                .admin(Origin::Api)
+                .get_object(&bucket, &name, None)
+                .await
+            {
+                Err(AdminError::NotFound) => return,
+                Ok(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+                Err(error) => panic!("unexpected API error: {error}"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn scan_entry_limit_fails_before_an_inventory_can_be_declared_complete() {
+    let (_data, tree, catalog, root, _config) = fixture().await;
+    fs::write(tree.0.join("a"), b"a").unwrap();
+    fs::write(tree.0.join("b"), b"b").unwrap();
+    let result = root
+        .file_job(|root| {
+            Scan {
+                stack: vec![(PathBuf::new(), None)],
+                visited: 9999,
+            }
+            .page(root)
+        })
+        .await;
+    assert!(
+        matches!(result,Err(RootError::Admin(AdminError::Invalid(reason))) if reason.contains("10000"))
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn native_watcher_ingests_external_create_edit_replace_and_rename_without_manual_rescan() {
+    let (_data, tree, catalog, root, config) = fixture().await;
+    let task = crate::sync::start(catalog.clone(), root.clone(), &config).unwrap();
+    assert!(task.rescan().await.unwrap().baseline_complete);
+    fs::create_dir_all(tree.0.join("watched-bucket/nested")).unwrap();
+    let path = tree.0.join("watched-bucket/nested/body");
+    fs::write(&path, b"new").unwrap();
+    let created = wait_observed(&catalog, "watched-bucket/nested/body", b"new").await;
+    fs::write(&path, b"edited in place").unwrap();
+    let edited = wait_observed(&catalog, "watched-bucket/nested/body", b"edited in place").await;
+    assert!(edited.generation > created.generation);
+    let replacement = tree.0.join("watched-bucket/nested/replacement");
+    fs::write(&replacement, b"atomic replacement").unwrap();
+    fs::rename(&replacement, &path).unwrap();
+    let replaced = wait_observed(
+        &catalog,
+        "watched-bucket/nested/body",
+        b"atomic replacement",
+    )
+    .await;
+    assert!(replaced.generation > edited.generation);
+    let renamed = tree.0.join("watched-bucket/nested/renamed");
+    fs::rename(&path, &renamed).unwrap();
+    wait_observed(
+        &catalog,
+        "watched-bucket/nested/renamed",
+        b"atomic replacement",
+    )
+    .await;
+    wait_absent(&catalog, "watched-bucket/nested/body").await;
+    fs::remove_file(&renamed).unwrap();
+    task.rescan().await.unwrap();
+    wait_absent(&catalog, "watched-bucket/nested/renamed").await;
+    tokio::time::timeout(Duration::from_secs(5), task.finish())
+        .await
+        .unwrap()
+        .unwrap();
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations() {
     let (data, tree, catalog, root, config) = fixture().await;
@@ -93,11 +382,8 @@ async fn ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations
         tree.0.join("second-bucket/renamed"),
     )
     .unwrap();
-    assert_eq!(task.rescan().await.unwrap().ingested, 1);
-    assert_eq!(
-        object(&catalog, "second-bucket/body").await.generation,
-        original.generation
-    );
+    task.rescan().await.unwrap();
+    wait_absent(&catalog, "second-bucket/body").await;
     assert_eq!(
         object(&catalog, "second-bucket/renamed").await.md5,
         original.md5
@@ -112,9 +398,10 @@ async fn ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations
         .unwrap();
     assert!(root.status().permits_external_deletions());
     assert_eq!(scan(&catalog, &root, &config).await.ingested, 0);
+    wait_absent(&catalog, "second-bucket/body").await;
     assert_eq!(
-        object(&catalog, "second-bucket/body").await.generation,
-        original.generation
+        object(&catalog, "second-bucket/renamed").await.md5,
+        original.md5
     );
     drop(root);
     catalog.close().await.unwrap();
@@ -363,7 +650,7 @@ async fn ingest_shutdown_finishes_the_active_publication_before_restart() {
 }
 
 #[test]
-fn ingest_strict_configuration_has_actionable_remedy() {
+fn ingest_strict_configuration_requires_an_identity_registry() {
     let tree = TestDir::new();
     let data = TestDir::new();
     let errors = Config::load(
@@ -374,8 +661,6 @@ fn ingest_strict_configuration_has_actionable_remedy() {
             data.0.to_str().unwrap().into(),
             "--auth-mode".into(),
             "strict".into(),
-            "--identity-file".into(),
-            "identities.json".into(),
         ],
         &BTreeMap::new(),
     )
@@ -384,7 +669,7 @@ fn ingest_strict_configuration_has_actionable_remedy() {
         errors
             .errors
             .iter()
-            .any(|error| error.fix.contains("permissive") && error.fix.contains("remove sync_dir"))
+            .any(|error| error.fix.contains("requires identity_file"))
     );
 }
 
@@ -439,7 +724,11 @@ async fn ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recre
     );
     fs::create_dir(tree.0.join("new-bucket")).unwrap();
     fs::write(tree.0.join("new-bucket/body"), b"new").unwrap();
-    assert_eq!(task.rescan().await.unwrap().ingested, 1);
+    task.rescan().await.unwrap();
+    assert_eq!(
+        object(&catalog, "new-bucket/body").await.crc32c,
+        crc32c::crc32c(b"new")
+    );
     fs::remove_file(tree.0.join("deleted-bucket/retained")).unwrap();
     fs::remove_dir(tree.0.join("deleted-bucket")).unwrap();
     assert_eq!(task.rescan().await.unwrap().blocked_buckets, 0);

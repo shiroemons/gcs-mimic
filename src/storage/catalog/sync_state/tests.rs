@@ -440,9 +440,10 @@ async fn sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_i
 #[tokio::test]
 async fn sync_state_schema_migration_rolls_back_retries_and_preserves_objects() {
     let (dir, catalog, admin, bucket) = setup().await;
-    let original = publish(&admin, entry(&dir, &admin, "object", b"old").await)
+    let mut original = publish(&admin, entry(&dir, &admin, "object", b"old").await)
         .await
         .unwrap();
+    original.owner = None;
     catalog.close().await.unwrap();
     let mut connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     crate::storage::catalog::test_support::downgrade_soft_delete_schema(&connection);
@@ -516,7 +517,7 @@ async fn sync_state_schema_migration_rolls_back_retries_and_preserves_objects() 
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        35
+        super::super::CATALOG_SCHEMA_VERSION
     );
     assert!(super::super::validate_schema_version(17, 16).is_err());
     connection

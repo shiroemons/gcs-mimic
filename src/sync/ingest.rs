@@ -10,10 +10,11 @@ use crate::{
         Catalog,
         admin::{
             Admin, AdminError, BatchPublication, BucketName, Generation, GenerationCondition,
-            ObjectName, Origin, Publication, PublishMode, StagedObject,
+            ObjectName, Publication, PublishMode, StagedObject,
         },
         sync_state::{
             SyncBinding, SyncFingerprint, SyncRecord, SyncUpdate,
+            observation::PathStop,
             root::{RootError, RootLease},
         },
     },
@@ -22,6 +23,7 @@ use std::{ffi::OsString, fs::File, io, path::PathBuf};
 
 struct Scan {
     stack: Vec<(PathBuf, Option<OsString>)>,
+    visited: usize,
 }
 struct Entry {
     path: PathBuf,
@@ -86,6 +88,10 @@ impl Scan {
                 && matches!(name.to_str(), Some(mapping::MARKER | mapping::WORKSPACE))
             {
                 continue;
+            }
+            self.visited += 1;
+            if self.visited > 10_000 {
+                return Err(AdminError::Invalid("sync tree exceeds 10000 inspected entries; preserve the tree and reduce its size before rescanning".into()));
             }
             let relative = path.join(&name);
             if let Ok(child) =
@@ -225,19 +231,20 @@ pub(super) async fn rescan(
         != crate::storage::sync_state::writeback::Stop::Ready
     {
         return Err(io::Error::other(
-            "Unfinished write-back blocks ingestion; preserve the working tree/workspace and select a fresh sync_dir after backup until recovery controls are available",
+            "Unfinished write-back blocks ingestion; inspect retained conflicts and recovery findings, preserve the workspace and resolve the exact retained revision before rescanning",
         ));
     }
     let ingest = Ingest {
         catalog,
         root,
         config,
-        admin: catalog.admin(Origin::SyncIngest),
+        admin: root.sync_admin(),
     };
     let mut summary = Reconciliation::default();
     forget_missing_directories(root, stopping).await?;
     let mut scan = Scan {
         stack: vec![(PathBuf::new(), None)],
+        visited: 0,
     };
     while !scan.stack.is_empty() && !*stopping.borrow() {
         let (next, entries) = root
@@ -291,7 +298,44 @@ pub(super) async fn rescan(
             ingest.ingest(candidate, &mut summary).await?;
         }
     }
+    if !*stopping.borrow() {
+        clear_missing_observations(root, stopping).await?;
+        root.observation_scan(summary.unrepresentable, summary.deferred)
+            .await
+            .map_err(io::Error::other)?;
+    }
     Ok(summary)
+}
+
+async fn clear_missing_observations(
+    root: &RootLease,
+    stopping: &tokio::sync::watch::Receiver<bool>,
+) -> io::Result<()> {
+    let mut after = 0;
+    while !*stopping.borrow() {
+        let page = root
+            .transient_stop_page(after)
+            .await
+            .map_err(io::Error::other)?;
+        if page.is_empty() {
+            break;
+        }
+        for (ordinal, binding, name) in page {
+            after = ordinal;
+            let bucket = BucketName::new(binding.bucket_name()).map_err(io::Error::other)?;
+            if let mapping::PathMapping::File(path) = mapping::name_to_path(&bucket, &name)
+                && let Some(path) = path.to_str()
+                && super::deletion::absent(root, path.to_owned()).await?
+            {
+                for reason in [PathStop::SourceChanging, PathStop::IoFailure] {
+                    root.clear_path_stop(binding.clone(), name.clone(), reason)
+                        .await
+                        .map_err(io::Error::other)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Whether a top-level directory may be ingested or belongs to a bucket deleted through the
@@ -376,7 +420,7 @@ impl Ingest<'_> {
             return Ok(None);
         };
         let state = self.catalog.sync_state();
-        let binding = match state.binding(&bucket).await {
+        let binding = match self.root.sync_binding(&bucket).await {
             Ok(binding) => binding,
             Err(AdminError::NotFound | AdminError::Precondition) => {
                 summary.deferred += 1;
@@ -401,6 +445,7 @@ impl Ingest<'_> {
             .as_ref()
             .is_some_and(|record| same_stat(&record.fingerprint, identity))
         {
+            self.clear_observation(binding, name).await?;
             return Ok(None);
         }
         let live = match self.admin.get_object(&bucket, &name, None).await {
@@ -498,15 +543,22 @@ impl Ingest<'_> {
                 | AdminError::Io(io::ErrorKind::NotFound),
             )) => {
                 summary.deferred += 1;
+                self.record_observation(entry, binding, PathStop::SourceChanging)
+                    .await?;
                 return Ok(None);
             }
             Err(RootError::Admin(AdminError::Io(error))) => {
                 deferred(&entry.path, error, summary);
+                self.record_observation(entry, binding, PathStop::IoFailure)
+                    .await?;
                 return Ok(None);
             }
             Err(error) => return Err(io::Error::other(error)),
         };
         let hashes = staged.hashes();
+        if let Ok((_, name)) = mapping::path_to_name(&entry.path) {
+            self.clear_observation(binding.clone(), name).await?;
+        }
         let fingerprint = SyncFingerprint {
             size: staged.size(),
             mtime_ns: identity.modified_ns,
@@ -519,6 +571,36 @@ impl Ingest<'_> {
         let update =
             SyncUpdate::new(binding.clone(), path, fingerprint).map_err(io::Error::other)?;
         Ok(Some((staged, update)))
+    }
+
+    async fn record_observation(
+        &self,
+        entry: &Entry,
+        binding: &SyncBinding,
+        reason: PathStop,
+    ) -> io::Result<()> {
+        let (_, name) = mapping::path_to_name(&entry.path)
+            .map_err(|_| io::Error::other("invalid deferred synchronization target"))?;
+        match self
+            .root
+            .record_path_stop(binding.clone(), name, reason)
+            .await
+        {
+            Ok(()) | Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
+                Ok(())
+            }
+            Err(error) => Err(io::Error::other(error)),
+        }
+    }
+
+    async fn clear_observation(&self, binding: SyncBinding, name: ObjectName) -> io::Result<()> {
+        for reason in [PathStop::SourceChanging, PathStop::IoFailure] {
+            self.root
+                .clear_path_stop(binding.clone(), name.clone(), reason)
+                .await
+                .map_err(io::Error::other)?;
+        }
+        Ok(())
     }
 
     async fn ingest(&self, candidate: Candidate, summary: &mut Reconciliation) -> io::Result<()> {
@@ -564,7 +646,16 @@ impl Ingest<'_> {
                 return Ok(());
             }
         } else if let Some(tracked) = &tracked {
+            let size = staged.size();
             staged.discard().await.map_err(io::Error::other)?;
+            if tracked.fingerprint.size == size
+                && tracked.fingerprint.md5 == hashes.md5
+                && tracked.fingerprint.crc32c == hashes.crc32c
+            {
+                // A native notification can race API deletion before its unchanged output is removed.
+                summary.deferred += 1;
+                return Ok(());
+            }
             self.root
                 .record_export_conflict(binding, name, tracked.generation)
                 .await
@@ -590,6 +681,10 @@ impl Ingest<'_> {
             .map_or(Ok(GenerationCondition::Absent), |record| {
                 Generation::new(record.generation).map(GenerationCondition::Is)
             })
+            .map_err(io::Error::other)?;
+        self.root
+            .file_job(|_| Ok(()))
+            .await
             .map_err(io::Error::other)?;
         let result = self
             .admin

@@ -100,7 +100,7 @@ async fn initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_i
         .open_object(&first, &ObjectName::new("nested/0000").unwrap(), None)
         .await
         .unwrap();
-    let mut file = reader.into_file().await;
+    let mut file = reader.into_file().await.unwrap();
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut file, &mut bytes).unwrap();
     assert_eq!(bytes, b"\0\xffbody");
@@ -142,13 +142,19 @@ async fn initial_export_preserves_external_conflicts_and_records_mapping_finding
             summary.ignored,
             summary.unrepresentable
         ),
-        (1, 1, 1, 1, 2, 3)
+        (2, 1, 1, 1, 2, 3)
     );
     assert!(!summary.baseline_complete);
     assert_eq!(
         fs::read(tree.0.join("test-bucket/different")).unwrap(),
-        b"external"
+        b"api"
     );
+    let retained = fs::read_dir(data.0.join("sync-conflicts"))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(retained.len(), 1);
+    assert_eq!(fs::read(retained[0].path()).unwrap(), b"external");
     assert_eq!(
         fs::read(tree.0.join("test-bucket/external")).unwrap(),
         b"only"

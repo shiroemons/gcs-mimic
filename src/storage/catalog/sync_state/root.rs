@@ -1,9 +1,5 @@
 //! Root identity, exclusive ownership and fail-closed baseline activation.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
-#![expect(
-    clippy::disallowed_methods,
-    reason = "request-free: startup acquires the root and the sync mirror activates its baseline, once per sync session"
-)]
 
 use super::{CatalogId, SyncState, catalog_id};
 use crate::{
@@ -141,7 +137,14 @@ impl std::fmt::Display for RootError {
         write!(f, "synchronization root: {self:?}")
     }
 }
-impl std::error::Error for RootError {}
+impl std::error::Error for RootError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Admin(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -208,24 +211,28 @@ fn reserve(
         return Err(RootError::ForeignMarker);
     }
     let found = transaction
-        .query_row(
+        .prepare_cached(
             "SELECT root_id, device, inode, complete, location FROM sync_roots
          WHERE location = ?1 OR (device = ?2 AND inode = ?3) LIMIT 1",
-            params![
-                location,
-                identity.device.to_be_bytes(),
-                identity.inode.to_be_bytes()
-            ],
-            |row| {
-                Ok((
-                    RootId(row.get(0)?),
-                    row.get::<_, [u8; 8]>(1)?,
-                    row.get::<_, [u8; 8]>(2)?,
-                    row.get::<_, bool>(3)?,
-                    row.get::<_, Vec<u8>>(4)?,
-                ))
-            },
         )
+        .and_then(|mut statement| {
+            statement.query_row(
+                params![
+                    location,
+                    identity.device.to_be_bytes(),
+                    identity.inode.to_be_bytes()
+                ],
+                |row| {
+                    Ok((
+                        RootId(row.get(0)?),
+                        row.get::<_, [u8; 8]>(1)?,
+                        row.get::<_, [u8; 8]>(2)?,
+                        row.get::<_, bool>(3)?,
+                        row.get::<_, Vec<u8>>(4)?,
+                    ))
+                },
+            )
+        })
         .optional()
         .map_err(super::super::unavailable)?;
     let status = if let Some((id, device, inode, complete, stored_location)) = found {
@@ -246,10 +253,8 @@ fn reserve(
             (Activation::Open, None) => return Err(RootError::MissingMarker),
             (Activation::Reinitialize { catalog_id }, None) if catalog_id == catalog => {
                 transaction
-                    .execute(
-                        "UPDATE sync_roots SET complete = 0 WHERE root_id = ?1",
-                        [id.0],
-                    )
+                    .prepare_cached("UPDATE sync_roots SET complete = 0 WHERE root_id = ?1")
+                    .and_then(|mut statement| statement.execute([id.0]))
                     .map_err(super::super::unavailable)?;
                 Baseline::Activating
             }
@@ -271,15 +276,15 @@ fn reserve(
         let mut id = [0; 16];
         getrandom::fill(&mut id).map_err(|error| RootError::Admin(AdminError::backend(error)))?;
         transaction
-            .execute(
-                "INSERT INTO sync_roots VALUES (?1,?2,?3,?4,0)",
-                params![
+            .prepare_cached("INSERT INTO sync_roots VALUES (?1,?2,?3,?4,0)")
+            .and_then(|mut statement| {
+                statement.execute(params![
                     id,
                     location,
                     identity.device.to_be_bytes(),
                     identity.inode.to_be_bytes()
-                ],
-            )
+                ])
+            })
             .map_err(super::super::unavailable)?;
         RootStatus {
             catalog_id: catalog,
@@ -311,8 +316,49 @@ pub struct RootLease {
     state: SyncState,
     status: RootStatus,
     marker_identity: FileIdentity,
+    authority: Arc<super::authority::ControlAuthority>,
+    stopping: Option<tokio::sync::watch::Receiver<bool>>,
 }
 impl RootLease {
+    pub(crate) fn with_shutdown(mut self, stopping: tokio::sync::watch::Receiver<bool>) -> Self {
+        self.stopping = Some(stopping);
+        self
+    }
+    pub(crate) fn stop_signal(&self) -> Option<tokio::sync::watch::Receiver<bool>> {
+        self.stopping.clone()
+    }
+    pub(crate) fn with_authority(&self, authority: super::authority::ControlAuthority) -> Self {
+        Self {
+            authority: Arc::new(authority),
+            ..self.clone()
+        }
+    }
+    pub(super) fn authority(&self) -> super::authority::ControlAuthority {
+        self.authority.as_ref().clone()
+    }
+    pub(super) fn control_scope(&self) -> super::authority::ControlScope {
+        super::authority::ControlScope::new(self.status.root_id, self.authority())
+    }
+    pub(crate) fn sync_admin(&self) -> crate::storage::admin::Admin {
+        self.catalog()
+            .admin(crate::storage::admin::Origin::SyncIngest)
+            .with_sync_authority(self.control_scope())
+    }
+    pub(crate) async fn sync_binding(
+        &self,
+        bucket: &crate::storage::admin::BucketName,
+    ) -> Result<super::SyncBinding, AdminError> {
+        self.catalog()
+            .sync_state()
+            .binding(bucket)
+            .await
+            .map(|binding| binding.with_control(self.control_scope()))
+    }
+    #[cfg(test)]
+    pub(super) fn fault_tree(&self) -> PathBuf {
+        self.ownership.path.clone()
+    }
+
     pub(super) fn catalog(&self) -> &super::super::Catalog {
         &self.state.0
     }
@@ -339,10 +385,22 @@ impl RootLease {
 
     /// Runs descriptor-relative work on the bounded dedicated workers, owning the lease until done.
     /// Callers must not retain descriptors or start work outside this owned closure.
+    /// The private sync `DirectoryWatch` alone may retain read-only watch descriptors with
+    /// its own RootLease clone: vnode watches require live descriptors, and its RAII order
+    /// closes every watch before releasing that lease. Registration and scans stay here.
     pub(crate) async fn file_job<T: Send + 'static>(
         &self,
         job: impl FnOnce(&File) -> Result<T, AdminError> + Send + 'static,
     ) -> Result<T, RootError> {
+        if matches!(
+            self.authority.as_ref(),
+            super::authority::ControlAuthority::Strict { .. }
+        ) {
+            let scope = self.control_scope();
+            self.catalog()
+                .run_admin(move |connection| scope.authorize(connection))
+                .await?;
+        }
         let lease = self.clone();
         self.state
             .0
@@ -367,12 +425,11 @@ impl RootLease {
         self.state
             .0
             .run_admin(move |connection| {
+                lease.control_scope().authorize(connection)?;
                 let _lease = lease;
                 let changed = connection
-                    .execute(
-                        "UPDATE sync_roots SET complete = 1 WHERE root_id = ?1",
-                        [id.0],
-                    )
+                    .prepare_cached("UPDATE sync_roots SET complete = 1 WHERE root_id = ?1")
+                    .and_then(|mut statement| statement.execute([id.0]))
                     .map_err(super::super::unavailable)?;
                 if changed != 1 {
                     return Err(CatalogError::Corrupt("missing root association".into()));
@@ -512,6 +569,8 @@ impl SyncState {
             state: self.clone(),
             status,
             marker_identity,
+            authority: Arc::new(super::authority::ControlAuthority::Permissive),
+            stopping: None,
         })
     }
 }

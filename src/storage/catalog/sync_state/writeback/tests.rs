@@ -83,7 +83,7 @@ async fn writeback_abandon_unpublished_copy_preserves_external_bytes_and_release
             &name,
             Generation::new(record.generation).unwrap(),
             fence(&catalog).await,
-            Some(reader.into_file().await),
+            Some(reader.into_file().await.unwrap()),
         )
         .await
         .unwrap();
@@ -143,7 +143,7 @@ async fn writeback_abandon_rejects_installed_and_modified_workspace_bodies() {
             &name,
             Generation::new(record.generation).unwrap(),
             fence(&catalog).await,
-            Some(reader.into_file().await),
+            Some(reader.into_file().await.unwrap()),
         )
         .await
         .unwrap();
@@ -197,7 +197,7 @@ async fn writeback_abandon_rejects_installed_and_modified_workspace_bodies() {
             &name,
             Generation::new(record.generation).unwrap(),
             fence(&catalog).await,
-            Some(reader.into_file().await),
+            Some(reader.into_file().await.unwrap()),
         )
         .await
         .unwrap();
@@ -297,7 +297,7 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
         .open_object(&bucket, &name, None)
         .await
         .unwrap();
-    let source = reader.into_file().await;
+    let source = reader.into_file().await.unwrap();
     let entry = armed.workspace_entry.name().to_owned();
     writeback
         .file_job(armed.token.clone(), move |root, workspace| {
@@ -369,7 +369,7 @@ async fn writeback_export_cross_directory_publication_precedes_state_and_retains
         .open_object(&bucket, &name, None)
         .await
         .unwrap();
-    let source = reader.into_file().await;
+    let source = reader.into_file().await.unwrap();
     let entry = armed.workspace_entry.name().to_owned();
     writeback
         .file_job(armed.token.clone(), move |root, workspace| {
@@ -449,7 +449,7 @@ async fn writeback_export_parent_sync_failure_cannot_commit_state() {
             .open_object(&bucket, &name, None)
             .await
             .unwrap();
-        let source = reader.into_file().await;
+        let source = reader.into_file().await.unwrap();
         let entry = armed.workspace_entry.name().to_owned();
         let result: Result<(), Error> = writeback
             .file_job(armed.token.clone(), move |root, workspace| {
@@ -857,7 +857,7 @@ async fn writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drai
             .set_range(bytes.len().min(2) as u64, 0)
             .await
             .unwrap();
-        let mut descriptor = reader.into_file().await;
+        let mut descriptor = reader.into_file().await.unwrap();
         let before = descriptor.stream_position().unwrap();
         publish(&catalog, &bucket, &name, b"replacement").await;
         catalog
@@ -905,7 +905,7 @@ async fn writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drai
         .open_object(&bucket, &ObjectName::new("drain").unwrap(), None)
         .await
         .unwrap();
-    let fd = reader.into_file().await;
+    let fd = reader.into_file().await.unwrap();
     let (entered, started) = tokio::sync::oneshot::channel();
     let (release, blocked) = std::sync::mpsc::sync_channel(1);
     let worker = writeback.clone();
@@ -1144,7 +1144,7 @@ async fn writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_ro
     let (data, root, catalog, lease, writeback, bucket) = setup().await;
     let id = catalog.sync_state().catalog_id().await.unwrap();
     let root_id = lease.status().root_id;
-    let record = publish(&catalog, &bucket, "preserved", b"immutable").await;
+    let mut record = publish(&catalog, &bucket, "preserved", b"immutable").await;
     let pending = prepare(&writeback, &catalog, &bucket, "preserved", &record).await;
     let armed = writeback.arm(pending.token).await.unwrap();
     output(&root, "preserved", b"immutable");
@@ -1156,6 +1156,7 @@ async fn writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_ro
     catalog.close().await.unwrap();
     let mut c = Connection::open(data.0.join("catalog.sqlite3")).unwrap();
     crate::storage::catalog::test_support::downgrade_soft_delete_schema(&c);
+    record.owner = None;
     let seed: i64 = c
         .query_row("SELECT complete FROM startup_seed", [], |r| r.get(0))
         .unwrap();

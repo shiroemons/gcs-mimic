@@ -1,6 +1,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 //! Bounded, sorted source traversal shared by offline adapters.
 
+pub(crate) mod watch;
+
 use std::{
     fs, io,
     path::{Path, PathBuf},

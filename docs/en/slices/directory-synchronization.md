@@ -2,21 +2,31 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Contract updated: **2026-10-28**. Scope: DESIGN-062, DESIGN-072 and DESIGN-074
+Contract updated: **2026-10-31**. Scope: DESIGN-062, DESIGN-072 and DESIGN-074
 remain PARTIAL; DESIGN-076 remains IMPLEMENTED. Root activation precedes bind;
 all-owner export, external create/edit ingestion and continuous API journal replay
-run after ready. External deletion, conflict transfer and sync control API/CLI
-remain PENDING.
+run after ready. The [external deletion and controls slice](external-deletion-controls.md)
+adds fixed-revision deletion approval, protected restoration and live
+status/deletions/rescan/approve routes. The current runtime also connects
+revision-bound findings, strict project-owner management authorization, finite
+waits and registered conflict resolution; see
+[continuous observation and runtime controls](continuous-directory-observation.md).
+The [conflict backend](sync-conflict-recovery.md) and
+[native restart recovery](native-writeback-recovery.md) describe owned-state
+boundaries. Protected workspace transfer and the final combined platform/SDK
+checks are still being integrated; component test success alone does not
+complete the parent features.
 
 ## Local-development scope
 
-This table selects the practical local-development subset for subsequent
-slices; broader safety targets remain explicit PENDING work. The initial-export
-increment changes only configuration, activation and the export side.
+The table and chronological implementation sections below record the earlier
+initial-export increments. Their PENDING annotations describe those checkpoints;
+the current component documents above and the feature ledger determine current
+availability. The later acceptance sections remain the safety contract.
 
 | Acceptance case | Local-development subset | Deferred scope (PENDING) |
 | --- | --- | --- |
-| sync-configuration | Only root selection and the boolean deletion guard are configurable; verify precedence, boolean parsing, removed-key rejection, overlap and CLI-only reinitialization. One-second settle is fixed; strict sync is rejected with permissive/removal examples. | Deletion-guard effects. |
+| sync-configuration | Root selection and the boolean deletion guard are configurable; precedence, boolean parsing, removed keys, overlap and CLI-only reinitialization are checked. One-second settle is fixed. Strict startup requires the local registry. | Exhaustive platform/container coverage. |
 | sync-initial-activation | Export all owners, empty buckets and immutable live bodies; ingest external-only files/default buckets, preserve/count divergent files and finish a complete baseline. Resume interrupted ingestion from atomic fingerprints without duplicate generations or deletion. | Conflict transfer and exhaustive crash boundaries. |
 | sync-name-mapping | Exact lexical mapping, actual directory spelling, host component limits, prefix/type collisions and no-follow checks. | Exhaustive case/Unicode alias groups and non-Linux platform conflict guarantees. |
 | sync-lexical-name-mapping | Existing exact round-trip/property coverage remains implemented. | Runtime concerns belong to sync-name-mapping. |
@@ -24,10 +34,10 @@ increment changes only configuration, activation and the export side.
 | sync-api-writeback | Post-ready all-owner export followed by fenced journal replay; coalesce bounded pages against current live state, replace tracked files only, and reconcile journal retention/epoch gaps through the same bounded keyset scans. | Conflict transfer and ingestion. |
 | sync-metadata-and-loops | Conditional ingestion inherits commit-time metadata/PATCH, applies seed MIME/default holds to new files, adopts equal live hashes without generations, and suppresses recorded output and sync-ingest journal echoes. | Exhaustive watcher/platform races. |
 | sync-conflict-preservation | Leave divergent files untouched; ambiguous publication retains its pending intent/workspace. | Conflict transfer/registration, ordinary quota recovery and 1 TiB sparse-body cases. |
-| sync-deletion-approval | Infer no external deletion. | Candidate inspection, threshold effects and approval. |
-| sync-management-authorization | Configuration is a trusted local operator action. | Sync controls and detailed original-owner strict authorization. |
-| sync-status-and-wait | Emit initial exported/identical/conflicting/external_only/ignored/unrepresentable counts. | Control API/CLI, paged status, readiness summary and waits. |
-| sync-bounded-observation | Dedicated OS workers, at-most-256-entry catalog/directory/journal pages, coalescing and gap recovery; internal rescan compares fingerprints before staging and hashes only changed/racy files. Startup and explicit internal rescan are the only ingest triggers; idle waits use notifications. | Watcher events and bind-mount coverage. |
+| sync-deletion-approval | Complete bounded scans freeze root-wide candidates and denominator; the fixed 100-object/strictly-over-50-percent guard, exact paged inspection, one-shot approval and same-transaction generation/membership checks preserve API winners. Protected deletion restores bytes without removing holds. | Complete protected-target findings and automatic retained-work recovery. |
+| sync-management-authorization | Startup configuration is a trusted local operator action; current controls require the complete original-owner project-admin union in strict mode, rechecked at native execution. | Final combined platform/SDK evidence. |
+| sync-status-and-wait | Runtime summary, revision-bound findings/deletion pages, remedies, CLI and finite scan/journal-fence waits are connected. | Final combined platform/SDK evidence. |
+| sync-bounded-observation | Dedicated OS workers, at-most-256-entry catalog/directory/journal pages, coalescing and gap recovery; internal rescan compares fingerprints before staging and hashes only changed/racy files. Native Linux/macOS notifications also trigger rescans without idle polling; see continuous-directory-observation. | Linux runtime, exhaustive overflow injection and bind-mount coverage. |
 | sync-marker-recovery | Missing/foreign/malformed markers fail before bind; exact-ID missing-marker reinitialization. | Exhaustive process-kill/host-power-loss boundaries. |
 | sync-writeback-recovery | Durable pending intents, checked exchange/removal and synchronized fingerprints; pending-work-only retries at 1, 2, 4, 8, 16, then 30 seconds preserve source descriptors and API/external bodies. | Automated interrupted-operation recovery, every-instruction kill coverage, sparse limits and non-Linux conflict guarantees. |
 | sync-shutdown-lock | Stop between objects, finish active side effects before catalog close, and retain root ownership; live API-write/SIGTERM/restart convergence and initial-export/listener-error drain are tested. | Exhaustive scan/publication/conflict cancellation and lock-boundary coverage. |
@@ -47,9 +57,9 @@ inventory is built. Linux runs the sync integration tests in the
 `linux/amd64` and `linux/arm64` ([container verification](#container-and-linux-verification)).
 Linux exchange/displaced-inode races and non-Linux conflict guarantees remain PENDING.
 
-Unfinished write-back stops new exports. Until recovery controls are delivered,
-preserve/back up the working tree and reserved workspace, correct the mount or
-permissions, and select a fresh unassociated root if recovery is required. No
+Unfinished write-back stops new exports. Preserve the working tree and reserved
+workspace, inspect current conflict/recovery findings, correct storage access
+and resolve the exact retained state before an explicit rescan. No unknown
 pending body is automatically deleted. A changed journal fence, divergent file,
 unimported external-only file or unrepresentable entry prevents initial baseline completion.
 
@@ -89,15 +99,14 @@ startup order, configuration key, control route or ingestion path changes.
 The existing shared pending ledger reserves the operation before any file write.
 Each transition owns the root/catalog lease until its file/SQL work settles.
 
-Disk-full and retryable I/O failures log their cause, a remedy (free unrelated
-space on the sync/data volumes or restore write permission), and the next retry
-delay. Retries keep one pending operation and an immutable source descriptor;
-they do not sleep after success or while idle. Graceful shutdown drains that
-object, including necessary I/O retries, before releasing ownership. A permanent
-failure therefore requires fixing the volume/permissions before graceful drain
-can finish. Forced termination with an unfinished intent still retains the
-workspace and requires the deferred recovery controls; exhaustive kill/power-loss
-recovery remains PENDING. No Linux/Windows runtime parity is claimed.
+Before displacement, retryable I/O failures log their cause and retry twice
+with one pending operation. Persistent failure pauses intake with controls
+available. A post-displacement failure protects and fully charges surviving
+workspace bytes; old operation handles cannot continue destructive cleanup.
+Inspection, verified conflict transfer or explicit confirmed discard and a new
+rescan provide recovery. Backoff is interruptible by shutdown and no idle retry
+loop runs while paused. Exhaustive instruction-level kill/physical power-loss
+coverage and Linux/Windows runtime parity are not claimed.
 
 Identical-body PUTs and metadata-only changes use the same retained live-export
 operation for prepare, arm, durability and acknowledgement retries; they never
@@ -244,11 +253,15 @@ bounded pages, stat unchanged fingerprints without reading bodies, and stage onl
 changed/racy files. Conditional publication inherits current metadata and skips
 equal hashes; API body races win and divergent files remain untouched with a
 durable collision finding. Interrupted activation resumes from atomic sync state.
-The runtime exposes an internal async rescan only; startup scans after ready and
-there is no periodic scan. Strict mode rejects sync until `sync-conflicts`, with
-examples to select permissive mode or remove `sync_dir`.
+The runtime exposes an internal async rescan and native Linux/macOS observation;
+startup scans after ready and there is no periodic scan. The
+[continuous observation slice](continuous-directory-observation.md) records the
+watch bounds, lease lifetime, retry and shutdown contract.
+That historical ingestion increment preceded strict controls. Current strict
+startup uses the normal local registry and complete project-owner authority;
+see [current runtime controls](continuous-directory-observation.md).
 
-External disappearance, deletion guards, watcher/control routes, conflict transfer
+External disappearance effects, deletion guards, control routes, conflict transfer
 and exhaustive crash boundaries remain PENDING. SDK, container and guide journeys
 are out of scope and are not run for this increment.
 
@@ -993,7 +1006,9 @@ escape codec. No runtime interface is added by this contract.
 **File-notification dependency selection is deferred to `sync-watcher` and
 requires owner approval.** Review current stable version, license, package/
 binary-size impact, maintenance and native platform behavior before asking.
-No library is selected or authorized here. Linux/macOS/Windows and Docker bind
+The current [native observer](continuous-directory-observation.md) reuses the
+existing libc dependency without adding a notification crate.
+Linux/macOS/Windows and Docker bind
 mount notifications require their own evidence, including unavailable/missed
 events and overflow fallback. Windows watcher support is pending; unsupported
 watch setup must report failure, never false synchronized success. Reusing

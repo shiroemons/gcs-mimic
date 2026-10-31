@@ -1,6 +1,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 //! Filesystem synchronization adapters and shared reversible name mapping.
 
+pub(crate) mod control;
+mod deletion;
 mod ingest;
 pub mod mapping;
 mod mirror;

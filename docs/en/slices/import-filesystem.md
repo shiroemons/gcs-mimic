@@ -32,9 +32,10 @@ failure state and checks destination counts across all projects. The adapter
 additionally verifies each committed source/destination identity before resume;
 it never writes SQL. See [shared import publication](shared-import-publication.md).
 
-The adapter does not change server startup order, storage internals, seed MIME
-or configuration. Unsupported non-STANDARD object classes are blocked until
-shared imported publication can preserve their stored class.
+The adapter does not change server startup order or seed MIME/configuration.
+Shared publication resolves the requested storage class through the same bucket
+rules as API uploads and commits explicit object ACLs with the object. Bucket
+ACLs commit with their imported bucket and journal observation.
 
 ## Execution and resume contract
 
@@ -93,7 +94,10 @@ staging overlap remain later work, without a performance claim.
 Progress and completion are JSON Lines on stdout; findings and errors use stderr.
 The preservation scope is recoverable current live disk state, including source
 hashes/generations/microsecond times. Native ETags, metageneration, bucket times,
-placement and owning project are generated. History, ACLs, retention, memory
+placement and owning project are generated. Supported storage classes,
+microsecond customTime and explicit entity/role ACLs are preserved. Nonempty
+ACL auxiliary identities cannot be represented and block rather than disappear.
+History, retention, memory
 exports, complete original-name recovery and reverse conversion are excluded.
 
 Source immutability is required across the entire command. A change after the
@@ -142,5 +146,8 @@ HTTP behavior, container inputs and those guides are unchanged. The local CLI
 example above reports `import_complete` and `bodies_verified: true`.
 Host power loss, broad kill/ambiguous
 commit injection, older-executable restoration, native Linux/Windows runtime,
-non-STANDARD classes, multi-element staging overlap and memory/history export
+multi-element staging overlap and memory/history export
 remain unverified or unsupported. No performance claim is made.
+
+The current class/customTime/ACL extension and its focused checks are documented
+in [source state preservation](source-state-preservation.md).

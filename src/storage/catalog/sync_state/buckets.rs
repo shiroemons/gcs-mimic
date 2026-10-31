@@ -1,8 +1,4 @@
 //! Durable directory observations survive API bucket deletion.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "request-free: only the sync mirror's directory scan calls this module, once per bucket per scan"
-)]
 use super::{
     MAX_PAGE,
     root::{RootError, RootLease},
@@ -55,18 +51,18 @@ impl RootLease {
         let root = self.status().root_id.as_bytes();
         let name = name.as_str().to_owned();
         self.catalog().run_admin(move |connection| {
-            let _lease = lease;
             let tx = connection.transaction().map_err(unavailable)?;
-            let mut incarnation: Option<String> = tx.query_row("SELECT incarnation FROM bucket_incarnations WHERE bucket=?1", [&name], |r|r.get(0)).optional().map_err(unavailable)?;
+            lease.control_scope().authorize(&tx)?;
+            let mut incarnation: Option<String> = tx.prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket=?1").and_then(|mut statement|statement.query_row([&name], |r|r.get(0))).optional().map_err(unavailable)?;
             if incarnation.is_none() {
-                let known: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)", params![root,name], |r|r.get(0)).map_err(unavailable)?;
+                let known: bool = tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)").and_then(|mut statement|statement.query_row(params![root,name], |r|r.get(0))).map_err(unavailable)?;
                 if known || create.is_none() { return Ok(false); }
                 let record = create.as_mut().ok_or_else(|| unavailable("missing default bucket"))?;
                 insert_bucket_in_transaction(&tx, record)?;
                 change_journal::append(&tx, Origin::SyncIngest, change_journal::ChangeKind::BucketCreate, &name, None)?;
-                incarnation = Some(tx.query_row("SELECT incarnation FROM bucket_incarnations WHERE bucket=?1", [&name], |r|r.get(0)).map_err(unavailable)?);
+                incarnation = Some(tx.prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket=?1").and_then(|mut statement|statement.query_row([&name], |r|r.get(0))).map_err(unavailable)?);
             }
-            tx.execute("INSERT INTO sync_buckets(root_id,bucket,incarnation) VALUES(?1,?2,?3) ON CONFLICT(root_id,bucket) DO UPDATE SET incarnation=excluded.incarnation", params![root,name,incarnation]).map_err(unavailable)?;
+            tx.prepare_cached("INSERT INTO sync_buckets(root_id,bucket,incarnation) VALUES(?1,?2,?3) ON CONFLICT(root_id,bucket) DO UPDATE SET incarnation=excluded.incarnation").and_then(|mut statement|statement.execute(params![root,name,incarnation])).map_err(unavailable)?;
             tx.commit().map_err(unavailable)?;
             Ok(true)
         }).await.map_err(RootError::from)
@@ -83,8 +79,9 @@ impl RootLease {
         let root = self.status().root_id.as_bytes();
         let lease = self.clone();
         self.catalog().run_admin(move |connection| {
-            let _lease = lease;
-            connection.prepare_cached("SELECT bucket,incarnation FROM sync_buckets WHERE root_id=?1 AND bucket>?2 ORDER BY bucket LIMIT ?3").map_err(unavailable)?
+            let tx = connection.transaction().map_err(unavailable)?;
+            lease.control_scope().authorize(&tx)?;
+            tx.prepare_cached("SELECT bucket,incarnation FROM sync_buckets WHERE root_id=?1 AND bucket>?2 ORDER BY bucket LIMIT ?3").map_err(unavailable)?
                 .query_map(params![root,after,limit as i64], |r|Ok((r.get(0)?,r.get(1)?))).map_err(unavailable)?
                 .collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await.map_err(RootError::from)
@@ -98,10 +95,18 @@ impl RootLease {
         self.file_job(|_| Ok(())).await?;
         let root = self.status().root_id.as_bytes();
         let lease = self.clone();
-        self.catalog().run_admin(move |connection| {
-            let _lease = lease;
-            connection.execute("DELETE FROM sync_buckets WHERE root_id=?1 AND bucket=?2 AND incarnation=?3", params![root,name,incarnation]).map_err(unavailable)?;
-            Ok(())
-        }).await.map_err(RootError::from)
+        self.catalog()
+            .run_admin(move |connection| {
+                let tx = connection.transaction().map_err(unavailable)?;
+                lease.control_scope().authorize(&tx)?;
+                tx.prepare_cached(
+                    "DELETE FROM sync_buckets WHERE root_id=?1 AND bucket=?2 AND incarnation=?3",
+                )
+                .and_then(|mut statement| statement.execute(params![root, name, incarnation]))
+                .map_err(unavailable)?;
+                tx.commit().map_err(unavailable)
+            })
+            .await
+            .map_err(RootError::from)
     }
 }
