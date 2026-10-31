@@ -31,6 +31,84 @@ fn blob_count(dir: &std::path::Path) -> usize {
         .sum()
 }
 
+#[tokio::test]
+async fn publication_acl_rejection_preserves_object_allocator_and_acl() {
+    for restriction in ["invalid", "uniform", "public-prevention"] {
+        let (dir, catalog, admin, bucket, name) = setup().await;
+        let original = admin
+            .publish_object(&bucket, &name, request(None), body(b"original"))
+            .await
+            .unwrap();
+        let previous_acl = catalog
+            .acl_projection("test-bucket", vec![("object".into(), original.generation)])
+            .await
+            .unwrap()
+            .unwrap()
+            .objects;
+        if restriction != "invalid" {
+            let update = crate::bucket::BucketMetadataUpdate {
+                uniform_bucket_level_access_enabled: (restriction == "uniform").then_some(true),
+                public_access_prevention_enforced: (restriction == "public-prevention")
+                    .then_some(true),
+                ..Default::default()
+            };
+            catalog
+                .patch_bucket("test-bucket", update, None, None, &BucketAccess::Permissive)
+                .await
+                .unwrap();
+        }
+        let last = catalog
+            .run_admin(|connection| {
+                connection
+                    .query_row("SELECT last_generation FROM object_generation", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .map_err(unavailable)
+            })
+            .await
+            .unwrap();
+        let mut replacement = entry(&admin, &dir.0, "object", b"replacement").await;
+        replacement.request.metadata.acl = Some(vec![crate::acl::AclEntry {
+            entity: "allUsers".into(),
+            role: if restriction == "invalid" {
+                "WRITER"
+            } else {
+                "READER"
+            }
+            .into(),
+        }]);
+        let result = admin.publish_objects(vec![replacement]).await.unwrap();
+        assert!(result.results[0].is_err(), "{restriction}");
+        assert_eq!(
+            admin.get_object(&bucket, &name, None).await.unwrap(),
+            original
+        );
+        assert_eq!(
+            catalog
+                .acl_projection("test-bucket", vec![("object".into(), original.generation)])
+                .await
+                .unwrap()
+                .unwrap()
+                .objects,
+            previous_acl
+        );
+        assert_eq!(
+            catalog
+                .run_admin(|connection| {
+                    connection
+                        .query_row("SELECT last_generation FROM object_generation", [], |row| {
+                            row.get::<_, i64>(0)
+                        })
+                        .map_err(unavailable)
+                })
+                .await
+                .unwrap(),
+            last
+        );
+        catalog.close().await.unwrap();
+    }
+}
+
 /// Each panic once ended its worker silently; with two workers, the third job then had no
 /// thread left to run it.
 #[tokio::test]

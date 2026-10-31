@@ -1573,7 +1573,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        35
+        super::catalog::CATALOG_SCHEMA_VERSION
     );
 }
 
@@ -1624,6 +1624,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         name: "metadata".into(),
         generation: 1234567,
         metageneration: 1,
+        owner: None,
         content_type: "application/test".into(),
         content_encoding: None,
         content_disposition: None,
@@ -1632,6 +1633,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         metadata: Default::default(),
         size: 9,
         md5,
+        md5_availability: Default::default(),
         crc32c: crc,
         component_count: None,
         storage_class: "NEARLINE".into(),

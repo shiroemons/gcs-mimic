@@ -16,6 +16,13 @@ const CORRUPT: &str =
     "Object storage is unavailable: stored data is corrupt; restore a valid data directory";
 
 fn io_message(kind: ErrorKind) -> String {
+    if kind == ErrorKind::StorageFull {
+        return concat!(
+            "Storage capacity exhausted; for backend=memory release objects/readers or restart ",
+            "with larger memory_max_bytes and memory_catalog_max_bytes (restart loses RAM data), ",
+            "and for backend=disk free disk space; retry with generation preconditions after capacity is available"
+        ).into();
+    }
     format!(
         "Object storage is unavailable: storage I/O error ({kind}); check data directory permissions and available disk space"
     )

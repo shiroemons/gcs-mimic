@@ -37,6 +37,7 @@ pub(crate) mod imported_identity;
 pub(crate) use imported_identity::ImportedIdentity;
 
 mod import_publication;
+mod reset;
 
 #[cfg(test)]
 mod tests;
@@ -53,11 +54,36 @@ pub enum Origin {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AdminGrant {
     origin: Origin,
+    notification_mode: crate::notification::NotificationMode,
+    control: Option<super::sync_state::authority::ControlScope>,
+}
+
+#[derive(Clone, Copy)]
+pub enum LocalAdmin {
+    Disabled,
+    Enabled,
+}
+
+pub(super) fn startup_grant(mode: LocalAdmin) -> Option<AdminGrant> {
+    matches!(mode, LocalAdmin::Enabled).then_some(AdminGrant {
+        origin: Origin::Seed,
+        notification_mode: crate::notification::NotificationMode::Emit,
+        control: None,
+    })
 }
 
 impl AdminGrant {
+    pub(super) fn authorize(&self, connection: &Connection) -> Result<(), CatalogError> {
+        if let Some(scope) = &self.control {
+            scope.authorize(connection)?;
+        }
+        Ok(())
+    }
     pub(crate) fn origin(&self) -> Origin {
         self.origin
+    }
+    pub(crate) fn notification_mode(&self) -> crate::notification::NotificationMode {
+        self.notification_mode
     }
 }
 
@@ -214,7 +240,9 @@ pub enum PublishMode {
 
 mod publication;
 pub(super) use publication::FileWorkers;
+pub(super) use publication::apply_acl;
 pub(crate) use publication::{BatchPublication, ImportedPublication, StagedObject};
+pub(crate) use publication::{SeedBatch, SeedMode};
 
 pub struct Publication {
     pub content_type: String,
@@ -282,7 +310,7 @@ impl From<CatalogError> for AdminError {
             CatalogError::Corrupt(cause) => Self::Corrupt(cause.to_string()),
             CatalogError::PreconditionFailed => Self::Precondition,
             CatalogError::NotFound => Self::NotFound,
-            CatalogError::Forbidden => Self::Forbidden,
+            CatalogError::Forbidden | CatalogError::PublicAccessPrevention => Self::Forbidden,
             error @ (CatalogError::RetentionPolicyLocked(_)
             | CatalogError::RetentionPolicyNotSet) => Self::Invalid(error.to_string()),
             CatalogError::InvalidMetadata(reason) | CatalogError::UnsupportedMetadata(reason) => {
@@ -307,7 +335,9 @@ impl From<ObjectError> for AdminError {
             ObjectError::ChecksumMismatch => Self::Checksum,
             ObjectError::TooLarge => Self::TooLarge,
             ObjectError::InvalidMetadata => Self::Invalid(error.to_string()),
-            ObjectError::Forbidden | ObjectError::OverwriteForbidden => Self::Forbidden,
+            ObjectError::Forbidden
+            | ObjectError::OverwriteForbidden
+            | ObjectError::PublicAccessPrevention => Self::Forbidden,
             ObjectError::BodyAborted(reason) => Self::BodyAborted(reason),
             error => Self::backend(error),
         }
@@ -334,11 +364,25 @@ pub(crate) struct BucketPage {
     pub has_more: bool,
 }
 impl Catalog {
+    pub(crate) fn local_admin(&self) -> Option<Admin> {
+        self.0.local_admin.clone().map(|grant| Admin {
+            catalog: self.clone(),
+            grant,
+        })
+    }
     /// Operator-owned input only; API handlers must continue through their auth profile.
     pub fn admin(&self, origin: Origin) -> Admin {
         Admin {
             catalog: self.clone(),
-            grant: AdminGrant { origin },
+            grant: AdminGrant {
+                control: None,
+                origin,
+                notification_mode: if matches!(origin, Origin::Seed | Origin::Import) {
+                    crate::notification::NotificationMode::Suppress
+                } else {
+                    crate::notification::NotificationMode::Emit
+                },
+            },
         }
     }
 
@@ -391,6 +435,7 @@ impl Catalog {
         deadline: tokio::time::Instant,
         operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
     ) -> Result<T, AdminError> {
+        let activity = self.activity()?;
         let admission = self
             .wait_admin(self.0.admin_reads.clone(), deadline)
             .await?;
@@ -399,7 +444,7 @@ impl Catalog {
         self.0
             .executor
             .run(move || {
-                let (_admission, _execution) = (admission, execution);
+                let (_admission, _execution, _activity) = (admission, execution, activity);
                 let result = match inner.with_connection(operation) {
                     Ok(result) => result.map_err(AdminError::from),
                     Err(super::ConnectionUnavailable::Closed) => Err(AdminError::Closed),
@@ -417,6 +462,20 @@ impl Catalog {
 }
 
 impl Admin {
+    pub(crate) fn with_sync_authority(
+        mut self,
+        scope: super::sync_state::authority::ControlScope,
+    ) -> Self {
+        self.grant.control = Some(scope);
+        self
+    }
+    pub(crate) fn with_notification_mode(
+        mut self,
+        mode: crate::notification::NotificationMode,
+    ) -> Self {
+        self.grant.notification_mode = mode;
+        self
+    }
     pub(crate) fn origin(&self) -> Origin {
         self.grant.origin()
     }
@@ -476,11 +535,13 @@ impl Admin {
             return Err(AdminError::Invalid("duplicate bucket name".into()));
         }
         let origin = self.origin();
+        let grant = self.grant.clone();
         self.catalog
             .run_admin(move |connection| {
                 let transaction = connection
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(unavailable)?;
+                grant.authorize(&transaction)?;
                 let mut results = Vec::with_capacity(records.len());
                 // The names are bound as one JSON array so the statement text stays static.
                 let names = serde_json::to_string(
@@ -624,7 +685,7 @@ impl Admin {
             .await
     }
 
-    async fn publish_with_identity(
+    pub(crate) async fn publish_with_identity(
         &self,
         bucket: &BucketName,
         name: &ObjectName,
@@ -632,6 +693,12 @@ impl Admin {
         identity: Option<ImportedIdentity>,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     ) -> Result<ObjectRecord, AdminError> {
+        if identity.and_then(ImportedIdentity::time_deleted).is_some() {
+            return Err(AdminError::Invalid(
+                "archived identities require imported file-batch publication".into(),
+            ));
+        }
+        let activity = self.catalog.activity()?;
         crate::object::validate_fixed_metadata("contentType", &request.content_type)
             .map_err(AdminError::from)?;
         request.metadata.validate().map_err(AdminError::from)?;
@@ -660,9 +727,19 @@ impl Admin {
                     access,
                 },
                 body,
-                permit.into(),
+                super::UploadGuard {
+                    catalog: None,
+                    _admin: Some(permit),
+                    replay: None,
+                    _activity: activity,
+                },
                 request.mode,
                 identity,
+                if identity.is_some() {
+                    objects::OwnerAssignment::Unknown
+                } else {
+                    objects::OwnerAssignment::Request
+                },
             )
             .await
             .map_err(AdminError::from)
@@ -736,12 +813,12 @@ impl Admin {
         let bucket = bucket.0.clone();
         let name = name.0.clone();
         let access = BucketAccess::Admin(self.grant.clone());
-        let data_dir = self.catalog.0.data_dir.clone();
+        let catalog = self.catalog.clone();
         self.catalog
             .run_admin(move |connection| {
                 Ok(objects::open_selected(
                     connection,
-                    &data_dir,
+                    &catalog,
                     &bucket,
                     &name,
                     generation.map(Generation::get),
@@ -790,7 +867,6 @@ impl Admin {
         self.delete_with_sync(bucket, name, condition, None).await
     }
 
-    #[cfg(test)]
     pub(crate) async fn delete_synced_object(
         &self,
         bucket: &BucketName,

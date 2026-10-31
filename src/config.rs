@@ -13,6 +13,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod notifications;
+mod runtime;
+mod storage;
+#[cfg(test)]
+mod unix_tests;
+pub use runtime::RuntimeEndpoints;
+pub(crate) use runtime::{EndpointError, EndpointSnapshot};
+pub use storage::Backend;
+
 const CONFIG_VALUE_FIX: &str =
     "Expected a string or unsigned integer; use the documented flat JSON setting type.";
 
@@ -102,11 +111,15 @@ pub struct Config {
     pub listen: SocketAddr,
     pub listen_http: Option<SocketAddr>,
     pub grpc_listen: Option<SocketAddr>,
+    pub unix_socket: Option<PathBuf>,
     pub scheme: Scheme,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
     pub tls_handshake_timeout_ms: u64,
     pub data_dir: PathBuf,
+    pub backend: Backend,
+    pub memory_max_bytes: u64,
+    pub memory_catalog_max_bytes: u64,
     pub seed_dir: Option<PathBuf>,
     /// Fallback seed root used only when it exists and is disjoint from data/sync directories.
     pub default_seed_dir: Option<PathBuf>,
@@ -119,6 +132,16 @@ pub struct Config {
     pub buckets_file: Option<PathBuf>,
     pub api_base_url: Option<String>,
     pub public_base_url: Option<PublicOrigin>,
+    /// Local management routes are disabled unless the operator explicitly enables them.
+    pub admin_enabled: bool,
+    pub admin_principal: Option<String>,
+    pub runtime_endpoints: RuntimeEndpoints,
+    pub pubsub_emulator_host: Option<String>,
+    pub event_pubsub_project_id: String,
+    pub event_pubsub_topic: String,
+    pub event_bucket: String,
+    pub event_object_prefix: String,
+    pub event_list: String,
     pub xml_virtual_host_domains: Vec<String>,
     pub max_connections: usize,
     pub max_object_bytes: u64,
@@ -143,11 +166,15 @@ impl Default for Config {
             listen: SocketAddr::from(([127, 0, 0, 1], 4443)),
             listen_http: None,
             grpc_listen: None,
+            unix_socket: None,
             scheme: Scheme::Https,
             tls_cert: None,
             tls_key: None,
             tls_handshake_timeout_ms: 5_000,
             data_dir: PathBuf::from("data"),
+            backend: Backend::Disk,
+            memory_max_bytes: 64 * 1024 * 1024,
+            memory_catalog_max_bytes: 16 * 1024 * 1024,
             seed_dir: None,
             default_seed_dir: None,
             sync_dir: None,
@@ -159,6 +186,15 @@ impl Default for Config {
             buckets_file: None,
             api_base_url: None,
             public_base_url: None,
+            admin_enabled: false,
+            admin_principal: None,
+            runtime_endpoints: RuntimeEndpoints::default(),
+            pubsub_emulator_host: None,
+            event_pubsub_project_id: String::new(),
+            event_pubsub_topic: String::new(),
+            event_bucket: String::new(),
+            event_object_prefix: String::new(),
+            event_list: "finalize".into(),
             xml_virtual_host_domains: Vec::new(),
             max_connections: 32,
             max_object_bytes: 1024 * 1024 * 1024,
@@ -276,12 +312,16 @@ impl Config {
                 .collect(),
         };
         report.apply_settings(&settings);
+        report.config.runtime_endpoints =
+            RuntimeEndpoints::new(report.config.xml_virtual_host_domains.clone());
         report.check_sync(&settings);
+        report.check_backend(&settings);
         report.check_tls(&settings);
         report.check_listeners(&settings);
         report.check_public_base_url(&settings);
         report.check_api_base_url(&settings);
         report.check_auth(&settings);
+        report.check_notifications(&settings);
         report
     }
 }
@@ -318,7 +358,9 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<String> {
             for (key, value) in values {
                 let text = if key == "default_location" && value.is_null() {
                     Some(String::new())
-                } else if key == "sync_delete_guard" && value.is_boolean() {
+                } else if matches!(key.as_str(), "sync_delete_guard" | "admin_enabled")
+                    && value.is_boolean()
+                {
                     Some(value.to_string())
                 } else if key == "buckets_file" {
                     value.as_str().map(str::to_owned)
@@ -372,6 +414,10 @@ fn collect_settings(inputs: &mut Inputs) -> Settings {
     ] {
         for input in inputs.entries.iter().filter(|i| {
             i.source == source
+                && !(i.key == "PUBSUB_EMULATOR_HOST"
+                    && inputs.entries.iter().any(|other| {
+                        other.source == source && other.key == "GCS_MIMIC_PUBSUB_EMULATOR_HOST"
+                    }))
                 && match i.kind {
                     InputKind::Native => !i.key.starts_with("FAKE_GCS_"),
                     InputKind::Alias => true,
@@ -450,18 +496,27 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | "listen"
         | "listen_http"
         | "grpc_listen"
+        | "unix_socket"
         | "tls_cert"
         | "tls_key"
         | "tls_handshake_timeout_ms" => apply_network_setting(config, key, value),
         "api_base_url" | "public_base_url" | "xml_virtual_host_domains" => {
             apply_url_setting(config, key, &value)
         }
+        "backend" | "memory_max_bytes" | "memory_catalog_max_bytes" => {
+            storage::apply(config, key, &value)
+        }
         "data_dir" | "seed_dir" | "default_seed_dir" | "sync_dir" | "sync_delete_guard"
         | "sync_reinitialize" | "seed_project" | "seed_content_type" | "default_location"
         | "buckets_file" => apply_storage_setting(config, key, value),
-        "auth_mode" | "compat_profile" | "cors_fallback" | "identity_file" => {
-            apply_access_setting(config, key, value)
-        }
+        "auth_mode" | "compat_profile" | "cors_fallback" | "identity_file" | "admin_enabled"
+        | "admin_principal" => apply_access_setting(config, key, value),
+        "pubsub_emulator_host"
+        | "event_pubsub_project_id"
+        | "event_pubsub_topic"
+        | "event_bucket"
+        | "event_object_prefix"
+        | "event_list" => notifications::apply(config, key, value),
         _ => apply_limit_setting(config, key, &value),
     }
 }
@@ -489,6 +544,7 @@ fn apply_network_setting(config: &mut Config, key: &str, value: String) -> Resul
                 "grpc_listen must be an IP socket address; use 127.0.0.1:4444 for a separate plaintext gRPC port"
             })?);
         }
+        "unix_socket" => config.unix_socket = Some(PathBuf::from(non_empty(key, value)?)),
         "tls_cert" | "tls_key" => {
             if value.is_empty() {
                 return Err(format!("{key} must not be empty").into());
@@ -601,6 +657,20 @@ fn apply_storage_setting(config: &mut Config, key: &str, value: String) -> Resul
 
 fn apply_access_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
     match key {
+        "admin_principal" => {
+            if value.is_empty() || value.len() > 254 || value.chars().any(char::is_control) {
+                return Err(
+                    "admin_principal must be a nonempty local principal ID of at most 254 bytes"
+                        .into(),
+                );
+            }
+            config.admin_principal = Some(value);
+        }
+        "admin_enabled" => {
+            config.admin_enabled = value
+                .parse::<bool>()
+                .map_err(|_| "admin_enabled must be true or false")?;
+        }
         "auth_mode" => config.auth_mode = value.parse()?,
         "compat_profile" => config.compat_profile = value.parse()?,
         "cors_fallback" => config.cors_fallback = value.parse()?,
@@ -698,7 +768,8 @@ impl ConfigurationReport {
                 }
             }
         }
-        if !self.any_invalid(&["sync_dir", "data_dir", "seed_dir"])
+        if config.backend == Backend::Disk
+            && !self.any_invalid(&["sync_dir", "data_dir", "seed_dir"])
             && let Some(root) = &config.sync_dir
             && let Err(error) =
                 crate::sync::validate_directory(root, &config.data_dir, config.seed_dir.as_deref())
@@ -770,6 +841,33 @@ impl ConfigurationReport {
     }
 
     fn check_listeners(&mut self, settings: &Settings) {
+        if self.config.unix_socket.is_some() {
+            let fix = if !cfg!(unix) {
+                Some("unix_socket requires a Unix platform; no TCP fallback is used.")
+            } else if self.config.scheme != Scheme::Http {
+                Some(
+                    "unix_socket requires scheme=http; advertised HTTP(S) origins remain independent.",
+                )
+            } else if ["listen", "listen_http", "grpc_listen"]
+                .iter()
+                .any(|key| settings.contains_key(*key))
+            {
+                Some(
+                    "unix_socket cannot be combined with explicit listen, listen_http or grpc_listen settings; remove the TCP settings.",
+                )
+            } else {
+                None
+            };
+            if let Some(fix) = fix
+                && let Some(input) = settings.get("unix_socket")
+            {
+                self.invalid.insert("unix_socket".into());
+                self.diagnostics
+                    .errors
+                    .push(Diagnostic::new(input.source, &input.key, fix));
+            }
+            return;
+        }
         if self.any_invalid(&["scheme", "listen", "listen_http"]) {
             return;
         }
@@ -852,13 +950,6 @@ impl ConfigurationReport {
     fn check_auth(&mut self, settings: &Settings) {
         let config = &self.config;
         // Reject mismatched profiles so a registry is never silently ignored or missing.
-        if config.auth_mode == AuthMode::Strict
-            && config.sync_dir.is_some()
-            && let Some(input) = settings.get("sync_dir")
-        {
-            self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
-                "strict authentication for sync management is not supported yet; use --auth-mode permissive and remove identity_file (for example, auth_mode=permissive), or remove sync_dir/GCS_MIMIC_SYNC_DIR/--sync-dir."));
-        }
         match (config.auth_mode, &config.identity_file) {
             (AuthMode::Strict, None) if !self.invalid.contains("identity_file") => {
                 if let Some(input) = settings.get("auth_mode") {

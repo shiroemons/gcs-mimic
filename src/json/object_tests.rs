@@ -14,6 +14,7 @@ pub(super) fn record() -> ObjectRecord {
         name: "dir/猫 %2F?#".to_owned(),
         generation: 9_007_199_254_740_993,
         metageneration: 2,
+        owner: None,
         content_type: "text/plain; charset=utf-8".to_owned(),
         content_encoding: None,
         content_disposition: None,
@@ -22,6 +23,7 @@ pub(super) fn record() -> ObjectRecord {
         metadata: Default::default(),
         size: 5,
         md5: [0; 16],
+        md5_availability: Default::default(),
         crc32c: 0x01020304,
         component_count: None,
         storage_class: "STANDARD".to_owned(),
@@ -37,6 +39,34 @@ pub(super) fn record() -> ObjectRecord {
         retention: None,
         customer_key_sha256: None,
     }
+}
+
+#[test]
+fn absent_md5_has_crc32c_and_opaque_etag_without_composite_metadata() {
+    let mut object = record();
+    object.md5_availability = crate::object::Md5Availability::Unavailable;
+    let resource = object_resource(&object, "http://localhost", Projection::NoAcl).unwrap();
+    assert!(resource.get("md5Hash").is_none());
+    assert!(resource.get("componentCount").is_none());
+    assert!(resource.get("md5_availability").is_none());
+    let headers = object_media_headers(&object).unwrap();
+    assert_eq!(headers["x-goog-hash"], "crc32c=AQIDBA==");
+    assert!(!object_etag(&object).contains(&base64(&object.md5)));
+    let key = crate::csek::CustomerKey::from_sha256([3; 32]);
+    object.customer_key_sha256 = Some(key.sha256());
+    let keyed = super::csek::object_resource_keyed(
+        &object,
+        "http://localhost",
+        Projection::NoAcl,
+        Some(key),
+    )
+    .unwrap();
+    assert!(keyed.get("md5Hash").is_none());
+    assert_eq!(keyed["crc32c"], "AQIDBA==");
+    let mut old = serde_json::to_value(record()).unwrap();
+    old.as_object_mut().unwrap().remove("md5_availability");
+    let old: ObjectRecord = serde_json::from_value(old).unwrap();
+    assert!(old.has_md5());
 }
 
 #[test]
@@ -714,7 +744,7 @@ fn obj_render_001_exact_resource_and_encoded_generation_links() {
     changed.time_created = UNIX_EPOCH - Duration::from_nanos(100);
     assert_eq!(
         object_resource(&changed, "http://localhost", Projection::NoAcl).unwrap()["timeCreated"],
-        "1969-12-31T23:59:59.999Z"
+        "1969-12-31T23:59:59.999999Z"
     );
 }
 

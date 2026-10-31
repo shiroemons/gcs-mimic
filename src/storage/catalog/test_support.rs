@@ -39,9 +39,91 @@ pub(crate) fn downgrade_appendable_schema(connection: &rusqlite::Connection) {
 
 /// Restores the schema 34 layout, which predates upload response replay.
 pub(crate) fn downgrade_upload_replay_schema(connection: &rusqlite::Connection) {
+    downgrade_md5_availability_schema(connection);
     connection
         .execute_batch("DROP TABLE IF EXISTS upload_replays;")
         .unwrap();
+}
+
+/// Restores schema 35, before explicit MD5 availability and XML multipart sessions.
+pub(crate) fn downgrade_md5_availability_schema(connection: &rusqlite::Connection) {
+    downgrade_bucket_timestamp_schema(connection);
+    connection.execute_batch("DROP TABLE IF EXISTS notification_outbox; DROP TABLE IF EXISTS notification_outbox_state;").unwrap();
+    connection.execute_batch("DROP TABLE IF EXISTS xml_multipart_parts; DROP TABLE IF EXISTS xml_multipart_uploads; DROP TABLE IF EXISTS xml_multipart_deletions;").unwrap();
+    let present: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('objects') WHERE name='md5_available')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if present {
+        connection
+            .execute_batch("ALTER TABLE objects DROP COLUMN md5_available;")
+            .unwrap();
+    }
+}
+
+pub(crate) fn downgrade_deletion_schema(connection: &rusqlite::Connection) {
+    downgrade_observation_schema(connection);
+    connection.execute_batch("DROP TABLE IF EXISTS sync_deletion_members; DROP TABLE IF EXISTS sync_deletion_sets; DROP TABLE IF EXISTS sync_finding_owners;").unwrap();
+    let owner:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('sync_findings') WHERE name='owner_project')",[],|row|row.get(0)).unwrap();
+    if owner {
+        connection
+            .execute_batch("ALTER TABLE sync_findings DROP COLUMN owner_project;")
+            .unwrap();
+    }
+}
+
+pub(crate) fn downgrade_observation_schema(connection: &rusqlite::Connection) {
+    downgrade_conflict_schema(connection);
+    let names=connection.prepare("SELECT name FROM sqlite_schema WHERE type='trigger' AND name GLOB 'sync_observation_*'").unwrap().query_map([],|row|row.get::<_,String>(0)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+    for name in names {
+        connection
+            .execute_batch(&format!("DROP TRIGGER \"{name}\";"))
+            .unwrap()
+    }
+    connection
+        .execute_batch(
+            "DROP TABLE IF EXISTS sync_path_stops; DROP TABLE IF EXISTS sync_observations;",
+        )
+        .unwrap();
+}
+
+pub(crate) fn downgrade_conflict_schema(connection: &rusqlite::Connection) {
+    let owner: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('objects') WHERE name='owner')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if owner {
+        connection
+            .execute_batch("ALTER TABLE objects DROP COLUMN owner;")
+            .unwrap();
+    }
+    let bound: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('buckets') WHERE name='acl_policy_bound')", [], |row| row.get(0)).unwrap();
+    if bound {
+        connection
+            .execute_batch("ALTER TABLE buckets DROP COLUMN acl_policy_bound;")
+            .unwrap();
+    }
+    let names=connection.prepare("SELECT name FROM sqlite_schema WHERE type='trigger' AND tbl_name IN ('sync_conflicts','sync_conflict_operations','sync_recovery_workspaces','sync_conflict_roots')").unwrap().query_map([],|row|row.get::<_,String>(0)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+    for name in names {
+        connection
+            .execute_batch(&format!("DROP TRIGGER \"{name}\";"))
+            .unwrap()
+    }
+    connection.execute_batch("DROP TABLE IF EXISTS sync_conflict_operations; DROP TABLE IF EXISTS sync_recovery_workspaces; DROP TABLE IF EXISTS sync_conflicts; DROP TABLE IF EXISTS sync_conflict_roots;").unwrap();
+}
+
+pub(crate) fn downgrade_bucket_timestamp_schema(connection: &rusqlite::Connection) {
+    downgrade_deletion_schema(connection);
+    let present:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('buckets') WHERE name='time_created_nanos')",[],|row|row.get(0)).unwrap();
+    if present {
+        connection.execute_batch("ALTER TABLE buckets DROP COLUMN updated_nanos; ALTER TABLE buckets DROP COLUMN time_created_nanos;").unwrap();
+    }
 }
 
 /// Restores the schema 32 layout, which predates stored access control lists.

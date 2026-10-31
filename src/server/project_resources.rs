@@ -1,4 +1,5 @@
 //! Dispatch for project-scoped JSON resources: HMAC keys and the service agent.
+use super::RequestBody as Incoming;
 use super::{
     BUCKET_BODY_LIMIT, State, authorize_project, empty_response, json_response,
     validate_bodyless_post,
@@ -7,10 +8,7 @@ use crate::auth::{AuthFailure, Caller};
 use crate::json::{self, Fields, JsonError, ProjectRequest};
 use crate::storage::hmac_keys::HmacKeyListQuery;
 use http_body_util::Full;
-use hyper::{
-    Request, Response, StatusCode,
-    body::{Bytes, Incoming},
-};
+use hyper::{Request, Response, StatusCode, body::Bytes};
 
 const HMAC_KEYS_CREATE: &str = "storage.hmacKeys.create";
 const HMAC_KEYS_DELETE: &str = "storage.hmacKeys.delete";
@@ -37,6 +35,7 @@ pub(super) async fn respond(
     fields: Fields,
     caller: Option<Caller<'_>>,
     state: &State,
+    base_url: &str,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     match &operation {
         ProjectRequest::CreateHmacKey { project, .. } => {
@@ -71,7 +70,6 @@ pub(super) async fn respond(
             "This method requires an empty body",
         ));
     }
-    let base_url = &state.api_base_url;
     let mut value = match operation {
         ProjectRequest::CreateHmacKey {
             project,

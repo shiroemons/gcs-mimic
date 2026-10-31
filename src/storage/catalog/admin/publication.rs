@@ -14,6 +14,9 @@ use tokio::sync::oneshot;
 #[cfg(test)]
 mod tests;
 
+mod reseed;
+pub(crate) use reseed::{SeedBatch, SeedMode};
+
 #[cfg(test)]
 thread_local! {
     static COPY_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = std::cell::RefCell::new(None);
@@ -99,11 +102,21 @@ pub(crate) struct StagedObject {
     hashes: crate::hashing::Hashes,
     published: bool,
     sync_update: Option<super::super::sync_state::SyncUpdate>,
+    sync_resolution: Option<super::super::sync_state::conflicts::ResolutionBinding>,
     import_identity: Option<ImportedIdentity>,
     runtime: tokio::runtime::Handle,
+    activity: Option<super::super::Activity>,
+    batch_ownership: Option<Arc<OwnedSemaphorePermit>>,
 }
 
 impl StagedObject {
+    pub(crate) fn with_sync_resolution(
+        mut self,
+        binding: super::super::sync_state::conflicts::ResolutionBinding,
+    ) -> Self {
+        self.sync_resolution = Some(binding);
+        self
+    }
     pub(crate) fn with_sync_state(mut self, update: super::super::sync_state::SyncUpdate) -> Self {
         self.sync_update = Some(update);
         self
@@ -134,8 +147,10 @@ impl Drop for StagedObject {
         let Some(id) = self.id.take() else { return };
         let catalog = self.catalog.clone();
         let permit = self.permit.take();
+        let activity = self.activity.take();
+        let batch_ownership = self.batch_ownership.take();
         crate::task::spawn_supervised_on(&self.runtime, "staged-object-cleanup", async move {
-            let _permit = permit;
+            let (_permit, _activity, _batch_ownership) = (permit, activity, batch_ownership);
             if let Err(error) = cleanup(&catalog, id).await {
                 crate::diagnostics::emit(
                     crate::diagnostics::LogLevel::Error,
@@ -274,6 +289,15 @@ fn stage_file(
             return Err(AdminError::TooLarge);
         }
         if !cloned {
+            #[cfg(test)]
+            super::super::fault::hit(
+                stage
+                    .parent()
+                    .and_then(Path::parent)
+                    .ok_or_else(|| AdminError::Invalid("missing data directory".into()))?,
+                super::super::fault::Step::BodyWrite,
+            )
+            .map_err(objects_error)?;
             target.write_all(&buffer[..count])?;
         }
         hasher.update(&buffer[..count]);
@@ -284,7 +308,21 @@ fn stage_file(
             }
         });
     }
+    #[cfg(test)]
+    let data_dir = stage
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| AdminError::Invalid("missing data directory".into()))?;
+    #[cfg(test)]
+    super::super::fault::hit(data_dir, super::super::fault::Step::BodyFlush)
+        .map_err(objects_error)?;
+    target.flush()?;
+    #[cfg(test)]
+    super::super::fault::hit(data_dir, super::super::fault::Step::BodySync)
+        .map_err(objects_error)?;
     target.sync_all()?;
+    #[cfg(test)]
+    super::super::fault::file_synced(data_dir, &target.metadata()?);
     changed(before, fsutil::stat_identity(source).map_err(fs_error)?)?;
     let hashes = hasher.finish();
     if expected.md5.is_some_and(|md5| md5 != hashes.md5)
@@ -307,6 +345,12 @@ async fn cleanup(catalog: &Catalog, id: String) -> Result<(), AdminError> {
         })
         .await
         .map_err(AdminError::from)?;
+    if let Some(memory) = &catalog.0.memory {
+        if !referenced {
+            memory.remove(&id)?;
+        }
+        return Ok(());
+    }
     let stage = catalog.0.data_dir.join("staging").join(&id);
     let blob = objects::blob_path(&catalog.0.data_dir, &id).map_err(AdminError::from)?;
     catalog
@@ -335,6 +379,7 @@ impl Admin {
         expected: ExpectedHashes,
         max_bytes: u64,
     ) -> Result<StagedObject, AdminError> {
+        let activity = self.catalog.activity()?;
         let deadline = tokio::time::Instant::now() + WAIT_TIMEOUT;
         let permit = self
             .catalog
@@ -362,15 +407,25 @@ impl Admin {
                 },
                 published: false,
                 sync_update: None,
+                sync_resolution: None,
                 import_identity: None,
                 runtime: tokio::runtime::Handle::current(),
+                activity: Some(activity),
+                batch_ownership: None,
             };
             let stage = catalog.0.data_dir.join("staging").join(&id);
             let blob = objects::blob_path(&catalog.0.data_dir, &id).map_err(AdminError::from)?;
+            let memory = catalog.0.memory.clone();
+            let memory_id = id.clone();
             let result = catalog
                 .0
                 .file_workers
                 .run(move || {
+                    if let Some(memory) = memory {
+                        return Ok(stage_memory(
+                            &memory, &source, memory_id, expected, max_bytes,
+                        ));
+                    }
                     if blob.try_exists()? || stage.try_exists()? {
                         return Err(AdminError::Invalid("blob ID collision".into()));
                     }
@@ -382,6 +437,7 @@ impl Admin {
                 Ok((size, hashes)) => {
                     handle.size = size;
                     handle.hashes = hashes;
+                    handle.published = catalog.0.memory.is_some();
                     Ok(handle)
                 }
                 Err(error) => {
@@ -559,6 +615,47 @@ impl Admin {
         .await
         .map_err(AdminError::backend)?
     }
+}
+
+fn stage_memory(
+    memory: &Arc<crate::storage::memory::Store>,
+    source: &File,
+    id: String,
+    expected: ExpectedHashes,
+    max_bytes: u64,
+) -> Result<(u64, crate::hashing::Hashes), AdminError> {
+    if !source.metadata()?.is_file() {
+        return Err(AdminError::Invalid("expected a regular source file".into()));
+    }
+    let before = fsutil::stat_identity(source).map_err(fs_error)?;
+    let mut stage = memory.stage()?;
+    let mut hasher = Hasher::default();
+    let mut size = 0u64;
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let count = match fsutil::read_at(source, &mut buffer, size) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if count == 0 {
+            break;
+        }
+        size = size
+            .checked_add(count as u64)
+            .filter(|size| *size <= max_bytes)
+            .ok_or(AdminError::TooLarge)?;
+        stage.write(&buffer[..count])?;
+        hasher.update(&buffer[..count]);
+    }
+    changed(before, fsutil::stat_identity(source).map_err(fs_error)?)?;
+    let hashes = hasher.finish();
+    if expected.md5.is_some_and(|hash| hash != hashes.md5)
+        || expected.crc32c.is_some_and(|hash| hash != hashes.crc32c)
+    {
+        return Err(AdminError::Checksum);
+    }
+    stage.publish(id)?;
+    Ok((size, hashes))
 }
 
 async fn cleanup_entries(entries: Vec<BatchPublication>) -> Result<(), AdminError> {
@@ -753,6 +850,49 @@ fn validate_staged_entry(entry: &BatchPublication) -> Result<(), ObjectError> {
     Ok(())
 }
 
+fn publication_record(
+    entry: &BatchPublication,
+    generation: i64,
+    defaults: objects::PublicationDefaults,
+) -> Result<ObjectRecord, ObjectError> {
+    let mut record = ObjectRecord {
+        bucket: entry.bucket.as_str().into(),
+        name: entry.name.as_str().into(),
+        generation,
+        metageneration: 1,
+        owner: defaults.owner,
+        content_type: entry.request.content_type.clone(),
+        size: entry.staged.size,
+        md5: entry.staged.hashes.md5,
+        md5_availability: Default::default(),
+        crc32c: entry.staged.hashes.crc32c,
+        component_count: None,
+        storage_class: defaults.storage_class,
+        content_encoding: None,
+        content_disposition: None,
+        content_language: None,
+        cache_control: None,
+        metadata: Default::default(),
+        time_created: defaults.time,
+        updated: defaults.time,
+        time_deleted: None,
+        soft_delete_time: None,
+        hard_delete_time: None,
+        event_based_hold: defaults.event_based_hold,
+        temporary_hold: false,
+        custom_time: None,
+        retention_expiration_time: None,
+        retention: None,
+        customer_key_sha256: None,
+    };
+    entry.request.metadata.clone().apply(&mut record)?;
+    if let Some(identity) = entry.staged.import_identity {
+        record.time_created = identity.time_created();
+        record.updated = identity.updated();
+    }
+    Ok(record)
+}
+
 fn publish_entry(
     transaction: &rusqlite::Transaction<'_>,
     entry: &BatchPublication,
@@ -760,11 +900,21 @@ fn publish_entry(
     clock: &dyn Clock,
 ) -> Result<ObjectRecord, ObjectError> {
     validate_staged_entry(entry)?;
+    if let Some(binding) = &entry.staged.sync_resolution {
+        super::super::sync_state::conflicts::validate_restore(transaction, binding)?;
+    }
     let access = BucketAccess::Admin(grant.clone());
     let bucket = entry.bucket.as_str();
     let name = entry.name.as_str();
     let (storage_class, delete_permission) =
         objects::authorized_bucket(transaction, bucket, &access)?;
+    let storage_class = super::super::bucket_autoclass::object_storage_class(
+        transaction,
+        bucket,
+        entry.request.metadata.storage_class.clone(),
+        storage_class,
+    )
+    .map_err(ObjectError::from)?;
     let (versioning, default_hold) =
         Catalog::bucket_settings_in_transaction(transaction, bucket).map_err(objects_error)?;
     let previous = objects::lookup(transaction, bucket, name)?;
@@ -797,9 +947,7 @@ fn publish_entry(
         let record = previous
             .map(|(record, _)| record)
             .ok_or(ObjectError::ObjectNotFound)?;
-        if let Some(update) = &staged.sync_update {
-            super::super::sync_state::record_in_transaction(transaction, update, &record)?;
-        }
+        record_staged_state(transaction, staged, &record)?;
         return Ok(record);
     }
     let now = clock.now();
@@ -811,7 +959,21 @@ fn publish_entry(
         .id
         .as_deref()
         .ok_or_else(|| objects_error("resolved staged handle"))?;
-    let (record, _, ()) = objects::publish_in_transaction(
+    let defaults = objects::PublicationDefaults {
+        storage_class,
+        time,
+        event_based_hold: staged.import_identity.is_none() && default_hold,
+        owner: if staged.import_identity.is_some() {
+            None
+        } else {
+            Some(super::super::object_owner::for_publication(
+                transaction,
+                bucket,
+                &access,
+            )?)
+        },
+    };
+    let (mut record, _, ()) = objects::publish_in_transaction(
         transaction,
         previous.as_ref(),
         versioning,
@@ -819,52 +981,90 @@ fn publish_entry(
             blob_id: id,
             assignment: staged
                 .import_identity
-                .map_or(objects::GenerationAssignment::Automatic, |identity| {
-                    objects::GenerationAssignment::Imported(identity.generation())
+                .and_then(|identity| identity.generation())
+                .map_or(objects::GenerationAssignment::Automatic, |generation| {
+                    objects::GenerationAssignment::Imported(generation)
                 }),
             micros,
             origin: grant.origin(),
+            notification_mode: grant.notification_mode(),
+            owner_profile: None,
+            acl: super::super::acl::PublicationAcl::InheritDefault,
         },
         |generation| {
-            let mut record = ObjectRecord {
-                bucket: bucket.into(),
-                name: name.into(),
-                generation,
-                metageneration: 1,
-                content_type: entry.request.content_type.clone(),
-                size: staged.size,
-                md5: staged.hashes.md5,
-                crc32c: staged.hashes.crc32c,
-                component_count: None,
-                storage_class,
-                content_encoding: None,
-                content_disposition: None,
-                content_language: None,
-                cache_control: None,
-                metadata: Default::default(),
-                time_created: time,
-                updated: time,
-                time_deleted: None,
-                soft_delete_time: None,
-                hard_delete_time: None,
-                event_based_hold: staged.import_identity.is_none() && default_hold,
-                temporary_hold: false,
-                custom_time: None,
-                retention_expiration_time: None,
-                retention: None,
-                customer_key_sha256: None,
-            };
-            entry.request.metadata.clone().apply(&mut record)?;
+            let mut record = publication_record(entry, generation, defaults)?;
             objects::inherit_metadata(entry.request.mode, previous.as_ref(), &mut record);
-            if let Some(identity) = staged.import_identity {
-                record.time_created = identity.time_created();
-                record.updated = identity.updated();
-            }
             Ok((record, ()))
         },
     )?;
-    if let Some(update) = &staged.sync_update {
-        super::super::sync_state::record_in_transaction(transaction, update, &record)?;
-    }
+    record_publication_metadata(transaction, entry, &access, &mut record)?;
     Ok(record)
+}
+
+fn record_publication_metadata(
+    transaction: &rusqlite::Transaction<'_>,
+    entry: &BatchPublication,
+    access: &BucketAccess,
+    record: &mut ObjectRecord,
+) -> Result<(), ObjectError> {
+    if let Some(deleted) = entry
+        .staged
+        .import_identity
+        .and_then(ImportedIdentity::time_deleted)
+    {
+        let micros = super::super::unix_micros(deleted).map_err(objects_error)?;
+        transaction.prepare_cached("UPDATE objects SET time_deleted = ?4 WHERE bucket = ?1 AND name = ?2 AND generation = ?3")
+            .and_then(|mut statement| statement.execute(rusqlite::params![record.bucket, record.name, record.generation, micros]))
+            .map_err(objects_error)?;
+        record.time_deleted = Some(deleted);
+    }
+    apply_acl(
+        transaction,
+        entry.request.metadata.acl.as_deref(),
+        access,
+        record,
+    )?;
+    record_staged_state(transaction, &entry.staged, record)
+}
+
+fn record_staged_state(
+    transaction: &rusqlite::Transaction<'_>,
+    staged: &StagedObject,
+    record: &ObjectRecord,
+) -> Result<(), ObjectError> {
+    if let Some(update) = &staged.sync_update {
+        super::super::sync_state::record_in_transaction(transaction, update, record)?;
+    }
+    if let Some(binding) = &staged.sync_resolution {
+        super::super::sync_state::conflicts::complete_restore(transaction, binding, record)?;
+    }
+    Ok(())
+}
+
+pub(in crate::storage::catalog) fn apply_acl(
+    transaction: &rusqlite::Transaction<'_>,
+    entries: Option<&[crate::acl::AclEntry]>,
+    access: &BucketAccess,
+    record: &ObjectRecord,
+) -> Result<(), ObjectError> {
+    if let Some(entries) = entries {
+        super::super::acl::replace_resource_acl(
+            transaction,
+            super::super::acl::ResolvedAclTarget::Object {
+                bucket: &record.bucket,
+                name: &record.name,
+                generation: record.generation,
+            },
+            entries,
+            access,
+            None,
+        )
+        .map_err(|error| match error {
+            CatalogError::Forbidden => ObjectError::Forbidden,
+            CatalogError::PublicAccessPrevention => ObjectError::PublicAccessPrevention,
+            CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
+            error => objects_error(error),
+        })?;
+    }
+    Ok(())
 }

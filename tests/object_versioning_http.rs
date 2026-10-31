@@ -497,6 +497,9 @@ async fn versioned_schema_migrations_preserve_objects() {
         server.stop();
         drop(server);
         let db = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+        let current_schema: i64 = db
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
         let expected: (gcs_mimic::object::ObjectRecord, Vec<u8>) = {
             let catalog = Catalog::open(&dir.0).await.unwrap();
             let (mut record, mut reader) = catalog
@@ -515,6 +518,10 @@ async fn versioned_schema_migrations_preserve_objects() {
             for time in [&mut record.time_created, &mut record.updated] {
                 *time = object_effects_support::common::timestamp_support::floor_to_millis(*time);
             }
+            // The historical schema did not persist an uploader identity.
+            let mut legacy = serde_json::to_value(&record).unwrap();
+            legacy["owner"] = serde_json::Value::Null;
+            record = serde_json::from_value(legacy).unwrap();
             catalog.close().await.unwrap();
             (record, bytes)
         };
@@ -611,7 +618,7 @@ async fn versioned_schema_migrations_preserve_objects() {
                 .unwrap()
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            35
+            current_schema
         );
     }
 }
@@ -638,6 +645,15 @@ fn timestamp_migration_preserves_versioned_json_get_and_xml_head() {
                 .unwrap()
                 .parse::<i64>()
                 .unwrap()],
+        )
+        .unwrap();
+    // Schema 13 could only contain milliseconds; preserve that fixture's exact wire value.
+    connection
+        .execute_batch(
+            "UPDATE objects SET
+             time_created = (time_created / 1000 - (time_created % 1000 < 0)) * 1000,
+             updated = (updated / 1000 - (updated % 1000 < 0)) * 1000,
+             time_deleted = (time_deleted / 1000 - (time_deleted % 1000 < 0)) * 1000;",
         )
         .unwrap();
     drop(connection);

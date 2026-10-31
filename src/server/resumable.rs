@@ -1,3 +1,4 @@
+use super::RequestBody as Incoming;
 use super::{ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response, stream_upload};
 use crate::{
     bucket::BucketAccess,
@@ -10,7 +11,7 @@ use crate::{
 };
 use bytes::Bytes;
 use http_body_util::Full;
-use hyper::{Request, Response, StatusCode, body::Incoming, header::HeaderValue};
+use hyper::{Request, Response, StatusCode, header::HeaderValue};
 use tokio::sync::{mpsc, watch};
 
 pub(super) async fn initiate(
@@ -47,7 +48,7 @@ pub(super) async fn initiate(
             "Metadata requires application/json",
         ));
     }
-    let base = crate::url::normalize_base_url(&state.api_base_url).map_err(JsonError::from)?;
+    let base = &ctx.endpoints.api_base_url;
     let location_prefix =
         format!("{base}/upload/storage/v1/b/{bucket}/o?uploadType=resumable&upload_id=");
     location_prefix
@@ -384,7 +385,7 @@ pub(super) async fn session_response(
     if status_only {
         json::read_body(request.into_body(), 0).await?;
         let offset = session.offset;
-        truncate_staging(&lease.staging_path(), offset).await?;
+        state.catalog.prepare_resumable_status(&lease).await?;
         if plan.total != session.total {
             ctx.await_catalog(
                 state
@@ -397,7 +398,7 @@ pub(super) async fn session_response(
     }
     let permit = state.catalog.admit_object_upload()?;
     let offset = session.offset.max(plan.end);
-    let render = completion_renderer(&session.options, state.api_base_url.clone())?;
+    let render = completion_renderer(&session.options, ctx.endpoints.api_base_url.clone())?;
     let (catalog_wait, progress) = watch::channel(false);
     let chunk = ResumableChunk {
         start: plan.start,
@@ -417,22 +418,6 @@ pub(super) async fn session_response(
         Some(value) => Ok(completed(&value)),
         None => incomplete(offset, &headers),
     }
-}
-
-/// Drops staged bytes past the acknowledged offset, so the next chunk resumes there.
-async fn truncate_staging(path: &std::path::Path, offset: u64) -> Result<(), JsonError> {
-    let file = tokio::fs::OpenOptions::new()
-        .write(true)
-        .open(path)
-        .await
-        .map_err(ObjectError::backend)?;
-    if file.metadata().await.map_err(ObjectError::backend)?.len() < offset {
-        return Err(
-            ObjectError::Unavailable("Acknowledged upload prefix is missing".into()).into(),
-        );
-    }
-    file.set_len(offset).await.map_err(ObjectError::backend)?;
-    Ok(())
 }
 
 /// Renders the completion response, which the session caches for retries. The uploader

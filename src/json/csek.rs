@@ -51,7 +51,7 @@ pub(crate) fn object_resource_keyed(
     let mut value = super::object_resource(object, base_url, projection)?;
     if key.is_some_and(|key| object.customer_key_sha256 == Some(key.sha256())) {
         value["crc32c"] = json!(super::base64(&object.crc32c.to_be_bytes()));
-        if object.component_count.is_none() {
+        if object.has_md5() {
             value["md5Hash"] = json!(super::base64(&object.md5));
         }
     }

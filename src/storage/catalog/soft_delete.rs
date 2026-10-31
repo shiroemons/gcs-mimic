@@ -71,14 +71,34 @@ impl Catalog {
             self.0.clock.clone(),
         );
         self.run_object(move |connection| {
-            authorized_bucket(connection, &bucket, &access)?;
+            let transaction = connection.transaction().map_err(object_unavailable)?;
+            let object_acl = objects::object_acl_authority(&transaction, &bucket, &access)?;
             let (record, _) = selected(
-                connection,
+                &transaction,
                 &bucket,
                 &name,
                 generation,
                 unix_micros(clock.now()).map_err(object_unavailable)?,
-            )?;
+            )
+            .map_err(|error| {
+                if object_acl.is_some() && error == ObjectError::ObjectNotFound {
+                    ObjectError::Forbidden
+                } else {
+                    error
+                }
+            })?;
+            if let Some(access) = object_acl
+                && !super::acl::object_granted(
+                    &transaction,
+                    &bucket,
+                    &name,
+                    record.generation,
+                    access,
+                )
+                .map_err(object_unavailable)?
+            {
+                return Err(ObjectError::Forbidden);
+            }
             objects::check_conditions(
                 Some(&record),
                 conditions,
@@ -102,6 +122,7 @@ impl Catalog {
         let (bucket, name) = (bucket.to_owned(), name.to_owned());
         let (restore_access, create_access) = (restore_access.clone(), create_access.clone());
         let (clock, data_dir) = (self.0.clock.clone(), self.0.data_dir.clone());
+        let memory = self.0.memory.clone();
         let result = self
             .run_object(move |connection| {
                 authorized_bucket(connection, &bucket, &restore_access)?;
@@ -154,13 +175,20 @@ impl Catalog {
                     let (versioning, _) =
                         Catalog::bucket_settings_in_transaction(&transaction, &bucket)
                             .map_err(object_unavailable)?;
-                    std::fs::hard_link(objects::blob_path(&data_dir, &original)?, &stage)
-                        .map_err(object_unavailable)?;
-                    objects::publish_blob(&stage, &id.blob_path(&data_dir))
-                        .map_err(object_unavailable)?;
+                    if let Some(memory) = &memory {
+                        memory
+                            .pin(&original, text.clone())
+                            .map_err(object_unavailable)?;
+                    } else {
+                        std::fs::hard_link(objects::blob_path(&data_dir, &original)?, &stage)
+                            .map_err(object_unavailable)?;
+                        objects::publish_blob(&stage, &id.blob_path(&data_dir))
+                            .map_err(object_unavailable)?;
+                    }
                     record.metageneration = 1;
-                    record.time_created = now;
-                    record.updated = now;
+                    record.time_created =
+                        super::system_time_micros(micros).map_err(object_unavailable)?;
+                    record.updated = record.time_created;
                     record.time_deleted = None;
                     record.soft_delete_time = None;
                     record.hard_delete_time = None;
@@ -173,6 +201,11 @@ impl Catalog {
                             assignment: objects::GenerationAssignment::Automatic,
                             micros,
                             origin: super::change_journal::origin(&create_access),
+                            notification_mode: crate::notification::NotificationMode::for_access(
+                                &create_access,
+                            ),
+                            owner_profile: None,
+                            acl: super::acl::PublicationAcl::InheritDefault,
                         },
                         |generation| {
                             record.generation = generation;
@@ -186,7 +219,9 @@ impl Catalog {
                     transaction.commit().map_err(object_unavailable)?;
                     Ok(record)
                 })();
-                if let Err(error) = objects::unlink(&stage) {
+                if memory.is_none()
+                    && let Err(error) = objects::unlink(&stage)
+                {
                     crate::diagnostics::emit(
                         crate::diagnostics::LogLevel::Warn,
                         "restore_cleanup_deferred",

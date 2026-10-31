@@ -17,17 +17,26 @@ recommended fit for this repository, not a universal storage or speed ranking.
 Migration from fake-gcs-server is a product requirement. Reading its seed,
 filesystem and live-export formats does not require adopting its internal
 layout or replacing the metadata engine. The contract is in
-`docs/en/fake-gcs-server-migration.md`; implementation remains pending.
+the [migration guide](fake-gcs-server-migration.md); scoped readers, publication
+and quiesced capture now have [separate contracts](slices/source-storage-contract.md).
 Do not introduce a generic backend framework before a concrete second runtime
 backend needs one.
 
 Replacement also requires bidirectional synchronization with an inspectable
 bucket/object directory. One-time import alone is insufficient. SQLite can
 remain the index/catalog while a visible working tree feeds safe ingestion and
-reflects API mutations. This synchronization is not implemented; conflict and
-name-mapping decisions remain open. The
+reflects API mutations. The [implemented subset](slices/directory-synchronization.md)
+does this through bounded observation and shared publication, with revision-bound
+deletion and unfinished recovery/control cases kept explicit. The
 [filesystem investigation](fake-gcs-server-storage.md) records source behavior,
 executed macOS edit/reseed cases and the required follow-up.
+
+The source checkout's [RAM backend](slices/memory-backend.md) uses process-local
+SQLite and leased bounded chunks. It never touches `data_dir`, loses state at
+exit and shares ordinary authorization/conditions/checksums with disk. Its
+default 64 MiB body budget and separate main/TEMP 16 MiB page limits are storage
+admission limits, not a process RSS ceiling. Disk remains the default and the
+only directory-sync/import destination; no comparative performance is claimed.
 
 ## Selection criteria
 
@@ -51,10 +60,12 @@ does not establish lower total complexity once these guarantees are included.
 `src/storage/catalog.rs` uses one operational SQLite connection, WAL,
 synchronous FULL, a 2 MiB configured cache, mmap disabled and bounded admission
 with one execution permit. Indexed queries and recovery pages avoid loading the
-whole catalog. Schema v6 includes seed initialization and bucket IAM policy state.
+whole catalog. Versioned migrations include seed initialization, bucket IAM and
+the later session, import and synchronization state.
 
-`src/storage/catalog/objects.rs` streams into opaque files, publishes immutable blobs,
-then checks conditions and changes references in a short SQL transaction.
+`src/storage/catalog/objects.rs` streams into opaque files and publishes
+immutable blobs, then checks conditions and changes references in a short
+SQL transaction.
 SQLite is embedded and needs no separately managed database server. Current
 application serialization means WAL's general reader/writer concurrency is not
 a measured application benefit. WAL still has one writer, checkpoint work and

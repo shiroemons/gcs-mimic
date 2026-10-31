@@ -107,7 +107,14 @@ impl fmt::Display for ResumableError {
         }
     }
 }
-impl std::error::Error for ResumableError {}
+impl std::error::Error for ResumableError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Object(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 impl From<ObjectError> for ResumableError {
     fn from(error: ObjectError) -> Self {
         Self::Object(error)
@@ -128,6 +135,7 @@ pub(crate) struct SessionLease {
 pub(super) struct WriterGuard {
     pub(super) catalog: Catalog,
     pub(super) id: String,
+    pub(super) _activity: super::Activity,
 }
 impl Drop for WriterGuard {
     fn drop(&mut self) {
@@ -140,7 +148,10 @@ impl Drop for WriterGuard {
         if self.id.starts_with("derived:") {
             self.catalog.0.derived_wake.notify_waiters();
         }
-        if self.id.starts_with("derived:") || self.id.starts_with("rewrite:") {
+        if self.id.starts_with("derived:")
+            || self.id.starts_with("rewrite:")
+            || self.id.starts_with("multipart:")
+        {
             self.catalog.0.maintenance_wake.notify_one();
         }
     }
@@ -155,6 +166,42 @@ fn random_id<const N: usize>() -> Result<String, CatalogError> {
     let mut bytes = [0; N];
     getrandom::fill(&mut bytes).map_err(unavailable)?;
     Ok(crate::hashing::encode_lower(&bytes))
+}
+
+fn create_session_bytes(catalog: &Catalog, blob_id: &str) -> Result<(), CatalogError> {
+    if let Some(memory) = &catalog.0.memory {
+        return memory
+            .create_resumable_draft(blob_id.into())
+            .map_err(unavailable);
+    }
+    let path = super::transfer_io::stage_path(&catalog.0.data_dir, blob_id).map_err(unavailable)?;
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(unavailable)?;
+    let synced = (|| -> std::io::Result<()> {
+        file.sync_all()?;
+        #[cfg(unix)]
+        fs::File::open(catalog.0.data_dir.join("staging"))?.sync_all()?;
+        Ok(())
+    })();
+    if let Err(error) = synced {
+        drop(file);
+        fs::remove_file(path).map_err(unavailable)?;
+        return Err(unavailable(error));
+    }
+    Ok(())
+}
+
+fn remove_session_stage(catalog: &Catalog, blob_id: &str) -> Result<(), CatalogError> {
+    if let Some(memory) = &catalog.0.memory {
+        memory.remove_draft(blob_id).map_err(unavailable)
+    } else {
+        let path =
+            super::transfer_io::stage_path(&catalog.0.data_dir, blob_id).map_err(unavailable)?;
+        fs::remove_file(path).map_err(unavailable)
+    }
 }
 
 #[expect(
@@ -220,17 +267,17 @@ impl Catalog {
             let deadline = now.checked_add(SESSION_LIFETIME.as_millis() as i64).ok_or_else(|| unavailable("upload deadline overflow"))?;
             let encoded = encode_options(&options).to_string();
             let total = total.map(i64::try_from).transpose().map_err(unavailable)?;
-            let path = blob.staging_path(&catalog.0.data_dir);
-            let file = fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(unavailable)?;
-            let synced=(|| -> std::io::Result<()> {file.sync_all()?;
-            #[cfg(unix)]
-            fs::File::open(catalog.0.data_dir.join("staging"))?.sync_all()?;
-            Ok(())})();
-            if let Err(error)=synced {drop(file);fs::remove_file(&path).map_err(unavailable)?;return Err(unavailable(error).into());}
+            create_session_bytes(&catalog, &blob_id)?;
             let inserted = transaction.prepare_cached("INSERT INTO resumable_sessions VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9,'ACTIVE',NULL)").and_then(|mut statement| statement.execute(params![id, blob_id, bucket, name, incarnation, encoded, total, now, deadline]));
-            if let Err(error) = inserted { drop(file);fs::remove_file(path).map_err(unavailable)?; return Err(unavailable(error).into()); }
+            if let Err(error) = inserted { remove_session_stage(&catalog, &blob_id)?; return Err(unavailable(error).into()); }
             // A failed commit can be ambiguous; retain its file for reference-aware recovery.
-            transaction.commit().map_err(unavailable)?;
+            if let Err(error) = transaction.commit() {
+                if catalog.0.memory.is_some() {
+                    let retained: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1)").and_then(|mut statement| statement.query_row([&blob_id], |row| row.get(0))).map_err(unavailable)?;
+                    if !retained { remove_session_stage(&catalog, &blob_id)?; }
+                }
+                return Err(unavailable(error).into());
+            }
             connection.prepare_cached("SELECT * FROM resumable_sessions WHERE id = ?1").and_then(|mut statement| statement.query_row([&id], read_session)).map_err(|e|unavailable(e).into())
         })())).await??;
         self.0.maintenance_wake.notify_one();
@@ -287,6 +334,7 @@ impl Catalog {
     }
 
     pub(super) fn try_resumable_writer(&self, id: &str) -> Result<WriterGuard, CatalogError> {
+        let activity = self.activity()?;
         let mut writers = self.0.session_writers.lock().map_err(unavailable)?;
         if writers.len() >= MAX_SESSIONS || !writers.insert(id.to_owned()) {
             return Err(unavailable("upload session is busy"));
@@ -294,7 +342,24 @@ impl Catalog {
         Ok(WriterGuard {
             catalog: self.clone(),
             id: id.to_owned(),
+            _activity: activity,
         })
+    }
+
+    pub(crate) async fn prepare_resumable_status(
+        &self,
+        lease: &SessionLease,
+    ) -> Result<(), ResumableError> {
+        if !std::sync::Arc::ptr_eq(&self.0, &lease.guard.catalog.0) {
+            return Err(ResumableError::Invalid(
+                "Session belongs to another catalog".into(),
+            ));
+        }
+        drop(
+            super::transfer_io::Output::open(self, &lease.session.blob_id, lease.session.offset)
+                .await?,
+        );
+        Ok(())
     }
 
     /// Called only with an exclusive lease after file sync; it never transfers body bytes.
@@ -315,6 +380,19 @@ impl Catalog {
         total: Option<u64>,
         options: Option<&ResumableOptions>,
     ) -> Result<(), ResumableError> {
+        self.checkpoint_resumable_output(lease, offset, total, options, None)
+            .await
+            .map(|_| ())
+    }
+
+    pub(super) async fn checkpoint_resumable_output(
+        &self,
+        lease: &mut SessionLease,
+        offset: u64,
+        total: Option<u64>,
+        options: Option<&ResumableOptions>,
+        mut output: Option<super::transfer_io::Output>,
+    ) -> Result<Option<super::transfer_io::Output>, ResumableError> {
         if !std::sync::Arc::ptr_eq(&self.0, &lease.guard.catalog.0) {
             return Err(ResumableError::Invalid(
                 "Session belongs to another catalog".into(),
@@ -343,11 +421,13 @@ impl Catalog {
                 "Upload options exceed 64 KiB".into(),
             ));
         }
-        let changed = self.run_waiting(move |connection| {
+        let (changed, output) = self.run_waiting(move |connection| {
             let offset = i64::try_from(offset).map_err(unavailable)?;
             let total = total.map(i64::try_from).transpose().map_err(unavailable)?;
             let old = i64::try_from(old).map_err(unavailable)?;
-            connection.prepare_cached("UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5").and_then(|mut statement| statement.execute(params![offset, total, id, old, now, encoded])).map_err(unavailable)
+            let changed = connection.prepare_cached("UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5").and_then(|mut statement| statement.execute(params![offset, total, id, old, now, encoded])).map_err(unavailable)?;
+            if changed == 1 && let Some(output) = &mut output { output.acknowledge(offset as u64); }
+            Ok((changed, output))
         }).await?;
         if changed != 1 {
             self.resumable_session(&lease.session.id, &lease.session.bucket)
@@ -359,7 +439,7 @@ impl Catalog {
         if let Some(options) = options {
             lease.session.options = options.clone();
         }
-        Ok(())
+        Ok(output)
     }
 }
 

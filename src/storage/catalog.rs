@@ -12,11 +12,15 @@ use rusqlite::{
 };
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, atomic::AtomicBool},
+    sync::{Arc, Mutex, OnceLock, atomic::AtomicBool},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::{Notify, Semaphore};
+use tokio::sync::{Notify, OwnedRwLockReadGuard, RwLock, Semaphore};
 
+type Activity = OwnedRwLockReadGuard<()>;
+
+#[cfg(test)]
+mod memory_tests;
 #[cfg(test)]
 mod timestamp_tests;
 
@@ -47,11 +51,14 @@ pub(crate) use resumable::ResumableError;
 pub(crate) use resumable::ResumableSession;
 pub(crate) use resumable::{ResumableOptions, SessionState};
 pub(crate) use resumable_transfer::ResumableChunk;
+pub(crate) use upload_replay::UploadAclSnapshot;
 pub(crate) use upload_replay::{CopyReplay, CopyReplaySource, ReplayInvocation};
 
 mod resumable_maintenance;
+pub(crate) mod xml_multipart;
 
 mod executor;
+mod principals;
 
 mod resumable_recovery;
 
@@ -62,12 +69,14 @@ pub(crate) mod rewrite;
 mod rewrite_token;
 
 mod customer_keys;
+mod md5_availability;
 
 mod appendable;
 pub(crate) use appendable::{AppendError, AppendWriter};
 
 mod object_move;
 pub(crate) use object_move::MoveAccess;
+mod object_owner;
 mod objects;
 #[cfg(test)]
 pub(crate) use objects::Versioning;
@@ -77,6 +86,7 @@ pub(crate) use objects::{
 };
 
 mod derived;
+mod transfer_io;
 #[cfg(test)]
 pub(crate) use derived::DerivedTransfer;
 pub(crate) use derived::{
@@ -85,8 +95,11 @@ pub(crate) use derived::{
 
 pub mod admin;
 pub(crate) mod bucket_autoclass;
+mod bucket_timestamps;
+mod notification_outbox;
 mod notifications;
 mod policies;
+mod sync_control;
 use policies::{check_access, insert_policy};
 
 pub(crate) mod change_journal;
@@ -102,7 +115,7 @@ pub(crate) mod acl;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 35;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = 44;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -128,14 +141,14 @@ macro_rules! bucket_columns {
                       metageneration, time_created, updated, versioning_enabled,
                       default_event_based_hold, cors, public_access_prevention_enforced,
                       uniform_bucket_level_access_locked_time, lifecycle, retention_policy, soft_delete_policy,
-                      object_retention_enabled, autoclass"
+                      object_retention_enabled, autoclass, time_created_nanos, updated_nanos"
     };
 }
 use bucket_columns;
 const INSERT_BUCKET: &str = concat!(
     "INSERT INTO buckets (",
     bucket_columns!(),
-    ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL)
+    ", acl_policy_bound) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, 0, 0, 1)
          ON CONFLICT(name) DO NOTHING"
 );
 const SELECT_BUCKET: &str = concat!(
@@ -145,7 +158,7 @@ const SELECT_BUCKET: &str = concat!(
 );
 const UPDATE_BUCKET: &str = "UPDATE buckets SET labels = ?2, storage_class = ?3,
                      versioning_enabled = ?4, default_event_based_hold = ?5,
-                     metageneration = ?6, updated = ?7, cors = ?8, public_access_prevention_enforced = ?9,
+                     metageneration = ?6, updated = ?7, updated_nanos = 0, cors = ?8, public_access_prevention_enforced = ?9,
                      uniform_bucket_level_access_locked_time = ?10, lifecycle = ?11, retention_policy = ?12, soft_delete_policy = ?13 WHERE name = ?1";
 /// Bounds the parsed statements the catalog's single connection keeps. Request paths prepare
 /// about 150 distinct static SQL texts (some list and derived shapes are chosen at run time),
@@ -329,6 +342,19 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
     (33, acl::SCHEMA, None),
     (34, appendable::SCHEMA, None),
     (35, upload_replay::SCHEMA, Some(upload_replay::validate)),
+    (36, md5_availability::SCHEMA, None),
+    (37, xml_multipart::SCHEMA, Some(xml_multipart::validate)),
+    (
+        38,
+        notification_outbox::SCHEMA,
+        Some(notification_outbox::validate),
+    ),
+    (39, bucket_timestamps::SCHEMA, None),
+    (40, sync_state::deletions::SCHEMA, None),
+    (41, sync_state::observation::SCHEMA, None),
+    (42, sync_state::conflicts::SCHEMA, None),
+    (43, acl::POLICY_BINDING_SCHEMA, None),
+    (44, object_owner::SCHEMA, None),
 ];
 
 #[expect(
@@ -393,6 +419,8 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
 }
 
 struct Inner {
+    principals: OnceLock<principals::Profile>,
+    activity: Arc<RwLock<()>>,
     resources: Mutex<Option<Resources>>,
     admission: Arc<Semaphore>,
     execution: Arc<Semaphore>,
@@ -409,8 +437,14 @@ struct Inner {
     writeback_execution: Arc<Semaphore>,
     file_workers: admin::FileWorkers,
     admin_shutdown: Notify,
+    sync_control: Mutex<Option<crate::sync::control::Registration>>,
+    local_admin: Option<admin::AdminGrant>,
     change_wake: Notify,
+    notification_wake: Arc<Notify>,
+    notification_started: AtomicBool,
+    notification_attempts: Arc<Semaphore>,
     data_dir: PathBuf,
+    memory: Option<Arc<super::memory::Store>>,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<std::collections::HashSet<String>>,
     derived_wake: Notify,
@@ -432,7 +466,15 @@ struct Inner {
 struct Resources {
     // Drop the connection before releasing directory ownership, including on cancelled calls.
     connection: Connection,
-    lock: lock::DirectoryLock,
+    lock: Option<lock::DirectoryLock>,
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        // Weak background loops need a stored wake permit even when the last owner disappears between polls.
+        self.notification_wake.notify_one();
+        self.maintenance_wake.notify_one();
+    }
 }
 
 /// Why an operation could not run on the shared catalog connection.
@@ -529,7 +571,9 @@ impl Inner {
         // The connection is checked after an unwind before anyone reuses it, so
         // observing it mid-operation is harmless.
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            change_journal::notify_on_write(connection, &self.change_wake, operation)
+            change_journal::notify_on_write(connection, &self.change_wake, |connection| {
+                change_journal::notify_on_write(connection, &self.notification_wake, operation)
+            })
         }));
         match outcome {
             Ok(result) => Ok(result),
@@ -576,16 +620,7 @@ pub(crate) struct UploadGuard {
     catalog: Option<Catalog>,
     _admin: Option<tokio::sync::OwnedSemaphorePermit>,
     replay: Option<upload_replay::UploadReplay>,
-}
-
-impl From<tokio::sync::OwnedSemaphorePermit> for UploadGuard {
-    fn from(permit: tokio::sync::OwnedSemaphorePermit) -> Self {
-        Self {
-            catalog: None,
-            _admin: Some(permit),
-            replay: None,
-        }
-    }
+    _activity: Activity,
 }
 
 impl Drop for UploadGuard {
@@ -721,6 +756,20 @@ fn open_writable(path: &Path) -> Result<Connection, CatalogError> {
     Ok(connection)
 }
 
+fn open_memory(max_bytes: u64) -> Result<Connection, CatalogError> {
+    let connection = Connection::open_in_memory().map_err(unavailable)?;
+    connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
+    connection.execute_batch("PRAGMA page_size = 4096; PRAGMA foreign_keys = ON; PRAGMA temp_store = MEMORY; PRAGMA cache_size = -2048;").map_err(unavailable)?;
+    let pages = i64::try_from(max_bytes / 4096).map_err(unavailable)?;
+    connection
+        .pragma_update(None, "max_page_count", pages)
+        .map_err(unavailable)?;
+    connection
+        .pragma_update(Some("temp"), "max_page_count", pages)
+        .map_err(unavailable)?;
+    Ok(connection)
+}
+
 /// Creates a new catalog at schema version 5, the base the migrations continue from.
 #[expect(
     clippy::disallowed_methods,
@@ -822,6 +871,15 @@ const MIGRATIONS: &[(i64, Migration)] = &[
     (33, Migration::Function(acl::migrate)),
     (34, Migration::Function(appendable::migrate)),
     (35, Migration::Function(upload_replay::migrate)),
+    (36, Migration::Statements(md5_availability::SCHEMA)),
+    (37, Migration::Statements(xml_multipart::SCHEMA)),
+    (38, Migration::Statements(notification_outbox::SCHEMA)),
+    (39, Migration::Statements(bucket_timestamps::SCHEMA)),
+    (40, Migration::Statements(sync_state::deletions::SCHEMA)),
+    (41, Migration::Statements(sync_state::observation::SCHEMA)),
+    (42, Migration::Statements(sync_state::conflicts::SCHEMA)),
+    (43, Migration::Statements(acl::POLICY_BINDING_SCHEMA)),
+    (44, Migration::Statements(object_owner::SCHEMA)),
 ];
 
 /// Resets volatile state and completes crash recovery before the catalog serves requests.
@@ -861,14 +919,38 @@ fn recover_on_open(
             .map_err(unavailable)?;
     }
     connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(unavailable)?;
+    notification_outbox::open(connection)?;
+    let has_deletion_revision: bool = connection
+        .prepare_cached(
+            "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets WHERE valid=1 OR authorization!=0)",
+        )
+        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
+        .map_err(unavailable)?;
+    if has_deletion_revision {
+        connection.execute_batch("UPDATE sync_deletion_sets SET valid=0,authorization=0 WHERE valid=1 OR authorization!=0;").map_err(unavailable)?;
+    }
+    let has_conflict_revision:bool=connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_conflict_roots UNION ALL SELECT 1 FROM sync_recovery_workspaces)")
+        .and_then(|mut statement|statement.query_row([],|row|row.get(0))).map_err(unavailable)?;
+    if has_conflict_revision {
+        connection.execute_batch("UPDATE sync_conflict_roots SET revision=lower(hex(randomblob(16))); UPDATE sync_recovery_workspaces SET revision=lower(hex(randomblob(16)));").map_err(unavailable)?;
+    }
     let recovery_now = unix_millis(clock.now())?;
     rewrite::recover_due(connection, recovery_now)?;
     resumable_maintenance::recover_due(connection, data_dir, recovery_now)?;
+    xml_multipart::recover(connection, data_dir, recovery_now)?;
     objects::recover(connection, data_dir, recovery_now)?;
     appendable::recover(connection, data_dir)
 }
 
 impl Catalog {
+    fn activity(&self) -> Result<Activity, CatalogError> {
+        self.0
+            .activity
+            .clone()
+            .try_read_owned()
+            .map_err(unavailable)
+    }
+
     /// Acquires directory ownership and completes SQLite recovery before returning.
     pub async fn open(data_dir: impl AsRef<Path>) -> Result<Self, CatalogError> {
         Self::open_with_clock(data_dir, Arc::new(SystemClock)).await
@@ -878,12 +960,56 @@ impl Catalog {
         data_dir: impl AsRef<Path>,
         clock: Arc<dyn Clock>,
     ) -> Result<Self, CatalogError> {
+        let catalog = Self::open_for_server(data_dir, clock, admin::LocalAdmin::Disabled).await?;
+        catalog.set_principal_profile(principals::Profile::TrustedLocal)?;
+        Ok(catalog)
+    }
+
+    /// Issues local management authority only while opening the operator-owned catalog.
+    pub async fn open_for_server(
+        data_dir: impl AsRef<Path>,
+        clock: Arc<dyn Clock>,
+        local_admin: admin::LocalAdmin,
+    ) -> Result<Self, CatalogError> {
         let data_dir = data_dir.as_ref().to_owned();
+        Self::open_backend(data_dir, clock, local_admin, None).await
+    }
+
+    /// Opens an isolated volatile catalog without reading or creating a data directory.
+    pub async fn open_memory_for_server(
+        max_bytes: u64,
+        catalog_max_bytes: u64,
+        clock: Arc<dyn Clock>,
+        local_admin: admin::LocalAdmin,
+    ) -> Result<Self, CatalogError> {
+        if max_bytes == 0 || catalog_max_bytes < 1024 * 1024 {
+            return Err(unavailable(
+                "RAM requires a positive blob budget and at least 1 MiB of catalog pages",
+            ));
+        }
+        Self::open_backend(
+            PathBuf::new(),
+            clock,
+            local_admin,
+            Some((max_bytes, catalog_max_bytes)),
+        )
+        .await
+    }
+
+    async fn open_backend(
+        data_dir: PathBuf,
+        clock: Arc<dyn Clock>,
+        local_admin: admin::LocalAdmin,
+        memory_limits: Option<(u64, u64)>,
+    ) -> Result<Self, CatalogError> {
         let catalog = tokio::task::spawn_blocking(move || -> Result<Self, CatalogError> {
-            let lock = lock::acquire(&data_dir)?;
-            let path = data_dir.join("catalog.sqlite3");
-            let stored_version = inspect_catalog(&path)?;
-            let mut connection = open_writable(&path)?;
+            let (lock, stored_version, mut connection) = if let Some((_, bytes)) = memory_limits {
+                (None, 0, open_memory(bytes)?)
+            } else {
+                let lock = lock::acquire(&data_dir)?;
+                let path = data_dir.join("catalog.sqlite3");
+                (Some(lock), inspect_catalog(&path)?, open_writable(&path)?)
+            };
             let mut version = stored_version;
             if version == 0 {
                 initialize_catalog(&mut connection)?;
@@ -906,8 +1032,15 @@ impl Catalog {
                     serde_json::json!({"message":format!("migrated catalog schema from version {stored_version} to {CATALOG_SCHEMA_VERSION}; releases that support only schema {stored_version} can no longer open this data directory"),"from":stored_version,"to":CATALOG_SCHEMA_VERSION}),
                 );
             }
-            recover_on_open(&mut connection, &data_dir, &*clock)?;
+            if memory_limits.is_some() {
+                connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(unavailable)?;
+                notification_outbox::open(&connection)?;
+            } else {
+                recover_on_open(&mut connection, &data_dir, &*clock)?;
+            }
             Ok(Self(Arc::new(Inner {
+                principals: OnceLock::new(),
+                activity: Arc::new(RwLock::new(())),
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),
@@ -924,8 +1057,14 @@ impl Catalog {
                 writeback_execution: Arc::new(Semaphore::new(1)),
                 file_workers: admin::FileWorkers::new().map_err(unavailable)?,
                 admin_shutdown: Notify::new(),
+                sync_control: Mutex::new(None),
+                local_admin: admin::startup_grant(local_admin),
                 change_wake: Notify::new(),
+                notification_wake: Arc::new(Notify::new()),
+                notification_started: AtomicBool::new(false),
+                notification_attempts: Arc::new(Semaphore::new(1)),
                 data_dir,
+                memory: memory_limits.map(|(bytes, _)| super::memory::Store::new(bytes)),
                 clock,
                 session_writers: Mutex::new(Default::default()),
                 derived_wake: Notify::new(),
@@ -959,6 +1098,11 @@ impl Catalog {
 
     pub fn is_healthy(&self) -> bool {
         !self.0.resources.is_poisoned()
+            && self
+                .0
+                .memory
+                .as_ref()
+                .is_none_or(|memory| memory.is_healthy())
             && !self.0.session_writers.is_poisoned()
             && !self.0.admission.is_closed()
             && !self.0.admin_uploads.is_closed()
@@ -976,7 +1120,15 @@ impl Catalog {
             .closed = true;
         self.0.admission.close();
         self.0.admin_shutdown.notify_waiters();
+        self.0.notification_wake.notify_one();
         self.0.maintenance_wake.notify_one();
+        let _notification_attempt = self
+            .0
+            .notification_attempts
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(unavailable)?;
         let _publication_requests = self
             .0
             .publication_requests
@@ -1050,7 +1202,12 @@ impl Catalog {
                     connection
                         .close()
                         .map_err(|(_, error)| unavailable(error))?;
-                    lock.release().map_err(unavailable)?;
+                    if let Some(lock) = lock {
+                        lock.release().map_err(unavailable)?;
+                    }
+                    if let Some(memory) = &inner.memory {
+                        memory.clear().map_err(unavailable)?;
+                    }
                 }
                 Ok(())
             })
@@ -1103,6 +1260,7 @@ impl Catalog {
         admission: tokio::sync::OwnedSemaphorePermit,
         operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
     ) -> Result<T, CatalogError> {
+        let activity = self.activity()?;
         let execution = self
             .0
             .execution
@@ -1114,7 +1272,7 @@ impl Catalog {
         self.0
             .executor
             .run(move || {
-                let (_admission, _execution) = (admission, execution);
+                let (_admission, _execution, _activity) = (admission, execution, activity);
                 let result = match inner.with_connection(operation) {
                     Ok(result) => result,
                     Err(ConnectionUnavailable::Closed) => {
@@ -1211,6 +1369,7 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         let clock = self.0.clock.clone();
+        let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1251,6 +1410,7 @@ impl Catalog {
                 apply_soft_delete_retention(&mut record, duration, clock.now())?;
             }
             apply_retention_policy(&mut record, &update, if_metageneration_match, clock.now())?;
+            validate_retention_expiration(&transaction, &record)?;
             bucket_autoclass::update(&transaction, &mut record, &update, clock.now())?;
             if let Some(labels) = update.labels {
                 apply_labels(&mut record, labels, mode)?;
@@ -1316,7 +1476,7 @@ impl Catalog {
                 (acl::ResolvedAclTarget::DefaultObject(&name), update.default_object_acl),
             ] {
                 if let Some(entries) = entries {
-                    acl::replace_resource_acl(&transaction, target, &entries, &access)?;
+                    acl::replace_resource_acl(&transaction, target, &entries, &access, principals.as_ref())?;
                 }
             }
             change_journal::append(&transaction, change_journal::origin(&access), change_journal::ChangeKind::BucketUpdate, &name, None)?;
@@ -1450,6 +1610,7 @@ impl Catalog {
     ) -> Result<(), CatalogError> {
         let name = name.to_owned();
         let access = access.clone();
+        let maintenance_wake = self.0.maintenance_wake.clone();
         self.run(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1498,7 +1659,10 @@ impl Catalog {
             execute("DELETE FROM bucket_incarnations WHERE bucket = ?1")?;
             execute("DELETE FROM sync_objects WHERE bucket = ?1")?;
             execute("DELETE FROM buckets WHERE name = ?1")?;
-            transaction.commit().map_err(unavailable)
+            let result = transaction.commit().map_err(unavailable);
+            // Commit failures may be ambiguous; cleanup rechecks the current bucket incarnation.
+            maintenance_wake.notify_one();
+            result
         })
         .await?;
         self.reclaim_after_commit().await;
@@ -1562,6 +1726,33 @@ fn apply_soft_delete_retention(
 }
 
 /// Locks, sets or clears the bucket retention policy; a locked policy never shrinks.
+fn validate_retention_expiration(
+    connection: &Connection,
+    record: &BucketRecord,
+) -> Result<(), CatalogError> {
+    let Some(policy) = &record.retention_policy else {
+        return Ok(());
+    };
+    let latest_creation = i64::try_from(
+        253_402_300_799_999_999_i128 - i128::from(policy.retention_period) * 1_000_000,
+    )
+    .map_err(unavailable)?;
+    let invalid: bool = connection
+        .prepare_cached(
+            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND time_created > ?2)",
+        )
+        .and_then(|mut statement| {
+            statement.query_row(rusqlite::params![record.name, latest_creation], |row| {
+                row.get(0)
+            })
+        })
+        .map_err(unavailable)?;
+    if invalid {
+        return Err(CatalogError::InvalidMetadata("Bucket retention would place an existing object's expiration outside the supported RFC3339 UTC range".into()));
+    }
+    Ok(())
+}
+
 fn apply_retention_policy(
     record: &mut BucketRecord,
     update: &BucketMetadataUpdate,
@@ -1919,8 +2110,8 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         lifecycle: serde_json::from_str(&row.get::<_, String>(14)?)
             .map_err(|e| rusqlite::Error::FromSqlConversionFailure(14, Type::Text, Box::new(e)))?,
         metageneration: row.get(6)?,
-        time_created: system_time_micros(row.get(7)?)?,
-        updated: system_time_micros(row.get(8)?)?,
+        time_created: bucket_timestamps::read(row, row.get(7)?, "time_created_nanos")?,
+        updated: bucket_timestamps::read(row, row.get(8)?, "updated_nanos")?,
         object_retention_enabled: row.get(17)?,
         versioning_enabled: row.get(9)?,
         default_event_based_hold: row.get(10)?,
@@ -2021,6 +2212,7 @@ mod tests {
             labels: Some(None),
             ..Default::default()
         };
+        let before = catalog.get_bucket("patch-policy").await.unwrap();
         assert_eq!(
             catalog
                 .update_bucket(
@@ -2034,10 +2226,7 @@ mod tests {
                 .await,
             Err(CatalogError::Forbidden)
         );
-        assert_eq!(
-            catalog.get_bucket("patch-policy").await.unwrap(),
-            Some(record.clone())
-        );
+        assert_eq!(catalog.get_bucket("patch-policy").await.unwrap(), before);
         let invalid = BucketMetadataUpdate {
             labels: Some(Some(std::collections::BTreeMap::from([(
                 "Bad".into(),
@@ -2058,10 +2247,7 @@ mod tests {
                 .await,
             Err(CatalogError::Forbidden)
         );
-        assert_eq!(
-            catalog.get_bucket("patch-policy").await.unwrap(),
-            Some(record.clone())
-        );
+        assert_eq!(catalog.get_bucket("patch-policy").await.unwrap(), before);
         catalog
             .delete_bucket("patch-policy", None, None)
             .await

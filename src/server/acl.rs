@@ -1,5 +1,6 @@
 //! JSON ACL handlers and the ACL fields of `projection=full` resources.
 
+use super::RequestBody as Incoming;
 use super::{State, authorize_bucket, empty_response, json_response};
 use crate::{
     acl::{AclKind, AclTarget},
@@ -11,10 +12,7 @@ use crate::{
     storage::{AclChange, AclError, AclState},
 };
 use http_body_util::Full;
-use hyper::{
-    Method, Request, Response, StatusCode,
-    body::{Bytes, Incoming},
-};
+use hyper::{Method, Request, Response, StatusCode, body::Bytes};
 use serde_json::Value;
 
 /// Whether an ACL request reads or changes the ACL.
@@ -91,6 +89,7 @@ pub(super) async fn respond(
     operation: AclRequest,
     caller: Option<Caller<'_>>,
     state: &State,
+    base: &str,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let AclRequest {
         target,
@@ -125,7 +124,6 @@ pub(super) async fn respond(
             "This method requires an empty body",
         ));
     }
-    let base = &state.api_base_url;
     let mut value = match &operation {
         AclOperation::List | AclOperation::Get(_) => {
             let acl = state
@@ -215,13 +213,14 @@ pub(super) async fn add_full_projection(
     state: &State,
     caller: Option<Caller<'_>>,
     value: &mut Value,
+    base_url: &str,
 ) -> Result<(), JsonError> {
     match value["kind"].as_str() {
-        Some("storage#bucket") => add_bucket(state, caller, value).await,
+        Some("storage#bucket") => add_bucket(state, caller, value, base_url).await,
         Some("storage#buckets") => {
             if let Some(items) = value["items"].as_array_mut() {
                 for item in items {
-                    add_bucket(state, caller, item).await?;
+                    add_bucket(state, caller, item, base_url).await?;
                 }
             }
             Ok(())
@@ -230,7 +229,14 @@ pub(super) async fn add_full_projection(
             let Some(bucket) = value["bucket"].as_str().map(str::to_owned) else {
                 return Ok(());
             };
-            add_objects(state, caller, &bucket, std::slice::from_mut(value)).await
+            add_objects(
+                state,
+                caller,
+                &bucket,
+                std::slice::from_mut(value),
+                base_url,
+            )
+            .await
         }
         Some("storage#objects") => {
             let Some(items) = value["items"].as_array_mut() else {
@@ -243,7 +249,7 @@ pub(super) async fn add_full_projection(
             else {
                 return Ok(());
             };
-            add_objects(state, caller, &bucket, items).await
+            add_objects(state, caller, &bucket, items, base_url).await
         }
         _ => Ok(()),
     }
@@ -256,7 +262,11 @@ pub(super) async fn may_read(
     bucket: &str,
 ) -> Result<bool, JsonError> {
     match authorize_bucket(state, caller, permission(kind, AclAccess::Read), bucket).await {
-        Ok(_) => Ok(true),
+        Ok(access) => state
+            .catalog
+            .has_bucket_permission(bucket, &access)
+            .await
+            .map_err(Into::into),
         Err(error) if error.status == StatusCode::FORBIDDEN => Ok(false),
         Err(error) => Err(error),
     }
@@ -266,6 +276,7 @@ async fn add_bucket(
     state: &State,
     caller: Option<Caller<'_>>,
     value: &mut Value,
+    base_url: &str,
 ) -> Result<(), JsonError> {
     let Some(bucket) = value["name"].as_str().map(str::to_owned) else {
         return Ok(());
@@ -290,7 +301,7 @@ async fn add_bucket(
     }
     json::acl::add_bucket_acl_fields(
         value,
-        &state.api_base_url,
+        base_url,
         &acl.project,
         metageneration,
         &acl.bucket,
@@ -304,10 +315,15 @@ async fn add_objects(
     caller: Option<Caller<'_>>,
     bucket: &str,
     items: &mut [Value],
+    base_url: &str,
 ) -> Result<(), JsonError> {
-    if !may_read(state, caller, AclKind::Object, bucket).await? {
-        return Ok(());
-    }
+    let access = authorize_bucket(
+        state,
+        caller,
+        permission(AclKind::Object, AclAccess::Read),
+        bucket,
+    )
+    .await?;
     let generations: Vec<(String, i64)> = items
         .iter()
         .filter_map(|item| {
@@ -320,14 +336,29 @@ async fn add_objects(
     if generations.len() != items.len() {
         return Ok(());
     }
-    let Some(acl) = state.catalog.acl_projection(bucket, generations).await? else {
+    let Some(acl) = state
+        .catalog
+        .object_acl_projection(bucket, generations, &access)
+        .await?
+    else {
         return Ok(());
     };
     if acl.uniform_access {
         return Ok(());
     }
-    for (item, entries) in items.iter_mut().zip(&acl.objects) {
-        json::acl::add_object_acl_fields(item, &state.api_base_url, entries);
+    for (((item, entries), owner), visible) in items
+        .iter_mut()
+        .zip(&acl.objects)
+        .zip(&acl.owners)
+        .zip(&acl.visible)
+    {
+        if !visible {
+            continue;
+        }
+        json::acl::add_object_acl_fields(item, base_url, entries);
+        if let Some(entity) = owner.as_ref().and_then(|owner| owner.entity()) {
+            item["owner"] = serde_json::json!({"entity":entity});
+        }
     }
     Ok(())
 }

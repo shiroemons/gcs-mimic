@@ -1,8 +1,11 @@
 //! Generation-pinned, resumable byte derivation shared by copy, rewrite and compose.
 
 use super::{
-    Catalog, objects, resumable::WriterGuard, system_time_micros, system_time_millis, unix_micros,
-    unix_millis,
+    Catalog, objects,
+    resumable::WriterGuard,
+    system_time_micros, system_time_millis,
+    transfer_io::{self, stage_path},
+    unix_micros, unix_millis,
 };
 use crate::{
     bucket::BucketAccess,
@@ -11,10 +14,9 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::{
-    fs, io,
+    fs,
     path::{Path, PathBuf},
 };
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 const BUFFER_SIZE: usize = 64 * 1024;
 const MAX_TRANSFERS_PER_KIND: usize = 128;
@@ -58,12 +60,6 @@ fn random_id() -> Result<String, ObjectError> {
         .map_err(object_unavailable)
 }
 
-fn stage_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
-    super::super::blob_id::BlobId::parse(id)
-        .map(|id| id.staging_path(data_dir))
-        .ok_or_else(|| object_unavailable("invalid opaque blob ID"))
-}
-
 /// Whether a derived transfer can be continued by later requests, or belongs to one request
 /// and is reclaimed when that request or the process ends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,11 +73,22 @@ pub(crate) enum TransferKind {
 pub(crate) struct DerivedSource {
     pub object: ObjectRecord,
     path: Option<PathBuf>,
+    memory: Option<std::sync::Arc<crate::storage::memory::Store>>,
     id: String,
+    _activity: std::sync::Arc<super::Activity>,
 }
 
 impl Drop for DerivedSource {
     fn drop(&mut self) {
+        if let Some(memory) = &self.memory
+            && let Err(error) = memory.remove(&self.id)
+        {
+            crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Warn,
+                "derived_cleanup_deferred",
+                serde_json::json!({"message":format!("deferred RAM source cleanup: {error}")}),
+            );
+        }
         if let Some(path) = &self.path
             && let Err(error) = objects::unlink(path)
         {
@@ -302,12 +309,18 @@ fn transfer(
 
 impl Catalog {
     /// Recheck grants without changing the adapter's selection-time source snapshot.
-    pub(crate) fn check_derived_bucket_access_in_transaction(
+    pub(crate) fn check_derived_source_access_in_transaction(
         connection: &Connection,
-        bucket: &str,
+        source: &ObjectRecord,
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
-        objects::authorized_bucket(connection, bucket, access).map(|_| ())
+        objects::authorize_generation(
+            connection,
+            &source.bucket,
+            &source.name,
+            source.generation,
+            access,
+        )
     }
 
     pub(crate) fn guard_derived_request(&self, id: &str) -> DerivedRequestGuard {
@@ -358,6 +371,16 @@ impl Catalog {
             access,
         )?;
         object.check_retention(now)?;
+        super::notification_outbox::enqueue(
+            connection,
+            crate::notification::Message {
+                event: crate::notification::Event::Delete,
+                object: &object,
+                time: now,
+                replacement: None,
+            },
+        )
+        .map_err(object_unavailable)?;
         connection
             .prepare_cached("DELETE FROM objects WHERE blob_id = ?1")
             .and_then(|mut statement| statement.execute([&id]))
@@ -416,7 +439,9 @@ impl Catalog {
                 "derived request requires 1 to 32 sources".into(),
             ));
         }
+        let activity = std::sync::Arc::new(self.activity().map_err(object_unavailable)?);
         let data_dir = self.0.data_dir.clone();
+        let memory = self.0.memory.clone();
         self.run_object(move |connection| {
             let transaction = connection.transaction().map_err(object_unavailable)?;
             sources
@@ -433,13 +458,23 @@ impl Catalog {
                     )?;
                     super::customer_keys::check(&object, key)?;
                     let id = random_id()?;
-                    let path = stage_path(&data_dir, &id)?;
-                    fs::hard_link(objects::blob_path(&data_dir, &original)?, &path)
-                        .map_err(object_unavailable)?;
+                    let path = if let Some(memory) = &memory {
+                        memory
+                            .pin(&original, id.clone())
+                            .map_err(object_unavailable)?;
+                        None
+                    } else {
+                        let path = stage_path(&data_dir, &id)?;
+                        fs::hard_link(objects::blob_path(&data_dir, &original)?, &path)
+                            .map_err(object_unavailable)?;
+                        Some(path)
+                    };
                     Ok(DerivedSource {
                         object,
-                        path: Some(path),
+                        path,
+                        memory: memory.clone(),
                         id,
+                        _activity: activity.clone(),
                     })
                 })
                 .collect()
@@ -447,8 +482,8 @@ impl Catalog {
         .await
     }
 
-    /// Input handles are consumed only after durable ownership commits. No source catalog row
-    /// is needed on later calls, so a token can safely outlive source overwrite or deletion.
+    /// Input handles are consumed after ownership commits. Byte transfer needs no later source
+    /// row; protocol adapters may still recheck source metadata, existence and grants.
     #[cfg(test)]
     pub(crate) async fn begin_derived(
         &self,
@@ -496,6 +531,7 @@ impl Catalog {
         let total = derived_total(&segments, max_bytes)?;
         let permit = self.admit_object_upload()?;
         let data_dir = self.0.data_dir.clone();
+        let memory = self.0.memory.clone();
         let created = unix_millis(self.0.clock.now()).map_err(object_unavailable)?;
         let deadline = created
             .checked_add(if ephemeral {
@@ -517,17 +553,13 @@ impl Catalog {
                 if count >= MAX_TRANSFERS_PER_KIND as i64 {
                     return Err(object_unavailable("derived transfer limit reached"));
                 }
-                let path = stage_path(&data_dir, &id)?;
-                fs::OpenOptions::new()
-                    .create_new(true)
-                    .write(true)
-                    .open(&path)
-                    .and_then(|file| file.sync_all())
-                    .map_err(object_unavailable)?;
+                let path = transfer_io::create_empty(&data_dir, memory.as_ref(), &id)?;
                 let mut preserve = false;
                 let result = (|| {
                     #[cfg(unix)]
+                    if memory.is_none() {
                     objects::sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?;
+                    }
                     let transaction = connection
                         .transaction_with_behavior(TransactionBehavior::Immediate)
                         .map_err(object_unavailable)?;
@@ -575,6 +607,7 @@ impl Catalog {
                     Ok(transfer) => {
                         for segment in &mut segments {
                             segment.source.path = None;
+                            segment.source.memory = None;
                         }
                         Ok(transfer)
                     }
@@ -582,10 +615,15 @@ impl Catalog {
                         if preserve {
                             for segment in &mut segments {
                                 segment.source.path = None;
+                                segment.source.memory = None;
                             }
                             return Err(error);
                         }
-                        objects::unlink(&path).map_err(object_unavailable)?;
+                        if let Some(memory) = &memory {
+                            memory.remove_draft(&id).map_err(object_unavailable)?;
+                        } else {
+                            objects::unlink(&path).map_err(object_unavailable)?;
+                        }
                         Err(error)
                     }
                 }
@@ -601,6 +639,7 @@ impl Catalog {
     }
 
     fn derived_guard(&self, id: &str) -> Result<WriterGuard, ObjectError> {
+        let activity = self.activity().map_err(object_unavailable)?;
         let id = format!("derived:{id}");
         let mut writers = self.0.session_writers.lock().map_err(object_unavailable)?;
         if !writers.insert(id.clone()) {
@@ -609,6 +648,7 @@ impl Catalog {
         Ok(WriterGuard {
             catalog: self.clone(),
             id,
+            _activity: activity,
         })
     }
 
@@ -635,44 +675,42 @@ impl Catalog {
             let (_permit, _guard) = (permit, guard);
             let query = id.clone();
             let data_dir = catalog.0.data_dir.clone();
+            let memory = catalog.0.memory.clone();
             let now = unix_millis(catalog.0.clock.now()).map_err(object_unavailable)?;
             let (mut progress, mut hasher, sources) = catalog.run_upload(move |connection| {
                 let (progress, hasher) = transfer(connection, &query, now)?;
-                restore_stage(&data_dir, &query)?;
+                if memory.is_none() { restore_stage(&data_dir, &query)?; }
                 Ok((progress, hasher, inputs(connection, &query)?))
             }).await?;
-            let path = stage_path(&catalog.0.data_dir, &id)?;
-            let mut output = tokio::fs::OpenOptions::new().write(true).open(path).await.map_err(object_unavailable)?;
-            output.set_len(progress.offset).await.map_err(object_unavailable)?;
-            #[cfg(test)]
-            fault::truncated(&catalog.0.data_dir, &output.metadata().await.map_err(object_unavailable)?);
-            output.seek(io::SeekFrom::Start(progress.offset)).await.map_err(object_unavailable)?;
+            let mut output = transfer_io::Output::open(&catalog, &id, progress.offset).await?;
             let target = progress.offset.saturating_add(budget).min(progress.total);
             let mut skip = progress.offset;
             let mut buffer = [0_u8; BUFFER_SIZE];
             for source in sources {
                 if skip >= source.length { skip -= source.length; continue; }
                 if progress.offset == target { break; }
-                let mut input = tokio::fs::File::open(stage_path(&catalog.0.data_dir, &source.id)?).await.map_err(object_unavailable)?;
-                input.seek(io::SeekFrom::Start(source.start + skip)).await.map_err(object_unavailable)?;
+                let mut input = transfer_io::InputReader::open(&catalog, &source.id, source.start + skip).await?;
                 let mut remaining = (source.length - skip).min(target - progress.offset);
                 skip = 0;
                 while remaining > 0 {
                     if catalog.0.admission.is_closed() { return Err(object_unavailable("catalog is closing")); }
                     let length = remaining.min(BUFFER_SIZE as u64) as usize;
-                    input.read_exact(&mut buffer[..length]).await.map_err(object_unavailable)?;
+                    input.read_exact(&mut buffer[..length]).await?;
                     #[cfg(test)]
                     fault::hit(&catalog.0.data_dir, Step::BodyWrite).map_err(object_unavailable)?;
-                    output.write_all(&buffer[..length]).await.map_err(object_unavailable)?;
+                    output.write(&buffer[..length]).await?;
                     hasher.update(&buffer[..length]);
                     progress.offset += length as u64;
                     remaining -= length as u64;
+                    if catalog.0.memory.is_some() { tokio::task::yield_now().await; }
                 }
             }
-            objects::make_durable(&mut output, #[cfg(test)] &catalog.0.data_dir).await?;
+            output.finish(&catalog).await?;
             catalog.run_upload(move |connection| {
                 let (md5_state, crc) = hasher.md5_state();
                 connection.prepare_cached("UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4 WHERE id = ?1").and_then(|mut statement| statement.execute(params![id, progress.offset as i64, md5_state.as_slice(), crc])).map_err(object_unavailable)?;
+                // The queued SQL job owns the draft until its acknowledged prefix is updated.
+                output.acknowledge(progress.offset);
                 Ok(progress)
             }).await
         }).await.map_err(object_unavailable)?
@@ -748,12 +786,17 @@ impl Catalog {
             let (_permit, _guard) = (permit, guard);
             let query = id.clone();
             let data_dir = catalog.0.data_dir.clone();
+            let memory = catalog.0.memory.clone();
             let clock = catalog.0.clock.clone();
+            let principals = catalog.0.principals.get().cloned();
             let result = catalog.run_upload_admitted(execution, move |connection| {
                 let (progress, hasher) = transfer(connection, &query, unix_millis(clock.now()).map_err(object_unavailable)?)?;
                 let sources = inputs(connection, &query)?;
                 if progress.offset != progress.total { return Err(ObjectError::DerivedTransferIncomplete); }
                 let Hashes { md5, crc32c } = hasher.finish();
+                if let Some(memory) = &memory {
+                    memory.publish_draft(&query).map_err(object_unavailable)?;
+                } else {
                 restore_stage(&data_dir, &query)?;
                 let stage = stage_path(&data_dir, &query)?;
                 #[cfg(test)]
@@ -761,6 +804,7 @@ impl Catalog {
                 objects::publish_blob(&stage, &objects::blob_path(&data_dir, &query)?).map_err(object_unavailable)?;
                 #[cfg(test)]
                 fault::hit(&data_dir, Step::AfterPublish).map_err(object_unavailable)?;
+                }
                 let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(object_unavailable)?;
                 let (default_class, delete_permission) = objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
                 let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
@@ -779,12 +823,14 @@ impl Catalog {
                 let now = clock.now();
                 now.duration_since(std::time::UNIX_EPOCH).map_err(object_unavailable)?;
                 let time = system_time_micros(micros).map_err(object_unavailable)?;
-                let version = objects::NewVersion { blob_id: &query, assignment: objects::GenerationAssignment::Automatic, micros, origin: super::change_journal::origin(&destination.access) };
+                let version = objects::NewVersion { blob_id: &query, assignment: objects::GenerationAssignment::Automatic, micros, origin: super::change_journal::origin(&destination.access), notification_mode: crate::notification::NotificationMode::Emit, owner_profile: principals.as_ref(), acl: super::acl::PublicationAcl::InheritDefault };
                 let (record, _retired, ()) = objects::publish_in_transaction(&transaction, previous.as_ref(), versioning, version, |generation| {
                 crate::bucket::validate_storage_class(&storage_class).map_err(|error| match error { crate::bucket::CatalogError::InvalidMetadata(reason) | crate::bucket::CatalogError::UnsupportedMetadata(reason) => ObjectError::UnsupportedMetadata(reason), error => ObjectError::from(error) })?;
                 let mut record = ObjectRecord {
+                    owner: Some(super::object_owner::for_publication(&transaction, &destination.bucket, &destination.access)?),
                     bucket: destination.bucket, name: destination.name, generation, metageneration: 1,
                     content_type: destination.content_type, size: progress.total, md5, crc32c, storage_class,
+                    md5_availability: Default::default(),
                     component_count: destination.component_count,
                     content_encoding: None, content_disposition: None, content_language: None,
                     cache_control: None, metadata: Default::default(), time_created: time, updated: time,
@@ -802,11 +848,21 @@ impl Catalog {
                 };
                 transaction.prepare_cached("DELETE FROM derived_inputs WHERE transfer_id = ?1").and_then(|mut statement| statement.execute([&query])).map_err(object_unavailable)?;
                 transaction.prepare_cached("DELETE FROM derived_transfers WHERE id = ?1").and_then(|mut statement| statement.execute([&query])).map_err(object_unavailable)?;
-                objects::commit_publication(transaction)?;
-                for source in sources {
+                let committed = objects::commit_publication(transaction);
+                if let Some(memory) = &memory {
+                    // An ambiguous SQL commit must not discard a published blob or leak its pins.
+                    let retained: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)").and_then(|mut statement| statement.query_row([&query], |row| row.get(0))).map_err(object_unavailable)?;
+                    if !retained {
+                        for source in &sources { memory.remove(&source.id).map_err(object_unavailable)?; }
+                        memory.remove_draft(&query).map_err(object_unavailable)?;
+                    }
+                }
+                committed?;
+                if memory.is_none() { for source in sources {
                     if let Err(error) = objects::unlink(&stage_path(&data_dir, &source.id)?) {
                         crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred derived source cleanup: {error}")}));
                     }
+                }
                 }
                 Ok(record)
             }).await;
@@ -826,8 +882,11 @@ impl Catalog {
     async fn cleanup_derived(&self, id: &str) -> Result<(), ObjectError> {
         let id = id.to_owned();
         let data_dir = self.0.data_dir.clone();
-        self.run_upload(move |connection| cleanup_record(connection, &data_dir, &id))
-            .await
+        let memory = self.0.memory.clone();
+        self.run_upload(move |connection| {
+            cleanup_record_with_memory(connection, &data_dir, memory.as_deref(), &id)
+        })
+        .await
     }
 
     pub(crate) async fn cancel_derived(&self, id: &str) -> Result<(), ObjectError> {
@@ -920,7 +979,17 @@ fn reclaim_derived_deletions(
     failure.map_or(Ok(()), Err)
 }
 
+#[cfg(test)]
 fn cleanup_record(connection: &Connection, data_dir: &Path, id: &str) -> Result<(), ObjectError> {
+    cleanup_record_with_memory(connection, data_dir, None, id)
+}
+
+fn cleanup_record_with_memory(
+    connection: &Connection,
+    data_dir: &Path,
+    memory: Option<&crate::storage::memory::Store>,
+    id: &str,
+) -> Result<(), ObjectError> {
     let exists: bool = connection
         .prepare_cached("SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)")
         .and_then(|mut statement| statement.query_row([id], |row| row.get(0)))
@@ -929,15 +998,27 @@ fn cleanup_record(connection: &Connection, data_dir: &Path, id: &str) -> Result<
         return Err(ObjectError::DerivedTransferNotFound);
     }
     for source in inputs(connection, id)? {
-        objects::unlink(&stage_path(data_dir, &source.id)?).map_err(object_unavailable)?;
+        if let Some(memory) = memory {
+            memory.remove(&source.id).map_err(object_unavailable)?;
+        } else {
+            objects::unlink(&stage_path(data_dir, &source.id)?).map_err(object_unavailable)?;
+        }
     }
-    objects::unlink(&stage_path(data_dir, id)?).map_err(object_unavailable)?;
+    if let Some(memory) = memory {
+        memory.remove_draft(id).map_err(object_unavailable)?;
+    } else {
+        objects::unlink(&stage_path(data_dir, id)?).map_err(object_unavailable)?;
+    }
     let referenced: bool = connection
         .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
         .and_then(|mut statement| statement.query_row([id], |row| row.get(0)))
         .map_err(object_unavailable)?;
     if !referenced {
-        objects::reclaim(connection, data_dir, id)?;
+        if let Some(memory) = memory {
+            memory.remove(id).map_err(object_unavailable)?;
+        } else {
+            objects::reclaim(connection, data_dir, id)?;
+        }
     }
     discard_record(connection, id)
 }
@@ -1079,6 +1160,116 @@ mod tests {
     use std::io::Write;
     use std::time::UNIX_EPOCH;
     use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn md5_availability_survives_restart_without_component_count() {
+        let (catalog, path) = setup().await;
+        let original = put(&catalog, "source", b"same bytes").await;
+        let transfer = ready(&catalog, "source").await;
+        let record = catalog
+            .publish_derived_prepared(
+                &transfer.id,
+                destination("multipart"),
+                |_, record| {
+                    record.md5_availability = crate::object::Md5Availability::Unavailable;
+                    Ok(())
+                },
+                |_, _| Ok(()),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(!record.has_md5());
+        assert_eq!(record.component_count, None);
+        assert_eq!(record.md5, original.md5);
+        assert_eq!(record.crc32c, original.crc32c);
+        catalog.close().await.unwrap();
+        drop(catalog);
+        let catalog = Catalog::open(&path).await.unwrap();
+        let reopened = catalog
+            .get_object("bucket", "multipart", None, Default::default())
+            .await
+            .unwrap();
+        assert_eq!(reopened, record);
+        let selected = source(&catalog, "multipart").await;
+        let (activity, _updates) = tokio::sync::watch::channel(Default::default());
+        let copy = crate::server::copy::execute(
+            &catalog,
+            crate::server::copy::CopyJob {
+                source: selected,
+                source_access: BucketAccess::Permissive,
+                destination: destination("copy"),
+                source_location: None,
+                replay: None,
+            },
+            crate::server::copy::CopyBudget {
+                config: &crate::config::Config::default(),
+                deadline: tokio::time::Instant::now() + std::time::Duration::from_secs(10),
+                activity: &activity,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(copy.has_md5());
+        assert_eq!(copy.md5, original.md5);
+        assert_eq!(copy.crc32c, original.crc32c);
+        let selected = source(&catalog, "multipart").await;
+        let start = super::super::rewrite::RewriteStart {
+            binding: super::super::rewrite::RewriteBinding {
+                source_bucket: "bucket".into(),
+                source_object: "multipart".into(),
+                source_generation: record.generation,
+                destination_bucket: "bucket".into(),
+                destination_object: "rewrite".into(),
+                parameters: Default::default(),
+                metadata: None,
+            },
+            destination: DerivedDestination {
+                expected: ExpectedHashes {
+                    md5: Some(original.md5),
+                    crc32c: Some(original.crc32c),
+                },
+                ..destination("rewrite")
+            },
+            source_conditions: Default::default(),
+            source_metageneration: record.metageneration,
+            source_access: BucketAccess::Permissive,
+            source_key_sha256: None,
+            budget: 1_048_576,
+        };
+        let (token, mut owner) = catalog
+            .begin_rewrite_session(vec![selected.whole()], u64::MAX, start)
+            .await
+            .unwrap();
+        owner.disarm();
+        let result = catalog
+            .continue_rewrite(
+                &token,
+                BucketAccess::Permissive,
+                BucketAccess::Permissive,
+                |record| Ok(serde_json::json!({"generation":record.generation})),
+            )
+            .await
+            .unwrap();
+        assert!(result.resource.is_some());
+        let rewritten = catalog
+            .get_object("bucket", "rewrite", None, Default::default())
+            .await
+            .unwrap();
+        assert!(rewritten.has_md5());
+        assert_eq!(rewritten.md5, original.md5);
+        assert_eq!(rewritten.crc32c, original.crc32c);
+        assert_eq!(
+            catalog
+                .get_object("bucket", "multipart", None, Default::default())
+                .await
+                .unwrap(),
+            record
+        );
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
 
     async fn setup() -> (Catalog, PathBuf) {
         let path = std::env::temp_dir().join(format!("gcs-mimic-derived-{}", random_id().unwrap()));
@@ -2122,6 +2313,7 @@ mod tests {
         original.time_created =
             system_time_millis(unix_millis(original.time_created).unwrap()).unwrap();
         original.updated = original.time_created;
+        original.owner = None;
         catalog.close().await.unwrap();
         drop(catalog);
         let connection = Connection::open(path.join("catalog.sqlite3")).unwrap();

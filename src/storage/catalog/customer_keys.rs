@@ -61,11 +61,11 @@ impl Catalog {
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
-        let data_dir = self.0.data_dir.clone();
+        let catalog = self.clone();
         let access = access.clone();
         self.run_object(move |connection| {
             let (record, reader) = objects::open_selected(
-                connection, &data_dir, &bucket, &name, generation, conditions, &access,
+                connection, &catalog, &bucket, &name, generation, conditions, &access,
             )?;
             check(&record, key)?;
             Ok((record, reader))
@@ -86,11 +86,11 @@ impl Catalog {
     ) -> Result<(ObjectRecord, ObjectReader, bool), ObjectError> {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
-        let data_dir = self.0.data_dir.clone();
+        let catalog = self.clone();
         let access = access.clone();
         self.run_object(move |connection| {
             let (record, reader) = objects::open_selected(
-                connection, &data_dir, &bucket, &name, generation, conditions, &access,
+                connection, &catalog, &bucket, &name, generation, conditions, &access,
             )?;
             let reveal = crate::csek::check_metadata(record.customer_key_sha256, key)
                 .map_err(ObjectError::CustomerEncryption)?;
@@ -304,7 +304,7 @@ mod tests {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            35
+            super::super::CATALOG_SCHEMA_VERSION
         );
         // The column rejects anything but a 32-byte fingerprint.
         assert!(

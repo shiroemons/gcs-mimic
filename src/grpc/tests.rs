@@ -1,6 +1,7 @@
 use super::*;
 use crate::server::chunk_body;
 use bytes::Bytes;
+mod memory;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -242,14 +243,23 @@ async fn grpc_silent_open_stream_is_bounded() {
 #[tokio::test]
 async fn grpc_active_stream_survives_past_bound() {
     for incoming in [true, false] {
+        let closing = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let service_closing = closing.clone();
         let (sender, body) = chunk_body::channel();
         let body = Arc::new(std::sync::Mutex::new(Some(body)));
         let (mut client, stop, task) = start_with_bound(DEADLINE * 3, move |mut request| {
             let body = body.clone();
+            let closing = service_closing.clone();
             async move {
                 if incoming {
                     while let Some(frame) = request.body_mut().frame().await {
-                        frame.unwrap();
+                        if let Err(error) = frame {
+                            assert!(
+                                closing.load(std::sync::atomic::Ordering::Acquire),
+                                "request body failed before client teardown: {error}"
+                            );
+                            break;
+                        }
                     }
                 }
                 Ok(hyper::Response::new(tonic::body::Body::new(
@@ -288,6 +298,7 @@ async fn grpc_active_stream_survives_past_bound() {
             }
         }
         assert!(!task.is_finished());
+        closing.store(true, std::sync::atomic::Ordering::Release);
         producer.abort();
         let _ = producer.await;
         stop.send_replace(true);

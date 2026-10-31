@@ -18,6 +18,9 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
+mod authentication;
+pub(crate) use authentication::Failure as CatalogAuthenticationFailure;
+
 pub(crate) enum PhaseResult<T> {
     Complete(T),
     Stopped,
@@ -46,12 +49,23 @@ struct ReadyListener {
 #[derive(Serialize)]
 pub(crate) struct ReadyEvent {
     event: &'static str,
-    listen: SocketAddr,
+    executable: &'static str,
+    version: &'static str,
+    healthcheck_path: &'static str,
+    admin_enabled: bool,
+    message: String,
+    listen: Option<SocketAddr>,
     listeners: Vec<ReadyListener>,
+    transport: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unix_socket: Option<String>,
     protocol: &'static str,
     gcs_api: &'static str,
     max_connections: usize,
     max_object_bytes: u64,
+    backend: &'static str,
+    memory_max_bytes: u64,
+    memory_catalog_max_bytes: u64,
     worker_threads: usize,
     max_blocking_threads: usize,
     connection_timeout_ms: u64,
@@ -98,12 +112,22 @@ impl ReadyEvent {
         }
         Self {
             event: "ready",
-            listen,
+            executable: "gcs-mimic",
+            version: env!("CARGO_PKG_VERSION"),
+            healthcheck_path: "/_internal/healthcheck",
+            admin_enabled: config.admin_enabled,
+            message: format!("server started at {api_base_url}"),
+            listen: Some(listen),
             listeners,
+            transport: "tcp",
+            unix_socket: None,
             protocol: "http1",
             gcs_api: "json-bucket-object-media-crud",
             max_connections: config.max_connections,
             max_object_bytes: config.max_object_bytes,
+            backend: config.backend.as_str(),
+            memory_max_bytes: config.memory_max_bytes,
+            memory_catalog_max_bytes: config.memory_catalog_max_bytes,
             worker_threads: config.worker_threads,
             max_blocking_threads: config.max_blocking_threads,
             connection_timeout_ms: config.connection_timeout_ms,
@@ -129,12 +153,57 @@ impl ReadyEvent {
 }
 
 struct BoundStartup {
-    listener: tokio::net::TcpListener,
+    listener: PrimaryListener,
     listener_http: Option<tokio::net::TcpListener>,
     listener_grpc: Option<tokio::net::TcpListener>,
     seed: SeedOutcome,
     buckets_file: InitOutcome,
     sync_root: Option<gcs_mimic::storage::sync_state::root::RootLease>,
+}
+
+enum PrimaryListener {
+    Tcp(tokio::net::TcpListener),
+    #[cfg(unix)]
+    Unix(server::unix::Listener),
+}
+
+impl PrimaryListener {
+    fn local_addr(&self) -> io::Result<Option<SocketAddr>> {
+        match self {
+            Self::Tcp(listener) => listener.local_addr().map(Some),
+            #[cfg(unix)]
+            Self::Unix(_) => Ok(None),
+        }
+    }
+}
+
+async fn bind_primary(config: &Config) -> io::Result<PrimaryListener> {
+    if let Some(_path) = &config.unix_socket {
+        if config.scheme != gcs_mimic::config::Scheme::Http
+            || config.listen_http.is_some()
+            || config.grpc_listen.is_some()
+        {
+            return Err(phase(
+                DiagnosticSource::Listener,
+                "unix_socket",
+                "Unix transport requires scheme=http and no TCP HTTP/gRPC listener settings.",
+            ));
+        }
+        #[cfg(unix)]
+        return server::unix::Listener::bind(_path).await.map(PrimaryListener::Unix).map_err(|error| {
+            phase(DiagnosticSource::Listener, "unix_socket", &format!(
+                "Cannot bind Unix socket ({:?}); use a new short pathname in an existing private 0700 directory owned by the server user; never reuse an existing entry.", error.kind()))
+        });
+        #[cfg(not(unix))]
+        return Err(phase(
+            DiagnosticSource::Listener,
+            "unix_socket",
+            "Unix sockets are unsupported on this platform; no TCP fallback is used.",
+        ));
+    }
+    bind_configured_listener(config.listen, "listen")
+        .await
+        .map(PrimaryListener::Tcp)
 }
 
 async fn open_catalog(
@@ -143,7 +212,26 @@ async fn open_catalog(
     shutdown: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<()>>>,
 ) -> io::Result<PhaseResult<Catalog>> {
     let opening = async {
-        Catalog::open_with_clock(&config.data_dir, clock).await.map_err(|error| match error {
+        let admin = if config.admin_enabled {
+            gcs_mimic::storage::admin::LocalAdmin::Enabled
+        } else {
+            gcs_mimic::storage::admin::LocalAdmin::Disabled
+        };
+        let opened = match config.backend {
+            gcs_mimic::config::Backend::Disk => {
+                Catalog::open_for_server(&config.data_dir, clock, admin).await
+            }
+            gcs_mimic::config::Backend::Memory => {
+                Catalog::open_memory_for_server(
+                    config.memory_max_bytes,
+                    config.memory_catalog_max_bytes,
+                    clock,
+                    admin,
+                )
+                .await
+            }
+        };
+        opened.map_err(|error| match error {
             CatalogError::NewerSchema { version, supported } => phase(DiagnosticSource::Catalog, "data_dir", &format!("catalog schema version {version} was written by a newer gcs-mimic release; this release reads schema {supported} and older. Start a release that supports schema {version}, restore a backup taken before the upgrade, or choose a different data directory; migrated catalogs cannot be downgraded.")),
             _ => phase(DiagnosticSource::Catalog, "data_dir", "catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state."),
         })
@@ -204,6 +292,15 @@ async fn prepare_startup(
         PhaseResult::Complete(result) => result?,
         PhaseResult::Stopped => return Ok(PhaseResult::Stopped),
     }
+    match race(
+        CancelSafe(catalog.start_notifications(config)),
+        shutdown.as_mut(),
+    )
+    .await?
+    {
+        PhaseResult::Complete(result) => result.map_err(io::Error::other)?,
+        PhaseResult::Stopped => return Ok(PhaseResult::Stopped),
+    }
     // Loading has no effects; submitted administrative jobs retain their permits through close.
     let PhaseResult::Complete(buckets_file) = race(
         CancelSafe(gcs_mimic::bucket_init::apply(
@@ -246,7 +343,7 @@ async fn prepare_startup(
     // Bind/TIME_WAIT has no catalog effects and owns its socket locally.
     let PhaseResult::Complete(listeners) = race(
         CancelSafe(async {
-            let listener = bind_configured_listener(config.listen, "listen").await?;
+            let listener = bind_primary(config).await?;
             let listener_http = match config.effective_listen_http() {
                 Some(address) => Some(bind_configured_listener(address, "listen_http").await?),
                 None => None,
@@ -316,6 +413,9 @@ pub(crate) async fn serve(
         PhaseResult::Complete(catalog) => catalog,
         PhaseResult::Stopped => return Ok(()),
     };
+    if let Err(cause) = catalog.configure_authentication(&auth).await {
+        return Err(authentication::close(&catalog, cause).await);
+    }
     let BoundStartup {
         listener,
         listener_http,
@@ -335,41 +435,15 @@ pub(crate) async fn serve(
         Ok(PhaseResult::Complete(bound)) => bound,
         result => return finish_startup(&catalog, result.map(|_| ())).await,
     };
-    let ready = listener
-        .local_addr()
-        .map_err(|_| {
-            phase(
-                DiagnosticSource::Listener,
-                "listen",
-                "Cannot inspect listener address; check the local network environment.",
-            )
-        })
-        .and_then(|address| {
-            let address_http = listener_http.as_ref().map(|listener| listener.local_addr()).transpose()
-                .map_err(|_| phase(DiagnosticSource::Listener, "listen_http", "Cannot inspect HTTP listener address; check the local network environment."))?;
-            let api_base_url = config.effective_api_base_url(address);
-            let mut event = ReadyEvent::new(
-                &config,
-                &auth,
-                address,
-                address_http,
-                seed,
-                buckets_file,
-                api_base_url.clone(),
-            );
-            if let Some(listener) = &listener_grpc {
-                event.listeners.push(ReadyListener { listen: listener.local_addr()?, scheme: "h2c" });
-            }
-            serde_json::to_string(&event)
-            .map(|ready| (ready, api_base_url))
-            .map_err(|_| {
-                phase(
-                    DiagnosticSource::Runtime,
-                    "ready",
-                    "Cannot encode ready event; inspect startup configuration.",
-                )
-            })
-        });
+    let ready = ready_event(
+        &config,
+        &auth,
+        &listener,
+        listener_http.as_ref(),
+        listener_grpc.as_ref(),
+        seed,
+        buckets_file,
+    );
     let (ready, ready_api_base_url) = match ready {
         Ok(ready) => ready,
         Err(error) => {
@@ -394,26 +468,90 @@ pub(crate) async fn serve(
         Ok(task) => task,
         Err(error) => return close_startup(&state.catalog, Err(error)).await,
     };
-    let mut listeners = vec![(listener, acceptor)];
-    if let Some(listener) = listener_http {
-        listeners.push((listener, None));
-    }
-    server::serve_with_grpc_and_drain(
-        listeners,
-        listener_grpc,
-        config,
-        state,
-        shutdown,
-        async move {
-            if let Some(task) = sync_task {
-                task.finish().await?;
+    let background_drain = async move {
+        if let Some(task) = sync_task {
+            task.finish().await?;
+        }
+        Ok(())
+    };
+    match listener {
+        PrimaryListener::Tcp(listener) => {
+            let mut listeners = vec![(listener, acceptor)];
+            if let Some(listener) = listener_http {
+                listeners.push((listener, None));
             }
-            Ok(())
-        },
-    )
-    .await?;
+            server::serve_with_grpc_and_drain(
+                listeners,
+                listener_grpc,
+                config,
+                state,
+                shutdown,
+                background_drain,
+            )
+            .await?;
+        }
+        #[cfg(unix)]
+        PrimaryListener::Unix(listener) => {
+            server::serve_with_unix_and_drain(listener, config, state, shutdown, background_drain)
+                .await?;
+        }
+    }
     report_stopped();
     Ok(())
+}
+
+fn ready_event(
+    config: &Config,
+    auth: &Auth,
+    listener: &PrimaryListener,
+    listener_http: Option<&tokio::net::TcpListener>,
+    listener_grpc: Option<&tokio::net::TcpListener>,
+    seed: SeedOutcome,
+    buckets_file: InitOutcome,
+) -> io::Result<(String, String)> {
+    listener
+        .local_addr()
+        .map_err(|_| {
+            phase(
+                DiagnosticSource::Listener,
+                "listen",
+                "Cannot inspect listener address; check the local network environment.",
+            )
+        })
+        .and_then(|address| {
+            let address_http = listener_http.map(|listener| listener.local_addr()).transpose()
+                .map_err(|_| phase(DiagnosticSource::Listener, "listen_http", "Cannot inspect HTTP listener address; check the local network environment."))?;
+            let api_base_url = address.map_or_else(|| config.api_base_url.clone().unwrap_or_else(|| "http://localhost".into()),
+                |address| config.effective_api_base_url(address));
+            let mut event = ReadyEvent::new(
+                config,
+                auth,
+                address.unwrap_or(config.listen),
+                address_http,
+                seed,
+                buckets_file,
+                api_base_url.clone(),
+            );
+            if let Some(path) = &config.unix_socket {
+                event.listen = None;
+                event.listeners.clear();
+                event.transport = "unix";
+                event.unix_socket = Some(path.to_string_lossy().into_owned());
+                event.message = "server started on a private Unix socket".into();
+            }
+            if let Some(listener) = listener_grpc {
+                event.listeners.push(ReadyListener { listen: listener.local_addr()?, scheme: "h2c" });
+            }
+            serde_json::to_string(&event)
+            .map(|ready| (ready, api_base_url))
+            .map_err(|_| {
+                phase(
+                    DiagnosticSource::Runtime,
+                    "ready",
+                    "Cannot encode ready event; inspect startup configuration.",
+                )
+            })
+        })
 }
 
 pub(crate) fn phase(source: DiagnosticSource, key: &str, fix: &str) -> io::Error {
@@ -422,6 +560,9 @@ pub(crate) fn phase(source: DiagnosticSource, key: &str, fix: &str) -> io::Error
 
 fn seed_failure(error: &io::Error) -> String {
     let message = error.to_string();
+    if message.contains("administrative operation: Hold") {
+        return "seed import: a changed fixture is protected by a hold or retention; the entire seed was left unapplied. Restart without seed_dir to release the hold through the API, or wait for retention to expire, then retry.".into();
+    }
     let reason = [
         "top-level entries",
         "Invalid bucket name",
@@ -549,6 +690,45 @@ mod tests {
         task::Poll,
         time::{Duration, SystemTime},
     };
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn unix_startup_does_not_bind_the_configured_default_tcp_address() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = TestDir::new();
+        fs::set_permissions(&directory.0, fs::Permissions::from_mode(0o700)).unwrap();
+        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let catalog = Catalog::open(&directory.0).await.unwrap();
+        let mut config = directory.config();
+        config.listen = occupied.local_addr().unwrap();
+        config.scheme = gcs_mimic::config::Scheme::Http;
+        config.unix_socket = Some(directory.0.join("s"));
+        let shutdown = std::future::pending();
+        tokio::pin!(shutdown);
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            prepare_startup(
+                &catalog,
+                &config,
+                &[],
+                Arc::new(SystemClock),
+                shutdown.as_mut(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let PhaseResult::Complete(bound) = result else {
+            panic!("unexpected shutdown")
+        };
+        assert!(bound.listener.local_addr().unwrap().is_none());
+        assert!(bound.listener_http.is_none() && bound.listener_grpc.is_none());
+        let PrimaryListener::Unix(listener) = bound.listener else {
+            panic!("TCP fallback")
+        };
+        listener.close().await.unwrap();
+        catalog.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn grpc_listener_disabled_by_default_and_bound_after_initialization() {
@@ -703,6 +883,86 @@ mod tests {
             .await,
             Ok(PhaseResult::Stopped)
         ));
+    }
+
+    #[tokio::test]
+    async fn authentication_setup_failure_keeps_catalog_cause_closes_and_selects_diagnostics() {
+        use std::error::Error;
+
+        let directory = TestDir::new();
+        let catalog = Catalog::open_for_server(
+            &directory.0,
+            Arc::new(SystemClock),
+            gcs_mimic::storage::admin::LocalAdmin::Disabled,
+        )
+        .await
+        .unwrap();
+        let cause = CatalogError::from(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "injected reconciliation read failure",
+        ));
+        let error = authentication::close(&catalog, cause).await;
+        let failure = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<CatalogAuthenticationFailure>()
+            .unwrap();
+        let cause = failure
+            .source()
+            .unwrap()
+            .downcast_ref::<CatalogError>()
+            .unwrap();
+        assert_eq!(
+            cause
+                .source()
+                .unwrap()
+                .downcast_ref::<io::Error>()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert!(failure.cleanup_cause().is_none());
+        assert!(!catalog.is_healthy());
+        let cli = crate::CliError::Io(error);
+        let diagnostics = cli.diagnostics().unwrap();
+        assert_eq!(diagnostics.errors[0].source, DiagnosticSource::Catalog);
+        assert_eq!(diagnostics.errors[0].key, "data_dir");
+        let reopened = Catalog::open(&directory.0).await.unwrap();
+        reopened.close().await.unwrap();
+    }
+
+    #[test]
+    fn authentication_setup_failure_keeps_primary_and_cleanup_causes_separate() {
+        use std::error::Error;
+
+        let failure = CatalogAuthenticationFailure::new(
+            CatalogError::AuthenticationAlreadyConfigured,
+            Some(CatalogError::from(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "injected close failure",
+            ))),
+        );
+        assert!(matches!(
+            failure.source().unwrap().downcast_ref::<CatalogError>(),
+            Some(CatalogError::AuthenticationAlreadyConfigured)
+        ));
+        assert_eq!(failure.diagnostics().errors[0].key, "authentication");
+        assert_eq!(
+            failure.diagnostics().errors[0].source,
+            DiagnosticSource::Runtime
+        );
+        assert_eq!(failure.diagnostics().errors[1].key, "data_dir");
+        assert_eq!(
+            failure
+                .cleanup_cause()
+                .unwrap()
+                .source()
+                .unwrap()
+                .downcast_ref::<io::Error>()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
     }
 
     #[tokio::test]

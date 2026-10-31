@@ -776,12 +776,22 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
             .unwrap(),
         archived
     );
-    assert!(
+    let anonymous = catalog
+        .bucket_access(bucket.as_str(), None, crate::auth::OBJECTS_GET)
+        .await
+        .unwrap();
+    assert!(matches!(
         catalog
-            .bucket_access(bucket.as_str(), None, crate::auth::OBJECTS_GET)
-            .await
-            .is_err()
-    );
+            .get_object_authorized(
+                bucket.as_str(),
+                name.as_str(),
+                Some(first.generation),
+                Default::default(),
+                &anonymous,
+            )
+            .await,
+        Err(crate::object::ObjectError::Forbidden)
+    ));
     catalog.close().await.unwrap();
 }
 

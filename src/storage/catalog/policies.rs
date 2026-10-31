@@ -96,12 +96,50 @@ pub(super) fn read_policy(connection: &Connection, bucket: &str) -> Result<Polic
         .map_err(|reason| CatalogError::Corrupt(reason.into()))
 }
 
+pub(super) fn store_policy(
+    connection: &Connection,
+    bucket: &str,
+    policy: &mut Policy,
+) -> Result<(), CatalogError> {
+    let revision = next_revision(connection)?;
+    connection
+        .prepare_cached("UPDATE bucket_policies SET bindings = ?2, revision = ?3 WHERE bucket = ?1")
+        .and_then(|mut statement| {
+            statement.execute(params![
+                bucket,
+                policy.bindings_json().to_string(),
+                revision
+            ])
+        })
+        .map_err(unavailable)?;
+    policy.etag = Some(crate::json::policy_etag(revision));
+    Ok(())
+}
+
+pub(super) fn advance_acl_revision(
+    connection: &Connection,
+    bucket: &str,
+    updated: i64,
+) -> Result<(), CatalogError> {
+    let changed = connection
+        .prepare_cached("UPDATE buckets SET metageneration=metageneration+1,updated=?2,updated_nanos=0 WHERE name=?1 AND metageneration<9223372036854775807")
+        .and_then(|mut statement| statement.execute(params![bucket, updated]))
+        .map_err(unavailable)?;
+    if changed != 1 {
+        return Err(unavailable("bucket metageneration exhausted"));
+    }
+    Ok(())
+}
+
 pub(super) fn check_access(
     connection: &Connection,
     bucket: &str,
     project: &str,
     access: &BucketAccess,
 ) -> Result<DeletePermission, CatalogError> {
+    if let BucketAccess::Admin(grant) = access {
+        grant.authorize(connection)?;
+    }
     if let BucketAccess::Policy {
         identity,
         permission,
@@ -117,13 +155,27 @@ pub(super) fn check_access(
             .as_ref()
             .is_some_and(|identity| identity.allows(permission.as_str(), project))
             && !policy.allows(identity.as_ref(), permission.as_str(), pap)
+            && !super::acl::bucket_granted(
+                connection,
+                bucket,
+                project,
+                identity.as_ref(),
+                permission.as_str(),
+            )?
         {
             return Err(CatalogError::Forbidden);
         }
         let delete = identity
             .as_ref()
             .is_some_and(|identity| identity.allows(OBJECTS_DELETE, project))
-            || policy.allows(identity.as_ref(), OBJECTS_DELETE, pap);
+            || policy.allows(identity.as_ref(), OBJECTS_DELETE, pap)
+            || super::acl::bucket_granted(
+                connection,
+                bucket,
+                project,
+                identity.as_ref(),
+                OBJECTS_DELETE,
+            )?;
         return Ok(if delete {
             DeletePermission::Granted
         } else {
@@ -200,10 +252,37 @@ impl Catalog {
                 permission,
                 project: project.clone(),
             };
-            if let Some(project) = project {
+            // Object ACLs can only be evaluated after selecting the exact object generation.
+            if let Some(project) = project
+                && !crate::acl::object_permission(permission)
+            {
                 check_access(&transaction, &bucket, &project, &access)?;
             }
             Ok(access)
+        })
+        .await
+    }
+
+    pub(crate) async fn has_bucket_permission(
+        &self,
+        bucket: &str,
+        access: &BucketAccess,
+    ) -> Result<bool, CatalogError> {
+        let bucket = bucket.to_owned();
+        let access = access.clone();
+        self.run(move |connection| {
+            let transaction = connection.transaction().map_err(unavailable)?;
+            let project: String = transaction
+                .prepare_cached(SELECT_BUCKET_PROJECT)
+                .and_then(|mut statement| statement.query_row([&bucket], |row| row.get(0)))
+                .optional()
+                .map_err(unavailable)?
+                .ok_or(CatalogError::NotFound)?;
+            match check_access(&transaction, &bucket, &project, &access) {
+                Ok(_) => Ok(true),
+                Err(CatalogError::Forbidden) => Ok(false),
+                Err(error) => Err(error),
+            }
         })
         .await
     }
@@ -231,6 +310,8 @@ impl Catalog {
     ) -> Result<Policy, CatalogError> {
         let bucket = bucket.to_owned();
         let access = access.clone();
+        let clock = self.0.clock.clone();
+        let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -249,19 +330,12 @@ impl Catalog {
             {
                 return Err(CatalogError::PublicAccessPrevention);
             }
-            let revision = next_revision(&transaction)?;
-            transaction
-                .prepare_cached(
-                    "UPDATE bucket_policies SET bindings = ?2, revision = ?3 WHERE bucket = ?1",
-                )
-                .and_then(|mut statement| {
-                    statement.execute(params![
-                        bucket,
-                        policy.bindings_json().to_string(),
-                        revision
-                    ])
-                })
-                .map_err(unavailable)?;
+            if super::acl::replace_from_policy(&transaction, &bucket, &policy, principals.as_ref())?
+            {
+                let updated = super::unix_micros(clock.now())?;
+                advance_acl_revision(&transaction, &bucket, updated)?;
+            }
+            store_policy(&transaction, &bucket, &mut policy)?;
             super::change_journal::append(
                 &transaction,
                 super::change_journal::origin(&access),
@@ -270,7 +344,6 @@ impl Catalog {
                 None,
             )?;
             transaction.commit().map_err(unavailable)?;
-            policy.etag = Some(crate::json::policy_etag(revision));
             Ok(policy)
         })
         .await

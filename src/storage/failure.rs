@@ -296,6 +296,7 @@ unavailable_cause!(
     rusqlite::types::FromSqlError,
     serde_json::Error,
     tokio::sync::AcquireError,
+    tokio::sync::TryLockError,
     tokio::sync::oneshot::error::RecvError,
     tokio::task::JoinError,
     crate::fsutil::FsError,

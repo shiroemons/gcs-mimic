@@ -313,16 +313,11 @@ fn check_source(
     access: &BucketAccess,
 ) -> Result<ObjectRecord, ObjectError> {
     check_incarnations(connection, session)?;
-    let generation = session
-        .binding
-        .parameters
-        .get("sourceGeneration")
-        .map(|_| session.binding.source_generation);
     let source = Catalog::check_derived_source_in_transaction(
         connection,
         &session.binding.source_bucket,
         &session.binding.source_object,
-        generation,
+        Some(session.binding.source_generation),
         session.source_conditions,
         access,
     )
@@ -332,7 +327,15 @@ fn check_source(
         }
         other => other,
     })?;
-    if source.generation != session.binding.source_generation
+    let live_changed = !session.binding.parameters.contains_key("sourceGeneration")
+        && super::objects::lookup(
+            connection,
+            &session.binding.source_bucket,
+            &session.binding.source_object,
+        )?
+        .is_none_or(|(live, _)| live.generation != session.binding.source_generation);
+    if live_changed
+        || source.generation != session.binding.source_generation
         || source.metageneration != session.source_metageneration
     {
         return Err(ObjectError::PreconditionFailed);
@@ -485,9 +488,11 @@ impl Catalog {
                 let transaction = connection.transaction().map_err(object_unavailable)?;
                 if replay {
                     check_incarnations(&transaction, &checked)?;
-                    super::objects::authorized_bucket(
+                    super::objects::authorize_generation(
                         &transaction,
                         &checked.binding.source_bucket,
+                        &checked.binding.source_object,
+                        checked.binding.source_generation,
                         &source_check,
                     )?;
                     super::objects::authorized_bucket(
@@ -600,6 +605,7 @@ impl Catalog {
             for id in ids {
                 after = id.clone();
                 let key = format!("rewrite:{id}");
+                let activity = self.activity()?;
                 let _guard = {
                     let mut writers = self.0.session_writers.lock().map_err(super::unavailable)?;
                     if writers.contains(&key) || writers.len() >= 128 {
@@ -609,6 +615,7 @@ impl Catalog {
                     resumable::WriterGuard {
                         catalog: self.clone(),
                         id: key,
+                        _activity: activity,
                     }
                 };
                 match self.cancel_derived(&id).await {

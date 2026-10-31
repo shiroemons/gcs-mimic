@@ -1,6 +1,8 @@
 use super::*;
 use crate::test_support::TestDir;
 
+mod owner_tests;
+
 async fn catalog_with_bucket(dir: &TestDir) -> Catalog {
     let catalog = Catalog::open(&dir.0).await.unwrap();
     insert_bucket(&catalog).await;
@@ -17,6 +19,213 @@ fn options() -> ResumableOptions {
     let mut options = ResumableOptions::new(BucketAccess::Permissive);
     options.content_type = "text/plain".into();
     options
+}
+
+#[tokio::test]
+async fn ram_and_disk_cancelled_takeover_keeps_slot_registered_until_truncation_finishes() {
+    for backend in [crate::config::Backend::Disk, crate::config::Backend::Memory] {
+        let dir = TestDir::new();
+        let data_dir = dir.0.join("state");
+        let catalog = match backend {
+            crate::config::Backend::Disk => Catalog::open(&data_dir).await.unwrap(),
+            crate::config::Backend::Memory => Catalog::open_backend(
+                data_dir.clone(),
+                Arc::new(crate::clock::SystemClock),
+                super::super::admin::LocalAdmin::Enabled,
+                Some((8192, 1024 * 1024)),
+            )
+            .await
+            .unwrap(),
+        };
+        insert_bucket(&catalog).await;
+        let mut writer = catalog
+            .create_appendable("append", "takeover", options())
+            .await
+            .unwrap();
+        writer
+            .append(0, Bytes::from_static(b"kept"), 1024)
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        let generation = writer.record().generation;
+        drop(writer);
+        let (entered, release) = arm_write_pause(&data_dir);
+        let worker = catalog.clone();
+        let request = tokio::spawn(async move { take_over(&worker, "takeover", generation).await });
+        entered.await.unwrap();
+        request.abort();
+        let Err(error) = request.await else {
+            panic!("cancelled takeover completed");
+        };
+        assert!(error.is_cancelled());
+        let worker = catalog.clone();
+        let mut successor =
+            tokio::spawn(async move { take_over(&worker, "takeover", generation).await });
+        let blocked = tokio::time::timeout(std::time::Duration::from_millis(50), &mut successor)
+            .await
+            .is_err();
+        release.send(()).unwrap();
+        assert!(blocked, "successor must wait for the cancelled truncation");
+        let mut current = successor.await.unwrap();
+        current
+            .append(4, Bytes::from_static(b"next"), 1024)
+            .await
+            .unwrap();
+        current.flush().await.unwrap();
+        assert_eq!(persisted_content(&catalog, "takeover").await, b"keptnext");
+        drop(current);
+        catalog.close().await.unwrap();
+        if backend == crate::config::Backend::Memory {
+            assert!(!data_dir.exists());
+        }
+    }
+}
+
+#[tokio::test]
+async fn ram_appendable_cancelled_finalizer_finishes_owned_publication_and_reclaims_draft() {
+    type Gate = (
+        tokio::sync::oneshot::Sender<()>,
+        std::sync::mpsc::Receiver<()>,
+    );
+    struct Time(Mutex<Option<Gate>>);
+    impl crate::clock::Clock for Time {
+        fn now(&self) -> SystemTime {
+            if let Some((entered, release)) = self.0.lock().unwrap().take() {
+                entered.send(()).unwrap();
+                release.recv().unwrap();
+            }
+            SystemTime::now()
+        }
+    }
+    let clock = Arc::new(Time(Mutex::new(None)));
+    let catalog = Catalog::open_memory_for_server(
+        1024,
+        1024 * 1024,
+        clock.clone(),
+        super::super::admin::LocalAdmin::Enabled,
+    )
+    .await
+    .unwrap();
+    insert_bucket(&catalog).await;
+    let mut writer = catalog
+        .create_appendable("append", "cancelled", options())
+        .await
+        .unwrap();
+    writer
+        .append(0, Bytes::from_static(b"body"), 1024)
+        .await
+        .unwrap();
+    writer.flush().await.unwrap();
+    let id = writer.blob_id.clone();
+    let generation = writer.record().generation;
+    let (_, mut reader) = catalog
+        .open_appendable(
+            "append",
+            "cancelled",
+            None,
+            Default::default(),
+            &BucketAccess::Permissive,
+        )
+        .await
+        .unwrap();
+    let (entered, started) = tokio::sync::oneshot::channel();
+    let (release, blocked) = std::sync::mpsc::channel();
+    *clock.0.lock().unwrap() = Some((entered, blocked));
+    let request =
+        tokio::spawn(async move { writer.finalize(None, BucketAccess::Permissive, 1024).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), started)
+        .await
+        .unwrap()
+        .unwrap();
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    release.send(()).unwrap();
+    let published = catalog
+        .get_object("append", "cancelled", None, Default::default())
+        .await
+        .unwrap();
+    assert_eq!((published.generation, published.size), (generation, 4));
+    catalog.reclaim_pending().await.unwrap();
+    let memory = catalog.0.memory.as_ref().unwrap();
+    assert!(memory.open(&id).is_err());
+    assert!(memory.draft(&id, 0).is_err());
+    assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"body"[..]);
+    assert!(reader.next_chunk().await.unwrap().is_none());
+    assert!(matches!(
+        catalog
+            .take_over_appendable(
+                "append",
+                "cancelled",
+                generation,
+                None,
+                Default::default(),
+                BucketAccess::Permissive
+            )
+            .await,
+        Err(AppendError::Finalized)
+    ));
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn ram_appendable_cancelled_creations_leave_no_unreferenced_blob_budget() {
+    let catalog = Catalog::open_memory_for_server(
+        600,
+        1024 * 1024,
+        Arc::new(crate::clock::SystemClock),
+        super::super::admin::LocalAdmin::Enabled,
+    )
+    .await
+    .unwrap();
+    insert_bucket(&catalog).await;
+    let slot = SlotHandle::new(&catalog, "append", "cancelled");
+    let guard = slot.lock().await;
+    for _ in 0..16 {
+        let worker = catalog.clone();
+        let request = tokio::spawn(async move {
+            worker
+                .create_appendable("append", "cancelled", options())
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while slots().lock().unwrap().get(&slot.key).unwrap().holders != 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        request.abort();
+        let Err(error) = request.await else {
+            panic!("cancelled creation completed");
+        };
+        assert!(error.is_cancelled());
+        assert_eq!(slots().lock().unwrap().get(&slot.key).unwrap().holders, 1);
+    }
+    drop(guard);
+    drop(slot);
+    let rows: i64 = catalog
+        .run_upload(|connection| {
+            connection
+                .prepare_cached("SELECT count(*) FROM appendable_objects")
+                .unwrap()
+                .query_row([], |row| row.get(0))
+                .map_err(object_unavailable)
+        })
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+    let mut writer = catalog
+        .create_appendable("append", "usable", options())
+        .await
+        .unwrap();
+    writer
+        .append(0, Bytes::from_static(b"data"), 1024)
+        .await
+        .unwrap();
+    writer.flush().await.unwrap();
+    assert_eq!(persisted_content(&catalog, "usable").await, b"data");
+    drop(writer);
+    catalog.close().await.unwrap();
 }
 
 /// Finalization uses shared publication, so the bucket's default object ACL is inherited and
@@ -133,12 +342,12 @@ async fn schema_33_catalog_migrates_to_appendable_objects() {
     );
     catalog.close().await.unwrap();
     let connection = Connection::open(&path).unwrap();
-    super::super::validate_schema(&connection, 35).unwrap();
+    super::super::validate_schema(&connection, super::super::CATALOG_SCHEMA_VERSION).unwrap();
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        35
+        super::super::CATALOG_SCHEMA_VERSION
     );
 }
 
@@ -336,6 +545,7 @@ async fn publishing_a_reserved_generation_retires_its_row_atomically() {
             catalog.admit_object_upload().unwrap(),
             super::super::admin::PublishMode::Replace,
             Some(identity),
+            super::super::objects::OwnerAssignment::Preserve(record.owner.clone()),
         )
         .await
         .unwrap();

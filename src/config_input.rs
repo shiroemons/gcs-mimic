@@ -15,11 +15,15 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "listen",
     "listen_http",
     "grpc_listen",
+    "unix_socket",
     "scheme",
     "tls_cert",
     "tls_key",
     "tls_handshake_timeout_ms",
     "data_dir",
+    "backend",
+    "memory_max_bytes",
+    "memory_catalog_max_bytes",
     "seed_dir",
     "default_seed_dir",
     "seed_project",
@@ -31,6 +35,8 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "buckets_file",
     "api_base_url",
     "public_base_url",
+    "admin_enabled",
+    "admin_principal",
     "xml_virtual_host_domains",
     "max_connections",
     "max_object_bytes",
@@ -45,6 +51,12 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "compat_profile",
     "cors_fallback",
     "identity_file",
+    "pubsub_emulator_host",
+    "event_pubsub_project_id",
+    "event_pubsub_topic",
+    "event_bucket",
+    "event_object_prefix",
+    "event_list",
 ];
 
 pub(crate) const LEGACY: &[(&str, &str)] = &[
@@ -178,7 +190,11 @@ impl Inputs {
             let input = Input {
                 source: DiagnosticSource::Cli,
                 key: key.into(),
-                name: normalized,
+                name: if legacy {
+                    normalized.replace('.', "_")
+                } else {
+                    normalized
+                },
                 value: value.unwrap_or_default().into(),
                 kind: if legacy {
                     InputKind::Legacy
@@ -231,7 +247,9 @@ impl Inputs {
                 }) {
                     break;
                 }
-            } else if let Some(suffix) = key.strip_prefix("GCS_MIMIC_")
+            } else if let Some(suffix) = key
+                .strip_prefix("GCS_MIMIC_")
+                .or_else(|| (key == "PUBSUB_EMULATOR_HOST").then_some("PUBSUB_EMULATOR_HOST"))
                 && !self.push(Input {
                     source: DiagnosticSource::Environment,
                     key: key.clone(),
@@ -255,6 +273,7 @@ impl Inputs {
             .filter(|(key, _)| {
                 key.as_encoded_bytes().starts_with(b"GCS_MIMIC_")
                     || key.as_encoded_bytes().starts_with(b"FAKE_GCS_")
+                    || key == "PUBSUB_EMULATOR_HOST"
             })
             .take(MAX_SETTINGS + 1)
         {
@@ -281,6 +300,7 @@ impl Inputs {
             let legacy = suffix.is_some_and(|s| LEGACY.iter().any(|(known, _)| *known == s));
             let name = suffix
                 .or_else(|| key.strip_prefix("GCS_MIMIC_"))
+                .or_else(|| (key == "PUBSUB_EMULATOR_HOST").then_some("PUBSUB_EMULATOR_HOST"))
                 .unwrap_or_default()
                 .to_ascii_lowercase();
             let (value, invalid) = if suffix.is_some() && !legacy {
@@ -474,12 +494,25 @@ fn translation(name: &str, legacy: &BTreeMap<String, &Input>) -> Option<(&'stati
             ("public_base_url", format!("{scheme}://{text}"))
         }
         "data" => ("seed_dir", text),
+        "backend" => (
+            "backend",
+            if text == "filesystem" || text.is_empty() {
+                "disk".into()
+            } else {
+                text
+            },
+        ),
         // filesystem_root is not translated: a reused fake-gcs-server volume is owned by root,
         // so the unprivileged image could not write there and would fail to start.
         "cert_location" => ("tls_cert", text),
         "private_key_location" => ("tls_key", text),
         "cors_headers" => ("cors_fallback", "allow-all".into()),
         "location" => ("default_location", text),
+        "event_pubsub_project_id" => ("event_pubsub_project_id", text),
+        "event_pubsub_topic" => ("event_pubsub_topic", text),
+        "event_bucket" => ("event_bucket", text),
+        "event_object_prefix" => ("event_object_prefix", text),
+        "event_list" => ("event_list", text),
         // fake-gcs-server uses logrus level names.
         "log_level" => (
             "log_level",
@@ -499,8 +532,8 @@ fn legacy_outcome(name: &str, values: &BTreeMap<&str, &str>) -> Option<String> {
     let value = values.get(name).copied().unwrap_or_default();
     Some(match name {
         "backend" => match value {
-            "memory" => "the memory backend is not available, so data survives restarts in GCS_MIMIC_DATA_DIR; remove the container or its data volume for a clean state, and remove this setting".into(),
-            "filesystem" | "" => "disk storage is the only backend; remove this setting".into(),
+            "memory" => "use --backend memory; the process-local RAM backend has bounded blob/catalog budgets, loses all data at process exit and never opens data_dir".into(),
+            "filesystem" | "" => "use --backend disk for the native durable catalog".into(),
             _ => return None,
         },
         "filesystem_root" => "it is ignored; data is kept in GCS_MIMIC_DATA_DIR (/var/lib/gcs-mimic in the image), so mount the data volume there; existing fake-gcs-server objects are not loaded, so convert a stopped snapshot with gcs-mimic import fake-gcs-server; remove this setting".into(),
@@ -511,6 +544,7 @@ fn legacy_outcome(name: &str, values: &BTreeMap<&str, &str>) -> Option<String> {
             format!("use GCS_MIMIC_PUBLIC_BASE_URL={example}; path-style URLs work with any Host")
         }
         "cors_headers" => "browsers may read public URLs from any origin, as in fake-gcs-server; JSON requests already allow every valid header; use GCS_MIMIC_CORS_FALLBACK=allow-all".into(),
+        "event_pubsub_project_id" | "event_pubsub_topic" | "event_bucket" | "event_object_prefix" | "event_list" => format!("use GCS_MIMIC_{} and an explicit PUBSUB_EMULATOR_HOST; only local emulator delivery is enabled", name.to_ascii_uppercase()),
         "scheme" | "host" | "port" | "port_http" | "external_url" | "data" | "cert_location"
         | "private_key_location" | "location" | "log_level" => legacy_advice(name, values),
         _ => return None,
@@ -652,7 +686,10 @@ pub fn resolve_default_seed(config: &mut crate::config::Config) -> Vec<Diagnosti
             Err(error) => return Err(error),
         }
         let seed = migration_path(&candidate)?;
-        for other in std::iter::once(&config.data_dir).chain(config.sync_dir.as_ref()) {
+        for other in std::iter::once(&config.data_dir)
+            .filter(|_| config.backend == crate::config::Backend::Disk)
+            .chain(config.sync_dir.as_ref())
+        {
             let other = migration_path(other)?;
             if seed.starts_with(&other) || other.starts_with(&seed) {
                 return Ok(false);
@@ -748,7 +785,6 @@ mod tests {
     fn legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty() {
         assert_eq!(LEGACY.len(), 19);
         for (suffix, flag) in LEGACY {
-            let event = suffix.starts_with("EVENT_");
             for value in ["", "secret-do-not-print\n"] {
                 let key = format!("FAKE_GCS_{suffix}");
                 let env = BTreeMap::from([(key.clone(), value.into())]);
@@ -756,8 +792,8 @@ mod tests {
                 let text = emitted(&report.diagnostics);
                 assert!(text.contains(&key), "{text}");
                 assert!(!text.contains("secret-do-not-print"), "{text}");
-                // Only events and an unknown backend still stop startup.
-                let rejected = event || (*suffix == "BACKEND" && !value.is_empty());
+                // Event settings now have their own validation; only unknown backend values lack a mapping.
+                let rejected = *suffix == "BACKEND" && !value.is_empty();
                 assert_eq!(unsupported(&report.diagnostics, &key), rejected, "{text}");
                 for hyphens in ["-", "--"] {
                     for equals in [false, true] {
@@ -770,18 +806,20 @@ mod tests {
                         let report = crate::config::Config::preflight(&args, &BTreeMap::new());
                         let text = emitted(&report.diagnostics);
                         assert!(!text.contains("secret-do-not-print"), "{text}");
-                        if key == "--scheme" || key == "--log-level" {
+                        if key == "--scheme" || key == "--log-level" || key == "--backend" {
                             assert_eq!(report.diagnostics.errors[0].key, key);
                             assert!(report.diagnostics.errors[0].fix.contains(if equals {
                                 "--name VALUE pairs"
                             } else if key == "--scheme" {
                                 "scheme must"
+                            } else if key == "--backend" {
+                                "backend must"
                             } else {
                                 "log_level must"
                             }));
                         } else {
                             assert!(text.contains(&key), "{text}");
-                            let rejected = event || (*suffix == "BACKEND" && !value.is_empty());
+                            let rejected = *suffix == "BACKEND" && !value.is_empty();
                             assert_eq!(unsupported(&report.diagnostics, &key), rejected, "{text}");
                         }
                     }
@@ -878,12 +916,15 @@ mod tests {
             report.config.data_dir,
             crate::config::Config::default().data_dir
         );
-        assert!(emitted(&report.diagnostics).contains("memory backend is not available"));
+        assert_eq!(report.config.backend, crate::config::Backend::Memory);
+        assert!(emitted(&report.diagnostics).contains("process-local RAM backend"));
         let report = crate::config::Config::preflight(
             &strings(&["-scheme", "http", "-event.pubsub-topic", "uploads"]),
             &BTreeMap::new(),
         );
-        assert!(unsupported(&report.diagnostics, "-event.pubsub-topic"));
+        assert!(report.diagnostics.is_err());
+        assert_eq!(report.diagnostics.errors[0].key, "-event.pubsub-topic");
+        assert!(emitted(&report.diagnostics).contains("Event publishing requires"));
         assert_eq!(report.diagnostics.errors.len(), 1, "{}", report.diagnostics);
         for args in [
             &["--scheme", "http"][..],

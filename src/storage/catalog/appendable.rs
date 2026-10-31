@@ -37,6 +37,8 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+mod data;
+
 pub(super) const SCHEMA: &str = "CREATE TABLE appendable_objects (
     bucket TEXT NOT NULL COLLATE BINARY,
     name TEXT NOT NULL COLLATE BINARY CHECK(length(CAST(name AS BLOB)) BETWEEN 1 AND 1024),
@@ -185,7 +187,13 @@ struct Slot {
     owner: Option<String>,
 }
 
-type SlotKey = (PathBuf, String, String);
+#[derive(Clone, Hash, PartialEq, Eq)]
+enum Namespace {
+    Disk(PathBuf),
+    Memory(usize),
+}
+
+type SlotKey = (Namespace, String, String);
 
 struct SlotEntry {
     /// Live `SlotHandle`s; counted under the map lock, unlike `Arc::strong_count`, whose
@@ -210,8 +218,12 @@ struct SlotHandle {
 }
 
 impl SlotHandle {
-    fn new(data_dir: &Path, bucket: &str, name: &str) -> Self {
-        let key = (data_dir.to_owned(), bucket.to_owned(), name.to_owned());
+    fn new(catalog: &Catalog, bucket: &str, name: &str) -> Self {
+        let namespace = match &catalog.0.memory {
+            Some(memory) => Namespace::Memory(Arc::as_ptr(memory) as usize),
+            None => Namespace::Disk(catalog.0.data_dir.clone()),
+        };
+        let key = (namespace, bucket.to_owned(), name.to_owned());
         // The map only counts holders, and each update completes before the lock is
         // released, so a panic elsewhere cannot leave it inconsistent.
         let mut slots = slots().lock().unwrap_or_else(PoisonError::into_inner);
@@ -230,6 +242,21 @@ impl std::ops::Deref for SlotHandle {
 
     fn deref(&self) -> &Self::Target {
         &self.slot
+    }
+}
+
+impl Clone for SlotHandle {
+    fn clone(&self) -> Self {
+        let mut slots = slots().lock().unwrap_or_else(PoisonError::into_inner);
+        let entry = slots.entry(self.key.clone()).or_insert_with(|| SlotEntry {
+            holders: 0,
+            slot: self.slot.clone(),
+        });
+        entry.holders += 1;
+        Self {
+            key: self.key.clone(),
+            slot: self.slot.clone(),
+        }
     }
 }
 
@@ -297,7 +324,7 @@ fn slot_count(data_dir: &Path) -> usize {
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .keys()
-        .filter(|(dir, _, _)| dir == data_dir)
+        .filter(|(namespace, _, _)| matches!(namespace, Namespace::Disk(dir) if dir == data_dir))
         .count()
 }
 
@@ -410,6 +437,11 @@ fn record(
         name: name.to_owned(),
         generation: row.generation,
         metageneration: 1,
+        owner: Some(super::object_owner::for_publication(
+            connection,
+            bucket,
+            &row.options.access,
+        )?),
         content_type: row.options.content_type.clone(),
         content_encoding: None,
         content_disposition: None,
@@ -418,6 +450,7 @@ fn record(
         metadata: Default::default(),
         size: row.size,
         md5: [0; 16],
+        md5_availability: crate::object::Md5Availability::Unavailable,
         crc32c: row.crc32c,
         component_count: None,
         storage_class,
@@ -441,14 +474,16 @@ fn record(
 /// An exclusive writer for one appendable generation.
 pub(crate) struct AppendWriter {
     catalog: Catalog,
+    activity: Arc<super::Activity>,
     bucket: String,
     name: String,
     path: PathBuf,
+    blob_id: String,
     /// Appends and flushes share this descriptor. Linux tracks writeback errors per open file:
     /// a descriptor opened after a failure reports it only while no other descriptor has seen
     /// it (and never before Linux 4.16), so a sync through a fresh descriptor could
     /// acknowledge lost bytes as durable.
-    file: Arc<fs::File>,
+    file: data::Data,
     handle: String,
     /// Keeps the slot, and so this writer's ownership claim, registered while it lives.
     slot: SlotHandle,
@@ -489,9 +524,6 @@ impl AppendWriter {
             .unwrap_or(usize::MAX)
             .min(data.len());
         let added = data.slice(skip..);
-        if added.is_empty() {
-            return Ok(());
-        }
         let end = self
             .end
             .checked_add(added.len() as u64)
@@ -501,25 +533,27 @@ impl AppendWriter {
         if guard.owner.as_deref() != Some(self.handle.as_str()) {
             return Err(AppendError::Superseded);
         }
+        if added.is_empty() {
+            return Ok(());
+        }
         let file = self.file.clone();
+        let slot = self.slot.clone();
         let start = self.end;
         let bytes = added.clone();
+        let activity = self.activity.clone();
         #[cfg(test)]
         let data_dir = self.catalog.0.data_dir.clone();
         tokio::task::spawn_blocking(move || -> Result<(), ObjectError> {
             // The guard lives in the blocking job, not the future: a dropped append still
             // holds the slot until its write ends, so a takeover cannot truncate the file and
             // accept new bytes that this late write through the old descriptor overwrites.
-            let _guard = guard;
+            let (_guard, _activity, _slot) = (guard, activity, slot);
             #[cfg(test)]
             pause_append_write(&data_dir);
             #[cfg(test)]
             super::fault::hit(&data_dir, super::fault::Step::AppendWrite)
                 .map_err(object_unavailable)?;
-            let mut file = &*file;
-            file.seek(io::SeekFrom::Start(start))
-                .and_then(|_| file.write_all(&bytes))
-                .map_err(object_unavailable)
+            file.write(start, &bytes).map_err(object_unavailable)
         })
         .await
         .map_err(object_unavailable)??;
@@ -537,7 +571,9 @@ impl AppendWriter {
         if self.end == self.record.size {
             return Ok(self.end);
         }
+        let guard = (guard, self.slot.clone());
         let file = self.file.clone();
+        let activity = self.activity.clone();
         #[cfg(test)]
         let data_dir = self.catalog.0.data_dir.clone();
         // As in `append`, the blocking job owns the guard while it touches the file, so a
@@ -545,21 +581,25 @@ impl AppendWriter {
         // size update below runs on the catalog executor, which finishes a queued job even
         // when its caller is dropped, and its write-handle check rejects a superseded writer.
         let (guard, synced) = tokio::task::spawn_blocking(move || {
+            let _activity = activity;
             #[cfg(test)]
             if let Err(injected) = super::fault::hit(&data_dir, super::fault::Step::AppendSync) {
                 return (Some(guard), Err(object_unavailable(injected)));
             }
-            (Some(guard), file.sync_data().map_err(object_unavailable))
+            (Some(guard), file.sync().map_err(object_unavailable))
         })
         .await
         .unwrap_or_else(|error| (None, Err(object_unavailable(error))));
-        if let Err(error) = synced {
-            // After a failed sync the unflushed bytes may be lost even though a retried sync
-            // would succeed, so they must be received and written again before any flush.
-            self.end = self.record.size;
-            self.crc32c = self.record.crc32c;
-            return Err(error.into());
-        }
+        let checkpoint = match synced {
+            Ok(checkpoint) => checkpoint,
+            Err(error) => {
+                // After a failed sync the unflushed bytes may be lost even though a retried sync
+                // would succeed, so they must be received and written again before any flush.
+                self.end = self.record.size;
+                self.crc32c = self.record.crc32c;
+                return Err(error.into());
+            }
+        };
         #[cfg(test)]
         super::fault::hit(&self.catalog.0.data_dir, super::fault::Step::AppendCommit)
             .map_err(object_unavailable)?;
@@ -577,6 +617,7 @@ impl AppendWriter {
         let updated = self
             .catalog
             .run_upload(move |connection| {
+                let _guard = guard;
                 let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
                 let changed = connection
                     .prepare_cached(
@@ -587,10 +628,10 @@ impl AppendWriter {
                         statement.execute(params![size, crc32c, micros, bucket, name, generation, handle])
                     })
                     .map_err(object_unavailable)?;
+                if changed == 1 && let Some(checkpoint) = checkpoint { checkpoint.commit(); }
                 Ok((changed == 1).then_some(micros))
             })
             .await?;
-        drop(guard);
         let micros = updated.ok_or(AppendError::Superseded)?;
         self.record.size = self.end;
         self.record.crc32c = self.crc32c;
@@ -628,10 +669,11 @@ impl AppendWriter {
         let permit = catalog.admit_object_upload()?;
         let (tx, rx) = mpsc::channel(2);
         let path = self.path.clone();
+        let data = self.file.clone();
         let size = self.record.size;
         // Bounded copy: one 64 KiB chunk is read per send, never the whole object.
         let producer = async move {
-            let mut file = tokio::task::spawn_blocking(move || fs::File::open(path))
+            let mut file = tokio::task::spawn_blocking(move || data.reader(&path))
                 .await
                 .map_err(io::Error::other)??;
             let mut remaining = size;
@@ -677,6 +719,7 @@ impl AppendWriter {
             permit,
             super::admin::PublishMode::Replace,
             Some(identity),
+            super::objects::OwnerAssignment::Preserve(self.record.owner.clone()),
         );
         self.mark_finalizing(Finalizing::Started).await?;
         let (copied, published) = tokio::join!(producer, publish);
@@ -740,10 +783,11 @@ impl AppendWriter {
     /// The publication commit already removed the row, so the data file is unreferenced and
     /// only its removal remains.
     async fn retire(&self) {
-        let path = self.path.clone();
+        let catalog = self.catalog.clone();
+        let id = self.blob_id.clone();
         let removed = self
             .catalog
-            .run_upload(move |_| unlink(&path).map_err(object_unavailable))
+            .run_upload(move |_| data::remove(&catalog, &id))
             .await;
         if let Err(error) = removed {
             deferred_cleanup(&error);
@@ -757,7 +801,12 @@ impl AppendWriter {
 pub(super) fn retire_published(
     connection: &Connection,
     record: &ObjectRecord,
+    backend: crate::config::Backend,
 ) -> Result<(), ObjectError> {
+    if backend == crate::config::Backend::Memory {
+        connection.prepare_cached("INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM appendable_objects WHERE bucket=?1 AND name=?2 AND generation=?3")
+            .and_then(|mut statement| statement.execute(params![record.bucket, record.name, record.generation])).map_err(object_unavailable)?;
+    }
     connection
         .prepare_cached(
             "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
@@ -790,6 +839,7 @@ impl Catalog {
         name: &str,
         options: ResumableOptions,
     ) -> Result<AppendWriter, AppendError> {
+        let activity = Arc::new(self.activity().map_err(object_unavailable)?);
         // Rapid buckets support neither; finalization would otherwise publish them silently.
         if options.metadata.retention.is_some() || options.metadata.customer_key_sha256.is_some() {
             return Err(ObjectError::UnsupportedMetadata(
@@ -801,22 +851,18 @@ impl Catalog {
         let handle = BlobId::generate().map_err(object_unavailable)?.to_hex();
         let blob_id = blob.to_hex();
         let path = data_path(&self.0.data_dir, &blob_id)?;
-        let directory = self.0.data_dir.join("appendable");
         let file = path.clone();
-        let file = tokio::task::spawn_blocking(move || -> io::Result<fs::File> {
-            fs::create_dir_all(&directory)?;
-            let file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&file)?;
-            #[cfg(unix)]
-            crate::fsutil::sync_dir(&directory)?;
-            Ok(file)
+        let catalog = self.clone();
+        let id = blob_id.clone();
+        let file_activity = activity.clone();
+        let file = tokio::task::spawn_blocking(move || {
+            let _activity = file_activity;
+            data::Data::create(&catalog, &id, &file)
         })
         .await
         .map_err(object_unavailable)?
         .map_err(object_unavailable)?;
-        let slot = SlotHandle::new(&self.0.data_dir, bucket, name);
+        let slot = SlotHandle::new(self, bucket, name);
         let mut guard = slot.lock().await;
         let result = self
             .insert_appendable(bucket, name, &blob_id, &handle, options)
@@ -825,15 +871,19 @@ impl Catalog {
             Ok(value) => value,
             Err(error) => {
                 // No row was committed, so the new file stays unreferenced.
-                if let Err(cleanup) = unlink(&path) {
+                if self.0.memory.is_none()
+                    && let Err(cleanup) = data::remove(self, &blob_id)
+                {
                     deferred_cleanup(&cleanup);
                 }
                 return Err(error);
             }
         };
-        if let Some(stale) = stale {
+        if self.0.memory.is_none()
+            && let Some(stale) = stale
+        {
             // The insert removed the stale row, so its file is unreferenced.
-            if let Err(cleanup) = unlink(&data_path(&self.0.data_dir, &stale)?) {
+            if let Err(cleanup) = data::remove(self, &stale) {
                 deferred_cleanup(&cleanup);
             }
         }
@@ -841,10 +891,12 @@ impl Catalog {
         drop(guard);
         Ok(AppendWriter {
             catalog: self.clone(),
+            activity,
             bucket: bucket.to_owned(),
             name: name.to_owned(),
             path,
-            file: Arc::new(file),
+            blob_id,
+            file,
             handle,
             slot,
             end: 0,
@@ -868,6 +920,7 @@ impl Catalog {
             handle.to_owned(),
         );
         let clock = self.0.clock.clone();
+        let memory = self.0.memory.clone();
         self.run_upload(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -927,7 +980,19 @@ impl Catalog {
                 write_handle: handle.clone(),
             };
             let created = record(&transaction, &bucket, &name, storage_class, &row)?;
-            transaction.commit().map_err(object_unavailable)?;
+            let checkpoint = memory.as_ref().map(|store| store.create_draft_checkpoint(&blob_id)).transpose().map_err(object_unavailable)?;
+            let committed = transaction.commit().map_err(object_unavailable);
+            if let Some(checkpoint) = checkpoint {
+                let referenced = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE blob_id=?1)")
+                    .and_then(|mut statement| statement.query_row([&blob_id], |row| row.get::<_,bool>(0)));
+                // An ambiguous commit or failed probe must never discard possibly committed bytes.
+                if committed.is_ok() || !matches!(referenced, Ok(false)) { checkpoint.commit(); }
+            }
+            committed?;
+            if let Some(memory) = memory && let Some(stale) = &stale {
+                memory.remove_draft(stale).map_err(object_unavailable)?;
+                memory.remove(stale).map_err(object_unavailable)?;
+            }
             Ok(Ok((stale, created)))
         })
         .await
@@ -945,9 +1010,10 @@ impl Catalog {
         conditions: ObjectConditions,
         access: BucketAccess,
     ) -> Result<AppendWriter, AppendError> {
+        let activity = Arc::new(self.activity().map_err(object_unavailable)?);
         let new_handle = BlobId::generate().map_err(object_unavailable)?.to_hex();
-        let slot = SlotHandle::new(&self.0.data_dir, bucket, name);
-        let mut guard = slot.lock().await;
+        let slot = SlotHandle::new(self, bucket, name);
+        let guard = slot.slot.clone().lock_owned().await;
         let (owned_bucket, owned_name, handle) =
             (bucket.to_owned(), name.to_owned(), new_handle.clone());
         let presented = write_handle.map(<[u8]>::to_vec);
@@ -994,32 +1060,31 @@ impl Catalog {
         let (blob_id, record) = selected;
         let path = data_path(&self.0.data_dir, &blob_id)?;
         let file = path.clone();
+        let catalog = self.clone();
+        let id = blob_id.clone();
         let size = record.size;
+        let file_activity = activity.clone();
         // Unflushed bytes from the previous writer were never acknowledged.
-        let file = tokio::task::spawn_blocking(move || -> Result<fs::File, ObjectError> {
-            let file = fs::OpenOptions::new()
-                .write(true)
-                .open(file)
-                .map_err(object_unavailable)?;
-            if file.metadata().map_err(object_unavailable)?.len() < size {
-                return Err(ObjectError::Corrupt(
-                    "appendable data is shorter than its persisted size".into(),
-                ));
-            }
-            file.set_len(size).map_err(object_unavailable)?;
-            file.sync_data().map_err(object_unavailable)?;
-            Ok(file)
+        let (mut guard, slot, file) = tokio::task::spawn_blocking(move || {
+            let _activity = file_activity;
+            #[cfg(test)]
+            pause_append_write(&catalog.0.data_dir);
+            let result = data::Data::take_over(&catalog, &id, &file, size);
+            (guard, slot, result)
         })
         .await
-        .map_err(object_unavailable)??;
+        .map_err(object_unavailable)?;
+        let file = file?;
         guard.owner = Some(new_handle.clone());
         drop(guard);
         Ok(AppendWriter {
             catalog: self.clone(),
+            activity,
             bucket: bucket.to_owned(),
             name: name.to_owned(),
             path,
-            file: Arc::new(file),
+            blob_id,
+            file,
             handle: new_handle,
             slot,
             end: record.size,
@@ -1039,6 +1104,7 @@ impl Catalog {
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
         let (bucket, name, access) = (bucket.to_owned(), name.to_owned(), access.clone());
         let data_dir = self.0.data_dir.clone();
+        let memory = self.0.memory.clone();
         let (record, file) = self
             .run_object(move |connection| {
                 let transaction = connection.transaction().map_err(object_unavailable)?;
@@ -1052,16 +1118,24 @@ impl Catalog {
                 let record = record(&transaction, &bucket, &name, storage_class, &row)?;
                 check_conditions(Some(&record), conditions, super::objects::RequestKind::Read)?;
                 // Opened inside the transaction so finalization cannot unlink it first.
-                let file = fs::File::open(data_path(&data_dir, &row.blob_id)?)
-                    .map_err(object_unavailable)?;
+                let file = if let Some(memory) = memory {
+                    ObjectReader::bounded_memory(
+                        memory.open(&row.blob_id).map_err(object_unavailable)?,
+                        record.size,
+                    )
+                } else {
+                    ObjectReader::bounded(
+                        tokio::fs::File::from_std(
+                            fs::File::open(data_path(&data_dir, &row.blob_id)?)
+                                .map_err(object_unavailable)?,
+                        ),
+                        record.size,
+                    )
+                };
                 Ok((record, file))
             })
             .await?;
-        let size = record.size;
-        Ok((
-            record,
-            ObjectReader::bounded(tokio::fs::File::from_std(file), size),
-        ))
+        Ok((record, file))
     }
 
     pub(crate) async fn delete_appendable(
@@ -1072,11 +1146,11 @@ impl Catalog {
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
-        let slot = SlotHandle::new(&self.0.data_dir, bucket, name);
+        let slot = SlotHandle::new(self, bucket, name);
         let mut guard = slot.lock().await;
         let (owned_bucket, owned_name, access) =
             (bucket.to_owned(), name.to_owned(), access.clone());
-        let data_dir = self.0.data_dir.clone();
+        let catalog = self.clone();
         let clock = self.0.clock.clone();
         self.run_upload(move |connection| {
             let transaction = connection
@@ -1107,7 +1181,7 @@ impl Catalog {
                 .and_then(|mut statement| statement.execute(params![owned_bucket, owned_name]))
                 .map_err(object_unavailable)?;
             transaction.commit().map_err(object_unavailable)?;
-            unlink(&data_path(&data_dir, &row.blob_id)?).map_err(object_unavailable)
+            data::remove(&catalog, &row.blob_id)
         })
         .await?;
         guard.owner = None;

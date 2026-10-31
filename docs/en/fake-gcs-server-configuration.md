@@ -74,8 +74,10 @@ the help text. Event-list validation occurs only when notifications are enabled.
 
 Use native names by role. When the server starts, gcs-mimic translates the
 known `FAKE_GCS_*` variables and flags that have a native equivalent, and warns
-with the native name for each one. Event settings and an unknown backend still
-stop startup; see [legacy setting aliases](slices/legacy-setting-aliases.md).
+with the native name for each one. Source builds support disk/memory selection
+and event aliases with an explicit local Pub/Sub emulator. Unknown backends and
+incomplete publisher settings fail. Published 0.7.0 has the earlier limitations;
+see [legacy setting aliases](slices/legacy-setting-aliases.md).
 Unknown `FAKE_GCS_*` names warn without stopping startup.
 Unknown `GCS_MIMIC_*` names fail validation, and an empty native value does not
 generally mean “use the default.” See the
@@ -87,14 +89,15 @@ generally mean “use the default.” See the
 | Bind host and port | `GCS_MIMIC_LISTEN` | One `IP:port` value |
 | Second HTTP listener | `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; defaults to primary IP:8000 |
 | Advertised API endpoint | `GCS_MIMIC_API_BASE_URL` | API origin, separate from public URL construction |
-| Seed input | `GCS_MIMIC_SEED_DIR`, `GCS_MIMIC_DEFAULT_SEED_DIR` (image: `/data`), `GCS_MIMIC_SEED_PROJECT`, `GCS_MIMIC_SEED_CONTENT_TYPE` | Applied on every startup with extension-derived MIME; differing objects, including API metadata edits, get a new generation, an exactly identical object keeps its generation, and there is no reseed route. Sidecar metadata is not imported |
+| Seed input | `GCS_MIMIC_SEED_DIR`, `GCS_MIMIC_DEFAULT_SEED_DIR` (image: `/data`), `GCS_MIMIC_SEED_PROJECT`, `GCS_MIMIC_SEED_CONTENT_TYPE` | Replays on every startup; differing objects get new generations and identical objects keep theirs. Source builds add atomic whole-tree replay and opt-in POST/PUT reseed, with disk merge and RAM replacement. `.metadata` files remain literal objects, not imported sidecars. |
 | Persistent destination | `GCS_MIMIC_DATA_DIR` | SQLite plus opaque files; cannot mount legacy `/storage` directly |
 | Supplied certificate/key | `GCS_MIMIC_TLS_CERT`, `GCS_MIMIC_TLS_KEY` | Supply a matching pair |
 | Public-host behavior | `GCS_MIMIC_PUBLIC_BASE_URL` | Origin with DNS-domain routing; legacy Host matching is opt-in. Normalized default ports, IP virtual disabling and authority conflicts retain documented local boundaries. |
 | Bucket CORS | JSON bucket API | Per-bucket XML rules; separate fixed JSON defaults |
 | Bucket location | JSON bucket API; `GCS_MIMIC_DEFAULT_LOCATION` / `--default-location` / JSON `default_location` | Native `US` default; case-insensitive official regional, predefined dual-region and `US`, `EU`, `ASIA` names; uppercase responses with the matching locationType. Explicit nonempty API/initializer location wins; null/empty uses the default; existing buckets stay unchanged. [Supported names and limits](slices/sdk-regional-locations.md). |
 | Log level | `GCS_MIMIC_LOG_LEVEL`, `--log-level`, JSON `log_level` | Structured stderr minimum severity; debug/info/warn/error, warning aliases warn; validation diagnostics and stdout ready/stopped are unfiltered |
-| Memory backend, event publisher | No current equivalent | Missing capabilities remain on the roadmap |
+| Memory backend | `GCS_MIMIC_BACKEND=memory`, `--backend memory`, JSON `backend` in source builds | Volatile chunks and in-memory SQLite; configurable 64 MiB body/16 MiB database-page defaults, separate from RSS. Existing disk data is untouched. See the [RAM contract](slices/memory-backend.md). |
+| Event publisher | `GCS_MIMIC_PUBSUB_EMULATOR_HOST` / `PUBSUB_EMULATOR_HOST` plus native/legacy event settings in source builds | Explicit local HTTP emulator, provisioned topics and bounded durable at-least-once outbox. Missing local endpoint fails rather than contacting Google. See the [notification contract](slices/pubsub-notification-delivery.md). |
 
 The legacy profile rejects explicit `default_location`. Its create API accepts
 only case-insensitive `US-CENTRAL1` when location is explicit, stores `US` and
@@ -132,8 +135,8 @@ supported name, for example `GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1` or
 examples. The legacy profile's global default remains unsupported.
 For `serve`, this advice is a warning and the translated setting takes effect;
 the table in [legacy setting aliases](slices/legacy-setting-aliases.md) lists
-each translation. Event delivery and backends other than `filesystem` and
-`memory` remain errors. Helper commands such as `healthcheck` and `url` have no
+each translation. Unknown backends and incomplete event configuration remain
+errors. Helper commands such as `healthcheck` and `url` have no
 server settings, so legacy names given to them still fail with this advice.
 
 Legacy option names are detected in one- and two-hyphen forms with separate or

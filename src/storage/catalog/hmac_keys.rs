@@ -84,10 +84,19 @@ impl HmacKeyRecord {
 }
 
 /// A newly created key; the secret is returned only from creation.
-#[derive(Debug)]
 pub(crate) struct CreatedHmacKey {
     pub record: HmacKeyRecord,
     pub secret: String,
+}
+
+impl std::fmt::Debug for CreatedHmacKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CreatedHmacKey")
+            .field("record", &self.record)
+            .field("secret", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -212,6 +221,19 @@ fn generate_secret() -> Result<String, CatalogError> {
 }
 
 impl Catalog {
+    /// Read fresh signing material; revocation must take effect without a secret cache.
+    pub(crate) async fn active_hmac_key(
+        &self,
+        access_id: &str,
+    ) -> Result<Option<(String, String)>, CatalogError> {
+        let access_id = access_id.to_owned();
+        self.run(move |connection| {
+            connection
+                .prepare_cached("SELECT service_account_email, secret FROM hmac_keys WHERE access_id = ?1 AND state = 'ACTIVE'")
+                .and_then(|mut statement| statement.query_row([access_id], |row| Ok((row.get(0)?, row.get(1)?))).optional())
+                .map_err(unavailable)
+        }).await
+    }
     pub(crate) async fn create_hmac_key(
         &self,
         project: &str,
@@ -391,6 +413,53 @@ mod tests {
     use crate::test_support::TestDir;
 
     #[tokio::test]
+    async fn signing_lookup_never_caches_state_or_exposes_secrets_in_debug() {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let created = catalog
+            .create_hmac_key("project", "signer@example.invalid")
+            .await
+            .unwrap();
+        assert!(!format!("{created:?}").contains(&created.secret));
+        let (email, secret) = catalog
+            .active_hmac_key(&created.record.access_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(email, "signer@example.invalid");
+        assert!(secret == created.secret);
+        catalog
+            .update_hmac_key_state(
+                "project",
+                &created.record.access_id,
+                HmacKeyState::Inactive,
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(
+            catalog
+                .active_hmac_key(&created.record.access_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        catalog
+            .delete_hmac_key("project", &created.record.access_id)
+            .await
+            .unwrap();
+        assert!(
+            catalog
+                .active_hmac_key(&created.record.access_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(catalog.active_hmac_key("unknown").await.unwrap().is_none());
+        catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn previous_schema_migrates_and_keys_survive_reopen() {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -421,7 +490,7 @@ mod tests {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            35
+            super::super::CATALOG_SCHEMA_VERSION
         );
     }
 

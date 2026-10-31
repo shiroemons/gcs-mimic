@@ -84,15 +84,20 @@ impl ComposePlan {
     /// The bucket is unchanged and, when sources are deleted, the caller may still delete
     /// them and their retention allows it.
     fn validate(&self, connection: &Connection, clock: &dyn Clock) -> Result<(), ObjectError> {
-        let (_, delete) = objects::authorized_bucket(connection, &self.bucket, &self.read_access)?;
         if incarnation(connection, &self.bucket)? != self.expected_incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
-        if self.disposal == SourceDisposal::Keep {
-            return Ok(());
+        if self.disposal == SourceDisposal::Delete {
+            let mut access = self.read_access.clone();
+            if let BucketAccess::Policy { permission, .. } = &mut access {
+                *permission = crate::auth::Permission::ObjectsDelete;
+            }
+            objects::authorized_bucket(connection, &self.bucket, &access)?;
         }
-        if delete == objects::DeletePermission::Denied {
-            return Err(ObjectError::Forbidden);
+        if self.disposal == SourceDisposal::Keep
+            && objects::object_acl_authority(connection, &self.bucket, &self.read_access)?.is_none()
+        {
+            return Ok(());
         }
         for (name, generation) in &self.keys {
             let source = Catalog::check_derived_source_in_transaction(
@@ -103,7 +108,9 @@ impl ComposePlan {
                 ObjectConditions::default(),
                 &self.read_access,
             )?;
-            source.check_retention(clock.now())?;
+            if self.disposal == SourceDisposal::Delete {
+                source.check_retention(clock.now())?;
+            }
         }
         Ok(())
     }
@@ -241,12 +248,12 @@ impl Catalog {
             let transaction = connection.transaction().map_err(object_unavailable)?;
             let (_, destination_delete) =
                 objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
-            let (_, source_delete) =
-                objects::authorized_bucket(&transaction, &destination.bucket, &read_access)?;
-            if disposal == SourceDisposal::Delete
-                && source_delete == objects::DeletePermission::Denied
-            {
-                return Err(ObjectError::Forbidden);
+            if disposal == SourceDisposal::Delete {
+                let mut access = read_access;
+                if let BucketAccess::Policy { permission, .. } = &mut access {
+                    *permission = crate::auth::Permission::ObjectsDelete;
+                }
+                objects::authorized_bucket(&transaction, &destination.bucket, &access)?;
             }
             let previous = objects::lookup(&transaction, &destination.bucket, &destination.name)?;
             objects::check_publication(

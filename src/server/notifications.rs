@@ -1,3 +1,4 @@
+use super::RequestBody as Incoming;
 use super::*;
 use crate::json::notifications::{
     NotificationRequest, notification_list, notification_not_found, notification_resource,
@@ -12,6 +13,7 @@ pub(super) async fn respond(
     fields: json::Fields,
     caller: Option<Caller<'_>>,
     state: &State,
+    base: &str,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     // Official IAM mapping: insert/delete change bucket configuration, get/list read it.
     let permission = match operation {
@@ -33,7 +35,6 @@ pub(super) async fn respond(
             "This method requires an empty body",
         ));
     }
-    let base = &state.api_base_url;
     let mut value = match operation {
         NotificationRequest::Insert { bucket } => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;

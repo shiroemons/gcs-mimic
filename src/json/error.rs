@@ -15,6 +15,14 @@ pub struct JsonError {
 }
 
 impl JsonError {
+    fn storage_capacity() -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "backendError",
+            "Storage capacity exhausted; for backend=memory release objects/readers or restart with larger memory_max_bytes and memory_catalog_max_bytes (restart loses RAM data), and for backend=disk free disk space; retry with generation preconditions after capacity is available",
+        )
+    }
+
     fn backend(message: &str) -> Self {
         // Only fixed diagnostics cross the HTTP boundary; arbitrary backend text can contain paths or secrets.
         let cause = message
@@ -32,6 +40,9 @@ impl JsonError {
             }
             "retained upload session limit reached" => {
                 "Object storage is unavailable: retained upload session limit reached; wait for expired sessions to be reclaimed or use single-request media uploads"
+            }
+            "notification outbox limit reached" => {
+                "Object storage is unavailable: notification outbox limit reached; start or repair the configured local Pub/Sub emulator, or set pubsub_emulator_host to resume delivery, then retry with generation preconditions"
             }
             "upload finalization timed out" => {
                 "Object storage is unavailable: upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)"
@@ -194,7 +205,11 @@ impl From<CatalogError> for JsonError {
             ),
             CatalogError::InvalidMetadata(reason) => Self::invalid_argument(reason),
             CatalogError::UnsupportedMetadata(field) => Self::unsupported(&field),
+            CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
+                Self::storage_capacity()
+            }
             CatalogError::Unavailable(_)
+            | CatalogError::AuthenticationAlreadyConfigured
             | CatalogError::Io(_)
             | CatalogError::Corrupt(_)
             | CatalogError::NewerSchema { .. } => Self::new(
@@ -304,6 +319,9 @@ impl From<ObjectError> for JsonError {
             ObjectError::InvalidFixedMetadata(reason) => Self::invalid_argument(reason),
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
             ObjectError::Unavailable(cause) => Self::backend(cause.message()),
+            ObjectError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
+                Self::storage_capacity()
+            }
             ObjectError::Io(kind) => Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "backendError",

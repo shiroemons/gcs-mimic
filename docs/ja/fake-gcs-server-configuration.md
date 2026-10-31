@@ -4,12 +4,24 @@
 
 fake-gcs-serverの設定は、名前を一括置換せず用途ごとに対応させます。
 サーバーの起動時、gcs-mimicは既知の`FAKE_GCS_*`と旧フラグのうち対応先があるものをnative設定に読み替え、それぞれnativeの名前を警告で案内します。
-イベント設定と未知のbackendは引き続き起動を止めます。未知の`FAKE_GCS_*`は警告だけです。
+開発中ソースでは`filesystem`をdiskへ、`memory`を上限付きRAM保存へ対応させます。
+イベント設定は、明示したローカルPub/Subエミュレーターと完全なproject/topic設定が必要です。
+不完全なイベント設定と未知のbackendは起動を止めます。公開済み0.7.0は以前の制限のままです。
+未知の`FAKE_GCS_*`は警告だけです。
 読み替えの一覧は[旧設定の読み替え（英語）](../en/slices/legacy-setting-aliases.md)を参照してください。
 0.6.0以前は、既知19個をすべて移行案内付きのエラーにします。
 
 [English](../en/fake-gcs-server-configuration.md) ·
 [実装状態の原本](../../compatibility/features.json)
+
+RAMの既定値は本文64 MiBとSQLiteのmain/TEMPそれぞれ16 MiBで、設定で変えられます。
+これらは保存の上限であり、プロセスRSSの保証ではありません。RAMは再起動で消え、data_dirを開きません。
+通知は上限付きoutboxから外部のローカルエミュレーターへ少なくとも1回配信し、Googleへ自動接続しません。
+ソースの[RAM契約](../en/slices/memory-backend.md)と[通知契約](../en/slices/pubsub-notification-delivery.md)を参照してください。
+seedは毎回起動時に反映します。ソース版は全体を準備して一括公開し、変更した保護対象があれば全体を戻します。
+管理APIのreseedは明示的な有効化が必要で、diskはmerge、RAMは置換です。
+`.metadata`という末尾のseedファイルも通常の本文であり、移行用sidecarとして自動判定しません。
+稼働中の同期操作は[同期CLI](sync-cli.md)を参照してください。
 
 ## gRPCの待受
 

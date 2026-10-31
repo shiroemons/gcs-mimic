@@ -8,10 +8,12 @@ use gcs_mimic::{
 use std::{collections::BTreeMap, io, path::Path, process::ExitCode, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 mod startup;
+mod sync_cli;
 use startup::phase;
 
 const HELP: &str = "gcs-mimic — local Cloud Storage emulator foundation
 Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+       gcs-mimic sync status|findings|deletions|conflicts|rescan|approve|resolve|wait --endpoint URL [OPTIONS]
        gcs-mimic healthcheck [--url URL] [--ca-cert PATH]
        gcs-mimic tls ca
        gcs-mimic url public --base-url URL --bucket NAME --object NAME
@@ -25,10 +27,14 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --scheme MODE                https (http|https|both; both uses HTTPS on --listen)
   --listen-http IP:PORT        primary listen IP:8000 (HTTP listener; scheme=both only)
   --grpc-listen IP:PORT        none (optional separate plaintext h2c gRPC listener; e.g. 127.0.0.1:4444)
+  --unix-socket PATH           none (Unix HTTP socket; private 0700 parent, scheme=http, no TCP/gRPC)
   --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
   --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
   --tls-handshake-timeout-ms N  5000 (1..60000; HTTPS listener)
   --data-dir PATH              data (exclusive persistent catalog)
+  --backend MODE               disk (disk|memory; memory never opens data-dir, loses data at exit)
+  --memory-max-bytes N          67108864 (RAM blob bytes plus chunk overhead; 1..1073741824)
+  --memory-catalog-max-bytes N  16777216 (RAM SQLite pages; 1048576..1073741824; separate from RSS)
   --seed-dir PATH              none (read-only fixtures; replayed on every startup)
   --default-seed-dir PATH      none (seed root when seed_dir is unset and PATH exists; image: /data)
   --seed-project ID            local-project (owning project for seeded buckets)
@@ -39,6 +45,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 MiB)
   --api-base-url URL           Derived from bound listener (fixed advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
+  --admin-enabled BOOL         false (local management API; isolate the listener when enabled)
+  --admin-principal ID         none (strict local fixture administration; independent of Google IAM)
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
   --max-connections N          32 (1..1024; shared across listeners and TLS handshakes)
   --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
@@ -53,6 +61,12 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
   --cors-fallback MODE         none (none|allow-all; XML/public CORS for buckets without stored rules)
   --identity-file PATH         none (strict-mode JSON identity registry, at most 64 KiB)
+  --pubsub-emulator-host HOST:PORT none (explicit local HTTP Pub/Sub emulator; PUBSUB_EMULATOR_HOST also accepted)
+  --event-pubsub-project-id ID  none (global notification topic project; needs local emulator)
+  --event-pubsub-topic ID       none (global notification topic name)
+  --event-bucket NAME           all buckets (global notification filter)
+  --event-object-prefix PREFIX all object names (global notification filter)
+  --event-list LIST            finalize (comma-separated finalize,delete,metadataUpdate,archive; none disables the global rule)
   GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
 
 HTTP/1 probes and scoped JSON/XML APIs are available over HTTP or TLS 1.2/1.3.
@@ -61,7 +75,8 @@ Supply both --tls-cert and --tls-key to replace them. Export the root with gcs-m
 Clients must trust the issuing CA and match a certificate SAN; public test keys provide no
 identity protection outside isolated local development. Healthcheck HTTPS trusts the embedded
 development CA by default; --ca-cert PATH replaces that trust with a supplied CA bundle.
-HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health or /_internal/ready.
+HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health, /_internal/ready
+or the compatible readiness path /_internal/healthcheck.
 Without --url, healthcheck reads GCS_MIMIC_* and the selected JSON config, uses ready,
 maps wildcard listeners to loopback and prefers HTTP for scheme=both. Server CLI
 overrides require an explicit --url or matching environment/configuration settings.
@@ -81,7 +96,7 @@ base, overridden by --base-url. No environment, data directory or network is rea
 is changed.";
 
 const URL_SIGN_HELP: &str =
-    "Usage: gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET|HEAD|PUT
+    "Usage: gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET|HEAD|PUT|DELETE
        --expires DURATION --signer ID --private-key PATH [--header NAME:VALUE]...
        [--query NAME=VALUE]... [--timestamp YYYYMMDDTHHMMSSZ] [--style path|virtual-hosted]
 
@@ -126,9 +141,13 @@ impl CliError {
     fn diagnostics(&self) -> Option<&Diagnostics> {
         match self {
             Self::Diagnostics(diagnostics) => Some(diagnostics),
-            Self::Io(error) => error
-                .get_ref()
-                .and_then(|inner| inner.downcast_ref::<Diagnostics>()),
+            Self::Io(error) => error.get_ref().and_then(|inner| {
+                inner.downcast_ref::<Diagnostics>().or_else(|| {
+                    inner
+                        .downcast_ref::<startup::CatalogAuthenticationFailure>()
+                        .map(startup::CatalogAuthenticationFailure::diagnostics)
+                })
+            }),
         }
     }
 
@@ -216,6 +235,9 @@ fn cli_args() -> Result<Vec<String>, Diagnostics> {
 fn run() -> Result<(), CliError> {
     let args = cli_args()?;
     match args.as_slice() {
+        [command, rest @ ..] if command == "sync" => {
+            return sync_cli::run(rest);
+        }
         [command, kind, rest @ ..] if command == "import" && kind == "fake-gcs-server" => {
             return gcs_mimic::import::cli(rest).map_err(CliError::from_boxed);
         }
@@ -665,14 +687,16 @@ fn probe(args: &[String], url: &str) -> io::Result<()> {
     let invalid = || {
         io::Error::new(
             io::ErrorKind::InvalidInput,
-            "expected http(s)://HOST:PORT/_internal/health or /_internal/ready",
+            "expected http(s)://HOST:PORT/_internal/health, /_internal/ready or /_internal/healthcheck",
         )
     };
     let uri: hyper::Uri = url.parse().map_err(|_| invalid())?;
     let authority = uri.authority().ok_or_else(invalid)?.as_str();
     let path = uri.path().strip_prefix('/').ok_or_else(invalid)?;
-    if !matches!(path, "_internal/health" | "_internal/ready")
-        || !matches!(uri.scheme_str(), Some("http" | "https"))
+    if !matches!(
+        path,
+        "_internal/health" | "_internal/ready" | "_internal/healthcheck"
+    ) || !matches!(uri.scheme_str(), Some("http" | "https"))
         || uri.port_u16().is_none()
         || uri.query().is_some()
         || url.contains('#')

@@ -43,7 +43,6 @@ impl Catalog {
                 let transaction = connection
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(object_unavailable)?;
-                authorized_bucket(&transaction, &bucket, &source_read)?;
                 let (mut record, blob_id) = selected(
                     &transaction,
                     &bucket,
@@ -53,6 +52,15 @@ impl Catalog {
                     super::objects::RequestKind::Write,
                     &source_delete,
                 )?;
+                super::objects::authorize_generation(
+                    &transaction,
+                    &record.bucket,
+                    &record.name,
+                    record.generation,
+                    &source_read,
+                )?;
+                let source_acl = super::acl::effective_object_entries(&transaction, &record)
+                    .map_err(object_unavailable)?;
                 let (_, delete_permission) =
                     authorized_bucket(&transaction, &bucket, &destination_create)?;
                 let previous = lookup(&transaction, &bucket, &destination)?;
@@ -71,6 +79,16 @@ impl Catalog {
                 let now = clock.now();
                 let micros = unix_micros(now).map_err(object_unavailable)?;
                 let origin = super::change_journal::origin(&destination_create);
+                super::notification_outbox::enqueue(
+                    &transaction,
+                    crate::notification::Message {
+                        event: crate::notification::Event::Delete,
+                        object: &record,
+                        time: now,
+                        replacement: None,
+                    },
+                )
+                .map_err(object_unavailable)?;
                 super::change_journal::object(
                     &transaction,
                     origin,
@@ -101,6 +119,11 @@ impl Catalog {
                         assignment: GenerationAssignment::Automatic,
                         micros,
                         origin,
+                        notification_mode: crate::notification::NotificationMode::for_access(
+                            &destination_create,
+                        ),
+                        owner_profile: None,
+                        acl: super::acl::PublicationAcl::Preserve(&source_acl),
                     },
                     |generation| {
                         record.generation = generation;

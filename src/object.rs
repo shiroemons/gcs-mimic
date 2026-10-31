@@ -3,7 +3,16 @@
 use crate::storage::failure::{BackendCause, IoCause};
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 
+pub(crate) mod owner;
 pub(crate) mod retention;
+
+/// Multipart uploads retain an internal digest without exposing an MD5 checksum.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Md5Availability {
+    #[default]
+    Available,
+    Unavailable,
+}
 
 /// Only a transport-confirmed EOF permits publication; a dropped producer is an abort.
 pub enum UploadChunk {
@@ -19,6 +28,9 @@ pub struct ObjectRecord {
     pub name: String,
     pub generation: i64,
     pub metageneration: i64,
+    /// Older generations have no recoverable uploader identity.
+    #[serde(default)]
+    pub(crate) owner: Option<owner::ObjectOwner>,
     pub content_type: String,
     pub content_encoding: Option<String>,
     pub content_disposition: Option<String>,
@@ -27,6 +39,8 @@ pub struct ObjectRecord {
     pub metadata: BTreeMap<String, String>,
     pub size: u64,
     pub md5: [u8; 16],
+    #[serde(default)]
+    pub md5_availability: Md5Availability,
     pub crc32c: u32,
     pub component_count: Option<i64>,
     pub storage_class: String,
@@ -47,6 +61,10 @@ pub struct ObjectRecord {
 }
 
 impl ObjectRecord {
+    pub(crate) fn has_md5(&self) -> bool {
+        self.md5_availability == Md5Availability::Available && self.component_count.is_none()
+    }
+
     pub(crate) fn has_hold(&self) -> bool {
         self.event_based_hold || self.temporary_hold
     }

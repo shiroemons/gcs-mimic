@@ -22,12 +22,13 @@ fn cleanup_page(
 fn clean_record(
     connection: &Connection,
     data_dir: &Path,
+    memory: Option<&crate::storage::memory::Store>,
     id: &str,
     blob_id: &str,
     deadline: i64,
     now: i64,
 ) -> Result<(), CatalogError> {
-    clean_session_files(connection, data_dir, blob_id)?;
+    clean_session_storage(connection, data_dir, memory, blob_id)?;
     if deadline <= now {
         // Resumable session requests wake the maintenance sweep, so this runs per request.
         connection
@@ -50,7 +51,7 @@ pub(super) fn recover_due(
             return Ok(());
         }
         for (id, blob_id, deadline) in rows {
-            clean_record(connection, data_dir, &id, &blob_id, deadline, now)?;
+            clean_record(connection, data_dir, None, &id, &blob_id, deadline, now)?;
             after = id;
         }
     }
@@ -72,9 +73,19 @@ fn unlink(path: &Path) -> Result<(), CatalogError> {
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn clean_session_files(
     connection: &rusqlite::Connection,
     data_dir: &Path,
+    blob_id: &str,
+) -> Result<(), CatalogError> {
+    clean_session_storage(connection, data_dir, None, blob_id)
+}
+
+pub(super) fn clean_session_storage(
+    connection: &rusqlite::Connection,
+    data_dir: &Path,
+    memory: Option<&crate::storage::memory::Store>,
     blob_id: &str,
 ) -> Result<(), CatalogError> {
     let blob = super::super::blob_id::BlobId::parse(blob_id)
@@ -83,10 +94,18 @@ pub(super) fn clean_session_files(
         .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
         .and_then(|mut statement| statement.query_row([blob_id], |row| row.get(0)))
         .map_err(unavailable)?;
-    unlink(&blob.staging_path(data_dir))?;
+    if let Some(memory) = memory {
+        memory.remove_draft(blob_id).map_err(unavailable)?;
+    } else {
+        unlink(&blob.staging_path(data_dir))?;
+    }
     // A completed object outlives its capability and must never be reclaimed with it.
     if !live {
-        unlink(&blob.blob_path(data_dir))?;
+        if let Some(memory) = memory {
+            memory.remove(blob_id).map_err(unavailable)?;
+        } else {
+            unlink(&blob.blob_path(data_dir))?;
+        }
     }
     connection
         .prepare_cached("DELETE FROM pending_blob_deletions WHERE blob_id = ?1")
@@ -125,8 +144,11 @@ impl Catalog {
         // Remove the cleanup journal only after file removal and directory sync succeed.
         let blob_id = lease.session.blob_id.clone();
         let data_dir = self.0.data_dir.clone();
+        let memory = self.0.memory.clone();
         let result = self
-            .run(move |connection| clean_session_files(connection, &data_dir, &blob_id))
+            .run(move |connection| {
+                clean_session_storage(connection, &data_dir, memory.as_deref(), &blob_id)
+            })
             .await;
         if let Err(error) = &result {
             *self
@@ -191,6 +213,7 @@ impl Catalog {
                             clean_record(
                                 connection,
                                 &catalog.0.data_dir,
+                                catalog.0.memory.as_deref(),
                                 &id,
                                 &blob_id,
                                 deadline,
@@ -228,10 +251,12 @@ impl Catalog {
             })
             .await?;
         let rewrite_deadline = self.maintain_rewrite_sessions(now).await?;
+        let multipart_deadline = self.maintain_xml_multipart(now).await?;
         Ok(resumable_deadline
             .into_iter()
             .chain(derived_deadline)
             .chain(rewrite_deadline)
+            .chain(multipart_deadline)
             .min())
     }
 

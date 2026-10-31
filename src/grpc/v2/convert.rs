@@ -112,7 +112,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
             .is_none()
             .then(|| pb::ObjectChecksums {
                 crc32c: Some(record.crc32c),
-                md5_hash: if record.component_count.is_some() {
+                md5_hash: if !record.has_md5() {
                     Vec::new()
                 } else {
                     record.md5.to_vec()
@@ -234,6 +234,7 @@ mod tests {
             name: "folder/%2F.txt".into(),
             generation: 42,
             metageneration: 2,
+            owner: None,
             content_type: "text/plain".into(),
             content_encoding: Some("gzip".into()),
             content_disposition: None,
@@ -242,6 +243,7 @@ mod tests {
             metadata: BTreeMap::from([("key".into(), "value".into())]),
             size: 5,
             md5: [3; 16],
+            md5_availability: Default::default(),
             crc32c: 123,
             component_count: None,
             storage_class: "STANDARD".into(),
@@ -276,6 +278,15 @@ mod tests {
         .unwrap();
         assert_eq!(composite.component_count, i32::MAX);
         assert!(composite.checksums.unwrap().md5_hash.is_empty());
+        let multipart = object(&ObjectRecord {
+            md5_availability: crate::object::Md5Availability::Unavailable,
+            ..record.clone()
+        })
+        .unwrap();
+        assert_eq!(multipart.component_count, 0);
+        let checksums = multipart.checksums.unwrap();
+        assert_eq!(checksums.crc32c, Some(record.crc32c));
+        assert!(checksums.md5_hash.is_empty());
         let encrypted = object(&ObjectRecord {
             customer_key_sha256: Some([7; 32]),
             ..record.clone()

@@ -249,6 +249,9 @@ fn iam_migrates_v5_catalog() {
     server.stop();
     let path = data.0.join("catalog.sqlite3");
     let connection = rusqlite::Connection::open(&path).unwrap();
+    let current_version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
     common::downgrade_object_schema(&connection);
     connection
         .execute_batch(
@@ -280,7 +283,7 @@ fn iam_migrates_v5_catalog() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        35
+        current_version
     );
     drop(connection);
     let server = Server::strict(&data, &config.0.join("identities.json"));

@@ -232,12 +232,21 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
                 .collect::<std::collections::BTreeSet<_>>(),
             std::collections::BTreeSet::from([
                 "event",
+                "executable",
+                "version",
+                "healthcheck_path",
+                "admin_enabled",
+                "message",
                 "listen",
                 "listeners",
+                "transport",
                 "protocol",
                 "gcs_api",
                 "max_connections",
                 "max_object_bytes",
+                "backend",
+                "memory_max_bytes",
+                "memory_catalog_max_bytes",
                 "worker_threads",
                 "max_blocking_threads",
                 "connection_timeout_ms",
@@ -257,9 +266,24 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
             ])
         );
         assert_eq!(ready["event"], "ready");
+        assert_eq!(ready["executable"], "gcs-mimic");
+        assert_eq!(ready["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(ready["healthcheck_path"], "/_internal/healthcheck");
+        assert_eq!(ready["admin_enabled"], false);
+        assert_eq!(
+            ready["message"],
+            format!(
+                "server started at {}",
+                ready["api_base_url"].as_str().unwrap()
+            )
+        );
         assert_eq!(ready["protocol"], "http1");
         assert_eq!(ready["gcs_api"], "json-bucket-object-media-crud");
         assert_eq!(ready["scheme"], "http");
+        assert_eq!(ready["transport"], "tcp");
+        assert_eq!(ready["backend"], "disk");
+        assert_eq!(ready["memory_max_bytes"], 64 * 1024 * 1024);
+        assert_eq!(ready["memory_catalog_max_bytes"], 16 * 1024 * 1024);
         assert_eq!(ready["auth_mode"], "permissive");
         assert!(ready.get("identities").is_none());
         assert_eq!(ready["max_connections"], 32);
@@ -751,8 +775,10 @@ async fn wire_probes_clock_and_unimplemented_routes() {
     assert!(health.starts_with("HTTP/1.1 200"));
     assert!(health.contains("\"unix_time\":42"));
     assert!(get("/_internal/ready").starts_with("HTTP/1.1 200"));
+    assert!(get("/_internal/healthcheck").starts_with("HTTP/1.1 200"));
     state.ready.store(false, Ordering::Release);
     assert!(get("/_internal/ready").starts_with("HTTP/1.1 503"));
+    assert!(get("/_internal/healthcheck").starts_with("HTTP/1.1 503"));
     assert!(get("/_internal/health").starts_with("HTTP/1.1 200"));
     let upload = get("/upload/storage/v1/b/b/o");
     assert!(upload.starts_with("HTTP/1.1 405"));
@@ -762,10 +788,16 @@ async fn wire_probes_clock_and_unimplemented_routes() {
         "/INVALID/object",
         "/google.storage.v2.Storage/ReadObject",
         "/_internal/reset",
-        "/",
     ] {
         assert!(get(path).starts_with("HTTP/1.1 404"), "{path}");
     }
+    let service = get("/");
+    assert!(service.starts_with("HTTP/1.1 400"), "{service}");
+    assert!(
+        service.contains("<Code>InvalidArgument</Code>"),
+        "{service}"
+    );
+    assert!(service.contains("x-goog-project-id"), "{service}");
     let response = request(
         address,
         "POST /_internal/health HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n",

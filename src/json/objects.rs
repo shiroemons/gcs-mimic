@@ -608,6 +608,7 @@ pub(crate) fn validate_keyed_object_headers(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EtagConditions {
     Supported,
+    MatchOnly,
     Unsupported,
 }
 
@@ -616,7 +617,7 @@ pub(crate) fn validate_read_condition_headers(
     headers: &HeaderMap,
     etags: EtagConditions,
 ) -> Result<(), JsonError> {
-    if etags == EtagConditions::Supported {
+    if etags != EtagConditions::Unsupported {
         for name in ["if-range", "if-modified-since", "if-unmodified-since"] {
             if (name == "if-modified-since" && headers.contains_key("if-none-match"))
                 || (name == "if-unmodified-since" && headers.contains_key("if-match"))
@@ -629,7 +630,10 @@ pub(crate) fn validate_read_condition_headers(
         }
     }
     for name in ["if-match", "if-none-match"] {
-        if headers.contains_key(name) && etags == EtagConditions::Unsupported {
+        if headers.contains_key(name)
+            && (etags == EtagConditions::Unsupported
+                || (etags == EtagConditions::MatchOnly && name == "if-none-match"))
+        {
             return Err(JsonError::unsupported_object(name));
         }
     }
@@ -713,7 +717,7 @@ pub(crate) fn object_resource(
     base_url: &str,
     projection: Projection,
 ) -> Result<Value, JsonError> {
-    // ACL and owner fields are not modeled; both projections expose the same local subset.
+    // ACL and owner projection requires current catalog authorization in the server adapter.
     let (Projection::NoAcl | Projection::Full) = projection;
     let base = base_url.trim_end_matches('/');
     let path = format!(
@@ -737,7 +741,8 @@ pub(crate) fn object_resource(
     });
     if let Some(count) = object.component_count {
         value["componentCount"] = json!(count);
-    } else {
+    }
+    if object.has_md5() {
         value["md5Hash"] = json!(base64(&object.md5));
     }
     if !object.content_type.is_empty() {
@@ -804,7 +809,7 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
         ("x-goog-metageneration", object.metageneration.to_string()),
         (
             "x-goog-hash",
-            if object.component_count.is_some() {
+            if !object.has_md5() {
                 format!("crc32c={}", base64(&object.crc32c.to_be_bytes()))
             } else {
                 format!(
@@ -944,6 +949,9 @@ pub(crate) fn validate_object_media_encoding(
 pub(crate) fn object_etag(object: &ObjectRecord) -> String {
     if object.component_count.is_some() {
         return format!("\"c-{}-{}\"", object.generation, object.metageneration);
+    }
+    if !object.has_md5() {
+        return format!("\"m-{}-{}\"", object.generation, object.metageneration);
     }
     // A keyless metadata read must not learn the plaintext MD5 through the validator.
     if object.customer_key_sha256.is_some() {

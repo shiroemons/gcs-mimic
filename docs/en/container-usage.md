@@ -205,6 +205,13 @@ shortly after each response; poll rather than expecting the file at response tim
 The SQLite catalog and internal blobs remain the stored state, so the directory
 is a mirror. Data persistence still requires the `/var/lib/gcs-mimic` volume.
 
+The following describes the published 0.7.0 mirror. Source builds additionally
+support [continuous observation](slices/continuous-directory-observation.md),
+revision-bound deletion approval and live status/findings/wait controls; use
+the current [synchronization contract](slices/directory-synchronization.md) for
+its exact supported platform/auth/recovery subset. Ready precedes initial
+reconciliation and is not a synchronization-complete signal.
+
 Files created or edited outside the server are imported as new object
 generations, with hashes, when the server starts; there is no file watcher, so
 restart to pick up edits. Imported files appear through the API about a second
