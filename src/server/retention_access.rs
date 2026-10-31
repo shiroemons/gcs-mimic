@@ -36,7 +36,7 @@ pub(super) async fn authorize_upload(
     Ok(())
 }
 
-pub(super) async fn authorize_update(
+pub(crate) async fn authorize_update(
     state: &State,
     access: &BucketAccess,
     bucket: &str,

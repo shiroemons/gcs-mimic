@@ -19908,8 +19908,16 @@
           ]
         },
         {
+          "id": "grpc_bucket_create_object_retention",
+          "description": "enable_object_retention=true enables object retention and requires storage.buckets.enableObjectRetention in strict mode; bucket.object_retention alone returns INVALID_ARGUMENT, as JSON rejects objectRetention without enableObjectRetention.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_buckets_create_enables_object_retention"
+          ]
+        },
+        {
           "id": "grpc_bucket_create_remaining",
-          "description": "Nonempty lifecycle, ACL, requester-pays, encryption, logging, custom placement, hierarchical namespace, object retention and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted.",
+          "description": "Nonempty lifecycle, ACL, predefined ACLs, requester-pays, encryption, logging, custom placement, hierarchical namespace and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -19918,10 +19926,20 @@
         "grpc_buckets_create_subset_and_defaults",
         "grpc_buckets_strict_shared_authorization",
         "grpc_buckets_create_accepts_name_matching_bucket_id",
+        "grpc_buckets_create_enables_object_retention",
         "TestGRPCBuckets",
         "TestGRPCBucketsStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib grpc:: -- --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
+          "test_ids": [
+            "grpc_buckets_create_enables_object_retention"
+          ]
+        },
         {
           "command": "cargo test --locked --lib grpc::v2::buckets",
           "result": "PASS",
@@ -19965,7 +19983,7 @@
         }
       ],
       "known_deviations": [
-        "Nonempty lifecycle, ACL, requester-pays, encryption, logging, custom placement, hierarchical namespace, object retention and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted."
+        "Nonempty lifecycle, ACL, predefined ACLs, requester-pays, encryption, logging, custom placement, hierarchical namespace and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted."
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"
@@ -21309,6 +21327,15 @@
           ]
         },
         {
+          "id": "grpc_object_retention_mask",
+          "description": "The retention mask sets, shortens and removes object retention through the shared JSON parser and catalog; override_unlocked_retention is required to shorten or remove an Unlocked configuration; buckets without object retention return INVALID_ARGUMENT; strict callers need storage.objects.setRetention (and overrideUnlockedRetention for an override).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_update_object_retention",
+            "grpc_update_object_retention_strict"
+          ]
+        },
+        {
           "id": "grpc_full_contract",
           "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
           "result": "PENDING",
@@ -21322,7 +21349,9 @@
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
         "TestGRPCUpdateCopyStrict",
-        "grpc_update_object_acl"
+        "grpc_update_object_acl",
+        "grpc_update_object_retention",
+        "grpc_update_object_retention_strict"
       ],
       "verification": [
         {
@@ -21331,7 +21360,9 @@
           "verified_at": "2026-10-31",
           "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
           "test_ids": [
-            "grpc_update_object_acl"
+            "grpc_update_object_acl",
+            "grpc_update_object_retention",
+            "grpc_update_object_retention_strict"
           ]
         },
         {

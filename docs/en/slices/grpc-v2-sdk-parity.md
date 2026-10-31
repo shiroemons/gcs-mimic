@@ -68,3 +68,20 @@ The Rust SDK exposes ACLs only as resource fields: it reads `Bucket.acl`, append
 GetObject's ACL projection and `predefined_acl` on create, update and compose remain outside this change and keep their current behavior; `acl.<field>` and `owner` update masks return UNIMPLEMENTED.
 
 Tests: `grpc_buckets_acl_read_and_update`, `grpc_buckets_acl_strict_authorization` and `grpc_update_object_acl` failed on the previous source (empty bucket ACL; UNIMPLEMENTED masks) and pass after the change. The negative mask test now uses the still-unsupported `acl.entity` and `owner` paths instead of `acl`.
+
+## Object retention
+
+CreateBucket `enable_object_retention` and the UpdateObject `retention` mask and `override_unlocked_retention` flag returned UNIMPLEMENTED. They now use the JSON insert rule, the shared retention parser, the shared transition check and the shared strict permission checks.
+
+| Case | Required behavior |
+| --- | --- |
+| grpc_bucket_create_object_retention | `enable_object_retention=true` creates a bucket with object retention enabled (`object_retention.enabled` in the response). In strict mode the caller also needs `storage.buckets.enableObjectRetention` on the project; without it the call returns PERMISSION_DENIED and creates nothing. |
+| grpc_bucket_object_retention_field | `bucket.object_retention.enabled=true` without the request flag returns INVALID_ARGUMENT, as JSON rejects `objectRetention` without `enableObjectRetention=true`; with the flag it is accepted. |
+| grpc_object_retention_set | The `retention` mask with a mode and `retain_until_time` stores the configuration, returns it and protects the object from deletion. |
+| grpc_object_retention_override | Shortening or removing (an absent `retention` message) an Unlocked configuration fails without `override_unlocked_retention` and leaves it unchanged; with the flag it succeeds. |
+| grpc_object_retention_disabled | A bucket without object retention returns INVALID_ARGUMENT (the shared JSON 400). |
+| grpc_object_retention_strict | A strict caller without `storage.objects.setRetention` receives PERMISSION_DENIED and the object keeps no retention; `override_unlocked_retention` additionally requires `storage.objects.overrideUnlockedRetention`. |
+
+An unspecified mode, or a mode without `retain_until_time`, returns INVALID_ARGUMENT. `retention.<field>` masks remain UNIMPLEMENTED. Writes that set retention at upload (WriteObject resource fields) are outside this change.
+
+Tests: `grpc_buckets_create_enables_object_retention`, `grpc_update_object_retention` and `grpc_update_object_retention_strict` failed on the previous source with UNIMPLEMENTED and pass after the change. The negative mask test now uses the still-unsupported `retention.mode` path instead of `retention`.

@@ -105,6 +105,7 @@ mod notifications;
 mod project_resources;
 pub(crate) mod resumable;
 mod retention_access;
+pub(crate) use retention_access::authorize_update as authorize_retention_update;
 mod rewrite;
 mod unsupported;
 

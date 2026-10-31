@@ -414,11 +414,8 @@ impl Storage {
                 "CreateBucket.parent must be empty or projects/_; put projects/local-project in bucket.project",
             ));
         }
-        if !request.predefined_acl.is_empty()
-            || !request.predefined_default_object_acl.is_empty()
-            || request.enable_object_retention
-        {
-            return Err(unsupported("CreateBucket ACL or object retention", caller));
+        if !request.predefined_acl.is_empty() || !request.predefined_default_object_acl.is_empty() {
+            return Err(unsupported("CreateBucket predefined ACLs", caller));
         }
         let mut bucket = request.bucket.unwrap_or_default();
         // The Java SDK repeats the new resource name here, and Cloud Storage accepts it. A
@@ -436,8 +433,23 @@ impl Storage {
             caller
                 .authorize("storage.buckets.create", Some(project))
                 .map_err(|e| json_error(e.into()))?;
+            if request.enable_object_retention {
+                caller
+                    .authorize(crate::auth::BUCKETS_ENABLE_OBJECT_RETENTION, Some(project))
+                    .map_err(|e| json_error(e.into()))?;
+            }
         }
-        let record = create_metadata(&bucket, &request.bucket_id, project, &self.state)?;
+        // As in JSON, only the request flag enables object retention; the bucket field is
+        // output-only and may only repeat the flag.
+        if bucket.object_retention.take().is_some_and(|retention| retention.enabled)
+            && !request.enable_object_retention
+        {
+            return Err(Status::invalid_argument(
+                "bucket.object_retention is output-only; set enable_object_retention=true to enable object retention",
+            ));
+        }
+        let mut record = create_metadata(&bucket, &request.bucket_id, project, &self.state)?;
+        record.object_retention_enabled = request.enable_object_retention;
         let record = self
             .state
             .catalog
@@ -1284,6 +1296,89 @@ mod tests {
         assert_eq!(unchanged.acl, admin.acl);
         storage
             .update_bucket(Request::new(request), caller("admin"))
+            .await
+            .unwrap();
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_buckets_create_enables_object_retention() {
+        let dir = TestDir::new();
+        let auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"p":["roles/storage.admin"]}},{"id":"editor@example.invalid","tokens":["editor"],"project_roles":{"p":["roles/storage.editor"]}}]}"#).unwrap());
+        let storage = Storage {
+            max_object_bytes: 1024,
+            state: Arc::new(State {
+                ready: AtomicBool::new(true),
+                clock: Arc::new(SystemClock),
+                catalog: Catalog::open(&dir.0).await.unwrap(),
+                api_base_url: "http://localhost:4443".into(),
+                default_location: "US".into(),
+                auth,
+            }),
+        };
+        let caller = |token: &str| {
+            let mut metadata = Request::new(());
+            metadata
+                .metadata_mut()
+                .insert("authorization", format!("Bearer {token}").parse().unwrap());
+            storage.authenticate(&metadata).unwrap()
+        };
+        let mut request = create("retention-bucket");
+        request.enable_object_retention = true;
+        // Creating a bucket without enabling object retention needs no extra permission.
+        storage
+            .create_bucket(Request::new(create("plain-bucket")), caller("editor"))
+            .await
+            .unwrap();
+        assert_eq!(
+            storage
+                .create_bucket(Request::new(request.clone()), caller("editor"))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::PermissionDenied
+        );
+        assert!(
+            storage
+                .state
+                .catalog
+                .get_bucket("retention-bucket")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let created = storage
+            .create_bucket(Request::new(request), caller("admin"))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            created.object_retention,
+            Some(pb::bucket::ObjectRetention { enabled: true })
+        );
+        let stored = storage
+            .state
+            .catalog
+            .get_bucket("retention-bucket")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(stored.object_retention_enabled);
+        // The bucket field alone cannot enable object retention, as in JSON.
+        let mut request = create("field-only");
+        request.bucket.as_mut().unwrap().object_retention =
+            Some(pb::bucket::ObjectRetention { enabled: true });
+        assert_eq!(
+            storage
+                .create_bucket(Request::new(request.clone()), caller("admin"))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        request.enable_object_retention = true;
+        storage
+            .create_bucket(Request::new(request), caller("admin"))
             .await
             .unwrap();
         storage.state.catalog.close().await.unwrap();

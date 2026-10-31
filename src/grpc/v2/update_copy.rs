@@ -181,6 +181,27 @@ fn acl_entries<'a>(entries: impl Iterator<Item = (&'a String, &'a String)>) -> V
         .into()
 }
 
+/// The JSON form of an object retention configuration; an absent message removes it.
+fn retention(retention: Option<&pb::object::Retention>) -> Result<Value, Status> {
+    use pb::object::retention::Mode;
+    let Some(retention) = retention else {
+        return Ok(Value::Null);
+    };
+    let mode = match Mode::try_from(retention.mode) {
+        Ok(Mode::Unlocked) => "Unlocked",
+        Ok(Mode::Locked) => "Locked",
+        _ => {
+            return Err(Status::invalid_argument(
+                "retention.mode must be UNLOCKED or LOCKED",
+            ));
+        }
+    };
+    let until = retention.retain_until_time.ok_or_else(|| {
+        Status::invalid_argument("retention.retain_until_time is required with retention.mode")
+    })?;
+    Ok(json!({"mode": mode, "retainUntilTime": until.to_string()}))
+}
+
 fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
     let mut body = json!({});
     for path in paths {
@@ -270,6 +291,7 @@ fn object_patch(o: &pb::Object, paths: &[String]) -> Result<Value, Status> {
             // Go sends this output-only path for an ordinary empty Update.
             "create_time" => {}
             "acl" => body["acl"] = acl_entries(o.acl.iter().map(|e| (&e.entity, &e.role))),
+            "retention" => body["retention"] = retention(o.retention.as_ref())?,
             _ => {
                 return Err(unsupported(&format!(
                     "UpdateObject update_mask {path}; use metadata or content_type"
@@ -845,11 +867,14 @@ impl Storage {
     ) -> Result<Response<pb::Object>, Status> {
         let r = request.into_inner();
         common(&r.common_object_request_params)?;
-        if !r.predefined_acl.is_empty() || r.override_unlocked_retention {
-            return Err(unsupported(
-                "UpdateObject predefined_acl or override_unlocked_retention; omit both",
-            ));
+        if !r.predefined_acl.is_empty() {
+            return Err(unsupported("UpdateObject predefined_acl; omit predefined_acl"));
         }
+        let retention_override = if r.override_unlocked_retention {
+            crate::object::retention::UnlockedOverride::Requested
+        } else {
+            crate::object::retention::UnlockedOverride::NotRequested
+        };
         let o = r.object.ok_or_else(|| {
             Status::invalid_argument("object is required; supply object.bucket and object.name")
         })?;
@@ -894,13 +919,23 @@ impl Storage {
                 Some(c.if_metageneration_match.unwrap_or(current.metageneration));
             c.if_generation_match = Some(c.if_generation_match.unwrap_or(current.generation));
         }
-        // The mutation parser also accepts `acl`, which only the `acl` path writes.
-        let parsed = json::parse_object_metadata_mutation(
+        // The mutation parser also accepts `acl` and `retention`, which only their own paths
+        // write; retention changes then need the same extra permissions as JSON.
+        let mut parsed = json::parse_object_metadata_mutation(
             body.to_string().as_bytes(),
             json::WriteMode::Patch,
         )
         .map_err(error)?;
         parsed.update.validate().map_err(error)?;
+        crate::server::authorize_retention_update(
+            &self.state,
+            &access,
+            bucket,
+            &mut parsed.update,
+            retention_override,
+        )
+        .await
+        .map_err(|e| access_error(e, caller))?;
         let record = self
             .state
             .catalog
@@ -1192,6 +1227,15 @@ mod tests {
     }
 
     async fn upload(storage: &Storage, name: &str, length: usize) -> crate::object::ObjectRecord {
+        upload_to(storage, "update-copy-bucket", name, length).await
+    }
+
+    async fn upload_to(
+        storage: &Storage,
+        bucket: &str,
+        name: &str,
+        length: usize,
+    ) -> crate::object::ObjectRecord {
         let (tx, rx) = tokio::sync::mpsc::channel(2);
         tx.send(Ok(UploadChunk::Data(bytes::Bytes::from(vec![42; length]))))
             .await
@@ -1202,7 +1246,7 @@ mod tests {
             .state
             .catalog
             .put_object(
-                "update-copy-bucket",
+                bucket,
                 name,
                 "text/plain".into(),
                 Default::default(),
@@ -1254,7 +1298,7 @@ mod tests {
                 Code::Unimplemented
             );
         }
-        for path in ["*", "acl.entity", "owner", "contexts.custom", "retention"] {
+        for path in ["*", "acl.entity", "owner", "contexts.custom", "retention.mode"] {
             assert_eq!(
                 object_patch(&pb::Object::default(), &[path.into()])
                     .unwrap_err()
@@ -1447,6 +1491,208 @@ mod tests {
         let i = b.iam_config.unwrap();
         assert_eq!(i.public_access_prevention, "inherited");
         assert!(i.uniform_bucket_level_access.unwrap().enabled);
+        s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_update_object_retention() {
+        let (s, _dir) = setup().await;
+        let mut record = json::parse_insert(
+            br#"{"name":"retention-objects"}"#,
+            "local-project",
+            s.state.clock.now(),
+        )
+        .unwrap();
+        record.object_retention_enabled = true;
+        s.state.catalog.insert_bucket(record).await.unwrap();
+        upload_to(&s, "retention-objects", "kept", 3).await;
+        upload(&s, "plain", 3).await;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let request = |bucket: &str, name: &str, seconds: Option<i64>, force: bool| {
+            pb::UpdateObjectRequest {
+                object: Some(pb::Object {
+                    bucket: format!("projects/_/buckets/{bucket}"),
+                    name: name.into(),
+                    retention: seconds.map(|seconds| pb::object::Retention {
+                        mode: pb::object::retention::Mode::Unlocked as i32,
+                        retain_until_time: Some(prost_types::Timestamp {
+                            seconds: now + seconds,
+                            nanos: 0,
+                        }),
+                    }),
+                    ..Default::default()
+                }),
+                update_mask: update_mask(&["retention"]),
+                override_unlocked_retention: force,
+                ..Default::default()
+            }
+        };
+        assert_eq!(
+            s.update_object(Request::new(request("update-copy-bucket", "plain", Some(3600), false)), None)
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        let object = s
+            .update_object(
+                Request::new(request("retention-objects", "kept", Some(3600), false)),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        let retention = object.retention.unwrap();
+        assert_eq!(retention.mode, pb::object::retention::Mode::Unlocked as i32);
+        for invalid in [
+            pb::object::retention::Mode::Unspecified as i32,
+            pb::object::retention::Mode::Unlocked as i32,
+        ] {
+            let mut bad = request("retention-objects", "kept", Some(7200), true);
+            let retention = bad.object.as_mut().unwrap().retention.as_mut().unwrap();
+            retention.mode = invalid;
+            if invalid != pb::object::retention::Mode::Unspecified as i32 {
+                retention.retain_until_time = None;
+            }
+            assert_eq!(
+                s.update_object(Request::new(bad), None)
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument
+            );
+        }
+        assert_eq!(retention.retain_until_time.unwrap().seconds, now + 3600);
+        assert!(
+            s.delete_object(
+                Request::new(pb::DeleteObjectRequest {
+                    bucket: "projects/_/buckets/retention-objects".into(),
+                    object: "kept".into(),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .is_err()
+        );
+        // Shortening an Unlocked configuration requires the override, as in JSON.
+        assert!(
+            s.update_object(
+                Request::new(request("retention-objects", "kept", Some(60), false)),
+                None
+            )
+            .await
+            .is_err()
+        );
+        let current = s
+            .state
+            .catalog
+            .get_object("retention-objects", "kept", None, ObjectConditions::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            convert::object(&current).unwrap().retention.unwrap().retain_until_time.unwrap().seconds,
+            now + 3600
+        );
+        let shortened = s
+            .update_object(
+                Request::new(request("retention-objects", "kept", Some(60), true)),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            shortened.retention.unwrap().retain_until_time.unwrap().seconds,
+            now + 60
+        );
+        let removed = s
+            .update_object(
+                Request::new(request("retention-objects", "kept", None, true)),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(removed.retention.is_none());
+        s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_update_object_retention_strict() {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let mut record = json::parse_insert(
+            br#"{"name":"update-copy-bucket"}"#,
+            "p",
+            std::time::SystemTime::now(),
+        )
+        .unwrap();
+        record.object_retention_enabled = true;
+        catalog.insert_bucket(record).await.unwrap();
+        let s = Storage {
+            state: Arc::new(State {
+                catalog,
+                ready: AtomicBool::new(true),
+                clock: Arc::new(SystemClock),
+                api_base_url: "http://localhost:4443".into(),
+                default_location: "US".into(),
+                auth: Auth::strict(crate::auth::Registry::parse(br#"{"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"p":["roles/storage.objectAdmin"]}},{"id":"user@example.invalid","tokens":["user"],"project_roles":{"p":["roles/storage.objectUser"]}}]}"#).unwrap()),
+            }),
+            max_object_bytes: 1024,
+        };
+        upload(&s, "object", 3).await;
+        let caller = |token: &str| {
+            let mut metadata = Request::new(());
+            metadata
+                .metadata_mut()
+                .insert("authorization", format!("Bearer {token}").parse().unwrap());
+            s.authenticate(&metadata).unwrap()
+        };
+        let until = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            + 3600;
+        let request = pb::UpdateObjectRequest {
+            object: Some(pb::Object {
+                bucket: "projects/_/buckets/update-copy-bucket".into(),
+                name: "object".into(),
+                retention: Some(pb::object::Retention {
+                    mode: pb::object::retention::Mode::Unlocked as i32,
+                    retain_until_time: Some(prost_types::Timestamp {
+                        seconds: until,
+                        nanos: 0,
+                    }),
+                }),
+                ..Default::default()
+            }),
+            update_mask: update_mask(&["retention"]),
+            ..Default::default()
+        };
+        // objectUser may update objects but not set retention.
+        assert_eq!(
+            s.update_object(Request::new(request.clone()), caller("user"))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::PermissionDenied
+        );
+        assert!(
+            s.state
+                .catalog
+                .get_object("update-copy-bucket", "object", None, ObjectConditions::default())
+                .await
+                .unwrap()
+                .retention
+                .is_none()
+        );
+        s.update_object(Request::new(request), caller("admin"))
+            .await
+            .unwrap();
         s.state.catalog.close().await.unwrap();
     }
 
