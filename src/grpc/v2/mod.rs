@@ -37,6 +37,41 @@ pub(crate) fn service(
     .max_encoding_message_size(4 * 1024 * 1024)
 }
 
+/// The Storage v2 method that serves a Storage Control bucket IAM call.
+///
+/// The Rust SDK sends bucket IAM calls only to `google.storage.control.v2.StorageControl`.
+/// Both services declare these methods with the same `google.iam.v1` request and response
+/// messages, so the Storage v2 handlers, with their shared policy store and authorization,
+/// serve both services without a second protobuf closure.
+fn control_iam_path(path: &str) -> Option<&'static str> {
+    match path.strip_prefix("/google.storage.control.v2.StorageControl/")? {
+        "GetIamPolicy" => Some("/google.storage.v2.Storage/GetIamPolicy"),
+        "SetIamPolicy" => Some("/google.storage.v2.Storage/SetIamPolicy"),
+        "TestIamPermissions" => Some("/google.storage.v2.Storage/TestIamPermissions"),
+        _ => None,
+    }
+}
+
+/// Serves a request outside the legacy v1 service, rejecting methods without a handler.
+pub(crate) async fn dispatch(
+    mut service: pb::storage_server::StorageServer<Storage>,
+    mut request: hyper::Request<tonic::body::Body>,
+) -> Result<hyper::Response<tonic::body::Body>, std::convert::Infallible> {
+    use tonic::codegen::Service;
+    if let Some(path) = control_iam_path(request.uri().path()) {
+        let mut parts = request.uri().clone().into_parts();
+        parts.path_and_query = Some(hyper::http::uri::PathAndQuery::from_static(path));
+        match hyper::Uri::from_parts(parts) {
+            Ok(uri) => *request.uri_mut() = uri,
+            Err(_) => return Ok(Status::internal("Cannot route the IAM request").into_http()),
+        }
+    }
+    if !known_method(request.uri().path()) {
+        return Ok(status::unsupported("unknown service or method").into_http());
+    }
+    service.call(request).await
+}
+
 pub(crate) fn known_method(path: &str) -> bool {
     path.strip_prefix("/google.storage.v2.Storage/")
         .is_some_and(|method| {

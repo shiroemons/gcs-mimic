@@ -64,7 +64,7 @@ pub(crate) async fn serve_connection(
         stopping,
         STREAM_INACTIVITY_TIMEOUT,
         move |request| {
-            let mut service = service.clone();
+            let service = service.clone();
             let mut legacy = legacy.clone();
             async move {
                 if request
@@ -80,10 +80,7 @@ pub(crate) async fn serve_connection(
                     }
                     return legacy.call(request).await;
                 }
-                if !v2::known_method(request.uri().path()) {
-                    return Ok(v2::status::unsupported("unknown service or method").into_http());
-                }
-                service.call(request).await
+                v2::dispatch(service, request).await
             }
         },
     )

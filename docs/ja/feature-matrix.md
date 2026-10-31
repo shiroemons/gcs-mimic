@@ -14,7 +14,7 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 208 | 0 | 101 | 1 | 0 | 0 |
+| api_operation | 310 | 205 | 0 | 104 | 1 | 0 | 0 |
 | behavior | 201 | 91 | 0 | 71 | 39 | 0 | 0 |
 | project_requirement | 95 | 26 | 0 | 40 | 29 | 0 | 0 |
 
@@ -35,7 +35,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 208 | 46 | 38 | 18 | 0 | 0 |
+| api_operation | 205 | 48 | 39 | 18 | 0 | 0 |
 | behavior | 92 | 67 | 38 | 4 | 0 | 0 |
 | project_requirement | 26 | 0 | 0 | 0 | 0 | 69 |
 
@@ -306,9 +306,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-CTRL-028 | Rapid Cache無効化 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | EXT-CTRL-029 | Rapid Cache取得 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | EXT-CTRL-030 | Rapid Cache一覧 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-031 | IAMポリシー取得 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-032 | IAMポリシー設定 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-033 | IAM権限テスト | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-031 | IAMポリシー取得 | PARTIAL | P5 | EXACT | EXACT | 0 |
+| EXT-CTRL-032 | IAMポリシー設定 | PARTIAL | P5 | EXACT | EXACT | 0 |
+| EXT-CTRL-033 | IAM権限テスト | PARTIAL | P5 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-CTRL-034 | Intelligence検出事項取得 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
 | EXT-CTRL-035 | Intelligence検出事項一覧 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
 | EXT-CTRL-036 | Intelligence検出事項集計 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |

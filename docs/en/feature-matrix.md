@@ -14,7 +14,7 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 208 | 0 | 101 | 1 | 0 | 0 |
+| api_operation | 310 | 205 | 0 | 104 | 1 | 0 | 0 |
 | behavior | 201 | 91 | 0 | 71 | 39 | 0 | 0 |
 | project_requirement | 95 | 26 | 0 | 40 | 29 | 0 | 0 |
 
@@ -35,7 +35,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 208 | 46 | 38 | 18 | 0 | 0 |
+| api_operation | 205 | 48 | 39 | 18 | 0 | 0 |
 | behavior | 92 | 67 | 38 | 4 | 0 | 0 |
 | project_requirement | 26 | 0 | 0 | 0 | 0 | 69 |
 
@@ -306,9 +306,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-CTRL-028 | DisableRapidCache | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | EXT-CTRL-029 | GetRapidCache | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | EXT-CTRL-030 | ListRapidCaches | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-CTRL-031 | GetIamPolicy | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-032 | SetIamPolicy | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| EXT-CTRL-033 | TestIamPermissions | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| EXT-CTRL-031 | GetIamPolicy | PARTIAL | P5 | EXACT | EXACT | 0 |
+| EXT-CTRL-032 | SetIamPolicy | PARTIAL | P5 | EXACT | EXACT | 0 |
+| EXT-CTRL-033 | TestIamPermissions | PARTIAL | P5 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-CTRL-034 | GetIntelligenceFinding | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
 | EXT-CTRL-035 | ListIntelligenceFindings | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
 | EXT-CTRL-036 | SummarizeIntelligenceFindings | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |

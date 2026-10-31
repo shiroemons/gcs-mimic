@@ -69,6 +69,22 @@ fn common(params: &Option<pb::CommonObjectRequestParams>) -> Result<(), Status> 
     Ok(())
 }
 
+/// The bucket of an IAM resource. Managed folders and objects are valid IAM resources
+/// without a local policy store, so they are unsupported rather than malformed.
+fn iam_bucket(resource: &str) -> Result<&str, Status> {
+    if let Some((bucket, child)) = resource
+        .strip_prefix("projects/_/buckets/")
+        .and_then(|rest| rest.split_once('/'))
+        && (child.starts_with("managedFolders/") || child.starts_with("objects/"))
+    {
+        names::bucket_name(&format!("projects/_/buckets/{bucket}"))?;
+        return Err(unsupported(
+            "managed folder and object IAM policies; use a bucket resource such as projects/_/buckets/example-bucket",
+        ));
+    }
+    names::bucket_name(resource)
+}
+
 fn policy(policy: auth::Policy) -> Result<iam::Policy, Status> {
     Ok(iam::Policy {
         version: 1,
@@ -647,7 +663,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<iam::Policy>, Status> {
         let r = request.into_inner();
-        let bucket = names::bucket_name(&r.resource)?;
+        let bucket = iam_bucket(&r.resource)?;
         if r.options
             .is_some_and(|o| !matches!(o.requested_policy_version, 0 | 1 | 3))
         {
@@ -672,7 +688,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<iam::Policy>, Status> {
         let r = request.into_inner();
-        let bucket = names::bucket_name(&r.resource)?;
+        let bucket = iam_bucket(&r.resource)?;
         if let Some(mask) = r.update_mask
             && !mask.paths.is_empty()
             && !(mask.paths.len() == 2
@@ -720,7 +736,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<iam::TestIamPermissionsResponse>, Status> {
         let r = request.into_inner();
-        let bucket = names::bucket_name(&r.resource)?;
+        let bucket = iam_bucket(&r.resource)?;
         let query = r
             .permissions
             .iter()

@@ -33,3 +33,21 @@ A lifecycle configured through JSON was missing from GetBucket: only UpdateBucke
 The remaining `pb::Bucket` fields are either covered by other changes in this slice (`acl`, `default_object_acl`, `owner`) or not modeled by the bucket record (`rpo`, `website`, `logging`, `encryption`, `billing`, `custom_placement_config`, `hierarchical_namespace`, `ip_filter`, `satisfies_pzs`); they stay empty and their read-mask paths remain UNIMPLEMENTED.
 
 Test: `grpc_buckets_expose_json_lifecycle_etag_and_object_retention` failed on the previous source (no lifecycle in GetBucket) and passes after the change.
+
+## Bucket IAM through Storage Control
+
+The Rust SDK sends bucket IAM calls only to `google.storage.control.v2.StorageControl/{GetIamPolicy,SetIamPolicy,TestIamPermissions}`, which returned UNIMPLEMENTED ("unknown service or method"). The [pinned Storage Control proto](https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/control/v2/storage_control.proto) (SHA-256 `9a054e7de962aa895130fe18d4a25dd79486fb2d418ba295a785ddd85c9be735`, retrieved 2026-10-31) declares these methods with the same `google.iam.v1` request and response messages as Storage v2. The dispatcher therefore serves the three Storage Control paths with the existing Storage v2 handlers; no Storage Control protobuf closure is generated and every other Storage Control method stays UNIMPLEMENTED.
+
+| Case | Required behavior |
+| --- | --- |
+| control_bucket_iam_get | GetIamPolicy on `projects/_/buckets/<bucket>` reads the shared policy store and returns its opaque ETag. |
+| control_bucket_iam_set | SetIamPolicy with the current ETag replaces the bindings and returns a new ETag; GetIamPolicy then returns the written policy. |
+| control_bucket_iam_stale_etag | SetIamPolicy with a stale ETag returns FAILED_PRECONDITION and leaves the policy unchanged. |
+| control_bucket_iam_test | TestIamPermissions returns exactly the requested permissions that the caller holds. |
+| control_bucket_iam_strict | Strict profile: no credentials return UNAUTHENTICATED; a registered caller without `storage.buckets.getIamPolicy`/`setIamPolicy` receives PERMISSION_DENIED; TestIamPermissions returns an empty list for that caller. |
+| control_child_resource_iam | Managed-folder and object resources are valid IAM resources without a local policy store and return UNIMPLEMENTED with ErrorInfo on both services, not INVALID_ARGUMENT. |
+| control_other_methods | Other Storage Control methods remain UNIMPLEMENTED. |
+
+Cloud Storage returned HTTP 412 for a stale `setIamPolicy` ETag over JSON (observed 2026-10-31). The gRPC status was not observed. The emulator keeps its shared mapping of HTTP 412 to FAILED_PRECONDITION, which Storage v2 already uses for generation and metageneration precondition failures; the generic `google.rpc.Code` guidance would also allow ABORTED for a concurrency conflict, so the exact provider status remains an open question.
+
+Test: `grpc_storage_control_bucket_iam` sends encoded calls through the same dispatch function as a connection. With the Storage Control paths disabled, its first call failed with UNIMPLEMENTED; it passes after the change.
