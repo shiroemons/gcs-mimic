@@ -90,7 +90,8 @@ pub(crate) fn downgrade_observation_schema(connection: &rusqlite::Connection) {
         .unwrap();
 }
 
-/// Restores the schema 44 layout, which predates bucket generations and soft-deleted buckets.
+/// Drops the schema 47 sub-microsecond column when present; it must go before the retention
+/// columns that its `CHECK` names.
 pub(crate) fn drop_sub_micro_column(connection: &rusqlite::Connection) {
     let present: bool = connection
         .query_row(
@@ -106,6 +107,8 @@ pub(crate) fn drop_sub_micro_column(connection: &rusqlite::Connection) {
     }
 }
 
+/// Restores the schema 44 layout, which predates bucket generations and soft-deleted buckets.
+/// It also drops the schema 47 column, so every older layout can be rebuilt from the latest one.
 pub(crate) fn downgrade_bucket_generation_schema(connection: &rusqlite::Connection) {
     drop_sub_micro_column(connection);
     connection

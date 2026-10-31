@@ -330,6 +330,9 @@ async fn write(
         json::PredefinedAclTarget::Bucket,
     )?;
     let conditions = params.conditions;
+    let match_failed = conditions
+        .if_metageneration_match
+        .is_some_and(|value| value != record.metageneration);
     // Observed on Cloud Storage: a PATCH without a writable setting answers 304 (no body) when
     // ifMetagenerationNotMatch names the current value, after ifMetagenerationMatch held.
     if matches!(mode, WriteMode::Patch)
@@ -375,10 +378,13 @@ async fn write(
         let failed = matches!(error, CatalogError::PreconditionFailed);
         let mut error = bucket_catalog_error(error, profile, None);
         if failed && profile == CompatProfile::Native {
-            // Cloud Storage worded and located a failed metageneration query precondition
-            // this way for PATCH (observed 2026-10-31); PUT shares the path.
+            // Observed 2026-10-31 for an empty PATCH whose ifMetagenerationMatch failed. The
+            // wording is reused for a failed ifMetagenerationNotMatch and for PUT (both
+            // unobserved), but `If-Match` is named only when ifMetagenerationMatch failed.
             error.message = "At least one of the pre-conditions you specified did not hold.".into();
-            error.location = Some(&crate::json::IF_MATCH_HEADER);
+            if match_failed {
+                error.location = Some(&crate::json::IF_MATCH_HEADER);
+            }
         }
         error
     })?;
