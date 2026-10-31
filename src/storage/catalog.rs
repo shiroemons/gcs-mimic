@@ -2009,6 +2009,11 @@ fn bucket_metadata_charge(row: &Row<'_>) -> Result<usize, CatalogError> {
     Ok(charge)
 }
 
+/// Largest creation-time seed for a bucket generation (year 2255 in nanoseconds). A time past
+/// 2262 would saturate at `i64::MAX`, leaving no room for `last + 1` and failing every later
+/// bucket with "generation exhausted"; the cap keeps about 2e17 allocations of headroom.
+const MAX_GENERATION_SEED: i64 = 9_000_000_000_000_000_000;
+
 fn insert_bucket_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
     record: &mut BucketRecord,
@@ -2027,8 +2032,9 @@ fn insert_bucket_in_transaction(
     crate::bucket::lifecycle::validate_location(&record.lifecycle, &record.location_type)?;
     let created = unix_micros(record.time_created)?;
     // Times outside the nanosecond i64 range (before 1677) fall back to the microsecond value.
-    let created_nanos =
-        unix_timestamp(record.time_created, 1).unwrap_or_else(|_| created.saturating_mul(1000));
+    let created_nanos = unix_timestamp(record.time_created, 1)
+        .unwrap_or_else(|_| created.saturating_mul(1000))
+        .min(MAX_GENERATION_SEED);
     let updated = unix_micros(record.updated)?;
     record.time_created = system_time_micros(created).map_err(unavailable)?;
     record.updated = system_time_micros(updated).map_err(unavailable)?;

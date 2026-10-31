@@ -915,6 +915,28 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
 }
 
 #[tokio::test]
+async fn bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    // Year 3000 is a valid RFC 3339 time but past 2262, where nanoseconds overflow an i64.
+    let far_future = UNIX_EPOCH + Duration::from_secs(32_503_680_000);
+    let mut previous = 0;
+    for name in ["far-a", "far-b", "far-c"] {
+        let mut record = bucket(name, "project");
+        record.time_created = far_future;
+        record.updated = far_future;
+        let created = catalog.insert_bucket(record).await.unwrap();
+        assert!(created.generation > previous, "{name}");
+        // Headroom must remain for every later bucket.
+        assert!(
+            created.generation < i64::MAX - 1_000_000_000_000_000,
+            "{name}"
+        );
+        previous = created.generation;
+    }
+}
+
+#[tokio::test]
 async fn create_get_delete_and_restart_preserve_every_field() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
