@@ -1532,6 +1532,23 @@ impl Catalog {
         .await
     }
 
+    /// Whether the bucket stores any CORS rule, without decoding the bucket row. A missing bucket
+    /// has none. Every XML object request asks this to decide `Vary`, so it must stay cheap.
+    pub(crate) async fn bucket_has_cors(&self, name: &str) -> Result<bool, CatalogError> {
+        let name = name.to_owned();
+        self.run(move |connection| {
+            let stored = connection
+                .prepare_cached("SELECT cors FROM buckets WHERE name = ?1")
+                .and_then(|mut statement| {
+                    statement.query_row([name], |row| row.get::<_, String>(0))
+                })
+                .optional()
+                .map_err(unavailable)?;
+            Ok(stored.is_some_and(|cors| cors != "[]"))
+        })
+        .await
+    }
+
     /// Returns at most `limit` rows within the expanded metadata budget (or one large row).
     /// Use `list_buckets_page` when a continuation indicator is needed.
     #[cfg(test)]

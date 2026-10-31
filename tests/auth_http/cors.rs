@@ -494,3 +494,42 @@ fn unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback() {
             .contains("GCS_MIMIC_CORS_FALLBACK=allow-all")
     );
 }
+
+/// The XML CORS wrapper runs before authentication, so a bucket row it cannot decode must
+/// not turn an unauthenticated or unauthorized request into a 503 ahead of the 401/403.
+#[test]
+fn xml_cors_lookup_failure_does_not_precede_authentication() {
+    let (_config, data, server) = iam::fixture();
+    let object = "/iam-bucket/item";
+    server.upload(ADMIN, "iam-bucket", "item", b"hello").ok();
+    let database = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+    database.busy_timeout(Duration::from_secs(5)).unwrap();
+    database
+        .execute(
+            "UPDATE buckets SET cors = 'not json' WHERE name = 'iam-bucket'",
+            [],
+        )
+        .unwrap();
+    for (auth, status) in [("", 401), (NO_ROLES, 403)] {
+        for method in ["GET", "HEAD"] {
+            let reply = cors_request(&server, method, object, auth, b"");
+            assert_eq!(reply.status, status, "{method} with Origin");
+            // No usable rules, so no CORS access is granted.
+            assert!(!reply.headers.contains_key("access-control-allow-origin"));
+            let reply = server.request(method, object, auth, b"");
+            assert_eq!(reply.status, status, "{method} without Origin");
+        }
+    }
+    let preflight = server.request(
+        "OPTIONS",
+        object,
+        &format!("Origin: {ORIGIN}\r\nAccess-Control-Request-Method: GET\r\n"),
+        b"",
+    );
+    assert_ne!(preflight.status, 503);
+    assert!(
+        !preflight
+            .headers
+            .contains_key("access-control-allow-origin")
+    );
+}

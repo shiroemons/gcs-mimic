@@ -54345,6 +54345,12 @@
             "xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
             "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback"
           ]
+        },
+        {
+          "id": "DESIGN-100-LOOKUP",
+          "description": "The XML CORS wrapper reads the full bucket only for a request with an Origin; other requests ask only whether the bucket stores any rule, and skip the read when the fallback already implies Vary: Origin. A lookup failure counts as no rules and logs cors_lookup_failed, so an unauthenticated or unauthorized request gets its 401/403 instead of a 503 ahead of authentication; the routed handler still reports a real catalog failure after authorizing. Without rules no CORS access is granted.",
+          "result": "PASS",
+          "test_ids": ["xml_cors_lookup_failure_does_not_precede_authentication"]
         }
       ],
       "test_ids": [
@@ -54355,7 +54361,8 @@
         "xml::cors::tests::allow_all_fallback_allows_any_valid_origin_and_header_only_without_bucket_rules",
         "allow_all_fallback_covers_unconfigured_xml_buckets_without_overriding_rules_or_json",
         "xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
-        "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback"
+        "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback",
+        "xml_cors_lookup_failure_does_not_precede_authentication"
       ],
       "verification": [
         {
@@ -54373,6 +54380,13 @@
             "xml::cors::tests::unconfigured_warning_is_once_per_bucket_and_bounded",
             "unconfigured_xml_cors_warns_once_per_bucket_without_the_fallback"
           ]
+        },
+        {
+          "command": "cargo test --locked --test auth_http cors",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/cors-fallback.md",
+          "test_ids": ["xml_cors_lookup_failure_does_not_precede_authentication"]
         }
       ],
       "sdk_evidence": [],

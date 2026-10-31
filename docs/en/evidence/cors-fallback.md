@@ -41,3 +41,17 @@ cargo xtask compatibility check
 
 Existing XML, signed and virtual-host CORS tests passed unchanged with the
 default `none`.
+
+## Lookup before authentication (2026-10-31)
+
+The XML CORS wrapper runs before authentication. It now reads the full bucket
+only for a request with an `Origin`. Other requests ask only whether the bucket
+stores any rule, and skip even that when the fallback already implies
+`Vary: Origin`. A failed lookup counts as no rules and logs
+`cors_lookup_failed`, so an unauthenticated or unauthorized request receives
+its 401 or 403 instead of a 503; the routed handler still reports a real
+catalog failure after authorizing, and no CORS access is granted without rules.
+
+| Test | Behavior |
+| --- | --- |
+| `xml_cors_lookup_failure_does_not_precede_authentication` | A bucket row whose CORS column cannot be decoded: anonymous and role-less GET/HEAD, with and without `Origin`, answer 401/403 without CORS fields, and a preflight is not 503 |
