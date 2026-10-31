@@ -411,11 +411,12 @@ fn xml_ranges_generation_and_preconditions_use_one_live_generation() {
     }
     let reply = server.get("Range: bytes=11-\r\n", OBJECT);
     xml_error(&reply, 416, "InvalidRange");
-    assert_eq!(reply.headers["content-range"], "bytes */11");
+    // The XML 416 carries the object headers but no content-range (observed 2026-10-31).
+    assert!(!reply.headers.contains_key("content-range"));
     let head = server.request("HEAD", OBJECT, "Range: bytes=11-\r\n", b"");
     assert_eq!(head.status, 416);
     assert!(head.body.is_empty());
-    assert_eq!(head.headers["content-range"], "bytes */11");
+    assert!(!head.headers.contains_key("content-range"));
     assert_eq!(
         server.get("Range: bytes=1-0\r\n", OBJECT).ok().body,
         b"hello world"
