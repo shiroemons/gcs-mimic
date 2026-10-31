@@ -486,8 +486,8 @@ async fn metadata_payload_filters_and_deleted_configuration_use_transaction_time
     );
     let mut expected =
         crate::json::object_resource(&changed, "", crate::json::Projection::NoAcl).unwrap();
-    expected.as_object_mut().unwrap().remove("selfLink");
-    expected.as_object_mut().unwrap().remove("mediaLink");
+    expected.as_object_mut().unwrap().shift_remove("selfLink");
+    expected.as_object_mut().unwrap().shift_remove("mediaLink");
     assert_eq!(
         messages[0]["data"],
         crate::json::base64(expected.to_string().as_bytes())
