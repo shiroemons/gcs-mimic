@@ -247,10 +247,21 @@ remaining automatic multi-origin design is SPEC-RSM-LOCATION.
 ## Bounded resources and catalog recovery
 
 Use the existing disk-backed catalog/blob mechanism, not a process-only map.
-The planned local session cap is **128 retained sessions**, including active,
-completed and invalid terminal records before their deadline. Admission is an
-atomic count/insert with immediate **503 backendError** when full; rejected
-initiation creates no files or object. The HTTP `max_connections` setting is
+The local session cap is **128 active sessions**, the only records that own
+staged bytes. Completed and cancelled records do not count against it: they are
+kept so status queries and repeated final requests receive the original
+outcome, and initiation trims them oldest-first (by initiation time) to the
+**128 most recent** in the same transaction. A cancelled record whose cleanup
+journal entry remains is not trimmed, because maintenance still needs it; if no
+terminal record can be trimmed, initiation fails like a full active table. The
+catalog therefore never holds more than 256 sessions. A record trimmed before
+its seven-day deadline answers **404** like an unknown session: the emulator
+keeps no tombstone for it, and 404 is the documented answer for a session URI
+that no longer exists after expiry. The provider keeps answering a completed
+session for the whole week, so this is a deliberate local bound that affects
+only sessions beyond the 128 most recent. Admission is an atomic count/insert
+with immediate **503 backendError** when full; rejected initiation creates no
+files or object. The HTTP `max_connections` setting is
 the only API upload concurrency limit; catalog work uses 32 admission slots
 and one executing SQLite job. Upload ownership lasts through cleanup.
 One session has at most one active writer, with no
@@ -318,7 +329,7 @@ not additional independent features.
 | BEHAVIOR-OBJECT-010 | RSM-INIT-002 | positive/boundary | Query/path name precedence and encoded Unicode/slash/percent names; fixed/custom metadata and content type survive finalization |
 | BEHAVIOR-OBJECT-010 | RSM-INIT-003 | negative/boundary | Malformed/duplicate fields, metadata/custom cap and known oversized/overflow total fail without session/file mutation |
 | BEHAVIOR-OBJECT-010 | RSM-INIT-004 | permission | Strict anonymous/invalid/insufficient permission denial; creator can initiate new object but cannot overwrite; no body staging on rejection |
-| BEHAVIOR-OBJECT-010 | RSM-INIT-005 | resource/concurrency | 128 retained session cap enforced atomically, next initiation 503; rejected initiation leaks no bytes/permits |
+| BEHAVIOR-OBJECT-010 | RSM-INIT-005 | resource/concurrency | 128 active session cap enforced atomically, next initiation 503; rejected initiation leaks no bytes/permits; completed/cancelled records are trimmed to the 128 most recent and never block initiation |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-001 | positive/boundary | PUT sequential 256 KiB-multiple chunks and smaller last chunk produce exact binary bytes and whole hashes |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-002 | positive/boundary | Unknown total uses bytes start-end/*, learns total only consistently and completes with numeric final total |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-003 | positive/boundary | Single no-range upload, empty object and exact-multiple empty final request finish correctly |

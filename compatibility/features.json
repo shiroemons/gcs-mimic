@@ -26969,7 +26969,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "All five initiation cases pass for the frozen JSON upload path, bounded metadata/length validation, encoded names, strict local create/overwrite permissions, 128 retained sessions and configured absolute Location. One nonempty initiation retry token is accepted without ifGenerationMatch; another initiation creates a distinct bounded session, with no replay. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-DISCOVERY-PATH/EDGES/AUTH-CONDITIONS retain provider alias, precedence/error and permission-timing questions outside this declared local subset; full objects.insert parity remains on JSON-OBJECTS-007.",
+      "notes": "All five initiation cases pass for the frozen JSON upload path, bounded metadata/length validation, encoded names, strict local create/overwrite permissions, 128 active sessions plus the 128 most recent completed/cancelled records (trimmed oldest-first at initiation, so finished uploads never block new ones) and configured absolute Location. A record trimmed before its seven-day deadline answers 404 like an unknown session; this local bound replaces the provider's week-long 200/410 answer only for sessions beyond the 128 most recent. One nonempty initiation retry token is accepted without ifGenerationMatch; another initiation creates a distinct bounded session, with no replay. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-DISCOVERY-PATH/EDGES/AUTH-CONDITIONS retain provider alias, precedence/error and permission-timing questions outside this declared local subset; full objects.insert parity remains on JSON-OBJECTS-007.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -27013,11 +27013,14 @@
         },
         {
           "id": "RSM-INIT-005",
-          "description": "resource/concurrency: 128 retained session cap enforced atomically, next initiation 503; rejected initiation leaks no bytes/permits. Contract: docs/en/slices/resumable-upload.md.",
+          "description": "resource/concurrency: 128 active session cap enforced atomically, next initiation 503; rejected initiation leaks no bytes/permits. Completed/cancelled records do not count against it; initiation trims them oldest-first to 128 in the same transaction, keeps cancelled records awaiting cleanup (503 if none can be trimmed) and the catalog never exceeds 256 sessions. Retained completions keep answering status and final retries with the original resource. Contract: docs/en/slices/resumable-upload.md.",
           "result": "PASS",
           "test_ids": [
             "initiation_session_cap_and_status_prefix_are_bounded",
-            "retained_session_cap_is_atomic_and_rejection_creates_no_file"
+            "retained_session_cap_is_atomic_and_rejection_creates_no_file",
+            "completed_sessions_do_not_block_new_uploads_and_retained_results_stay_bounded",
+            "cancelled_sessions_awaiting_cleanup_are_kept_and_hold_the_terminal_cap",
+            "retained_completions_answer_status_and_final_retries_after_the_active_cap"
           ]
         }
       ],
@@ -27030,11 +27033,25 @@
         "initiation_checks_strict_create_and_overwrite_permissions_before_staging",
         "initiation_session_cap_and_status_prefix_are_bounded",
         "retained_session_cap_is_atomic_and_rejection_creates_no_file",
+        "completed_sessions_do_not_block_new_uploads_and_retained_results_stay_bounded",
+        "cancelled_sessions_awaiting_cleanup_are_kept_and_hold_the_terminal_cap",
+        "retained_completions_answer_status_and_final_retries_after_the_active_cap",
         "TestObjectResumableWriter",
         "TestStrictAuthResumableWriter",
         "TestStrictAuthResumableCreatorOverwriteRace"
       ],
       "verification": [
+        {
+          "command": "cargo test --lib terminal_retention; cargo test --lib resumable",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/resumable-upload.md",
+          "test_ids": [
+            "completed_sessions_do_not_block_new_uploads_and_retained_results_stay_bounded",
+            "cancelled_sessions_awaiting_cleanup_are_kept_and_hold_the_terminal_cap",
+            "retained_completions_answer_status_and_final_retries_after_the_active_cap"
+          ]
+        },
         {
           "command": "just check",
           "result": "PASS",

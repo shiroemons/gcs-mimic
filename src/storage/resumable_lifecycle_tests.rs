@@ -26,6 +26,8 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
+mod terminal_retention;
+
 struct TestClock(Mutex<SystemTime>);
 impl Clock for TestClock {
     fn now(&self) -> SystemTime {

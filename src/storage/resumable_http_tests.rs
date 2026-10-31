@@ -4,6 +4,7 @@ mod fault_injection;
 mod object_retention;
 mod retention;
 mod soft_delete;
+mod terminal_retention;
 mod upload_replay;
 use crate as gcs_mimic;
 use crate::test_support::TestDir;

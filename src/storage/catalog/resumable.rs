@@ -15,7 +15,13 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+/// Caps ACTIVE sessions, the only ones that own staged bytes.
 pub(crate) const MAX_SESSIONS: usize = 128;
+/// Caps COMPLETE and CANCELLED records kept after admission trims them. They exist so status
+/// queries and repeated final requests get the original outcome, which clients ask for soon
+/// after the transition; holding them against the active cap made every initiation fail for
+/// seven days once 128 uploads had finished.
+const MAX_TERMINAL_SESSIONS: i64 = 128;
 pub(crate) const SESSION_LIFETIME: Duration = Duration::from_secs(604800);
 pub(super) const SCHEMA: &str = "CREATE TABLE bucket_incarnations (
     bucket TEXT PRIMARY KEY COLLATE BINARY,
@@ -225,18 +231,76 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     reason = "catalog validation runs once at open"
 )]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let valid: bool = connection.query_row("SELECT NOT EXISTS(SELECT 1 FROM buckets LEFT JOIN bucket_incarnations ON name = bucket WHERE bucket IS NULL) AND NOT EXISTS(SELECT 1 FROM bucket_incarnations LEFT JOIN buckets ON bucket = name WHERE name IS NULL) AND (SELECT count(*) FROM resumable_sessions) <= 128", [], |r| r.get(0)).map_err(unavailable)?;
+    let valid: bool = connection.query_row("SELECT NOT EXISTS(SELECT 1 FROM buckets LEFT JOIN bucket_incarnations ON name = bucket WHERE bucket IS NULL) AND NOT EXISTS(SELECT 1 FROM bucket_incarnations LEFT JOIN buckets ON bucket = name WHERE name IS NULL) AND (SELECT count(*) FROM resumable_sessions WHERE state = 'ACTIVE') <= 128 AND (SELECT count(*) FROM resumable_sessions) <= 256", [], |r| r.get(0)).map_err(unavailable)?;
     if !valid {
         return Err(unavailable("invalid resumable catalog state"));
     }
+    // Admission keeps at most MAX_SESSIONS active plus MAX_TERMINAL_SESSIONS terminal rows.
     let mut statement = connection
-        .prepare_cached("SELECT * FROM resumable_sessions ORDER BY id LIMIT 129")
+        .prepare_cached("SELECT * FROM resumable_sessions ORDER BY id LIMIT 257")
         .map_err(unavailable)?;
     let mut rows = statement.query([]).map_err(unavailable)?;
     while let Some(row) = rows.next().map_err(unavailable)? {
         read_session(row).map_err(unavailable)?;
     }
     Ok(())
+}
+
+/// Checks the active cap and trims the oldest terminal records down to their own cap in the
+/// creating transaction, so the catalog never holds more than both caps together. The returned
+/// leases keep the trimmed sessions out of reach until the transaction ends.
+fn admit_session(
+    transaction: &rusqlite::Transaction<'_>,
+    catalog: &Catalog,
+) -> Result<Vec<WriterGuard>, CatalogError> {
+    let (active, terminal): (i64, i64) = transaction
+        .prepare_cached("SELECT coalesce(sum(state = 'ACTIVE'), 0), coalesce(sum(state != 'ACTIVE'), 0) FROM resumable_sessions")
+        .and_then(|mut statement| statement.query_row([], |r| Ok((r.get(0)?, r.get(1)?))))
+        .map_err(unavailable)?;
+    if active >= MAX_SESSIONS as i64 {
+        return Err(unavailable("retained upload session limit reached"));
+    }
+    let mut excess = terminal - MAX_TERMINAL_SESSIONS;
+    let mut trimmed = Vec::new();
+    if excess <= 0 {
+        return Ok(trimmed);
+    }
+    // A completed session owns no staging bytes and never its published blob, which object
+    // reclamation tracks. A cancelled one is reclaimable only after its cleanup journal entry
+    // is gone; until then maintenance still needs the row.
+    let candidates: Vec<(String, String, String)> = transaction
+        .prepare_cached("SELECT id, blob_id, state FROM resumable_sessions WHERE state = 'COMPLETE' OR (state = 'CANCELLED' AND NOT EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id = resumable_sessions.blob_id)) ORDER BY deadline, id LIMIT 256")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                .collect()
+        })
+        .map_err(unavailable)?;
+    for (id, blob_id, state) in candidates {
+        if excess <= 0 {
+            break;
+        }
+        // A request holding the session (such as a finalizer re-reading its outcome) keeps it.
+        let Ok(guard) = catalog.try_resumable_writer(&id) else {
+            continue;
+        };
+        if state == "COMPLETE"
+            && let Some(memory) = &catalog.0.memory
+        {
+            // Completion normally drops the RAM draft; this covers a failed drop.
+            memory.remove_draft(&blob_id).map_err(unavailable)?;
+        }
+        transaction
+            .prepare_cached("DELETE FROM resumable_sessions WHERE id = ?1")
+            .and_then(|mut statement| statement.execute([&id]))
+            .map_err(unavailable)?;
+        trimmed.push(guard);
+        excess -= 1;
+    }
+    if excess > 0 {
+        return Err(unavailable("retained upload session limit reached"));
+    }
+    Ok(trimmed)
 }
 
 impl Catalog {
@@ -257,8 +321,7 @@ impl Catalog {
             let (_,delete_permission)=super::objects::authorized_bucket(&transaction,&bucket,&options.access)?;
             let previous=super::objects::lookup(&transaction,&bucket,&name)?;
             super::objects::check_publication(previous.as_ref(),options.conditions,delete_permission,catalog.0.clock.now())?;
-            let count: i64 = transaction.prepare_cached("SELECT count(*) FROM resumable_sessions").and_then(|mut statement| statement.query_row([], |r| r.get(0))).map_err(unavailable)?;
-            if count >= MAX_SESSIONS as i64 { return Err(unavailable("retained upload session limit reached").into()); }
+            let _trimmed = admit_session(&transaction, &catalog)?;
             let incarnation: String = transaction.prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1").and_then(|mut statement| statement.query_row([&bucket], |r| r.get(0))).optional().map_err(unavailable)?.ok_or(ObjectError::BucketNotFound)?;
             let id = random_id::<32>()?;
             let blob = super::super::blob_id::BlobId::generate().map_err(unavailable)?;

@@ -426,9 +426,12 @@ deadlines and blob references; exclude session fields from ordinary object lists
 Validate schema and session invariants before readiness, rejecting future or
 corrupt schemas read-only. No body transfer may hold a SQL transaction.
 
-The admission cap is 128 retained sessions, including active, completed
-and invalid terminal records until their deadline. Count/insert must be atomic;
-a full table returns immediate 503 `backendError` without files or object changes.
+The admission cap is 128 active sessions. Completed and cancelled records do
+not count against it; initiation trims them oldest-first to the 128 most recent
+in the same transaction, keeping cancelled records whose cleanup is still
+journaled, so the catalog holds at most 256 sessions. Count/trim/insert must be
+atomic; a full table returns immediate 503 `backendError` without files or
+object changes.
 Share the HTTP connection limit with other uploads, 32 catalog admission slots
 and one executing SQLite job. Session creation, reads and checkpoints wait for
 catalog admission; finalization already waits for the execution slot. HTTP waits

@@ -85,7 +85,7 @@ explicitly pending in the ledger.
 | RSM-INIT-002 | PASS | `initiation_preserves_encoded_names_metadata_and_query_precedence`; `sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion` |
 | RSM-INIT-003 | PASS | `invalid_initiation_and_status_leave_no_session_or_file`; `sdk_initiation_accepts_one_retry_token_without_generation_conditions` |
 | RSM-INIT-004 | PASS | `initiation_checks_strict_create_and_overwrite_permissions_before_staging` |
-| RSM-INIT-005 | PASS | `initiation_session_cap_and_status_prefix_are_bounded`; `retained_session_cap_is_atomic_and_rejection_creates_no_file` |
+| RSM-INIT-005 | PASS | `initiation_session_cap_and_status_prefix_are_bounded`; `retained_session_cap_is_atomic_and_rejection_creates_no_file`; `completed_sessions_do_not_block_new_uploads_and_retained_results_stay_bounded`; `cancelled_sessions_awaiting_cleanup_are_kept_and_hold_the_terminal_cap`; `retained_completions_answer_status_and_final_retries_after_the_active_cap` |
 | RSM-CHUNK-001 | PASS | `sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion` |
 | RSM-CHUNK-002 | PASS | `unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix` |
 | RSM-CHUNK-003 | PASS | `single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite` |
@@ -157,7 +157,8 @@ layout conventions; no generator or completion policy was changed to silence it.
 
 ## Bounded resources and measured results
 
-Source/configuration bounds are 128 retained sessions, eight admitted body
+Source/configuration bounds are 128 active sessions plus the 128 most recent
+completed/cancelled records (see [Retained terminal sessions](#retained-terminal-sessions)), eight admitted body
 transfers, two copied 64 KiB channel frames per transfer, a 64 KiB hash-read
 buffer, 32 catalog admissions and one executing SQLite job. Session and blob
 IDs are opaque, object names never form disk paths, and transfers hold no SQL
@@ -198,6 +199,58 @@ trials. Disk is post-upload `du -sk`, including catalog/WAL/SHM, not a sampled
 high-water mark. p99 was not recorded. Linux cgroup memory, page-cache usage,
 memory pressure, and a 1 GiB transfer under a 128 MiB container limit were not
 measured. No equivalent-workload comparison or performance improvement is claimed.
+
+## Retained terminal sessions
+
+Recorded on 2026-10-31. Completed sessions used to count against the 128-session
+admission cap until their seven-day deadline, so 128 finished uploads made every
+later initiation on the same data directory return 503 for a week. The .NET SDK
+uploads every object through a resumable session, so ordinary local use reached
+the cap.
+
+A provider observation against a real bucket (project and bucket withheld)
+showed that after the final PUT returned 200 with the object resource, each of
+these requests also returned **200 with the same object resource**:
+
+| Request on the completed session URI | Provider status |
+| --- | --- |
+| Status query, `Content-Range: bytes */10` | 200, object resource |
+| Status query, `Content-Range: bytes */*` | 200, object resource |
+| Replay of the final PUT with its body | 200, object resource |
+
+That outcome is why completed records are kept at all. The admission cap now
+counts only ACTIVE sessions; initiation trims completed and cancelled records
+oldest-first to the 128 most recent, never trims a cancelled record whose
+cleanup is still journaled, and refuses with 503 when nothing can be trimmed.
+The catalog holds at most 256 sessions, which reopen validation enforces. A
+trimmed record answers 404 like an unknown session. The [concept guide](https://docs.cloud.google.com/storage/docs/resumable-uploads)
+gives 404 for a session URI after its one-week lifetime and 410 for a
+cancelled one within it; the [status codes](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes)
+page defines 404 as a resource that was not found. The emulator keeps no
+tombstone for a trimmed session, so it cannot tell one from a forged token.
+The provider keeps answering for the whole week; the local bound differs only
+for sessions beyond the 128 most recent.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --lib terminal_retention` before the fix | FAIL: the 129th initiation after 128 completions returned `retained upload session limit reached` |
+| `cargo test --lib terminal_retention` | PASS: 3 tests |
+| `cargo test --lib resumable` | PASS: 125 tests |
+| `cargo test --test object_http --test http_resumable_gzip --test memory_backend --test admin_http --test foundation` | PASS: 103 tests |
+| Official .NET SDK scorecard probe (`Google.Cloud.Storage.V1` 5.0.0, every upload resumable), three consecutive runs against one release-build server and data directory | No 503 in any run; each run reported the same 63 passing and 8 failing cases, none of them upload admission. The catalog then held 128 completed and 1 cancelled session |
+
+- `completed_sessions_do_not_block_new_uploads_and_retained_results_stay_bounded`:
+  130 completions, then 128 active sessions; only the oldest completion is
+  trimmed, recent ones keep their stored resource, the 129th active session is
+  refused, a cancellation frees an active slot, and 128 active plus 128 terminal
+  records reopen cleanly.
+- `cancelled_sessions_awaiting_cleanup_are_kept_and_hold_the_terminal_cap`:
+  129 cancellations with failed cleanup are all kept (410), and the next
+  initiation is refused instead of exceeding the bound.
+- `retained_completions_answer_status_and_final_retries_after_the_active_cap`:
+  over HTTP, after 130 completions the retained sessions answer `bytes */10`,
+  `bytes */*` and a replayed final PUT with 200 and the original resource; the
+  trimmed one answers 404.
 
 ## Docker digests
 
