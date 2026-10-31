@@ -62,9 +62,11 @@ pub(super) fn insert_transcoded_headers(headers: &mut HeaderMap) {
     );
 }
 
-/// A stored-gzip object served compressed would be gunzipped for a client that does not
-/// accept gzip, so caches must key the response on `Accept-Encoding`. Cloud Storage sends
-/// the field only on the compressed response (observed 2026-10-31).
+/// A stored-gzip object is either sent compressed or gunzipped depending on the client's
+/// `Accept-Encoding`, so caches must key its response on that field. The JSON API sends the
+/// field only on the compressed response and never on a gunzipped one; the XML API sends it
+/// on every representation, gunzipped included (both observed 2026-10-31). Callers decide
+/// which representations get it.
 pub(super) fn insert_negotiated_vary(headers: &mut HeaderMap) {
     headers.append("vary", HeaderValue::from_static("Accept-Encoding"));
 }
