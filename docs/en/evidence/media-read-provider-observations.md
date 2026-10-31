@@ -197,7 +197,7 @@ decompressed (the upload answered 200). Reads of that object:
 Local limits: only the leading magic bytes are checked, so a body that starts
 like gzip and breaks later still aborts mid-stream (as before). An empty
 object is not rejected. HEAD reads no bytes and is not checked; the provider's
-HEAD for such an object is covered below. Every gunzipped response carries a weak
+HEAD for such an object is covered in the next section. Every gunzipped response carries a weak
 ETag (`W/` plus the stored tag), which is now reproduced; the 400 pins these
 per-API fields:
 
@@ -207,6 +207,18 @@ per-API fields:
 | `pragma` | `no-cache` | absent |
 | `vary` | `Origin`, `X-Origin` (no `Accept-Encoding`) | `Accept-Encoding` |
 | `accept-ranges` | absent | absent |
+
+## HEAD of a plain body declared as gzip
+
+Observed **2026-10-31** with `Accept-Encoding: identity` on the object above.
+Both APIs answer **200** with no body: HEAD reads no stored bytes, so the
+mismatch that fails the GET is not seen. The headers are the gunzipped ones: both
+transformation fields, a weak ETag, the stored-object hashes and
+`x-goog-stored-content-encoding: gzip`, with no `content-length`. The JSON
+response adds `pragma: no-cache`, `content-disposition: attachment` and
+`vary: Origin`, `vary: X-Origin`; the XML response adds `vary: Accept-Encoding`.
+
+gcs-mimic answers the same (`gunzipping_a_plain_body_fails_400_before_the_headers_are_sent`).
 
 ## HEAD with `Range`
 

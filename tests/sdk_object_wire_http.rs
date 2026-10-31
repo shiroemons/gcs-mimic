@@ -562,6 +562,27 @@ fn gunzipping_a_plain_body_fails_400_before_the_headers_are_sent() {
             assert!(!reply.headers.contains_key("pragma"), "{path}");
         }
     }
+    // HEAD reads no bytes, so it cannot see the mismatch: 200 with the gunzipped headers and
+    // a weak tag (observed 2026-10-31).
+    for path in [
+        "/storage/v1/b/test-bucket/o/plain?alt=media",
+        "/test-bucket/plain",
+    ] {
+        let reply = server.request(
+            "HEAD",
+            path,
+            &format!("{ADMIN}Accept-Encoding: identity\r\n"),
+            b"",
+        );
+        assert_eq!(reply.status, 200, "{path}");
+        assert!(reply.body.is_empty(), "{path}");
+        assert_eq!(
+            reply.headers["x-guploader-response-body-transformations"], "gunzipped",
+            "{path}"
+        );
+        assert!(reply.headers["etag"].starts_with("W/"), "{path}");
+        assert!(!reply.headers.contains_key("content-length"), "{path}");
+    }
     for path in [
         "/storage/v1/b/test-bucket/o/plain?alt=media",
         "/test-bucket/plain",

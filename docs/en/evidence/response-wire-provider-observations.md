@@ -34,7 +34,7 @@ same encoding was already used for ACL entry etags.
 | --- | --- | --- |
 | JSON ETag encoding | Object and bucket tags use the recorded encoding in header and body; ACL entries, objects, buckets and gRPC messages share one encoder; XML keeps the quoted MD5 and quotes the JSON tag for composite and encrypted objects (that XML form is unrecorded) | `wire_parity_http::json_etags_encode_generation_and_metageneration_like_cloud_storage`, `json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links`, `json::tests::bkt_id_002_etag_encodes_only_the_metageneration` |
 | SDKs echo the unquoted tag | A bare or quoted `If-Match`/`If-None-Match` member names the same JSON tag; members with whitespace or stray quotes, and a wildcard inside a list, still return 400 | `http_conditions::tests::unquoted_json_validators_match_bare_and_quoted_members`, `etag::json_etag_read_syntax_and_missing_resources`, `metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validation` |
-| Recreated bucket | The tag encodes only the metageneration, so a recreated bucket at the same metageneration repeats it. This is inferred from the encoding; a repeat was not observed | `etag::json_etag_read_buckets_and_metadata_changes_in_both_profiles` |
+| Recreated bucket | The tag encodes only the metageneration, so a recreated bucket at the same metageneration repeats it. Observed 2026-10-31: deleting and recreating a bucket under the same name returned `CAE=` again (new generation, metageneration 1); a GET of the new incarnation with the old tag answered 200 for `If-Match` and 304 (no body) for `If-None-Match` | `etag::json_etag_read_buckets_and_metadata_changes_in_both_profiles` |
 
 ## Cache headers
 
