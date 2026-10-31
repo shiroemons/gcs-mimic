@@ -1,5 +1,8 @@
 use super::{ObjectActivity, ResponseBody, boxed};
-use crate::storage::ObjectReader;
+use crate::{
+    object::ObjectError,
+    storage::{ObjectReader, failure::object_unavailable},
+};
 use bytes::Bytes;
 use flate2::bufread::MultiGzDecoder;
 use http_body_util::{BodyExt, Full};
@@ -77,11 +80,18 @@ const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 /// Storage accepts such an upload, then fails the gunzipping read before sending any
 /// header (observed 2026-10-31). Only the leading magic bytes are checked, so a body that
 /// breaks later still fails mid-stream. An empty object has nothing to contradict.
-pub(super) async fn is_plain(reader: &mut ObjectReader, stored_size: u64) -> io::Result<bool> {
+/// A failed probe read is a backend failure; it keeps its I/O cause for diagnostics.
+pub(super) async fn is_plain(
+    reader: &mut ObjectReader,
+    stored_size: u64,
+) -> Result<bool, ObjectError> {
     if stored_size == 0 {
         return Ok(false);
     }
-    let prefix = reader.peek_prefix(GZIP_MAGIC.len()).await?;
+    let prefix = reader
+        .peek_prefix(GZIP_MAGIC.len())
+        .await
+        .map_err(object_unavailable)?;
     Ok(!GZIP_MAGIC.starts_with(&prefix))
 }
 
@@ -174,6 +184,23 @@ mod tests {
     use super::*;
     use flate2::{Compression, GzBuilder, write::GzEncoder};
     use std::io::{Cursor, Write};
+
+    /// A failing probe read stays an I/O failure with its cause reachable, not a bare 503.
+    #[tokio::test]
+    async fn is_plain_keeps_the_io_cause_of_a_failed_probe() {
+        let path = std::env::temp_dir().join(format!("gcs-mimic-is-plain-{}", std::process::id()));
+        std::fs::write(&path, b"").unwrap();
+        let file = tokio::fs::File::open(&path).await.unwrap();
+        std::fs::remove_file(&path).unwrap();
+        // The object claims 5 bytes but the file is empty, so the probe hits end of file.
+        let mut reader = ObjectReader::bounded_for_test(file, 5);
+        let error = is_plain(&mut reader, 5).await.unwrap_err();
+        let ObjectError::Io(cause) = &error else {
+            panic!("expected an I/O failure, got {error:?}");
+        };
+        assert_eq!(cause.kind(), io::ErrorKind::UnexpectedEof);
+        assert!(std::error::Error::source(&error).is_some());
+    }
 
     #[test]
     fn gzip_budget_resumes_optional_headers_deflate_trailers_and_member_boundaries() {

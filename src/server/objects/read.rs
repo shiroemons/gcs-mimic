@@ -176,17 +176,7 @@ async fn gunzipped(
     method: &Method,
 ) -> Result<Response<ResponseBody>, JsonError> {
     let head = method == Method::HEAD;
-    if !head
-        && gzip::is_plain(&mut reader, record.size)
-            .await
-            .map_err(|_| {
-                JsonError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "Cannot read object data",
-                )
-            })?
-    {
+    if !head && gzip::is_plain(&mut reader, record.size).await? {
         return Ok(gzip::plain_body_rejection(headers));
     }
     gzip::insert_transcoded_headers(&mut headers);

@@ -596,6 +596,12 @@ impl ObjectReader {
         }
     }
 
+    /// Wraps an arbitrary file so server tests can exercise reader failures.
+    #[cfg(test)]
+    pub(crate) fn bounded_for_test(file: tokio::fs::File, remaining: u64) -> Self {
+        Self::bounded(file, remaining)
+    }
+
     /// Appendable generations grow in place, so reads stop at the persisted size.
     pub(super) fn bounded(file: tokio::fs::File, remaining: u64) -> Self {
         Self {

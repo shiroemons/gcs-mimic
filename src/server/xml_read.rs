@@ -112,13 +112,7 @@ async fn read(
         if !head
             && gzip::is_plain(&mut reader, record.size)
                 .await
-                .map_err(|_| {
-                    xml::Error::from(json::JsonError::new(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "backendError",
-                        "Cannot read object data",
-                    ))
-                })?
+                .map_err(json::JsonError::from)?
         {
             return Ok(gzip::plain_body_rejection(headers));
         }
