@@ -5,7 +5,10 @@ use super::{
     ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, gzip, insert_content_range,
     object_body,
 };
-use crate::{auth, bucket::BucketAccess, csek::CustomerKey, json, object::ObjectRecord, xml};
+use crate::{
+    auth, bucket::BucketAccess, csek::CustomerKey, json, object::ObjectRecord,
+    storage::ObjectReader, xml,
+};
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValue};
 
 pub(super) async fn respond(
@@ -108,28 +111,8 @@ async fn read(
         }
     }
     if json::object_media_transcoding(request.headers(), &record)? {
-        // Range is ignored while gunzipping: the whole expanded object is sent with 200.
-        if !head
-            && gzip::is_plain(&mut reader, record.size)
-                .await
-                .map_err(json::JsonError::from)?
-        {
-            return Ok(gzip::plain_body_rejection(headers));
-        }
-        gzip::insert_transcoded_headers(&mut headers);
-        headers.extend(operation.response_overrides);
-        let mut response = if head {
-            boxed(empty_response(StatusCode::OK))
-        } else {
-            Response::new(gzip::body(
-                reader,
-                record.size,
-                ctx.config.max_object_bytes,
-                ctx.activity,
-            ))
-        };
-        *response.headers_mut() = headers;
-        return Ok(response);
+        let overrides = operation.response_overrides;
+        return gunzipped(ctx, &record, reader, headers, overrides, request.method()).await;
     }
     headers.extend(operation.response_overrides);
     let range = match json::object_media_range(request.headers(), record.size) {
@@ -163,6 +146,41 @@ async fn read(
     if range.is_some() {
         *response.status_mut() = StatusCode::PARTIAL_CONTENT;
     }
+    *response.headers_mut() = headers;
+    Ok(response)
+}
+
+/// A gunzipped read ignores Range and sends the whole expanded object with 200, unless the
+/// stored bytes are not gzip, which fails before any header is sent. The response-header
+/// overrides apply only to the successful representation.
+async fn gunzipped(
+    ctx: ObjectCtx<'_>,
+    record: &ObjectRecord,
+    mut reader: ObjectReader,
+    mut headers: HeaderMap,
+    overrides: HeaderMap,
+    method: &Method,
+) -> Result<Response<ResponseBody>, xml::Error> {
+    let head = method == Method::HEAD;
+    if !head
+        && gzip::is_plain(&mut reader, record.size)
+            .await
+            .map_err(json::JsonError::from)?
+    {
+        return Ok(gzip::plain_body_rejection(headers));
+    }
+    gzip::insert_transcoded_headers(&mut headers);
+    headers.extend(overrides);
+    let mut response = if head {
+        boxed(empty_response(StatusCode::OK))
+    } else {
+        Response::new(gzip::body(
+            reader,
+            record.size,
+            ctx.config.max_object_bytes,
+            ctx.activity,
+        ))
+    };
     *response.headers_mut() = headers;
     Ok(response)
 }
