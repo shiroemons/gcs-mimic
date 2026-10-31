@@ -84,14 +84,16 @@ All values come from the same selected record as the opened blob.
 | `Cache-Control` | `no-cache` | Existing JSON nonpublic-object rule; stored public cache metadata does not grant public access |
 | `ETag` | Existing quoted opaque local ETag for the selected generation/metageneration | JSON reference documents the field; exact provider encoding remains SPEC-012 |
 | `x-goog-generation`, `x-goog-metageneration` | Selected generation/metageneration in decimal | XML definitions, local wire assertions and pinned Go reader generation assertion; exhaustive JSON parity remains SPEC-012 |
-| `x-goog-hash` | Full stored-object CRC32C and MD5, unchanged from complete media responses | Hash semantics documented by the validation guide; exact partial-header presence remains unverified |
+| `x-goog-hash` | Absent on a partial range; `crc32c=...` only when the range covers the whole object | [Observed on Cloud Storage](../evidence/media-read-provider-observations.md) on 2026-10-31 |
 | `x-goog-stored-content-length` | Complete stored length, not range length | JSON stored-content definition; SDK reader reports full size |
 | `x-goog-stored-content-encoding` | Stored encoding, or `identity` | JSON stored-content definition |
 | `Content-Encoding` | Stored encoding when present | No transcoding in this slice |
 
-No range checksum is invented. Applications must not compare the range bytes'
-checksum to `x-goog-hash`. Headers whose presence is unverified stay part of the
-existing JSON header-parity gap, even though their local values are tested.
+No range checksum is invented. Whole-object hashes are not sent with a partial
+range, because clients that validate every received `x-goog-hash` would reject
+the range bytes; the XML API instead keeps both whole-object hashes on a range.
+Headers whose presence is unverified stay part of the existing JSON
+header-parity gap, even though their local values are tested.
 
 ### Gzip, generations, authorization and resources
 
@@ -134,7 +136,7 @@ row-local acceptance IDs in the ledger proposal.
 | UNSATISFIABLE | At/end-past offsets and zero suffix return 416, correct JSON reason and `bytes */size` | PASS | `obj_range_http_unsatisfiable_empty_and_ignored_ranges`; `TestObjectRangeReader` |
 | EMPTY | Empty closed/open ranges fail 416; nonzero empty suffix uses explicit 200 fallback | PASS | `obj_range_http_unsatisfiable_empty_and_ignored_ranges` |
 | FALLBACK | Invalid/non-bytes/multiple/repeated ranges return complete 200; If-Range forms fail 501 | PASS | `obj_range_http_unsatisfiable_empty_and_ignored_ranges`; `obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected` |
-| HEADERS | Partial representation headers retain selected identity and full stored hashes/length; complete response has no Content-Range | PASS | `obj_range_http_single_ranges_and_representation_headers`; `obj_render_002_media_headers_match_selected_generation_and_hashes` |
+| HEADERS | Partial representation headers retain selected identity and stored length, omit `x-goog-hash` unless the range covers the object (then CRC32C only); complete response has no Content-Range | PASS | `obj_range_http_single_ranges_and_representation_headers`; `obj_render_002_media_headers_match_selected_generation_and_hashes` |
 | GENERATION | Explicit generation, missing/stale generation, all four preconditions and overwrite during an open response | PASS | `obj_range_http_generation_preconditions_and_overwrite_pin_open_reader`; `TestObjectRangeReader` |
 | AUTHORIZATION | Anonymous/creator denied before satisfiable, unsatisfiable and If-Range evaluation; viewer reads suffix | PASS | `obj_range_http_strict_authorization_precedes_range_evaluation` |
 | GZIP | Gzip acceptance/no-transform selects stored bytes; required transcoding fails explicitly | PASS | `obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding` |

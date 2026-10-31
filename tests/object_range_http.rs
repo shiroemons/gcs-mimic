@@ -246,13 +246,19 @@ fn obj_range_http_single_ranges_and_representation_headers() {
                 "content-type",
                 "content-disposition",
                 "cache-control",
-                "x-goog-hash",
                 "x-goog-generation",
                 "x-goog-metageneration",
                 "x-goog-stored-content-length",
                 "x-goog-stored-content-encoding",
             ] {
                 assert_eq!(reply.headers[header], full.headers[header], "{header}");
+            }
+            // Cloud Storage omits hashes from a partial JSON range and sends only the
+            // CRC32C when the range covers the whole object.
+            if bounds == "0-9" {
+                assert_eq!(reply.headers["x-goog-hash"], "crc32c=KAwGng==", "{range}");
+            } else {
+                assert!(!reply.headers.contains_key("x-goog-hash"), "{range}");
             }
             assert_eq!(
                 reply.headers["x-goog-generation"],
@@ -263,6 +269,10 @@ fn obj_range_http_single_ranges_and_representation_headers() {
         }
     }
     assert_eq!(full.status, 200);
+    assert_eq!(
+        full.headers["x-goog-hash"],
+        "crc32c=KAwGng==,md5=eB5eJF1ptWaXm4bijSPyxw=="
+    );
     assert!(!full.headers.contains_key("content-range"));
     server.stop();
 }

@@ -28188,6 +28188,14 @@
           "test_ids": [
             "object_range_reader_seeks_sparse_blob_and_bounds_every_chunk"
           ]
+        },
+        {
+          "id": "HASHES",
+          "description": "A partial JSON 206 omits x-goog-hash; a range covering the whole object sends crc32c only, as observed on Cloud Storage.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_range_http_single_ranges_and_representation_headers"
+          ]
         }
       ],
       "test_ids": [
@@ -28198,6 +28206,15 @@
         "object_range_reader_seeks_sparse_blob_and_bounds_every_chunk"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --test object_range_http",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/media-read-provider-observations.md",
+          "test_ids": [
+            "obj_range_http_single_ranges_and_representation_headers"
+          ]
+        },
         {
           "command": "just check",
           "result": "PASS",
@@ -32608,7 +32625,7 @@
         },
         {
           "id": "EXT-XML-012-RANGE",
-          "description": "Closed/open/suffix/boundary ranges return correct selected bytes and full-object metadata; authorized unsatisfiable GET returns 416 InvalidRange.",
+          "description": "Closed/open/suffix/boundary ranges return correct selected bytes and full-object metadata, including one x-goog-hash field per algorithm for the whole object; authorized unsatisfiable GET returns 416 InvalidRange.",
           "result": "PASS",
           "test_ids": [
             "xml::xml_ranges_generation_and_preconditions_use_one_live_generation"

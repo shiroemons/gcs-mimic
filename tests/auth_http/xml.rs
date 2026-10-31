@@ -362,9 +362,10 @@ fn xml_head_matches_get_headers_and_selected_metadata() {
     assert_eq!(get.headers["x-goog-stored-content-encoding"], "identity");
     assert_eq!(get.headers["accept-ranges"], "bytes");
     assert_eq!(get.headers["x-goog-metageneration"], "2");
+    // Cloud Storage's XML API sends one x-goog-hash line per algorithm.
     assert_eq!(
         get.headers["x-goog-hash"],
-        "crc32c=yZRlqg==,md5=XrY7u+Ae7tCTyyK7j1rNww=="
+        "crc32c=yZRlqg==, md5=XrY7u+Ae7tCTyyK7j1rNww=="
     );
     assert!(get.headers["last-modified"].ends_with(" GMT"));
     assert_eq!(get.headers["last-modified"].len(), 29);
@@ -398,6 +399,11 @@ fn xml_ranges_generation_and_preconditions_use_one_live_generation() {
         assert_eq!(reply.headers["content-range"], content_range);
         assert_eq!(reply.headers["x-goog-generation"], generation);
         assert_eq!(reply.headers["x-goog-stored-content-length"], "11");
+        // Unlike JSON, XML ranges keep the full-object hashes.
+        assert_eq!(
+            reply.headers["x-goog-hash"],
+            "crc32c=yZRlqg==, md5=XrY7u+Ae7tCTyyK7j1rNww=="
+        );
         let head = server.request("HEAD", OBJECT, &format!("Range: {range}\r\n"), b"");
         assert_eq!(head.status, 200);
         assert_eq!(head.headers["content-range"], content_range);

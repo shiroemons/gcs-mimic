@@ -1,5 +1,6 @@
 //! JSON API object reads: media downloads and metadata.
 
+use crate::object::ObjectRecord;
 use crate::server::RequestBody as Incoming;
 use crate::{
     bucket::BucketAccess,
@@ -12,7 +13,7 @@ use crate::{
     },
 };
 use http_body_util::BodyExt;
-use hyper::{Request, Response, StatusCode};
+use hyper::{HeaderMap, Request, Response, StatusCode, header::HeaderValue};
 
 pub(super) async fn get(
     request: &Request<Incoming>,
@@ -144,6 +145,7 @@ async fn media(
         })?;
         headers.insert("content-length", length.into());
         insert_content_range(&mut headers, offset, length, record.size);
+        range_hashes(&mut headers, &record, offset, length)?;
     }
     let mut response = Response::new(object_body(reader, ctx.activity));
     if range.is_some() {
@@ -151,6 +153,33 @@ async fn media(
     }
     *response.headers_mut() = headers;
     Ok(response)
+}
+
+/// Cloud Storage's JSON API omits `x-goog-hash` from a partial range, and sends only the
+/// CRC32C when the range spans the whole object (observed 2026-10-31). Clients such as the
+/// .NET SDK validate any hash they receive against the bytes, so whole-object hashes on a
+/// partial range fail their download. The XML API keeps both hashes on a range.
+fn range_hashes(
+    headers: &mut HeaderMap,
+    record: &ObjectRecord,
+    offset: u64,
+    length: u64,
+) -> Result<(), JsonError> {
+    headers.remove("x-goog-hash");
+    if offset == 0 && length == record.size {
+        let crc32c = format!("crc32c={}", json::base64(&record.crc32c.to_be_bytes()));
+        headers.insert(
+            "x-goog-hash",
+            HeaderValue::try_from(crc32c).map_err(|_| {
+                JsonError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "backendError",
+                    "Invalid stored object response header",
+                )
+            })?,
+        );
+    }
+    Ok(())
 }
 
 async fn metadata(

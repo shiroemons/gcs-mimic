@@ -5,8 +5,8 @@ use super::{
     ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, insert_content_range,
     insert_unsatisfied_content_range, object_body,
 };
-use crate::{auth, bucket::BucketAccess, csek::CustomerKey, json, xml};
-use hyper::{Method, Request, Response, StatusCode};
+use crate::{auth, bucket::BucketAccess, csek::CustomerKey, json, object::ObjectRecord, xml};
+use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValue};
 
 pub(super) async fn respond(
     mut request: Request<Incoming>,
@@ -95,8 +95,9 @@ async fn read(
     };
     let mut headers = xml::media_headers(&record, scope)?;
     json::insert_response_headers(&record, &mut headers);
-    if !reveal {
-        headers.remove("x-goog-hash");
+    headers.remove("x-goog-hash");
+    if reveal {
+        insert_hashes(&mut headers, &record);
     }
     headers.extend(operation.response_overrides);
     json::validate_object_media_encoding(request.headers(), &record)?;
@@ -138,4 +139,21 @@ async fn read(
     }
     *response.headers_mut() = headers;
     Ok(response)
+}
+
+/// Cloud Storage's XML API sends one `x-goog-hash` field per algorithm, always for the
+/// whole object, including on a range (observed 2026-10-31). The JSON API instead combines
+/// them in one field.
+fn insert_hashes(headers: &mut HeaderMap, record: &ObjectRecord) {
+    let crc32c = format!("crc32c={}", json::base64(&record.crc32c.to_be_bytes()));
+    let md5 = record
+        .has_md5()
+        .then(|| format!("md5={}", json::base64(&record.md5)));
+    // Base64 always forms a valid header value; omitting a hash is safer than panicking
+    // if that ever changes.
+    for value in std::iter::once(crc32c).chain(md5) {
+        if let Ok(value) = HeaderValue::try_from(value) {
+            headers.append("x-goog-hash", value);
+        }
+    }
 }

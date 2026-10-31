@@ -127,12 +127,16 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
         "etag",
         "x-goog-generation",
         "x-goog-metageneration",
-        "x-goog-hash",
         "x-goog-stored-content-length",
         "x-goog-stored-content-encoding",
     ] {
         assert_eq!(get.headers[name], put.headers[name]);
     }
+    // GET sends one x-goog-hash line per algorithm.
+    assert_eq!(
+        get.headers["x-goog-hash"],
+        format!("crc32c={CRC}, md5={MD5}")
+    );
     assert_eq!(get.headers["cache-control"], "private, max-age=73");
     assert_eq!(
         get.headers["content-disposition"],

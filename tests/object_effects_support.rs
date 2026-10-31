@@ -193,7 +193,14 @@ pub(crate) fn request(
             break;
         }
         let (key, value) = line.trim_end().split_once(':').unwrap();
-        headers.insert(key.to_ascii_lowercase(), value.trim().to_owned());
+        // Repeated fields combine as an RFC 9110 list instead of keeping only the last.
+        headers
+            .entry(key.to_ascii_lowercase())
+            .and_modify(|joined: &mut String| {
+                joined.push_str(", ");
+                joined.push_str(value.trim());
+            })
+            .or_insert_with(|| value.trim().to_owned());
     }
     if method == "HEAD" {
         return Reply {

@@ -252,12 +252,19 @@ impl Reply {
             .unwrap()
             .parse()
             .unwrap();
-        let headers: BTreeMap<String, String> = lines
-            .map(|line| {
-                let (key, value) = line.split_once(':').unwrap();
-                (key.to_ascii_lowercase(), value.trim().into())
-            })
-            .collect();
+        // Repeated fields combine as an RFC 9110 list, so a test can tell two
+        // header lines from one comma-separated line.
+        let mut headers = BTreeMap::<String, String>::new();
+        for line in lines {
+            let (key, value) = line.split_once(':').unwrap();
+            headers
+                .entry(key.to_ascii_lowercase())
+                .and_modify(|joined| {
+                    joined.push_str(", ");
+                    joined.push_str(value.trim());
+                })
+                .or_insert_with(|| value.trim().into());
+        }
         let length = if head || matches!(status, 204 | 304) {
             0
         } else {
