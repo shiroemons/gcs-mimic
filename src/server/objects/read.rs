@@ -116,6 +116,19 @@ async fn media(
     let head = request.method() == Method::HEAD;
     if transcode {
         // Range is ignored while gunzipping: the whole expanded object is sent with 200.
+        if !head
+            && gzip::is_plain(&mut reader, record.size)
+                .await
+                .map_err(|_| {
+                    JsonError::new(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "backendError",
+                        "Cannot read object data",
+                    )
+                })?
+        {
+            return Ok(gzip::plain_body_rejection(headers));
+        }
         gzip::insert_transcoded_headers(&mut headers);
         let mut response = if head {
             boxed(Response::new(Full::new(Bytes::new())))

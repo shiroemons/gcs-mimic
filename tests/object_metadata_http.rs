@@ -769,11 +769,9 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
     if let Err(error) = stream.read_to_end(&mut response) {
         assert!(common::closed_by_server(&error), "{error}");
     }
-    assert!(response.starts_with(b"HTTP/1.1 200"));
-    assert!(
-        !response.ends_with(b"\r\n0\r\n\r\n"),
-        "invalid gzip must abort, not complete successfully"
-    );
+    // A plain body declared as gzip fails before any header is sent.
+    assert!(response.starts_with(b"HTTP/1.1 400"));
+    assert!(response.ends_with(b"Bad Request"));
     server
         .update("PATCH", "", json!({"cacheControl":"no-transform"}))
         .json();

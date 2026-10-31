@@ -101,9 +101,7 @@ HTTP 400 and an 11-byte `text/plain` body while still sending
 
 Local choices that were not observed: non-gzip, truncated or CRC-corrupt
 bodies fail 400, a decoded body above `max_object_bytes` fails 413, and codings
-other than one `gzip` fail 400. The provider's 400 on a later identity GET of a
-decompressed object that still declares `contentEncoding: gzip` is not
-reproduced; gcs-mimic aborts that download like any other invalid stored gzip.
+other than one `gzip` fail 400. The later read is covered in the next section.
 
 ## JSON media HEAD
 
@@ -177,3 +175,27 @@ rule, because the response then depends on the Origin. Preflight on a bucket
 without CORS configuration now also omits `Vary`; that was not observed either.
 XML requests now read the bucket's CORS rules even without an `Origin` header,
 so a catalog failure during that read returns the XML error before routing.
+
+## Gunzipping a plain body
+
+Observed **2026-10-31**. A 29-byte plain text uploaded with
+`Content-Encoding: gzip` and the `contentEncoding=gzip` query was stored
+decompressed (the upload answered 200). Reads of that object:
+
+| Request | Status | Notable headers |
+| --- | --- | --- |
+| JSON `alt=media`, no `Accept-Encoding` or `identity` | 400, `text/plain; charset=utf-8`, body `Bad Request` (11 bytes) | the gunzipped headers: both transformation fields, stored-object `x-goog-hash`, `x-goog-stored-content-encoding: gzip`, `x-goog-stored-content-length: 29`, weak ETag, `content-length: 11` |
+| XML GET, `Accept-Encoding: identity` | 400, the same body | the same transformation fields and one `x-goog-hash` field per algorithm |
+| JSON, `Accept-Encoding: gzip` | 200, the 29 plain bytes | `content-encoding: gzip`, `content-length: 29` |
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| A gunzipping read of non-gzip bytes fails before any header | JSON media GET and XML GET check the first stored bytes against the gzip magic and answer 400 with the 11-byte body and the gunzipped headers; only one bounded chunk is read | `gunzipping_a_plain_body_fails_400_before_the_headers_are_sent` |
+| `Accept-Encoding: gzip` returns the stored bytes with 200 | Unchanged | the same test |
+
+Local limits: only the leading magic bytes are checked, so a body that starts
+like gzip and breaks later still aborts mid-stream (as before). An empty
+object is not rejected. HEAD reads no bytes and is not checked; the provider's
+HEAD for such an object was not observed. The weak ETag is not reproduced here.

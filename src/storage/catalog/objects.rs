@@ -633,6 +633,19 @@ impl ObjectReader {
         Ok(())
     }
 
+    /// Reads up to `limit` leading bytes and rewinds, so a caller can classify the content
+    /// before choosing response headers. Valid only on a reader that has not been advanced;
+    /// it reads one bounded chunk, never the whole object.
+    pub(crate) async fn peek_prefix(&mut self, limit: usize) -> io::Result<Bytes> {
+        let remaining = self.remaining;
+        let prefix = match self.next_chunk().await? {
+            Some(bytes) => bytes.slice(..bytes.len().min(limit)),
+            None => Bytes::new(),
+        };
+        self.set_range(0, remaining).await?;
+        Ok(prefix)
+    }
+
     pub async fn next_chunk(&mut self) -> io::Result<Option<Bytes>> {
         if self.remaining == 0 {
             return Ok(None);

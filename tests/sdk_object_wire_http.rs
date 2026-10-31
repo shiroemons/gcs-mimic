@@ -429,7 +429,6 @@ fn json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof() {
     let mut bad_size = valid.clone();
     bad_size[valid.len() - 4] ^= 1;
     for (index, bytes) in [
-        b"plain".to_vec(),
         valid[..12].to_vec(),
         valid[..valid.len() - 1].to_vec(),
         bad_crc,
@@ -507,4 +506,54 @@ fn json_object_head_preserves_selection_conditions_and_authorization() {
         assert!(response.body.is_empty());
     }
     assert_eq!(server.get("head").json(), object);
+}
+
+/// Cloud Storage accepts metadata that declares gzip over a plain body, but a read that
+/// would gunzip it fails before any body byte: 400, `text/plain`, `Bad Request`, with the
+/// headers of the gunzipped response (observed 2026-10-31). A client accepting gzip still
+/// receives the stored bytes.
+#[test]
+fn gunzipping_a_plain_body_fails_400_before_the_headers_are_sent() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, true);
+    server.bucket();
+    gzip_object(&server, "plain", b"hello gzip transcoding world\n");
+    for (path, extra) in [
+        ("/storage/v1/b/test-bucket/o/plain?alt=media", ""),
+        (
+            "/storage/v1/b/test-bucket/o/plain?alt=media",
+            "Accept-Encoding: identity\r\n",
+        ),
+        ("/test-bucket/plain", ""),
+        ("/test-bucket/plain", "Accept-Encoding: identity\r\n"),
+    ] {
+        let reply = server.request("GET", path, &format!("{ADMIN}{extra}"), b"");
+        assert_eq!(reply.status, 400, "{path} {extra}");
+        assert_eq!(reply.body, b"Bad Request", "{path} {extra}");
+        assert_eq!(reply.headers["content-type"], "text/plain; charset=utf-8");
+        assert_eq!(reply.headers["content-length"], "11");
+        assert_eq!(
+            reply.headers["x-guploader-response-body-transformations"],
+            "gunzipped"
+        );
+        assert_eq!(reply.headers["warning"], "214 UploadServer gunzipped");
+        assert_eq!(reply.headers["x-goog-stored-content-encoding"], "gzip");
+        assert_eq!(reply.headers["x-goog-stored-content-length"], "29");
+        assert!(reply.headers.contains_key("x-goog-hash"), "{path}");
+        assert!(!reply.headers.contains_key("content-encoding"), "{path}");
+    }
+    for path in [
+        "/storage/v1/b/test-bucket/o/plain?alt=media",
+        "/test-bucket/plain",
+    ] {
+        let reply = server.request(
+            "GET",
+            path,
+            &format!("{ADMIN}Accept-Encoding: gzip\r\n"),
+            b"",
+        );
+        assert_eq!(reply.status, 200, "{path}");
+        assert_eq!(reply.body, b"hello gzip transcoding world\n");
+        assert_eq!(reply.headers["content-encoding"], "gzip");
+    }
 }

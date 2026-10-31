@@ -1,9 +1,9 @@
-use super::{ObjectActivity, ResponseBody};
+use super::{ObjectActivity, ResponseBody, boxed};
 use crate::storage::ObjectReader;
 use bytes::Bytes;
 use flate2::bufread::MultiGzDecoder;
-use http_body_util::BodyExt;
-use hyper::{HeaderMap, header::HeaderValue};
+use http_body_util::{BodyExt, Full};
+use hyper::{HeaderMap, Response, StatusCode, header::HeaderValue};
 use std::io::{self, BufRead, BufReader, Read};
 use tokio::sync::watch;
 
@@ -67,6 +67,36 @@ pub(super) fn insert_transcoded_headers(headers: &mut HeaderMap) {
 /// the field only on the compressed response (observed 2026-10-31).
 pub(super) fn insert_negotiated_vary(headers: &mut HeaderMap) {
     headers.append("vary", HeaderValue::from_static("Accept-Encoding"));
+}
+
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+
+/// Whether an object whose metadata declares gzip holds bytes that are not gzip. Cloud
+/// Storage accepts such an upload, then fails the gunzipping read before sending any
+/// header (observed 2026-10-31). Only the leading magic bytes are checked, so a body that
+/// breaks later still fails mid-stream. An empty object has nothing to contradict.
+pub(super) async fn is_plain(reader: &mut ObjectReader, stored_size: u64) -> io::Result<bool> {
+    if stored_size == 0 {
+        return Ok(false);
+    }
+    let prefix = reader.peek_prefix(GZIP_MAGIC.len()).await?;
+    Ok(!GZIP_MAGIC.starts_with(&prefix))
+}
+
+/// The 11-byte `Bad Request` Cloud Storage sends for a gunzipping read of non-gzip bytes,
+/// with the headers the gunzipped response would have carried.
+pub(super) fn plain_body_rejection(mut headers: HeaderMap) -> Response<ResponseBody> {
+    const BODY: &str = "Bad Request";
+    insert_transcoded_headers(&mut headers);
+    headers.insert(
+        "content-type",
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    headers.insert("content-length", HeaderValue::from(BODY.len()));
+    let mut response = Response::new(Full::new(Bytes::from_static(BODY.as_bytes())));
+    *response.status_mut() = StatusCode::BAD_REQUEST;
+    *response.headers_mut() = headers;
+    boxed(response)
 }
 
 pub(super) fn body(
