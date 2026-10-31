@@ -6,6 +6,7 @@ use std::{
     process::{Command, Stdio},
 };
 mod clients;
+mod platforms;
 
 type Result<T> = std::result::Result<T, String>;
 const MAX_RESPONSE: u64 = 8 * 1024 * 1024;
@@ -1287,8 +1288,16 @@ fn release_input(image: &Value) -> Result<bool> {
         .ok_or_else(|| format!("missing release_input: {}", image["reference"]))
 }
 
+/// Offline: the ledger `platforms` of every release-input image must equal the architectures the
+/// release workflows and scripts ship.
+pub fn check_release_platforms(root: &Path) -> Result<()> {
+    let status = crate::read_json(&root.join("compatibility/dependency-status.json"))?;
+    platforms::check(root, &status)
+}
+
 pub fn check(root: &Path, scope: Scope) -> Result<bool> {
     println!("scope={scope:?}");
+    check_release_platforms(root)?;
     println!(
         "checked_at_unix_seconds={}",
         std::time::SystemTime::now()

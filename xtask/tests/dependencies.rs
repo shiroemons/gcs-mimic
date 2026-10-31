@@ -125,3 +125,11 @@ fn fetch_failure_is_never_reported_as_current() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("CHECK_FAILED: fetch failed"));
     assert!(!String::from_utf8_lossy(&output.stdout).contains("CURRENT"));
 }
+
+#[test]
+fn release_input_platforms_match_the_shipped_architectures() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    xtask::dependencies::check_release_platforms(root).unwrap();
+}
