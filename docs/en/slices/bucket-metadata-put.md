@@ -130,12 +130,12 @@ immutable or reserved fields absent from update's writable list. Their 400 badRe
 rejection is a fail-closed local choice, not a provider error claim:
 acl, autoclass, billing,
 customPlacementConfig, defaultObjectAcl, encryption, hierarchicalNamespace,
-ipFilter, logging, objectRetention, rpo, satisfiesPZI, satisfiesPZS and website.
+ipFilter, logging, objectRetention, rpo, satisfiesPZS and website.
 Only acl:[] is ignored; defaultObjectAcl:[] remains unsupported. The native
 profile now emits `satisfiesPZI: true` after `locationType`, as Cloud Storage
 did for one observed location (asia-northeast1, 2026-10-31; other locations
-were not observed), so the exact echo `satisfiesPZI: true` in an insert, PATCH
-or PUT body is accepted and ignored while every other value stays rejected.
+were not observed). `satisfiesPZI` is output-only like `generation`, so an
+insert, PATCH or PUT body may carry it with any value; it is ignored.
 The legacy profile omits the field. Null/empty
 unsupported settings otherwise retain their existing rejection.
 CORS, PAP/UBLA, lifecycle, retention and soft delete use the existing PATCH

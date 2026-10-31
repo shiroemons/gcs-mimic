@@ -23,7 +23,6 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "ipFilter",
     "logging",
     "rpo",
-    "satisfiesPZI",
     "satisfiesPZS",
     "website",
 ];
@@ -107,21 +106,12 @@ fn parse_insert_json(bytes: &[u8], profile: CompatProfile) -> Result<Value, Json
     })
 }
 
-/// A client that reads a bucket and sends it back carries the emitted `satisfiesPZI: true`;
-/// that exact echo is accepted and ignored, any other value stays unsupported.
-fn is_echoed_output(body: &serde_json::Map<String, Value>, field: &str) -> bool {
-    field == "satisfiesPZI" && body.get(field) == Some(&Value::Bool(true))
-}
-
 fn reject_unsupported_insert_fields(
     body: &serde_json::Map<String, Value>,
     profile: CompatProfile,
 ) -> Result<(), JsonError> {
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
-            if is_echoed_output(body, field) {
-                continue;
-            }
             if profile == CompatProfile::Native
                 && *field == "customPlacementConfig"
                 && body.get(*field).is_some_and(|value| {
@@ -430,7 +420,7 @@ fn parse_bucket_update(
         .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
-            if matches!(*field, "acl" | "defaultObjectAcl") || is_echoed_output(body, field) {
+            if matches!(*field, "acl" | "defaultObjectAcl") {
                 continue;
             }
             return Err(JsonError::unsupported(field));

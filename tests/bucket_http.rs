@@ -1424,6 +1424,35 @@ fn bucket_patch_label_boundaries_and_classes() {
 }
 
 #[test]
+fn satisfies_pzi_is_ignored_on_insert_patch_and_put_whatever_its_value() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        for (index, value) in [json!(true), json!(false), Value::Null]
+            .into_iter()
+            .enumerate()
+        {
+            let name = format!("pzi-{index}");
+            let body = json!({"name":name,"satisfiesPZI":value}).to_string();
+            let reply = server.request("POST", "/storage/v1/b?project=project", &body);
+            assert_eq!(reply.status, 200, "{profile} insert");
+            let path = format!("/storage/v1/b/{name}");
+            let before = server.request("GET", &path, "").json();
+            for method in ["PATCH", "PUT"] {
+                let body = json!({"satisfiesPZI":value,"labels":{"seen":"yes"}}).to_string();
+                let reply = server.request(method, &path, &body);
+                assert_eq!(reply.status, 200, "{profile} {method} {value}");
+                assert_eq!(
+                    reply.json().get("satisfiesPZI"),
+                    before.get("satisfiesPZI"),
+                    "{profile} {method}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn bucket_patch_unsupported_and_output_inputs_preserve_state() {
     bucket_metadata_unsupported_inputs("PATCH");
 }
@@ -1554,7 +1583,6 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
             "ipFilter",
             "logging",
             "rpo",
-            "satisfiesPZI",
             "satisfiesPZS",
             "website",
         ] {
@@ -2782,7 +2810,6 @@ fn bucket_core_unsupported_settings_preserve_state() {
             "ipFilter",
             "logging",
             "rpo",
-            "satisfiesPZI",
             "satisfiesPZS",
             "website",
         ] {
