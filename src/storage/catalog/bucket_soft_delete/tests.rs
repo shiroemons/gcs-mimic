@@ -512,6 +512,10 @@ async fn schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds() 
              UPDATE buckets SET generation = 1000000100 WHERE name = 'kept';
              UPDATE soft_deleted_buckets SET generation = 1000000200 WHERE name = 'gone';
              UPDATE objects SET bucket = 'gone#1000000200' WHERE bucket LIKE 'gone#%';
+             DELETE FROM acl_object_entries;
+             INSERT INTO acl_object_entries (bucket, name, generation, entries)
+                 SELECT bucket, name, generation, '[{\"entity\":\"allUsers\",\"role\":\"READER\"}]'
+                 FROM objects WHERE bucket = 'gone#1000000200';
              PRAGMA user_version = 45;",
         )
         .unwrap();
@@ -533,6 +537,24 @@ async fn schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds() 
         )
         .await,
         1
+    );
+    // The retained object's ACL rows move with its key, or the foreign key would reject them
+    // (or leave them orphaned under the old key).
+    assert_eq!(
+        count(
+            &catalog,
+            "SELECT count(*) FROM acl_object_entries WHERE bucket = 'gone#1000000200000'"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            &catalog,
+            "SELECT count(*) FROM acl_object_entries WHERE bucket = 'gone#1000000200'"
+        )
+        .await,
+        0
     );
     // A bucket created after the migration is above every migrated generation.
     let fresh = catalog.insert_bucket(record("fresh")).await.unwrap();

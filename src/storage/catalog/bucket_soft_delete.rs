@@ -60,7 +60,11 @@ PRAGMA user_version = 45;";
 /// digits to that decimal key moves them in step. Foreign keys to the old object keys are
 /// deferred because parents and children change in one transaction. A generation backfilled
 /// from a creation time beyond year 2262 would overflow a signed 64-bit nanosecond value, so
-/// it saturates at the largest representable multiple of 1000.
+/// it saturates at the largest representable multiple of 1000. Saturation is not injective: if
+/// two buckets (or two generations of one name) both saturate to the same value, the primary
+/// key of `soft_deleted_buckets` (or the `objects` key rewrite) is violated, the transaction
+/// fails and the catalog cannot be opened until those rows are removed or edited by hand. That
+/// needs backfilled creation times past 2262, which no supported clock produces.
 pub(super) const GENERATION_SCHEMA: &str = "PRAGMA defer_foreign_keys = ON;
 UPDATE acl_object_entries SET bucket = (
         SELECT name || '#' || (min(generation, 9223372036854775) * 1000)
