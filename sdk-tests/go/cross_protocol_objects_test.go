@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -546,7 +547,7 @@ func (e *crossEnv) listV1(versions bool) (map[string][]int64, error) {
 }
 
 // requireListings asserts that JSON, Storage v2 and legacy v1 list the same names and
-// generations. The XML API has no bucket listing in the supported subset.
+// generations. XML's selected entry metadata is checked separately.
 func (e *crossEnv) requireListings(label string, versions bool, want map[string][]int64) {
 	e.t.Helper()
 	normalize := func(listing map[string][]int64) map[string][]int64 {
@@ -566,6 +567,36 @@ func (e *crossEnv) requireListings(label string, versions bool, want map[string]
 	got, err = e.listV1(versions)
 	if err != nil || !reflect.DeepEqual(normalize(got), want) {
 		e.t.Fatalf("%s: gRPC v1 listing %v error=%v, want %v", label, got, err, want)
+	}
+}
+
+func (e *crossEnv) requireXMLListing(label string, want map[string]crossView) {
+	e.t.Helper()
+	_, data, err := e.send(http.MethodGet, "/"+e.bucket, nil, nil, nil)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	var page struct {
+		Name        string
+		IsTruncated bool
+		Contents    []struct {
+			Key                              string
+			Generation, MetaGeneration, Size int64
+		}
+	}
+	if err := xml.Unmarshal(data, &page); err != nil {
+		e.t.Fatal(err)
+	}
+	if page.Name != e.bucket || page.IsTruncated || len(page.Contents) != len(want) {
+		e.t.Fatalf("%s: XML listing %+v, want %d entries from %s", label, page, len(want), e.bucket)
+	}
+	seen := map[string]bool{}
+	for _, item := range page.Contents {
+		view, exists := want[item.Key]
+		if !exists || seen[item.Key] || item.Generation != view.Generation || item.MetaGeneration != view.Metageneration || item.Size != view.Size {
+			e.t.Fatalf("%s: XML entry %+v, want %+v; duplicate=%v", label, item, view, seen[item.Key])
+		}
+		seen[item.Key] = true
 	}
 }
 
@@ -616,9 +647,12 @@ func TestCrossProtocolObjects(t *testing.T) {
 		return listed
 	}
 	env.requireListings("after writes", false, listing())
-	// XML bucket listing is outside the supported subset and must not succeed with an empty result.
-	_, _, err := env.send(http.MethodGet, "/"+env.bucket, nil, nil, nil)
-	requireHTTPError(t, "XML bucket listing", err, http.StatusBadRequest, "InvalidArgument")
+	env.requireXMLListing("after writes", views)
+	_, _, err := env.send(http.MethodGet, "/"+env.bucket, url.Values{"list-type": {"2"}, "fetch-owner": {"true"}}, nil, nil)
+	requireHTTPError(t, "unsupported XML owner listing", err, http.StatusBadRequest, "InvalidArgument")
+	for name, view := range views {
+		env.requireViews("unsupported XML owner listing preserves state", name, 0, view)
+	}
 
 	// A JSON PATCH bumps the metageneration observed by XML and both gRPC services.
 	patched := views["from-xml"]
@@ -698,6 +732,7 @@ func TestCrossProtocolObjects(t *testing.T) {
 	requireCode(t, "gRPC stale overwrite", err, codes.FailedPrecondition)
 	env.requireViews("rejected stale overwrites", "from-grpc", 0, views["from-grpc"])
 	env.requireListings("after mutations", false, listing())
+	env.requireXMLListing("after mutations", views)
 
 	// Delete through each transport with a generation observed elsewhere; a stale generation
 	// fails first and leaves the object visible.
@@ -735,6 +770,7 @@ func TestCrossProtocolObjects(t *testing.T) {
 		env.requireAbsent(label+" selected generation", test.object, views[test.object].Generation)
 		delete(views, test.object)
 		env.requireListings("after "+label, false, listing())
+		env.requireXMLListing("after "+label, views)
 	}
 }
 

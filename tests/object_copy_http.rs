@@ -221,10 +221,7 @@ fn copy_token_rechecks_source_destination_and_acl_permissions() {
     policy("destination-bucket", Some("roles/storage.objectCreator"));
     let retry = server.request("POST", &path, headers, b"");
     assert_eq!(retry.status, 200);
-    let mut expected = original.json();
-    expected.as_object_mut().unwrap().remove("acl");
-    expected.as_object_mut().unwrap().remove("owner");
-    assert_eq!(retry.json(), expected);
+    assert_eq!(retry.json(), original.json());
     policy("destination-bucket", Some("roles/storage.objectAdmin"));
     assert_eq!(
         server.request("POST", &path, headers, b"").body,
@@ -782,6 +779,31 @@ fn strict_cross_bucket_copy_uses_distinct_source_and_destination_grants() {
     let reverse = "/storage/v1/b/target-bucket/o/copy/copyTo/b/test-bucket/o/reverse";
     server
         .request("POST", reverse, "Authorization: Bearer creator\r\n", b"")
+        .json();
+    assert_eq!(media(&server, "test-bucket", "reverse"), b"source");
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/target-bucket/o?uploadType=media&name=private-source",
+            ADMIN,
+            b"private",
+        )
+        .json();
+    server
+        .request(
+            "POST",
+            "/storage/v1/b/target-bucket/o/private-source/copyTo/b/test-bucket/o/denied-private",
+            "Authorization: Bearer creator\r\n",
+            b"",
+        )
+        .error(403, "forbidden");
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/target-bucket/o/private-source?alt=media",
+            "Authorization: Bearer creator\r\n",
+            b"",
+        )
         .error(403, "forbidden");
     server
         .request("POST", &route, "Authorization: Bearer viewer\r\n", b"")

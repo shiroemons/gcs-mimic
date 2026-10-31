@@ -12,7 +12,7 @@ use tokio::{sync::watch, time::Instant};
 const BYTE_BUDGET: u64 = 16 * 1024 * 1024;
 
 #[cfg(test)]
-pub(super) struct Checkpoint {
+pub(crate) struct Checkpoint {
     after_bytes: u64,
     reached: tokio::sync::oneshot::Sender<crate::storage::DerivedTransfer>,
     resume: tokio::sync::oneshot::Receiver<()>,
@@ -58,7 +58,7 @@ pub(crate) struct CopyBudget<'a> {
     pub(crate) activity: &'a watch::Sender<ObjectActivity>,
 }
 
-pub(super) async fn execute(
+pub(crate) async fn execute(
     catalog: &Catalog,
     job: CopyJob,
     budget: CopyBudget<'_>,
@@ -69,7 +69,7 @@ pub(super) async fn execute(
         source_access,
         destination,
         source_location,
-        replay,
+        mut replay,
     } = job;
     let CopyBudget {
         config,
@@ -92,6 +92,9 @@ pub(super) async fn execute(
         .await?;
     }
     let source_record = source.object.clone();
+    if let Some(replay) = &mut replay {
+        replay.bind_source(&source_record);
+    }
     // shortcut: admission is phase-local; reserve one slot if later-stage rejection under load must be eliminated.
     activity.send_modify(|activity| activity.awaiting_catalog = true);
     let transfer = tokio::time::timeout_at(
@@ -127,9 +130,9 @@ pub(super) async fn execute(
             &transfer.id,
             destination,
             move |connection, destination| {
-                Catalog::check_derived_bucket_access_in_transaction(
+                Catalog::check_derived_source_access_in_transaction(
                     connection,
-                    &source_record.bucket,
+                    &source_record,
                     &source_access,
                 )?;
                 if source_record.component_count.is_some() {
@@ -457,6 +460,87 @@ mod tests {
             catalog.close().await.unwrap();
             fs::remove_dir_all(path).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn copy_rechecks_source_object_acl_after_streaming_before_publication() {
+        use crate::{
+            acl::AclTarget,
+            auth::{Auth, OBJECTS_GET, Registry},
+            storage::AclChange,
+        };
+        let (catalog, path) = fixture().await;
+        let selected = source(&catalog).await.object.clone();
+        let auth = Auth::strict(
+            Registry::parse(br#"{"identities":[{"id":"reader","tokens":["token"]}]}"#).unwrap(),
+        );
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert("authorization", "Bearer token".parse().unwrap());
+        let caller = auth.authenticate(&headers, None).unwrap().unwrap();
+        let access = catalog
+            .bucket_access("bucket", Some(caller.principal().unwrap()), OBJECTS_GET)
+            .await
+            .unwrap();
+        let acl = AclTarget::Object {
+            bucket: "bucket".into(),
+            name: "source".into(),
+            generation: Some(selected.generation),
+        };
+        catalog
+            .change_acl(
+                acl.clone(),
+                AclChange::Upsert {
+                    entity: "user-reader".into(),
+                    role: Some("READER".into()),
+                },
+                &BucketAccess::Permissive,
+            )
+            .await
+            .unwrap();
+        let source = catalog
+            .resolve_derived_source(
+                "bucket",
+                "source",
+                Some(selected.generation),
+                Default::default(),
+                &access,
+            )
+            .await
+            .unwrap();
+        let target = destination(&source, "copy", b"");
+        let (request, progress, resume) =
+            start(&catalog, source, access, target, BYTE_BUDGET, 5000);
+        let progress = progress.await.unwrap();
+        assert_eq!(progress.offset, BYTE_BUDGET);
+        catalog
+            .change_acl(
+                acl,
+                AclChange::Delete {
+                    entity: "user-reader".into(),
+                },
+                &BucketAccess::Permissive,
+            )
+            .await
+            .unwrap();
+        resume.send(()).unwrap();
+        assert_eq!(request.await.unwrap(), Err(ObjectError::Forbidden));
+        assert_eq!(
+            catalog
+                .get_object("bucket", "copy", None, Default::default())
+                .await,
+            Err(ObjectError::ObjectNotFound)
+        );
+        assert_eq!(
+            catalog
+                .get_object("bucket", "source", None, Default::default())
+                .await
+                .unwrap()
+                .generation,
+            selected.generation
+        );
+        clean(&catalog, &path, &progress.id).await;
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(path).unwrap();
     }
 
     #[tokio::test]

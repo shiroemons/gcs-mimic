@@ -178,8 +178,9 @@ fn temporary_hold_protects_delete_and_all_replacements() {
             assert!(
                 String::from_utf8(xml.body)
                     .unwrap()
-                    .contains("<Code>AccessDenied</Code>")
+                    .contains("<Code>ObjectUnderActiveHold</Code>")
             );
+            assert_eq!(server.get("held?alt=media").body, b"abc");
         }
     }
 }

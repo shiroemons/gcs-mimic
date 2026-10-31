@@ -111,7 +111,7 @@ fn object_scope(query: &ObjectListQuery, projection: super::Projection) -> Strin
     format!("{:016x}", checksum(payload.as_bytes()))
 }
 
-pub(super) fn encode_object_page_token(
+pub(crate) fn encode_object_page_token(
     query: &ObjectListQuery,
     projection: super::Projection,
     cursor: &ObjectListCursor,
@@ -128,7 +128,7 @@ pub(super) fn encode_object_page_token(
     format!("{encoded}.{:016x}", checksum(payload.as_bytes()))
 }
 
-pub(super) fn decode_object_page_token(
+pub(crate) fn decode_object_page_token(
     token: &str,
     query: &ObjectListQuery,
     projection: super::Projection,

@@ -360,10 +360,7 @@ async fn upload_replay_full_projection_rechecks_revoked_acl_permission() {
     for (path, headers, original) in &completions {
         let retry = h.request("POST", path, headers, b"data").await;
         assert_eq!(retry.status, 200);
-        let mut expected = original.json();
-        expected.as_object_mut().unwrap().remove("acl");
-        expected.as_object_mut().unwrap().remove("owner");
-        assert_eq!(retry.json(), expected);
+        assert_eq!(retry.json(), original.json());
     }
     h.request(
         "POST",
@@ -391,6 +388,25 @@ async fn upload_replay_full_projection_rechecks_revoked_acl_permission() {
         .json()["generation"],
         completions.last().unwrap().2.json()["generation"]
     );
+    assert_eq!(
+        h.request(
+            "PATCH",
+            "/storage/v1/b/bucket",
+            admin,
+            br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#
+        )
+        .await
+        .status,
+        200
+    );
+    for (path, headers, original) in &completions {
+        let retry = h.request("POST", path, headers, b"data").await;
+        assert_eq!(retry.status, 200);
+        let mut expected = original.json();
+        expected.as_object_mut().unwrap().remove("acl");
+        expected.as_object_mut().unwrap().remove("owner");
+        assert_eq!(retry.json(), expected);
+    }
     h.stop().await;
 }
 
