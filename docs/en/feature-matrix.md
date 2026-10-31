@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 209 | 0 | 100 | 1 | 0 | 0 |
-| behavior | 201 | 93 | 0 | 69 | 39 | 0 | 0 |
+| api_operation | 310 | 208 | 0 | 101 | 1 | 0 | 0 |
+| behavior | 201 | 91 | 0 | 71 | 39 | 0 | 0 |
 | project_requirement | 95 | 26 | 0 | 40 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 209 | 45 | 38 | 18 | 0 | 0 |
-| behavior | 94 | 65 | 38 | 4 | 0 | 0 |
+| api_operation | 208 | 46 | 38 | 18 | 0 | 0 |
+| behavior | 92 | 67 | 38 | 4 | 0 | 0 |
 | project_requirement | 26 | 0 | 0 | 0 | 0 | 69 |
 
 ## api_operation
@@ -409,7 +409,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-015 | GET Object encryption | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | GET Object retention | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-017 | HEAD Object | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 5 |
-| EXT-XML-018 | Initiate resumable upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-018 | Initiate resumable upload | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-019 | Initiate XML multipart upload | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-020 | Complete XML multipart upload | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-021 | HTML form upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -774,7 +774,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-039 | V4 Authorization header signatures | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-040 | Legacy V2 signed URLs | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-041 | Signed POST form policy validation | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
-| DESIGN-042 | Signed resumable initiation | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| DESIGN-042 | Signed resumable initiation | PARTIAL | P3 | EXACT | EXACT | 0 |
 | DESIGN-043 | Resumable session capability semantics | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-044 | Signature failure wire errors | PARTIAL | P2 | EXACT | EXACT | 0 |
 
@@ -810,7 +810,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | EXT-BEH-001 | XML pagination and markers | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-BEH-002 | XML namespace and error envelopes | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-BEH-003 | Resumable continuation, probing and cancellation | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-BEH-003 | Resumable continuation, probing and cancellation | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-BEH-004 | Signed form policy validation | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | EXT-BEH-005 | Custom-domain website routing | NOT_STARTED | P3 | EXACT | NONE | 0 |
 

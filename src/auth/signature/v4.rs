@@ -110,6 +110,7 @@ pub(super) fn prepare(
         } else {
             Signing::Query
         },
+        signed,
     )?;
     let streaming = super::streaming::validate(
         method,
@@ -184,13 +185,18 @@ fn supported_request(
     method: &Method,
     headers: &HeaderMap,
     signing: Signing,
+    signed: &str,
 ) -> Result<(), Failure> {
-    // Signed URL POST is restricted to resumable initiation, which this adapter does not offer.
+    let resumable = resumable_start(headers)?;
+    // Google accepts a signed URL POST only to start a resumable upload. A URL signed for
+    // that purpose but sent without the header reaches canonicalization and fails as a
+    // signature mismatch, because the signed header is missing.
+    let query_post = matches!(signing, Signing::Query) && *method == Method::POST;
     if !matches!(
         *method,
         Method::GET | Method::HEAD | Method::PUT | Method::DELETE | Method::POST
-    ) || (matches!(signing, Signing::Query) && *method == Method::POST)
-        || headers.contains_key("x-goog-resumable")
+    ) || (query_post && !resumable && !signed.split(';').any(|name| name == "x-goog-resumable"))
+        || (resumable && *method != Method::POST)
         || headers.contains_key("x-amz-trailer")
         || headers.contains_key("trailer")
     {

@@ -37,6 +37,9 @@ mod pap;
 #[path = "signing/post.rs"]
 mod post;
 
+#[path = "signing/resumable.rs"]
+mod resumable;
+
 fn sign(
     server: &Server,
     method: &Method,

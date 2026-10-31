@@ -106,7 +106,7 @@ impl fmt::Display for SigningError {
             Self::TimestampOutOfRange => f.write_str("timestamp out of range"),
             Self::InvalidUrl => f.write_str("invalid signing URL"),
             Self::UnsupportedRequest => f.write_str(
-                "signing requires an HTTP(S) URL, GET/HEAD/PUT/DELETE, a signer ID and 1..604800 seconds",
+                "signing requires an HTTP(S) URL, GET/HEAD/PUT/DELETE or POST with x-goog-resumable:start, a signer ID and 1..604800 seconds",
             ),
             Self::ReservedHeader => {
                 f.write_str("host and authorization cannot be supplied as signing headers")
@@ -234,6 +234,19 @@ fn integer<'a>(input: &mut &'a [u8]) -> Option<&'a [u8]> {
         [first, ..] if *first > 0 && first & 128 == 0 => Some(value),
         _ => None,
     }
+}
+
+/// Whether a request starts an XML resumable upload. `start` is the only documented value, and
+/// one header value keeps the signed canonical form unambiguous.
+pub(crate) fn resumable_start(headers: &HeaderMap) -> Result<bool, Failure> {
+    let mut values = headers.get_all("x-goog-resumable").iter();
+    let Some(value) = values.next() else {
+        return Ok(false);
+    };
+    if values.next().is_some() || value != "start" {
+        return Err(Failure::Malformed);
+    }
+    Ok(true)
 }
 
 pub(crate) fn is_signed(query: Option<&str>) -> bool {
@@ -595,10 +608,10 @@ pub fn sign_url(
     if !matches!(scheme.as_str(), "http" | "https")
         || authority.as_str().contains('@')
         || url.contains('#')
-        || !matches!(
+        || !(matches!(
             *method,
             Method::GET | Method::HEAD | Method::PUT | Method::DELETE
-        )
+        ) || (*method == Method::POST && resumable_start(&headers) == Ok(true)))
         || !super::visible_ascii(signer, 254)
         || signer.contains('/')
         || !(1..=MAX_EXPIRES).contains(&expires)

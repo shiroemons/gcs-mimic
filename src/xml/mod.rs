@@ -22,6 +22,7 @@ pub(crate) mod multipart;
 pub(crate) use cors::{cors, warn_unconfigured_cors};
 pub(crate) mod post;
 pub(crate) mod put;
+pub(crate) mod resumable;
 
 #[cfg(test)]
 pub(crate) async fn authenticate<'a>(

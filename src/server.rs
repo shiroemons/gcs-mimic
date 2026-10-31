@@ -101,7 +101,7 @@ pub(crate) mod copy;
 mod gzip;
 mod notifications;
 mod project_resources;
-mod resumable;
+pub(crate) mod resumable;
 mod retention_access;
 mod rewrite;
 mod unsupported;

@@ -831,7 +831,7 @@
           "Verify payload/header requirements, checksum failures, tampered and expired URLs, interrupted bodies and failed-overwrite preservation.",
           "Run pinned official SDK locally generated GET/PUT URLs against the exact final externally visible endpoint."
         ],
-        "deferred_scope": "POST form policies, signed resumable initiation, HMAC and general XML write breadth. Proxy routing, exact provider payload/error parity and unmodeled PAP retain PARTIAL feature rows; strict path-style signed-browser execution is delivered with evidence in docs/en/evidence/signed-browser.md.",
+        "deferred_scope": "POST form policies, HMAC and general XML write breadth. Strict path-style V4 RSA signed resumable initiation is delivered under the PARTIAL DESIGN-042 row (docs/en/evidence/signed-resumable.txt); other signing styles remain. Proxy routing, exact provider payload/error parity and unmodeled PAP retain PARTIAL feature rows; strict path-style signed-browser execution is delivered with evidence in docs/en/evidence/signed-browser.md.",
         "evidence": [
           "docs/en/evidence/signed-urls.md"
         ]
@@ -33481,25 +33481,71 @@
       "interface": "POST Object; x-goog-resumable:start",
       "phase": "P3",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/xml-api/post-object-resumable"
+        "https://docs.cloud.google.com/storage/docs/xml-api/post-object-resumable",
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-31",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Task variant in the official XML method overview; detailed field/parameter contract must be pinned before implementation.",
+      "notes": "POST /BUCKET/OBJECT with x-goog-resumable:start and an empty body requires storage.objects.create (delete as well for an overwrite), authenticates like any XML request (bearer, signed URL or permissive) and returns 201 with no body and Location https://ENDPOINT/BUCKET/OBJECT?upload_id=ID on the advertised API endpoint, keeping the request's raw object-name encoding. Content-Type, Cache-Control, Content-Disposition, Content-Encoding, Content-Language, x-goog-meta-*, x-goog-storage-class, x-goog-if-generation-match, x-goog-if-metageneration-match and customer-supplied key headers become session options in the shared resumable engine. Evidence: docs/en/evidence/signed-resumable.txt.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "EXT-XML-018-START",
+          "description": "Initiation stores Content-Type, custom metadata and a generation precondition, returns 201, an empty body and the path-style session URI, and creates no object until the upload completes; a non-empty body is rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::resumable::signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes",
+            "signing::resumable::signed_resumable_initiation_rejects_unsigned_tampered_expired_and_unauthorized_requests",
+            "signing::resumable::permissive_xml_resumable_initiation_needs_no_credentials"
+          ]
+        },
+        {
+          "id": "EXT-XML-018-AUTH",
+          "description": "Strict anonymous initiation is 401 AuthenticationRequired and a principal without storage.objects.create is 403 AccessDenied.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::resumable::signed_resumable_initiation_rejects_unsigned_tampered_expired_and_unauthorized_requests"
+          ]
+        },
+        {
+          "id": "EXT-XML-018-UNSUPPORTED",
+          "description": "x-goog-acl, x-goog-custom-time, x-goog-encryption-kms-key-name, object lock headers, x-goog-user-project, Content-MD5 and x-goog-hash at initiation, and virtual-host Location form.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "signing::resumable::permissive_xml_resumable_initiation_needs_no_credentials",
+        "signing::resumable::signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes",
+        "signing::resumable::signed_resumable_initiation_rejects_unsigned_tampered_expired_and_unauthorized_requests"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --test auth_http signing::resumable",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/signed-resumable.txt",
+          "test_ids": [
+            "signing::resumable::permissive_xml_resumable_initiation_needs_no_credentials",
+            "signing::resumable::signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes",
+            "signing::resumable::signed_resumable_initiation_rejects_unsigned_tampered_expired_and_unauthorized_requests"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "x-goog-acl, x-goog-custom-time, x-goog-encryption-kms-key-name, x-goog-object-lock-*, x-goog-user-project, Content-MD5 and x-goog-hash are rejected as unsupported at initiation instead of being applied.",
+        "The session URI is always path-style on the advertised API endpoint, also for a virtual-host initiation; Google's virtual-host Location form is unverified.",
+        "The response sets Cache-Control: no-store and omits X-GUploader-UploadID."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-31"
     },
     {
       "id": "EXT-XML-019",
@@ -37219,25 +37265,72 @@
       "interface": "XML resumable session URI",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads"
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads",
+        "https://docs.cloud.google.com/storage/docs/resumable-uploads"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-31",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Shared session engine with protocol-specific headers/statuses.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "notes": "The XML session URI /BUCKET/OBJECT?upload_id=ID is a bearer capability: PUT and DELETE need no credentials and run the shared resumable engine (bounded streaming, 256 KiB chunk rule, Content-Range data/status/open ranges, 308 with Range, atomic finalization and completion replay). The URI binds the session's bucket and object; another object, an unknown ID or any other query parameter is rejected. Completion is 200 with no body and the stored object's ETag, x-goog-generation, x-goog-metageneration, x-goog-hash and x-goog-stored-content-* headers. DELETE cancels with 204, and later requests to a cancelled session answer 204 as documented. Evidence: docs/en/evidence/signed-resumable.txt.",
+      "dependencies": [
+        "EXT-XML-018"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "EXT-BEH-003-TRANSFER",
+          "description": "Credential-free chunked upload with 308/Range, a status query, finalization with XML object headers, completion replay without a new generation and a single-request upload; another object path or an unknown ID is 404 NoSuchUpload and extra query parameters are 400.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::resumable::signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes",
+            "signing::resumable::permissive_xml_resumable_initiation_needs_no_credentials"
+          ]
+        },
+        {
+          "id": "EXT-BEH-003-CANCEL",
+          "description": "DELETE cancels with 204, later PUT and DELETE answer 204 and no object is created.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::resumable::signed_resumable_sessions_cancel_with_no_content"
+          ]
+        },
+        {
+          "id": "EXT-BEH-003-PROVIDER",
+          "description": "Provider-exact XML error bodies and codes for session failures, behavior of XML-specific headers on chunk requests, and expiry of XML sessions.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "signing::resumable::permissive_xml_resumable_initiation_needs_no_credentials",
+        "signing::resumable::signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes",
+        "signing::resumable::signed_resumable_sessions_cancel_with_no_content"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --test auth_http signing::resumable",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/signed-resumable.txt",
+          "test_ids": [
+            "signing::resumable::permissive_xml_resumable_initiation_needs_no_credentials",
+            "signing::resumable::signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes",
+            "signing::resumable::signed_resumable_sessions_cancel_with_no_content"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Chunk requests share the JSON session rules, including X-GUploader-No-308, x-goog-hash and final x-goog-meta-* handling; XML-specific provider behavior for these headers is unverified.",
+        "Session errors other than 404 NoSuchUpload map through the generic local XML error codes; a cancel of a completed session also answers 204.",
+        "The completed response is derived from the stored JSON object resource, so the same session completed through the JSON session URI replays consistently but the XML headers are not provider-verified."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-31"
     },
     {
       "id": "EXT-BEH-004",
@@ -45288,27 +45381,81 @@
       "interface": "XML resumable upload",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control/signed-urls",
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
-        "https://docs.cloud.google.com/storage/docs/resumable-uploads"
+        "https://docs.cloud.google.com/storage/docs/resumable-uploads",
+        "https://docs.cloud.google.com/storage/docs/xml-api/post-object-resumable"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-31",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Validate signed POST initiation and return the correct capability URI.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "notes": "A V4 query-signed URL accepts POST only to start a resumable upload: x-goog-resumable must be exactly start and, like every x-goog-* header, listed in X-Goog-SignedHeaders (canonical-requests: signed URLs serve POST only for resumable initiation, with UNSIGNED-PAYLOAD). Expiry, Host, path, method and the signer's storage.objects.create permission are verified unchanged; a URL signed for the header but sent without it is a signature mismatch. The signer helper and url sign accept POST only with x-goog-resumable:start. The session URI is path-style on the advertised API endpoint and needs no signature. Evidence: docs/en/evidence/signed-resumable.txt; the pinned .NET SignedUrlResumableUpload probe passed against this source through the SDK scorecard.",
+      "dependencies": [
+        "EXT-XML-018",
+        "EXT-BEH-003"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-042-V4-QUERY",
+          "description": "Strict path-style V4 RSA query signing: a signed POST with x-goog-resumable:start opens a session (201, Location) for the signer; unsigned, repeated or non-start x-goog-resumable, a missing signed header, a changed method, path or Host, expiry and a signer without create permission are rejected with XML errors before any session or object exists.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::v4::tests::signed_url_post_only_starts_a_resumable_upload_with_a_signed_header",
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::resumable::signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes",
+            "signing::resumable::signed_resumable_initiation_rejects_unsigned_tampered_expired_and_unauthorized_requests"
+          ]
+        },
+        {
+          "id": "DESIGN-042-PERMISSIVE",
+          "description": "Permissive mode starts XML sessions without credentials or from an unverified signed URL, as for every permissive XML request.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::resumable::permissive_xml_resumable_initiation_needs_no_credentials"
+          ]
+        },
+        {
+          "id": "DESIGN-042-OTHER-SIGNING",
+          "description": "Virtual-host signed initiation, V4 HMAC and header-signed initiation, V2 signed initiation, and Google's exact error codes for a rejected signed POST.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+        "auth::signature::v4::tests::signed_url_post_only_starts_a_resumable_upload_with_a_signed_header",
+        "signing::resumable::permissive_xml_resumable_initiation_needs_no_credentials",
+        "signing::resumable::signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes",
+        "signing::resumable::signed_resumable_initiation_rejects_unsigned_tampered_expired_and_unauthorized_requests"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --test auth_http signing::resumable && cargo test --locked --lib -- signed_url_post_only signed_method_resource_query",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/signed-resumable.txt",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "auth::signature::v4::tests::signed_url_post_only_starts_a_resumable_upload_with_a_signed_header",
+            "signing::resumable::permissive_xml_resumable_initiation_needs_no_credentials",
+            "signing::resumable::signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes",
+            "signing::resumable::signed_resumable_initiation_rejects_unsigned_tampered_expired_and_unauthorized_requests"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Only strict path-style V4 RSA query signing is verified. Virtual-host, V4 HMAC, header-signed and V2 signed initiation pass through the same verifier and handler but have no dedicated tests.",
+        "Rejected signed POSTs use the existing local XML error codes (InvalidAuthentication 400 for an unsigned or invalid x-goog-resumable, SignatureDoesNotMatch 403 for a missing signed header); Google's exact codes are unverified.",
+        "The .NET SignedUrlResumableUpload pass is recorded only in docs/en/evidence/signed-resumable.txt; the scorecard probe is not part of this change."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-31"
     },
     {
       "id": "DESIGN-043",

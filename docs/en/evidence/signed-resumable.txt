@@ -1,0 +1,23 @@
+# XML resumable initiation from V4 signed URLs (DESIGN-042, EXT-XML-018, EXT-BEH-003)
+# Recorded 2026-10-31 on the final source. Build paths under target/ are shortened to <hash>.
+
+$ cargo test --locked --test auth_http signing::resumable
+     Running tests/auth_http.rs (target/debug/deps/auth_http-<hash>)
+test signing::resumable::signed_resumable_initiation_rejects_unsigned_tampered_expired_and_unauthorized_requests ... ok
+test signing::resumable::permissive_xml_resumable_initiation_needs_no_credentials ... ok
+test signing::resumable::signed_resumable_sessions_cancel_with_no_content ... ok
+test signing::resumable::signed_resumable_initiation_opens_a_session_that_the_uri_alone_completes ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 122 filtered out; finished in 2.21s
+
+$ cargo test --locked --lib -- signed_url_post_only signed_method_resource_query
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-<hash>)
+test auth::signature::v4::tests::signed_url_post_only_starts_a_resumable_upload_with_a_signed_header ... ok
+test auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 967 filtered out; finished in 0.01s
+
+# Official .NET SDK (Google.Cloud.Storage.V1 5.0.0, Google.Apis 1.76.0, .NET SDK 10.0.403):
+# SignedUrlResumableUpload over a UrlSigner.ResumableHttpMethod V4 URL, behind the scorecard
+# HTTPS front with a permissive release build of this source. The probe is part of the SDK
+# scorecard, not of this change.
+$ SCORECARD_RUN=signed_url_resumable bash sdk-scorecard/dotnet/run.sh --no-build
+{"sdk":"dotnet","id":"sdk.signed_url_resumable_upload","area":"sdk","pass":true}

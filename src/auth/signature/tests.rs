@@ -473,6 +473,33 @@ fn delete_signatures_bind_method_host_raw_path_and_generation() {
         )
         .is_err()
     );
+    // POST is signable only to start a resumable upload, with the header signed.
+    let mut start = HeaderMap::new();
+    start.insert("x-goog-resumable", "start".parse().unwrap());
+    let signed = sign_url(
+        "https://localhost/bucket/object",
+        &Method::POST,
+        SIGNER,
+        PRIVATE,
+        60,
+        now,
+        start.clone(),
+    )
+    .unwrap();
+    assert!(signed.contains("X-Goog-SignedHeaders=host%3Bx-goog-resumable&"));
+    start.insert("x-goog-resumable", "stop".parse().unwrap());
+    assert!(
+        sign_url(
+            "https://localhost/bucket/object",
+            &Method::POST,
+            SIGNER,
+            PRIVATE,
+            60,
+            now,
+            start
+        )
+        .is_err()
+    );
 }
 
 #[test]

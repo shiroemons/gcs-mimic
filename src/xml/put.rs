@@ -127,7 +127,7 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
     Ok(())
 }
 
-fn conditions(headers: &HeaderMap) -> Result<ObjectConditions, Error> {
+pub(super) fn conditions(headers: &HeaderMap) -> Result<ObjectConditions, Error> {
     let mut conditions = ObjectConditions::default();
     for (key, target, min) in [
         (
@@ -209,7 +209,7 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
     Ok(())
 }
 
-fn content_type_and_hashes(
+pub(super) fn content_type_and_hashes(
     headers: &HeaderMap,
     conditions: ObjectConditions,
 ) -> Result<(String, ExpectedHashes), Error> {
@@ -255,7 +255,7 @@ fn content_type_and_hashes(
     Ok((content_type, expected))
 }
 
-fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Error> {
+pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Error> {
     let mut metadata = ObjectMetadataUpdate {
         customer_key_sha256: json::request_key(headers)?.map(crate::csek::CustomerKey::sha256),
         ..Default::default()

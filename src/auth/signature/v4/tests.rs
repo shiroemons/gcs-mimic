@@ -198,3 +198,48 @@ fn canonicalization_bounds_resource_use_and_preserves_header_wire_order() {
         Err(Failure::Malformed)
     ));
 }
+
+#[test]
+fn signed_url_post_only_starts_a_resumable_upload_with_a_signed_header() {
+    let now = parse_timestamp(DATE).unwrap();
+    let signed: Uri = query()
+        .to_string()
+        .replace(
+            "SignedHeaders=host",
+            "SignedHeaders=host%3Bx-goog-resumable",
+        )
+        .parse()
+        .unwrap();
+    let mut start = HeaderMap::new();
+    start.insert("host", "localhost".parse().unwrap());
+    start.insert("x-goog-resumable", "start".parse().unwrap());
+    assert!(prepare(&Method::POST, &signed, &start, now).is_ok());
+    // Without the header the signed header is missing, which is a signature mismatch.
+    let mut missing = start.clone();
+    missing.remove("x-goog-resumable");
+    assert!(matches!(
+        prepare(&Method::POST, &signed, &missing, now),
+        Err(Failure::Mismatch)
+    ));
+    // The header must be signed, carry the one documented value and accompany only POST.
+    assert!(matches!(
+        prepare(&Method::POST, &query(), &start, now),
+        Err(Failure::Malformed)
+    ));
+    let mut stop = start.clone();
+    stop.insert("x-goog-resumable", "stop".parse().unwrap());
+    let mut repeated = start.clone();
+    repeated.append("x-goog-resumable", "start".parse().unwrap());
+    for headers in [&stop, &repeated] {
+        assert!(matches!(
+            prepare(&Method::POST, &signed, headers, now),
+            Err(Failure::Malformed)
+        ));
+    }
+    for method in [Method::GET, Method::PUT] {
+        assert!(matches!(
+            prepare(&method, &signed, &start, now),
+            Err(Failure::Malformed)
+        ));
+    }
+}

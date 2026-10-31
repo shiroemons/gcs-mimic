@@ -23,7 +23,7 @@ pub(super) async fn initiate(
     access: BucketAccess,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, JsonError> {
-    let ObjectCtx { state, config, .. } = ctx;
+    let ObjectCtx { config, .. } = ctx;
     let response_fields =
         json::parse_query(request.uri().query().unwrap_or_default())?.remove("fields");
     let (mime, expected, total) =
@@ -70,19 +70,11 @@ pub(super) async fn initiate(
         encoding,
     };
     let (name, mut options) = resumable::options(&bytes, initiation)?;
-    super::retention_access::authorize_upload(state, &options.access, bucket, &options.metadata)
-        .await?;
     options.response_fields = response_fields;
     // The session binds the key fingerprint; later chunks cannot change it.
     options.metadata.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
-    let session = ctx
-        .await_catalog(
-            state
-                .catalog
-                .create_resumable_session(bucket, &name, options, total),
-        )
-        .await?;
-    let location = format!("{location_prefix}{}", session.id);
+    let id = create_session(ctx, bucket, &name, options, total).await?;
+    let location = format!("{location_prefix}{id}");
     let mut response = empty_response(StatusCode::OK);
     response.headers_mut().insert(
         "location",
@@ -94,6 +86,28 @@ pub(super) async fn initiate(
         .headers_mut()
         .insert("cache-control", HeaderValue::from_static("no-store"));
     Ok(boxed(response))
+}
+
+/// Opens a session for an authorized initiation and returns its opaque ID. Each protocol
+/// adapter parses its own initiation request and builds its own session URI.
+pub(crate) async fn create_session(
+    ctx: ObjectCtx<'_>,
+    bucket: &str,
+    name: &str,
+    options: ResumableOptions,
+    total: Option<u64>,
+) -> Result<String, JsonError> {
+    let state = ctx.state;
+    super::retention_access::authorize_upload(state, &options.access, bucket, &options.metadata)
+        .await?;
+    let session = ctx
+        .await_catalog(
+            state
+                .catalog
+                .create_resumable_session(bucket, name, options, total),
+        )
+        .await?;
+    Ok(session.id)
 }
 
 pub(super) fn incomplete(
@@ -323,17 +337,54 @@ pub(super) async fn session_response(
     id: &str,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, JsonError> {
-    let ObjectCtx { state, config, .. } = ctx;
     if request.method() == hyper::Method::DELETE {
-        return json::resumable_cancel::cancel_response(request, bucket, id, &state.catalog)
+        return json::resumable_cancel::cancel_response(request, bucket, id, &ctx.state.catalog)
             .await
             .map(boxed);
     }
+    let target = SessionTarget {
+        bucket,
+        id,
+        name: None,
+    };
+    Ok(match transfer(request, target, ctx).await? {
+        Transfer::Incomplete(response) => response,
+        Transfer::Complete(value) => completed(&value),
+    })
+}
+
+/// The session a request addresses through its session URI.
+pub(crate) struct SessionTarget<'a> {
+    pub(crate) bucket: &'a str,
+    pub(crate) id: &'a str,
+    /// The object an XML session URI names; the JSON URI names only the bucket.
+    pub(crate) name: Option<&'a str>,
+}
+
+/// The result of one chunk or status request against a session.
+pub(crate) enum Transfer {
+    /// The protocol-neutral 308 response with the persisted range.
+    Incomplete(Response<ResponseBody>),
+    /// The stored JSON object resource of the completed upload, which retries replay.
+    Complete(serde_json::Value),
+}
+
+/// Writes or queries one session: the shared engine behind every session URI.
+pub(crate) async fn transfer(
+    request: Request<Incoming>,
+    target: SessionTarget<'_>,
+    ctx: ObjectCtx<'_>,
+) -> Result<Transfer, JsonError> {
+    let ObjectCtx { state, config, .. } = ctx;
+    let SessionTarget { bucket, id, name } = target;
     let headers = request.headers().clone();
     let (range, length) = chunk_framing(&headers, config.max_object_bytes)?;
     let mut lease = ctx
         .await_catalog(state.catalog.lock_resumable_session(id, bucket))
         .await?;
+    if name.is_some_and(|name| name != lease.session.name) {
+        return Err(crate::storage::ResumableError::NotFound.into());
+    }
     let session = &lease.session;
     // Chunks may repeat the initiation key (as SDKs do) but never introduce or replace one;
     // a mismatch rejects only this request and leaves the session usable.
@@ -380,7 +431,7 @@ pub(super) async fn session_response(
         let completion = session.completion.as_ref().ok_or_else(|| {
             ObjectError::Unavailable("Completed upload session has no stored response".into())
         })?;
-        return Ok(completed(completion));
+        return Ok(Transfer::Complete(completion.clone()));
     }
     if status_only {
         json::read_body(request.into_body(), 0).await?;
@@ -394,7 +445,7 @@ pub(super) async fn session_response(
             )
             .await?;
         }
-        return incomplete(offset, &headers);
+        return incomplete(offset, &headers).map(Transfer::Incomplete);
     }
     let permit = state.catalog.admit_object_upload()?;
     let offset = session.offset.max(plan.end);
@@ -415,8 +466,8 @@ pub(super) async fn session_response(
         .write_resumable_session(lease, chunk, body, permit, render);
     let upload = async { upload.await.map_err(JsonError::from) };
     match stream_chunk(request.into_body(), ctx, upload, sender, progress).await? {
-        Some(value) => Ok(completed(&value)),
-        None => incomplete(offset, &headers),
+        Some(value) => Ok(Transfer::Complete(value)),
+        None => incomplete(offset, &headers).map(Transfer::Incomplete),
     }
 }
 

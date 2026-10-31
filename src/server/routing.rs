@@ -218,6 +218,11 @@ async fn respond_routed(
         crate::auth::signature::Resource::PathStyle,
         xml::ObjectPath::signature_resource,
     );
+    if let Some(object) = selected.as_ref()
+        && let Some(route) = xml::resumable::route(method, uri, request.headers())
+    {
+        return respond_xml_resumable(request, ctx, object, route, &signature_resource).await;
+    }
     if let Some(parsed) = xml::route(method, ctx.config, selected, request.headers()) {
         return respond_xml_object(request, ctx, parsed, signature_resource).await;
     }
@@ -380,6 +385,46 @@ async fn respond_xml_object(
     if head || put || delete || multipart || result.is_err() {
         ctx.finish_object_request();
     }
+    result.unwrap_or_else(|error| boxed(error.response(error_body)))
+}
+
+/// Initiation authenticates like any XML request; the session URI is its own capability.
+async fn respond_xml_resumable(
+    mut request: Request<Incoming>,
+    ctx: RequestCtx<'_>,
+    object: &xml::ObjectPath,
+    route: xml::resumable::Route,
+    resource: &crate::auth::signature::Resource,
+) -> Response<ResponseBody> {
+    let error_body = xml::ErrorBody::for_method(request.method());
+    let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
+    let result = match route {
+        xml::resumable::Route::Session => {
+            xml::resumable::session(request, object, ctx.object(None, deadline)).await
+        }
+        xml::resumable::Route::Start => {
+            match xml::authenticate_target(
+                &ctx.state.auth,
+                &ctx.state.catalog,
+                request.method(),
+                request.uri(),
+                request.headers(),
+                ctx.state.clock.as_ref(),
+                resource,
+            )
+            .await
+            {
+                Ok(caller) => match xml::normalize_legacy_headers(request.headers_mut()) {
+                    Ok(()) => {
+                        xml::resumable::start(request, object, ctx.object(caller, deadline)).await
+                    }
+                    Err(error) => Err(error),
+                },
+                Err(error) => Err(error),
+            }
+        }
+    };
+    ctx.finish_object_request();
     result.unwrap_or_else(|error| boxed(error.response(error_body)))
 }
 

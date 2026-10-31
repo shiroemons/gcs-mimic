@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 209 | 0 | 100 | 1 | 0 | 0 |
-| behavior | 201 | 93 | 0 | 69 | 39 | 0 | 0 |
+| api_operation | 310 | 208 | 0 | 101 | 1 | 0 | 0 |
+| behavior | 201 | 91 | 0 | 71 | 39 | 0 | 0 |
 | project_requirement | 95 | 26 | 0 | 40 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 209 | 45 | 38 | 18 | 0 | 0 |
-| behavior | 94 | 65 | 38 | 4 | 0 | 0 |
+| api_operation | 208 | 46 | 38 | 18 | 0 | 0 |
+| behavior | 92 | 67 | 38 | 4 | 0 | 0 |
 | project_requirement | 26 | 0 | 0 | 0 | 0 | 69 |
 
 ## api_operation
@@ -409,7 +409,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-015 | オブジェクト暗号化情報取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | オブジェクト保持設定取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-017 | オブジェクトメタデータ取得 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 5 |
-| EXT-XML-018 | 再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-018 | 再開可能アップロード開始 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-019 | XMLマルチパート開始 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-020 | XMLマルチパート完了 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-021 | HTMLフォームアップロード | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -774,7 +774,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-039 | V4 Authorizationヘッダー署名 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-040 | 従来のV2署名付きURL | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-041 | 署名付きPOSTフォームポリシーの検証 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
-| DESIGN-042 | 署名による再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| DESIGN-042 | 署名による再開可能アップロード開始 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | DESIGN-043 | 再開可能アップロードのセッションURI権限 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-044 | 署名失敗時のXMLエラー応答 | PARTIAL | P2 | EXACT | EXACT | 0 |
 
@@ -810,7 +810,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | EXT-BEH-001 | XML一覧のページング | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-BEH-002 | XML名前空間・エラー形式 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-BEH-003 | 再開可能アップロード継続・状態確認・中止 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-BEH-003 | 再開可能アップロード継続・状態確認・中止 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-BEH-004 | 署名付きフォームのポリシー検証 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | EXT-BEH-005 | 独自ドメインの静的サイト挙動 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 
