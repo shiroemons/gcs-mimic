@@ -1390,7 +1390,7 @@ impl Catalog {
     async fn update_bucket(
         &self,
         name: &str,
-        update: BucketMetadataUpdate,
+        mut update: BucketMetadataUpdate,
         if_metageneration_match: Option<i64>,
         if_metageneration_not_match: Option<i64>,
         access: &BucketAccess,
@@ -1421,6 +1421,11 @@ impl Catalog {
             {
                 return Err(CatalogError::PreconditionFailed);
             }
+            // Cloud Storage answered a PATCH carrying only ignored members with the unchanged
+            // resource: no metageneration advance and no new `updated` time (observed 2026-10-31).
+            if matches!(mode, BucketWrite::Patch) && update.is_empty() {
+                return Ok(record);
+            }
             if update
                 .location
                 .as_ref()
@@ -1442,7 +1447,7 @@ impl Catalog {
             apply_retention_policy(&mut record, &update, if_metageneration_match, clock.now())?;
             validate_retention_expiration(&transaction, &record)?;
             bucket_autoclass::update(&transaction, &mut record, &update, clock.now())?;
-            if let Some(labels) = update.labels {
+            if let Some(labels) = update.labels.take() {
                 apply_labels(&mut record, labels, mode)?;
             }
             if record.labels.len() > 64 {
@@ -1450,28 +1455,7 @@ impl Catalog {
                     "A bucket can have at most 64 labels".into(),
                 ));
             }
-            if let Some(class) = update.storage_class {
-                validate_storage_class(&class)?;
-                record.storage_class = class;
-            }
-            if let Some(enabled) = update.versioning_enabled {
-                record.versioning_enabled = enabled;
-            }
-            if let Some(hold) = update.default_event_based_hold {
-                record.default_event_based_hold = hold;
-            }
-            if let Some(enforced) = update.public_access_prevention_enforced {
-                record.public_access_prevention_enforced = enforced;
-            }
-            if let Some(cors) = update.cors {
-                validate_cors(&cors)?;
-                record.cors = cors;
-            }
-            if let Some(lifecycle) = update.lifecycle {
-                crate::bucket::lifecycle::validate(&lifecycle)?;
-                crate::bucket::lifecycle::validate_location(&lifecycle, &record.location_type)?;
-                record.lifecycle = lifecycle;
-            }
+            apply_plain_settings(&mut record, &mut update)?;
             record.metageneration = record
                 .metageneration
                 .checked_add(1)
@@ -1867,6 +1851,36 @@ fn apply_retention_policy(
 }
 
 /// Applies a label update; `None` clears every label and a replace starts from none.
+/// Applies the settings that only validate and replace a stored value.
+fn apply_plain_settings(
+    record: &mut BucketRecord,
+    update: &mut BucketMetadataUpdate,
+) -> Result<(), CatalogError> {
+    if let Some(class) = update.storage_class.take() {
+        validate_storage_class(&class)?;
+        record.storage_class = class;
+    }
+    if let Some(enabled) = update.versioning_enabled {
+        record.versioning_enabled = enabled;
+    }
+    if let Some(hold) = update.default_event_based_hold {
+        record.default_event_based_hold = hold;
+    }
+    if let Some(enforced) = update.public_access_prevention_enforced {
+        record.public_access_prevention_enforced = enforced;
+    }
+    if let Some(cors) = update.cors.take() {
+        validate_cors(&cors)?;
+        record.cors = cors;
+    }
+    if let Some(lifecycle) = update.lifecycle.take() {
+        crate::bucket::lifecycle::validate(&lifecycle)?;
+        crate::bucket::lifecycle::validate_location(&lifecycle, &record.location_type)?;
+        record.lifecycle = lifecycle;
+    }
+    Ok(())
+}
+
 fn apply_labels(
     record: &mut BucketRecord,
     labels: Option<std::collections::BTreeMap<String, Option<String>>>,

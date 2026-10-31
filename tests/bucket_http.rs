@@ -1272,15 +1272,17 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
         let path = "/storage/v1/b/patch-empty";
         let first = server.request("PATCH", path, r#"{"labels":{"keep":"yes"},"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).json();
         let mut revision = 2;
-        for body in [
-            "{}",
-            r#"{"labels":{}}"#,
-            r#"{"versioning":{}}"#,
-            r#"{"labels":{"missing":null}}"#,
+        // Observed on Cloud Storage: a PATCH with no writable setting (`{}`, `versioning:{}`) is a
+        // no-op that keeps the metageneration; `labels:{}` and a null label still advance it.
+        for (body, advances) in [
+            ("{}", false),
+            (r#"{"labels":{}}"#, true),
+            (r#"{"versioning":{}}"#, false),
+            (r#"{"labels":{"missing":null}}"#, true),
         ] {
             let reply = server.request("PATCH", path, body);
             assert_eq!(reply.status, 200, "{}", reply.body);
-            revision += 1;
+            revision += i32::from(advances);
             let value = reply.json();
             for field in [
                 "labels",
@@ -1422,31 +1424,46 @@ fn bucket_patch_label_boundaries_and_classes() {
         assert_eq!(server.request("GET", path, "").json(), before);
     }
 }
-
+/// Cloud Storage ignored `satisfiesPZI` and `satisfiesPZS`, true and false, on insert, PATCH and
+/// PUT (observed 2026-10-31): it kept reporting `satisfiesPZI: true` and never emitted
+/// `satisfiesPZS`. A PATCH carrying only such a member changed nothing, including the
+/// metageneration; a PUT is a full update and advanced it.
 #[test]
-fn satisfies_pzi_is_ignored_on_insert_patch_and_put_whatever_its_value() {
+fn satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value() {
     for profile in PROFILES {
-        let dir = TestDir::new();
-        let server = profile_server(&dir, profile);
-        for (index, value) in [json!(true), json!(false), Value::Null]
-            .into_iter()
-            .enumerate()
-        {
-            let name = format!("pzi-{index}");
-            let body = json!({"name":name,"satisfiesPZI":value}).to_string();
-            let reply = server.request("POST", "/storage/v1/b?project=project", &body);
-            assert_eq!(reply.status, 200, "{profile} insert");
-            let path = format!("/storage/v1/b/{name}");
-            let before = server.request("GET", &path, "").json();
-            for method in ["PATCH", "PUT"] {
-                let body = json!({"satisfiesPZI":value,"labels":{"seen":"yes"}}).to_string();
-                let reply = server.request(method, &path, &body);
-                assert_eq!(reply.status, 200, "{profile} {method} {value}");
+        let pzi = (profile == "native").then(|| json!(true));
+        let check = |resource: &Value, context: &str| {
+            assert_eq!(resource.get("satisfiesPZI"), pzi.as_ref(), "{context}");
+            assert_eq!(resource.get("satisfiesPZS"), None, "{context}");
+        };
+        for field in ["satisfiesPZI", "satisfiesPZS"] {
+            for value in [json!(true), json!(false)] {
+                let context = format!("{profile} {field} {value}");
+                let dir = TestDir::new();
+                let server = profile_server(&dir, profile);
+                let body = json!({"name":"pzi",field:value}).to_string();
+                let reply = server.request("POST", "/storage/v1/b?project=project", &body);
+                assert_eq!(reply.status, 200, "{context} insert");
+                check(&reply.json(), &context);
+                let path = "/storage/v1/b/pzi";
+                let before = server.request("GET", path, "").json();
+                check(&before, &context);
+                let body = json!({field:value}).to_string();
+
+                let reply = server.request("PATCH", path, &body);
+                assert_eq!(reply.status, 200, "{context} PATCH");
+                check(&reply.json(), &context);
                 assert_eq!(
-                    reply.json().get("satisfiesPZI"),
-                    before.get("satisfiesPZI"),
-                    "{profile} {method}"
+                    reply.json()["metageneration"],
+                    before["metageneration"],
+                    "{context} PATCH must not advance the metageneration"
                 );
+                assert_eq!(without_acl(reply.json()), before, "{context} PATCH");
+
+                let reply = server.request("PUT", path, &body);
+                assert_eq!(reply.status, 200, "{context} PUT");
+                check(&reply.json(), &context);
+                check(&server.request("GET", path, "").json(), &context);
             }
         }
     }
@@ -1583,7 +1600,6 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
             "ipFilter",
             "logging",
             "rpo",
-            "satisfiesPZS",
             "website",
         ] {
             for value in [Value::Null, json!({}), json!([]), json!(false)] {
@@ -1775,13 +1791,13 @@ fn bucket_metadata_conditions(method: &str) {
             .request(
                 method,
                 "/storage/v1/b/missing-bucket?ifMetagenerationMatch=0",
-                "{}",
+                r#"{"labels":{}}"#,
             )
             .error(404, "notFound");
         let first = server.request(
             method,
             &format!("{path}?ifMetagenerationMatch=1&ifMetagenerationNotMatch=0&projection=full"),
-            "{}",
+            r#"{"labels":{}}"#,
         );
         assert_eq!(first.status, 200);
         assert_eq!(first.json()["metageneration"], "2");
@@ -1791,7 +1807,7 @@ fn bucket_metadata_conditions(method: &str) {
                 .request(
                     method,
                     &format!("{path}?projection=noAcl&ifMetagenerationNotMatch=1"),
-                    "{}"
+                    r#"{"labels":{}}"#
                 )
                 .json()["metageneration"],
             "3"
@@ -2810,7 +2826,6 @@ fn bucket_core_unsupported_settings_preserve_state() {
             "ipFilter",
             "logging",
             "rpo",
-            "satisfiesPZS",
             "website",
         ] {
             for value in [

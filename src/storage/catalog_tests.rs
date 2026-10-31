@@ -847,8 +847,9 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
         )
         .await
         .unwrap();
+    // A patch without a writable setting is a no-op, as on Cloud Storage.
     assert_eq!(next.updated, record.updated);
-    assert_eq!(next.metageneration, 5);
+    assert_eq!(next.metageneration, 4);
     let too_many = BucketMetadataUpdate {
         labels: Some(Some(
             (0..64)

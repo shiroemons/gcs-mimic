@@ -219,7 +219,10 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
         let patched = catalog
             .patch_bucket(
                 "timestamp-bucket",
-                BucketMetadataUpdate::default(),
+                BucketMetadataUpdate {
+                    versioning_enabled: Some(true),
+                    ..Default::default()
+                },
                 None,
                 None,
                 &BucketAccess::Permissive,
@@ -510,7 +513,10 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
         let patched = catalog
             .patch_bucket(
                 "timestamp-bucket",
-                BucketMetadataUpdate::default(),
+                crate::bucket::BucketMetadataUpdate {
+                    versioning_enabled: Some(true),
+                    ..Default::default()
+                },
                 None,
                 None,
                 &BucketAccess::Permissive,

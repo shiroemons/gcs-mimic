@@ -1100,7 +1100,10 @@ async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all
         .catalog
         .patch_bucket(
             "test-bucket",
-            crate::bucket::BucketMetadataUpdate::default(),
+            crate::bucket::BucketMetadataUpdate {
+                versioning_enabled: Some(true),
+                ..Default::default()
+            },
             None,
             None,
             &crate::bucket::BucketAccess::Permissive,

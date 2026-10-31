@@ -157,6 +157,46 @@ pub(crate) struct BucketMetadataUpdate {
     pub location: Option<String>,
 }
 
+impl BucketMetadataUpdate {
+    /// True when no writable setting is present, as for a PATCH that carried only ignored members.
+    pub(crate) fn is_empty(&self) -> bool {
+        let Self {
+            acl,
+            default_object_acl,
+            cors,
+            lifecycle,
+            retention_period,
+            soft_delete_retention,
+            lock_retention_policy,
+            object_retention_enabled,
+            labels,
+            storage_class,
+            autoclass,
+            versioning_enabled,
+            default_event_based_hold,
+            public_access_prevention_enforced,
+            uniform_bucket_level_access_enabled,
+            location,
+        } = self;
+        acl.is_none()
+            && default_object_acl.is_none()
+            && cors.is_none()
+            && lifecycle.is_none()
+            && retention_period.is_none()
+            && soft_delete_retention.is_none()
+            && !lock_retention_policy
+            && object_retention_enabled.is_none()
+            && labels.is_none()
+            && storage_class.is_none()
+            && autoclass.is_none()
+            && versioning_enabled.is_none()
+            && default_event_based_hold.is_none()
+            && public_access_prevention_enforced.is_none()
+            && uniform_bucket_level_access_enabled.is_none()
+            && location.is_none()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RetentionPolicy {
     pub retention_period: u64,

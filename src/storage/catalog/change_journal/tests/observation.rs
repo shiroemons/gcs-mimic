@@ -324,7 +324,10 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
                 catalog
                     .patch_bucket(
                         "other-bucket",
-                        crate::bucket::BucketMetadataUpdate::default(),
+                        crate::bucket::BucketMetadataUpdate {
+                            versioning_enabled: Some(true),
+                            ..Default::default()
+                        },
                         None,
                         None,
                         &BucketAccess::Permissive,

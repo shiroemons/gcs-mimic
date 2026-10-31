@@ -777,9 +777,9 @@ fn bkt_ins_002_recognized_unsupported_fields_never_succeed() {
 }
 
 #[test]
-fn satisfies_pzi_in_a_write_body_is_ignored_whatever_its_value() {
-    // An output-only field, like `generation`: a read-modify-write client may send it back
-    // unchanged, and a different value must not change state or fail the write.
+fn satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value() {
+    // Cloud Storage accepted and ignored both members (observed 2026-10-31); the emulator emits
+    // satisfiesPZI, so a read-modify-write client sends it back unchanged.
     let expected = parse_insert(br#"{"name":"abc"}"#, "p", UNIX_EPOCH).unwrap();
     for value in [
         json!(true),
@@ -788,12 +788,15 @@ fn satisfies_pzi_in_a_write_body_is_ignored_whatever_its_value() {
         json!("true"),
         json!({}),
     ] {
-        let mut body = json!({"name":"abc"});
-        body["satisfiesPZI"] = value;
-        let actual = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap();
-        assert_eq!(actual, expected, "{body}");
+        for field in ["satisfiesPZI", "satisfiesPZS"] {
+            let mut body = json!({"name":"abc"});
+            body[field] = value.clone();
+            let actual = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap();
+            assert_eq!(actual, expected, "{body}");
+        }
     }
     assert_eq!(resource(&expected)["satisfiesPZI"], true);
+    assert!(resource(&expected).get("satisfiesPZS").is_none());
 }
 
 #[test]

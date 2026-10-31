@@ -323,7 +323,10 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
     catalog
         .patch_bucket(
             "empty-bucket",
-            BucketMetadataUpdate::default(),
+            BucketMetadataUpdate {
+                versioning_enabled: Some(true),
+                ..Default::default()
+            },
             None,
             None,
             &BucketAccess::Permissive,

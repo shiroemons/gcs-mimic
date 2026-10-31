@@ -282,7 +282,10 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
         let patched = catalog
             .patch_bucket(
                 "bucket-one",
-                crate::bucket::BucketMetadataUpdate::default(),
+                crate::bucket::BucketMetadataUpdate {
+                    versioning_enabled: Some(true),
+                    ..Default::default()
+                },
                 None,
                 None,
                 &crate::bucket::BucketAccess::Permissive,

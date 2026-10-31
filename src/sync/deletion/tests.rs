@@ -287,7 +287,10 @@ async fn incomplete_scan_recreated_file_and_api_change_never_authorize_an_old_de
     catalog
         .patch_bucket(
             "test-bucket",
-            crate::bucket::BucketMetadataUpdate::default(),
+            crate::bucket::BucketMetadataUpdate {
+                versioning_enabled: Some(true),
+                ..Default::default()
+            },
             None,
             None,
             &crate::bucket::BucketAccess::Permissive,

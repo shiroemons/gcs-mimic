@@ -23,7 +23,6 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "ipFilter",
     "logging",
     "rpo",
-    "satisfiesPZS",
     "website",
 ];
 
