@@ -255,7 +255,7 @@ pub(super) async fn add_full_projection(
     }
 }
 
-pub(super) async fn may_read(
+pub(crate) async fn may_read(
     state: &State,
     caller: Option<Caller<'_>>,
     kind: AclKind,

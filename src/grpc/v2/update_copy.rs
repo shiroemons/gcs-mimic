@@ -172,6 +172,15 @@ fn lifecycle(value: &pb::bucket::Lifecycle) -> Value {
     }).collect::<Vec<_>>()})
 }
 
+/// The JSON form of a replacement ACL. Only entity and role are writable; the shared JSON
+/// validation rejects invalid entities and roles and uniform bucket-level access.
+fn acl_entries<'a>(entries: impl Iterator<Item = (&'a String, &'a String)>) -> Value {
+    entries
+        .map(|(entity, role)| json!({"entity": entity, "role": role}))
+        .collect::<Vec<_>>()
+        .into()
+}
+
 fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
     let mut body = json!({});
     for path in paths {
@@ -211,6 +220,8 @@ fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
         "iam_config.uniform_bucket_level_access"|"iam_config.uniform_bucket_level_access.enabled"=>{
             let i=b.iam_config.as_ref();body["iamConfiguration"]["uniformBucketLevelAccess"]=json!({"enabled":i.and_then(|i|i.uniform_bucket_level_access.as_ref()).is_some_and(|u|u.enabled)});
         }
+        "acl"=>body["acl"]=acl_entries(b.acl.iter().map(|e|(&e.entity,&e.role))),
+        "default_object_acl"=>body["defaultObjectAcl"]=acl_entries(b.default_object_acl.iter().map(|e|(&e.entity,&e.role))),
         "iam_config.public_access_prevention"=>body["iamConfiguration"]["publicAccessPrevention"]=b.iam_config.as_ref().map(|i|i.public_access_prevention.as_str()).filter(|s|!s.is_empty()).unwrap_or("inherited").into(),
         _=>return Err(unsupported(&format!("UpdateBucket update_mask {path}; use labels, versioning, lifecycle or iam_config"))),
     }
@@ -258,6 +269,7 @@ fn object_patch(o: &pb::Object, paths: &[String]) -> Result<Value, Status> {
             "cache_control" => body["cacheControl"] = o.cache_control.clone().into(),
             // Go sends this output-only path for an ordinary empty Update.
             "create_time" => {}
+            "acl" => body["acl"] = acl_entries(o.acl.iter().map(|e| (&e.entity, &e.role))),
             _ => {
                 return Err(unsupported(&format!(
                     "UpdateObject update_mask {path}; use metadata or content_type"
@@ -655,7 +667,9 @@ impl Storage {
             )
             .await
             .map_err(error)?;
-        Ok(Response::new(convert::bucket(&record)))
+        let mut result = convert::bucket(&record);
+        self.add_bucket_acl(caller, &mut result).await?;
+        Ok(Response::new(result))
     }
     pub(super) async fn get_iam_policy(
         &self,
@@ -820,7 +834,9 @@ impl Storage {
             .patch_bucket(bucket, update, mm, r.if_metageneration_not_match, &access)
             .await
             .map_err(error)?;
-        Ok(Response::new(convert::bucket(&record)))
+        let mut result = convert::bucket(&record);
+        self.add_bucket_acl(caller, &mut result).await?;
+        Ok(Response::new(result))
     }
     pub(super) async fn update_object(
         &self,
@@ -831,7 +847,7 @@ impl Storage {
         common(&r.common_object_request_params)?;
         if !r.predefined_acl.is_empty() || r.override_unlocked_retention {
             return Err(unsupported(
-                "UpdateObject ACL/retention; omit predefined_acl and override_unlocked_retention",
+                "UpdateObject predefined_acl or override_unlocked_retention; omit both",
             ));
         }
         let o = r.object.ok_or_else(|| {
@@ -878,9 +894,12 @@ impl Storage {
                 Some(c.if_metageneration_match.unwrap_or(current.metageneration));
             c.if_generation_match = Some(c.if_generation_match.unwrap_or(current.generation));
         }
-        let parsed =
-            json::parse_object_metadata(body.to_string().as_bytes(), json::WriteMode::Patch)
-                .map_err(error)?;
+        // The mutation parser also accepts `acl`, which only the `acl` path writes.
+        let parsed = json::parse_object_metadata_mutation(
+            body.to_string().as_bytes(),
+            json::WriteMode::Patch,
+        )
+        .map_err(error)?;
         parsed.update.validate().map_err(error)?;
         let record = self
             .state
@@ -898,7 +917,60 @@ impl Storage {
             )
             .await
             .map_err(error)?;
-        Ok(Response::new(convert::object(&record)?))
+        let mut object = convert::object(&record)?;
+        if paths.iter().any(|p| p == "acl") {
+            self.add_object_acl(caller, &record, &mut object).await?;
+        }
+        Ok(Response::new(object))
+    }
+    /// Adds the object's ACL as JSON `projection=full` does, for a caller that may read it.
+    async fn add_object_acl(
+        &self,
+        caller: Option<Caller<'_>>,
+        record: &crate::object::ObjectRecord,
+        object: &mut pb::Object,
+    ) -> Result<(), Status> {
+        use crate::{acl::AclKind, json::acl::AclOwner};
+        let access =
+            match authorize_bucket(&self.state, caller, auth::OBJECTS_GET_IAM, &record.bucket)
+                .await
+            {
+                Ok(access) => access,
+                Err(e) if matches!(e.status.as_u16(), 401 | 403) => return Ok(()),
+                Err(e) => return Err(error(e)),
+            };
+        let generations = vec![(record.name.clone(), record.generation)];
+        let Some(acl) = self
+            .state
+            .catalog
+            .object_acl_projection(&record.bucket, generations, &access)
+            .await
+            .map_err(error)?
+        else {
+            return Ok(());
+        };
+        let (Some(entries), Some(true)) = (acl.objects.first(), acl.visible.first().copied())
+        else {
+            return Ok(());
+        };
+        if acl.uniform_access {
+            return Ok(());
+        }
+        let owner = AclOwner {
+            kind: AclKind::Object,
+            bucket: &record.bucket,
+            object: Some((&record.name, record.generation)),
+            metageneration: record.metageneration,
+        };
+        object.acl = entries
+            .iter()
+            .map(|entry| {
+                let rendered =
+                    json::acl::acl_entry_resource(&self.state.api_base_url, owner, entry);
+                convert::object_access_control(&rendered)
+            })
+            .collect();
+        Ok(())
     }
     pub(super) async fn compose_object(
         &self,
@@ -1169,7 +1241,8 @@ mod tests {
         );
         for path in [
             "*",
-            "acl",
+            "acl.entity",
+            "owner",
             "logging",
             "versioning.unknown",
             "iam_config.unknown",
@@ -1181,7 +1254,7 @@ mod tests {
                 Code::Unimplemented
             );
         }
-        for path in ["*", "acl", "contexts.custom", "retention"] {
+        for path in ["*", "acl.entity", "owner", "contexts.custom", "retention"] {
             assert_eq!(
                 object_patch(&pb::Object::default(), &[path.into()])
                     .unwrap_err()
@@ -1374,6 +1447,87 @@ mod tests {
         let i = b.iam_config.unwrap();
         assert_eq!(i.public_access_prevention, "inherited");
         assert!(i.uniform_bucket_level_access.unwrap().enabled);
+        s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_update_object_acl() {
+        let (s, _dir) = setup().await;
+        let resource = "projects/_/buckets/update-copy-bucket";
+        let source = upload(&s, "acl-object", 3).await;
+        let acl_request = |entity: &str| pb::UpdateObjectRequest {
+            object: Some(pb::Object {
+                bucket: resource.into(),
+                name: "acl-object".into(),
+                acl: vec![pb::ObjectAccessControl {
+                    entity: entity.into(),
+                    role: "READER".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            update_mask: update_mask(&["acl"]),
+            ..Default::default()
+        };
+        let object = s
+            .update_object(Request::new(acl_request("allUsers")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(object.metageneration, source.metageneration + 1);
+        assert!(object
+            .acl
+            .iter()
+            .any(|e| e.entity == "allUsers" && e.role == "READER" && !e.etag.is_empty()));
+        let stored = s
+            .state
+            .catalog
+            .object_acl_projection(
+                "update-copy-bucket",
+                vec![("acl-object".into(), object.generation)],
+                &BucketAccess::Permissive,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(stored.objects[0].iter().any(|e| e.entity == "allUsers"));
+        assert_eq!(
+            s.update_object(Request::new(acl_request("nobody")), None)
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        // Uniform bucket-level access disables object ACLs, exactly as in JSON.
+        s.update_bucket(
+            Request::new(pb::UpdateBucketRequest {
+                bucket: Some(pb::Bucket {
+                    name: resource.into(),
+                    iam_config: Some(pb::bucket::IamConfig {
+                        uniform_bucket_level_access: Some(
+                            pb::bucket::iam_config::UniformBucketLevelAccess {
+                                enabled: true,
+                                lock_time: None,
+                            },
+                        ),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                update_mask: update_mask(&["iam_config"]),
+                ..Default::default()
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            s.update_object(Request::new(acl_request("allAuthenticatedUsers")), None)
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
         s.state.catalog.close().await.unwrap();
     }
 

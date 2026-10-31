@@ -68,6 +68,33 @@ fn lifecycle(rules: &[Value]) -> Option<pb::bucket::Lifecycle> {
     })
 }
 
+macro_rules! access_control {
+    ($name:ident, $type:path) => {
+        /// Converts an entry rendered by the JSON ACL code, so both transports derive the same
+        /// ids, etags and entity fields.
+        pub(crate) fn $name(value: &Value) -> $type {
+            let text = |field: &str| value[field].as_str().unwrap_or_default().to_owned();
+            $type {
+                role: text("role"),
+                id: text("id"),
+                entity: text("entity"),
+                entity_alt: String::new(),
+                entity_id: text("entityId"),
+                etag: text("etag"),
+                email: text("email"),
+                domain: text("domain"),
+                project_team: value.get("projectTeam").map(|team| pb::ProjectTeam {
+                    project_number: team["projectNumber"].as_str().unwrap_or_default().into(),
+                    team: team["team"].as_str().unwrap_or_default().into(),
+                }),
+            }
+        }
+    };
+}
+
+access_control!(bucket_access_control, pb::BucketAccessControl);
+access_control!(object_access_control, pb::ObjectAccessControl);
+
 pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
     pb::Bucket {
         name: format!("projects/_/buckets/{}", record.name),

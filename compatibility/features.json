@@ -19783,8 +19783,17 @@
           ]
         },
         {
+          "id": "grpc_bucket_get_acl",
+          "description": "GetBucket without a mask, with *, or with acl/default_object_acl/owner returns the stored ACLs and owner as JSON projection=full does; ListBuckets returns them only when selected; uniform bucket-level access and strict callers without ACL read permission omit them while the read succeeds.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_buckets_acl_read_and_update",
+            "grpc_buckets_acl_strict_authorization"
+          ]
+        },
+        {
           "id": "grpc_bucket_get_remaining",
-          "description": "Nested masks and fields absent from foundation conversion (including ACL and encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported.",
+          "description": "Nested masks and fields absent from foundation conversion (including encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -19793,6 +19802,8 @@
         "grpc_buckets_crud_conditions_and_masks",
         "grpc_buckets_strict_shared_authorization",
         "grpc_buckets_expose_json_lifecycle_etag_and_object_retention",
+        "grpc_buckets_acl_read_and_update",
+        "grpc_buckets_acl_strict_authorization",
         "TestGRPCBuckets",
         "TestGRPCBucketsStrict"
       ],
@@ -19804,6 +19815,16 @@
           "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
           "test_ids": [
             "grpc_buckets_expose_json_lifecycle_etag_and_object_retention"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib grpc:: -- --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
+          "test_ids": [
+            "grpc_buckets_acl_read_and_update",
+            "grpc_buckets_acl_strict_authorization"
           ]
         },
         {
@@ -19840,7 +19861,7 @@
         }
       ],
       "known_deviations": [
-        "Nested masks and fields absent from foundation conversion (including ACL and encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported."
+        "Nested masks and fields absent from foundation conversion (including encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported."
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"
@@ -20504,6 +20525,15 @@
             "grpc_iam_config_updates_preserve_other_setting",
             "TestGRPCUpdateCopy"
           ]
+        },
+        {
+          "id": "grpc_bucket_acl_masks",
+          "description": "acl and default_object_acl masks replace the stored ACLs through the shared JSON validation and catalog; invalid entities and uniform bucket-level access return INVALID_ARGUMENT; strict callers without permission are denied and leave the ACL unchanged; the response carries the ACL fields.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_buckets_acl_read_and_update",
+            "grpc_buckets_acl_strict_authorization"
+          ]
         }
       ],
       "test_ids": [
@@ -20513,9 +20543,21 @@
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
         "TestGRPCUpdateCopyStrict",
-        "grpc_iam_config_updates_preserve_other_setting"
+        "grpc_iam_config_updates_preserve_other_setting",
+        "grpc_buckets_acl_read_and_update",
+        "grpc_buckets_acl_strict_authorization"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib grpc:: -- --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
+          "test_ids": [
+            "grpc_buckets_acl_read_and_update",
+            "grpc_buckets_acl_strict_authorization"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
           "result": "PASS",
@@ -21259,6 +21301,14 @@
           ]
         },
         {
+          "id": "grpc_object_acl_mask",
+          "description": "The acl mask replaces the object ACL through the shared JSON validation and catalog, bumps the metageneration and returns the ACL; invalid entities and uniform bucket-level access return INVALID_ARGUMENT.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_update_object_acl"
+          ]
+        },
+        {
           "id": "grpc_full_contract",
           "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
           "result": "PENDING",
@@ -21271,9 +21321,19 @@
         "grpc_rewrite_continuation_and_compose_conditions",
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
-        "TestGRPCUpdateCopyStrict"
+        "TestGRPCUpdateCopyStrict",
+        "grpc_update_object_acl"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib grpc:: -- --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
+          "test_ids": [
+            "grpc_update_object_acl"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
           "result": "PASS",

@@ -51,3 +51,20 @@ The Rust SDK sends bucket IAM calls only to `google.storage.control.v2.StorageCo
 Cloud Storage returned HTTP 412 for a stale `setIamPolicy` ETag over JSON (observed 2026-10-31). The gRPC status was not observed. The emulator keeps its shared mapping of HTTP 412 to FAILED_PRECONDITION, which Storage v2 already uses for generation and metageneration precondition failures; the generic `google.rpc.Code` guidance would also allow ABORTED for a concurrency conflict, so the exact provider status remains an open question.
 
 Test: `grpc_storage_control_bucket_iam` sends encoded calls through the same dispatch function as a connection. With the Storage Control paths disabled, its first call failed with UNIMPLEMENTED; it passes after the change.
+
+## Bucket and object ACLs
+
+The Rust SDK exposes ACLs only as resource fields: it reads `Bucket.acl`, appends an entry and writes the whole list with UpdateBucket (`acl` or `default_object_acl` mask) or UpdateObject (`acl` mask). These masks returned UNIMPLEMENTED, and GetBucket returned no ACL. The pinned proto defines GetBucket's default read mask as all fields and ListBuckets' default as all fields except `acl`, `default_object_acl` and `owner`.
+
+| Case | Required behavior |
+| --- | --- |
+| grpc_bucket_get_acl | GetBucket without a mask, with `*`, or with `acl`, `default_object_acl` or `owner` returns the stored ACLs (the `projectPrivate` defaults for a new bucket) and the owner, rendered by the JSON ACL code so ids, etags and entity fields match JSON `projection=full`. ListBuckets returns them only when the mask selects them. Create, Update and LockBucketRetentionPolicy responses include them. |
+| grpc_bucket_acl_omitted | Under uniform bucket-level access the ACLs are omitted and the owner remains, as in JSON. A strict caller without `storage.buckets.getIamPolicy` still reads the bucket, without ACL fields. |
+| grpc_bucket_acl_masks | `acl` and `default_object_acl` replace the stored list through the shared JSON entry validation and catalog transaction; only `entity` and `role` are written. JSON then observes the new entries. |
+| grpc_object_acl_mask | UpdateObject `acl` replaces the object ACL through the same shared path, advances the metageneration and returns the ACL. |
+| grpc_acl_errors | An invalid entity, or any ACL write under uniform bucket-level access, returns INVALID_ARGUMENT (the shared JSON 400) and changes nothing. |
+| grpc_acl_strict | A strict caller without `storage.buckets.update` receives PERMISSION_DENIED and an anonymous caller UNAUTHENTICATED; the ACL is unchanged. The catalog's shared ACL permission checks apply as in JSON. |
+
+GetObject's ACL projection and `predefined_acl` on create, update and compose remain outside this change and keep their current behavior; `acl.<field>` and `owner` update masks return UNIMPLEMENTED.
+
+Tests: `grpc_buckets_acl_read_and_update`, `grpc_buckets_acl_strict_authorization` and `grpc_update_object_acl` failed on the previous source (empty bucket ACL; UNIMPLEMENTED masks) and pass after the change. The negative mask test now uses the still-unsupported `acl.entity` and `owner` paths instead of `acl`.

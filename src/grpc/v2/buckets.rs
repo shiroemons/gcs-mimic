@@ -106,10 +106,31 @@ fn bucket_mask(
             retention_policy,
             soft_delete_policy,
             object_retention,
-            iam_config
+            iam_config,
+            acl,
+            default_object_acl,
+            owner
         );
     }
     Ok(selected)
+}
+
+/// Whether a read without a mask includes the ACL fields: GetBucket defaults to all fields,
+/// ListBuckets to all fields except `acl`, `default_object_acl` and `owner`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum AclDefault {
+    Include,
+    Exclude,
+}
+
+pub(super) fn wants_acl(mask: Option<&prost_types::FieldMask>, default: AclDefault) -> bool {
+    match mask.filter(|mask| !mask.paths.is_empty()) {
+        None => default == AclDefault::Include,
+        Some(mask) => mask
+            .paths
+            .iter()
+            .any(|path| matches!(path.as_str(), "*" | "acl" | "default_object_acl" | "owner")),
+    }
 }
 
 /// Clears a message field that a client sent empty, which carries no supported setting.
@@ -248,6 +269,67 @@ fn create_metadata(
 }
 
 impl Storage {
+    /// Adds `owner`, `acl` and `default_object_acl` as JSON `projection=full` does. The ACL
+    /// is omitted under uniform bucket-level access and for callers that may not read it;
+    /// the read itself still succeeds.
+    pub(super) async fn add_bucket_acl(
+        &self,
+        caller: Option<Caller<'_>>,
+        bucket: &mut pb::Bucket,
+    ) -> Result<(), Status> {
+        use crate::{acl::AclKind, json::acl::AclOwner};
+        let name = bucket.bucket_id.clone();
+        let readable =
+            match crate::server::may_read_acl(&self.state, caller, AclKind::Bucket, &name).await {
+                Ok(readable) => readable,
+                Err(error) if error.status == hyper::StatusCode::UNAUTHORIZED => false,
+                Err(error) => return Err(json_error(error)),
+            };
+        if !readable {
+            return Ok(());
+        }
+        let Some(acl) = self
+            .state
+            .catalog
+            .acl_projection(&name, Vec::new())
+            .await
+            .map_err(|error| json_error(error.into()))?
+        else {
+            return Ok(());
+        };
+        bucket.owner = Some(pb::Owner {
+            entity: format!(
+                "project-owners-{}",
+                crate::acl::project_number(&acl.project)
+            ),
+            entity_id: String::new(),
+        });
+        if acl.uniform_access {
+            return Ok(());
+        }
+        let base = &self.state.api_base_url;
+        let owner = |kind| AclOwner {
+            kind,
+            bucket: &name,
+            object: None,
+            metageneration: bucket.metageneration,
+        };
+        let rendered = |kind, entry| json::acl::acl_entry_resource(base, owner(kind), entry);
+        bucket.acl = acl
+            .bucket
+            .iter()
+            .map(|entry| convert::bucket_access_control(&rendered(AclKind::Bucket, entry)))
+            .collect();
+        bucket.default_object_acl = acl
+            .default_object
+            .iter()
+            .map(|entry| {
+                convert::object_access_control(&rendered(AclKind::DefaultObject, entry))
+            })
+            .collect();
+        Ok(())
+    }
+
     pub(super) async fn delete_bucket(
         &self,
         request: Request<pb::DeleteBucketRequest>,
@@ -301,8 +383,12 @@ impl Storage {
         {
             return Err(catalog_error(CatalogError::PreconditionFailed, caller));
         }
+        let mut bucket = convert::bucket(&record);
+        if wants_acl(request.read_mask.as_ref(), AclDefault::Include) {
+            self.add_bucket_acl(caller, &mut bucket).await?;
+        }
         Ok(Response::new(bucket_mask(
-            convert::bucket(&record),
+            bucket,
             request.read_mask.as_ref(),
         )?))
     }
@@ -358,7 +444,9 @@ impl Storage {
             .insert_bucket(record)
             .await
             .map_err(|error| catalog_error(error, caller))?;
-        Ok(Response::new(convert::bucket(&record)))
+        let mut bucket = convert::bucket(&record);
+        self.add_bucket_acl(caller, &mut bucket).await?;
+        Ok(Response::new(bucket))
     }
     pub(super) async fn list_buckets(
         &self,
@@ -409,11 +497,15 @@ impl Storage {
             }
             _ => String::new(),
         };
-        let buckets = page
-            .items
-            .iter()
-            .map(|record| bucket_mask(convert::bucket(record), request.read_mask.as_ref()))
-            .collect::<Result<_, _>>()?;
+        let acl = wants_acl(request.read_mask.as_ref(), AclDefault::Exclude);
+        let mut buckets = Vec::with_capacity(page.items.len());
+        for record in &page.items {
+            let mut bucket = convert::bucket(record);
+            if acl {
+                self.add_bucket_acl(caller, &mut bucket).await?;
+            }
+            buckets.push(bucket_mask(bucket, request.read_mask.as_ref())?);
+        }
         Ok(Response::new(pb::ListBucketsResponse {
             buckets,
             next_page_token,
@@ -940,6 +1032,260 @@ mod tests {
             .unwrap()
             .into_inner();
         assert!(plain.lifecycle.is_none() && plain.object_retention.is_none());
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    fn update_acl(bucket: pb::Bucket, path: &str) -> pb::UpdateBucketRequest {
+        pb::UpdateBucketRequest {
+            bucket: Some(bucket),
+            update_mask: Some(prost_types::FieldMask {
+                paths: vec![path.into()],
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn reader(entity: &str) -> (pb::BucketAccessControl, pb::ObjectAccessControl) {
+        (
+            pb::BucketAccessControl {
+                entity: entity.into(),
+                role: "READER".into(),
+                ..Default::default()
+            },
+            pb::ObjectAccessControl {
+                entity: entity.into(),
+                role: "READER".into(),
+                ..Default::default()
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn grpc_buckets_acl_read_and_update() {
+        let (_dir, storage) = storage(false).await;
+        storage
+            .create_bucket(Request::new(create("acl-bucket")), None)
+            .await
+            .unwrap();
+        let current = storage
+            .get_bucket(Request::new(get("acl-bucket")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        // A new bucket reports the projectPrivate defaults, like JSON projection=full.
+        assert!(!current.acl.is_empty() && !current.default_object_acl.is_empty());
+        assert!(current.acl.iter().all(|entry| !entry.etag.is_empty()));
+        assert!(current.owner.as_ref().unwrap().entity.starts_with("project-owners-"));
+        let listed = storage
+            .list_buckets(
+                Request::new(pb::ListBucketsRequest {
+                    parent: "projects/p".into(),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(listed.buckets[0].acl.is_empty() && listed.buckets[0].owner.is_none());
+        let listed = storage
+            .list_buckets(
+                Request::new(pb::ListBucketsRequest {
+                    parent: "projects/p".into(),
+                    read_mask: Some(prost_types::FieldMask {
+                        paths: vec!["acl".into()],
+                    }),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(listed.buckets[0].acl, current.acl);
+        assert!(listed.buckets[0].default_object_acl.is_empty());
+
+        let (bucket_entry, object_entry) = reader("allAuthenticatedUsers");
+        let mut acl = current.acl.clone();
+        acl.push(bucket_entry);
+        let updated = storage
+            .update_bucket(
+                Request::new(update_acl(
+                    pb::Bucket {
+                        name: get("acl-bucket").name,
+                        acl,
+                        ..Default::default()
+                    },
+                    "acl",
+                )),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(updated.acl.iter().any(|e| e.entity == "allAuthenticatedUsers" && e.role == "READER"));
+        let mut default_object_acl = current.default_object_acl.clone();
+        default_object_acl.push(object_entry);
+        storage
+            .update_bucket(
+                Request::new(update_acl(
+                    pb::Bucket {
+                        name: get("acl-bucket").name,
+                        default_object_acl,
+                        ..Default::default()
+                    },
+                    "default_object_acl",
+                )),
+                None,
+            )
+            .await
+            .unwrap();
+        let fetched = storage
+            .get_bucket(Request::new(get("acl-bucket")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(fetched.acl.len(), current.acl.len() + 1);
+        assert!(fetched
+            .default_object_acl
+            .iter()
+            .any(|e| e.entity == "allAuthenticatedUsers" && e.role == "READER"));
+        // JSON observes the same stored ACL.
+        let stored = storage
+            .state
+            .catalog
+            .acl_projection("acl-bucket", Vec::new())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(stored.bucket.iter().any(|e| e.entity == "allAuthenticatedUsers"));
+
+        let (bad, _) = reader("not-an-entity");
+        let error = storage
+            .update_bucket(
+                Request::new(update_acl(
+                    pb::Bucket {
+                        name: get("acl-bucket").name,
+                        acl: vec![bad],
+                        ..Default::default()
+                    },
+                    "acl",
+                )),
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), Code::InvalidArgument);
+
+        let mut request = create("uniform-bucket");
+        request.bucket.as_mut().unwrap().iam_config = Some(pb::bucket::IamConfig {
+            uniform_bucket_level_access: Some(pb::bucket::iam_config::UniformBucketLevelAccess {
+                enabled: true,
+                lock_time: None,
+            }),
+            ..Default::default()
+        });
+        storage.create_bucket(Request::new(request), None).await.unwrap();
+        let uniform = storage
+            .get_bucket(Request::new(get("uniform-bucket")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(uniform.acl.is_empty() && uniform.default_object_acl.is_empty());
+        assert!(uniform.owner.is_some());
+        let (entry, _) = reader("allUsers");
+        let error = storage
+            .update_bucket(
+                Request::new(update_acl(
+                    pb::Bucket {
+                        name: get("uniform-bucket").name,
+                        acl: vec![entry],
+                        ..Default::default()
+                    },
+                    "acl",
+                )),
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), Code::InvalidArgument);
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_buckets_acl_strict_authorization() {
+        let dir = TestDir::new();
+        let auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"admin@example.invalid","tokens":["admin"],"project_roles":{"p":["roles/storage.admin"]}},{"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"p":["roles/storage.bucketViewer"]}}]}"#).unwrap());
+        let storage = Storage {
+            max_object_bytes: 1024,
+            state: Arc::new(State {
+                ready: AtomicBool::new(true),
+                clock: Arc::new(SystemClock),
+                catalog: Catalog::open(&dir.0).await.unwrap(),
+                api_base_url: "http://localhost:4443".into(),
+                default_location: "US".into(),
+                auth,
+            }),
+        };
+        let caller = |token: &str| {
+            let mut metadata = Request::new(());
+            metadata
+                .metadata_mut()
+                .insert("authorization", format!("Bearer {token}").parse().unwrap());
+            storage.authenticate(&metadata).unwrap()
+        };
+        storage
+            .create_bucket(Request::new(create("strict-acl")), caller("admin"))
+            .await
+            .unwrap();
+        let admin = storage
+            .get_bucket(Request::new(get("strict-acl")), caller("admin"))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(!admin.acl.is_empty());
+        // Reading the bucket succeeds without the ACL for a caller that cannot read ACLs.
+        let viewer = storage
+            .get_bucket(Request::new(get("strict-acl")), caller("viewer"))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(viewer.acl.is_empty() && viewer.default_object_acl.is_empty());
+        let (entry, _) = reader("allUsers");
+        let request = update_acl(
+            pb::Bucket {
+                name: get("strict-acl").name,
+                acl: vec![entry],
+                ..Default::default()
+            },
+            "acl",
+        );
+        assert_eq!(
+            storage
+                .update_bucket(Request::new(request.clone()), caller("viewer"))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::PermissionDenied
+        );
+        assert_eq!(
+            storage
+                .update_bucket(Request::new(request.clone()), Some(Caller::Anonymous))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::Unauthenticated
+        );
+        let unchanged = storage
+            .get_bucket(Request::new(get("strict-acl")), caller("admin"))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(unchanged.acl, admin.acl);
+        storage
+            .update_bucket(Request::new(request), caller("admin"))
+            .await
+            .unwrap();
         storage.state.catalog.close().await.unwrap();
     }
 

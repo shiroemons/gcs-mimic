@@ -95,6 +95,7 @@ fn report_connection_task_failure(error: &tokio::task::JoinError) {
 }
 
 mod acl;
+pub(crate) use acl::may_read as may_read_acl;
 pub(crate) use acl::readable_object_acls;
 mod admin;
 pub(crate) mod chunk_body;
