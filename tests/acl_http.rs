@@ -686,13 +686,20 @@ fn resource_acl_validation_and_preconditions_preserve_all_metadata() {
         };
         body[field] = json!([]);
         for condition in ["ifMetagenerationMatch=999", "ifMetagenerationNotMatch=1"] {
-            send(
+            let reply = send(
                 &server,
                 "PATCH",
                 &format!("{path}?{condition}"),
                 body.clone(),
-            )
-            .error(412, "conditionNotMet");
+            );
+            // Observed on Cloud Storage: a bucket PATCH whose ifMetagenerationNotMatch names
+            // the current value is an empty 304.
+            if condition.starts_with("ifMetagenerationNotMatch") && !path.ends_with("/object") {
+                assert_eq!(reply.status, 304);
+                assert!(reply.body.is_empty());
+            } else {
+                reply.error(412, "conditionNotMet");
+            }
             assert_eq!(call(&server, "GET", &full).json(), before);
         }
     }

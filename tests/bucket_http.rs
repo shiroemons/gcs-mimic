@@ -1745,9 +1745,21 @@ fn bucket_metadata_conditions(method: &str) {
         let server = profile_server(&dir, profile);
         let original = server.insert("patch-conditions", "project").json();
         let path = "/storage/v1/b/patch-conditions";
+        // Observed on Cloud Storage: a PATCH whose ifMetagenerationNotMatch names the current
+        // value is an empty 304; a PUT with it was not observed and stays 412.
+        let same = server.request(
+            method,
+            &format!("{path}?ifMetagenerationNotMatch=1"),
+            r#"{"labels":{}}"#,
+        );
+        if method == "PATCH" {
+            assert_eq!((same.status, same.body.as_str()), (304, ""), "{profile}");
+        } else {
+            same.error(412, "conditionNotMet");
+        }
+        assert_eq!(server.request("GET", path, "").json(), original);
         for query in [
             "ifMetagenerationMatch=0",
-            "ifMetagenerationNotMatch=1",
             "ifMetagenerationMatch=2&ifMetagenerationNotMatch=1",
             "ifMetagenerationMatch=-9223372036854775808",
             "ifMetagenerationMatch=9223372036854775807",

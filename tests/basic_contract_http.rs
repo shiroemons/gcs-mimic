@@ -403,7 +403,13 @@ fn bucket_condition_matrix(not_match: bool) {
                 body,
             );
             if !passes {
-                reply.condition_failed();
+                if not_match && method == "PATCH" {
+                    // Observed on Cloud Storage: an empty 304 even with writable settings.
+                    assert_eq!(reply.status, 304);
+                    assert!(reply.body.is_empty());
+                } else {
+                    reply.condition_failed();
+                }
                 assert_eq!(server.get(&path).json(), before, "{method} {condition}");
             } else if method == "DELETE" {
                 assert_eq!(reply.status, 204);
