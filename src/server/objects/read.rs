@@ -143,10 +143,12 @@ async fn media(
         *response.headers_mut() = headers;
         return Ok(response);
     }
-    if json::object_media_negotiable(&record) {
+    let negotiable = json::object_media_negotiable(&record);
+    if negotiable {
         gzip::insert_negotiated_vary(&mut headers);
         if head {
-            // Cloud Storage states no length for a stored-gzip HEAD even when sent compressed.
+            // Cloud Storage states no length for a stored-gzip HEAD even when sent compressed,
+            // with or without a Range.
             headers.remove("content-length");
         }
     }
@@ -161,14 +163,18 @@ async fn media(
         }
     };
     if let Some((offset, length)) = range {
-        reader.set_range(offset, length).await.map_err(|_| {
-            JsonError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "backendError",
-                "Cannot seek object data",
-            )
-        })?;
-        headers.insert("content-length", length.into());
+        if !head {
+            reader.set_range(offset, length).await.map_err(|_| {
+                JsonError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "backendError",
+                    "Cannot seek object data",
+                )
+            })?;
+        }
+        if !(head && negotiable) {
+            headers.insert("content-length", length.into());
+        }
         insert_content_range(&mut headers, offset, length, record.size);
         range_hashes(&mut headers, &record, offset, length)?;
     }

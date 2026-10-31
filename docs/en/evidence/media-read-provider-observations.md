@@ -125,8 +125,7 @@ gcs-mimic previously returned 400 on `/storage/v1` and 405 on `/download`.
 | Only the identity HEAD sends Content-Length | Removed for stored-gzip HEAD, gunzipped or compressed | the same test |
 
 The weak ETag on gunzipped responses is not reproduced: gcs-mimic keeps its
-opaque strong ETag on every representation. HEAD with `Range` on a stored-gzip
-object sent compressed was not observed; locally it states the range length.
+opaque strong ETag on every representation.
 
 ## `Vary` on JSON API responses
 
@@ -199,3 +198,28 @@ Local limits: only the leading magic bytes are checked, so a body that starts
 like gzip and breaks later still aborts mid-stream (as before). An empty
 object is not rejected. HEAD reads no bytes and is not checked; the provider's
 HEAD for such an object was not observed. The weak ETag is not reproduced here.
+
+## HEAD with `Range`
+
+Observed **2026-10-31** on the 29-byte identity object and the 49-byte
+stored-gzip object.
+
+| Request | Status | Notable headers |
+| --- | --- | --- |
+| JSON media HEAD, `Range: bytes=0-4`, identity | 206, no body | `content-range: bytes 0-4/29`, `content-length: 5`, no `x-goog-hash` |
+| XML HEAD, `Range: bytes=0-4`, identity | 206, no body | `content-range: bytes 0-4/29`, `content-length: 5`, both `x-goog-hash` fields |
+| JSON media HEAD, `Accept-Encoding: gzip`, `Range: bytes=0-4`, stored gzip | 206, no body | `content-range: bytes 0-4/49`, `content-encoding: gzip`, no Content-Length |
+| XML HEAD, `Accept-Encoding: gzip`, `Range: bytes=0-4`, stored gzip | 206, no body | `content-range: bytes 0-4/49`, `content-encoding: gzip`, no Content-Length, both `x-goog-hash` fields |
+| JSON media HEAD, `Range: bytes=100-200` | 416 | `content-range: bytes */29`, `content-type: text/html; charset=UTF-8` |
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| HEAD with a satisfiable Range is 206 on both APIs | JSON and XML answer 206 with `content-range`; the identity range length is `content-length`; a compressed stored-gzip HEAD states none | `head_with_range_answers_206_and_content_range_on_json_and_xml` |
+| HEAD with an unsatisfiable Range is 416 | JSON and XML answer 416 with `content-range: bytes */size` and no body | the same test |
+
+XML HEAD used to answer 200 for a Range, following the method reference. The
+JSON media HEAD no longer seeks the object. The XML unsatisfiable HEAD was not
+observed and follows the JSON observation; the provider's 416 body type
+(`text/html`) is not reproduced.

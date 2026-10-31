@@ -405,18 +405,17 @@ fn xml_ranges_generation_and_preconditions_use_one_live_generation() {
             "crc32c=yZRlqg==, md5=XrY7u+Ae7tCTyyK7j1rNww=="
         );
         let head = server.request("HEAD", OBJECT, &format!("Range: {range}\r\n"), b"");
-        assert_eq!(head.status, 200);
+        assert_eq!(head.status, 206);
         assert_eq!(head.headers["content-range"], content_range);
-        assert_eq!(head.headers["content-length"], "11");
+        assert_eq!(head.headers["content-length"], expected.len().to_string());
     }
     let reply = server.get("Range: bytes=11-\r\n", OBJECT);
     xml_error(&reply, 416, "InvalidRange");
     assert_eq!(reply.headers["content-range"], "bytes */11");
     let head = server.request("HEAD", OBJECT, "Range: bytes=11-\r\n", b"");
-    assert_eq!(head.status, 200);
+    assert_eq!(head.status, 416);
     assert!(head.body.is_empty());
     assert_eq!(head.headers["content-range"], "bytes */11");
-    assert_eq!(head.headers["content-length"], "11");
     assert_eq!(
         server.get("Range: bytes=1-0\r\n", OBJECT).ok().body,
         b"hello world"

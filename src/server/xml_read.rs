@@ -140,11 +140,6 @@ async fn read(
     headers.extend(operation.response_overrides);
     let range = match json::object_media_range(request.headers(), record.size) {
         Ok(range) => range,
-        Err(_) if head => {
-            // HEAD's Range only adds Content-Range; status and representation length stay unchanged.
-            insert_unsatisfied_content_range(&mut headers, record.size);
-            None
-        }
         Err(error) => {
             let mut response = boxed(
                 xml::Error::from(error).response(xml::ErrorBody::for_method(request.method())),
@@ -162,6 +157,9 @@ async fn read(
                     "Cannot seek object data",
                 ))
             })?;
+        }
+        // A compressed stored-gzip HEAD states no length, with or without a Range.
+        if !(head && json::object_media_negotiable(&record)) {
             headers.insert("content-length", length.into());
         }
         insert_content_range(&mut headers, offset, length, record.size);
@@ -171,7 +169,7 @@ async fn read(
     } else {
         Response::new(object_body(reader, ctx.activity))
     };
-    if range.is_some() && !head {
+    if range.is_some() {
         *response.status_mut() = StatusCode::PARTIAL_CONTENT;
     }
     *response.headers_mut() = headers;

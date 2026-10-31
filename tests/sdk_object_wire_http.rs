@@ -557,3 +557,83 @@ fn gunzipping_a_plain_body_fails_400_before_the_headers_are_sent() {
         assert_eq!(reply.headers["content-encoding"], "gzip");
     }
 }
+
+/// Cloud Storage answers a HEAD with a satisfiable Range on both APIs with 206 and
+/// `content-range` (observed 2026-10-31). An identity representation states the range
+/// length; a stored-gzip object sent compressed states no length; an unsatisfiable range is 416.
+#[test]
+fn head_with_range_answers_206_and_content_range_on_json_and_xml() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, true);
+    server.bucket();
+    server.put("plain", b"0123456789abcdef").json();
+    let compressed = gzip(b"hello gzip transcoding world\n");
+    gzip_object(&server, "gzip", &compressed);
+    let stored = compressed.len();
+    let json = |object: &str| format!("/storage/v1/b/test-bucket/o/{object}?alt=media");
+    let xml = |object: &str| format!("/test-bucket/{object}");
+    let gzip_ok = "Accept-Encoding: gzip\r\nRange: bytes=0-4\r\n";
+    for (path, extra, content_range, length) in [
+        (
+            json("plain"),
+            "Range: bytes=0-4\r\n",
+            "bytes 0-4/16",
+            Some("5"),
+        ),
+        (
+            xml("plain"),
+            "Range: bytes=0-4\r\n",
+            "bytes 0-4/16",
+            Some("5"),
+        ),
+        (
+            json("plain"),
+            "Range: bytes=-4\r\n",
+            "bytes 12-15/16",
+            Some("4"),
+        ),
+        (
+            xml("plain"),
+            "Range: bytes=12-\r\n",
+            "bytes 12-15/16",
+            Some("4"),
+        ),
+        (json("gzip"), gzip_ok, &format!("bytes 0-4/{stored}"), None),
+        (xml("gzip"), gzip_ok, &format!("bytes 0-4/{stored}"), None),
+    ] {
+        let headers = format!("{ADMIN}{extra}");
+        let head = server.request("HEAD", &path, &headers, b"");
+        assert_eq!(head.status, 206, "{path} {extra}");
+        assert!(head.body.is_empty(), "{path}");
+        assert_eq!(
+            head.headers["content-range"], content_range,
+            "{path} {extra}"
+        );
+        assert_eq!(
+            head.headers.get("content-length").map(String::as_str),
+            length,
+            "{path} {extra}"
+        );
+        // GET states the range length even when HEAD of a compressed object does not.
+        let get = server.request("GET", &path, &headers, b"");
+        assert_eq!(get.status, 206, "{path} {extra}");
+        assert_eq!(
+            get.headers["content-range"], content_range,
+            "{path} {extra}"
+        );
+    }
+    for path in [json("plain"), xml("plain"), json("gzip"), xml("gzip")] {
+        let head = server.request(
+            "HEAD",
+            &path,
+            &format!("{ADMIN}Accept-Encoding: gzip\r\nRange: bytes=100-200\r\n"),
+            b"",
+        );
+        assert_eq!(head.status, 416, "{path}");
+        assert!(head.body.is_empty(), "{path}");
+        assert!(
+            head.headers["content-range"].starts_with("bytes */"),
+            "{path}"
+        );
+    }
+}

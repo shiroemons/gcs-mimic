@@ -135,19 +135,20 @@ applicable to both operations in every Google configuration.
 
 GET returns streamed object bytes with 200, or the selected byte interval with
 206. Empty objects return 200 with length zero. HEAD never sends a body, including
-on errors. For a valid HEAD Range, the method-specific reference says the range
-only adds `Content-Range`: preserve 200 and the full `Content-Length`. Treat this
-method-specific rule separately from GET; no partial body is sent. Exact HEAD
-unsatisfiable-range parity remains unverified: the local response is 200 with
-full `Content-Length`, `Content-Range: bytes */size` and no body. Malformed-range
+on errors. For a satisfiable HEAD Range, Cloud Storage answered 206 with `Content-Range`
+and the range length as `Content-Length` (observed 2026-10-31, contradicting the
+method reference that suggests 200); a stored-gzip object sent compressed states
+no `Content-Length`. No body is sent. An unsatisfiable HEAD Range is 416 with
+`Content-Range: bytes */size`; the XML API case was not observed and follows
+the JSON observation. Malformed-range
 parity remains open under SPEC-RANGE-FALLBACK.
 
 | Header | Required local representation |
 | --- | --- |
-| `Content-Length` | Full size for 200 and HEAD; selected byte count for GET 206 |
+| `Content-Length` | Full size for 200 and an unranged HEAD; selected byte count for 206 on GET and HEAD, absent on a compressed stored-gzip HEAD |
 | `Content-Type` | Stored type, otherwise `application/octet-stream` |
 | `Content-Encoding`, `Content-Disposition`, `Content-Language` | Stored fixed metadata when present; no invented encoding |
-| `Content-Range` | `bytes start-end/size` for GET 206 or a satisfiable HEAD range; `bytes */size` for a GET 416 or locally unsatisfiable HEAD 200 |
+| `Content-Range` | `bytes start-end/size` for 206 on GET and HEAD; `bytes */size` for a 416 |
 | `Accept-Ranges` | `bytes` on successful object responses |
 | `x-goog-generation`, `x-goog-metageneration` | Decimal values from the same selected record as the bytes |
 | `x-goog-hash` | Whole-object CRC32C and MD5 in base64, including on partial reads; these are not checksums of the selected interval |

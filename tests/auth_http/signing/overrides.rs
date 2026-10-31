@@ -75,7 +75,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
                         "{auth}Range: bytes=1-4\r\nOrigin: https://browser.example.invalid\r\n"
                     ),
                 );
-                assert_eq!(response.status, if method == "HEAD" { 200 } else { 206 });
+                assert_eq!(response.status, 206);
                 assert_eq!(
                     response.body,
                     if method == "HEAD" {
@@ -90,10 +90,7 @@ fn xml_response_overrides_preserve_selected_metadata_ranges_and_cors() {
                     "attachment; filename=\"a + b.csv\""
                 );
                 assert_eq!(response.headers["content-range"], "bytes 1-4/11");
-                assert_eq!(
-                    response.headers["content-length"],
-                    if method == "HEAD" { "11" } else { "4" }
-                );
+                assert_eq!(response.headers["content-length"], "4");
                 for key in [
                     "etag",
                     "x-goog-hash",

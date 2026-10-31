@@ -1466,7 +1466,7 @@ private XML reads use `private, max-age=0`, and nonpublic JSON media uses `no-ca
 Stored Cache-Control takes precedence on XML and publicly readable JSON media.
 Revocation affects new requests; it cannot recall bytes already downloaded or
 cached, and an already-open read may finish. XML GET supports one stored-byte
-range (206/416); HEAD remains 200 for a satisfiable range with Content-Range.
+range (206/416); HEAD answers the same 206/416 with Content-Range and no body.
 Unsupported XML inputs/operations return 501. V4 RSA query signatures support
 private GET/HEAD and bounded PUT in the standalone [signed-URL journey](signed-urls.md),
 which also covers opt-in virtual hosts and PAP. ACLs and UBLA transitions remain
