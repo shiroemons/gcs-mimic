@@ -172,6 +172,51 @@ fn xml_gzip_gunzips_whole_object_and_keeps_stored_hashes() {
 }
 
 #[test]
+fn json_media_upload_content_encoding_query_sets_stored_encoding() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, true);
+    server.bucket();
+    let plain = b"hello gzip transcoding world\n";
+    let compressed = gzip(plain);
+    let upload = "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=gz.txt";
+    let created = server.request(
+        "POST",
+        &format!("{upload}&contentEncoding=gzip"),
+        ADMIN,
+        &compressed,
+    );
+    assert_eq!(created.status, 200);
+    let created = created.json();
+    assert_eq!(created["contentEncoding"], "gzip");
+    assert_eq!(created["size"], compressed.len().to_string());
+    assert_eq!(server.get("gz.txt").json()["contentEncoding"], "gzip");
+    let path = "/storage/v1/b/test-bucket/o/gz.txt?alt=media";
+    let raw = server.request(
+        "GET",
+        path,
+        &format!("{ADMIN}Accept-Encoding: gzip\r\n"),
+        b"",
+    );
+    assert_eq!(raw.body, compressed);
+    let expanded = server.request("GET", path, ADMIN, b"");
+    assert_eq!(expanded.body, plain);
+    // The query value is validated like the metadata property and rejected before the body.
+    let invalid = server.request(
+        "POST",
+        &format!("{upload}&contentEncoding=a%0Ab"),
+        ADMIN,
+        b"replacement",
+    );
+    assert_eq!(invalid.status, 400);
+    assert_eq!(
+        server.get("gz.txt").json()["generation"],
+        created["generation"]
+    );
+    let kms = server.request("POST", &format!("{upload}&kmsKeyName=key"), ADMIN, b"x");
+    assert_eq!(kms.status, 400);
+}
+
+#[test]
 fn json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof() {
     let dir = TestDir::new();
     let server = Server::start_with_limits(&dir, false, 30000, 900000, 1024);

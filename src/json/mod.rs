@@ -59,18 +59,18 @@ pub(crate) use multipart::{
 pub(crate) use object_copy::ObjectCopyParams;
 pub(crate) use object_list::{ObjectListParams, object_list};
 pub(crate) use object_metadata::parse_object_metadata_mutation;
-pub(crate) use object_metadata::validate_fixed_metadata;
 pub(crate) use object_metadata::{ObjectMetadataRequest, WriteMode, parse_object_metadata};
+pub(crate) use object_metadata::{declare_content_encoding, validate_fixed_metadata};
 pub(crate) use object_move::ObjectMoveParams;
 pub(crate) use objects::{
     EtagConditions, base64, decode_hash, object_etag, object_media_negotiable,
     object_media_transcoding, validate_read_condition_headers,
 };
 pub(crate) use objects::{
-    ObjectGetParams, ObjectInsertParams, ObjectRead, ObjectRequest, object_media_headers,
-    object_media_range, object_resource, parse_object_upload_headers, route_object,
-    route_object_with_profile, validate_keyed_object_headers, validate_object_get_headers,
-    validate_object_name,
+    ObjectGetParams, ObjectInsertParams, ObjectRead, ObjectRequest, UploadRequest,
+    object_media_headers, object_media_range, object_resource, parse_object_upload_headers,
+    route_object, route_object_with_profile, validate_keyed_object_headers,
+    validate_object_get_headers, validate_object_name,
 };
 pub(crate) use page_token::{
     decode_all_projects_page_token, decode_object_page_token, decode_page_token,

@@ -154,6 +154,33 @@ fn multipart_gzip_keeps_stored_encoding_separate_and_never_decodes_raw_media() {
 }
 
 #[test]
+fn multipart_content_encoding_query_matches_resumable_declaration_rules() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    bucket(&server, "");
+    let plain_type = "Content-Type: multipart/related; boundary=upload-boundary\r\n";
+    let path = format!("{PATH}&contentEncoding=gzip");
+    let stored = gzip(b"query encoding");
+    for metadata in [
+        r#"{"name":"object"}"#,
+        r#"{"name":"object","contentEncoding":"gzip"}"#,
+    ] {
+        let result = server.request("POST", &path, plain_type, &multipart(metadata, &stored));
+        result.status(200);
+        assert_eq!(result.json()["contentEncoding"], "gzip", "{metadata}");
+    }
+    let before = server.request("GET", OBJECT, "", b"").json();
+    let conflict = multipart(
+        r#"{"name":"object","contentEncoding":"identity"}"#,
+        b"conflict",
+    );
+    server
+        .request("POST", &path, plain_type, &conflict)
+        .status(400);
+    assert_eq!(server.request("GET", OBJECT, "", b"").json(), before);
+}
+
+#[test]
 fn multipart_gzip_limits_and_declared_checksums_preserve_previous_objects() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &["--max-object-bytes", "64"]);

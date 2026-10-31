@@ -27,6 +27,16 @@ pub(crate) struct ObjectGetParams {
     pub soft_deleted: bool,
 }
 
+/// A media or multipart upload: the object it names and the options its query declares. A
+/// multipart upload can leave the name to its metadata part, so `N` is `Option<String>` there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UploadRequest<N> {
+    pub bucket: String,
+    pub name: N,
+    pub params: ObjectInsertParams,
+    pub content_encoding: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ObjectRequest {
     Restore {
@@ -50,16 +60,8 @@ pub(crate) enum ObjectRequest {
         mode: WriteMode,
         retention_override: UnlockedOverride,
     },
-    Insert {
-        bucket: String,
-        name: String,
-        params: ObjectInsertParams,
-    },
-    Multipart {
-        bucket: String,
-        name: Option<String>,
-        params: ObjectInsertParams,
-    },
+    Insert(UploadRequest<String>),
+    Multipart(UploadRequest<Option<String>>),
     Resumable {
         bucket: String,
         name: Option<String>,
@@ -254,7 +256,7 @@ fn parse_object_query(
 }
 
 /// Removes the options every object method shares and rejects the unsupported ones. Returns
-/// the `contentEncoding` of a resumable upload, which the session records.
+/// the `contentEncoding` of an upload, the only POST this parser receives.
 fn take_common_parameters(
     method: &Method,
     query: &mut BTreeMap<String, String>,
@@ -278,16 +280,14 @@ fn take_common_parameters(
             return Err(JsonError::unsupported_object(key));
         }
     }
-    let resumable =
-        method == Method::POST && query.get("uploadType").is_some_and(|v| v == "resumable");
-    let content_encoding = if resumable {
+    let content_encoding = if method == Method::POST {
         query.remove("contentEncoding")
     } else {
         None
     };
     let method_keys: &[&str] = if method == Method::POST {
         query.remove("predefinedAcl");
-        &["contentEncoding", "kmsKeyName"]
+        &["kmsKeyName"]
     } else if matches!(*method, Method::GET | Method::HEAD) {
         &["restoreToken"]
     } else if method == Method::PATCH || method == Method::PUT {
@@ -323,6 +323,10 @@ fn parse_upload_query(
         content_encoding,
         predefined_acl,
     } = upload;
+    // Validated here so an invalid value fails before any body is read.
+    if let Some(encoding) = &content_encoding {
+        super::validate_fixed_metadata("contentEncoding", encoding)?;
+    }
     let predefined_acl = predefined_acl
         .map(|value| {
             crate::acl::PredefinedObjectAcl::parse(&value).ok_or_else(|| {
@@ -383,18 +387,20 @@ fn parse_upload_query(
         });
     }
     if multipart {
-        return Ok(ObjectRequest::Multipart {
+        return Ok(ObjectRequest::Multipart(UploadRequest {
             bucket,
             name,
             params,
-        });
+            content_encoding,
+        }));
     }
     let name = name.ok_or_else(missing_name)?;
-    Ok(ObjectRequest::Insert {
+    Ok(ObjectRequest::Insert(UploadRequest {
         bucket,
         name,
         params,
-    })
+        content_encoding,
+    }))
 }
 
 /// The object a non-upload request names, with the options already parsed from its query.

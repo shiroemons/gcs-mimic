@@ -262,3 +262,28 @@ fn string(body: &Map<String, Value>, key: &str) -> Result<Option<Option<String>>
 pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), JsonError> {
     crate::object::validate_fixed_metadata(key, value).map_err(JsonError::from)
 }
+
+/// Applies the objects.insert `contentEncoding` query parameter, which Discovery defines as
+/// equivalent to the metadata property, on every upload type. A metadata body declaring a
+/// different value is rejected rather than silently overridden.
+pub(crate) fn declare_content_encoding(
+    metadata: &mut ObjectMetadataUpdate,
+    encoding: Option<String>,
+) -> Result<(), JsonError> {
+    let Some(encoding) = encoding else {
+        return Ok(());
+    };
+    validate_fixed_metadata("contentEncoding", &encoding)?;
+    if metadata
+        .content_encoding
+        .as_ref()
+        .and_then(Option::as_ref)
+        .is_some_and(|declared| declared != &encoding)
+    {
+        return Err(JsonError::invalid_parameter(
+            "Conflicting contentEncoding declarations",
+        ));
+    }
+    metadata.content_encoding = Some(Some(encoding));
+    Ok(())
+}

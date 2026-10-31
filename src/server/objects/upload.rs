@@ -5,7 +5,7 @@ use crate::server::RequestBody as Incoming;
 use crate::{
     bucket::BucketAccess,
     csek::CustomerKey,
-    json::{self, JsonError, ObjectInsertParams},
+    json::{self, JsonError, UploadRequest},
     object::{ExpectedHashes, ObjectError, ObjectRecord, UploadChunk},
     server::{ObjectCtx, stream_upload},
     storage::{ObjectUpload, ReplayInvocation},
@@ -45,10 +45,16 @@ pub(super) async fn insert(
     request: Request<Incoming>,
     ctx: ObjectCtx<'_>,
     access: BucketAccess,
-    bucket: String,
-    name: String,
-    params: ObjectInsertParams,
+    target: UploadRequest<String>,
 ) -> Result<Written, JsonError> {
+    let UploadRequest {
+        bucket,
+        name,
+        params,
+        content_encoding,
+    } = target;
+    let mut metadata = crate::object::ObjectMetadataUpdate::default();
+    json::declare_content_encoding(&mut metadata, content_encoding)?;
     let max_bytes = ctx.config.max_object_bytes;
     let (content_type, expected) =
         json::parse_object_upload_headers(request.headers(), params.conditions)?;
@@ -85,7 +91,7 @@ pub(super) async fn insert(
             metadata: crate::object::ObjectMetadataUpdate {
                 customer_key_sha256: key.map(CustomerKey::sha256),
                 predefined_acl: params.predefined_acl,
-                ..Default::default()
+                ..metadata
             },
             access,
         },
@@ -124,10 +130,14 @@ pub(super) async fn multipart(
     request: Request<Incoming>,
     ctx: ObjectCtx<'_>,
     access: BucketAccess,
-    bucket: String,
-    name: Option<String>,
-    params: ObjectInsertParams,
+    target: UploadRequest<Option<String>>,
 ) -> Result<Written, JsonError> {
+    let UploadRequest {
+        bucket,
+        name,
+        params,
+        content_encoding,
+    } = target;
     let max_bytes = ctx.config.max_object_bytes;
     let catalog = &ctx.state.catalog;
     let (_, expected) = json::parse_object_upload_headers(request.headers(), params.conditions)?;
@@ -168,6 +178,7 @@ pub(super) async fn multipart(
     let bytes = multipart.metadata().await?;
     let name_known = name.is_some();
     let (name, mut metadata, expected) = json::multipart_metadata(&bytes, name, expected)?;
+    json::declare_content_encoding(&mut metadata, content_encoding)?;
     crate::server::retention_access::authorize_upload(ctx.state, &access, &bucket, &metadata)
         .await?;
     metadata.customer_key_sha256 = key.map(CustomerKey::sha256);

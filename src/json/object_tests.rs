@@ -80,10 +80,10 @@ fn obj_route_001_media_upload_metadata_download_delete() {
     let query = "ifGenerationMatch=0&ifGenerationNotMatch=5&ifMetagenerationMatch=2&ifMetagenerationNotMatch=3";
     assert_eq!(
         request(Method::POST, &format!("/upload/storage/v1/b/abc/o?uploadType=media&name=dir%2F%E7%8C%AB+%252F&projection=full&{query}")).unwrap(),
-        ObjectRequest::Insert {
+        ObjectRequest::Insert(UploadRequest {
             bucket: "abc".to_owned(), name: "dir/猫 %2F".to_owned(),
-            params: ObjectInsertParams { conditions, projection: Projection::Full, predefined_acl: None },
-        }
+            params: ObjectInsertParams { conditions, projection: Projection::Full, predefined_acl: None }, content_encoding: None,
+        })
     );
     for upload_type in ["media&name=file", "multipart", "resumable&name=file"] {
         let parsed = request(
@@ -93,8 +93,8 @@ fn obj_route_001_media_upload_metadata_download_delete() {
             ),
         )
         .unwrap();
-        let (ObjectRequest::Insert { params, .. }
-        | ObjectRequest::Multipart { params, .. }
+        let (ObjectRequest::Insert(UploadRequest { params, .. })
+        | ObjectRequest::Multipart(UploadRequest { params, .. })
         | ObjectRequest::Resumable { params, .. }) = parsed
         else {
             panic!("{upload_type} parsed as {parsed:?}");

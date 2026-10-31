@@ -14835,6 +14835,15 @@
           ]
         },
         {
+          "id": "JSON-OBJECTS-007-CONTENT-ENCODING-QUERY",
+          "description": "The contentEncoding query parameter is accepted on media, multipart and resumable uploads, as Cloud Storage accepts it on uploadType=media (observed 2026-10-31): the stored object and response report it, the stored bytes are unchanged and a gzip value enables decompressive reads. Invalid values fail 400 before the body is read; a different metadata contentEncoding fails 400 without changing the previous object; kmsKeyName stays rejected. See docs/en/evidence/media-read-provider-observations.md.",
+          "result": "PASS",
+          "test_ids": [
+            "json_media_upload_content_encoding_query_sets_stored_encoding",
+            "multipart_content_encoding_query_matches_resumable_declaration_rules"
+          ]
+        },
+        {
           "id": "JSON-OBJECTS-007-PENDING",
           "description": "Implement broader bucket policies, object IAM/ACLs, encryption and encoding/transcoding effects, full field/common parameter semantics, the unresolved Discovery upload alias and bounded upload-token response replay; the scoped JSON resumable subset and unconditional bucket grants now pass. SPEC-008 mutation NotMatch status and header/size/admission/advisory/body/hash/publication/permission precedence; SPEC-RSM-AUTH-CONDITIONS / SPEC-RSM-EDGES finalization recheck timing and extra session-query 400 (wire-tested for PUT ifGenerationMatch) versus ambiguous subsequent-PUT query/header wording; SPEC-016 multipart X-Goog-Hash; SPEC-RSM-EDGES multi-data-request resumable MD5; SPEC-010/012/016/017 checksum/error/header parity. Preserve local EOF/atomicity and timeout/reclaim safety evidence.",
           "result": "PENDING",
@@ -15303,6 +15312,8 @@
         }
       ],
       "test_ids": [
+        "json_media_upload_content_encoding_query_sets_stored_encoding",
+        "multipart_content_encoding_query_matches_resumable_declaration_rules",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
         "ruby_default_create_file_content_type",
         "ruby-default-create-file-content-type",
@@ -15433,6 +15444,7 @@
       "verification": [
         {"command":"cargo test --locked --test acl_permission_effects predefined_upload && cargo test --locked --lib acl::tests && cargo test --locked --test auth_http uniform_access","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/upload-predefined-acl.md","test_ids":["acl_permission_effects::predefined_upload::media_upload_predefined_acls_replace_the_default_object_acl","acl_permission_effects::predefined_upload::multipart_and_resumable_uploads_apply_predefined_acl_at_publication","acl_permission_effects::predefined_upload::predefined_acl_uploads_need_only_create_and_respect_access_settings","acl::tests::predefined_object_acls_round_trip_and_exclude_bucket_only_values","xml::uniform_access_metadata_and_predefined_acl_rejections"]},
         {"command":"cargo test --test http_resumable_gzip --test http_ingress --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/http-ingress.md","test_ids":["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_retains_strict_authentication_and_upload_permissions"]},
+        {"command":"cargo test --locked --test sdk_object_wire_http --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/media-read-provider-observations.md","test_ids":["json_media_upload_content_encoding_query_sets_stored_encoding","multipart_content_encoding_query_matches_resumable_declaration_rules"]},
         {
           "command": "cargo test --locked --offline --test sdk_ruby_defaults_http",
           "result": "PASS",
@@ -15917,7 +15929,7 @@
         }
       ],
       "known_deviations": [
-        "Media, scoped multipart and JSON resumable are supported; ACL/object IAM and broader bucket policies, encryption, contentEncoding query/transcoding and full field/common-parameter semantics remain unavailable. Strict mode enforces storage.objects.create plus storage.objects.delete for overwrites through project-plus-bucket predefined roles; permissive mode (default) checks nothing. SPEC-017 records local authentication error details, the missing-bucket rule and the 412-before-403 overwrite order.",
+        "Media, scoped multipart and JSON resumable are supported; ACL/object IAM and broader bucket policies, encryption, upload-side transcoding beyond the contentEncoding query parameter and full field/common-parameter semantics remain unavailable. Strict mode enforces storage.objects.create plus storage.objects.delete for overwrites through project-plus-bucket predefined roles; permissive mode (default) checks nothing. SPEC-017 records local authentication error details, the missing-bucket rule and the 412-before-403 overwrite order.",
         "SPEC-008/010/011/012: local mutation precedence/hash parser/error rules, unsupported Content-MD5, accepted missing Content-Type default and opaque resource/header choices.",
         "Default 1 GiB local cap is configurable (1 byte..5 TiB); no production maximum-size or durability claim.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",

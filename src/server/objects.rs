@@ -13,7 +13,7 @@ use super::{
 use crate::{
     auth,
     bucket::{BucketAccess, CatalogError},
-    json::{self, JsonError, ObjectRequest},
+    json::{self, JsonError, ObjectRequest, UploadRequest},
     object::{ObjectError, retention::UnlockedOverride},
     storage::{MoveAccess, ObjectSelector, UploadAclSnapshot},
 };
@@ -115,16 +115,8 @@ pub(super) async fn respond(
             };
             update(request, ctx, &access, target).await?.into()
         }
-        ObjectRequest::Multipart {
-            bucket,
-            name,
-            params,
-        } => upload::multipart(request, ctx, access, bucket, name, params).await?,
-        ObjectRequest::Insert {
-            bucket,
-            name,
-            params,
-        } => upload::insert(request, ctx, access, bucket, name, params).await?,
+        ObjectRequest::Multipart(target) => upload::multipart(request, ctx, access, target).await?,
+        ObjectRequest::Insert(target) => upload::insert(request, ctx, access, target).await?,
         ObjectRequest::Get {
             bucket,
             name,
@@ -169,8 +161,8 @@ fn required_permission(operation: &ObjectRequest) -> (&'static str, &str) {
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
         ObjectRequest::Update { bucket, .. } => (auth::OBJECTS_UPDATE, bucket),
         ObjectRequest::Compose { bucket, .. }
-        | ObjectRequest::Insert { bucket, .. }
-        | ObjectRequest::Multipart { bucket, .. }
+        | ObjectRequest::Insert(UploadRequest { bucket, .. })
+        | ObjectRequest::Multipart(UploadRequest { bucket, .. })
         | ObjectRequest::Resumable { bucket, .. } => (auth::OBJECTS_CREATE, bucket),
         ObjectRequest::Get { bucket, .. } => (auth::OBJECTS_GET, bucket),
         ObjectRequest::Delete { bucket, .. } => (auth::OBJECTS_DELETE, bucket),
@@ -189,9 +181,7 @@ async fn check_predefined_acl(
 ) -> Result<(), JsonError> {
     let target = if matches!(
         operation,
-        ObjectRequest::Insert { .. }
-            | ObjectRequest::Multipart { .. }
-            | ObjectRequest::Resumable { .. }
+        ObjectRequest::Insert(_) | ObjectRequest::Multipart(_) | ObjectRequest::Resumable { .. }
     ) {
         // Documented: anonymous uploads cannot specify a predefined ACL. Their owner is the
         // project owners team, so an anonymous caller could otherwise choose its object's ACL.
@@ -228,9 +218,9 @@ fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<()
     }
     let accepts_body = matches!(
         operation,
-        ObjectRequest::Insert { .. }
+        ObjectRequest::Insert(_)
             | ObjectRequest::Compose { .. }
-            | ObjectRequest::Multipart { .. }
+            | ObjectRequest::Multipart(_)
             | ObjectRequest::Resumable { .. }
             | ObjectRequest::Update { .. }
             | ObjectRequest::Copy(_)

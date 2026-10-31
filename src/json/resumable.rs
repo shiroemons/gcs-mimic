@@ -155,26 +155,7 @@ pub(crate) fn options(
     }
     let bytes = value.to_string().into_bytes();
     let (name, mut metadata, expected) = multipart_metadata(&bytes, name, expected)?;
-    if let Some(encoding) = encoding {
-        if metadata
-            .content_encoding
-            .as_ref()
-            .and_then(|v| v.as_ref())
-            .is_some_and(|v| v != &encoding)
-        {
-            return Err(JsonError::invalid_parameter(
-                "Conflicting contentEncoding declarations",
-            ));
-        }
-        metadata.content_encoding = super::parse_object_metadata(
-            serde_json::json!({"contentEncoding":encoding})
-                .to_string()
-                .as_bytes(),
-            super::WriteMode::Patch,
-        )?
-        .update
-        .content_encoding;
-    }
+    super::declare_content_encoding(&mut metadata, encoding)?;
     let content_type = metadata
         .content_type
         .as_ref()

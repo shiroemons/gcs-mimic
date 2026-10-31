@@ -3539,9 +3539,36 @@
         "location": "query",
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "OBJECTS-INSERT-CONTENT-ENCODING-QUERY",
+          "description": "Media, multipart and resumable uploads store the query value as contentEncoding without changing the stored bytes; invalid values and conflicting metadata declarations fail 400. See docs/en/evidence/media-read-provider-observations.md.",
+          "result": "PASS",
+          "test_ids": [
+            "json_media_upload_content_encoding_query_sets_stored_encoding",
+            "multipart_content_encoding_query_matches_resumable_declaration_rules"
+          ]
+        },
+        {
+          "id": "OBJECTS-INSERT-CONTENT-ENCODING-REMAINING",
+          "description": "Provider error parity for invalid or conflicting values was not observed and remains pending.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --test sdk_object_wire_http --test http_multipart_gzip",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/media-read-provider-observations.md",
+          "test_ids": [
+            "json_media_upload_content_encoding_query_sets_stored_encoding",
+            "multipart_content_encoding_query_matches_resumable_declaration_rules"
+          ]
+        }
+      ]
     },
     {
       "id": "PARAM:storage.objects.insert:ifGenerationMatch",

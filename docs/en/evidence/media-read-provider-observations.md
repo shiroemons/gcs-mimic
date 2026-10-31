@@ -61,3 +61,24 @@ Object: a 35-byte gzip member stored with `Content-Encoding: gzip`.
 
 `X-Origin` is not sent locally. XML expansion previously returned 501, and JSON
 expansion did not mark the transformed body.
+
+## Uploads that declare `contentEncoding`
+
+Observed **2026-10-31**. Object: a 49-byte gzip member of a 29-byte text,
+uploaded with `uploadType=media&contentEncoding=gzip` and no request
+`Content-Encoding` header.
+
+| Request | Cloud Storage | gcs-mimic before |
+| --- | --- | --- |
+| `uploadType=media&contentEncoding=gzip` | 200; `contentEncoding: gzip`, `size: 49`, the stored MD5 and CRC32C of the gzip bytes | 400, the parameter was rejected |
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| The query parameter sets the stored `contentEncoding` | Accepted on media, multipart and resumable uploads; the stored bytes are unchanged | `json_media_upload_content_encoding_query_sets_stored_encoding`, `multipart_content_encoding_query_matches_resumable_declaration_rules` |
+
+Local choices that were not observed: an invalid value (for example one
+containing a control character) fails 400 before the body is read, and a
+multipart or resumable metadata body that declares a different
+`contentEncoding` fails 400, as resumable initiation already did.

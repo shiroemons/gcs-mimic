@@ -470,10 +470,10 @@ async fn respond_json_object(
         || matches!(
             &parsed,
             Ok((
-                ObjectRequest::Insert { .. }
+                ObjectRequest::Insert(_)
                     | ObjectRequest::Copy(_)
                     | ObjectRequest::Compose { .. }
-                    | ObjectRequest::Multipart { .. }
+                    | ObjectRequest::Multipart(_)
                     | ObjectRequest::Resumable { .. },
                 _
             ))
