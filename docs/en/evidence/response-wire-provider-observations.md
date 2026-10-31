@@ -122,6 +122,34 @@ microsecond-scale (16 digits) rather than the recorded 19-digit
 nanosecond-scale value, and the default `softDeletePolicy` and `satisfiesPZI`
 stay absent; see `SPEC-RESPONSE-WIRE-REMAINING`.
 
+## satisfiesPZI in write bodies
+
+The recorded bucket response carried `satisfiesPZI: true` (see
+[JSON bodies](#json-bodies)). Whether a client may set the field was checked
+against the published contracts, not against Cloud Storage:
+
+| Source | Revision / digest | Text for the field |
+| --- | --- | --- |
+| [Live JSON Discovery](https://storage.googleapis.com/$discovery/rest?version=v1), `schemas.Bucket.properties.satisfiesPZI` | revision `20261026`, fetched 2026-11-01, SHA-256 `91588de46b456618d09d202a6595ba1e4d1752658251fce0aa61e7f36781adff` | `"type": "boolean"`, `"description": "Reserved for future use."` (`satisfiesPZS` carries the same text) |
+| [Storage v2 proto](https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto), `message Bucket` | googleapis `d73dfb3c3be52245625b951b9c0bcf65163c549f`, SHA-256 `a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf` | No `satisfies_pzi` field. `satisfies_pzs` is `Optional. Reserved for future use.` |
+
+Neither source marks `satisfiesPZI` output-only: Discovery describes it only
+as reserved, and the v2 proto has no such field, so the gRPC adapter has
+nothing to carry. The pinned Discovery inventory
+(`compatibility/upstream/json-schemas.json`, revision `20261013`) lists the
+field as a bare boolean without descriptions.
+
+gcs-mimic therefore ignores `satisfiesPZI` in insert, PATCH and PUT bodies
+whatever its value and always reports the observed `true`. This is a local
+choice for a reserved field with no documented write semantics, consistent
+with how output-only fields are treated. It is not an observation of how
+Cloud Storage handles a written value: no write of the field was sent to
+Cloud Storage. Rejecting or storing the value would assert behavior that no
+source defines. Tests:
+`json::tests::satisfies_pzi_in_a_write_body_is_ignored_whatever_its_value`,
+`bucket_http::satisfies_pzi_is_ignored_on_insert_patch_and_put_whatever_its_value`.
+Ledger row: `BUCKET-SATISFIES-PZI`.
+
 ## XML listing
 
 `GET /<bucket>?max-keys=5` returned `application/xml; charset=UTF-8`,

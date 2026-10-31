@@ -134,7 +134,8 @@ ipFilter, logging, objectRetention, rpo, satisfiesPZS and website.
 Only acl:[] is ignored; defaultObjectAcl:[] remains unsupported. The native
 profile now emits `satisfiesPZI: true` after `locationType`, as Cloud Storage
 did for one observed location (asia-northeast1, 2026-10-31; other locations
-were not observed). `satisfiesPZI` is output-only like `generation`, so an
+were not observed). `satisfiesPZI` is reserved for future use in the published contracts
+([evidence](../evidence/response-wire-provider-observations.md#satisfiespzi-in-write-bodies)), so an
 insert, PATCH or PUT body may carry it with any value; it is ignored.
 The legacy profile omits the field. Null/empty
 unsupported settings otherwise retain their existing rejection.
