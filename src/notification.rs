@@ -1,10 +1,42 @@
 //! Bucket Pub/Sub notification configurations shared by the JSON adapter and the catalog.
 //!
-//! gcs-mimic stores, validates and reads back configurations but never publishes events:
-//! the emulator does not contact Google Cloud. The supported subset is recorded in
-//! `docs/en/slices/bucket-notifications.md`.
+//! Configurations feed a durable outbox; delivery requires an explicit local Pub/Sub endpoint.
 
 use std::{collections::BTreeMap, fmt};
+
+mod event;
+pub(crate) mod publisher;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum NotificationMode {
+    #[default]
+    Emit,
+    Suppress,
+}
+
+impl NotificationMode {
+    pub(crate) fn for_access(access: &crate::bucket::BucketAccess) -> Self {
+        match access {
+            crate::bucket::BucketAccess::Admin(grant) => grant.notification_mode(),
+            _ => Self::Emit,
+        }
+    }
+}
+
+pub(crate) use event::{Event, Message};
+pub(crate) use publisher::Endpoint;
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Runtime {
+    pub(crate) endpoint: Option<Endpoint>,
+    pub(crate) global: Option<GlobalConfig>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct GlobalConfig {
+    pub(crate) bucket: String,
+    pub(crate) notification: NotificationConfig,
+}
 
 /// Event types listed in the Cloud Storage Pub/Sub notification documentation.
 pub(crate) const EVENT_TYPES: [&str; 4] = [

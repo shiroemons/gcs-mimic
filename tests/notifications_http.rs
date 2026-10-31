@@ -366,3 +366,324 @@ fn deprecated_object_change_notification_routes_are_not_recreated() {
         .request("GET", "/storage/v1/b/test-bucket/o/watch", "", b"")
         .error(404, "notFound");
 }
+
+fn queued_messages(dir: &TestDir) -> Vec<Value> {
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection
+        .prepare("SELECT message FROM notification_outbox ORDER BY id LIMIT 32")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .map(|row| serde_json::from_str::<Value>(&row.unwrap()).unwrap()["messages"][0].clone())
+        .collect()
+}
+
+#[test]
+fn notification_effects_follow_http_mutations_and_persist_without_a_publisher() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, false);
+    server.bucket();
+    insert(
+        &server,
+        "",
+        json!({"topic":"projects/local/topics/uploads", "object_name_prefix":"incoming/"}),
+    );
+    server.put("unmatched", b"ignored").json();
+    let first = server.put("incoming%2Fitem", b"first").json();
+    let object = "/storage/v1/b/test-bucket/o/incoming%2Fitem";
+    let changed = server
+        .request(
+            "PATCH",
+            object,
+            "",
+            br#"{"contentType":"application/test","metadata":{"team":"storage"}}"#,
+        )
+        .json();
+    assert_eq!(changed["metageneration"], "2");
+    server
+        .request(
+            "PATCH",
+            &format!("{object}?ifMetagenerationMatch=1"),
+            "",
+            br#"{"contentType":"rejected"}"#,
+        )
+        .error(412, "conditionNotMet");
+    server
+        .request("DELETE", &format!("{object}?ifGenerationMatch=0"), "", b"")
+        .error(412, "conditionNotMet");
+    let second = server.put("incoming%2Fitem", b"second").json();
+    assert_eq!(server.request("DELETE", object, "", b"").status, 204);
+    server.stop();
+    let messages = queued_messages(&dir);
+    let events: Vec<_> = messages
+        .iter()
+        .map(|message| message["attributes"]["eventType"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        events,
+        [
+            "OBJECT_FINALIZE",
+            "OBJECT_METADATA_UPDATE",
+            "OBJECT_DELETE",
+            "OBJECT_FINALIZE",
+            "OBJECT_DELETE"
+        ]
+    );
+    assert_eq!(messages[0]["attributes"]["objectId"], "incoming/item");
+    assert_eq!(
+        messages[2]["attributes"]["objectGeneration"],
+        first["generation"]
+    );
+    assert_eq!(
+        messages[2]["attributes"]["overwrittenByGeneration"],
+        second["generation"]
+    );
+    let mut restarted = Server::start(&dir, false);
+    assert_eq!(queued_messages(&dir), messages);
+    restarted.stop();
+}
+
+struct EventServer {
+    child: std::process::Child,
+    stdout: std::io::BufReader<std::process::ChildStdout>,
+    address: String,
+}
+
+impl EventServer {
+    fn start(dir: &TestDir, endpoint: &str, extra: &[&str]) -> Self {
+        use std::io::BufRead;
+        let mut child = object_effects_support::common::server_command()
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+            ])
+            .arg(&dir.0)
+            .args(["--pubsub-emulator-host", endpoint])
+            .args(extra)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let ready: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(ready["event"], "ready");
+        Self {
+            child,
+            stdout,
+            address: ready["listen"].as_str().unwrap().to_owned(),
+        }
+    }
+
+    fn request(&self, method: &str, path: &str, body: &[u8]) -> object_effects_support::Reply {
+        object_effects_support::request(&self.address, method, path, "", body)
+    }
+
+    fn stop(&mut self) {
+        object_effects_support::common::stop_server(&mut self.child, &mut self.stdout);
+    }
+}
+
+impl Drop for EventServer {
+    fn drop(&mut self) {
+        if self.child.try_wait().unwrap().is_none() {
+            self.child.kill().unwrap();
+            self.child.wait().unwrap();
+        }
+    }
+}
+
+fn accept_local_publish(listener: &std::net::TcpListener) -> (String, Value) {
+    use std::io::{BufRead, Read, Write};
+    let (mut socket, _) = listener.accept().unwrap();
+    socket
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .unwrap();
+    let mut reader = std::io::BufReader::new(socket.try_clone().unwrap());
+    let mut path = String::new();
+    reader.read_line(&mut path).unwrap();
+    let mut length = 0;
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        if line == "\r\n" {
+            break;
+        }
+        assert!(!line.to_ascii_lowercase().starts_with("authorization:"));
+        if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+            length = value.trim().parse().unwrap();
+        }
+    }
+    assert!((1..=131072).contains(&length));
+    let mut body = vec![0; length];
+    reader.read_exact(&mut body).unwrap();
+    socket
+        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 23\r\n\r\n{\"messageIds\":[\"done\"]}")
+        .unwrap();
+    (
+        path,
+        serde_json::from_slice::<Value>(&body).unwrap()["messages"][0].clone(),
+    )
+}
+
+#[test]
+fn legacy_global_notification_rules_and_json_configs_publish_to_the_explicit_local_endpoint() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = listener.local_addr().unwrap().to_string();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(2);
+    let publisher = std::thread::spawn(move || {
+        for _ in 0..2 {
+            sender.send(accept_local_publish(&listener)).unwrap();
+        }
+    });
+    let dir = TestDir::new();
+    let mut server = EventServer::start(
+        &dir,
+        &endpoint,
+        &[
+            "-event.pubsub-project-id",
+            "local",
+            "-event.pubsub-topic",
+            "global",
+            "-event.bucket",
+            "test-bucket",
+            "-event.object-prefix",
+            "incoming/",
+            "-event.list",
+            "finalize",
+        ],
+    );
+    server
+        .request(
+            "POST",
+            "/storage/v1/b?project=local",
+            br#"{"name":"test-bucket"}"#,
+        )
+        .json();
+    server.request("POST", CONFIGS, br#"{"topic":"projects/local/topics/explicit","payload_format":"NONE","object_name_prefix":"incoming/","custom_attributes":{"team":"storage"}}"#).json();
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=unmatched",
+            b"ignored",
+        )
+        .json();
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=incoming%2Fitem",
+            b"published",
+        )
+        .json();
+    let first = receiver
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let second = receiver
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    assert!(first.0.contains("/projects/local/topics/global:publish"));
+    assert_eq!(first.1["attributes"]["eventType"], "OBJECT_FINALIZE");
+    assert!(first.1["attributes"].get("notificationConfig").is_none());
+    assert!(first.1.get("data").is_some());
+    assert!(second.0.contains("/projects/local/topics/explicit:publish"));
+    assert_eq!(second.1["attributes"]["team"], "storage");
+    assert_eq!(second.1["attributes"]["payloadFormat"], "NONE");
+    assert!(second.1.get("data").is_none());
+    publisher.join().unwrap();
+    server.stop();
+}
+
+#[test]
+#[ignore = "requires GCS_MIMIC_TEST_PUBSUB_EMULATOR_HOST pointing to an explicitly started local Pub/Sub emulator"]
+fn opted_in_pubsub_emulator_receives_the_notification() {
+    let address = std::env::var("GCS_MIMIC_TEST_PUBSUB_EMULATOR_HOST")
+        .expect("explicit local Pub/Sub test endpoint is required");
+    let socket: std::net::SocketAddr = address
+        .parse()
+        .expect("use a numeric loopback address:port");
+    assert!(socket.ip().is_loopback());
+    let dir = TestDir::new();
+    let suffix = dir.0.file_name().unwrap().to_str().unwrap();
+    let topic = format!("projects/local/topics/{suffix}");
+    let subscription = format!("projects/local/subscriptions/{suffix}");
+    object_effects_support::request(&address, "PUT", &format!("/v1/{topic}"), "", b"{}").json();
+    object_effects_support::request(
+        &address,
+        "PUT",
+        &format!("/v1/{subscription}"),
+        "",
+        json!({"topic": topic}).to_string().as_bytes(),
+    )
+    .json();
+    let mut server = EventServer::start(&dir, &address, &[]);
+    server
+        .request(
+            "POST",
+            "/storage/v1/b?project=local",
+            br#"{"name":"test-bucket"}"#,
+        )
+        .json();
+    server
+        .request(
+            "POST",
+            CONFIGS,
+            json!({"topic":topic,"payload_format":"NONE"})
+                .to_string()
+                .as_bytes(),
+        )
+        .json();
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=received",
+            b"payload",
+        )
+        .json();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let result = object_effects_support::request(
+            &address,
+            "POST",
+            &format!("/v1/{subscription}:pull"),
+            "",
+            br#"{"maxMessages":10,"returnImmediately":true}"#,
+        )
+        .json();
+        if let Some(messages) = result["receivedMessages"].as_array()
+            && !messages.is_empty()
+        {
+            assert_eq!(
+                messages[0]["message"]["attributes"]["eventType"],
+                "OBJECT_FINALIZE"
+            );
+            assert_eq!(messages[0]["message"]["attributes"]["objectId"], "received");
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Pub/Sub emulator did not receive the notification"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    server.stop();
+    assert_eq!(
+        object_effects_support::request(
+            &address,
+            "DELETE",
+            &format!("/v1/{subscription}"),
+            "",
+            b""
+        )
+        .status,
+        200
+    );
+    assert_eq!(
+        object_effects_support::request(&address, "DELETE", &format!("/v1/{topic}"), "", b"")
+            .status,
+        200
+    );
+}

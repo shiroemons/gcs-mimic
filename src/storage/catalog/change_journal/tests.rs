@@ -445,7 +445,7 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
         .await
         .unwrap();
     publish(&catalog, Origin::Seed, "preserved").await;
-    let before = catalog
+    let mut before = catalog
         .get_object(
             "test-bucket",
             "preserved",
@@ -454,6 +454,7 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
         )
         .await
         .unwrap();
+    before.owner = None;
     let policy = catalog
         .get_policy("test-bucket", &BucketAccess::Permissive)
         .await
@@ -507,12 +508,12 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
     drop(lease);
     catalog.close().await.unwrap();
     let connection = Connection::open(&path).unwrap();
-    super::super::validate_schema(&connection, 35).unwrap();
+    super::super::validate_schema(&connection, super::super::CATALOG_SCHEMA_VERSION).unwrap();
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        35
+        super::super::CATALOG_SCHEMA_VERSION
     );
     assert!(super::super::validate_schema(&connection, 14).is_err());
     let snapshot = Connection::open(backup.0.join("catalog.sqlite3")).unwrap();

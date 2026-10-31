@@ -73,7 +73,7 @@ fn record(id: i64, stored: &str) -> Result<NotificationRecord, CatalogError> {
     Ok(NotificationRecord { id, config })
 }
 
-fn read_all(
+pub(super) fn read_all(
     connection: &Connection,
     bucket: &str,
 ) -> Result<Vec<NotificationRecord>, CatalogError> {
@@ -106,7 +106,7 @@ fn touch_bucket(
 ) -> Result<(), CatalogError> {
     let updated = transaction
         .prepare_cached(
-            "UPDATE buckets SET metageneration = metageneration + 1, updated = ?2
+            "UPDATE buckets SET metageneration = metageneration + 1, updated = ?2, updated_nanos = 0
              WHERE name = ?1 AND metageneration < 9223372036854775807",
         )
         .and_then(|mut statement| statement.execute(params![bucket, now_micros]))

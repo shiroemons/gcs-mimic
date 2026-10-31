@@ -6,12 +6,13 @@ Scope: JSON-NOTIFICATIONS-001 (delete), JSON-NOTIFICATIONS-002 (get),
 JSON-NOTIFICATIONS-003 (insert) and JSON-NOTIFICATIONS-004 (list), plus the
 AUDIT-021 scope decision for deprecated notification APIs.
 
-gcs-mimic stores, validates and reads back notification configurations. It
-**never publishes Pub/Sub messages**: the emulator does not contact Google Cloud,
-and no local event outbox, webhook or Pub/Sub emulator adapter exists. A stored
-configuration therefore has no delivery effect. Event delivery remains
-EXT-BEH-032 (event payload/outbox) and EXT-BEH-033 (Pub/Sub delivery), both
-NOT_STARTED.
+gcs-mimic stores, validates and reads back notification configurations.
+Configurations also select immutable events into a bounded persistent outbox;
+delivery requires an explicitly configured local Pub/Sub emulator endpoint.
+See [local notification delivery](pubsub-notification-delivery.md) for the
+EXT-BEH-032 event snapshots and EXT-BEH-033 publisher contract, offline capacity,
+retry/reset behavior and verification boundaries. The emulator never falls back
+to Google Cloud.
 
 ## Sources
 
@@ -60,10 +61,9 @@ Checked 2026-10-29:
 
 ## Local decisions and known deviations
 
-- No delivery: configurations never cause Pub/Sub messages. Google also checks
-  that the topic exists and that the project's Cloud Storage service agent can
-  publish to it (`pubsub.topics.attachSubscription` on the topic). gcs-mimic has
-  no Pub/Sub topics and accepts any well-formed topic.
+- Notification CRUD accepts well-formed topics without checking a remote topic
+  or service-agent permissions. The optional local emulator publisher retains
+  failures and retries; it never creates topics or silently discards events.
 - Error reasons and messages for invalid fields, limits and unknown IDs are
   local choices; cloud wire parity has not been observed. Duplicate event types
   are rejected locally; provider behavior is unverified.
@@ -93,3 +93,4 @@ revision or official source lists these methods again.
 ## Verification
 
 See [the evidence record](../evidence/bucket-notifications.md).
+Delivery has a [separate evidence record](../evidence/pubsub-notification-delivery.md).

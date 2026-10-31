@@ -203,6 +203,17 @@ pub(super) fn object(
     kind: ChangeKind,
     record: &ObjectRecord,
 ) -> Result<(), CatalogError> {
+    if kind == ChangeKind::Metadata && origin != Origin::Import {
+        super::notification_outbox::enqueue(
+            connection,
+            crate::notification::Message {
+                event: crate::notification::Event::MetadataUpdate,
+                object: record,
+                time: record.updated,
+                replacement: None,
+            },
+        )?;
+    }
     append(connection, origin, kind, &record.bucket, Some(record))
 }
 
@@ -338,13 +349,9 @@ impl Catalog {
         clippy::fn_params_excessive_bools,
         reason = "forwards the stored enabled column; enable_change_journal and disable_change_journal name each direction"
     )]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "only the sync mirror switches the journal, once per reconciliation pass; no API request reaches it"
-    )]
     async fn set_change_journal(&self, enabled: bool) -> Result<JournalFence, AdminError> {
         self.run_admin(move |connection| {
-            connection.execute("UPDATE change_journal_state SET enabled = ?1, epoch = epoch + (enabled != ?1) WHERE singleton = 1", [enabled]).map_err(unavailable)?;
+            connection.prepare_cached("UPDATE change_journal_state SET enabled = ?1, epoch = epoch + (enabled != ?1) WHERE singleton = 1").and_then(|mut statement|statement.execute([enabled])).map_err(unavailable)?;
             Ok(state(connection)?.0)
         }).await
     }
