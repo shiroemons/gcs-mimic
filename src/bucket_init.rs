@@ -506,6 +506,17 @@ struct Entry {
     default_event_based_hold: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     iam_configuration: Option<IamConfiguration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    soft_delete_policy: Option<SoftDeletePolicy>,
+}
+
+/// Only the writable field: `effectiveTime` is output-only and has no meaning in a definition.
+/// The value stays untyped so the JSON API parser applies the same validation as an insert.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct SoftDeletePolicy {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retention_duration_seconds: Option<Value>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -695,7 +706,6 @@ fn unsupported(name: &str) -> bool {
             | "rpo"
             | "satisfiesPZI"
             | "satisfiesPZS"
-            | "softDeletePolicy"
             | "website"
             | "kind"
             | "selfLink"
@@ -764,6 +774,9 @@ fn example(field: &str) -> &'static str {
         "enabled" => "\"enabled\":true",
         "defaultEventBasedHold" => "\"defaultEventBasedHold\":false",
         "iamConfiguration" => "\"iamConfiguration\":{\"publicAccessPrevention\":\"inherited\"}",
+        "softDeletePolicy" | "retentionDurationSeconds" => {
+            "\"softDeletePolicy\":{\"retentionDurationSeconds\":\"0\"} (0 or 604800 to 7776000)"
+        }
         _ => "\"publicAccessPrevention\":\"inherited\"",
     }
 }
@@ -844,6 +857,11 @@ fn check_shape(
                     }
                 }
             }
+            "softDeletePolicy" => {
+                if let Some(nested) = members(raw) {
+                    closed::<SoftDeletePolicy>(&nested, &key, diagnostics);
+                }
+            }
             "project" => {
                 project(raw, &key, diagnostics)?;
             }
@@ -871,6 +889,23 @@ fn check_values(
                         if (name == "versioning" && child == "enabled")
                             || (name == "iamConfiguration" && child == "publicAccessPrevention")
                         {
+                            native(
+                                name,
+                                &json!({child: value(raw)?}),
+                                &path(&key, child),
+                                now,
+                                diagnostics,
+                            );
+                        }
+                    }
+                } else {
+                    native(name, &parsed, &key, now, diagnostics);
+                }
+            }
+            "softDeletePolicy" => {
+                if let Some(nested) = members(raw) {
+                    for (child, raw) in &nested.0 {
+                        if child == "retentionDurationSeconds" {
                             native(
                                 name,
                                 &json!({child: value(raw)?}),

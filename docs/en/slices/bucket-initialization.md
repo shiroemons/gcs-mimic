@@ -77,7 +77,7 @@ For each entry use **entry `project` > file `project` > effective `seed_project`
 
 `name` is required. Names are unique across the entire file, **including across different projects**; the second and subsequent occurrences each report the first index. Escaped equivalent names compare after JSON decoding. Invalid names receive validation diagnostics; do not silently normalize, case-fold or rename them.
 
-The entry allowlist is `name`, `location`, `storageClass`, `labels`, `cors`, `versioning`, `defaultEventBasedHold`, `iamConfiguration`, `project`. Nested object allowlists are also closed:
+The entry allowlist is `name`, `location`, `storageClass`, `labels`, `cors`, `versioning`, `defaultEventBasedHold`, `iamConfiguration`, `softDeletePolicy`, `project`. Nested object allowlists are also closed:
 
 | Field | Allowed shape / shared native behavior |
 | --- | --- |
@@ -89,6 +89,7 @@ The entry allowlist is `name`, `location`, `storageClass`, `labels`, `cors`, `ve
 | `versioning` | Object with optional boolean `enabled`; omitted object/member defaults false; null is invalid |
 | `defaultEventBasedHold` | Boolean; omitted false; null invalid |
 | `iamConfiguration` | Object with optional `publicAccessPrevention` of `inherited` or `enforced`; omitted object/member defaults inherited; null invalid |
+| `softDeletePolicy` | Object with optional `retentionDurationSeconds` (0 or 604800 to 7776000, as an integer or string), validated like the JSON API; `effectiveTime` is output-only and rejected. Omitted takes `default_soft_delete_retention_seconds`; an explicit 0 opts the bucket out of that default. |
 | `project` | Initializer-only override, removed before native bucket parsing |
 
 The `default_location` setting supplies the omitted/null/empty native location for the initializer; nonempty entry location wins. The default is `US`. This does not enable a global location setting in `legacy-emulator` or alter Configuration's rejection of that setting there.

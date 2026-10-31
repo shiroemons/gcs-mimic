@@ -683,3 +683,66 @@ fn selected_file_only_is_loaded_and_invalid_paths_fail_without_ready() {
         assert!(output.stdout.is_empty());
     }
 }
+
+#[test]
+fn soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it() {
+    let dir = TestDir::new();
+    input(
+        &dir.0,
+        json!([
+            {"name":"default-bucket"},
+            {"name":"permanent-bucket","softDeletePolicy":{"retentionDurationSeconds":"0"}},
+            {"name":"long-bucket","softDeletePolicy":{"retentionDurationSeconds":1209600}}
+        ]),
+    );
+    let seed = dir.0.join("seed");
+    fs::create_dir_all(seed.join("seeded-bucket")).unwrap();
+    fs::write(seed.join("seeded-bucket").join("file.txt"), b"seeded").unwrap();
+    let server = Server::start(
+        selected(&dir.0)
+            .args(["--default-soft-delete-retention-seconds", "604800"])
+            .arg("--seed-dir")
+            .arg(&seed),
+    );
+    let retention = |name: &str| {
+        server.json("GET", &format!("/storage/v1/b/{name}"), Value::Null)["softDeletePolicy"]
+            ["retentionDurationSeconds"]
+            .clone()
+    };
+    assert_eq!(retention("default-bucket"), "604800");
+    assert_eq!(retention("seeded-bucket"), "604800");
+    assert_eq!(retention("long-bucket"), "1209600");
+    // An explicit zero is kept as sent, which stores no retention for the bucket.
+    assert_ne!(retention("permanent-bucket"), "604800");
+    server.stop();
+}
+
+#[test]
+fn invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation() {
+    let dir = TestDir::new();
+    input(
+        &dir.0,
+        json!([
+            {"name":"bad-low","softDeletePolicy":{"retentionDurationSeconds":"1"}},
+            {"name":"bad-shape","softDeletePolicy":5},
+            {"name":"bad-field","softDeletePolicy":{"effectiveTime":"2026-01-01T00:00:00Z"}}
+        ]),
+    );
+    let output = selected(&dir.0).output().unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let event: Value = serde_json::from_slice(&output.stderr).unwrap();
+    let keys: Vec<_> = event["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["key"].as_str().unwrap().to_owned())
+        .collect();
+    for key in [
+        "buckets[0].softDeletePolicy.retentionDurationSeconds",
+        "buckets[1].softDeletePolicy",
+        "buckets[2].softDeletePolicy.effectiveTime",
+    ] {
+        assert!(keys.iter().any(|k| k == key), "{key} in {keys:?}");
+    }
+}
