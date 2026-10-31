@@ -285,10 +285,11 @@ ordinary compatibility failures remain recorded `pass: false` cases.
   roots: on macOS that is the Keychain, which ignores `SSL_CERT_FILE`, so the
   scorecard CA cannot be trusted natively. The Rust probe therefore always runs
   in the pinned Linux container, with the container's loopback ports forwarded to
-  the host by `socat`, which is installed from the image's Debian mirror at run
-  time (an unpinned input) and needs network access. `run.sh` and
-  `test-tls.sh` require a working Docker for it; neither skips the Rust probe
-  when Docker is unavailable.
+  the host by `socat`, which `sdk-scorecard/install-socat.sh` installs at run
+  time from a fixed snapshot.debian.org archive with a pinned version (network
+  access is still required).
+  `run.sh` and `test-tls.sh` require a working Docker for it; neither skips the
+  Rust probe when Docker is unavailable.
 - Each probe runs against its own freshly started emulator. This removes
   cross-SDK state leakage but means products are restarted eight times per run
   and per-SDK results are not from one continuous server state.

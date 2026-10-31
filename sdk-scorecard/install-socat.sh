@@ -22,7 +22,5 @@ Components: main
 Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
 SOURCES
 
-# Snapshot Release files carry a Valid-Until that has already passed; the signature is still
-# verified against the Debian archive keyring.
-apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=3 update -qq >&2
+apt-get -o Acquire::Retries=3 update -qq >&2
 apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends "socat=$socat_version" >&2
