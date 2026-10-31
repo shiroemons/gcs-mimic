@@ -199,3 +199,34 @@ complete freshness run have not been executed at this checkpoint. The
 coordinator owns final SDK/container checks for the accepted source. No
 application image build, benchmark, real-cloud test, publication or release was
 performed for this runtime update.
+
+## Refresh: 2026-11-01
+
+`cargo xtask dependencies check` reported `docker library/composer:latest:
+UPDATE_AVAILABLE` (`sha256:4ed71c38c6d788eb4e4e3747b5332f5b40d5b5a6fcadd5062a1a70986a118e0a`
+against the pinned `composer:2.11.1` index
+`sha256:537fb03057ed901ae06bde7ef25af348903485ae1acc7fc789b80d8bac666f35`).
+Inspection with `docker buildx imagetools inspect` showed no new Composer
+release. The `2.11.1` tag index is unchanged; the `latest` index differs only by
+a `linux/riscv64` entry that still carries Composer 2.10.3. The linux/amd64
+(`sha256:22844d23aacc7140fccf24992829ae98bc2c92e0240ccca3b35716bf5d82ed70`) and
+linux/arm64
+(`sha256:9c383fb6f07d2b2cbbf0f21133789b335a55996c4c857c0f2775d16f31922872`)
+manifests are identical in both indexes.
+
+No single digest can equal both tag indexes, so the exact-index comparison could
+never pass. The checker now compares a distinct moving tag only on the platforms
+declared in the input's `platforms` map and prints platform differences outside
+that set as `INFO` without failing; see the Docker platform scope paragraph in
+the [dependency policy](../dependency-policy.md). Composer is used only by
+development scripts that run on amd64 and arm64, both declared, so the
+`composer-riscv64-publication-lag` exception no longer describes a freshness gap
+and was removed. The pins in the three PHP runners and the snapshot are
+unchanged. `docker/dockerfile` declares no platforms and keeps the exact
+comparison because its tag and moving tag are the same.
+
+The full `cargo xtask dependencies check` afterwards exited 0: Composer
+`2.11.1` was `CURRENT`, Composer `latest` was `CURRENT on declared platforms
+linux/amd64, linux/arm64` with `INFO: latest differs only on linux/riscv64`, and
+the Rust, distroless, curl, buildkit and syft-scanner inputs were unchanged
+`CURRENT` results.

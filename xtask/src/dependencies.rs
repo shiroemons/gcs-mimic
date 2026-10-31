@@ -978,6 +978,147 @@ fn check_apt_packages(root: &Path, status: &Value) -> Result<bool> {
     Ok(drift)
 }
 
+/// Result of comparing a moving tag's index with the pinned platform manifests.
+#[derive(Debug, Default, PartialEq)]
+struct PlatformComparison {
+    /// Declared platforms whose manifest differs from the pin.
+    drifted: Vec<String>,
+    /// Platforms outside the declared set that differ between the pinned tag and the moving tag.
+    undeclared_differences: Vec<String>,
+}
+
+fn platform_key(entry: &Value) -> Option<String> {
+    let os = entry["platform"]["os"].as_str()?;
+    let arch = entry["platform"]["architecture"].as_str()?;
+    // Attestation manifests are reported as unknown/unknown and never run.
+    if os == "unknown" || arch == "unknown" {
+        return None;
+    }
+    Some(match entry["platform"]["variant"].as_str() {
+        Some(variant) => format!("{os}/{arch}/{variant}"),
+        None => format!("{os}/{arch}"),
+    })
+}
+
+/// Compares a moving tag against the platforms the project actually runs. Only the declared
+/// `platforms` decide freshness, so a platform the project does not use cannot make a pin look
+/// stale. A declared platform that the moving tag lacks is an error, not a match.
+fn compare_platforms(
+    declared: &serde_json::Map<String, Value>,
+    pinned_index: &Value,
+    moving_index: &Value,
+) -> Result<PlatformComparison> {
+    if declared.is_empty() {
+        return Err("no declared platforms to compare".into());
+    }
+    let manifests = |index: &Value| -> Result<Vec<Value>> {
+        Ok(index["manifests"]
+            .as_array()
+            .ok_or("missing image index")?
+            .clone())
+    };
+    let moving = manifests(moving_index)?;
+    let mut result = PlatformComparison::default();
+    for (platform, pinned) in declared {
+        let (os, arch) = platform.split_once('/').ok_or("invalid platform")?;
+        let found = moving
+            .iter()
+            .find(|m| m["platform"]["os"] == os && m["platform"]["architecture"] == arch)
+            .ok_or_else(|| format!("declared platform {platform} is absent from the moving tag"))?;
+        if found["digest"] != *pinned {
+            result.drifted.push(platform.clone());
+        }
+    }
+    let by_key = |entries: &[Value]| -> BTreeMap<String, Value> {
+        entries
+            .iter()
+            .filter_map(|m| Some((platform_key(m)?, m["digest"].clone())))
+            .collect()
+    };
+    let pinned_by_key = by_key(&manifests(pinned_index)?);
+    let moving_by_key = by_key(&moving);
+    let is_declared = |key: &str| {
+        declared
+            .keys()
+            .any(|d| key == d || key.starts_with(&format!("{d}/")))
+    };
+    let keys: BTreeSet<&String> = pinned_by_key.keys().chain(moving_by_key.keys()).collect();
+    for key in keys {
+        if !is_declared(key) && pinned_by_key.get(key) != moving_by_key.get(key) {
+            result.undeclared_differences.push(key.clone());
+        }
+    }
+    Ok(result)
+}
+
+/// The version tag must match the pinned index exactly. A moving tag such as `latest` is judged
+/// only on the declared platforms, because its index may carry extra platforms the project does
+/// not use. Returns whether any drift was found.
+fn check_image_tags(image: &Value, manifest_source: &str, headers: &[String]) -> Result<bool> {
+    let repository = text(image, "repository")?;
+    let digest = text(image, "digest")?;
+    let tag = text(image, "tag")?;
+    let latest_tag = text(image, "latest_tag")?;
+    let (actual, pinned_index) =
+        registry_response(&fetch(&format!("{manifest_source}{tag}"), headers, true)?)?;
+    let mut drift = compare(&format!("docker {repository}:{tag}"), digest, &actual);
+    if actual == digest {
+        for (platform, pinned) in image["platforms"]
+            .as_object()
+            .ok_or("missing platform pins")?
+        {
+            let (os, arch) = platform.split_once('/').ok_or("invalid platform")?;
+            let found = pinned_index["manifests"]
+                .as_array()
+                .ok_or("missing image index")?
+                .iter()
+                .find(|m| m["platform"]["os"] == os && m["platform"]["architecture"] == arch)
+                .ok_or("missing platform manifest")?;
+            if found["digest"] != *pinned {
+                return Err(format!(
+                    "platform digest mismatch: {} {platform}",
+                    text(image, "reference")?
+                ));
+            }
+        }
+    }
+    if latest_tag == tag {
+        return Ok(drift);
+    }
+    let (latest_digest, latest_index) = registry_response(&fetch(
+        &format!("{manifest_source}{latest_tag}"),
+        headers,
+        true,
+    )?)?;
+    let label = format!("docker {repository}:{latest_tag}");
+    if latest_digest == digest {
+        return Ok(drift | compare(&label, digest, &latest_digest));
+    }
+    let declared = image["platforms"]
+        .as_object()
+        .ok_or("missing platform pins")?;
+    let outcome = compare_platforms(declared, &pinned_index, &latest_index)?;
+    if outcome.drifted.is_empty() {
+        println!(
+            "{label}: CURRENT on declared platforms {}",
+            declared.keys().cloned().collect::<Vec<_>>().join(", ")
+        );
+        if !outcome.undeclared_differences.is_empty() {
+            println!(
+                "INFO: {latest_tag} differs only on {}",
+                outcome.undeclared_differences.join(", ")
+            );
+        }
+    } else {
+        println!(
+            "{label}: UPDATE_AVAILABLE on {} current={digest} latest={latest_digest}",
+            outcome.drifted.join(", ")
+        );
+        drift = true;
+    }
+    Ok(drift)
+}
+
 fn json(source: &str) -> Result<Value> {
     serde_json::from_str(source).map_err(|e| e.to_string())
 }
@@ -1222,7 +1363,6 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
         .as_array()
         .ok_or("missing Docker inputs")?
     {
-        let repository = text(image, "repository")?;
         let reference = text(image, "reference")?;
         let digest = text(image, "digest")?;
         let pin = format!("{reference}@{digest}");
@@ -1248,33 +1388,7 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
         }
         let (manifest_source, headers) =
             registry_manifest_source(image, |url| fetch(url, &[], false))?;
-        for tag in [text(image, "tag")?, text(image, "latest_tag")?]
-            .into_iter()
-            .collect::<BTreeSet<_>>()
-        {
-            let (actual, manifest) =
-                registry_response(&fetch(&format!("{manifest_source}{tag}"), &headers, true)?)?;
-            drift |= compare(&format!("docker {repository}:{tag}"), digest, &actual);
-            if tag == text(image, "tag")? && actual == digest {
-                for (platform, pinned) in image["platforms"]
-                    .as_object()
-                    .ok_or("missing platform pins")?
-                {
-                    let (os, arch) = platform.split_once('/').ok_or("invalid platform")?;
-                    let found = manifest["manifests"]
-                        .as_array()
-                        .ok_or("missing image index")?
-                        .iter()
-                        .find(|m| {
-                            m["platform"]["os"] == os && m["platform"]["architecture"] == arch
-                        })
-                        .ok_or("missing platform manifest")?;
-                    if found["digest"] != *pinned {
-                        return Err(format!("platform digest mismatch: {reference} {platform}"));
-                    }
-                }
-            }
-        }
+        drift |= check_image_tags(image, &manifest_source, &headers)?;
     }
     if scope == Scope::Release {
         println!("apt packages: SKIPPED development-only inputs");
@@ -1874,6 +1988,81 @@ mod tests {
         }
     }
 
+    fn index(entries: &[(&str, &str, Option<&str>, &str)]) -> Value {
+        serde_json::json!({"manifests": entries.iter().map(|(os, arch, variant, digest)| {
+            serde_json::json!({"digest": digest, "platform": {"os": os, "architecture": arch, "variant": variant}})
+        }).collect::<Vec<_>>()})
+    }
+
+    fn declared() -> serde_json::Map<String, Value> {
+        serde_json::json!({"linux/amd64": "sha256:a", "linux/arm64": "sha256:b"})
+            .as_object()
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn moving_tag_is_current_when_declared_platforms_match() {
+        let pinned = index(&[
+            ("linux", "amd64", None, "sha256:a"),
+            ("linux", "arm64", Some("v8"), "sha256:b"),
+        ]);
+        let moving = index(&[
+            ("linux", "amd64", None, "sha256:a"),
+            ("linux", "arm64", Some("v8"), "sha256:b"),
+            ("unknown", "unknown", None, "sha256:att"),
+        ]);
+        let outcome = compare_platforms(&declared(), &pinned, &moving).unwrap();
+        assert_eq!(outcome, PlatformComparison::default());
+    }
+
+    #[test]
+    fn undeclared_platform_differences_are_reported_without_drift() {
+        let pinned = index(&[
+            ("linux", "amd64", None, "sha256:a"),
+            ("linux", "arm64", None, "sha256:b"),
+        ]);
+        let moving = index(&[
+            ("linux", "amd64", None, "sha256:a"),
+            ("linux", "arm64", None, "sha256:b"),
+            ("linux", "riscv64", None, "sha256:r"),
+        ]);
+        let outcome = compare_platforms(&declared(), &pinned, &moving).unwrap();
+        assert!(outcome.drifted.is_empty());
+        assert_eq!(outcome.undeclared_differences, ["linux/riscv64"]);
+    }
+
+    #[test]
+    fn a_changed_declared_platform_is_drift() {
+        let pinned = index(&[
+            ("linux", "amd64", None, "sha256:a"),
+            ("linux", "arm64", None, "sha256:b"),
+        ]);
+        let moving = index(&[
+            ("linux", "amd64", None, "sha256:a"),
+            ("linux", "arm64", None, "sha256:new"),
+        ]);
+        let outcome = compare_platforms(&declared(), &pinned, &moving).unwrap();
+        assert_eq!(outcome.drifted, ["linux/arm64"]);
+    }
+
+    #[test]
+    fn a_declared_platform_missing_from_the_moving_tag_is_an_error() {
+        let pinned = index(&[
+            ("linux", "amd64", None, "sha256:a"),
+            ("linux", "arm64", None, "sha256:b"),
+        ]);
+        let moving = index(&[("linux", "amd64", None, "sha256:a")]);
+        let err = compare_platforms(&declared(), &pinned, &moving).unwrap_err();
+        assert!(err.contains("linux/arm64"), "{err}");
+    }
+
+    #[test]
+    fn comparing_without_declared_platforms_is_an_error() {
+        let empty = serde_json::Map::new();
+        let any = index(&[("linux", "amd64", None, "sha256:a")]);
+        assert!(compare_platforms(&empty, &any, &any).is_err());
+    }
     #[test]
     fn apt_pin_rejects_every_spelling_of_a_leftover_install() {
         for line in [

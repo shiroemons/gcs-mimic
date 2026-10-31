@@ -578,18 +578,5 @@
       "source_url": "https://api.github.com/repos/Swatinem/rust-cache/git/ref/tags/v2.9.3"
     }
   ],
-  "exceptions": [
-    {
-      "id": "composer-riscv64-publication-lag",
-      "package": "docker library/composer:latest",
-      "current": "sha256:537fb03057ed901ae06bde7ef25af348903485ae1acc7fc789b80d8bac666f35 (composer:2.11.1)",
-      "latest": "sha256:4ed71c38c6d788eb4e4e3747b5332f5b40d5b5a6fcadd5062a1a70986a118e0a",
-      "upstream_reference": "https://hub.docker.com/r/riscv64/composer/tags",
-      "evidence": "The 2026-10-31 pre-update cargo xtask dependencies check reports docker library/composer:latest UPDATE_AVAILABLE and exits 1. The official-images definition at composer/docker revision 2af913cf6c428737e8eec2a3e9297d12d96eeac6 declares 2.11.1 and riscv64, but the exact 2.11.1 index omits riscv64 while latest retains its 2.10.3 image. See docs/en/evidence/dependency-refresh.md#refresh-2026-10-31.",
-      "impact": "After adopting 2.11.1, supported linux/amd64 and linux/arm64 manifests match latest; riscv64 still has 2.10.3. Both supported manifests differ from the old 2.11.0 pin, so old runtime checks do not validate this update. The index-level freshness discrepancy remains visible.",
-      "owner": "project maintainer",
-      "next_action": "Verify the new 2.11.1 runtime on supported hosts. When riscv64/composer publishes the current stable release and the library tags are republished, recheck every platform, pin the new exact-version index in the three scripts and this snapshot, then remove this exception.",
-      "review_by": "2026-11-06"
-    }
-  ]
+  "exceptions": []
 }
