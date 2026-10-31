@@ -128,7 +128,7 @@ The scoped checkmarks above use recorded execution evidence:
 [range](evidence/object-range.md) and
 [final integrated regressions](evidence/resumable-upload.md).
 Advanced fields, ACL enforcement, response replay outside media/multipart/copy,
-bucket and bulk restore, transcoding outside JSON media GET and provider
+bucket and bulk restore, transcoding outside JSON media GET and XML GET/HEAD and provider
 wire-edge gaps remain recorded in the ledger. Copy has scoped
 [local verification](evidence/object-copy.md). The
 [compose verification](evidence/object-compose.md) records native and

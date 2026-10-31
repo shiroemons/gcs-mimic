@@ -3,6 +3,7 @@ use crate::storage::ObjectReader;
 use bytes::Bytes;
 use flate2::bufread::MultiGzDecoder;
 use http_body_util::BodyExt;
+use hyper::{HeaderMap, header::HeaderValue};
 use std::io::{self, BufRead, BufReader, Read};
 use tokio::sync::watch;
 
@@ -37,6 +38,35 @@ impl<R: BufRead> Read for Input<R> {
         self.consume(length);
         Ok(length)
     }
+}
+
+/// Cloud Storage marks a gunzipped download with these two fields and sends no length,
+/// encoding or range headers for the expanded bytes, on both the JSON and XML APIs
+/// (observed 2026-10-31). The stored-object hashes stay, describing the stored bytes.
+pub(super) fn insert_transcoded_headers(headers: &mut HeaderMap) {
+    for name in [
+        "content-encoding",
+        "content-length",
+        "content-range",
+        "accept-ranges",
+    ] {
+        headers.remove(name);
+    }
+    headers.insert(
+        "x-guploader-response-body-transformations",
+        HeaderValue::from_static("gunzipped"),
+    );
+    headers.insert(
+        "warning",
+        HeaderValue::from_static("214 UploadServer gunzipped"),
+    );
+}
+
+/// A stored-gzip object served compressed would be gunzipped for a client that does not
+/// accept gzip, so caches must key the response on `Accept-Encoding`. Cloud Storage sends
+/// the field only on the compressed response (observed 2026-10-31).
+pub(super) fn insert_negotiated_vary(headers: &mut HeaderMap) {
+    headers.append("vary", HeaderValue::from_static("Accept-Encoding"));
 }
 
 pub(super) fn body(

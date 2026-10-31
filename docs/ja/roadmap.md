@@ -27,7 +27,7 @@ V2/V4 RSA署名転送とV4署名POST policyにも対応しています。
 JSON ACL、通知設定、HMACキー管理、Autoclass設定もありますが、後述の効果には制約があります。
 バケット・オブジェクトのPATCH・PUTでは、ACLをほかのメタデータと同じトランザクションで置き換えます。
 media・multipart・コピーの呼び出しトークンは、上限付きのローカル保持期間内で元の応答を再送します。
-JSONのmedia GETは、gzipで保存したオブジェクトを展開して返します。
+JSONのmedia GETとXMLのGETは、gzipで保存したオブジェクトを展開して返します。
 Storage v2 gRPCは再開可能アップロード、追記、範囲読込に対応しています。
 旧Storage v1も参照版の12個のRPCに対応していますが、入力・応答には制限があります。
 詳細は[0.5.0のリリースノート](../en/releases/0.5.0.md)と

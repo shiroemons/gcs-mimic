@@ -146,8 +146,13 @@ The existing Accept-Encoding quality validation remains in force. Expansion
 ignores Range and removes Content-Encoding, Content-Length and Accept-Ranges;
 the stored-length/encoding/hash headers and ETag still describe stored bytes.
 The hashes are not checksums of the expanded representation. Conditions and
-authorization run before decoding. XML expansion and JSON media HEAD remain
-unsupported.
+authorization run before decoding. XML GET and HEAD expand the same way and keep
+one `x-goog-hash` field per stored-object hash. As
+[observed on Cloud Storage](../evidence/media-read-provider-observations.md),
+an expanded response also sends `x-guploader-response-body-transformations:
+gunzipped` and `Warning: 214 UploadServer gunzipped`, and a stored-gzip response
+sent compressed adds `Vary: Accept-Encoding` after the CORS `Vary: Origin`
+field. JSON media HEAD expansion remains unsupported.
 
 The added flate2 1.1.10 dependency uses only its pure-Rust backend. Its latest
 stable status, license, source digest, package size and maintenance are recorded

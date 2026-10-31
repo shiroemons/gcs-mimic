@@ -38,3 +38,26 @@ the official .NET SDK, then failed range reads with a hash mismatch.
 
 XML upload, copy, compose and POST responses still send the combined field;
 they were not part of this observation.
+
+## Decompressive transcoding
+
+Object: a 35-byte gzip member stored with `Content-Encoding: gzip`.
+
+| Request | Status | Notable headers |
+| --- | --- | --- |
+| JSON, no `Accept-Encoding` or `Accept-Encoding: identity` | 200, expanded body | `x-guploader-response-body-transformations: gunzipped`, `warning: 214 UploadServer gunzipped`, stored-object `x-goog-hash`, no Content-Length or Content-Encoding, `vary: Origin` and `vary: X-Origin` |
+| JSON, `Accept-Encoding: gzip` | 200, stored bytes | `content-encoding: gzip`, `content-length: 35`, `vary: Origin`, `vary: X-Origin`, `vary: Accept-Encoding` |
+| JSON identity with `Range: bytes=0-4` | 200, whole expanded body | Range ignored while transcoding |
+| XML, `Accept-Encoding: identity` | 200, expanded body | the same two transformation fields and two `x-goog-hash` fields |
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| Gunzipped responses carry the two transformation fields | Sent on JSON media GET and XML GET/HEAD | `json_gzip_negotiation_range_and_conditions_preserve_stored_representation`, `xml_gzip_gunzips_whole_object_and_keeps_stored_hashes` |
+| Range is ignored while transcoding | Full 200 on JSON and XML | the same tests |
+| XML expansion keeps one hash field per algorithm | Unchanged stored-object hashes | `xml_gzip_gunzips_whole_object_and_keeps_stored_hashes` |
+| A compressed response adds `vary: Accept-Encoding` | Appended after the CORS `vary: Origin`; omitted on gunzipped and `no-transform` responses | the same tests |
+
+`X-Origin` is not sent locally. XML expansion previously returned 501, and JSON
+expansion did not mark the transformed body.

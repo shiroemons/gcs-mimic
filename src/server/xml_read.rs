@@ -2,7 +2,7 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, insert_content_range,
+    ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, gzip, insert_content_range,
     insert_unsatisfied_content_range, object_body,
 };
 use crate::{auth, bucket::BucketAccess, csek::CustomerKey, json, object::ObjectRecord, xml};
@@ -99,8 +99,27 @@ async fn read(
     if reveal {
         insert_hashes(&mut headers, &record);
     }
+    if json::object_media_transcoding(request.headers(), &record)? {
+        // Range is ignored while gunzipping: the whole expanded object is sent with 200.
+        gzip::insert_transcoded_headers(&mut headers);
+        headers.extend(operation.response_overrides);
+        let mut response = if head {
+            boxed(empty_response(StatusCode::OK))
+        } else {
+            Response::new(gzip::body(
+                reader,
+                record.size,
+                ctx.config.max_object_bytes,
+                ctx.activity,
+            ))
+        };
+        *response.headers_mut() = headers;
+        return Ok(response);
+    }
+    if json::object_media_negotiable(&record) {
+        gzip::insert_negotiated_vary(&mut headers);
+    }
     headers.extend(operation.response_overrides);
-    json::validate_object_media_encoding(request.headers(), &record)?;
     let range = match json::object_media_range(request.headers(), record.size) {
         Ok(range) => range,
         Err(_) if head => {

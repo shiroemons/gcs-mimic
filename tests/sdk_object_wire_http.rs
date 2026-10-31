@@ -46,14 +46,27 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
     assert_eq!(raw.status, 200);
     assert_eq!(raw.body, compressed);
     assert_eq!(raw.headers["content-encoding"], "gzip");
+    assert_eq!(raw.headers["vary"], "Origin, Accept-Encoding");
+    assert!(
+        !raw.headers
+            .contains_key("x-guploader-response-body-transformations")
+    );
     for extra in [
         "",
+        "Accept-Encoding: identity\r\n",
         "Accept-Encoding: gzip;q=0\r\n",
+        "Range: bytes=0-4\r\n",
         "Range: bytes=999999-\r\n",
     ] {
         let expanded = server.request("GET", path, &format!("{ADMIN}{extra}"), b"");
-        assert_eq!(expanded.status, 200);
+        assert_eq!(expanded.status, 200, "{extra}");
         assert_eq!(expanded.body, b"firstsecond");
+        assert_eq!(
+            expanded.headers["x-guploader-response-body-transformations"],
+            "gunzipped"
+        );
+        assert_eq!(expanded.headers["warning"], "214 UploadServer gunzipped");
+        assert_eq!(expanded.headers["vary"], "Origin");
         for name in [
             "content-encoding",
             "content-length",
@@ -98,7 +111,64 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
             br#"{"cacheControl":"no-transform"}"#,
         )
         .json();
-    assert_eq!(server.request("GET", path, ADMIN, b"").body, compressed);
+    let fixed = server.request("GET", path, ADMIN, b"");
+    assert_eq!(fixed.body, compressed);
+    // no-transform fixes the representation, so it no longer varies by Accept-Encoding.
+    assert_eq!(fixed.headers["vary"], "Origin");
+}
+
+#[test]
+fn xml_gzip_gunzips_whole_object_and_keeps_stored_hashes() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, true);
+    server.bucket();
+    let compressed = gzip(b"0123456789");
+    gzip_object(&server, "gzip", &compressed);
+    let path = "/test-bucket/gzip";
+    let raw = server.request(
+        "GET",
+        path,
+        &format!("{ADMIN}Accept-Encoding: gzip\r\nRange: bytes=2-5\r\n"),
+        b"",
+    );
+    assert_eq!(raw.status, 206);
+    assert_eq!(raw.body, compressed[2..6]);
+    assert_eq!(raw.headers["content-encoding"], "gzip");
+    assert_eq!(raw.headers["vary"], "Origin, Accept-Encoding");
+    for method in ["GET", "HEAD"] {
+        for extra in ["", "Accept-Encoding: identity\r\n", "Range: bytes=0-4\r\n"] {
+            let expanded = server.request(method, path, &format!("{ADMIN}{extra}"), b"");
+            assert_eq!(expanded.status, 200, "{method} {extra}");
+            if method == "GET" {
+                assert_eq!(expanded.body, b"0123456789");
+            }
+            assert_eq!(
+                expanded.headers["x-guploader-response-body-transformations"],
+                "gunzipped"
+            );
+            assert_eq!(expanded.headers["warning"], "214 UploadServer gunzipped");
+            assert_eq!(expanded.headers["vary"], "Origin");
+            // The XML API keeps one field per stored-object hash.
+            assert_eq!(expanded.headers["x-goog-hash"], raw.headers["x-goog-hash"]);
+            assert_eq!(expanded.headers["x-goog-stored-content-encoding"], "gzip");
+            for name in [
+                "content-encoding",
+                "content-length",
+                "content-range",
+                "accept-ranges",
+            ] {
+                assert!(!expanded.headers.contains_key(name), "{method} {name}");
+            }
+        }
+    }
+    // Authorization precedes transcoding: a denied caller learns nothing about the encoding.
+    let denied = server.request("GET", path, "Authorization: Bearer creator\r\n", b"");
+    assert_eq!(denied.status, 403);
+    assert!(
+        !denied
+            .headers
+            .contains_key("x-guploader-response-body-transformations")
+    );
 }
 
 #[test]

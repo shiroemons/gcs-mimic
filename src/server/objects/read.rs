@@ -113,9 +113,8 @@ async fn media(
         )));
     }
     if transcode {
-        for name in ["content-encoding", "content-length", "accept-ranges"] {
-            headers.remove(name);
-        }
+        // Range is ignored while gunzipping: the whole expanded object is sent with 200.
+        gzip::insert_transcoded_headers(&mut headers);
         let mut response = Response::new(gzip::body(
             reader,
             record.size,
@@ -124,6 +123,9 @@ async fn media(
         ));
         *response.headers_mut() = headers;
         return Ok(response);
+    }
+    if json::object_media_negotiable(&record) {
+        gzip::insert_negotiated_vary(&mut headers);
     }
     let range = match json::object_media_range(request.headers(), record.size) {
         Ok(range) => range,

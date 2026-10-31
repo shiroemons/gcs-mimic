@@ -260,8 +260,9 @@ rm -r "$seed_demo"
 
 Expect 206, `Content-Range: bytes 0-4/11`, `Content-Length: 5` and `hello`.
 Closed/open/suffix ranges use stored bytes; pin `generation` when assembling
-multiple requests. Unsatisfiable ranges return 416. If-Range and required gzip
-decompression return 501. See the [range contract](slices/json-object-range.md)
+multiple requests. Unsatisfiable ranges return 416 and If-Range returns 501. A
+gzip object that must be gunzipped ignores Range and returns the whole expanded
+object with 200. See the [range contract](slices/json-object-range.md)
 for local malformed/multiple-range fallback rules and header-parity limits.
 
 Each top-level seed directory names a bucket; nested regular files name objects

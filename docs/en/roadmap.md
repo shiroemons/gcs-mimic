@@ -29,7 +29,7 @@ JSON ACL resources, notification configurations, HMAC key management and
 Autoclass settings also exist, with the effect limitations below. Bucket and
 object PATCH/PUT replace ACLs atomically with other metadata.
 Media, multipart and copy invocation tokens replay the original response
-within bounded local retention, and JSON media GET expands gzip-encoded objects.
+within bounded local retention, and JSON media GET and XML GET expand gzip-encoded objects.
 Storage v2 gRPC includes resumable and appendable writes and ranged reads;
 legacy Storage v1 serves the twelve inventoried reference RPCs with field limits.
 See the [0.5.0 release notes](releases/0.5.0.md) and the

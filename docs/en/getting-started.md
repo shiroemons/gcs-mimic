@@ -31,7 +31,7 @@ bucket `allUsers` / `allAuthenticatedUsers` grants support public and private re
 V4 RSA query signatures, bounded XML PUT, opt-in virtual hosts, response overrides
 and public access prevention are implemented in the
 [signed private transfer journey](signed-urls.md).
-If-Range, transcoding outside JSON media GET, object IAM, testIamPermissions,
+If-Range, transcoding outside JSON media GET and XML GET/HEAD, object IAM, testIamPermissions,
 conditional policies, ACL enforcement, XML listing and UBLA transitions remain unavailable.
 JSON defaults and bucket-configured XML-read
 CORS are available; see the browser journey below. HTTPS is the default listener mode;
@@ -871,7 +871,7 @@ disposition values and custom keys. Both increment metageneration while preservi
 generation, checksums and bytes; a stale precondition returns 412 without mutation.
 Custom metadata is bounded to 8 KiB. Supplied `acl` arrays replace the stored ACL as
 described in the [ACL contract](slices/json-acl.md); IAM, advanced fields and partial
-response masks remain unsupported. JSON media downloads expand gzip-encoded objects for
+response masks remain unsupported. JSON media and XML downloads expand gzip-encoded objects for
 clients that do not accept gzip, and upload tokens replay as described in the [SDK integration](slices/sdk-scorecard-integration.md)
 and [upload replay](slices/sdk-upload-replay.md) contracts. Stored cache directives round-trip
 in metadata; nonpublic JSON media responses use `Cache-Control: no-cache`.

@@ -16,7 +16,7 @@ use crate::{
     xml,
 };
 use http_body_util::{BodyExt, Full};
-use hyper::{Method, Request, Response, StatusCode, body::Bytes, header::HeaderValue};
+use hyper::{HeaderMap, Method, Request, Response, StatusCode, body::Bytes, header::HeaderValue};
 
 /// Wraps CORS headers around the routed response. CORS never authorizes a request.
 pub(super) async fn respond(
@@ -112,7 +112,7 @@ async fn respond_json_cors(
     } else {
         respond_routed(request, ctx, None).await
     };
-    response.headers_mut().extend(headers);
+    apply_cors(response.headers_mut(), headers, None);
     response
 }
 
@@ -170,13 +170,25 @@ async fn respond_xml_cors(
         ),
         CorsRequest::Actual => (respond_routed(request, ctx, selected).await, "Origin"),
     };
-    response.headers_mut().extend(cors);
-    if !response.headers().contains_key("vary") {
-        response
-            .headers_mut()
-            .insert("vary", HeaderValue::from_static(vary));
-    }
+    apply_cors(response.headers_mut(), cors, Some(vary));
     response
+}
+
+/// CORS fields replace the routed response's, except `vary`: a representation that also
+/// varies by `Accept-Encoding` keeps that field after the CORS `vary`, as Cloud Storage
+/// sends both (observed 2026-10-31).
+fn apply_cors(headers: &mut HeaderMap, cors: HeaderMap, default_vary: Option<&'static str>) {
+    let representation: Vec<HeaderValue> = headers.get_all("vary").iter().cloned().collect();
+    headers.remove("vary");
+    headers.extend(cors);
+    if let Some(vary) = default_vary
+        && !headers.contains_key("vary")
+    {
+        headers.insert("vary", HeaderValue::from_static(vary));
+    }
+    for value in representation {
+        headers.append("vary", value);
+    }
 }
 
 /// Preflight and CORS metadata do not authorize access; actual API dispatch authenticates

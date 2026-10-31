@@ -897,21 +897,26 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
     Ok(headers)
 }
 
+/// Whether the served representation of the object depends on `Accept-Encoding`: stored gzip
+/// without `no-transform` is either sent compressed or gunzipped.
+pub(crate) fn object_media_negotiable(object: &ObjectRecord) -> bool {
+    object
+        .content_encoding
+        .as_deref()
+        .is_some_and(|value| value.eq_ignore_ascii_case("gzip"))
+        && !object.cache_control.as_deref().is_some_and(|value| {
+            value
+                .split(',')
+                .any(|directive| directive.trim().eq_ignore_ascii_case("no-transform"))
+        })
+}
+
 /// Select gzip expansion while honoring explicit quality overrides and no-transform.
 pub(crate) fn object_media_transcoding(
     headers: &HeaderMap,
     object: &ObjectRecord,
 ) -> Result<bool, JsonError> {
-    if !object
-        .content_encoding
-        .as_deref()
-        .is_some_and(|value| value.eq_ignore_ascii_case("gzip"))
-        || object.cache_control.as_deref().is_some_and(|value| {
-            value
-                .split(',')
-                .any(|directive| directive.trim().eq_ignore_ascii_case("no-transform"))
-        })
-    {
+    if !object_media_negotiable(object) {
         return Ok(false);
     }
     let mut gzip = None;
@@ -966,20 +971,6 @@ pub(crate) fn object_media_transcoding(
         }
     }
     Ok(!gzip.or(wildcard).unwrap_or(false))
-}
-
-/// XML expansion remains outside the JSON media transcoding scope.
-pub(crate) fn validate_object_media_encoding(
-    headers: &HeaderMap,
-    object: &ObjectRecord,
-) -> Result<(), JsonError> {
-    if object_media_transcoding(headers, object)? {
-        Err(JsonError::unsupported_object(
-            "decompressive transcoding; accept gzip or set no-transform",
-        ))
-    } else {
-        Ok(())
-    }
 }
 
 pub(crate) fn object_etag(object: &ObjectRecord) -> String {

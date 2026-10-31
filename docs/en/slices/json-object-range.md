@@ -99,9 +99,9 @@ header-parity gap, even though their local values are tested.
 
 Ranges address compressed bytes when the stored encoding is gzip and the request
 accepts gzip, or stored Cache-Control includes `no-transform`. Content-Encoding
-remains gzip. A request requiring decompressive transcoding still returns the
-existing 501; it does not return compressed bytes as false success. Implementing
-Google's ignored-Range, full decompressed response requires a separate slice.
+remains gzip. A request requiring decompressive transcoding ignores Range and
+returns the whole expanded object with 200, as described in the
+[SDK integration contract](sdk-scorecard-integration.md#json-media-gzip-expansion).
 
 The catalog authorizes `storage.objects.get`, selects the requested live generation,
 evaluates existing preconditions and opens its immutable blob under the same
@@ -139,7 +139,7 @@ row-local acceptance IDs in the ledger proposal.
 | HEADERS | Partial representation headers retain selected identity and stored length, omit `x-goog-hash` unless the range covers the object (then CRC32C only); complete response has no Content-Range | PASS | `obj_range_http_single_ranges_and_representation_headers`; `obj_render_002_media_headers_match_selected_generation_and_hashes` |
 | GENERATION | Explicit generation, missing/stale generation, all four preconditions and overwrite during an open response | PASS | `obj_range_http_generation_preconditions_and_overwrite_pin_open_reader`; `TestObjectRangeReader` |
 | AUTHORIZATION | Anonymous/creator denied before satisfiable, unsatisfiable and If-Range evaluation; viewer reads suffix | PASS | `obj_range_http_strict_authorization_precedes_range_evaluation` |
-| GZIP | Gzip acceptance/no-transform selects stored bytes; required transcoding fails explicitly | PASS | `obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding` |
+| GZIP | Gzip acceptance/no-transform selects stored bytes; required transcoding ignores Range and sends the whole expanded object with 200 | PASS | `obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding` |
 | BOUNDED-READ | Seek near the end of a 64 MiB sparse file; <=64 KiB chunks, exact length and EOF failure | PASS | `storage::catalog::objects::tests::object_range_reader_seeks_sparse_blob_and_bounds_every_chunk` |
 
 The full workspace test run also retains the existing negative upload/conditional
