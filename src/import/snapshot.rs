@@ -14,7 +14,10 @@ use std::{
     io::{BufRead, BufReader, Read},
 };
 
+// Snapshot import is Unix-only; `Options::validate` rejects it elsewhere and its own test
+// covers that.
 #[cfg(test)]
+#[cfg(unix)]
 mod tests;
 
 const LINE_CAP: u64 = 128 * 1024;

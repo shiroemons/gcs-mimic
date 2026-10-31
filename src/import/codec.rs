@@ -185,10 +185,18 @@ pub(crate) fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
 
 pub(super) fn parse_bucket_timestamp(input: &str) -> Result<std::time::SystemTime, &'static str> {
     let (micros, nanos) = parse_timestamp_parts(input, Precision::Nanos)?;
-    super::filesystem::time(micros)
-        .map_err(|_| "bucket timestamp is outside this platform's range")?
-        .checked_add(std::time::Duration::from_nanos(u64::from(nanos)))
-        .ok_or("bucket timestamp is outside this platform's range")
+    let base = super::filesystem::time(micros)
+        .map_err(|_| "bucket timestamp is outside this platform's range")?;
+    let remainder = std::time::Duration::from_nanos(u64::from(nanos));
+    let time = base
+        .checked_add(remainder)
+        .ok_or("bucket timestamp is outside this platform's range")?;
+    // Windows keeps 100 ns intervals, so sub-interval digits would be dropped silently;
+    // reject them like other unrepresentable source precision.
+    if time.duration_since(base).ok() != Some(remainder) {
+        return Err("bucket timestamp is finer than this platform's clock resolution");
+    }
+    Ok(time)
 }
 
 fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32), &'static str> {
@@ -312,33 +320,48 @@ mod tests {
     }
     #[test]
     fn bucket_nanoseconds_preserve_negative_instants_without_relaxing_object_precision() {
-        use std::time::{Duration, UNIX_EPOCH};
-        for (input, expected) in [
-            (
-                "1970-01-01T09:00:00.123456789+09:00",
-                UNIX_EPOCH + Duration::from_nanos(123_456_789),
-            ),
-            (
-                "1970-01-01T00:00:00.1234567Z",
-                UNIX_EPOCH + Duration::from_nanos(123_456_700),
-            ),
-            (
-                "1970-01-01T00:00:00.12345678Z",
-                UNIX_EPOCH + Duration::from_nanos(123_456_780),
-            ),
-            (
-                "1969-12-31T23:59:59.999999999Z",
-                UNIX_EPOCH - Duration::from_nanos(1),
-            ),
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+        // The exact instant when this platform's SystemTime can hold it (Windows keeps 100 ns).
+        fn exact(nanos: i64) -> Option<SystemTime> {
+            let offset = Duration::from_nanos(nanos.unsigned_abs());
+            let time = if nanos < 0 {
+                UNIX_EPOCH.checked_sub(offset)?
+            } else {
+                UNIX_EPOCH.checked_add(offset)?
+            };
+            let held = if nanos < 0 {
+                UNIX_EPOCH.duration_since(time)
+            } else {
+                time.duration_since(UNIX_EPOCH)
+            };
+            (held.ok() == Some(offset)).then_some(time)
+        }
+        for (input, nanos) in [
+            ("1970-01-01T09:00:00.123456789+09:00", 123_456_789),
+            ("1970-01-01T00:00:00.1234567Z", 123_456_700),
+            ("1970-01-01T00:00:00.12345678Z", 123_456_780),
+            ("1969-12-31T23:59:59.999999999Z", -1),
+            ("1969-12-31T23:59:59.9999999Z", -100),
         ] {
-            assert_eq!(parse_bucket_timestamp(input).unwrap(), expected, "{input}");
+            match exact(nanos) {
+                Some(expected) => {
+                    assert_eq!(parse_bucket_timestamp(input).unwrap(), expected, "{input}");
+                }
+                // Unrepresentable digits are rejected rather than rounded.
+                None => assert!(parse_bucket_timestamp(input).is_err(), "{input}"),
+            }
             assert!(parse_timestamp(input).is_err(), "{input}");
         }
+        assert!(
+            exact(-100).is_some(),
+            "every platform holds 100 ns intervals"
+        );
         for input in [
             "0000-01-01T00:00:00.000000001Z",
             "9999-12-31T23:59:59.999999999Z",
         ] {
-            assert!(parse_bucket_timestamp(input).is_ok(), "{input}");
+            // Windows SystemTime starts in 1601 and holds 100 ns intervals.
+            assert_eq!(parse_bucket_timestamp(input).is_ok(), cfg!(unix), "{input}");
         }
         for input in [
             "1970-01-01T00:00:00.0000000001Z",

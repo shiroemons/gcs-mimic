@@ -37,6 +37,12 @@ nanosecond remainder. Both fields commit with the bucket and import journal.
 JSON bucket resources and protobuf timestamps retain that precision, including
 negative epoch instants. Native metadata updates retain the imported creation
 time and clear the updated-time remainder to their existing microsecond clock.
+
+Snapshot import is supported on Linux and macOS only: it pins the capture
+through descriptor-relative opens that the Windows build does not implement, so
+`--source-format snapshot` is rejected during option validation there. Bucket
+timestamp parsing also rejects digits finer than the host clock instead of
+rounding them; Windows `SystemTime` holds 100 ns intervals.
 Object timestamps retain their separate exact-microsecond validation; nonzero
 sub-microsecond object values fail without truncation. Source empty optional
 header strings mean unset and become absent native optional headers.

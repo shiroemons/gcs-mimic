@@ -15,6 +15,24 @@ fn xattr_setup() -> (SourceDir, Options) {
     );
     (directory, options)
 }
+#[cfg(not(unix))]
+#[test]
+fn snapshot_import_is_rejected_before_reading_on_non_unix_hosts() {
+    let (directory, mut options) = xattr_setup();
+    options.source_format = SourceFormat::Snapshot;
+    let error = inspect(options.clone(), Vec::new(), Vec::new())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains(
+            "--source-format: Memory snapshot import is supported on Linux and macOS only"
+        ),
+        "{error}"
+    );
+    assert!(!options.destination.exists());
+    drop(directory);
+}
+
 fn xattr_report(options: Options) -> (Summary, Vec<serde_json::Value>) {
     let mut output = Vec::new();
     let summary = inspect(options, &mut output, Vec::new()).unwrap();

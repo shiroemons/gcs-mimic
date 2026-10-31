@@ -173,6 +173,14 @@ impl Options {
                 "Windows source snapshots use sidecars; specify --metadata-mode sidecar.",
             );
         }
+        // Snapshot reads pin the capture through descriptor-relative opens, which exist only on
+        // Unix; reject up front instead of reporting a generic source I/O failure.
+        if self.source_format == SourceFormat::Snapshot && cfg!(not(unix)) {
+            issue(
+                "--source-format",
+                "Memory snapshot import is supported on Linux and macOS only; import the capture on one of those hosts.",
+            );
+        }
         if self.max_entries == 0 || self.max_depth > 32 {
             issue(
                 "limits",

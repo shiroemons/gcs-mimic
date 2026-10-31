@@ -11,7 +11,22 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
         crate::json::parse_insert(br#"{"name":"time-bucket"}"#, "project", SystemTime::now())
             .unwrap();
     catalog.insert_bucket(bucket).await.unwrap();
-    let created = UNIX_EPOCH - Duration::from_nanos(1);
+    // The finest negative instant this platform holds: 1 ns on Unix, a 100 ns interval on Windows.
+    let one_nanosecond = UNIX_EPOCH - Duration::from_nanos(1);
+    let (created, rendered, nanos) =
+        if UNIX_EPOCH.duration_since(one_nanosecond).ok() == Some(Duration::from_nanos(1)) {
+            (
+                one_nanosecond,
+                "1969-12-31T23:59:59.999999999Z",
+                999_999_999,
+            )
+        } else {
+            (
+                UNIX_EPOCH - Duration::from_nanos(100),
+                "1969-12-31T23:59:59.999999900Z",
+                999_999_900,
+            )
+        };
     catalog
         .run(move |connection| {
             let mut record = super::super::select_bucket(connection, "time-bucket")
@@ -33,9 +48,9 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
                 crate::json::Projection::NoAcl,
             )
             .unwrap();
-            assert_eq!(resource["timeCreated"], "1969-12-31T23:59:59.999999999Z");
+            assert_eq!(resource["timeCreated"], rendered);
             let timestamp: prost_types::Timestamp = created.into();
-            assert_eq!((timestamp.seconds, timestamp.nanos), (-1, 999_999_999));
+            assert_eq!((timestamp.seconds, timestamp.nanos), (-1, nanos));
             catalog
                 .change_acl(
                     AclTarget::Bucket("time-bucket".into()),
