@@ -470,7 +470,10 @@ mod tests {
     async fn notification_schema_migration_preserves_existing_buckets() {
         let dir = crate::test_support::TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
-        let original = catalog.insert_bucket(bucket("bucket")).await.unwrap();
+        let mut original = catalog.insert_bucket(bucket("bucket")).await.unwrap();
+        // The migration backfills the generation from the creation time (zero here, so 1 in
+        // microseconds) and schema 46 scales it to nanoseconds.
+        original.generation = 1000;
         catalog.close().await.unwrap();
         let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
         super::super::test_support::downgrade_object_retention_schema(&connection);

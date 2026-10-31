@@ -40,10 +40,17 @@ and [buckets.restore](https://docs.cloud.google.com/storage/docs/json_api/v1/buc
 ## Acceptance cases
 
 - BUCKET-GENERATION: native insert/get/list/PATCH/PUT/restore render
-  `generation`. New buckets draw it from the catalog's monotonic generation
-  allocator, so a recreated name always gets a new generation. Schema 45 backfills
-  existing buckets with their creation time in microseconds. The legacy-emulator
-  profile keeps its previous resource shape.
+  `generation`. New buckets draw a 19-digit nanosecond-scale value, as Cloud
+  Storage returns (observed 2026-10-31), from a bucket-only allocator that yields
+  `max(current time in nanoseconds, previous + 1)`; it is unique and increasing
+  under a frozen clock, so a recreated name always gets a new generation. Object
+  generations keep their separate microsecond allocator. Schema 45 backfilled
+  existing buckets with their creation time in microseconds; schema 46 multiplies
+  every live and soft-deleted bucket generation by 1000 (saturating at the largest
+  representable multiple), moves the retained objects of soft-deleted versions to
+  the matching internal key and seeds the allocator, so order, uniqueness and
+  `restore?generation=` keep working. The legacy-emulator profile keeps its
+  previous resource shape.
 - BUCKET-SOFT-DELETE: JSON, XML and gRPC bucket deletion share one catalog
   transaction. When `softDeletePolicy.retentionDurationSeconds` is positive, the
   bucket row, IAM bindings and bucket/default object ACL entries move to the
@@ -91,7 +98,9 @@ and [buckets.restore](https://docs.cloud.google.com/storage/docs/json_api/v1/buc
   not wait on another writer. No polling loop or timer runs while no version is
   due.
 - BUCKET-SOFT-DELETE-PERSIST: additive schema 45 keeps live and soft-deleted
-  state across restart. Admin reset clears soft-deleted versions.
+  state across restart; schema 46 rescales the generations as described above
+  (`schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds`).
+  Admin reset clears soft-deleted versions.
 - BUCKET-SOFT-DELETE-SDK: with the pinned .NET SDK 5.0.0, create a bucket with a
   seven-day policy, upload an object, read the bucket generation, delete the
   object and the bucket, get it with `SoftDeleted`/`Generation`, call

@@ -3110,11 +3110,12 @@ fn bucket_core_migrates_v7_settings() {
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
         // Schema 7 stores milliseconds, so its fixture must be losslessly representable there.
-        // Schema 45 backfills the generation from the creation time, so keep them aligned.
+        // Schema 45 backfills the generation from the creation time in microseconds and schema 46
+        // scales it to nanoseconds, so keep the nanosecond generation aligned.
         connection
             .execute_batch(
                 "UPDATE buckets SET
-                 generation = (time_created / 1000 - (time_created % 1000 < 0)) * 1000,
+                 generation = (time_created / 1000 - (time_created % 1000 < 0)) * 1000 * 1000,
                  time_created = (time_created / 1000 - (time_created % 1000 < 0)) * 1000,
                  updated = (updated / 1000 - (updated % 1000 < 0)) * 1000;",
             )

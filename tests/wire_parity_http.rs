@@ -594,6 +594,8 @@ fn bucket_resources_carry_recorded_fields_in_recorded_order() {
         !generation.is_empty() && generation.bytes().all(|byte| byte.is_ascii_digit()),
         "{generation}"
     );
+    // Bucket generations are nanosecond-scale, 19 digits like Cloud Storage's.
+    assert_eq!(generation.len(), 19, "{generation}");
     assert_eq!(
         keys(&bucket["iamConfiguration"]),
         [

@@ -1505,7 +1505,10 @@ async fn missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock
 async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently() {
     let dir = TestDir::new();
     let catalog = setup(&dir).await;
-    let bucket = catalog.get_bucket("bucket").await.unwrap();
+    let mut bucket = catalog.get_bucket("bucket").await.unwrap();
+    // The migration backfills the generation from the creation time (zero here, so 1 in
+    // microseconds) and schema 46 scales it to nanoseconds.
+    bucket.as_mut().unwrap().generation = 1000;
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection

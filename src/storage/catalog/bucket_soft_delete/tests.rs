@@ -466,14 +466,117 @@ async fn schema_45_backfills_generations_and_keeps_new_ones_unique() {
     let (catalog, _clock) = open(&dir).await;
     let migrated = catalog.get_bucket("legacy").await.unwrap().unwrap();
     assert_eq!(migrated, original);
+    // Schema 45 backfills microseconds and schema 46 scales them to the nanosecond scale.
     assert_eq!(
         migrated.generation,
-        unix_micros(UNIX_EPOCH + START).unwrap()
+        unix_micros(UNIX_EPOCH + START).unwrap() * 1000
     );
     // A same-name bucket created at the same instant still gets a new generation.
     set_retention(&catalog, "legacy", 7 * DAY).await;
     delete(&catalog, "legacy").await.unwrap();
     let recreated = catalog.insert_bucket(record("legacy")).await.unwrap();
     assert!(recreated.generation > migrated.generation);
+    catalog.close().await.unwrap();
+}
+
+/// Bucket generations moved from the shared microsecond allocator to their own
+/// nanosecond-scale one (schema 46). Existing live and soft-deleted generations are scaled by
+/// 1000 together with the retained-object keys derived from them, so order, uniqueness and
+/// `restore?generation=` keep working.
+#[tokio::test]
+async fn schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds() {
+    let dir = TestDir::new();
+    let (catalog, _clock) = open(&dir).await;
+    catalog.insert_bucket(record("kept")).await.unwrap();
+    catalog.insert_bucket(record("gone")).await.unwrap();
+    set_retention(&catalog, "gone", 7 * DAY).await;
+    let hard_delete = UNIX_EPOCH + START + Duration::from_secs(DAY);
+    retained_object(&catalog, "gone", hard_delete).await;
+    delete(&catalog, "gone").await.unwrap();
+    catalog.close().await.unwrap();
+
+    // Rebuild the schema 45 state: microsecond-scale generations, no bucket allocator.
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    // Reopening verifies that every referenced blob exists, so give the retained row its file.
+    let blob: String = connection
+        .query_row("SELECT blob_id FROM objects", [], |row| row.get(0))
+        .unwrap();
+    let blob_path = crate::storage::blob_id::BlobId::parse(&blob)
+        .unwrap()
+        .blob_path(&dir.0);
+    std::fs::create_dir_all(blob_path.parent().unwrap()).unwrap();
+    std::fs::write(&blob_path, b"").unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE bucket_generation;
+             UPDATE buckets SET generation = 1000000100 WHERE name = 'kept';
+             UPDATE soft_deleted_buckets SET generation = 1000000200 WHERE name = 'gone';
+             UPDATE objects SET bucket = 'gone#1000000200' WHERE bucket LIKE 'gone#%';
+             PRAGMA user_version = 45;",
+        )
+        .unwrap();
+    drop(connection);
+
+    let (catalog, _clock) = open(&dir).await;
+    let kept = catalog.get_bucket("kept").await.unwrap().unwrap();
+    assert_eq!(kept.generation, 1_000_000_100_000);
+    let page = catalog
+        .list_soft_deleted_buckets("project", "", None, 10)
+        .await
+        .unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].record.generation, 1_000_000_200_000);
+    assert_eq!(
+        count(
+            &catalog,
+            "SELECT count(*) FROM objects WHERE bucket = 'gone#1000000200000'"
+        )
+        .await,
+        1
+    );
+    // A bucket created after the migration is above every migrated generation.
+    let fresh = catalog.insert_bucket(record("fresh")).await.unwrap();
+    assert!(fresh.generation > kept.generation && fresh.generation > 1_000_000_200_000);
+    let restored = catalog
+        .restore_bucket("gone", 1_000_000_200_000, &BucketAccess::Permissive)
+        .await
+        .unwrap();
+    assert_eq!(restored.generation, 1_000_000_200_000);
+    assert_eq!(
+        count(
+            &catalog,
+            "SELECT count(*) FROM objects WHERE bucket = 'gone'"
+        )
+        .await,
+        1
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn new_bucket_generations_are_nanosecond_scale_unique_and_monotonic() {
+    let dir = TestDir::new();
+    let (catalog, clock) = open(&dir).await;
+    let start_nanos = unix_micros(UNIX_EPOCH + START).unwrap() * 1000;
+    // A frozen clock still yields strictly increasing values: max(now, previous + 1).
+    let first = catalog.insert_bucket(record("first")).await.unwrap();
+    let second = catalog.insert_bucket(record("second")).await.unwrap();
+    assert_eq!(first.generation, start_nanos);
+    assert_eq!(second.generation, start_nanos + 1);
+    // Deleting and recreating a name never repeats the soft-deleted version's value.
+    set_retention(&catalog, "first", 7 * DAY).await;
+    delete(&catalog, "first").await.unwrap();
+    let again = catalog.insert_bucket(record("first")).await.unwrap();
+    assert_eq!(again.generation, start_nanos + 2);
+    // A clock that jumps ahead takes over; one that steps back cannot lower the sequence.
+    let later = UNIX_EPOCH + START + Duration::from_secs(60);
+    clock.set(later);
+    let mut ahead = record("ahead");
+    ahead.time_created = later;
+    ahead.updated = later;
+    let ahead = catalog.insert_bucket(ahead).await.unwrap();
+    assert_eq!(ahead.generation, unix_micros(later).unwrap() * 1000);
+    let behind = catalog.insert_bucket(record("behind")).await.unwrap();
+    assert_eq!(behind.generation, ahead.generation + 1);
     catalog.close().await.unwrap();
 }

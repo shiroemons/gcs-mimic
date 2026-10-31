@@ -116,7 +116,7 @@ pub(crate) mod acl;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = 45;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = 46;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -357,6 +357,7 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
     (43, acl::POLICY_BINDING_SCHEMA, None),
     (44, object_owner::SCHEMA, None),
     (45, bucket_soft_delete::SCHEMA, None),
+    (46, bucket_soft_delete::GENERATION_SCHEMA, None),
 ];
 
 #[expect(
@@ -883,6 +884,10 @@ const MIGRATIONS: &[(i64, Migration)] = &[
     (43, Migration::Statements(acl::POLICY_BINDING_SCHEMA)),
     (44, Migration::Statements(object_owner::SCHEMA)),
     (45, Migration::Statements(bucket_soft_delete::SCHEMA)),
+    (
+        46,
+        Migration::Statements(bucket_soft_delete::GENERATION_SCHEMA),
+    ),
 ];
 
 /// Resets volatile state and completes crash recovery before the catalog serves requests.
@@ -1989,6 +1994,9 @@ fn insert_bucket_in_transaction(
     crate::bucket::lifecycle::validate(&record.lifecycle)?;
     crate::bucket::lifecycle::validate_location(&record.lifecycle, &record.location_type)?;
     let created = unix_micros(record.time_created)?;
+    // Times outside the nanosecond i64 range (before 1677) fall back to the microsecond value.
+    let created_nanos =
+        unix_timestamp(record.time_created, 1).unwrap_or_else(|_| created.saturating_mul(1000));
     let updated = unix_micros(record.updated)?;
     record.time_created = system_time_micros(created).map_err(unavailable)?;
     record.updated = system_time_micros(updated).map_err(unavailable)?;
@@ -1999,13 +2007,14 @@ fn insert_bucket_in_transaction(
         })
         .transpose()?;
     let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
-    // The object allocator is shared so a recreated name never repeats a soft-deleted
-    // version's generation, even under a frozen injected clock.
+    // Cloud Storage bucket generations are 19-digit nanosecond values. A dedicated allocator
+    // keeps them unique and increasing even under a frozen injected clock, and across a
+    // recreated name's soft-deleted versions, without disturbing object generations.
     let last: i64 = transaction
-        .prepare_cached("SELECT last_generation FROM object_generation WHERE singleton = 1")
+        .prepare_cached("SELECT last_generation FROM bucket_generation WHERE singleton = 1")
         .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
         .map_err(unavailable)?;
-    record.generation = created.max(
+    record.generation = created_nanos.max(
         last.checked_add(1)
             .ok_or_else(|| unavailable("generation exhausted"))?,
     );
@@ -2051,7 +2060,7 @@ fn insert_bucket_in_transaction(
         return Err(CatalogError::AlreadyExists);
     }
     transaction
-        .prepare_cached("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1")
+        .prepare_cached("UPDATE bucket_generation SET last_generation = ?1 WHERE singleton = 1")
         .and_then(|mut statement| statement.execute([record.generation]))
         .map_err(unavailable)?;
     bucket_autoclass::insert(transaction, record)?;

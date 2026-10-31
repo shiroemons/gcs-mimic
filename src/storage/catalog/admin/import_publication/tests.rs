@@ -106,8 +106,9 @@ async fn import_publication_preserves_identity_settings_hold_and_atomic_prefix()
         )
         .await
         .unwrap();
-    // The catalog assigns the generation; with an unused allocator it is the creation time.
-    record.generation = 123_456;
+    // The catalog assigns the generation; with an unused allocator it is the creation time in
+    // nanoseconds.
+    record.generation = 123_456_000;
     assert_eq!(
         admin
             .get_bucket(&BucketName::new("test-bucket").unwrap())

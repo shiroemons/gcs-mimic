@@ -925,8 +925,8 @@ async fn create_get_delete_and_restart_preserve_every_field() {
     let created = catalog.insert_bucket(expected.clone()).await.unwrap();
     expected.time_created = UNIX_EPOCH + Duration::from_millis(42_123);
     expected.updated = UNIX_EPOCH + Duration::from_millis(43_987);
-    // The catalog assigns the generation; the first one is the creation time in microseconds.
-    expected.generation = 42_123_000;
+    // The catalog assigns the generation; the first one is the creation time in nanoseconds.
+    expected.generation = 42_123_000_000;
     assert_eq!(created, expected);
     assert_eq!(
         catalog.get_bucket("bucket").await.unwrap(),
@@ -1665,8 +1665,9 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     for mut record in expected {
-        // Schema 45 backfills each pre-existing bucket's generation from its creation time.
-        record.generation = 42_123_000;
+        // Schema 45 backfills each pre-existing bucket's generation from its creation time in
+        // microseconds and schema 46 scales it to nanoseconds.
+        record.generation = 42_123_000_000;
         assert_eq!(
             catalog.get_bucket(&record.name).await.unwrap(),
             Some(record)

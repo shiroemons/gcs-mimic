@@ -53,6 +53,34 @@ CREATE INDEX soft_deleted_buckets_project ON soft_deleted_buckets(project, name,
 CREATE INDEX soft_deleted_buckets_expiry ON soft_deleted_buckets(hard_delete_time);
 PRAGMA user_version = 45;";
 
+/// Buckets get their own nanosecond-scale generation allocator (Cloud Storage returns 19-digit
+/// bucket generations), separate from the microsecond-scale object allocator. Existing
+/// generations are multiplied by 1000, which keeps their order and uniqueness; the retained
+/// objects of a soft-deleted bucket are keyed by `name#generation`, so appending the three
+/// digits to that decimal key moves them in step. Foreign keys to the old object keys are
+/// deferred because parents and children change in one transaction. A generation backfilled
+/// from a creation time beyond year 2262 would overflow a signed 64-bit nanosecond value, so
+/// it saturates at the largest representable multiple of 1000.
+pub(super) const GENERATION_SCHEMA: &str = "PRAGMA defer_foreign_keys = ON;
+UPDATE acl_object_entries SET bucket = (
+        SELECT name || '#' || (min(generation, 9223372036854775) * 1000)
+        FROM soft_deleted_buckets WHERE name || '#' || generation = acl_object_entries.bucket)
+    WHERE bucket IN (SELECT name || '#' || generation FROM soft_deleted_buckets);
+UPDATE objects SET bucket = (
+        SELECT name || '#' || (min(generation, 9223372036854775) * 1000)
+        FROM soft_deleted_buckets WHERE name || '#' || generation = objects.bucket)
+    WHERE bucket IN (SELECT name || '#' || generation FROM soft_deleted_buckets);
+UPDATE buckets SET generation = min(generation, 9223372036854775) * 1000;
+UPDATE soft_deleted_buckets SET generation = min(generation, 9223372036854775) * 1000;
+CREATE TABLE bucket_generation (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    last_generation INTEGER NOT NULL CHECK(last_generation >= 0)
+) WITHOUT ROWID;
+INSERT INTO bucket_generation SELECT 1, max(
+    coalesce((SELECT max(generation) FROM buckets), 0),
+    coalesce((SELECT max(generation) FROM soft_deleted_buckets), 0));
+PRAGMA user_version = 46;";
+
 /// Expired versions removed per maintenance transaction; each also removes its objects.
 const PURGE_BATCH: i64 = 16;
 
