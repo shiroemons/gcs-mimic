@@ -27,7 +27,7 @@ SH
 cat >"$work/scripts/sdk-go.sh" <<'SH'
 set -euo pipefail
 test -f "$GCS_MIMIC_PRE_PUSH_TEST_STATE/check.done"
-test "$*" = '--with-ruby --with-node --with-python --with-php'
+test "$*" = '--with-ruby --with-node --with-python --with-php --with-java --with-dotnet --with-rust'
 if [[ ${GCS_MIMIC_PRE_PUSH_TEST_FAIL:-} == sdk ]]; then exit 23; fi
 touch "$GCS_MIMIC_PRE_PUSH_TEST_STATE/sdk.done"
 SH
