@@ -99,6 +99,12 @@ impl Reply {
             "{}",
             String::from_utf8_lossy(&self.body)
         );
+        // A missing media object is an HTML document naming the object, not a JSON error.
+        if self.headers["content-type"] == "text/html; charset=UTF-8" {
+            assert_eq!((status, reason), (404, "notFound"));
+            assert!(self.body.starts_with(b"No such object: "));
+            return;
+        }
         let value: Value = serde_json::from_slice(&self.body).unwrap();
         assert_eq!(value["error"]["errors"][0]["reason"], reason);
     }

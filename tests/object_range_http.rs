@@ -204,6 +204,17 @@ impl Reply {
             "{}",
             String::from_utf8_lossy(&self.body)
         );
+        // A missing media object and an unsatisfiable range are plain HTML-typed messages.
+        if self.headers["content-type"] == "text/html; charset=UTF-8" {
+            assert!(
+                matches!((status, reason), (404, "notFound") | (416, _)),
+                "{status} {reason}"
+            );
+            if status == 404 {
+                assert!(self.body.starts_with(b"No such object: "));
+            }
+            return;
+        }
         let value: Value = serde_json::from_slice(&self.body).unwrap();
         assert_eq!(value["error"]["code"], status);
         assert_eq!(value["error"]["errors"][0]["reason"], reason);
@@ -294,10 +305,9 @@ fn obj_range_http_unsatisfiable_empty_and_ignored_ranges() {
         let reply = server.get("", &format!("Range: {range}\r\n"));
         reply.error(416, "requestedRangeNotSatisfiable");
         assert_eq!(reply.headers["content-range"], "bytes */10");
-        assert_eq!(
-            reply.headers["content-type"],
-            "application/json; charset=UTF-8"
-        );
+        // The recorded 416 is HTML-typed with private caching, not a JSON error.
+        assert_eq!(reply.headers["content-type"], "text/html; charset=UTF-8");
+        assert_eq!(reply.headers["cache-control"], "private, max-age=0");
         assert!(!reply.headers.contains_key("x-goog-hash"));
     }
     for range in [

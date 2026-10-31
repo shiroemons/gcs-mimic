@@ -10,8 +10,27 @@ pub(crate) const NO_STORE_CACHE_CONTROL: &str = "no-cache, no-store, max-age=0, 
 /// The `Cache-Control` of a media download that Cloud Storage answers with a plain error.
 const MEDIA_ERROR_CACHE_CONTROL: &str = "private, max-age=0";
 
-/// The catalog's missing-object message.
+/// The missing-object message for operations that do not name one object, such as a copy source.
 const OBJECT_NOT_FOUND: &str = "Object not found";
+/// The prefix of Cloud Storage's missing-object message, followed by `<bucket>/<object>`.
+const NO_SUCH_OBJECT: &str = "No such object: ";
+
+/// Escapes text for an HTML document. The object name in a media 404 is client-controlled and
+/// the response is `text/html`, so every markup-significant character must be neutralized.
+fn escape_html(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JsonError {
@@ -129,27 +148,40 @@ impl JsonError {
         json!({"error": {"code": self.status.as_u16(), "message": self.message, "errors": [item]}})
     }
 
-    /// Whether this is the catalog's missing-object error.
+    /// Whether this is the catalog's missing-object error, before or after it names the object.
     pub(crate) fn is_missing_object(&self) -> bool {
         self.status == StatusCode::NOT_FOUND
             && self.reason == "notFound"
-            && self.message == OBJECT_NOT_FOUND
+            && (self.message == OBJECT_NOT_FOUND || self.message.starts_with(NO_SUCH_OBJECT))
+    }
+
+    /// Cloud Storage names the requested object in its not-found message, which the catalog
+    /// error cannot do because it does not know which request selected the object.
+    pub(crate) fn naming_object(mut self, bucket: &str, name: &str) -> Self {
+        if self.is_missing_object() {
+            self.message = format!("{NO_SUCH_OBJECT}{bucket}/{name}");
+        }
+        self
     }
 
     /// A media download's error. Cloud Storage answers a missing object and an unsatisfiable
-    /// range with `private, max-age=0` and no `Pragma`; other media errors keep the JSON error
-    /// headers because only these two were recorded.
+    /// range with an HTML-typed plain message and `private, max-age=0`; only these two were
+    /// recorded, so other media errors keep the JSON form.
     pub(crate) fn into_media_response(self) -> Response<Full<Bytes>> {
-        let plain = self.is_missing_object() || self.status == StatusCode::RANGE_NOT_SATISFIABLE;
-        let mut response = self.into_response();
-        if plain {
-            let headers = response.headers_mut();
-            headers.insert(
-                header::CACHE_CONTROL,
-                header::HeaderValue::from_static(MEDIA_ERROR_CACHE_CONTROL),
-            );
-            headers.remove(header::PRAGMA);
+        if !self.is_missing_object() && self.status != StatusCode::RANGE_NOT_SATISFIABLE {
+            return self.into_response();
         }
+        let mut response = Response::new(Full::new(Bytes::from(escape_html(&self.message))));
+        *response.status_mut() = self.status;
+        let headers = response.headers_mut();
+        headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("text/html; charset=UTF-8"),
+        );
+        headers.insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static(MEDIA_ERROR_CACHE_CONTROL),
+        );
         response
     }
 

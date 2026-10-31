@@ -236,7 +236,12 @@ pub(crate) struct Error {
     pub status: StatusCode,
     code: &'static str,
     message: String,
+    /// The optional `Details` element, which Cloud Storage uses to name a missing object.
+    details: Option<String>,
 }
+
+/// The fixed message of a missing object; `Details` names the object.
+const NO_SUCH_KEY: &str = "The specified key does not exist.";
 
 /// Whether an XML error response carries its body. A HEAD response sends only the headers,
 /// including the Content-Length of the body it omits.
@@ -262,7 +267,16 @@ impl Error {
             status,
             code,
             message: message.into(),
+            details: None,
         }
+    }
+
+    /// Names the requested object in a missing-object error, as Cloud Storage does.
+    pub(crate) fn naming_object(mut self, bucket: &str, name: &str) -> Self {
+        if self.code == "NoSuchKey" && self.message == NO_SUCH_KEY {
+            self.details = Some(format!("No such object: {bucket}/{name}"));
+        }
+        self
     }
 
     pub(crate) fn unsupported(name: &str) -> Self {
@@ -276,15 +290,21 @@ impl Error {
     }
 
     pub(crate) fn response(self, body_mode: ErrorBody) -> Response<Full<Bytes>> {
-        let escaped = self
-            .message
-            .replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;");
-        let body = format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Error><Code>{}</Code><Message>{escaped}</Message></Error>",
-            self.code
+        // Character data needs only these three escapes; quotes stay literal.
+        let escape = |text: &str| {
+            text.replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+        };
+        let mut body = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Error><Code>{}</Code><Message>{}</Message>",
+            self.code,
+            escape(&self.message)
         );
+        if let Some(details) = &self.details {
+            body.push_str(&format!("<Details>{}</Details>", escape(details)));
+        }
+        body.push_str("</Error>");
         let content_length = HeaderValue::from(body.len());
         let mut response = Response::new(Full::new(match body_mode {
             ErrorBody::Omit => Bytes::new(),
@@ -335,8 +355,13 @@ impl From<JsonError> for Error {
             _ => crate::csek::CsekError::from_reason(error.reason)
                 .map_or("InvalidArgument", crate::csek::CsekError::xml_code),
         };
+        let message = if error.is_missing_object() {
+            NO_SUCH_KEY.to_owned()
+        } else {
+            error.message
+        };
         // shortcut: auth wording and error precedence are local choices until cloud differential evidence exists.
-        Self::new(status, code, error.message)
+        Self::new(status, code, message)
     }
 }
 

@@ -217,6 +217,16 @@ impl Reply {
         serde_json::from_slice(&self.body).unwrap()
     }
 
+    /// A missing media object is an HTML document naming the object, not a JSON error.
+    fn missing_media(&self, name: &str) {
+        assert_eq!(self.status, 404, "{}", String::from_utf8_lossy(&self.body));
+        assert_eq!(self.headers["content-type"], "text/html; charset=UTF-8");
+        assert_eq!(
+            self.body,
+            format!("No such object: test-bucket/{name}").into_bytes()
+        );
+    }
+
     fn error(&self, status: u16) -> Value {
         assert_eq!(
             self.status,
@@ -277,7 +287,7 @@ fn object_condition_matrix(condition: &str, field: &str, not_match: bool) {
                     .error(404);
                 server
                     .get(&format!("/storage/v1/b/test-bucket/o/{name}?alt=media"))
-                    .error(404);
+                    .missing_media(&name);
             } else {
                 let result = common::without_acl(reply.json());
                 let after = server.snapshot(&name);
@@ -560,7 +570,7 @@ fn basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed
             .error(404);
         server
             .get(&format!("/storage/v1/b/test-bucket/o/{name}?alt=media"))
-            .error(404);
+            .missing_media(&name);
         let before = server.seed_object(&name);
         server.upload(&name, &headers, HASH_BYTES).error(400);
         assert_eq!(server.snapshot(&name), before, "{hash}");

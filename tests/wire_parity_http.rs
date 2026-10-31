@@ -236,6 +236,134 @@ fn cache_headers_follow_each_recorded_response_kind() {
 }
 
 #[test]
+fn missing_object_errors_name_the_object_like_cloud_storage() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    let message = "No such object: parity/missing.txt";
+    let metadata = server.request("GET", "/storage/v1/b/parity/o/missing.txt", "", b"");
+    metadata.status(404);
+    assert_eq!(
+        header(&metadata, "content-type"),
+        Some("application/json; charset=UTF-8")
+    );
+    let error = metadata.json();
+    assert_eq!(error["error"]["code"], 404);
+    assert_eq!(error["error"]["message"], message);
+    assert_eq!(
+        error["error"]["errors"],
+        serde_json::json!([{"message": message, "domain": "global", "reason": "notFound"}])
+    );
+    for method in ["DELETE", "PATCH"] {
+        let body: &[u8] = if method == "PATCH" { b"{}" } else { b"" };
+        let reply = server.request(method, "/storage/v1/b/parity/o/missing.txt", JSON, body);
+        reply.status(404);
+        assert_eq!(reply.json()["error"]["message"], message, "{method}");
+    }
+
+    let media = server.request(
+        "GET",
+        "/storage/v1/b/parity/o/missing.txt?alt=media",
+        "",
+        b"",
+    );
+    media.status(404);
+    assert_eq!(
+        header(&media, "content-type"),
+        Some("text/html; charset=UTF-8")
+    );
+    assert_eq!(header(&media, "cache-control"), Some(PRIVATE));
+    assert_eq!(header(&media, "pragma"), None);
+    assert_eq!(media.body, message);
+
+    let xml = server.request("GET", "/parity/missing.txt", "", b"");
+    xml.status(404);
+    assert!(
+        xml.body.ends_with(
+            "<Error><Code>NoSuchKey</Code>\
+             <Message>The specified key does not exist.</Message>\
+             <Details>No such object: parity/missing.txt</Details></Error>"
+        ),
+        "{}",
+        xml.body
+    );
+    assert_eq!(
+        header(&xml, "content-length"),
+        Some(xml.body.len().to_string().as_str())
+    );
+}
+
+/// An object name is attacker-controlled text that the media 404 returns as `text/html`, so it
+/// must be escaped; the JSON and XML forms escape only what their syntax requires.
+#[test]
+fn missing_object_names_are_escaped_for_the_document_they_appear_in() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    let name = "<script>a&b\"c'd</script>";
+    let encoded = "%3Cscript%3Ea%26b%22c%27d%3C%2Fscript%3E";
+
+    let media = server.request(
+        "GET",
+        &format!("/storage/v1/b/parity/o/{encoded}?alt=media"),
+        "",
+        b"",
+    );
+    media.status(404);
+    assert_eq!(
+        header(&media, "content-type"),
+        Some("text/html; charset=UTF-8")
+    );
+    assert_eq!(
+        media.body,
+        "No such object: parity/&lt;script&gt;a&amp;b&quot;c&#39;d&lt;/script&gt;"
+    );
+    assert!(!media.body.contains('<'), "{}", media.body);
+    assert_eq!(header(&media, "x-content-type-options"), None);
+    assert_eq!(header(&media, "content-security-policy"), None);
+
+    // JSON text carries the name verbatim; quotes are escaped by the JSON syntax itself.
+    let metadata = server.request("GET", &format!("/storage/v1/b/parity/o/{encoded}"), "", b"");
+    metadata.status(404);
+    assert_eq!(
+        metadata.json()["error"]["message"],
+        format!("No such object: parity/{name}")
+    );
+
+    // XML character data escapes only ampersand and angle brackets.
+    let xml = server.request("GET", &format!("/parity/{encoded}"), "", b"");
+    xml.status(404);
+    assert!(
+        xml.body.contains(
+            "<Details>No such object: parity/&lt;script&gt;a&amp;b\"c'd&lt;/script&gt;</Details>"
+        ),
+        "{}",
+        xml.body
+    );
+}
+
+#[test]
+fn unsatisfiable_media_ranges_answer_with_html_text() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    let reply = server.request(
+        "GET",
+        &format!("{OBJECT}?alt=media"),
+        "Range: bytes=100-200\r\n",
+        b"",
+    );
+    assert_eq!(reply.status, 416);
+    assert_eq!(
+        header(&reply, "content-type"),
+        Some("text/html; charset=UTF-8")
+    );
+    assert_eq!(header(&reply, "content-range"), Some("bytes */16"));
+    assert_eq!(header(&reply, "cache-control"), Some(PRIVATE));
+    assert_eq!(header(&reply, "pragma"), None);
+}
+
+#[test]
 fn object_inserts_and_json_write_errors_forbid_every_cache() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);

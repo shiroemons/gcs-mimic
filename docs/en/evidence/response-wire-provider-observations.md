@@ -61,5 +61,29 @@ multipart uploads were not observed.
 | Media 404 and 416 | `private, max-age=0` without `pragma`; other media errors keep the JSON error headers | `wire_parity_http::cache_headers_follow_each_recorded_response_kind` |
 | XML | Lists and error documents send `private, max-age=0`; private objects already did and a stored directive still wins | `wire_parity_http::cache_headers_follow_each_recorded_response_kind`, `xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated` |
 
+## Error bodies
+
+| Request | Recorded response |
+| --- | --- |
+| JSON metadata GET of a missing object | `application/json; charset=UTF-8`; fields `code`, `message`, `errors[{message, domain, reason}]`; message `No such object: <bucket>/missing.txt`, reason `notFound` |
+| JSON media GET of a missing object | `text/html; charset=UTF-8`, body `No such object: <bucket>/missing.txt` |
+| JSON media HEAD with an unsatisfiable range | 416, `text/html; charset=UTF-8`, `content-range: bytes */<size>`, `cache-control: private, max-age=0` (HEAD, so no body was seen) |
+| XML GET of a missing object | `<?xml version='1.0' encoding='UTF-8'?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message><Details>No such object: <bucket>/missing.txt</Details></Error>` |
+
+A follow-up probe recorded how object names are written into these bodies: the
+JSON media 404 HTML-escapes the name (`&` to `&amp;`, `<` to `&lt;`, `>` to
+`&gt;`, `"` to `&quot;`, `'` to `&#39;`) and sends no `x-content-type-options`
+or content-security-policy header, while the XML `Details` escapes only `&`,
+`<` and `>` and leaves quotes literal.
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| Missing object messages | JSON get, patch and delete of a missing object say `No such object: <bucket>/<object>`; copy, compose and rewrite sources keep the generic `Object not found` because the request path names a different object | `wire_parity_http::missing_object_errors_name_the_object_like_cloud_storage` |
+| Media 404 | `text/html; charset=UTF-8` with the escaped message and `private, max-age=0`; the name is escaped because the response is HTML and the name is client-controlled | `wire_parity_http::missing_object_errors_name_the_object_like_cloud_storage`, `wire_parity_http::missing_object_names_are_escaped_for_the_document_they_appear_in` |
+| Media 416 | `text/html; charset=UTF-8`, `content-range: bytes */<size>` and `private, max-age=0`; the GET body text (the local range message) was not recorded | `wire_parity_http::unsatisfiable_media_ranges_answer_with_html_text` |
+| XML NoSuchKey | Fixed `Message` plus a `Details` element naming the object, escaped as XML character data | `wire_parity_http::missing_object_names_are_escaped_for_the_document_they_appear_in` |
+
 Remaining differences are tracked as `SPEC-RESPONSE-WIRE-REMAINING` in
 `compatibility/gaps.json`.

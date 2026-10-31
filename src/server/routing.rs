@@ -384,6 +384,13 @@ async fn respond_xml_object(
     let put = request.method() == Method::PUT;
     let delete = request.method() == Method::DELETE;
     let multipart = xml::multipart::matches(request.uri());
+    // Only a read's missing-object error names the requested path; a write can miss a different
+    // object, such as a copy source.
+    let target = parsed
+        .as_ref()
+        .ok()
+        .filter(|_| head || request.method() == Method::GET)
+        .map(|read| (read.bucket.clone(), read.name.clone()));
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
     let authentication = if put && !multipart {
         xml::authenticate_upload_target(
@@ -429,7 +436,13 @@ async fn respond_xml_object(
     if head || put || delete || multipart || result.is_err() {
         ctx.finish_object_request();
     }
-    result.unwrap_or_else(|error| boxed(error.response(error_body)))
+    result.unwrap_or_else(|error| {
+        let error = match &target {
+            Some((bucket, name)) => error.naming_object(bucket, name),
+            None => error,
+        };
+        boxed(error.response(error_body))
+    })
 }
 
 /// Initiation authenticates like any XML request; the session URI is its own capability.
@@ -498,6 +511,16 @@ async fn respond_json_object(
 ) -> Response<ResponseBody> {
     let parsed = authenticate(&request, ctx.state).and_then(|caller| parsed.map(|op| (op, caller)));
     let media = matches!(&parsed, Ok((ObjectRequest::Get { params, .. }, _)) if params.media);
+    // The object a missing-object error names: only operations whose path selects one.
+    let target = match &parsed {
+        Ok((
+            ObjectRequest::Get { bucket, name, .. }
+            | ObjectRequest::Update { bucket, name, .. }
+            | ObjectRequest::Delete { bucket, name, .. },
+            _,
+        )) => Some((bucket.clone(), name.clone())),
+        _ => None,
+    };
     let transfer = media
         || matches!(
             &parsed,
@@ -528,6 +551,10 @@ async fn respond_json_object(
         ctx.finish_object_request();
     }
     result.unwrap_or_else(|error| {
+        let error = match &target {
+            Some((bucket, name)) => error.naming_object(bucket, name),
+            None => error,
+        };
         boxed(if media {
             error.into_media_response()
         } else {

@@ -256,9 +256,12 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
     h.request("GET", &get, ADMIN, b"")
         .await
         .error(404, "notFound");
-    h.request("GET", &format!("{get}&alt=media"), ADMIN, b"")
-        .await
-        .error(404, "notFound");
+    // A missing media object is an HTML document naming the object, not a JSON error.
+    let media = h
+        .request("GET", &format!("{get}&alt=media"), ADMIN, b"")
+        .await;
+    assert_eq!(media.status, 404);
+    assert_eq!(media.body, b"No such object: bucket/history/item");
     for path in [
         "/storage/v1/b/bucket/o/history%2Fitem?softDeleted=true".to_owned(),
         format!("{get}&softDeleted=true&alt=media"),
