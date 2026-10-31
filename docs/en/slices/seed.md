@@ -55,12 +55,12 @@ Test identifiers below are the exact integration test function names in
 | seed-project | Honor a nondefault owning project and accept an empty seed root | `explicit_project_and_empty_seed_directory_are_supported` | PASS |
 | seed-replay | Restart restores fixture bytes and seed-default metadata over an API overwrite and over API metadata edits, keeps the generation of an object that already matches, recreates an API-deleted fixture object and a deleted fixture bucket, keeps API-only objects and never deletes an object whose fixture file was removed | `restart_replays_fixtures_over_api_changes_and_keeps_unrelated_objects` | PASS |
 | seed-replace | An edited fixture file publishes a new live generation; a versioned bucket keeps the previous generation as noncurrent, an unversioned bucket drops it | `edited_fixture_replaces_live_generation_and_versioning_keeps_noncurrent` | PASS |
-| seed-blocked | A held object whose bytes or metadata differ is counted `blocked`, left unchanged and reported with a `seed_blocked` warning; an identical held object is `unchanged`; releasing the hold lets the next replay replace it | `held_object_is_blocked_while_identical_held_object_is_unchanged` | PASS |
+| seed-blocked | A differing held fixture fails the entire replay without readiness or any namespace changes; an identical held object is unchanged; releasing changed holds permits the complete retry | `held_seed_changes_roll_back_the_entire_tree_while_identical_held_objects_are_unchanged` | See [atomic replay](atomic-seed-reseed.md) |
 | seed-content-type | `.txt` maps to `text/plain; charset=utf-8` by default; `seed_content_type=octet-stream` restores `application/octet-stream`; switching modes replaces only objects whose mapping changes and a repeated replay is unchanged | `default_content_type_is_extension_and_octet_stream_is_opt_in` | PASS |
 | seed-default-dir | `default_seed_dir` seeds an existing directory when `seed_dir` is unset; a missing path, a regular file, and a path overlapping `data_dir` in either direction are ignored and report `disabled`; an explicit `seed_dir` wins | `default_seed_dir_imports_only_an_existing_disjoint_directory` | PASS |
 | seed-disabled | Startups without a seed root report `disabled` and replay nothing; adding `seed_dir` later imports the fixtures | `seed_dir_added_after_disabled_startup_imports_and_removal_disables_again` | PASS |
 | seed-top-level-file | A regular file directly under the seed root is skipped with a `seed_skipped` warning and startup reaches readiness | `top_level_files_are_skipped_with_a_warning` | PASS |
-| seed-retry | Failed partial import emits no ready event and releases ownership; a changed bucket project is rejected; the retry keeps the generation of already committed matching objects and publishes the missing ones | `interrupted_import_retries_without_overwrite_and_releases_lock` | PASS |
+| seed-retry | A failed replay emits no ready event, publishes no partial bucket/object and releases ownership; a repaired tree succeeds and project mismatch remains rejected | `interrupted_import_retries_without_overwrite_and_releases_lock` | See [atomic replay](atomic-seed-reseed.md) |
 | seed-invalid | Reject invalid bucket/object names, missing/overlapping configured roots and oversize files; accept zero bytes and the inclusive file-size cap | `invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive` | PASS |
 | seed-walk | Accept 32 nested directories below a bucket; reject deeper trees and more than 10000 entries | `fixture_depth_and_entry_count_are_bounded` | PASS |
 | seed-links | Reject a symlink root, symlink entry and Unix socket without readiness | `symlinks_and_special_files_fail_closed` | PASS on macOS ARM64; Unix-only test |
@@ -68,7 +68,7 @@ Test identifiers below are the exact integration test function names in
 | seed-migration | Populated v4 catalog migrates to the current schema, then replay restores the fixture at its name and keeps migrated API-only objects; existing v1/v3 migration coverage remains green | `populated_v4_catalog_migrates_and_replays_seed`; `src/storage/object_tests.rs::v1_migration_is_transactional_and_current_schema_reopens_idempotently`; `src/storage/object_tests.rs::metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog` | PASS |
 | seed-readiness | After recovery and the seeding event, blocked publication prevents any listener/probe success; successful import precedes health and readiness | `probes_cannot_succeed_while_seed_publication_is_blocked` | PASS |
 | seed-extension | Pinned extension MIME, literal percent names, unchanged source bytes/mtime/permissions; an API object at an OS metadata name survives replay | `extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart` | PASS on macOS ARM64 |
-| seed-compose | Read-only fixture mount; up --wait; replay over API changes across stop/start and recreate; deleted fixture buckets reappear; fresh volume seeds | `container-seed-lifecycle`: `scripts/smoke-containers.sh` seeded section | PENDING: the script still asserts one-time import and has not been rerun |
+| seed-compose | Read-only fixture mount; up --wait; replay over API changes across stop/start and recreate; deleted fixture buckets reappear; fresh volume seeds | `container-seed-lifecycle`: `scripts/smoke-containers.sh` seeded section | PENDING final-source execution: the script already asserts replay; the new atomic publication contract still needs its final combined gate |
 
 `tests/import_filesystem.rs::filesystem_import_preserves_source_identity_and_skips_later_seed`
 also verifies that replaying an empty fixture root over an imported catalog leaves
@@ -85,8 +85,9 @@ without overwriting it. Its two management upload slots and bounded 30-second
 admission waits are independent of the API's catalog and connection limits.
 Accepted publication and cancellation cleanup retain their permits until
 completion, and catalog close drains them before releasing directory ownership.
-Local files use shared file staging and `publish_objects`, with dedicated file
-workers, immutable staging checksums and source-change detection. The
+Local files use shared file staging and one whole-tree publication transaction,
+with dedicated file workers, immutable staging checksums and source-change
+detection. The
 [seed adapter contract](import-seed-adapter.md) records the source profile.
 
 ### Configuration
@@ -150,13 +151,12 @@ from import. Seeding bypasses API authorization as a local administrative action
 in both profiles; subsequent API access follows the selected profile.
 
 The canonical seed and data directories must not overlap in either direction.
-The source is trusted, stable, read-only administrative input for the entire
-startup operation. The importer never writes to it. Compose enforces a read-only
-mount. Native use does not change permissions or snapshot the source; concurrent
-source mutation, including replacing checked paths with symlinks, is outside this
-contract and must be prevented by the operator.
-In particular, the directory must be admin-controlled: the symlink check and
-file open are separate operations, not protection against a concurrent attacker.
+The source remains trusted, stable, read-only administrative input for the entire
+operation. The importer never writes to it. Compose enforces a read-only mount.
+Unix source opens now pin the root and use no-follow descriptor traversal for
+every ancestor and leaf; deterministic concurrent symlink swaps fail closed.
+Windows retains its prior trusted-source requirement. Native seeding does not
+create a filesystem-wide source snapshot; see [atomic replay](atomic-seed-reseed.md).
 
 ### Replay on every startup
 
@@ -165,32 +165,31 @@ For each bucket directory the bucket is ensured: a missing bucket is created and
 counted; an existing bucket keeps its settings but must belong to
 `seed_project`, otherwise startup fails. For each fixture file:
 
-- **No live object**: the file is published with `ifGenerationMatch=0` and
+- **No live object**: the transaction publishes the fixture and it is
   counted in `objects`. This includes an object that was deleted through the API.
 - **Live object that is exactly what seeding would write**: same size, MD5 and
   CRC32C, the seed content type, no content encoding, disposition, language,
   cache control or custom time, and no custom metadata. Nothing is written, no
   generation is minted and the object is counted in `unchanged`. Holds and
-  storage class come from bucket defaults and are not compared. The body is
-  hashed read-only from the fixture before any staging copy.
+  storage class are not compared. The unchanged check uses the verified staged bytes.
 - **Any other live object**: the file is published as a new live generation
-  under an `ifGenerationMatch=<live generation>` condition with seed-default
+  with authoritative selection inside the whole-tree transaction and seed-default
   metadata and counted in `replaced`. API overwrites and API metadata edits at
   fixture names are therefore reverted. A versioned bucket keeps the previous
   generation as noncurrent; an unversioned bucket drops it. A catalog seeded
   with the previous `octet-stream` default is replaced once with the extension
   content type.
 - **Replacement rejected by an event-based or temporary hold or an unmet
-  retention period**: the object is left unchanged, counted in `blocked`, and a
-  `{"event":"seed_blocked","level":"warn","path":"<bucket>/<object>"}` event is
-  written to stderr with the fixture-relative path. Startup continues.
+  retention period**: the entire replay rolls back. Startup fails without
+  readiness and explains how to release protection and retry. No other selected
+  bucket or object changes. Successful results retain `blocked: 0`.
 
 Objects that have no fixture file are never touched, and removing a fixture
 file never deletes an object. Deleting a seeded bucket through the API does not
 survive the next replay: the bucket and the current fixture files reappear.
-This mirrors fake-gcs-server's restart behavior with two intended differences:
-an identical object keeps its generation instead of being rewritten, and there
-is no `/_internal/reseed` endpoint; restart is the reseed operation.
+An identical object keeps its generation instead of being rewritten.
+The opt-in [reseed endpoint](atomic-seed-reseed.md) also replays the configured
+source; disk merges while RAM reseed replaces its namespace.
 
 ### Durable initialization and recovery
 
@@ -201,13 +200,13 @@ transaction, and existing valid catalogs migrate as already initialized. Replay
 still runs on migrated catalogs. Unreleased v2, foreign schemas and future
 versions remain rejected.
 
-Each publication uses the existing media publication/recovery protocol, opaque
-blob identifiers, incremental checksums and an atomic generation condition. No
-database transaction spans a body transfer. If startup fails or dies
-mid-replay, committed publications and buckets remain and unpublished
-staging/orphan blobs follow ordinary catalog recovery. The next startup replays
-the tree again; already committed matching objects count as `unchanged`.
-Replay is convergent per object, not a whole-directory atomic transaction.
+Complete-tree staging uses the existing media durability/recovery protocol,
+opaque blob identifiers and incremental checksums. One SQL transaction publishes
+all bucket/object references and completion state after validation; no transaction
+spans a body transfer. A failure before commit preserves the old namespace.
+Staging/orphan cleanup checks committed references and ordinary recovery removes
+unreferenced remnants. Cancellation and ambiguous commits retain ownership until
+their outcome is resolved; see [atomic replay](atomic-seed-reseed.md).
 
 A startup without any seed root replays nothing and reports `disabled`; API
 changes made since the last seeded startup survive it. Adding the seed root back
@@ -226,7 +225,8 @@ The stdout ready event adds a `seed` object:
 - `{"outcome":"imported","buckets":1,"objects":1,"replaced":0,"unchanged":0,"blocked":0,"skipped_os_metadata":0}`
   after a successful replay. Counts describe this startup, not catalog totals:
   `buckets` and `objects` are created entries, `replaced`, `unchanged` and
-  `blocked` follow the per-file rules above.
+  `blocked` follow the rules above; successful replay always reports zero
+  blocked objects.
 
 A failure prints a diagnostic, explicitly closes the catalog, releases its lock
 and exits nonzero without a ready event or bound listener. If catalog close
@@ -236,14 +236,15 @@ original seed diagnostic; successful lock release is then unproven.
 ### Resource bounds
 
 Replay is sequential. A dedicated traversal thread sends entries over a two-slot
-channel using the shared bounded, sorted Walker. The unchanged check hashes the
-fixture with a fixed 64 KiB buffer on a blocking worker. File publication clones
+channel using the shared bounded, sorted Walker. File publication clones
 to immutable staging where supported or copies with fixed buffers, hashing the
-staged bytes once on the shared administrative file workers.
+staged bytes once on the shared administrative file workers. Retained metadata is
+capped at 8 MiB and buckets at 1,000; one batch lease bounds whole-tree ownership.
 `max_object_bytes` applies to every fixture file on every replay, with a
 metadata check before reading and the publisher's streamed cap at staging; a
 fixture larger than a later, smaller cap fails startup even when the live object
-matches. No object body is collected in memory.
+matches. Disk seeding never collects the body in memory; RAM seeding retains
+bounded chunks under the configured shared byte budget.
 
 Traversal counts all files and directories, including hidden entries and bucket
 directories, with a total cap of 10000 entries and 32 directory levels below each
@@ -285,8 +286,9 @@ are declared local project rules. They make no Google fixture API or full
 fake-gcs-server flag/metadata compatibility claim. No additional upstream
 ambiguity was found that needs a new Google compatibility gap.
 
-Power-loss behavior and individual crash instruction windows during replay were
-not tested. Mid-import failure/retry and normal replay were tested; existing
+Process-abort and modeled power-loss snapshots at four publication/commit
+boundaries now reopen as complete old/new namespaces; see [atomic replay](atomic-seed-reseed.md).
+Physical power loss and individual instruction windows remain unverified. Existing
 publication crash-recovery tests remain green. The seeded container lifecycle in
 `scripts/smoke-containers.sh` still asserts the earlier one-time import and has
 not been rerun, and the image's `default_seed_dir=/data` path is not verified in

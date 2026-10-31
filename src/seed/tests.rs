@@ -6,6 +6,17 @@ use std::sync::{Mutex, PoisonError};
 /// because tests seed their own directories in parallel.
 static PANIC_AT: Mutex<Vec<(PathBuf, usize)>> = Mutex::new(Vec::new());
 
+type SourceSwap = (PathBuf, Box<dyn FnOnce() + Send>);
+static SOURCE_SWAPS: Mutex<Vec<SourceSwap>> = Mutex::new(Vec::new());
+
+pub(super) fn injected_source_swap(path: &Path) {
+    let mut swaps = SOURCE_SWAPS.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(index) = swaps.iter().position(|(target, _)| target == path) {
+        let (_, swap) = swaps.remove(index);
+        swap();
+    }
+}
+
 pub(super) fn injected_walk_panic(root: &Path, index: usize) {
     let armed = PANIC_AT
         .lock()
@@ -79,4 +90,53 @@ async fn a_walk_that_panics_midway_fails_the_seed_and_leaves_it_incomplete() {
             .any(|message| message == "injected seed walk panic at entry 2")
     );
     catalog.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn seed_root_leaf_and_ancestor_symlink_swaps_never_publish_external_canaries() {
+    for level in [0, 1, 2] {
+        let (_dir, config) = fixture();
+        let catalog = Catalog::open(&config.data_dir).await.unwrap();
+        import(&catalog, &config, &SystemClock).await.unwrap();
+        let admin = catalog.admin(Origin::Seed);
+        let bucket = BucketName::new("bucket").unwrap();
+        let name = ObjectName::new("a").unwrap();
+        let old = admin.get_object(&bucket, &name, None).await.unwrap();
+        let root = std::fs::canonicalize(config.seed_dir.as_ref().unwrap()).unwrap();
+        let source = root.join("bucket/a");
+        let outside = root.parent().unwrap().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("a"), b"external-canary").unwrap();
+        let (key, selected, target) = match level {
+            0 => (source.clone(), source, outside.join("a")),
+            1 => (source, root.join("bucket"), outside.clone()),
+            _ => {
+                std::fs::create_dir(outside.join("bucket")).unwrap();
+                std::fs::write(outside.join("bucket/a"), b"external-canary").unwrap();
+                (
+                    config.seed_dir.as_ref().unwrap().clone(),
+                    root.clone(),
+                    outside.clone(),
+                )
+            }
+        };
+        SOURCE_SWAPS.lock().unwrap().push((
+            key,
+            Box::new(move || {
+                std::fs::rename(&selected, selected.with_extension("original")).unwrap();
+                std::os::unix::fs::symlink(target, selected).unwrap();
+            }),
+        ));
+        assert!(import(&catalog, &config, &SystemClock).await.is_err());
+        assert_eq!(admin.get_object(&bucket, &name, None).await.unwrap(), old);
+        let (_, mut reader) = admin.open_object(&bucket, &name, None).await.unwrap();
+        assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"a"[..]);
+        drop(reader);
+        assert_eq!(
+            std::fs::read(outside.join("a")).unwrap(),
+            b"external-canary"
+        );
+        catalog.close().await.unwrap();
+    }
 }

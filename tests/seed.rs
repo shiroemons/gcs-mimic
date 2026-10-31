@@ -2,7 +2,7 @@ mod common;
 
 use common::TestDir;
 use gcs_mimic::storage::Catalog;
-use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
+use gcs_mimic::storage::admin::{BucketName, Origin};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -638,13 +638,14 @@ fn edited_fixture_replaces_live_generation_and_versioning_keeps_noncurrent() {
 }
 
 #[test]
-fn held_object_is_blocked_while_identical_held_object_is_unchanged() {
+fn held_seed_changes_roll_back_the_entire_tree_while_identical_held_objects_are_unchanged() {
     let dir = TestDir::new();
     let seed = dir.0.join("fixtures");
     let data = dir.0.join("data");
     fixture(&seed, "local-bucket/held.txt", b"first");
     fixture(&seed, "local-bucket/meta.txt", b"meta");
     fixture(&seed, "local-bucket/same.txt", b"same");
+    fixture(&seed, "local-bucket/a-free.txt", b"free");
     let server = Server::start(&mut command(&data, Some(&seed)), false);
     let [held, _, same] = ["held.txt", "meta.txt", "same.txt"].map(|name| {
         server.patch(
@@ -657,15 +658,22 @@ fn held_object_is_blocked_while_identical_held_object_is_unchanged() {
         "/storage/v1/b/local-bucket/o/meta.txt",
         r#"{"metadata":{"owner":"user"}}"#,
     );
+    let free = server.json("/storage/v1/b/local-bucket/o/a-free.txt");
     server.stop();
 
     fixture(&seed, "local-bucket/held.txt", b"second");
-    let mut server = Server::start(command(&data, Some(&seed)).stderr(Stdio::piped()), false);
-    assert_eq!(server.ready["seed"], seed_counts(0, 0, 1, 2));
+    fixture(&seed, "local-bucket/a-free.txt", b"changed-free");
+    fs::create_dir(seed.join("empty-bucket")).unwrap();
+    fails(
+        &mut command(&data, Some(&seed)),
+        "entire seed was left unapplied",
+    );
+    let server = Server::start(&mut command(&data, None), false);
     for (name, before) in [
         ("held.txt", &held),
         ("meta.txt", &meta),
         ("same.txt", &same),
+        ("a-free.txt", &free),
     ] {
         let current = server.json(&format!("/storage/v1/b/local-bucket/o/{name}"));
         for field in [
@@ -682,22 +690,15 @@ fn held_object_is_blocked_while_identical_held_object_is_unchanged() {
         server.media("/storage/v1/b/local-bucket/o/held.txt"),
         (200, b"first".to_vec())
     );
-    let stderr = server.child.stderr.take().unwrap();
-    server.stop();
-    let blocked: Vec<Value> = BufReader::new(stderr)
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(&line.unwrap()).unwrap())
-        .filter(|event| event["event"] == "seed_blocked")
-        .collect();
-    let event = |name: &str| {
-        let path = Path::new("local-bucket").join(name);
-        json!({"event":"seed_blocked","level":"warn","path":path.display().to_string()})
-    };
-    assert_eq!(blocked, [event("held.txt"), event("meta.txt")]);
-
-    // Releasing the holds lets the next replay publish seed content and metadata.
-    let server = Server::start(&mut command(&data, Some(&seed)), false);
-    assert_eq!(server.ready["seed"], seed_counts(0, 0, 1, 2));
+    assert_eq!(
+        server.request("GET", "/storage/v1/b/empty-bucket", b"").0,
+        404
+    );
+    assert_eq!(
+        server.media("/storage/v1/b/local-bucket/o/a-free.txt"),
+        (200, b"free".to_vec())
+    );
+    // Releasing changed holds lets the next complete tree publish; the unchanged held object stays untouched.
     for name in ["held.txt", "meta.txt"] {
         server.patch(
             &format!("/storage/v1/b/local-bucket/o/{name}"),
@@ -706,7 +707,10 @@ fn held_object_is_blocked_while_identical_held_object_is_unchanged() {
     }
     server.stop();
     let server = Server::start(&mut command(&data, Some(&seed)), false);
-    assert_eq!(server.ready["seed"], seed_counts(0, 2, 1, 0));
+    assert_eq!(
+        server.ready["seed"],
+        json!({"outcome":"imported","buckets":1,"objects":0,"replaced":3,"unchanged":1,"blocked":0,"skipped_os_metadata":0})
+    );
     assert_eq!(
         server.media("/storage/v1/b/local-bucket/o/held.txt"),
         (200, b"second".to_vec())
@@ -852,29 +856,21 @@ async fn interrupted_import_retries_without_overwrite_and_releases_lock() {
     let catalog = Catalog::open(&data)
         .await
         .expect("failed seed releases data directory lock");
-    let original = catalog
-        .admin(Origin::Seed)
-        .get_object(
-            &BucketName::new("local-bucket").unwrap(),
-            &ObjectName::new("a-valid").unwrap(),
-            None,
-        )
-        .await
-        .unwrap();
-    catalog.close().await.unwrap();
-    fails(
-        command(&data, Some(&seed)).args(["--seed-project", "other-project"]),
-        "belongs to another project",
+    assert!(
+        catalog
+            .admin(Origin::Seed)
+            .get_bucket(&BucketName::new("local-bucket").unwrap())
+            .await
+            .unwrap()
+            .is_none()
     );
+    catalog.close().await.unwrap();
     fs::remove_dir_all(seed.join("z-Invalid")).unwrap();
     fixture(&seed, "local-bucket/z-valid", b"new");
     let server = Server::start(&mut command(&data, Some(&seed)), false);
-    // The committed object from the failed attempt matches its fixture, so the retry keeps
-    // that generation and only publishes what is still missing.
-    assert_eq!(server.ready["seed"], seed_counts(1, 0, 1, 0));
     assert_eq!(
-        server.json("/storage/v1/b/local-bucket/o/a-valid")["generation"],
-        original.generation.to_string()
+        server.ready["seed"],
+        json!({"outcome":"imported","buckets":1,"objects":2,"replaced":0,"unchanged":0,"blocked":0,"skipped_os_metadata":0})
     );
     assert_eq!(
         server.request("GET", "/storage/v1/b/local-bucket/o/a-valid?alt=media", b""),
@@ -885,6 +881,10 @@ async fn interrupted_import_retries_without_overwrite_and_releases_lock() {
         (200, b"new".to_vec())
     );
     server.stop();
+    fails(
+        command(&data, Some(&seed)).args(["--seed-project", "other-project"]),
+        "belongs to another project",
+    );
 }
 
 #[test]
@@ -1110,6 +1110,9 @@ async fn populated_v4_catalog_migrates_and_replays_seed() {
     server.upload("local-bucket", "api-only", b"api");
     server.stop();
     let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
+    let expected_version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
     common::downgrade_object_schema(&connection);
     connection
         .execute_batch("ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE startup_seed; PRAGMA user_version = 4;")
@@ -1135,7 +1138,7 @@ async fn populated_v4_catalog_migrates_and_replays_seed() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        35
+        expected_version
     );
 }
 
@@ -1343,6 +1346,7 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
             .set_len(SIZE)
             .unwrap();
         let mut child = command(&data, Some(&seed))
+            .args(["--log-level", if after_rename { "debug" } else { "info" }])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -1413,6 +1417,10 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
                         .get::<_, i64>(0))
                     .unwrap(),
                 0
+            );
+            assert_eq!(
+                events.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
+                "seed_commit_started"
             );
         }
         assert!(

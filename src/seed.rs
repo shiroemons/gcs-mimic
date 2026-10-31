@@ -3,15 +3,14 @@
 use crate::{
     clock::Clock,
     config::Config,
-    hashing::{Hasher, Hashes},
     json::validate_object_name,
-    object::{ExpectedHashes, ObjectRecord},
+    object::ExpectedHashes,
     source_tree::{WalkError, Walker, is_os_metadata},
     storage::{
         Catalog,
         admin::{
-            Admin, AdminError, BatchPublication, BucketDefinition, BucketName, EnsureBucket,
-            Generation, GenerationCondition, ObjectName, Origin, Publication, PublishMode,
+            Admin, BucketDefinition, BucketName, ObjectName, Origin, Publication, PublishMode,
+            SeedBatch, SeedMode,
         },
         failure::BackendCause,
     },
@@ -68,7 +67,7 @@ pub async fn import(
         "seeding",
         serde_json::json!({}),
     );
-    let result = import_directory(&admin, config, clock, root).await;
+    let result = import_directory(&admin, config, clock, root, SeedMode::Merge).await;
     result.map_err(|error| {
         io::Error::other(BackendCause::with_source(
             format!("seed import: {error}"),
@@ -77,33 +76,23 @@ pub async fn import(
     })
 }
 
-/// True when the live object carries exactly the metadata a seed publication would write, so
-/// API metadata edits at a fixture name are reverted like fake-gcs-server's overwrite. Holds and
-/// storage class come from bucket defaults and are deliberately not compared.
-fn matches_seed(live: &ObjectRecord, content_type: &str) -> bool {
-    live.content_type == content_type
-        && live.content_encoding.is_none()
-        && live.content_disposition.is_none()
-        && live.content_language.is_none()
-        && live.cache_control.is_none()
-        && live.custom_time.is_none()
-        && live.metadata.is_empty()
-}
-
-/// Hashes with a fixed buffer and rewinds, so the same descriptor can be staged afterwards.
-fn hash_file(file: &mut std::fs::File) -> io::Result<Hashes> {
-    use std::io::{Read, Seek};
-    let mut hasher = Hasher::default();
-    let mut buffer = vec![0; 64 * 1024];
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    file.rewind()?;
-    Ok(hasher.finish())
+pub(crate) async fn reseed(
+    admin: &Admin,
+    config: &Config,
+    clock: &dyn Clock,
+) -> io::Result<SeedOutcome> {
+    let root = config
+        .seed_dir
+        .as_ref()
+        .ok_or_else(|| io::Error::other("reseed requires a configured seed_dir"))?;
+    let mode = match config.backend {
+        crate::config::Backend::Disk => SeedMode::Merge,
+        crate::config::Backend::Memory => SeedMode::Replace,
+    };
+    let admin = admin
+        .clone()
+        .with_notification_mode(crate::notification::NotificationMode::Suppress);
+    import_directory(&admin, config, clock, root, mode).await
 }
 
 fn walk_error(error: WalkError) -> io::Error {
@@ -159,24 +148,34 @@ async fn import_directory(
     config: &Config,
     clock: &dyn Clock,
     root: &Path,
+    mode: SeedMode,
 ) -> io::Result<SeedOutcome> {
-    if !tokio::fs::symlink_metadata(root)
-        .await?
-        .file_type()
-        .is_dir()
-    {
+    let inspected = tokio::fs::symlink_metadata(root).await?;
+    if !inspected.file_type().is_dir() {
         return Err(io::Error::other(
             "seed_dir must be a directory, not a symlink",
         ));
     }
+    #[cfg(test)]
+    tests::injected_source_swap(root);
+    let batch = catalog.seed_batch().map_err(io::Error::other)?;
+    #[cfg(unix)]
+    let source_root = batch
+        .open_root(root.to_owned(), inspected)
+        .await
+        .map_err(io::Error::other)?;
     let root = tokio::fs::canonicalize(root).await?;
-    let data = tokio::fs::canonicalize(&config.data_dir).await?;
-    if crate::source_tree::paths_overlap_canonical(&root, &data) {
-        return Err(io::Error::other("seed_dir and data_dir must not overlap"));
+    if config.backend == crate::config::Backend::Disk {
+        let data = tokio::fs::canonicalize(&config.data_dir).await?;
+        if crate::source_tree::paths_overlap_canonical(&root, &data) {
+            return Err(io::Error::other("seed_dir and data_dir must not overlap"));
+        }
     }
     let mut entries = entries(root.clone())?;
-    let seed = Seed {
-        admin: catalog,
+    let mut seed = Seed {
+        batch,
+        #[cfg(unix)]
+        source_root,
         config,
         clock,
     };
@@ -210,7 +209,11 @@ async fn import_directory(
             ))
         })?;
     }
-    catalog.finish_seed().await.map_err(io::Error::other)?;
+    let committed = seed.batch.commit(mode).await.map_err(io::Error::other)?;
+    counts.buckets = committed.buckets;
+    counts.objects = committed.objects;
+    counts.replaced = committed.replaced;
+    counts.unchanged = committed.unchanged;
     Ok(SeedOutcome::Imported {
         buckets: counts.buckets,
         objects: counts.objects,
@@ -223,7 +226,9 @@ async fn import_directory(
 
 /// Shared inputs of one seed import.
 struct Seed<'a> {
-    admin: &'a Admin,
+    batch: SeedBatch,
+    #[cfg(unix)]
+    source_root: std::sync::Arc<std::fs::File>,
     config: &'a Config,
     clock: &'a dyn Clock,
 }
@@ -238,7 +243,7 @@ struct Fixture<'a> {
 }
 
 impl Seed<'_> {
-    async fn entry(&self, fixture: &Fixture<'_>, counts: &mut Counts) -> io::Result<()> {
+    async fn entry(&mut self, fixture: &Fixture<'_>, counts: &mut Counts) -> io::Result<()> {
         let leaf = fixture
             .path
             .file_name()
@@ -283,49 +288,43 @@ impl Seed<'_> {
                 );
                 return Ok(());
             }
-            self.bucket(leaf, counts).await?;
+            self.bucket(leaf)?;
             (leaf.to_owned(), String::new())
         };
         if kind.is_file() {
             let bucket = BucketName::new(bucket).map_err(io::Error::other)?;
             let name = ObjectName::new(name).map_err(io::Error::other)?;
-            self.object(fixture, bucket, name, leaf, counts).await?;
+            self.object(fixture, bucket, name, leaf).await?;
         }
         Ok(())
     }
 
-    async fn bucket(&self, leaf: &str, counts: &mut Counts) -> io::Result<()> {
+    fn bucket(&mut self, leaf: &str) -> io::Result<()> {
         let name = BucketName::new(leaf).map_err(io::Error::other)?;
         let record = BucketDefinition::default_for(&name, &self.config.seed_project, self.clock)
             .map_err(io::Error::other)?;
-        match self.admin.ensure_bucket(record).await {
-            Ok(EnsureBucket::Created(_)) => counts.buckets += 1,
-            Ok(EnsureBucket::Existing(existing)) => {
-                if existing.project != self.config.seed_project {
-                    return Err(io::Error::other(
-                        "existing seed bucket belongs to another project",
-                    ));
-                }
-            }
-            Err(error) => return Err(io::Error::other(error)),
-        }
+        self.batch.bucket(record).map_err(io::Error::other)?;
         Ok(())
     }
 
     async fn object(
-        &self,
+        &mut self,
         fixture: &Fixture<'_>,
         bucket: BucketName,
         name: ObjectName,
         leaf: &str,
-        counts: &mut Counts,
     ) -> io::Result<()> {
-        let (catalog, config) = (self.admin, self.config);
-        let live = match catalog.get_object(&bucket, &name, None).await {
-            Ok(record) => Some(record),
-            Err(AdminError::NotFound) => None,
-            Err(error) => return Err(io::Error::other(error)),
-        };
+        let config = self.config;
+        #[cfg(test)]
+        tests::injected_source_swap(fixture.path);
+        #[cfg(unix)]
+        let file = tokio::fs::File::from_std(
+            self.batch
+                .open_source(self.source_root.clone(), fixture.relative.to_owned())
+                .await
+                .map_err(io::Error::other)?,
+        );
+        #[cfg(not(unix))]
         let file = tokio::fs::File::open(fixture.path).await?;
         let metadata = file.metadata().await?;
         if !metadata.is_file() || metadata.len() > config.max_object_bytes {
@@ -334,68 +333,19 @@ impl Seed<'_> {
             ));
         }
         let content_type = config.seed_content_type.for_name(leaf);
-        // Compare before staging or publishing: a replay of an unchanged tree must not copy
-        // bodies or mint generations, and the retention check would otherwise report a
-        // held but unchanged object as blocked.
-        let mut file = file.into_std().await;
-        if let Some(live) = &live
-            && live.size == metadata.len()
-            && matches_seed(live, content_type)
-        {
-            let (hashes, rewound) = tokio::task::spawn_blocking(move || {
-                hash_file(&mut file).map(|hashes| (hashes, file))
-            })
-            .await
-            .map_err(io::Error::other)??;
-            if live.md5 == hashes.md5 && live.crc32c == hashes.crc32c {
-                counts.unchanged += 1;
-                return Ok(());
-            }
-            file = rewound;
-        }
-        let staged = catalog
-            .stage_from_file(file, ExpectedHashes::default(), config.max_object_bytes)
-            .await
-            .map_err(io::Error::other)?;
-        let condition = match &live {
-            Some(live) => {
-                GenerationCondition::Is(Generation::new(live.generation).map_err(io::Error::other)?)
-            }
-            None => GenerationCondition::Absent,
+        let file = file.into_std().await;
+        let request = Publication {
+            content_type: content_type.into(),
+            expected: ExpectedHashes::default(),
+            condition: None,
+            metadata: Default::default(),
+            max_bytes: config.max_object_bytes,
+            mode: PublishMode::Replace,
         };
-        let mut published = catalog
-            .publish_objects(vec![BatchPublication {
-                bucket,
-                name,
-                request: Publication {
-                    content_type: content_type.into(),
-                    expected: ExpectedHashes::default(),
-                    condition: Some(condition),
-                    metadata: Default::default(),
-                    max_bytes: config.max_object_bytes,
-                    mode: PublishMode::Replace,
-                },
-                staged,
-            }])
+        self.batch
+            .object(bucket, name, request, file)
             .await
             .map_err(io::Error::other)?;
-        let result = published
-            .results
-            .pop()
-            .ok_or_else(|| io::Error::other("single seed publication was not attempted"))?;
-        match result {
-            Ok(_) if live.is_some() => counts.replaced += 1,
-            Ok(_) => counts.objects += 1,
-            Err(AdminError::Hold) => {
-                counts.blocked += 1;
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Warn,
-                    "seed_blocked",
-                    serde_json::json!({ "path": fixture.label }),
-                );
-            }
-            Err(error) => return Err(io::Error::other(error)),
-        }
         Ok(())
     }
 }
