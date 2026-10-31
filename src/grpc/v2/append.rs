@@ -128,10 +128,14 @@ impl Storage {
                 }
                 spec.appendable = None;
                 let (bucket, name, options, _) = self.write_spec(spec, None, caller).await?;
-                if options.expected != ExpectedHashes::default() || first.object_checksums.is_some()
+                // The proto allows object_checksums on the finish_write message, which may also
+                // be the first one; the receive loop verifies them at finalization. Rejecting
+                // the others here keeps an invalid request from creating the object.
+                if options.expected != ExpectedHashes::default()
+                    || (first.object_checksums.is_some() && !first.finish_write)
                 {
                     return Err(Status::invalid_argument(
-                        "Appendable objects accept checksums only with finish_write; omit resource.checksums and first-message object_checksums",
+                        "Appendable objects accept checksums only with finish_write; omit resource.checksums and send object_checksums with finish_write=true",
                     ));
                 }
                 let access = options.access.clone();

@@ -31559,6 +31559,14 @@
           ]
         },
         {
+          "id": "single_message_finish",
+          "description": "A first message that also sets finish_write may carry object_checksums, as the proto allows on the finishing request; its CRC32C is verified at finalization, MD5 is rejected, and first-message checksums without finish_write are rejected before the object is created.",
+          "result": "PASS",
+          "test_ids": [
+            "append_accepts_checksums_on_a_single_finishing_message"
+          ]
+        },
+        {
           "id": "finalized_fields",
           "description": "Omitting MD5 from finalized appendable objects, and reporting the moment of finalization rather than the creation time as finalize_time, remain pending.",
           "result": "PENDING",
@@ -31567,6 +31575,7 @@
       ],
       "test_ids": [
         "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
+        "append_accepts_checksums_on_a_single_finishing_message",
         "append_hides_unflushed_bytes_and_truncates_them_on_takeover",
         "append_rejects_replacement_and_invalid_messages_without_false_success",
         "append_unfinalized_object_survives_restart",
@@ -31579,6 +31588,15 @@
         "TestGRPCAppendable"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib append_accepts_checksums_on_a_single_finishing_message",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/grpc-object-fields.md",
+          "test_ids": [
+            "append_accepts_checksums_on_a_single_finishing_message"
+          ]
+        },
         {
           "command": "cargo test --locked --lib grpc::v2::append",
           "result": "PASS",

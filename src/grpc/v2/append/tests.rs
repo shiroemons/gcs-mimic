@@ -245,6 +245,77 @@ async fn append_creates_flushes_reads_and_finalizes_with_reserved_generation() {
     assert_eq!(result.unwrap_err().code(), Code::FailedPrecondition);
 }
 
+/// The proto allows object_checksums on the finish_write message of an appendable upload,
+/// and the official Java SDK sends spec, data, finish_write and checksums in one message for
+/// a small object.
+fn single_message(
+    name: &str,
+    content: &[u8],
+    checksums: pb::ObjectChecksums,
+) -> pb::BidiWriteObjectRequest {
+    let mut message = create(name, content);
+    message.flush = false;
+    message.state_lookup = false;
+    message.finish_write = true;
+    message.object_checksums = Some(checksums);
+    message
+}
+
+#[tokio::test]
+async fn append_accepts_checksums_on_a_single_finishing_message() {
+    let (_dir, storage) = setup(false).await;
+    let crc = |crc32c| pb::ObjectChecksums {
+        crc32c: Some(crc32c),
+        md5_hash: Vec::new(),
+    };
+    let (result, responses) = append(
+        &storage,
+        vec![Ok(single_message(
+            "whole",
+            b"whole",
+            crc(crc32c::crc32c(b"whole")),
+        ))],
+        None,
+    )
+    .await;
+    result.unwrap();
+    let [response] = responses.as_slice() else {
+        panic!("one finalized response expected, got {responses:?}")
+    };
+    let Some(WriteStatus::Resource(finalized)) = &response.write_status else {
+        panic!("finish_write must return the finalized resource")
+    };
+    assert_eq!(finalized.size, 5);
+    assert!(finalized.finalize_time.is_some());
+    assert_eq!(read(&storage, "whole").await.unwrap().1, b"whole");
+
+    // A mismatched digest is still verified and rejected, and nothing is finalized.
+    let (result, _) = append(
+        &storage,
+        vec![Ok(single_message("bad", b"bad", crc(1)))],
+        None,
+    )
+    .await;
+    assert_eq!(result.unwrap_err().code(), Code::InvalidArgument);
+    assert!(get(&storage, "bad").await.unwrap().finalize_time.is_none());
+    let md5 = pb::ObjectChecksums {
+        crc32c: None,
+        md5_hash: vec![0; 16],
+    };
+    let (result, _) = append(&storage, vec![Ok(single_message("md5", b"x", md5))], None).await;
+    assert_eq!(result.unwrap_err().code(), Code::InvalidArgument);
+
+    // Without finish_write, first-message checksums are rejected before anything is created.
+    let mut early = create("early", b"x");
+    early.object_checksums = Some(crc(crc32c::crc32c(b"x")));
+    let (result, _) = append(&storage, vec![Ok(early)], None).await;
+    assert_eq!(result.unwrap_err().code(), Code::InvalidArgument);
+    assert_eq!(
+        get(&storage, "early").await.unwrap_err().code(),
+        Code::NotFound
+    );
+}
+
 #[tokio::test]
 async fn append_hides_unflushed_bytes_and_truncates_them_on_takeover() {
     let (_dir, storage) = setup(false).await;

@@ -20,3 +20,7 @@ The local ACL and owner come from the shared projection that renders JSON `proje
 Google reports `finalize_time` on an ordinary finalized object (appendable objects were not observed on Google). The official Java SDK's appendable upload treats the upload as complete only when the returned resource carries `finalize_time`; without it, `finalizeAndClose` timed out after about 10 seconds against gcs-mimic.
 
 gcs-mimic now reports `finalize_time` on every finalized generation, including a finalized appendable object, and omits it on unfinalized appendable generations. The value is the stored time that JSON reports as `timeFinalized` (the generation's creation time). Tests: `append_creates_flushes_reads_and_finalizes_with_reserved_generation`, `grpc_io_full_read_masks_return_acl_and_owner`.
+
+## Checksums on a single-message appendable upload
+
+The pinned proto's `BidiWriteObjectRequest.object_checksums` documentation allows appendable uploads to send checksums on the last request, the one with `finish_write`. The official Java SDK sends `write_object_spec`, data, `finish_write` and `object_checksums` in one message for a small appendable object; gcs-mimic rejected that message with INVALID_ARGUMENT because it was also the first. gcs-mimic now accepts it and verifies the CRC32C at finalization (a mismatch returns INVALID_ARGUMENT and leaves the object unfinalized). MD5 is still rejected, and first-message checksums without `finish_write` are still rejected before the object is created. Test: `append_accepts_checksums_on_a_single_finishing_message`.
