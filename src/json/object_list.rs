@@ -50,11 +50,11 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
     {
         return Err(JsonError::unsupported_object("filter"));
     }
-    for name in ["includeFoldersAsPrefixes", "prettyPrint"] {
-        if boolean(&mut params, name)? {
-            return Err(JsonError::unsupported_object(name));
-        }
+    if boolean(&mut params, "includeFoldersAsPrefixes")? {
+        return Err(JsonError::unsupported_object("includeFoldersAsPrefixes"));
     }
+    // The routing layer applies the value; prettyPrint=false selects compact bodies.
+    boolean(&mut params, "prettyPrint")?;
     match params.remove("alt").as_deref() {
         None | Some("json") => {}
         Some("media") => return Err(JsonError::unsupported_object("alt=media on objects.list")),
@@ -129,7 +129,16 @@ pub(crate) fn object_list(
     params: &ObjectListParams,
     base_url: &str,
 ) -> Result<Value, JsonError> {
+    // Recorded order: kind, nextPageToken, items. The position of prefixes is unverified.
     let mut value = json!({"kind": "storage#objects"});
+    if let Some(cursor) = &page.next {
+        value["nextPageToken"] =
+            super::page_token::encode_object_page_token(&params.query, params.projection, cursor)
+                .into();
+    }
+    if !page.prefixes.is_empty() {
+        value["prefixes"] = json!(page.prefixes);
+    }
     if !page.items.is_empty() {
         value["items"] = page
             .items
@@ -137,14 +146,6 @@ pub(crate) fn object_list(
             .map(|object| object_resource(object, base_url, params.projection))
             .collect::<Result<Vec<_>, _>>()?
             .into();
-    }
-    if !page.prefixes.is_empty() {
-        value["prefixes"] = json!(page.prefixes);
-    }
-    if let Some(cursor) = &page.next {
-        value["nextPageToken"] =
-            super::page_token::encode_object_page_token(&params.query, params.projection, cursor)
-                .into();
     }
     Ok(value)
 }

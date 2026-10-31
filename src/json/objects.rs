@@ -306,9 +306,8 @@ fn take_common_parameters(
             return Err(JsonError::unsupported_object(key));
         }
     }
-    if boolean(query, "prettyPrint")? {
-        return Err(JsonError::unsupported_object("prettyPrint"));
-    }
+    // The routing layer applies the value; prettyPrint=false selects compact bodies.
+    boolean(query, "prettyPrint")?;
     Ok(content_encoding)
 }
 
@@ -773,6 +772,8 @@ pub(crate) fn object_resource(
         encode_segment(&object.bucket),
         encode_segment(&object.name)
     );
+    // Fields follow the order of recorded Cloud Storage responses. Fields those responses did
+    // not contain follow them, in an order that has not been verified.
     let mut value = json!({
         "kind": "storage#object",
         "id": format!("{}/{}/{}", object.bucket, object.name, object.generation),
@@ -780,24 +781,28 @@ pub(crate) fn object_resource(
         "mediaLink": format!("{base}/download/{path}?generation={}&alt=media", object.generation),
         "name": object.name, "bucket": object.bucket,
         "generation": object.generation.to_string(), "metageneration": object.metageneration.to_string(),
-        "storageClass": object.storage_class,
-        "size": object.size.to_string(),
-        "crc32c": base64(&object.crc32c.to_be_bytes()), "etag": object_etag(object),
-        "timeCreated": timestamp(object.time_created)?, "updated": timestamp(object.updated)?,
-        "timeFinalized": timestamp(object.time_created)?,
-        "timeStorageClassUpdated": timestamp(object.time_created)?,
     });
-    if let Some(count) = object.component_count {
-        value["componentCount"] = json!(count);
-    }
-    if object.has_md5() {
-        value["md5Hash"] = json!(base64(&object.md5));
-    }
     if !object.content_type.is_empty() {
         value["contentType"] = json!(object.content_type);
     }
+    value["storageClass"] = json!(object.storage_class);
+    value["size"] = json!(object.size.to_string());
+    if object.has_md5() {
+        value["md5Hash"] = json!(base64(&object.md5));
+    }
+    if let Some(encoding) = &object.content_encoding {
+        value["contentEncoding"] = json!(encoding);
+    }
+    value["crc32c"] = json!(base64(&object.crc32c.to_be_bytes()));
+    value["etag"] = json!(object_etag(object));
+    value["timeCreated"] = json!(timestamp(object.time_created)?);
+    value["updated"] = json!(timestamp(object.updated)?);
+    value["timeStorageClassUpdated"] = json!(timestamp(object.time_created)?);
+    value["timeFinalized"] = json!(timestamp(object.time_created)?);
+    if let Some(count) = object.component_count {
+        value["componentCount"] = json!(count);
+    }
     for (key, field) in [
-        ("contentEncoding", &object.content_encoding),
         ("contentDisposition", &object.content_disposition),
         ("contentLanguage", &object.content_language),
         ("cacheControl", &object.cache_control),

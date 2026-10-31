@@ -160,9 +160,9 @@ precedence and conflicting conditions remain SPEC-008.
 
 Common parameters: `alt=json` defaults for metadata/insert; `alt=media` only for media GET;
 unknown `alt` values return 400 `invalidAltValue`. `fields`, `callback`, `key`, `oauth_token`,
-`quotaUser` and `userIp` are recognized but unsupported (501). `prettyPrint=false` is
-supported; true is unsupported (501), invalid booleans are 400. Compact JSON by default
-differs from Discovery's pretty-print default. `uploadType` on get/delete is invalid for the
+`quotaUser` and `userIp` are recognized but unsupported (501). `prettyPrint=false` selects
+compact bodies; the default and true pretty-print, invalid booleans are 400. Pretty JSON
+follows Discovery's default. `uploadType` on get/delete is invalid for the
 method. `/download` with a normal metadata request requires 400 `notDownload`, not a
 metadata response disguised as a download; upload requests on the wrong endpoint must fail.
 

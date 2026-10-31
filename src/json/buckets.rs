@@ -713,27 +713,39 @@ pub(crate) fn bucket_resource_with_profile(
     } else {
         "0".to_owned()
     };
+    // Fields follow the order of a recorded Cloud Storage response. Fields it did not contain
+    // follow `locationType`, in an order that has not been verified.
     let mut value = json!({
-        "kind": "storage#bucket", "id": bucket.name, "name": bucket.name,
+        "kind": "storage#bucket",
         "selfLink": format!("{}/storage/v1/b/{}", base_url.trim_end_matches('/'), encode_segment(&bucket.name)),
-        "projectNumber": project_number, "metageneration": bucket.metageneration.to_string(),
-        "timeCreated": timestamp_with_precision(bucket.time_created, TimestampPrecision::Nanos)?,
-        "updated": timestamp_with_precision(bucket.updated, TimestampPrecision::Nanos)?,
-        "etag": bucket_etag(bucket),
-        "location": bucket.location, "locationType": bucket.location_type, "storageClass": bucket.storage_class,
-        "iamConfiguration": {"publicAccessPrevention": if bucket.public_access_prevention_enforced { "enforced" } else { "inherited" }},
+        "id": bucket.name, "name": bucket.name,
+        "projectNumber": project_number,
     });
     // The reference emulator's bucket shape has no generation; keep that profile unchanged.
     if profile == CompatProfile::Native {
         value["generation"] = bucket.generation.to_string().into();
+    }
+    value["metageneration"] = bucket.metageneration.to_string().into();
+    value["location"] = json!(bucket.location);
+    value["storageClass"] = json!(bucket.storage_class);
+    value["etag"] = bucket_etag(bucket).into();
+    value["timeCreated"] =
+        timestamp_with_precision(bucket.time_created, TimestampPrecision::Nanos)?.into();
+    value["updated"] = timestamp_with_precision(bucket.updated, TimestampPrecision::Nanos)?.into();
+    if let Some(policy) = &bucket.soft_delete_policy {
+        value["softDeletePolicy"] = json!({"retentionDurationSeconds": policy.retention_duration_seconds.to_string(), "effectiveTime": timestamp(policy.effective_time)?});
     }
     let mut uniform_access =
         json!({"enabled": bucket.uniform_bucket_level_access_locked_time.is_some()});
     if let Some(locked_time) = bucket.uniform_bucket_level_access_locked_time {
         uniform_access["lockedTime"] = timestamp(locked_time)?.into();
     }
-    value["iamConfiguration"]["uniformBucketLevelAccess"] = uniform_access.clone();
-    value["iamConfiguration"]["bucketPolicyOnly"] = uniform_access;
+    value["iamConfiguration"] = json!({
+        "bucketPolicyOnly": uniform_access,
+        "uniformBucketLevelAccess": uniform_access,
+        "publicAccessPrevention": if bucket.public_access_prevention_enforced { "enforced" } else { "inherited" },
+    });
+    value["locationType"] = json!(bucket.location_type);
     if let Some(config) = &bucket.autoclass {
         let mut autoclass =
             json!({"enabled": config.enabled, "toggleTime": timestamp(config.toggle_time)?});
@@ -763,9 +775,6 @@ pub(crate) fn bucket_resource_with_profile(
     if let Some(object_retention) = super::object_retention::render_bucket(bucket) {
         value["objectRetention"] = object_retention;
     }
-    if let Some(policy) = &bucket.soft_delete_policy {
-        value["softDeletePolicy"] = json!({"retentionDurationSeconds": policy.retention_duration_seconds.to_string(), "effectiveTime": timestamp(policy.effective_time)?});
-    }
     if bucket.default_event_based_hold || profile == CompatProfile::LegacyEmulator {
         value["defaultEventBasedHold"] = bucket.default_event_based_hold.into();
     }
@@ -778,7 +787,7 @@ pub(crate) fn bucket_resource_with_profile(
             value["etag"] = "RVRhZw==".into();
             value["updated"] = value["timeCreated"].clone();
             if let Some(object) = value.as_object_mut() {
-                object.remove("labels");
+                object.shift_remove("labels");
             }
         }
     }
@@ -815,16 +824,18 @@ pub(crate) fn bucket_list_with_profile(
     projection: Projection,
     profile: CompatProfile,
 ) -> Result<Value, JsonError> {
+    // The recorded object list orders kind, nextPageToken, items; a bucket list was not recorded
+    // and follows the same layout.
     let mut value = json!({"kind": "storage#buckets"});
+    if let Some(token) = next_page_token {
+        value["nextPageToken"] = token.into();
+    }
     if !buckets.is_empty() {
         value["items"] = buckets
             .iter()
             .map(|bucket| bucket_resource_with_profile(bucket, base_url, projection, profile))
             .collect::<Result<Vec<_>, _>>()?
             .into();
-    }
-    if let Some(token) = next_page_token {
-        value["nextPageToken"] = token.into();
     }
     Ok(value)
 }
@@ -850,15 +861,15 @@ pub(crate) fn soft_deleted_bucket_list(
     profile: CompatProfile,
 ) -> Result<Value, JsonError> {
     let mut value = json!({"kind": "storage#buckets"});
+    if let Some(token) = next_page_token {
+        value["nextPageToken"] = token.into();
+    }
     if !versions.is_empty() {
         value["items"] = versions
             .iter()
             .map(|version| soft_deleted_bucket_resource(version, base_url, projection, profile))
             .collect::<Result<Vec<_>, _>>()?
             .into();
-    }
-    if let Some(token) = next_page_token {
-        value["nextPageToken"] = token.into();
     }
     Ok(value)
 }

@@ -49,9 +49,8 @@ pub(crate) fn route(
                 return Err(JsonError::unsupported_object(key));
             }
         }
-        if super::query::boolean(&mut query, "prettyPrint")? {
-            return Err(JsonError::unsupported_object("prettyPrint"));
-        }
+        // The routing layer applies the value; prettyPrint=false selects compact bodies.
+        super::query::boolean(&mut query, "prettyPrint")?;
         match query.remove("alt").as_deref() {
             None | Some("json") => {}
             Some(_) => return Err(JsonError::invalid_parameter("Compose requires alt=json")),

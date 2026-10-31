@@ -981,7 +981,7 @@ fn assert_upload_timed_out(response: &[u8]) {
     let text = String::from_utf8_lossy(response);
     assert!(text.starts_with("HTTP/1.1 408 "), "{text}");
     assert!(
-        text.contains("\"reason\":\"uploadBrokenConnection\""),
+        text.contains("\"reason\": \"uploadBrokenConnection\""),
         "{text}"
     );
 }

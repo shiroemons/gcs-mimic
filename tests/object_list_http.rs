@@ -447,7 +447,6 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         "fields=",
         "userProject=local",
         "includeFoldersAsPrefixes=true",
-        "prettyPrint=true",
         "alt=media",
         "key=x",
         "oauth_token=x",
@@ -460,6 +459,19 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         assert_eq!(status, 400, "{query}: {value}");
         assert_eq!(value["error"]["errors"][0]["reason"], "badRequest");
     }
+    // prettyPrint only selects the body layout; a non-boolean value is still rejected.
+    assert_eq!(
+        server
+            .request("GET", "/storage/v1/b/test-bucket/o?prettyPrint=true", "")
+            .0,
+        200
+    );
+    assert_eq!(
+        server
+            .request("GET", "/storage/v1/b/test-bucket/o?prettyPrint=maybe", "")
+            .0,
+        400
+    );
     assert!(names(&server.list("softDeleted=true")).is_empty());
     let (status, value) = server.request(
         "GET",

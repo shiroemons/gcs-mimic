@@ -85,5 +85,42 @@ or content-security-policy header, while the XML `Details` escapes only `&`,
 | Media 416 | `text/html; charset=UTF-8`, `content-range: bytes */<size>` and `private, max-age=0`; the GET body text (the local range message) was not recorded | `wire_parity_http::unsatisfiable_media_ranges_answer_with_html_text` |
 | XML NoSuchKey | Fixed `Message` plus a `Details` element naming the object, escaped as XML character data | `wire_parity_http::missing_object_names_are_escaped_for_the_document_they_appear_in` |
 
+## JSON bodies
+
+Every recorded JSON body (object, list, bucket, error) is pretty-printed with
+two-space indentation and `"name": value` separators, and `content-length`
+matches the body. Fields arrive in a fixed order:
+
+- Object: `kind`, `id`, `selfLink`, `mediaLink`, `name`, `bucket`,
+  `generation`, `metageneration`, `contentType`, `storageClass`, `size`,
+  `md5Hash`, `contentEncoding` (gzip object only), `crc32c`, `etag`,
+  `timeCreated`, `updated`, `timeStorageClassUpdated`, `timeFinalized`.
+- Object list: `kind`, `nextPageToken`, `items`.
+- Bucket: `kind`, `selfLink`, `id`, `name`, `projectNumber`, `generation`,
+  `metageneration`, `location`, `storageClass`, `etag`, `timeCreated`,
+  `updated`, `softDeletePolicy`, `iamConfiguration` (`bucketPolicyOnly`,
+  `uniformBucketLevelAccess`, `publicAccessPrevention`), `locationType`,
+  `satisfiesPZI`.
+
+The bucket `generation` was `1793442588560288904`, a 19-digit nanosecond-scale
+instant about half a second before `timeCreated`. `softDeletePolicy` carried
+the default 604800 seconds with `effectiveTime` equal to `timeCreated`;
+`satisfiesPZI` was `true`.
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| Pretty JSON in recorded order | Every JSON API body, including errors, is pretty unless `prettyPrint=false` (or `False`), which selects compact output; `prettyPrint=true` is accepted and a non-boolean value is still 400 | `wire_parity_http::json_bodies_are_pretty_printed_in_recorded_field_order`, `json::format::tests::prettyprint_false_selects_compact_output_and_everything_else_pretty` |
+| Legacy emulator profile | Stays compact, as fake-gcs-server writes it | `wire_parity_http::legacy_profile_keeps_compact_bodies` |
+| Batch | Each part renders in the layout its own, inherited or overridden, `prettyPrint` selects, not the envelope's | `wire_parity_http::batch_parts_choose_their_own_format` |
+| Object and list fields | Recorded order; fields the recording did not contain follow it in an unverified order | `wire_parity_http::json_bodies_are_pretty_printed_in_recorded_field_order` |
+| Bucket fields | Recorded order with `generation` after `projectNumber`; the value is the catalog's stored bucket version, not a creation-time derivation. The legacy profile omits it. A bucket list was not recorded and uses the object list layout | `wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order` |
+
+The local bucket `generation` is the catalog's stored value, which is
+microsecond-scale (16 digits) rather than the recorded 19-digit
+nanosecond-scale value, and the default `softDeletePolicy` and `satisfiesPZI`
+stay absent; see `SPEC-RESPONSE-WIRE-REMAINING`.
+
 Remaining differences are tracked as `SPEC-RESPONSE-WIRE-REMAINING` in
 `compatibility/gaps.json`.

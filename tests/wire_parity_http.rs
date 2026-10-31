@@ -363,6 +363,247 @@ fn unsatisfiable_media_ranges_answer_with_html_text() {
     assert_eq!(header(&reply, "pragma"), None);
 }
 
+fn keys(value: &Value) -> Vec<&str> {
+    value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect()
+}
+
+/// Asserts the body is the 2-space pretty rendering of its own fields, in order.
+fn assert_pretty(reply: &Reply) -> Value {
+    let value = reply.json();
+    assert_eq!(reply.body, serde_json::to_string_pretty(&value).unwrap());
+    assert!(reply.body.starts_with("{\n  \""), "{}", reply.body);
+    assert_eq!(
+        header(reply, "content-length"),
+        Some(reply.body.len().to_string().as_str())
+    );
+    value
+}
+
+#[test]
+fn json_bodies_are_pretty_printed_in_recorded_field_order() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/parity/o?uploadType=media&name=second.txt",
+            "Content-Type: text/plain\r\n",
+            b"second\n",
+        )
+        .status(200);
+    let object = assert_pretty(&server.request("GET", OBJECT, "", b""));
+    assert_eq!(
+        keys(&object),
+        [
+            "kind",
+            "id",
+            "selfLink",
+            "mediaLink",
+            "name",
+            "bucket",
+            "generation",
+            "metageneration",
+            "contentType",
+            "storageClass",
+            "size",
+            "md5Hash",
+            "crc32c",
+            "etag",
+            "timeCreated",
+            "updated",
+            "timeStorageClassUpdated",
+            "timeFinalized",
+        ]
+    );
+    let list =
+        assert_pretty(&server.request("GET", "/storage/v1/b/parity/o?maxResults=1", "", b""));
+    assert_eq!(keys(&list), ["kind", "nextPageToken", "items"]);
+    assert_eq!(keys(&list["items"][0]), keys(&object));
+    let error =
+        assert_pretty(&server.request("GET", "/storage/v1/b/parity/o/missing.txt", "", b""));
+    assert_eq!(keys(&error), ["error"]);
+    assert_eq!(keys(&error["error"]), ["code", "message", "errors"]);
+    assert_eq!(
+        keys(&error["error"]["errors"][0]),
+        ["message", "domain", "reason"]
+    );
+    let explicit = server.request("GET", &format!("{OBJECT}?prettyPrint=true"), "", b"");
+    explicit.status(200);
+    assert_eq!(assert_pretty(&explicit), object);
+    // Writes are pretty too.
+    let patched = server.request(
+        "PATCH",
+        "/storage/v1/b/parity/o/second.txt",
+        JSON,
+        br#"{"metadata":{"k":"v"}}"#,
+    );
+    patched.status(200);
+    assert_pretty(&patched);
+
+    // prettyPrint=false is the standard Google API parameter for compact output.
+    for path in [
+        format!("{OBJECT}?prettyPrint=false"),
+        "/storage/v1/b/parity/o?prettyPrint=false".to_owned(),
+        "/storage/v1/b/parity?prettyPrint=false".to_owned(),
+        "/storage/v1/b/parity/o/missing.txt?prettyPrint=false".to_owned(),
+    ] {
+        let compact = server.request("GET", &path, "", b"");
+        let value = compact.json();
+        assert_eq!(compact.body, value.to_string(), "{path}");
+        assert!(!compact.body.contains('\n'), "{path}");
+    }
+    // Compact output keeps the recorded field order.
+    let compact = server.request("GET", &format!("{OBJECT}?prettyPrint=false"), "", b"");
+    assert_eq!(keys(&compact.json()), keys(&object));
+    // A value that is not a boolean is still rejected.
+    let invalid = server.request("GET", &format!("{OBJECT}?prettyPrint=maybe"), "", b"");
+    assert_eq!(invalid.status, 400);
+}
+
+#[test]
+fn legacy_profile_keeps_compact_bodies() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--compat-profile", "legacy-emulator"]);
+    setup(&server);
+    for path in [OBJECT, "/storage/v1/b/parity", "/storage/v1/b/parity/o"] {
+        let reply = server.request("GET", path, "", b"");
+        // The legacy bucket body keeps fake-gcs-server's trailing newline.
+        assert_eq!(reply.body.trim_end(), reply.json().to_string(), "{path}");
+        assert!(!reply.body.contains("\n  "), "{path}");
+    }
+    assert_eq!(
+        server
+            .request("GET", "/storage/v1/b/parity", "", b"")
+            .json()
+            .get("generation"),
+        None
+    );
+}
+
+#[test]
+fn batch_parts_choose_their_own_format() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    let part = |id: &str, query: &str| {
+        format!(
+            "--b\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\nContent-ID: <{id}>\r\n\r\n\
+             GET /storage/v1/b/parity/o/plain.txt{query} HTTP/1.1\r\n\r\n\r\n"
+        )
+    };
+    let body = format!(
+        "{}{}--b--\r\n",
+        part("pretty", ""),
+        part("compact", "?prettyPrint=false")
+    );
+    let reply = server.request(
+        "POST",
+        "/batch/storage/v1",
+        "Content-Type: multipart/mixed; boundary=b\r\n",
+        body.as_bytes(),
+    );
+    reply.status(200);
+    let pretty_at = reply.body.find("response-pretty").unwrap();
+    let compact_at = reply.body.find("response-compact").unwrap();
+    let pretty = &reply.body[pretty_at..compact_at];
+    let compact = &reply.body[compact_at..];
+    assert!(
+        pretty.contains("{\n  \"kind\": \"storage#object\""),
+        "{pretty}"
+    );
+    assert!(
+        compact.contains("{\"kind\":\"storage#object\""),
+        "{compact}"
+    );
+    assert!(!compact.contains("{\n  \"kind\""), "{compact}");
+
+    // An outer prettyPrint=false is inherited by parts that do not set their own.
+    let inherited = server.request(
+        "POST",
+        "/batch/storage/v1?prettyPrint=false",
+        "Content-Type: multipart/mixed; boundary=b\r\n",
+        format!("{}--b--\r\n", part("a", "")).as_bytes(),
+    );
+    inherited.status(200);
+    assert!(inherited.body.contains("{\"kind\":\"storage#object\""));
+    // A part's own value overrides the outer one.
+    let overridden = server.request(
+        "POST",
+        "/batch/storage/v1?prettyPrint=false",
+        "Content-Type: multipart/mixed; boundary=b\r\n",
+        format!("{}--b--\r\n", part("a", "?prettyPrint=true")).as_bytes(),
+    );
+    overridden.status(200);
+    assert!(
+        overridden
+            .body
+            .contains("{\n  \"kind\": \"storage#object\"")
+    );
+}
+
+#[test]
+fn bucket_resources_carry_recorded_fields_in_recorded_order() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    let created = server.request(
+        "POST",
+        "/storage/v1/b?project=123456",
+        JSON,
+        br#"{"name":"uniform","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#,
+    );
+    created.status(200);
+    let bucket = assert_pretty(&server.request("GET", "/storage/v1/b/uniform", "", b""));
+    assert_eq!(bucket, created.json());
+    assert_eq!(
+        keys(&bucket),
+        [
+            "kind",
+            "selfLink",
+            "id",
+            "name",
+            "projectNumber",
+            "generation",
+            "metageneration",
+            "location",
+            "storageClass",
+            "etag",
+            "timeCreated",
+            "updated",
+            "iamConfiguration",
+            "locationType",
+        ]
+    );
+    assert_eq!(bucket["projectNumber"], "123456");
+    // The generation is the catalog's stored incarnation counter, not a derived value.
+    let generation = bucket["generation"].as_str().unwrap();
+    assert!(
+        !generation.is_empty() && generation.bytes().all(|byte| byte.is_ascii_digit()),
+        "{generation}"
+    );
+    assert_eq!(
+        keys(&bucket["iamConfiguration"]),
+        [
+            "bucketPolicyOnly",
+            "uniformBucketLevelAccess",
+            "publicAccessPrevention"
+        ]
+    );
+    let uniform = &bucket["iamConfiguration"]["uniformBucketLevelAccess"];
+    assert_eq!(uniform["enabled"], true);
+    assert_eq!(bucket["iamConfiguration"]["bucketPolicyOnly"], *uniform);
+
+    let list =
+        assert_pretty(&server.request("GET", "/storage/v1/b?project=123456&maxResults=1", "", b""));
+    assert_eq!(keys(&list), ["kind", "items"]);
+    assert_eq!(list["items"][0], bucket);
+}
+
 #[test]
 fn object_inserts_and_json_write_errors_forbid_every_cache() {
     let dir = TestDir::new();

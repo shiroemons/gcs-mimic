@@ -139,7 +139,7 @@ pub(super) fn incomplete(
 }
 
 fn completed(value: &serde_json::Value) -> Response<ResponseBody> {
-    let mut response = Response::new(Full::new(Bytes::from(value.to_string())));
+    let mut response = Response::new(Full::new(Bytes::from(crate::json::render_body(value))));
     response.headers_mut().insert(
         "content-type",
         HeaderValue::from_static("application/json; charset=UTF-8"),

@@ -167,8 +167,8 @@ fn batch_inherits_query_and_headers_but_checks_each_inner_credential() {
     reply.status(200);
     assert!(reply.body.contains("HTTP/1.1 403 Forbidden"));
     assert!(reply.body.contains("HTTP/1.1 401 Unauthorized"));
-    assert!(reply.body.contains(r#"{"name":"object"}"#));
-    assert!(reply.body.contains(r#"{"metageneration":"1"}"#));
+    assert!(reply.body.contains("{\n  \"name\": \"object\"\n}"));
+    assert!(reply.body.contains("{\n  \"metageneration\": \"1\"\n}"));
     assert!(reply.body.contains("Content-ID: response-get\r\n"));
     assert_eq!(reply.body.matches("HTTP/1.1 401 Unauthorized").count(), 2);
     let body = envelope(&[part(

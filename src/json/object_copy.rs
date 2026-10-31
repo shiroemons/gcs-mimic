@@ -53,9 +53,8 @@ pub(super) fn route(
                 return Err(JsonError::unsupported_object(key));
             }
         }
-        if super::query::boolean(&mut query, "prettyPrint")? {
-            return Err(JsonError::unsupported_object("prettyPrint"));
-        }
+        // The routing layer applies the value; prettyPrint=false selects compact bodies.
+        super::query::boolean(&mut query, "prettyPrint")?;
         if let Some(alt) = query.remove("alt")
             && alt != "json"
         {

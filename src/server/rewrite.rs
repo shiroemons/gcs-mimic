@@ -149,7 +149,7 @@ pub(super) async fn respond(
     activity.send_modify(|progress| progress.awaiting_catalog = false);
     let (value, mut owner) =
         result.map_err(|failure| JsonError::from(ObjectError::backend(failure)))??;
-    let mut response = Response::new(Full::new(Bytes::from(value.to_string())));
+    let mut response = Response::new(Full::new(Bytes::from(json::render_body(&value))));
     response.headers_mut().insert(
         "content-type",
         hyper::header::HeaderValue::from_static("application/json; charset=utf-8"),

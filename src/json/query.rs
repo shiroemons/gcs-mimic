@@ -538,7 +538,8 @@ pub(super) fn common(query: &mut BTreeMap<String, String>) -> Result<(), JsonErr
             "callback",
         ],
     )?;
-    false_only(query, "prettyPrint")?;
+    // The routing layer applies the value; prettyPrint=false selects compact bodies.
+    boolean(query, "prettyPrint")?;
     if let Some(alt) = query.remove("alt") {
         match alt.as_str() {
             "json" => {}

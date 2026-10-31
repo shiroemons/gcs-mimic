@@ -58,7 +58,7 @@ fn bucket_query_booleans_keep_supported_and_unsupported_semantics() {
             "/storage/v1/b?project=p&returnPartialSuccess=",
             false,
         ),
-        (Method::GET, "/storage/v1/b?project=p&prettyPrint=", false),
+        (Method::GET, "/storage/v1/b?project=p&prettyPrint=", true),
         (
             Method::GET,
             "/storage/v1/b/abc?generation=1&softDeleted=",
@@ -114,7 +114,7 @@ fn object_and_project_query_booleans_use_the_same_parser() {
             "/storage/v1/b/abc/o?includeFoldersAsPrefixes=",
             false,
         ),
-        (Method::GET, "/storage/v1/b/abc/o?prettyPrint=", false),
+        (Method::GET, "/storage/v1/b/abc/o?prettyPrint=", true),
         (
             Method::GET,
             "/storage/v1/b/abc/o/file?generation=1&softDeleted=",
@@ -130,7 +130,7 @@ fn object_and_project_query_booleans_use_the_same_parser() {
             "/storage/v1/b/abc/o/file?overrideUnlockedRetention=",
             true,
         ),
-        (Method::GET, "/storage/v1/b/abc/o/file?prettyPrint=", false),
+        (Method::GET, "/storage/v1/b/abc/o/file?prettyPrint=", true),
         (
             Method::POST,
             "/storage/v1/b/abc/o/file/restore?generation=1&copySourceAcl=",
@@ -139,22 +139,22 @@ fn object_and_project_query_booleans_use_the_same_parser() {
         (
             Method::POST,
             "/storage/v1/b/abc/o/file/restore?generation=1&prettyPrint=",
-            false,
+            true,
         ),
         (
             Method::POST,
             "/storage/v1/b/abc/o/file/copyTo/b/abc/o/copy?prettyPrint=",
-            false,
+            true,
         ),
         (
             Method::POST,
             "/storage/v1/b/abc/o/file/moveTo/o/moved?prettyPrint=",
-            false,
+            true,
         ),
         (
             Method::POST,
             "/storage/v1/b/abc/o/file/compose?prettyPrint=",
-            false,
+            true,
         ),
     ] {
         let parse =
@@ -593,12 +593,8 @@ fn bkt_qry_002_projection_alt_and_boolean_validation() {
             .status,
         StatusCode::BAD_REQUEST
     );
-    assert_eq!(
-        request(Method::GET, "/storage/v1/b?project=p&prettyPrint=true")
-            .unwrap_err()
-            .status,
-        StatusCode::BAD_REQUEST
-    );
+    // prettyPrint only selects the body layout, which the routing layer applies.
+    request(Method::GET, "/storage/v1/b?project=p&prettyPrint=true").unwrap();
 }
 
 #[test]

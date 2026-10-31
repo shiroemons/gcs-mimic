@@ -294,6 +294,14 @@ compressed bytes, Rust 1.85) and foldhash 0.2.0 for the already locked hashbrown
 confirms both as the latest non-yanked stable releases, their publisher
 repositories are not archived, and both packages ship their license texts.
 Digests are in the [dependency snapshot](../../compatibility/dependency-status.json).
+On 2026-10-31 serde_json 1.0.154 additionally enables its `preserve_order` feature so JSON API
+bodies keep the field order of Cloud Storage's recorded responses instead of the alphabetical
+order of its default map; `shift_remove` keeps that order when a field is dropped. The feature
+adds no new crate: Cargo.lock only gains two dependency edges from serde_json to indexmap 2.14.2
+and foldhash 0.2.0, both already locked (foldhash 0.2.0 arrived with the rusqlite `cache` feature
+for hashbrown 0.17.1). Both ship their license texts (indexmap is MIT OR Apache-2.0, foldhash is
+Zlib) and have non-archived publisher repositories. The cost is an insertion-ordered map in place
+of a sorted one; response sizes stay bounded exactly as before.
 
 The V4 signed-download slice promotes the already locked TLS transitive dependency
 `ring` 0.17.14 to a direct dependency for RSASSA-PKCS1-v1_5 SHA-256 signing,

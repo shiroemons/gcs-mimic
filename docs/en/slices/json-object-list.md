@@ -31,7 +31,7 @@ PUT/PATCH/DELETE on the collection return 405 `methodNotAllowed` with `Allow: GE
 | `matchGlob` | Omitted/empty means no glob filter. The pinned Go SDK always sends the empty value. Every nonempty pattern returns 501, including patterns that happen to match all objects. |
 | `filter` | Omitted/empty means no context filter; nonempty values return 501. |
 | `fields`, `userProject` | Explicit 501 even for empty values; field selection and Requester Pays billing are unavailable. `userProject` follows existing bucket behavior. |
-| `alt`, `prettyPrint` | Omitted/`alt=json` and omitted/`prettyPrint=false` supported; unknown alt returns 400 `invalidAltValue`; `alt=media` and `prettyPrint=true` return 501. |
+| `alt`, `prettyPrint` | Omitted/`alt=json` supported; `prettyPrint` selects pretty (default, true) or compact (false) bodies; unknown alt returns 400 `invalidAltValue`; `alt=media` returns 501. |
 | `key`, `oauth_token`, `quotaUser`, `userIp`, `callback` | Recognized and rejected with 501, matching the existing local API policy. |
 
 Unknown or misplaced parameters, duplicate keys, malformed escapes/UTF-8, invalid

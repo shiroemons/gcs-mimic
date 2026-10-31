@@ -559,10 +559,12 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
         "destinationKmsKeyName=key",
         "userProject=local",
         "dropContextGroups=custom",
-        "prettyPrint=true",
     ] {
         copy(&server, "source", "target", &format!("?{query}"), b"").error(400, "badRequest");
     }
+    // prettyPrint only selects the body layout; a non-boolean value is still rejected.
+    copy(&server, "source", "pretty", "?prettyPrint=true", b"").json();
+    copy(&server, "source", "target", "?prettyPrint=maybe", b"").error(400, "invalidParameter");
     for query in [
         "sourceGeneration=0",
         "sourceGeneration=-1",

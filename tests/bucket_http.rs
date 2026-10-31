@@ -3663,7 +3663,6 @@ fn bkt_http_query_body_name_and_route_boundaries() {
         "userProject=x",
         "key=x",
         "oauth_token=x",
-        "prettyPrint=true",
         "quotaUser=x",
         "userIp=x",
         "uploadType=media",
@@ -3674,6 +3673,13 @@ fn bkt_http_query_body_name_and_route_boundaries() {
             .request("GET", &format!("/storage/v1/b?project=x&{query}"), "")
             .error(400, "badRequest");
     }
+    // prettyPrint is a standard Google API parameter that only selects the body layout; a value
+    // that is not a boolean is still rejected.
+    let pretty = server.request("GET", "/storage/v1/b?project=x&prettyPrint=true", "");
+    assert_eq!(pretty.status, 200, "{}", pretty.body);
+    server
+        .request("GET", "/storage/v1/b?project=x&prettyPrint=maybe", "")
+        .error(400, "invalidParameter");
     server
         .request(
             "POST",

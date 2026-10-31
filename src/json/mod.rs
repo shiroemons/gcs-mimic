@@ -17,6 +17,7 @@ mod csek;
 mod derived_metadata;
 mod error;
 mod fields;
+mod format;
 mod iam;
 mod multipart;
 pub(crate) mod notifications;
@@ -52,6 +53,7 @@ pub(crate) use derived_metadata::{DestinationLocation, derived_component_count, 
 pub use error::JsonError;
 pub(crate) use error::NO_STORE_CACHE_CONTROL;
 pub(crate) use fields::Fields;
+pub(crate) use format::{ResponseFormat, render_body, with_format};
 pub(crate) use iam::policy_etag;
 pub(crate) use iam::{parse_policy, policy_resource, test_permissions_query};
 pub(crate) use multipart::{

@@ -84,7 +84,17 @@ async fn execute(
     for part in parts {
         // Reserve enough space to render every remaining per-part error, even after large lists.
         let cap = PART_RESPONSE_LIMIT.min(RESPONSE_LIMIT.saturating_sub(output.len() + 128 * 1024));
-        let response = Box::pin(super::routing::respond(part.request, ctx)).await;
+        // Each part renders in the layout its own (inherited-or-overridden) prettyPrint selects,
+        // not the layout of the envelope request.
+        let format = json::ResponseFormat::for_request(
+            part.request.uri().query(),
+            ctx.config.compat_profile,
+        );
+        let response = Box::pin(json::with_format(
+            format,
+            super::routing::respond(part.request, ctx),
+        ))
+        .await;
         append_response(&mut output, part.id.as_deref(), response, cap).await;
     }
     output.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());

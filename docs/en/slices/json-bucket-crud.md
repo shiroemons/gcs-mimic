@@ -129,15 +129,15 @@ Common Discovery query parameters apply to all four methods:
 | `alt` | `json` supported/default; `media` rejected 501; other values 400 `invalidAltValue` |
 | `fields` | Rejected 501: no field selection |
 | `key`, `oauth_token` | Rejected 501: no authentication behavior promised |
-| `prettyPrint` | False supported (compact JSON); true rejected 501; invalid boolean 400 |
+| `prettyPrint` | Default and true render 2-space pretty JSON; false renders compact JSON; invalid boolean 400 |
 | `quotaUser` | Rejected 501: quota simulation absent |
 | `userIp` | Rejected 501: deprecated quota semantics are not implemented |
 | `uploadType` | Rejected 501: bucket methods do not upload media |
 
 The common-parameter documentation also describes `callback`; it is rejected 501 (no JSONP).
 Nothing is ignored merely because it is inconvenient to implement.
-Responses default to compact JSON locally; Discovery defaults to pretty printing. This whitespace
-difference is a known deviation. Explicit `prettyPrint=false` is supported for official SDKs.
+Responses are pretty-printed with two-space indentation in the recorded Cloud Storage field order,
+as Discovery documents; `prettyPrint=false`, which official SDKs send, selects compact JSON. The legacy profile stays compact.
 
 ## Insert body and resource fields
 
@@ -167,9 +167,11 @@ rejected 501: `acl`, `autoclass`, `billing`, `cors`, `customPlacementConfig`,
 `rpo`, `satisfiesPZI`, `satisfiesPZS`, `softDeletePolicy`, `versioning`, `website`.
 Reserved residency fields remain unsupported; their names do not establish output-only behavior.
 
-Emitted bucket resource fields: `kind="storage#bucket"`, `id=name`, `name`, `selfLink`,
-`projectNumber`, `metageneration`, `timeCreated`, `updated`, `etag`, `location`, `locationType`,
-`storageClass`, and `labels` only when nonempty. All int64/uint64 fields are JSON strings.
+Emitted bucket resource fields, in the recorded Cloud Storage order: `kind="storage#bucket"`,
+`selfLink`, `id=name`, `name`, `projectNumber`, `generation` (the catalog's stored bucket version;
+the legacy profile omits it), `metageneration`, `location`, `storageClass`, `etag`, `timeCreated`,
+`updated`, `softDeletePolicy` when configured, `iamConfiguration` (`bucketPolicyOnly`,
+`uniformBucketLevelAccess`, `publicAccessPrevention`), `locationType`, and `labels` only when nonempty. All int64/uint64 fields are JSON strings.
 `selfLink` uses the fixed `api_base_url` configuration and percent-encodes the bucket segment.
 The default is `http://127.0.0.1:4443`; CLI `--api-base-url` overrides environment
 `GCS_MIMIC_API_BASE_URL`, JSON `api_base_url`, then the default. It accepts an absolute

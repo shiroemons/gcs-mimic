@@ -52,11 +52,11 @@ pub(super) fn route(
                 return Err(JsonError::unsupported_object(key));
             }
         }
-        for key in ["copySourceAcl", "prettyPrint"] {
-            if super::query::boolean(&mut query, key)? {
-                return Err(JsonError::unsupported_object(key));
-            }
+        if super::query::boolean(&mut query, "copySourceAcl")? {
+            return Err(JsonError::unsupported_object("copySourceAcl"));
         }
+        // The routing layer applies the value; prettyPrint=false selects compact bodies.
+        super::query::boolean(&mut query, "prettyPrint")?;
         if query.remove("alt").is_some_and(|alt| alt != "json") {
             return Err(JsonError::invalid_parameter("restore requires alt=json"));
         }

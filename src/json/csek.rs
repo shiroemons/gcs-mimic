@@ -36,8 +36,9 @@ pub(super) fn render(object: &ObjectRecord, value: &mut Value) {
         "keySha256": super::base64(&sha256),
     });
     if let Some(map) = value.as_object_mut() {
-        map.remove("md5Hash");
-        map.remove("crc32c");
+        // shift_remove keeps the recorded field order of the remaining fields.
+        map.shift_remove("md5Hash");
+        map.shift_remove("crc32c");
     }
 }
 

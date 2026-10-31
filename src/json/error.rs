@@ -191,7 +191,7 @@ impl JsonError {
             *response.status_mut() = self.status;
             return response;
         }
-        let mut response = Response::new(Full::new(Bytes::from(self.value().to_string())));
+        let mut response = Response::new(Full::new(Bytes::from(super::render_body(&self.value()))));
         *response.status_mut() = self.status;
         let headers = response.headers_mut();
         headers.insert(

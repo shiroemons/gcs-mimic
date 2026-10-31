@@ -1335,7 +1335,7 @@ fn obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots() 
         let text = String::from_utf8_lossy(&response);
         assert!(text.starts_with("HTTP/1.1 408 "), "{text}");
         assert!(
-            text.contains("\"reason\":\"uploadBrokenConnection\""),
+            text.contains("\"reason\": \"uploadBrokenConnection\""),
             "{text}"
         );
     }

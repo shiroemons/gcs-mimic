@@ -411,14 +411,13 @@ fn obj_query_002_duplicates_invalid_scalars_and_method_parameters() {
             "{query}"
         );
     }
-    for query in ["prettyPrint=true", "uploadType=media"] {
-        assert_eq!(
-            request(Method::GET, &format!("/storage/v1/b/abc/o/file?{query}"))
-                .unwrap_err()
-                .status,
-            StatusCode::BAD_REQUEST
-        );
-    }
+    request(Method::GET, "/storage/v1/b/abc/o/file?prettyPrint=true").unwrap();
+    assert_eq!(
+        request(Method::GET, "/storage/v1/b/abc/o/file?uploadType=media")
+            .unwrap_err()
+            .status,
+        StatusCode::BAD_REQUEST
+    );
     assert!(
         request(
             Method::GET,

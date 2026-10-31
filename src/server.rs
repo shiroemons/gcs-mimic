@@ -724,6 +724,8 @@ impl ConnectionService {
             }
         };
         let expiry = DeadlineReply::new(&request, &config, &endpoints);
+        let format =
+            json::ResponseFormat::for_request(request.uri().query(), config.compat_profile);
         let ctx = RequestCtx {
             state: &state,
             config: &config,
@@ -734,7 +736,10 @@ impl ConnectionService {
         // connection did, so an unfinished upload is still never published.
         let mut response = tokio::select! {
             biased;
-            response = routing::respond(request.map(RequestBody::Transport), ctx) => response,
+            response = json::with_format(
+                format,
+                routing::respond(request.map(RequestBody::Transport), ctx),
+            ) => response,
             _ = expired.wait_for(|expired| *expired) => expiry.response(),
         };
         // Handlers stop reading a body early only to reject it, and hyper then
@@ -1171,7 +1176,7 @@ fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
 
 /// A `200 OK` JSON API resource.
 fn json_response(value: &serde_json::Value) -> Response<Full<Bytes>> {
-    let mut response = Response::new(Full::new(Bytes::from(value.to_string())));
+    let mut response = Response::new(Full::new(Bytes::from(json::render_body(value))));
     response.headers_mut().insert(
         "content-type",
         hyper::header::HeaderValue::from_static("application/json; charset=UTF-8"),
