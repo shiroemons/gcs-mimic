@@ -33,7 +33,6 @@ pub(crate) enum ObjectRequest {
         name: String,
         generation: i64,
         conditions: ObjectConditions,
-        projection: Projection,
     },
     Move(super::ObjectMoveParams),
     Copy(super::ObjectCopyParams),

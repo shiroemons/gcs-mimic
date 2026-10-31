@@ -342,3 +342,69 @@ fn derived_publications_assign_the_caller_and_restore_keeps_original_owner_with_
         );
     }
 }
+
+/// Cloud Storage accepts every documented restore projection but was observed to omit acl and
+/// owner from the restore response even for projection=full; the Java SDK always sends full.
+#[test]
+fn restore_accepts_projection_full_and_omits_acl_and_owner_from_the_response() {
+    for backend in ["disk", "memory"] {
+        let data = TestDir::new();
+        let inputs = TestDir::new();
+        let server = Server::start(&data, &inputs, backend);
+        server.bucket();
+        let generation = server.put(b"restorable")["generation"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        // copySourceAcl defaults to false, so this source entry must not reach the restored
+        // generation, which inherits the bucket default object ACL instead.
+        server.grant("user-other@example.test", "OWNER", &generation);
+        server.admin("PATCH", BUCKET, json!({"softDeletePolicy":{"retentionDurationSeconds":"604800"},"defaultObjectAcl":[{"entity":"user-reader@example.test","role":"READER"}]})).json();
+        let deleted = server.request(
+            "DELETE",
+            &format!("{OBJECT}?generation={generation}"),
+            ADMIN,
+            b"",
+        );
+        assert_eq!(deleted.status, 204);
+        let restore = format!("{OBJECT}/restore?generation={generation}");
+        let restore_without_acl = |query: &str| {
+            let restored = server
+                .request("POST", &format!("{restore}{query}"), ADMIN, b"")
+                .json();
+            assert_ne!(restored["generation"], json!(generation));
+            assert!(restored.get("acl").is_none(), "{query}: {restored}");
+            assert!(restored.get("owner").is_none(), "{query}: {restored}");
+            restored
+        };
+        for query in ["", "&projection=noAcl"] {
+            restore_without_acl(query);
+        }
+        let restored = restore_without_acl("&projection=full");
+        let current = full(&server, "value");
+        assert_eq!(current["generation"], restored["generation"]);
+        assert_eq!(
+            acl(&current),
+            vec![
+                ("user-admin@example.test".into(), "OWNER".into()),
+                ("user-reader@example.test".into(), "READER".into())
+            ]
+        );
+        assert_eq!(
+            current["owner"],
+            json!({"entity":"user-admin@example.test"})
+        );
+
+        server
+            .admin(
+                "PATCH",
+                BUCKET,
+                json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
+            )
+            .json();
+        let restored = restore_without_acl("&projection=full");
+        let current = full(&server, "value");
+        assert_eq!(current["generation"], restored["generation"]);
+        assert!(current.get("acl").is_none(), "{current}");
+    }
+}

@@ -47,7 +47,10 @@ GETには`generation`が必要で、`alt=media`は使えません。一覧は既
 metagenerationを1に戻します。元の削除済み世代は期限まで残ります。同名のlive世代と前提条件を
 同じトランザクションで判定し、上書きが必要な場合は削除権限も確認します。
 strictでは`storage.objects.restore`と`storage.objects.create`が必要です。
-`copySourceAcl=false`は受け付け、true・`restoreToken`・full projectionは未対応として400で拒否します。
+`copySourceAcl=false`は受け付け、true・`restoreToken`は未対応として400で拒否します。
+`projection=noAcl`とJava SDKが常に送る`projection=full`は受け付けます。実際のCloud Storageは
+どのprojectionでもrestoreの応答にacl・ownerを含めなかったため、ローカルの応答にも含めません。
+復元後の世代は削除前のACLではなくバケットの既定オブジェクトACLを持ち、後のfull読み取りで返ります。
 Rubyが送るform本文は、検証済みURL queryと完全に一致する場合だけ受け付けます。
 
 注入クロックで期限切れを判定し、取得・一覧・復元で存在しない扱いにします。

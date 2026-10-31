@@ -50,7 +50,9 @@ pub(super) async fn respond(
     // live, so a concurrent create cannot be overwritten.
     let access = ctx.authorize(permission, bucket).await?;
     let query = json::parse_query(request.uri().query().unwrap_or_default())?;
-    let acl_full = acl::full_projection(request.method(), request.uri().query());
+    // Cloud Storage omits acl and owner from a restore response even for projection=full.
+    let acl_full = acl::full_projection(request.method(), request.uri().query())
+        && !matches!(operation, ObjectRequest::Restore { .. });
     if query.contains_key("predefinedAcl") || query.contains_key("destinationPredefinedAcl") {
         reject_predefined_acl(request.uri(), ctx, bucket).await?;
     }
@@ -61,14 +63,12 @@ pub(super) async fn respond(
             name,
             generation,
             conditions,
-            projection,
         } => {
             let target = RestoreTarget {
                 bucket,
                 name,
                 generation,
                 conditions,
-                projection,
             };
             restore(request, ctx, &access, &query, target).await?.into()
         }
@@ -279,7 +279,6 @@ struct RestoreTarget {
     name: String,
     generation: i64,
     conditions: crate::object::ObjectConditions,
-    projection: json::Projection,
 }
 
 async fn restore(
@@ -304,7 +303,11 @@ async fn restore(
             &create_access,
         )
         .await?;
-    json::object_resource(&record, &ctx.endpoints.api_base_url, target.projection)
+    json::object_resource(
+        &record,
+        &ctx.endpoints.api_base_url,
+        json::Projection::NoAcl,
+    )
 }
 
 async fn move_object(

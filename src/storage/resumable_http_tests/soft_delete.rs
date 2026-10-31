@@ -275,11 +275,7 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
     assert_eq!(saved["softDeleteTime"], "1970-01-01T00:16:40.000Z");
     assert_eq!(saved["hardDeleteTime"], "1970-01-08T00:16:40.000Z");
     let restore = format!("/storage/v1/b/bucket/o/history%2Fitem/restore?generation={generation}");
-    for query in [
-        "copySourceAcl=true",
-        "restoreToken=token",
-        "projection=full",
-    ] {
+    for query in ["copySourceAcl=true", "restoreToken=token"] {
         h.request("POST", &format!("{restore}&{query}"), ADMIN, b"")
             .await
             .error(400, "badRequest");

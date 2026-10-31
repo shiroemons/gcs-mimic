@@ -17113,7 +17113,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Soft-delete acceptance: docs/en/slices/sdk-soft-delete-restore.md. Restore preserves the source, creates a new live generation, checks live preconditions atomically and rejects unsupported ACL copying/HNS tokens. Seven-day SDK policy examples and debug guidance for policy-free empty listings: docs/en/slices/sdk-local-auth-softdelete-notes.md. The owner-approved local absent-policy listing remains empty 200 rather than Google's 400 (retained generations can still be listed after policy removal).",
+      "notes": "Soft-delete acceptance: docs/en/slices/sdk-soft-delete-restore.md. Restore preserves the source, creates a new live generation, checks live preconditions atomically and rejects unsupported ACL copying/HNS tokens. projection=full (always sent by the Java SDK) and noAcl are accepted; as observed on Cloud Storage, the restore response omits acl and owner for every projection (docs/en/evidence/object-restore-projection.md). Seven-day SDK policy examples and debug guidance for policy-free empty listings: docs/en/slices/sdk-local-auth-softdelete-notes.md. The owner-approved local absent-policy listing remains empty 200 rather than Google's 400 (retained generations can still be listed after policy removal).",
       "dependencies": [
         "DESIGN-082",
         "DESIGN-083"
@@ -17148,6 +17148,14 @@
           ]
         },
         {
+          "id": "SOFT-DELETE-RESTORE-PROJECTION",
+          "description": "Omitted, noAcl and full projections return 200 without acl/owner, matching the observed Cloud Storage restore response; the restored generation keeps the bucket default object ACL (not the soft-deleted source ACL) for later full reads, and uniform bucket-level access buckets behave the same.",
+          "result": "PASS",
+          "test_ids": [
+            "restore_accepts_projection_full_and_omits_acl_and_owner_from_the_response"
+          ]
+        },
+        {
           "id": "SOFT-DELETE-PENDING",
           "description": "HNS tokens, ACL copying, Autoclass, billing and provider error precedence remain pending.",
           "result": "PENDING",
@@ -17159,9 +17167,19 @@
         "soft_delete_concurrent_restore_create_if_absent_has_one_winner",
         "soft_delete_configuration_defaults_boundaries_and_permissions",
         "TestObjectSoftDeleteRestore",
-        "ruby-soft-delete-restore"
+        "ruby-soft-delete-restore",
+        "restore_accepts_projection_full_and_omits_acl_and_owner_from_the_response"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --test acl_permission_effects restore",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/object-restore-projection.md",
+          "test_ids": [
+            "restore_accepts_projection_full_and_omits_acl_and_owner_from_the_response"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib soft_delete",
           "result": "PASS",
@@ -17216,7 +17234,7 @@
         }
       ],
       "known_deviations": [
-        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion permanently removes retained generations without bucket soft deletion. Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying/full projection, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
+        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion permanently removes retained generations without bucket soft deletion. Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
       ],
       "implemented_in": "a5807b8",
       "last_verified": "2026-10-27",

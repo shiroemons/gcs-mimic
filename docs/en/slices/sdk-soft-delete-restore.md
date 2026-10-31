@@ -47,6 +47,12 @@ for the separate diagnostic checks; no HTTP response is changed.
   and create/delete/restore permissions are checked atomically against live
   state.
   copySourceAcl=true and restoreToken are unsupported; false is accepted.
+- SOFT-DELETE-RESTORE-PROJECTION: projection=noAcl and projection=full (which
+  the Java SDK always sends) are accepted. Cloud Storage was observed to omit
+  acl and owner from the restore response for every projection, so the local
+  response never contains them. The restored generation keeps the bucket
+  default object ACL for later full reads. See
+  [restore projection evidence](../evidence/object-restore-projection.md).
 - SOFT-DELETE-EXPIRY: injected-clock deadlines hide expired generations; delete,
   soft-deleted list and restore reclaim at most 100 expired rows per bucket call.
   No polling, timer or startup scan is added.

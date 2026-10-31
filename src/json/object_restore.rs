@@ -1,5 +1,5 @@
 use super::{
-    JsonError, ObjectRequest, Projection,
+    JsonError, ObjectRequest,
     objects::integer,
     query::{Decoding, decode, finish, parse_query, projection},
 };
@@ -60,12 +60,10 @@ pub(super) fn route(
         if query.remove("alt").is_some_and(|alt| alt != "json") {
             return Err(JsonError::invalid_parameter("restore requires alt=json"));
         }
-        let projection = projection(&mut query)?;
-        if projection == Projection::Full {
-            return Err(JsonError::unsupported_object(
-                "restore projection=full; use projection=noAcl",
-            ));
-        }
+        // Both documented values are accepted (the Java SDK always sends projection=full), but
+        // Cloud Storage was observed to omit acl and owner from the restore response even for
+        // full, so the value is validated and then has no effect on the rendered resource.
+        projection(&mut query)?;
         let generation = integer(&mut query, "generation")?.ok_or_else(|| {
             JsonError::new(
                 StatusCode::BAD_REQUEST,
@@ -93,7 +91,6 @@ pub(super) fn route(
             name,
             generation,
             conditions,
-            projection,
         })
     })())
 }
