@@ -28669,6 +28669,15 @@
           "test_ids": ["json_media_head_sends_get_headers_without_a_body"]
         },
         {
+          "id": "XML-GZIP-VARY",
+          "description": "XML GET and HEAD of a negotiable stored-gzip object send Vary: Accept-Encoding on every representation, gunzipped included; gunzipped responses omit accept-ranges while a compressed response keeps it, and a compressed HEAD omits Content-Length, as observed on Cloud Storage on 2026-10-31. On a bucket with CORS rules the field follows Vary: Origin.",
+          "result": "PASS",
+          "test_ids": [
+            "xml_vary_follows_bucket_cors_and_stored_gzip",
+            "xml_gzip_gunzips_whole_object_and_keeps_stored_hashes"
+          ]
+        },
+        {
           "id": "GZIP-REMAINING-PARITY",
           "description": "Weak ETags on gunzipped responses, double-compression detection, additional encodings and exact provider negotiation/error parity remain pending.",
           "result": "PENDING",
@@ -28683,9 +28692,20 @@
         "gzip_budget_one_never_hides_corruption_at_member_boundaries",
         "gzip_decode_bounds_input_and_output_across_members",
         "media_transport_gzip_stores_the_decoded_body",
-        "json_media_head_sends_get_headers_without_a_body"
+        "json_media_head_sends_get_headers_without_a_body",
+        "xml_vary_follows_bucket_cors_and_stored_gzip"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --test sdk_object_wire_http xml_",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/media-read-provider-observations.md",
+          "test_ids": [
+            "xml_vary_follows_bucket_cors_and_stored_gzip",
+            "xml_gzip_gunzips_whole_object_and_keeps_stored_hashes"
+          ]
+        },
         {
           "command": "cargo test --locked --test http_multipart_gzip",
           "result": "PASS",
@@ -47318,9 +47338,19 @@
             "signed-browser-strict-initial",
             "signed-browser-strict-restart"
           ]
+        },
+        {
+          "id": "XML-VARY-UNCONFIGURED",
+          "description": "On a bucket without CORS rules and without the local fallback, XML GET/HEAD send no Vary: Origin, with or without an Origin request header, as observed on Cloud Storage on 2026-10-31; clearing a bucket's rules removes it. A bucket with CORS rules, or the cors_fallback profile, keeps Vary: Origin even when no rule matches; that case is a local choice not observed on Cloud Storage. Evidence: docs/en/evidence/media-read-provider-observations.md.",
+          "result": "PASS",
+          "test_ids": [
+            "xml_vary_follows_bucket_cors_and_stored_gzip",
+            "signed_rules_change_between_preflight_and_actual_and_survive_restart"
+          ]
         }
       ],
       "test_ids": [
+        "xml_vary_follows_bucket_cors_and_stored_gzip",
         "TestBucketCORS",
         "TestStrictAuthBucketCORS",
         "cors-browser-permissive-initial",
@@ -47345,6 +47375,16 @@
         "signed-browser-strict-restart"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --test sdk_object_wire_http --test signed_browser_http",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/media-read-provider-observations.md",
+          "test_ids": [
+            "xml_vary_follows_bucket_cors_and_stored_gzip",
+            "signed_rules_change_between_preflight_and_actual_and_survive_restart"
+          ]
+        },
         {
           "command": "just check",
           "result": "PASS",

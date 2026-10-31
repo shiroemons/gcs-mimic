@@ -57,7 +57,7 @@ Object: a 35-byte gzip member stored with `Content-Encoding: gzip`.
 | Gunzipped responses carry the two transformation fields | Sent on JSON media GET and XML GET/HEAD | `json_gzip_negotiation_range_and_conditions_preserve_stored_representation`, `xml_gzip_gunzips_whole_object_and_keeps_stored_hashes` |
 | Range is ignored while transcoding | Full 200 on JSON and XML | the same tests |
 | XML expansion keeps one hash field per algorithm | Unchanged stored-object hashes | `xml_gzip_gunzips_whole_object_and_keeps_stored_hashes` |
-| A compressed response adds `vary: Accept-Encoding` | Appended after the CORS `vary: Origin` (and, on JSON, `vary: X-Origin`); omitted on gunzipped and `no-transform` responses | the same tests |
+| A compressed response adds `vary: Accept-Encoding` | Appended after the CORS `vary: Origin` (and, on JSON, `vary: X-Origin`); on JSON omitted on gunzipped and `no-transform` responses, on XML sent on every stored-gzip representation (see below) | the same tests |
 
 XML expansion previously returned 501, and JSON
 expansion did not mark the transformed body.
@@ -149,3 +149,31 @@ JSON preflight responses keep their single
 `Origin, Access-Control-Request-Method, Access-Control-Request-Headers` field;
 preflight was not part of this observation. Errors returned before routing,
 such as a rejected request `Content-Encoding`, carry no `Vary` field.
+
+## `Vary` and length on XML API responses
+
+Observed **2026-10-31** on a bucket without CORS configuration, for the
+49-byte gzip object and the 16-byte identity object.
+
+| Request | Cloud Storage | gcs-mimic before |
+| --- | --- | --- |
+| identity object GET/HEAD, with or without `Origin` | no `Vary` field; `accept-ranges: bytes`, `content-length: 16` | `vary: Origin` |
+| gzip object GET/HEAD, gunzipped (no `Accept-Encoding` or `identity`) | `vary: Accept-Encoding`, no `accept-ranges`, no Content-Length | `vary: Origin` only |
+| gzip object GET, `Accept-Encoding: gzip` | `vary: Accept-Encoding`, `accept-ranges: bytes`, `content-length: 49` | `vary: Origin` and `vary: Accept-Encoding` |
+| gzip object HEAD, `Accept-Encoding: gzip` | `vary: Accept-Encoding`, `accept-ranges: bytes`, no Content-Length | `vary: Origin`, `vary: Accept-Encoding` and `content-length: 49` |
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| No `vary: Origin` on a bucket without CORS configuration | Omitted unless the bucket has CORS rules or the `cors_fallback` profile is active | `xml_vary_follows_bucket_cors_and_stored_gzip`, `signed_rules_change_between_preflight_and_actual_and_survive_restart` |
+| `vary: Accept-Encoding` on every stored-gzip GET/HEAD | Sent on gunzipped and compressed responses; omitted with `no-transform` | `xml_vary_follows_bucket_cors_and_stored_gzip`, `xml_gzip_gunzips_whole_object_and_keeps_stored_hashes` |
+| Gunzipped responses omit `accept-ranges`; compressed keep it | Unchanged from the gunzip support above | the same tests |
+| A compressed HEAD omits Content-Length | Removed on stored-gzip HEAD | `xml_vary_follows_bucket_cors_and_stored_gzip` |
+
+**Unverified:** a bucket *with* CORS configuration was not observed. gcs-mimic
+keeps `vary: Origin` there, also when the request has no `Origin` or matches no
+rule, because the response then depends on the Origin. Preflight on a bucket
+without CORS configuration now also omits `Vary`; that was not observed either.
+XML requests now read the bucket's CORS rules even without an `Origin` header,
+so a catalog failure during that read returns the XML error before routing.

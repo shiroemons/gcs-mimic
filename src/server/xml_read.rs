@@ -99,6 +99,14 @@ async fn read(
     if reveal {
         insert_hashes(&mut headers, &record);
     }
+    if json::object_media_negotiable(&record) {
+        // The XML API varies every representation of a stored-gzip object, gunzipped or not,
+        // and a compressed HEAD states no length (observed 2026-10-31).
+        gzip::insert_negotiated_vary(&mut headers);
+        if head {
+            headers.remove("content-length");
+        }
+    }
     if json::object_media_transcoding(request.headers(), &record)? {
         // Range is ignored while gunzipping: the whole expanded object is sent with 200.
         gzip::insert_transcoded_headers(&mut headers);
@@ -115,9 +123,6 @@ async fn read(
         };
         *response.headers_mut() = headers;
         return Ok(response);
-    }
-    if json::object_media_negotiable(&record) {
-        gzip::insert_negotiated_vary(&mut headers);
     }
     headers.extend(operation.response_overrides);
     let range = match json::object_media_range(request.headers(), record.size) {

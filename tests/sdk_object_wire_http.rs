@@ -134,7 +134,7 @@ fn xml_gzip_gunzips_whole_object_and_keeps_stored_hashes() {
     assert_eq!(raw.status, 206);
     assert_eq!(raw.body, compressed[2..6]);
     assert_eq!(raw.headers["content-encoding"], "gzip");
-    assert_eq!(raw.headers["vary"], "Origin, Accept-Encoding");
+    assert_eq!(raw.headers["vary"], "Accept-Encoding");
     for method in ["GET", "HEAD"] {
         for extra in ["", "Accept-Encoding: identity\r\n", "Range: bytes=0-4\r\n"] {
             let expanded = server.request(method, path, &format!("{ADMIN}{extra}"), b"");
@@ -147,7 +147,7 @@ fn xml_gzip_gunzips_whole_object_and_keeps_stored_hashes() {
                 "gunzipped"
             );
             assert_eq!(expanded.headers["warning"], "214 UploadServer gunzipped");
-            assert_eq!(expanded.headers["vary"], "Origin");
+            assert_eq!(expanded.headers["vary"], "Accept-Encoding");
             // The XML API keeps one field per stored-object hash.
             assert_eq!(expanded.headers["x-goog-hash"], raw.headers["x-goog-hash"]);
             assert_eq!(expanded.headers["x-goog-stored-content-encoding"], "gzip");
@@ -169,6 +169,65 @@ fn xml_gzip_gunzips_whole_object_and_keeps_stored_hashes() {
             .headers
             .contains_key("x-guploader-response-body-transformations")
     );
+}
+
+/// On a bucket without CORS configuration Cloud Storage's XML API sends no `vary: Origin`,
+/// even for a request with an Origin header, and sends `vary: Accept-Encoding` on every
+/// GET/HEAD of a stored-gzip object. A compressed HEAD keeps `accept-ranges` but states no
+/// length (observed 2026-10-31). A bucket with CORS rules keeps `vary: Origin` locally.
+#[test]
+fn xml_vary_follows_bucket_cors_and_stored_gzip() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, true);
+    server.bucket();
+    server.put("plain", b"0123456789abcdef").json();
+    gzip_object(&server, "gzip", &gzip(b"hello gzip transcoding world\n"));
+    let origin = "Origin: https://example.test\r\n";
+    let check = |expected_plain: &[&str], expected_gzip: &[&str]| {
+        for method in ["GET", "HEAD"] {
+            for extra in ["", origin] {
+                let headers = format!("{ADMIN}{extra}");
+                assert_eq!(
+                    vary_fields(&server, method, "/test-bucket/plain", &headers),
+                    expected_plain,
+                    "{method} plain {extra}"
+                );
+                for encoding in [
+                    "",
+                    "Accept-Encoding: identity\r\n",
+                    "Accept-Encoding: gzip\r\n",
+                ] {
+                    let headers = format!("{headers}{encoding}");
+                    assert_eq!(
+                        vary_fields(&server, method, "/test-bucket/gzip", &headers),
+                        expected_gzip,
+                        "{method} gzip {extra}{encoding}"
+                    );
+                }
+            }
+        }
+    };
+    check(&[], &["Accept-Encoding"]);
+    let compressed = server.request(
+        "HEAD",
+        "/test-bucket/gzip",
+        &format!("{ADMIN}Accept-Encoding: gzip\r\n"),
+        b"",
+    );
+    assert_eq!(compressed.headers["content-encoding"], "gzip");
+    assert_eq!(compressed.headers["accept-ranges"], "bytes");
+    assert!(!compressed.headers.contains_key("content-length"));
+    let plain = server.request("HEAD", "/test-bucket/plain", ADMIN, b"");
+    assert_eq!(plain.headers["content-length"], "16");
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/test-bucket",
+            ADMIN,
+            br#"{"cors":[{"origin":["https://other.test"],"method":["GET"]}]}"#,
+        )
+        .json();
+    check(&["Origin"], &["Origin", "Accept-Encoding"]);
 }
 
 /// The raw `vary` field lines of one response, in order.

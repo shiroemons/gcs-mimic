@@ -684,7 +684,13 @@ fn signed_rules_change_between_preflight_and_actual_and_survive_restart() {
         let get = server.sign(virtual_host, "GET", "object");
         let reply = server.request("GET", &get, &origin(ORIGIN), b"");
         reply.status(200);
-        reply.cors(false, false);
+        // Without CORS configuration Cloud Storage sends no CORS fields and no Vary: Origin.
+        assert!(
+            reply
+                .headers
+                .keys()
+                .all(|name| name != "vary" && !name.starts_with("access-control-"))
+        );
         let json = server.request(
             "GET",
             &format!("http://{}{BUCKET}/o/object?alt=media", server.address),
