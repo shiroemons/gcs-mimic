@@ -4209,3 +4209,43 @@ fn empty_patch_evaluates_metageneration_preconditions_and_keeps_the_metagenerati
         assert_ne!(reply.json()["etag"], before["etag"], "{profile}");
     }
 }
+
+/// Observed on Cloud Storage (us-central1): with a writable setting in the body a PATCH whose
+/// `ifMetagenerationNotMatch` names the current value is also an empty 304, while PUT and
+/// PATCH with a failed `ifMetagenerationMatch` are 412 `conditionNotMet` at `If-Match`.
+/// None of the refused writes changes the bucket.
+#[test]
+fn writing_patch_and_put_evaluate_metageneration_preconditions() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        server.insert("write-cond", "project");
+        let path = "/storage/v1/b/write-cond";
+        let labels = r#"{"labels":{"k":"v"}}"#;
+        let same = server.request(
+            "PATCH",
+            &format!("{path}?ifMetagenerationNotMatch=1"),
+            labels,
+        );
+        assert_eq!((same.status, same.body.as_str()), (304, ""), "{profile}");
+        for (method, body) in [
+            ("PUT", r#"{"name":"write-cond","labels":{"k":"v"}}"#),
+            ("PATCH", labels),
+        ] {
+            let rejected =
+                server.request(method, &format!("{path}?ifMetagenerationMatch=99"), body);
+            rejected.error(412, "conditionNotMet");
+            if profile == "native" {
+                let error = &rejected.json()["error"];
+                assert_eq!(error["errors"][0]["location"], "If-Match", "{method}");
+                assert_eq!(
+                    error["message"],
+                    "At least one of the pre-conditions you specified did not hold."
+                );
+            }
+        }
+        let after = server.request("GET", path, "").json();
+        assert_eq!(after["metageneration"], "1", "{profile}");
+        assert!(after.get("labels").is_none(), "{profile}");
+    }
+}

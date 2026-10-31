@@ -333,10 +333,10 @@ async fn write(
     let match_failed = conditions
         .if_metageneration_match
         .is_some_and(|value| value != record.metageneration);
-    // Observed on Cloud Storage: a PATCH without a writable setting answers 304 (no body) when
-    // ifMetagenerationNotMatch names the current value, after ifMetagenerationMatch held.
+    // Observed on Cloud Storage: a PATCH answers 304 (no body) when ifMetagenerationNotMatch
+    // names the current value, after ifMetagenerationMatch held, whether or not the body
+    // carries a writable setting (a PUT was not observed with it).
     if matches!(mode, WriteMode::Patch)
-        && update.is_empty()
         && conditions
             .if_metageneration_match
             .is_none_or(|value| value == record.metageneration)
