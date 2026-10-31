@@ -65,7 +65,9 @@ The compatibility profile rejects every member of the native unsupported-field
 inventory: `acl`, `autoclass`, `billing`, `cors`, `customPlacementConfig`,
 `defaultObjectAcl`, `encryption`, `hierarchicalNamespace`, `iamConfiguration`,
 `ipFilter`, `lifecycle`, `logging`, `objectRetention`, `retentionPolicy`, `rpo`,
-`satisfiesPZI`, `satisfiesPZS`, `softDeletePolicy` and `website`.
+`softDeletePolicy` and `website`. `satisfiesPZI` and `satisfiesPZS` are not
+rejected: both profiles accept and ignore them, as Cloud Storage did
+([observation](../evidence/response-wire-provider-observations.md#satisfiespzi-and-satisfiespzs-in-write-bodies)).
 Each is an explicit profile-versus-reference difference: the pinned creation
 struct ignores it, but returning success locally could imply protection, data
 placement, billing or other behavior that is unavailable. Rejection applies even

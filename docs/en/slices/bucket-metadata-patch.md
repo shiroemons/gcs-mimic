@@ -45,7 +45,7 @@ the legacy service, as the earlier insert/object-metadata contracts record.
 | Test ID | Case | Expected behavior |
 | --- | --- | --- |
 | `bucket_patch_merges_labels_class_and_preserves_resources` | Omitted fields; set, replace, remove and remove missing labels; empty values | Merge only supplied label keys, retain omitted values; null key removes; empty string is stored |
-| `bucket_patch_empty_null_and_invalid_inputs` | `labels:{}`, `labels:null`, empty object/body, invalid JSON/types | Empty map/object preserves settings, null map clears; empty wire body/invalid input is 400 |
+| `bucket_patch_empty_null_and_invalid_inputs` | `labels:{}`, `labels:null`, empty object/body, invalid JSON/types | Empty map/object preserves settings and an empty object leaves the metageneration alone, null map clears; empty wire body/invalid input is 400 |
 | `bucket_patch_label_boundaries_and_classes` | 64/65 final keys, invalid key/value, Unicode/63/64 characters | Same insert label rules, maximum 64 final labels; validation and update are atomic |
 | `bucket_patch_label_boundaries_and_classes` | Supported/unsupported/default storage classes | STANDARD, NEARLINE, COLDLINE, ARCHIVE, MULTI_REGIONAL, DURABLE_REDUCED_AVAILABILITY; REGIONAL/RAPID return 501; invalid/null/empty class returns 400 |
 | `bucket_patch_unsupported_and_output_inputs_preserve_state` | Recognized unsupported settings, unknown and output-only fields | Unsupported settings return 501 without mutation, even null/empty; unknown/output-only inputs cannot override stored identity |
@@ -66,8 +66,8 @@ the legacy service, as the earlier insert/object-metadata contracts record.
 | `bucket_patch_accepts_only_empty_lifecycle_rules` | Exact empty lifecycle rule list and similar unsupported shapes | Accept only lifecycle:{"rule":[]} without any lifecycle effect; nonempty rules and extra members return 501 without mutation |
 | `bucket_patch_missing_bucket_validates_body_before_lookup` | Permissive PATCH on missing bucket with invalid versus valid body | Invalid JSON/types return 400 before lookup; valid empty object returns 404; no bucket is created |
 
-Every successful PATCH, including an empty object or removal of a missing key,
-increments metageneration exactly once and sets updated from the injected catalog
+Every successful PATCH that carries a writable setting, including `labels:{}` or
+removal of a missing key, increments metageneration exactly once and sets updated from the injected catalog
 clock. With a non-decreasing clock, updated is non-decreasing; successive
 PATCHes in the same millisecond may return identical updated values.
 Metageneration and etag identify every successful change; timestamps are not
@@ -77,9 +77,12 @@ authorization, condition checks, final-label validation and publication share
 one short immediate SQLite transaction. Schema v8 already stores every field;
 no migration, blob access or object enumeration is required.
 
-Incrementing metageneration for an empty `{}` PATCH is a local assumption:
-the cited sources do not establish whether a no-effect request advances the
-revision. Similarly, permissive PATCH body validation occurs before lookup,
+A PATCH with no writable setting (`{}`, `versioning:{}`, or only the ignored
+`satisfiesPZI` and `satisfiesPZS`) leaves the metageneration and `updated`
+unchanged, as Cloud Storage did when observed
+([evidence](../evidence/response-wire-provider-observations.md#satisfiespzi-and-satisfiespzs-in-write-bodies));
+the order of that no-op against precondition checks was not observed.
+Similarly, permissive PATCH body validation occurs before lookup,
 so an invalid body on a missing bucket returns 400 before 404. The sources
 do not establish that error precedence. These rules have executable local
 tests above and do not claim direct-service evidence.
@@ -108,7 +111,10 @@ rejected. The existing 64 KiB metadata body cap and bounded query parser apply.
 Recognized unsupported fields are acl, autoclass, billing, cors,
 customPlacementConfig, defaultObjectAcl, encryption, hierarchicalNamespace,
 iamConfiguration, ipFilter, lifecycle, logging, objectRetention,
-retentionPolicy, rpo, satisfiesPZI, satisfiesPZS, softDeletePolicy and website.
+retentionPolicy, rpo, softDeletePolicy and website. `satisfiesPZI` and
+`satisfiesPZS` are accepted and ignored; see the
+[observation](../evidence/response-wire-provider-observations.md#satisfiespzi-and-satisfiespzs-in-write-bodies)
+and [PUT](bucket-metadata-put.md).
 The same exception as insert accepts exactly `lifecycle:{"rule":[]}` because
 an empty rule list adds no lifecycle behavior; other lifecycle shapes still
 return 501. Location changes are unsupported; an unchanged rendered location

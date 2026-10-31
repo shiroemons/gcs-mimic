@@ -164,8 +164,11 @@ Every remaining unsupported top-level field in the checked Discovery Bucket sche
 rejected 501: `acl`, `autoclass`, `billing`, `cors`, `customPlacementConfig`,
 `defaultEventBasedHold`, `defaultObjectAcl`, `encryption`, `hierarchicalNamespace`,
 `iamConfiguration`, `ipFilter`, `lifecycle`, `logging`, `objectRetention`, `retentionPolicy`,
-`rpo`, `satisfiesPZI`, `satisfiesPZS`, `softDeletePolicy`, `versioning`, `website`.
-Reserved residency fields remain unsupported; their names do not establish output-only behavior.
+`rpo`, `softDeletePolicy`, `versioning`, `website`.
+Reserved residency fields `satisfiesPZI` and `satisfiesPZS` are accepted and ignored on
+insert, PATCH and PUT, as Cloud Storage did (see
+[the observation](../evidence/response-wire-provider-observations.md#satisfiespzi-and-satisfiespzs-in-write-bodies)).
+A field name alone does not establish output-only behavior.
 
 Emitted bucket resource fields, in the recorded Cloud Storage order: `kind="storage#bucket"`,
 `selfLink`, `id=name`, `name`, `projectNumber`, `generation` (the catalog's stored bucket version;

@@ -130,14 +130,20 @@ immutable or reserved fields absent from update's writable list. Their 400 badRe
 rejection is a fail-closed local choice, not a provider error claim:
 acl, autoclass, billing,
 customPlacementConfig, defaultObjectAcl, encryption, hierarchicalNamespace,
-ipFilter, logging, objectRetention, rpo, satisfiesPZS and website.
+ipFilter, logging, objectRetention and rpo.
 Only acl:[] is ignored; defaultObjectAcl:[] remains unsupported. The native
-profile now emits `satisfiesPZI: true` after `locationType`, as Cloud Storage
+profile emits `satisfiesPZI: true` after `locationType`, as Cloud Storage
 did for one observed location (asia-northeast1, 2026-10-31; other locations
-were not observed). `satisfiesPZI` is reserved for future use in the published contracts
-([evidence](../evidence/response-wire-provider-observations.md#satisfiespzi-in-write-bodies)), so an
-insert, PATCH or PUT body may carry it with any value; it is ignored.
-The legacy profile omits the field. Null/empty
+were not observed); the legacy profile omits it. Cloud Storage was observed to
+accept `satisfiesPZI` and `satisfiesPZS`, true and false, in insert, PATCH and
+PUT bodies, ignore them, keep reporting `satisfiesPZI: true` and never emit
+`satisfiesPZS`
+([evidence](../evidence/response-wire-provider-observations.md#satisfiespzi-and-satisfiespzs-in-write-bodies)).
+gcs-mimic does the same in both profiles. That is why a read-modify-write
+client can send the resource back with `satisfiesPZI`, and why `satisfiesPZS`,
+which is never emitted, is not rejected either. A PATCH with no writable
+setting (for example one carrying only these members) neither advances the
+metageneration nor changes `updated`; a PUT does. Null/empty
 unsupported settings otherwise retain their existing rejection.
 CORS, PAP/UBLA, lifecycle, retention and soft delete use the existing PATCH
 parsers and shared catalog transaction; omitted settings are preserved.
@@ -149,7 +155,7 @@ See the respective SDK slice contracts for scoped effects and limitations;
 lifecycle configuration is stored without executing actions.
 The resource marks location, customPlacementConfig, hierarchicalNamespace and
 name writable for insert; the proto marks location immutable; Discovery
-reserves satisfiesPZI/PZS for future use. Unchanged-location acceptance and
+marks satisfiesPZI/PZS reserved, which Cloud Storage handled by ignoring them. Unchanged-location acceptance and
 ignoring name even when different from the path are also local choices.
 Output-only id, kind, selfLink, projectNumber, generation, metageneration,
 etag, timeCreated, updated, locationType, owner, softDeleteTime and hardDeleteTime
