@@ -8,8 +8,9 @@
 //! copied, linked or renamed.
 
 use super::{
-    Catalog, bucket_columns, bucket_metadata_charge, change_journal, policies::next_revision,
-    read_bucket, select_bucket, system_time_micros, unavailable, unix_micros,
+    Catalog, acl::reconcile_bucket_policy, bucket_columns, bucket_metadata_charge, change_journal,
+    policies::next_revision, principals::Profile, read_bucket, select_bucket, system_time_micros,
+    unavailable, unix_micros,
 };
 use crate::bucket::{BucketAccess, BucketRecord, CatalogError, SoftDeletedBucket};
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
@@ -191,6 +192,7 @@ fn restore_in_transaction(
     generation: i64,
     now: i64,
     access: &BucketAccess,
+    principals: Option<&Profile>,
 ) -> Result<BucketRecord, CatalogError> {
     let project: String = connection
         .prepare_cached(
@@ -231,6 +233,12 @@ fn restore_in_transaction(
         .prepare_cached("INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))")
         .and_then(|mut statement| statement.execute([name]))
         .map_err(unavailable)?;
+    // Startup reconciliation visits only live buckets, so the saved ACL still names the
+    // entities of the principals trusted when the version was deleted. Re-derive it from
+    // the restored policy under the current principals before the bucket is visible.
+    if let Some(principals) = principals {
+        reconcile_bucket_policy(connection, name, principals, now)?;
+    }
     rekey_objects(connection, &retained_key(name, generation), name)?;
     connection
         .prepare_cached("DELETE FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2")
@@ -370,12 +378,20 @@ impl Catalog {
         access: &BucketAccess,
     ) -> Result<BucketRecord, CatalogError> {
         let (name, access, clock) = (name.to_owned(), access.clone(), self.0.clock.clone());
+        let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(unavailable)?;
             let now = unix_micros(clock.now())?;
-            let record = restore_in_transaction(&transaction, &name, generation, now, &access)?;
+            let record = restore_in_transaction(
+                &transaction,
+                &name,
+                generation,
+                now,
+                &access,
+                principals.as_ref(),
+            )?;
             transaction.commit().map_err(unavailable)?;
             Ok(record)
         })

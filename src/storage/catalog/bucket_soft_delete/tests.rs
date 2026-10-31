@@ -358,6 +358,97 @@ async fn restore_brings_back_iam_and_acl_with_a_new_policy_revision() {
     catalog.close().await.unwrap();
 }
 
+/// Startup reconciliation only visits live buckets, so a version deleted under one set of
+/// trusted principals must be re-bound to the current set when it comes back.
+#[tokio::test]
+async fn restore_rebinds_policy_acl_entities_to_the_current_principals() {
+    use crate::{
+        auth::{Auth, Binding, Policy, Registry},
+        clock::SystemClock,
+        storage::admin::LocalAdmin,
+    };
+    let strict = |entity: &str| {
+        Auth::strict(
+            Registry::parse(
+                serde_json::json!({"identities":[{"id":"local:reader","tokens":[],"acl_entity":entity}]})
+                    .to_string()
+                    .as_bytes(),
+            )
+            .unwrap(),
+        )
+    };
+    let bucket_entities = |catalog: &Catalog| {
+        let catalog = catalog.clone();
+        async move {
+            catalog
+                .run_admin(|connection| {
+                    connection
+                        .query_row(
+                            "SELECT entries FROM acl_bucket_entries WHERE bucket = 'rebound' AND scope = 'bucket'",
+                            [],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .map_err(unavailable)
+                })
+                .await
+                .unwrap()
+        }
+    };
+    let dir = TestDir::new();
+    let catalog = Catalog::open_for_server(&dir.0, Arc::new(SystemClock), LocalAdmin::Disabled)
+        .await
+        .unwrap();
+    catalog
+        .configure_authentication(&strict("user-old@example.test"))
+        .await
+        .unwrap();
+    catalog.insert_bucket(record("rebound")).await.unwrap();
+    set_retention(&catalog, "rebound", 7 * DAY).await;
+    catalog
+        .set_policy(
+            "rebound",
+            Policy {
+                bindings: vec![Binding {
+                    role: "roles/storage.legacyBucketReader".into(),
+                    members: vec!["user:local:reader".into()],
+                }],
+                etag: None,
+            },
+            &BucketAccess::Permissive,
+        )
+        .await
+        .unwrap();
+    assert!(
+        bucket_entities(&catalog)
+            .await
+            .contains("user-old@example.test")
+    );
+    let generation = catalog
+        .get_bucket("rebound")
+        .await
+        .unwrap()
+        .unwrap()
+        .generation;
+    delete(&catalog, "rebound").await.unwrap();
+    catalog.close().await.unwrap();
+
+    let reopened = Catalog::open_for_server(&dir.0, Arc::new(SystemClock), LocalAdmin::Disabled)
+        .await
+        .unwrap();
+    reopened
+        .configure_authentication(&strict("user-new@example.test"))
+        .await
+        .unwrap();
+    reopened
+        .restore_bucket("rebound", generation, &BucketAccess::Permissive)
+        .await
+        .unwrap();
+    let entries = bucket_entities(&reopened).await;
+    assert!(entries.contains("user-new@example.test"), "{entries}");
+    assert!(!entries.contains("user-old@example.test"), "{entries}");
+    reopened.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn schema_45_backfills_generations_and_keeps_new_ones_unique() {
     let dir = TestDir::new();
