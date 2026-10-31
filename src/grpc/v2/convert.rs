@@ -6,11 +6,74 @@ use crate::{
     object::{ObjectRecord, retention::RetentionMode},
 };
 use prost_types::{Duration, Timestamp};
+use serde_json::Value;
+
+/// Converts stored JSON lifecycle rules, which the shared validator has already accepted.
+fn lifecycle(rules: &[Value]) -> Option<pb::bucket::Lifecycle> {
+    use pb::bucket::lifecycle::{
+        Rule,
+        rule::{Action, Condition},
+    };
+    if rules.is_empty() {
+        return None;
+    }
+    let date = |v: &Value| -> Option<crate::grpc::generated::google::r#type::Date> {
+        let mut parts = v.as_str()?.split('-');
+        Some(crate::grpc::generated::google::r#type::Date {
+            year: parts.next()?.parse().ok()?,
+            month: parts.next()?.parse().ok()?,
+            day: parts.next()?.parse().ok()?,
+        })
+    };
+    let strings = |v: &Value| {
+        v.as_array()
+            .map(|v| {
+                v.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let days = |v: &Value| v.as_i64().and_then(|v| i32::try_from(v).ok());
+    Some(pb::bucket::Lifecycle {
+        rule: rules
+            .iter()
+            .map(|r| {
+                let c = &r["condition"];
+                Rule {
+                    action: Some(Action {
+                        r#type: r["action"]["type"].as_str().unwrap_or_default().into(),
+                        storage_class: r["action"]["storageClass"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .into(),
+                    }),
+                    condition: Some(Condition {
+                        age_days: days(&c["age"]),
+                        created_before: date(&c["createdBefore"]),
+                        is_live: c["isLive"].as_bool(),
+                        num_newer_versions: days(&c["numNewerVersions"]),
+                        matches_storage_class: strings(&c["matchesStorageClass"]),
+                        days_since_custom_time: days(&c["daysSinceCustomTime"]),
+                        custom_time_before: date(&c["customTimeBefore"]),
+                        days_since_noncurrent_time: days(&c["daysSinceNoncurrentTime"]),
+                        noncurrent_time_before: date(&c["noncurrentTimeBefore"]),
+                        matches_prefix: strings(&c["matchesPrefix"]),
+                        matches_suffix: strings(&c["matchesSuffix"]),
+                    }),
+                }
+            })
+            .collect(),
+    })
+}
 
 pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
     pb::Bucket {
         name: format!("projects/_/buckets/{}", record.name),
         bucket_id: record.name.clone(),
+        etag: crate::json::bucket_etag(record),
+        lifecycle: lifecycle(&record.lifecycle),
         project: format!("projects/{}", record.project),
         metageneration: record.metageneration,
         location: record.location.clone(),

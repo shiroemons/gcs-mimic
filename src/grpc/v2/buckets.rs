@@ -89,6 +89,7 @@ fn bucket_mask(
         select!(
             name,
             bucket_id,
+            etag,
             project,
             metageneration,
             location,
@@ -101,8 +102,10 @@ fn bucket_mask(
             default_event_based_hold,
             versioning,
             cors,
+            lifecycle,
             retention_policy,
             soft_delete_policy,
+            object_retention,
             iam_config
         );
     }
@@ -868,6 +871,75 @@ mod tests {
             .create_bucket(Request::new(request), None)
             .await
             .unwrap();
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_buckets_expose_json_lifecycle_etag_and_object_retention() {
+        let (_dir, storage) = storage(false).await;
+        let mut record = json::parse_insert(
+            br#"{"name":"json-bucket","lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":30,"matchesPrefix":["logs/"]}}]}}"#,
+            "p",
+            storage.state.clock.now(),
+        )
+        .unwrap();
+        record.object_retention_enabled = true;
+        let record = storage.state.catalog.insert_bucket(record).await.unwrap();
+        let fetched = storage
+            .get_bucket(Request::new(get("json-bucket")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        let rules = fetched.lifecycle.clone().unwrap().rule;
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].action.as_ref().unwrap().r#type, "Delete");
+        let condition = rules[0].condition.as_ref().unwrap();
+        assert_eq!(condition.age_days, Some(30));
+        assert_eq!(condition.matches_prefix, ["logs/"]);
+        assert_eq!(fetched.etag, json::bucket_etag(&record));
+        assert_eq!(
+            fetched.object_retention,
+            Some(pb::bucket::ObjectRetention { enabled: true })
+        );
+        let masked = storage
+            .get_bucket(
+                Request::new(pb::GetBucketRequest {
+                    read_mask: Some(prost_types::FieldMask {
+                        paths: vec!["lifecycle".into(), "etag".into(), "object_retention".into()],
+                    }),
+                    ..get("json-bucket")
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(masked.lifecycle, fetched.lifecycle);
+        assert_eq!(masked.etag, fetched.etag);
+        assert_eq!(masked.object_retention, fetched.object_retention);
+        assert!(masked.name.is_empty() && masked.versioning.is_none());
+        let listed = storage
+            .list_buckets(
+                Request::new(pb::ListBucketsRequest {
+                    parent: "projects/p".into(),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(listed.buckets[0].lifecycle, fetched.lifecycle);
+        storage
+            .create_bucket(Request::new(create("plain-bucket")), None)
+            .await
+            .unwrap();
+        let plain = storage
+            .get_bucket(Request::new(get("plain-bucket")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(plain.lifecycle.is_none() && plain.object_retention.is_none());
         storage.state.catalog.close().await.unwrap();
     }
 

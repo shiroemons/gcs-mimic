@@ -19,3 +19,17 @@ The proto says that populating `bucket.name` is an error, but the Java SDK sends
 A mismatching name is rejected rather than ignored: either value could be the intended bucket, and creating the wrong one is not reversible from the caller's view. INVALID_ARGUMENT keeps the proto's documented error for a populated name; Cloud Storage's response to a mismatching name was not observed.
 
 Test: `grpc_buckets_create_accepts_name_matching_bucket_id` failed on the previous source with INVALID_ARGUMENT for the matching name and passes after the change; `grpc_buckets_strict_shared_authorization` still passes.
+
+## Stored bucket fields in gRPC responses
+
+A lifecycle configured through JSON was missing from GetBucket: only UpdateBucket and LockBucketRetentionPolicy responses converted it. An audit of `pb::Bucket` against the stored bucket record found two more dropped fields, `etag` and the `object_retention` read-mask path.
+
+| Case | Required behavior |
+| --- | --- |
+| grpc_bucket_lifecycle | One shared conversion renders stored lifecycle rules (action, storage class and every condition) in GetBucket, ListBuckets, CreateBucket, UpdateBucket and LockBucketRetentionPolicy responses. A bucket without rules has no `lifecycle` message. |
+| grpc_bucket_etag | `etag` carries the same bucket ETag as the JSON resource. |
+| grpc_bucket_read_mask | `etag`, `lifecycle` and `object_retention` can be selected by read_mask; other selected fields stay empty. |
+
+The remaining `pb::Bucket` fields are either covered by other changes in this slice (`acl`, `default_object_acl`, `owner`) or not modeled by the bucket record (`rpo`, `website`, `logging`, `encryption`, `billing`, `custom_placement_config`, `hierarchical_namespace`, `ip_filter`, `satisfies_pzs`); they stay empty and their read-mask paths remain UNIMPLEMENTED.
+
+Test: `grpc_buckets_expose_json_lifecycle_etag_and_object_retention` failed on the previous source (no lifecycle in GetBucket) and passes after the change.

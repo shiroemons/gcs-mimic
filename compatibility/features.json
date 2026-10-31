@@ -19775,8 +19775,16 @@
           ]
         },
         {
+          "id": "grpc_bucket_get_stored_fields",
+          "description": "Every stored bucket field is converted: JSON-configured lifecycle rules, the shared bucket ETag and object retention appear in GetBucket, ListBuckets and update responses and can be selected by read_mask.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_buckets_expose_json_lifecycle_etag_and_object_retention"
+          ]
+        },
+        {
           "id": "grpc_bucket_get_remaining",
-          "description": "Nested masks and fields absent from foundation conversion (including lifecycle, ETag, ACL and encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported.",
+          "description": "Nested masks and fields absent from foundation conversion (including ACL and encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -19784,10 +19792,20 @@
       "test_ids": [
         "grpc_buckets_crud_conditions_and_masks",
         "grpc_buckets_strict_shared_authorization",
+        "grpc_buckets_expose_json_lifecycle_etag_and_object_retention",
         "TestGRPCBuckets",
         "TestGRPCBucketsStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib grpc::v2::",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
+          "test_ids": [
+            "grpc_buckets_expose_json_lifecycle_etag_and_object_retention"
+          ]
+        },
         {
           "command": "RUST_TEST_THREADS=8 just check",
           "result": "PASS",
@@ -19822,7 +19840,7 @@
         }
       ],
       "known_deviations": [
-        "Nested masks and fields absent from foundation conversion (including lifecycle, ETag, ACL and encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported."
+        "Nested masks and fields absent from foundation conversion (including ACL and encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported."
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"

@@ -156,66 +156,6 @@ fn lifecycle(value: &pb::bucket::Lifecycle) -> Value {
     }).collect::<Vec<_>>()})
 }
 
-fn bucket_resource(record: &crate::bucket::BucketRecord) -> pb::Bucket {
-    use pb::bucket::lifecycle::{
-        Rule,
-        rule::{Action, Condition},
-    };
-    let mut result = convert::bucket(record);
-    let date = |v: &Value| -> Option<crate::grpc::generated::google::r#type::Date> {
-        let mut parts = v.as_str()?.split('-');
-        Some(crate::grpc::generated::google::r#type::Date {
-            year: parts.next()?.parse().ok()?,
-            month: parts.next()?.parse().ok()?,
-            day: parts.next()?.parse().ok()?,
-        })
-    };
-    let strings = |v: &Value| {
-        v.as_array()
-            .map(|v| {
-                v.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    result.lifecycle = Some(pb::bucket::Lifecycle {
-        rule: record
-            .lifecycle
-            .iter()
-            .map(|r| {
-                let c = &r["condition"];
-                Rule {
-                    action: Some(Action {
-                        r#type: r["action"]["type"].as_str().unwrap_or_default().into(),
-                        storage_class: r["action"]["storageClass"]
-                            .as_str()
-                            .unwrap_or_default()
-                            .into(),
-                    }),
-                    condition: Some(Condition {
-                        age_days: c["age"].as_i64().map(|v| v as i32),
-                        created_before: date(&c["createdBefore"]),
-                        is_live: c["isLive"].as_bool(),
-                        num_newer_versions: c["numNewerVersions"].as_i64().map(|v| v as i32),
-                        matches_storage_class: strings(&c["matchesStorageClass"]),
-                        days_since_custom_time: c["daysSinceCustomTime"].as_i64().map(|v| v as i32),
-                        custom_time_before: date(&c["customTimeBefore"]),
-                        days_since_noncurrent_time: c["daysSinceNoncurrentTime"]
-                            .as_i64()
-                            .map(|v| v as i32),
-                        noncurrent_time_before: date(&c["noncurrentTimeBefore"]),
-                        matches_prefix: strings(&c["matchesPrefix"]),
-                        matches_suffix: strings(&c["matchesSuffix"]),
-                    }),
-                }
-            })
-            .collect(),
-    });
-    result
-}
-
 fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
     let mut body = json!({});
     for path in paths {
@@ -699,7 +639,7 @@ impl Storage {
             )
             .await
             .map_err(error)?;
-        Ok(Response::new(bucket_resource(&record)))
+        Ok(Response::new(convert::bucket(&record)))
     }
     pub(super) async fn get_iam_policy(
         &self,
@@ -864,7 +804,7 @@ impl Storage {
             .patch_bucket(bucket, update, mm, r.if_metageneration_not_match, &access)
             .await
             .map_err(error)?;
-        Ok(Response::new(bucket_resource(&record)))
+        Ok(Response::new(convert::bucket(&record)))
     }
     pub(super) async fn update_object(
         &self,
