@@ -28696,6 +28696,12 @@
           "test_ids": ["media_responses_carry_the_provider_object_headers"]
         },
         {
+          "id": "MEDIA-UPLOAD-GZIP-HASH",
+          "description": "A media upload validates X-Goog-Hash MD5 against the stored bytes: a plain upload against its body, a Content-Encoding: gzip upload against the decoded body. Cloud Storage accepted a transport-gzip upload whose MD5 described either the plain text or the gzip bytes (observed 2026-10-31); whether it skips validation for transport gzip is unexplained. gcs-mimic rejects the gzip-bytes MD5 with 400 and keeps validating; validation is not weakened to match.",
+          "result": "PASS",
+          "test_ids": ["media_upload_hash_is_checked_against_the_stored_bytes"]
+        },
+        {
           "id": "GZIP-REMAINING-PARITY",
           "description": "Weak ETags on gunzipped responses, double-compression detection, additional encodings and exact provider negotiation/error parity remain pending.",
           "result": "PENDING",
@@ -28714,7 +28720,8 @@
         "xml_vary_follows_bucket_cors_and_stored_gzip",
         "gunzipping_a_plain_body_fails_400_before_the_headers_are_sent",
         "head_with_range_answers_206_and_content_range_on_json_and_xml",
-        "media_responses_carry_the_provider_object_headers"
+        "media_responses_carry_the_provider_object_headers",
+        "media_upload_hash_is_checked_against_the_stored_bytes"
       ],
       "verification": [
         {
@@ -28732,7 +28739,10 @@
           "result": "PASS",
           "verified_at": "2026-10-31",
           "artifact": "docs/en/evidence/media-read-provider-observations.md",
-          "test_ids": ["media_transport_gzip_stores_the_decoded_body"]
+          "test_ids": [
+            "media_transport_gzip_stores_the_decoded_body",
+            "media_upload_hash_is_checked_against_the_stored_bytes"
+          ]
         },
         {
           "command": "cargo test --locked --test sdk_object_wire_http json_media_head",
@@ -28769,7 +28779,8 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Expansion is limited by max_object_bytes and can abort after 200 headers; stored hashes do not describe expanded bytes, as on Cloud Storage. Double-compression detection remains unsupported; provider exactness beyond the observed headers is unverified."
+        "Expansion is limited by max_object_bytes and can abort after 200 headers; stored hashes do not describe expanded bytes, as on Cloud Storage. Double-compression detection remains unsupported; provider exactness beyond the observed headers is unverified.",
+        "A transport-gzip media upload whose X-Goog-Hash MD5 describes the gzip bytes fails 400, while Cloud Storage accepted either digest; validation is kept until the provider rule is understood."
       ],
       "implemented_in": "b894ed0",
       "last_verified": "2026-10-31"

@@ -247,3 +247,21 @@ compressed and ranged) and on XML GET and HEAD:
 An object that stores its own `contentDisposition` keeps it in place of the
 JSON default. Cloud Storage's behavior for such an object was not observed.
 `etag`, `cache-control` and error bodies are outside this change.
+
+## `X-Goog-Hash` on transport-gzip uploads
+
+Observed **2026-10-31**. A media upload sent with `Content-Encoding: gzip` and
+an `X-Goog-Hash: md5=...` header answered 200 both when the MD5 described the
+decompressed text and when it described the gzip bytes, and with no header.
+Whether Cloud Storage skips the check for transport gzip, or accepts either
+digest, is not explained by this observation: a plain upload with a wrong MD5
+was not observed in the same run.
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| Both digests were accepted | A plain upload is checked against its body; a transport-gzip upload against the decoded body it stores. The decoded-text MD5 answers 200, the gzip-bytes MD5 answers 400 | `media_upload_hash_is_checked_against_the_stored_bytes` |
+
+The 400 for the gzip-bytes digest is a known difference from the observation.
+Validation is not weakened until the provider's rule is understood.

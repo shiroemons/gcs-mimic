@@ -370,3 +370,44 @@ fn multipart_gzip_disconnect_and_absolute_deadline_cancel_unvalidated_streams() 
         server.request("POST", PATH, TYPE, &compressed).status(200);
     }
 }
+
+/// Cloud Storage accepted a transport-gzip media upload whose `X-Goog-Hash` MD5 described
+/// either the plain text or the gzip bytes (observed 2026-10-31); why is unexplained, so
+/// this pins what gcs-mimic does without weakening validation: a plain upload is checked
+/// against its bytes, a transport-gzip upload against the decoded bytes it stores.
+#[test]
+fn media_upload_hash_is_checked_against_the_stored_bytes() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    bucket(&server, "");
+    let media = "/upload/storage/v1/b/gzip-bucket/o?uploadType=media";
+    let plain = b"hello gzip transcoding world\n";
+    let compressed = gzip(plain);
+    let md5_of = |name: &str, headers: &str, body: &[u8]| {
+        let reply = server.request("POST", &format!("{media}&name={name}"), headers, body);
+        reply.status(200);
+        reply.json()["md5Hash"].as_str().unwrap().to_owned()
+    };
+    let plain_md5 = md5_of("plain-md5", "Content-Type: text/plain\r\n", plain);
+    let gzip_md5 = md5_of(
+        "gzip-md5&contentEncoding=gzip",
+        "Content-Type: text/plain\r\n",
+        &compressed,
+    );
+    assert_ne!(plain_md5, gzip_md5);
+    let upload = |name: &str, encoding: &str, md5: &str, body: &[u8]| {
+        server.request(
+            "POST",
+            &format!("{media}&name={name}"),
+            &format!("Content-Type: text/plain\r\n{encoding}X-Goog-Hash: md5={md5}\r\n"),
+            body,
+        )
+    };
+    // A plain upload is validated: its own MD5 passes and any other fails.
+    upload("a", "", &plain_md5, plain).status(200);
+    upload("b", "", &gzip_md5, plain).status(400);
+    // Transport gzip is validated against the decoded bytes that are stored.
+    let gzip_header = "Content-Encoding: gzip\r\n";
+    upload("c", gzip_header, &plain_md5, &compressed).status(200);
+    upload("d", gzip_header, &gzip_md5, &compressed).status(400);
+}
