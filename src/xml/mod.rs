@@ -240,6 +240,8 @@ pub(crate) struct Error {
     details: Option<String>,
 }
 
+/// The XML declaration Cloud Storage writes, with single-quoted pseudo-attributes.
+pub(crate) const DECLARATION: &str = "<?xml version='1.0' encoding='UTF-8'?>";
 /// The fixed message of a missing object; `Details` names the object.
 const NO_SUCH_KEY: &str = "The specified key does not exist.";
 
@@ -290,19 +292,11 @@ impl Error {
     }
 
     pub(crate) fn response(self, body_mode: ErrorBody) -> Response<Full<Bytes>> {
-        // Character data needs only these three escapes; quotes stay literal.
-        let escape = |text: &str| {
-            text.replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;")
-        };
-        let mut body = format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Error><Code>{}</Code><Message>{}</Message>",
-            self.code,
-            escape(&self.message)
-        );
+        let mut body = format!("{DECLARATION}<Error>");
+        element(&mut body, "Code", self.code);
+        element(&mut body, "Message", &self.message);
         if let Some(details) = &self.details {
-            body.push_str(&format!("<Details>{}</Details>", escape(details)));
+            element(&mut body, "Details", details);
         }
         body.push_str("</Error>");
         let content_length = HeaderValue::from(body.len());
@@ -896,8 +890,7 @@ fn element(body: &mut String, name: &str, value: &str) {
             '&' => body.push_str("&amp;"),
             '<' => body.push_str("&lt;"),
             '>' => body.push_str("&gt;"),
-            '"' => body.push_str("&quot;"),
-            '\'' => body.push_str("&apos;"),
+            // Character data needs no quote escapes; Cloud Storage writes `<ETag>"..."</ETag>`.
             _ => body.push(ch),
         }
     }

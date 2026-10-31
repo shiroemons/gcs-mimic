@@ -161,6 +161,7 @@ mod tests {
             items: Vec::new(),
             prefixes: Vec::new(),
             next: None,
+            bucket_metageneration: None,
         };
         let message = params.empty_soft_deleted_message(&page, None).unwrap();
         assert!(message.contains("not configured"));

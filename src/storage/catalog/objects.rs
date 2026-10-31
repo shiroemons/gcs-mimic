@@ -129,6 +129,9 @@ pub struct ObjectListPage {
     pub items: Vec<ObjectRecord>,
     pub prefixes: Vec<String>,
     pub(crate) next: Option<ObjectListCursor>,
+    /// The listed bucket's metageneration, read by the same catalog job as the page so the two
+    /// agree. Only an authorized listing fills it; other producers leave it empty.
+    pub(crate) bucket_metageneration: Option<i64>,
 }
 
 pub(super) const SCHEMA: &str = "CREATE TABLE objects (
@@ -945,7 +948,10 @@ impl Catalog {
                 if query.soft_deleted {
                     super::soft_delete::purge_expired(connection, &query.bucket, now)?;
                 }
-                list_page_at(connection, &query, limit, now)
+                let mut page = list_page_at(connection, &query, limit, now)?;
+                page.bucket_metageneration =
+                    Some(bucket_metageneration(connection, &query.bucket)?);
+                Ok(page)
             })
             .await;
         if soft_deleted {
@@ -2092,6 +2098,7 @@ fn list_page_at(
         items: Vec::new(),
         prefixes: Vec::new(),
         next: None,
+        bucket_metageneration: None,
     };
     let mut cursor = query.cursor.clone();
     let mut lower = query
@@ -2218,6 +2225,16 @@ pub(super) fn authorized_bucket(
             error => object_unavailable(error),
         })?;
     Ok((storage_class, delete_permission))
+}
+
+/// The current metageneration of a bucket that `authorized_bucket` has just found.
+fn bucket_metageneration(connection: &Connection, bucket: &str) -> Result<i64, ObjectError> {
+    connection
+        .prepare_cached("SELECT metageneration FROM buckets WHERE name = ?1")
+        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
+        .optional()
+        .map_err(object_unavailable)?
+        .ok_or(ObjectError::BucketNotFound)
 }
 
 pub(super) fn lookup(

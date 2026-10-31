@@ -827,7 +827,7 @@ fn success_response(
         Success::Status(StatusCode::CREATED) => (
             StatusCode::CREATED,
             format!(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?><PostResponse><Location>{}</Location><Bucket>{}</Bucket><Key>{}</Key><ETag>{}</ETag></PostResponse>",
+                "<?xml version='1.0' encoding='UTF-8'?><PostResponse><Location>{}</Location><Bucket>{}</Bucket><Key>{}</Key><ETag>{}</ETag></PostResponse>",
                 escape(&format!(
                     "{}/{}/{}",
                     api_base_url.trim_end_matches('/'),

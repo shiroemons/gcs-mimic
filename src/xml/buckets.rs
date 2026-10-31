@@ -205,7 +205,7 @@ fn validate_headers(headers: &HeaderMap) -> Result<(), Error> {
 
 async fn list(ctx: RequestCtx<'_>, project: &str) -> Result<Response<ResponseBody>, Error> {
     let mut body = String::from(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListAllMyBucketsResult xmlns=\"http://doc.s3.amazonaws.com/2006-03-01\"><Buckets>",
+        "<?xml version='1.0' encoding='UTF-8'?><ListAllMyBucketsResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'><Buckets>",
     );
     let mut count = 0;
     let mut after = None;

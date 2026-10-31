@@ -200,6 +200,13 @@ pub(crate) async fn respond(
         .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
     let body = render(&params, &page)?;
     let mut response = Response::new(Full::new(Bytes::from(body)));
+    // The catalog read that produced the page also reports the bucket's metageneration, so the
+    // header and the listing describe one moment of the bucket.
+    if let Some(metageneration) = page.bucket_metageneration {
+        response
+            .headers_mut()
+            .insert("x-goog-metageneration", HeaderValue::from(metageneration));
+    }
     response.headers_mut().insert(
         "content-type",
         HeaderValue::from_static("application/xml; charset=UTF-8"),
@@ -230,11 +237,19 @@ fn render(params: &Params, page: &ObjectListPage) -> Result<String, Error> {
         "ListBucketResult"
     };
     let mut body = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><{root} xmlns=\"http://doc.s3.amazonaws.com/2006-03-01\">"
+        "{}<{root} xmlns='http://doc.s3.amazonaws.com/2006-03-01'>",
+        super::DECLARATION
     );
+    // Recorded version 1 order: Name, Prefix, Marker, MaxKeys, IsTruncated, Contents. Delimiter
+    // appears only when requested; its position is unverified.
     element(&mut body, "Name", &params.query.bucket);
     name_element(&mut body, "Prefix", &params.query.prefix, params);
-    name_element(&mut body, "Delimiter", &params.query.delimiter, params);
+    if !params.query.delimiter.is_empty() {
+        name_element(&mut body, "Delimiter", &params.query.delimiter, params);
+    }
+    if !params.v2 {
+        render_markers(&mut body, params);
+    }
     element(&mut body, "MaxKeys", &params.limit.to_string());
     element(
         &mut body,
@@ -272,7 +287,10 @@ fn render(params: &Params, page: &ObjectListPage) -> Result<String, Error> {
         element(&mut body, "LastModified", &json::timestamp(object.updated)?);
         element(&mut body, "ETag", &super::object_etag(object));
         element(&mut body, "Size", &object.size.to_string());
-        element(&mut body, "StorageClass", &object.storage_class);
+        // A recorded version 1 listing carries no StorageClass; other forms keep it unverified.
+        if params.v2 || params.query.versions || params.interop {
+            element(&mut body, "StorageClass", &object.storage_class);
+        }
         if params.query.versions {
             element(
                 &mut body,
@@ -302,6 +320,24 @@ fn render(params: &Params, page: &ObjectListPage) -> Result<String, Error> {
     Ok(body)
 }
 
+/// Version 1 marker element names: the interoperable versions listing uses S3's names.
+fn marker_tags(params: &Params) -> (&'static str, &'static str) {
+    if params.interop && params.query.versions {
+        ("KeyMarker", "VersionIdMarker")
+    } else {
+        ("Marker", "GenerationMarker")
+    }
+}
+
+/// The request's version 1 markers, which precede MaxKeys.
+fn render_markers(body: &mut String, params: &Params) {
+    let (marker_tag, generation_tag) = marker_tags(params);
+    name_element(body, marker_tag, &params.marker, params);
+    if let Some(generation) = params.generation_marker {
+        element(body, generation_tag, &generation.to_string());
+    }
+}
+
 fn render_cursor(body: &mut String, params: &Params, page: &ObjectListPage) {
     if params.v2 {
         element(
@@ -326,20 +362,7 @@ fn render_cursor(body: &mut String, params: &Params, page: &ObjectListPage) {
             );
         }
     } else {
-        let marker_tag = if params.interop && params.query.versions {
-            "KeyMarker"
-        } else {
-            "Marker"
-        };
-        let generation_tag = if params.interop && params.query.versions {
-            "VersionIdMarker"
-        } else {
-            "GenerationMarker"
-        };
-        name_element(body, marker_tag, &params.marker, params);
-        if let Some(generation) = params.generation_marker {
-            element(body, generation_tag, &generation.to_string());
-        }
+        let (marker_tag, generation_tag) = marker_tags(params);
         if let Some(cursor) = &page.next {
             name_element(body, &format!("Next{marker_tag}"), &cursor.name, params);
             if let Some(generation) = cursor.generation {

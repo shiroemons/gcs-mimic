@@ -160,7 +160,7 @@ fn xml_service_lists_only_selected_project_in_order_with_persisted_creation_date
     assert!(
         reply
             .body
-            .contains("<ListAllMyBucketsResult xmlns=\"http://doc.s3.amazonaws.com/2006-03-01\">")
+            .contains("<ListAllMyBucketsResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'>")
     );
     assert_eq!(names(&reply.body), ["alpha-bucket", "zulu-bucket"]);
     let metadata = server.request("GET", "/storage/v1/b/alpha-bucket", "", "");

@@ -373,6 +373,7 @@ mod tests {
             }),
             items: vec![object.clone()],
             prefixes: vec!["dir/".into()],
+            bucket_metageneration: None,
         };
         let policy = json::parse_policy(br#"{"etag":"AQ==","bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#).unwrap();
         for profile in [CompatProfile::Native, CompatProfile::LegacyEmulator] {

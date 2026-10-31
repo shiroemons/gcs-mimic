@@ -605,6 +605,128 @@ fn bucket_resources_carry_recorded_fields_in_recorded_order() {
 }
 
 #[test]
+fn xml_listing_matches_the_recorded_document() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    let plain = setup(&server);
+    let second = server.request(
+        "POST",
+        "/upload/storage/v1/b/parity/o?uploadType=media&name=second.txt",
+        "Content-Type: text/plain\r\n",
+        b"second\n",
+    );
+    second.status(200);
+    let contents = |object: &Value, md5: &str| {
+        format!(
+            "<Contents><Key>{}</Key><Generation>{}</Generation><MetaGeneration>1</MetaGeneration>\
+             <LastModified>{}</LastModified><ETag>\"{md5}\"</ETag><Size>{}</Size></Contents>",
+            object["name"].as_str().unwrap(),
+            object["generation"].as_str().unwrap(),
+            object["updated"].as_str().unwrap(),
+            object["size"].as_str().unwrap(),
+        )
+    };
+    let list = server.request("GET", "/parity?max-keys=5", "", b"");
+    list.status(200);
+    assert_eq!(
+        list.body,
+        format!(
+            "<?xml version='1.0' encoding='UTF-8'?>\
+             <ListBucketResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'>\
+             <Name>parity</Name><Prefix></Prefix><Marker></Marker><MaxKeys>5</MaxKeys>\
+             <IsTruncated>false</IsTruncated>{}{}</ListBucketResult>",
+            contents(&plain, "dd2e843409823500b8dbd87f539398e5"),
+            contents(&second.json(), "59d0d19fc45ca69230d858f60a5557f8"),
+        )
+    );
+    assert_eq!(
+        header(&list, "content-type"),
+        Some("application/xml; charset=UTF-8")
+    );
+    assert_eq!(header(&list, "x-goog-metageneration"), Some("1"));
+    assert_eq!(header(&list, "cache-control"), Some(PRIVATE));
+    assert_eq!(
+        header(&list, "content-length"),
+        Some(list.body.len().to_string().as_str())
+    );
+    // The header reports the bucket's current metageneration.
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/parity",
+            JSON,
+            br#"{"labels":{"k":"v"}}"#,
+        )
+        .status(200);
+    let relabeled = server.request("GET", "/parity", "", b"");
+    assert_eq!(header(&relabeled, "x-goog-metageneration"), Some("2"));
+    // A requested delimiter is still echoed.
+    let delimited = server.request("GET", "/parity?delimiter=%2F", "", b"");
+    delimited.status(200);
+    assert!(
+        delimited.body.contains("<Delimiter>/</Delimiter>"),
+        "{}",
+        delimited.body
+    );
+    // A truncated page keeps its continuation markers after the request markers.
+    let truncated = server.request("GET", "/parity?max-keys=1&marker=a", "", b"");
+    truncated.status(200);
+    assert!(
+        truncated
+            .body
+            .contains("<Marker>a</Marker><MaxKeys>1</MaxKeys><IsTruncated>true</IsTruncated>"),
+        "{}",
+        truncated.body
+    );
+    assert!(
+        truncated.body.contains("<NextMarker>"),
+        "{}",
+        truncated.body
+    );
+}
+
+#[test]
+fn xml_documents_use_the_single_quoted_declaration() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    let missing = server.request("GET", "/parity/missing.txt", "", b"");
+    assert_eq!(
+        missing.body,
+        "<?xml version='1.0' encoding='UTF-8'?><Error><Code>NoSuchKey</Code>\
+         <Message>The specified key does not exist.</Message>\
+         <Details>No such object: parity/missing.txt</Details></Error>"
+    );
+    for path in ["/parity", "/parity?versions"] {
+        let reply = server.request("GET", path, "", b"");
+        reply.status(200);
+        assert!(
+            reply
+                .body
+                .starts_with("<?xml version='1.0' encoding='UTF-8'?>"),
+            "{path}: {}",
+            reply.body
+        );
+        assert!(!reply.body.contains("xmlns=\""), "{path}: {}", reply.body);
+    }
+    // Character data keeps literal quotes; only ampersand and angle brackets are escaped.
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/parity/o?uploadType=media&name=a%20%26%3C%22%27.txt",
+            "Content-Type: text/plain\r\n",
+            b"x",
+        )
+        .status(200);
+    let listed = server.request("GET", "/parity?prefix=a", "", b"");
+    assert!(
+        listed.body.contains("a &amp;&lt;\"'.txt"),
+        "{}",
+        listed.body
+    );
+}
+
+#[test]
 fn object_inserts_and_json_write_errors_forbid_every_cache() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);

@@ -276,7 +276,7 @@ fn response(
     record: &ObjectRecord,
     modified: std::time::SystemTime,
 ) -> Result<Response<ResponseBody>, Error> {
-    let mut body = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?><CopyObjectResult>");
+    let mut body = String::from("<?xml version='1.0' encoding='UTF-8'?><CopyObjectResult>");
     element(&mut body, "LastModified", &json::timestamp(modified)?);
     element(&mut body, "ETag", &super::object_etag(record));
     body.push_str("</CopyObjectResult>");

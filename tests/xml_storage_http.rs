@@ -311,7 +311,8 @@ fn xml_bucket_list_encodes_once_and_keeps_object_namespace_collisions() {
         server.put("", name, "body");
     }
     let raw = server.list("");
-    assert!(raw.contains("a &amp;&lt;&quot;&apos;雪"));
+    // Character data escapes only &, < and >; Cloud Storage writes literal quotes.
+    assert!(raw.contains("a &amp;&lt;\"'雪"));
     let encoded = server.list("encoding-type=url");
     assert!(encoded.contains("<EncodingType>url</EncodingType>"));
     assert!(encoded.contains("a%20%26%3C%22%27%E9%9B%AA"));

@@ -122,5 +122,25 @@ microsecond-scale (16 digits) rather than the recorded 19-digit
 nanosecond-scale value, and the default `softDeletePolicy` and `satisfiesPZI`
 stay absent; see `SPEC-RESPONSE-WIRE-REMAINING`.
 
+## XML listing
+
+`GET /<bucket>?max-keys=5` returned `application/xml; charset=UTF-8`,
+`x-goog-metageneration: 1`, `cache-control: private, max-age=0` and:
+
+```xml
+<?xml version='1.0' encoding='UTF-8'?><ListBucketResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'><Name><bucket></Name><Prefix></Prefix><Marker></Marker><MaxKeys>5</MaxKeys><IsTruncated>false</IsTruncated><Contents><Key>plain.txt</Key><Generation>1793442589870383</Generation><MetaGeneration>1</MetaGeneration><LastModified>2026-10-31T10:29:49.875Z</LastModified><ETag>"dd2e843409823500b8dbd87f539398e5"</ETag><Size>16</Size></Contents></ListBucketResult>
+```
+
+(one of the two recorded `Contents` elements shown). No `Delimiter` was sent
+without a delimiter request, and `Contents` carried no `StorageClass`.
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| Document layout | Single-quoted declaration and `xmlns`; `Name`, `Prefix`, request markers and `MaxKeys` before `IsTruncated`; `Delimiter` only when requested; no `StorageClass` in a version 1 listing (version 2 and versions listings keep it, unverified) | `wire_parity_http::xml_listing_matches_the_recorded_document` |
+| Bucket metageneration | `x-goog-metageneration` carries the bucket's current value, read by the same catalog job as the page | `wire_parity_http::xml_listing_matches_the_recorded_document` |
+| Declaration and quotes | Every XML document the server writes (lists, errors, copy, multipart, POST responses) uses the single-quoted declaration; only the listing and the error document were recorded. Character data escapes `&`, `<` and `>` and leaves quotes literal | `wire_parity_http::xml_documents_use_the_single_quoted_declaration`, `xml_bucket_list_encodes_once_and_keeps_object_namespace_collisions` |
+
 Remaining differences are tracked as `SPEC-RESPONSE-WIRE-REMAINING` in
 `compatibility/gaps.json`.
