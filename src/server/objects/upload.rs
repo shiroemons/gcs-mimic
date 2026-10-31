@@ -84,6 +84,7 @@ pub(super) async fn insert(
             max_bytes,
             metadata: crate::object::ObjectMetadataUpdate {
                 customer_key_sha256: key.map(CustomerKey::sha256),
+                predefined_acl: params.predefined_acl,
                 ..Default::default()
             },
             access,
@@ -170,6 +171,7 @@ pub(super) async fn multipart(
     crate::server::retention_access::authorize_upload(ctx.state, &access, &bucket, &metadata)
         .await?;
     metadata.customer_key_sha256 = key.map(CustomerKey::sha256);
+    metadata.predefined_acl = params.predefined_acl;
     if !name_known {
         ctx.await_catalog(catalog.check_upload_replay(
             &bucket,

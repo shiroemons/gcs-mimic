@@ -17,7 +17,9 @@ remain pending.
 - Terraform-style creation combines location, uniform access and enforced PAP.
 - Predefined ACL queries on bucket insert/PATCH/PUT and object
   insert/copy/rewrite/compose fail with 400 when uniform access is enabled.
-  Without uniform access they use the shared unsupported response.
+  Without uniform access they use the shared unsupported response; uploads now
+  apply `predefinedAcl` instead, as recorded in
+  [upload predefined ACL evidence](../evidence/upload-predefined-acl.md).
 - Schema 22 migrates existing buckets to disabled uniform access.
 - Pinned Go and Ruby high-level clients create, inspect and disable access;
   Go Writer predefined ACL fails without publishing an object.

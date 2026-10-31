@@ -82,9 +82,38 @@ fn obj_route_001_media_upload_metadata_download_delete() {
         request(Method::POST, &format!("/upload/storage/v1/b/abc/o?uploadType=media&name=dir%2F%E7%8C%AB+%252F&projection=full&{query}")).unwrap(),
         ObjectRequest::Insert {
             bucket: "abc".to_owned(), name: "dir/猫 %2F".to_owned(),
-            params: ObjectInsertParams { conditions, projection: Projection::Full },
+            params: ObjectInsertParams { conditions, projection: Projection::Full, predefined_acl: None },
         }
     );
+    for upload_type in ["media&name=file", "multipart", "resumable&name=file"] {
+        let parsed = request(
+            Method::POST,
+            &format!(
+                "/upload/storage/v1/b/abc/o?uploadType={upload_type}&predefinedAcl=publicRead"
+            ),
+        )
+        .unwrap();
+        let (ObjectRequest::Insert { params, .. }
+        | ObjectRequest::Multipart { params, .. }
+        | ObjectRequest::Resumable { params, .. }) = parsed
+        else {
+            panic!("{upload_type} parsed as {parsed:?}");
+        };
+        assert_eq!(
+            params.predefined_acl,
+            Some(crate::acl::PredefinedObjectAcl::PublicRead)
+        );
+        for invalid in ["publicReadWrite", "", "bogus"] {
+            let error = request(
+                Method::POST,
+                &format!(
+                    "/upload/storage/v1/b/abc/o?uploadType={upload_type}&predefinedAcl={invalid}"
+                ),
+            )
+            .unwrap_err();
+            assert_eq!(error.reason, "invalidParameter", "{upload_type} {invalid}");
+        }
+    }
     for prefix in ["", "/download"] {
         assert_eq!(
             request(Method::GET, &format!("{prefix}/storage/v1/b/abc/o/dir%2F%E7%8C%AB+%252F?alt=media&generation=7&{query}")).unwrap(),

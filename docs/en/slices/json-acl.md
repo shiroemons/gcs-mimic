@@ -122,9 +122,11 @@ routes retain 400 `invalid`. Exact mixed-error precedence is unverified.
   bucket, owner, membership and canned/default ACL work remains scoped separately.
 - The uploader's `user-` OWNER entry and the object `owner` field are not
   modeled.
-- `predefinedAcl`, `predefinedDefaultObjectAcl` and `destinationPredefinedAcl`
-  keep their existing responses (DESIGN-019); `acl` in insert/copy/rewrite
-  bodies remain unsupported.
+- Upload `predefinedAcl` (media, multipart, resumable) is applied as recorded in
+  [upload predefined ACL evidence](../evidence/upload-predefined-acl.md). Object
+  PATCH/PUT `predefinedAcl`, bucket `predefinedAcl`/`predefinedDefaultObjectAcl`
+  and `destinationPredefinedAcl` keep their existing responses (DESIGN-019);
+  `acl` in insert/copy/rewrite bodies remains unsupported.
 - Resumable-upload completion and rewrite responses do not render ACL fields;
   restore and move do not offer `copySourceAcl` and use the default object ACL.
 - `userProject` keeps the shared unsupported response.

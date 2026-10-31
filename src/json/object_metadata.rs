@@ -107,6 +107,7 @@ fn parse_metadata(
                 .get("acl")
                 .map(|value| super::acl::parse_entries(value, crate::acl::AclKind::Object))
                 .transpose()?,
+            predefined_acl: None,
             replace: mode == WriteMode::Replace,
             content_type: string(body, "contentType")?,
             content_encoding: string(body, "contentEncoding")?,

@@ -181,6 +181,8 @@ pub(crate) fn options(
         .and_then(|v| v.as_ref())
         .cloned()
         .unwrap_or(mime);
+    // Persisted with the session so completion applies the ACL the initiation requested.
+    metadata.predefined_acl = params.predefined_acl;
     Ok((
         name,
         ResumableOptions {

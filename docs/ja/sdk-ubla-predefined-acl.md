@@ -25,6 +25,10 @@ UBLAが有効な場合、バケット作成・PATCH・PUTの `predefinedAcl` と
 UBLAが有効な場合のreasonは `invalidArgument` です。
 無効な場合は共通の未対応応答である400 `badRequest` になります。
 ACLを適用したふりはしません。
+その後、UBLAが無効なバケットへのアップロード（media・multipart・resumable）の
+`predefinedAcl` は適用するようになりました。
+範囲と証跡は [英語の証跡](../en/evidence/upload-predefined-acl.md) にあります。
+copy・rewrite・compose・オブジェクトのPATCH/PUTは引き続き400で拒否します。
 
 カタログはschema 22から23へ移行し、既存バケットはUBLA無効のままです。
 現在の認可はIAMのみなので、UBLAの切り替えによって認可結果は変わりません。

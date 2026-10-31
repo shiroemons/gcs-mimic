@@ -22,6 +22,7 @@ mod acl_permission_effects {
     mod owner_authority;
     mod owner_publication;
     mod owner_replay;
+    mod predefined_upload;
     mod read;
 }
 

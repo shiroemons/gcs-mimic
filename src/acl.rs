@@ -275,9 +275,97 @@ pub(crate) fn project_private(project: &str) -> Vec<AclEntry> {
     .collect()
 }
 
+/// The 400 message for an upload `predefinedAcl` under uniform access. It begins with the
+/// sentence Cloud Storage returns, then adds the local remedy.
+pub(crate) const UNIFORM_ACCESS_UPLOAD_ACL: &str = "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled; remove predefinedAcl (for example, omit predefinedAcl=publicRead) and use bucket IAM permissions";
+
+/// A JSON API object `predefinedAcl` value. `publicReadWrite` is bucket-only and is not one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PredefinedObjectAcl {
+    AuthenticatedRead,
+    BucketOwnerFullControl,
+    BucketOwnerRead,
+    Private,
+    ProjectPrivate,
+    PublicRead,
+}
+
+impl PredefinedObjectAcl {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "authenticatedRead" => Self::AuthenticatedRead,
+            "bucketOwnerFullControl" => Self::BucketOwnerFullControl,
+            "bucketOwnerRead" => Self::BucketOwnerRead,
+            "private" => Self::Private,
+            "projectPrivate" => Self::ProjectPrivate,
+            "publicRead" => Self::PublicRead,
+            _ => return None,
+        })
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::AuthenticatedRead => "authenticatedRead",
+            Self::BucketOwnerFullControl => "bucketOwnerFullControl",
+            Self::BucketOwnerRead => "bucketOwnerRead",
+            Self::Private => "private",
+            Self::ProjectPrivate => "projectPrivate",
+            Self::PublicRead => "publicRead",
+        }
+    }
+
+    /// The canned entries apart from the object owner's OWNER grant, which publication adds
+    /// from the object's recorded owner. The bucket owner is the owning project's owners team.
+    pub(crate) fn entries(self, project: &str) -> Vec<AclEntry> {
+        let entry = |entity: String, role: &str| AclEntry {
+            entity,
+            role: role.to_owned(),
+        };
+        let owners = || format!("project-owners-{}", project_number(project));
+        match self {
+            Self::AuthenticatedRead => vec![entry("allAuthenticatedUsers".into(), "READER")],
+            Self::BucketOwnerFullControl => vec![entry(owners(), "OWNER")],
+            Self::BucketOwnerRead => vec![entry(owners(), "READER")],
+            Self::Private => Vec::new(),
+            Self::ProjectPrivate => project_private(project),
+            Self::PublicRead => vec![entry("allUsers".into(), "READER")],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn predefined_object_acls_round_trip_and_exclude_bucket_only_values() {
+        for value in [
+            "authenticatedRead",
+            "bucketOwnerFullControl",
+            "bucketOwnerRead",
+            "private",
+            "projectPrivate",
+            "publicRead",
+        ] {
+            let parsed = PredefinedObjectAcl::parse(value).unwrap();
+            assert_eq!(parsed.as_str(), value);
+            validate_entries(AclKind::Object, &parsed.entries("123")).unwrap();
+        }
+        for value in ["publicReadWrite", "", "PublicRead", "public-read"] {
+            assert_eq!(PredefinedObjectAcl::parse(value), None, "{value}");
+        }
+        assert_eq!(
+            PredefinedObjectAcl::BucketOwnerRead.entries("local"),
+            vec![AclEntry {
+                entity: "project-owners-0".into(),
+                role: "READER".into()
+            }]
+        );
+        assert_eq!(
+            PredefinedObjectAcl::ProjectPrivate.entries("123"),
+            project_private("123")
+        );
+    }
 
     #[test]
     fn entities_follow_the_discovery_forms() {

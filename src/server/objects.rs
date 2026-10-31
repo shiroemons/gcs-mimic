@@ -54,7 +54,7 @@ pub(super) async fn respond(
     let acl_full = acl::full_projection(request.method(), request.uri().query())
         && !matches!(operation, ObjectRequest::Restore { .. });
     if query.contains_key("predefinedAcl") || query.contains_key("destinationPredefinedAcl") {
-        reject_predefined_acl(request.uri(), ctx, bucket).await?;
+        check_predefined_acl(request.uri(), ctx, bucket, &operation, &access).await?;
     }
     validate_request(request.headers(), &operation)?;
     let written = match operation {
@@ -177,11 +177,33 @@ fn required_permission(operation: &ObjectRequest) -> (&'static str, &str) {
     }
 }
 
-async fn reject_predefined_acl(
+/// Uploads apply `predefinedAcl` outside uniform access; every other operation, and any
+/// predefined ACL under uniform access, keeps its explicit 400. Publication rechecks uniform
+/// access and public access prevention atomically.
+async fn check_predefined_acl(
     uri: &Uri,
     ctx: ObjectCtx<'_>,
     bucket: &str,
+    operation: &ObjectRequest,
+    access: &BucketAccess,
 ) -> Result<(), JsonError> {
+    let target = if matches!(
+        operation,
+        ObjectRequest::Insert { .. }
+            | ObjectRequest::Multipart { .. }
+            | ObjectRequest::Resumable { .. }
+    ) {
+        // Documented: anonymous uploads cannot specify a predefined ACL. Their owner is the
+        // project owners team, so an anonymous caller could otherwise choose its object's ACL.
+        if matches!(access, BucketAccess::Policy { identity: None, .. }) {
+            return Err(JsonError::invalid_argument(
+                "Anonymous callers cannot specify predefinedAcl on upload; authenticate or omit predefinedAcl",
+            ));
+        }
+        json::PredefinedAclTarget::ObjectUpload
+    } else {
+        json::PredefinedAclTarget::Object
+    };
     let record = ctx
         .state
         .catalog
@@ -191,7 +213,7 @@ async fn reject_predefined_acl(
     json::reject_predefined_acl(
         uri.query(),
         json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
-        json::PredefinedAclTarget::Object,
+        target,
     )
 }
 

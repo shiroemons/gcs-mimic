@@ -648,6 +648,8 @@ impl UniformAccess {
 pub(crate) enum PredefinedAclTarget {
     Bucket,
     Object,
+    /// A media, multipart or resumable upload, which applies `predefinedAcl` outside UBLA.
+    ObjectUpload,
 }
 
 pub(crate) fn reject_predefined_acl(
@@ -661,14 +663,23 @@ pub(crate) fn reject_predefined_acl(
         "predefinedDefaultObjectAcl",
         "destinationPredefinedAcl",
     ] {
-        if query.contains_key(key) {
+        let applied = target == PredefinedAclTarget::ObjectUpload
+            && key == "predefinedAcl"
+            && uniform_access == UniformAccess::Disabled;
+        if query.contains_key(key) && !applied {
             return Err(match (uniform_access, target) {
+                (UniformAccess::Enabled, PredefinedAclTarget::ObjectUpload)
+                    if key == "predefinedAcl" =>
+                {
+                    JsonError::invalid_argument(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
+                }
                 (UniformAccess::Enabled, _) => JsonError::invalid_argument(format!(
                     "{key} cannot be used with uniform bucket-level access; remove {key} (for example, omit {key}=publicRead) and use bucket IAM permissions"
                 )),
-                (UniformAccess::Disabled, PredefinedAclTarget::Object) => {
-                    JsonError::unsupported_object(key)
-                }
+                (
+                    UniformAccess::Disabled,
+                    PredefinedAclTarget::Object | PredefinedAclTarget::ObjectUpload,
+                ) => JsonError::unsupported_object(key),
                 (UniformAccess::Disabled, PredefinedAclTarget::Bucket) => {
                     JsonError::unsupported(key)
                 }

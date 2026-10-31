@@ -74,6 +74,15 @@ fn validate_effective_entries(
 pub(super) enum PublicationAcl<'a> {
     InheritDefault,
     Preserve(&'a [AclEntry]),
+    /// A request's `predefinedAcl`, checked against uniform access and public access
+    /// prevention in the publishing transaction so a concurrent bucket change cannot slip past.
+    Predefined(crate::acl::PredefinedObjectAcl),
+}
+
+impl PublicationAcl<'_> {
+    pub(super) fn requested(predefined: Option<crate::acl::PredefinedObjectAcl>) -> Self {
+        predefined.map_or(Self::InheritDefault, Self::Predefined)
+    }
 }
 
 pub(super) fn effective_object_entries(
@@ -111,6 +120,22 @@ pub(super) fn publish_object_acl(
             stored.unwrap_or_else(|| project_private(&row.project))
         }
         PublicationAcl::Preserve(entries) => entries.to_vec(),
+        PublicationAcl::Predefined(predefined) => {
+            if row.uniform_access {
+                return Err(ObjectError::InvalidFixedMetadata(
+                    crate::acl::UNIFORM_ACCESS_UPLOAD_ACL.into(),
+                ));
+            }
+            let entries = predefined.entries(&row.project);
+            if entries
+                .iter()
+                .any(|entry| Entity::parse(&entry.entity).is_ok_and(Entity::is_public))
+                && public_access_prevention(connection, bucket).map_err(object_unavailable)?
+            {
+                return Err(ObjectError::PublicAccessPrevention);
+            }
+            entries
+        }
     };
     if let Some(owner) = &record.owner {
         owner.preserve_grant(&mut entries);

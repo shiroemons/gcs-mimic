@@ -407,7 +407,7 @@ impl Catalog {
                             &options.access,
                         ),
                         owner_profile: principals.as_ref(),
-                        acl: super::acl::PublicationAcl::InheritDefault,
+                        acl: super::acl::PublicationAcl::requested(options.metadata.predefined_acl),
                     },
                     |generation| {
                         let mut record = publication_record(

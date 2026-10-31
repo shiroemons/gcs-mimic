@@ -14708,6 +14708,18 @@
           ]
         },
         {
+          "id": "JSON-OBJECTS-007-PREDEFINED-ACL",
+          "description": "Media, multipart and resumable predefinedAcl (authenticatedRead, bucketOwnerFullControl, bucketOwnerRead, private, projectPrivate, publicRead) replaces the default object ACL with the owner plus the canned entries in the publishing transaction; resumable sessions persist the value across restart; uniform access returns 400 and public values under enforced public access prevention return 412, both rechecked at publication; storage.objects.create suffices; anonymous strict uploads and invalid values return 400. Object PATCH/PUT predefinedAcl, destinationPredefinedAcl, gRPC and XML x-goog-acl stay rejected. See docs/en/evidence/upload-predefined-acl.md.",
+          "result": "PASS",
+          "test_ids": [
+            "acl_permission_effects::predefined_upload::media_upload_predefined_acls_replace_the_default_object_acl",
+            "acl_permission_effects::predefined_upload::multipart_and_resumable_uploads_apply_predefined_acl_at_publication",
+            "acl_permission_effects::predefined_upload::predefined_acl_uploads_need_only_create_and_respect_access_settings",
+            "acl::tests::predefined_object_acls_round_trip_and_exclude_bucket_only_values",
+            "xml::uniform_access_metadata_and_predefined_acl_rejections"
+          ]
+        },
+        {
           "id": "JSON-OBJECTS-007-PENDING",
           "description": "Implement broader bucket policies, object IAM/ACLs, encryption and encoding/transcoding effects, full field/common parameter semantics, the unresolved Discovery upload alias and bounded upload-token response replay; the scoped JSON resumable subset and unconditional bucket grants now pass. SPEC-008 mutation NotMatch status and header/size/admission/advisory/body/hash/publication/permission precedence; SPEC-RSM-AUTH-CONDITIONS / SPEC-RSM-EDGES finalization recheck timing and extra session-query 400 (wire-tested for PUT ifGenerationMatch) versus ambiguous subsequent-PUT query/header wording; SPEC-016 multipart X-Goog-Hash; SPEC-RSM-EDGES multi-data-request resumable MD5; SPEC-010/012/016/017 checksum/error/header parity. Preserve local EOF/atomicity and timeout/reclaim safety evidence.",
           "result": "PENDING",
@@ -15296,9 +15308,15 @@
         "gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate",
         "invalid_gzip_initiations_never_create_sessions",
         "gzip_initiation_bounds_compressed_and_expanded_metadata",
-        "gzip_initiation_retains_strict_authentication_and_upload_permissions"
+        "gzip_initiation_retains_strict_authentication_and_upload_permissions",
+        "acl_permission_effects::predefined_upload::media_upload_predefined_acls_replace_the_default_object_acl",
+        "acl_permission_effects::predefined_upload::multipart_and_resumable_uploads_apply_predefined_acl_at_publication",
+        "acl_permission_effects::predefined_upload::predefined_acl_uploads_need_only_create_and_respect_access_settings",
+        "acl::tests::predefined_object_acls_round_trip_and_exclude_bucket_only_values",
+        "xml::uniform_access_metadata_and_predefined_acl_rejections"
       ],
       "verification": [
+        {"command":"cargo test --locked --test acl_permission_effects predefined_upload && cargo test --locked --lib acl::tests && cargo test --locked --test auth_http uniform_access","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/upload-predefined-acl.md","test_ids":["acl_permission_effects::predefined_upload::media_upload_predefined_acls_replace_the_default_object_acl","acl_permission_effects::predefined_upload::multipart_and_resumable_uploads_apply_predefined_acl_at_publication","acl_permission_effects::predefined_upload::predefined_acl_uploads_need_only_create_and_respect_access_settings","acl::tests::predefined_object_acls_round_trip_and_exclude_bucket_only_values","xml::uniform_access_metadata_and_predefined_acl_rejections"]},
         {"command":"cargo test --test http_resumable_gzip --test http_ingress --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/http-ingress.md","test_ids":["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_retains_strict_authentication_and_upload_permissions"]},
         {
           "command": "cargo test --locked --offline --test sdk_ruby_defaults_http",

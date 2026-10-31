@@ -147,6 +147,9 @@ pub(crate) fn custom_time_key(value: &str) -> Result<(i64, u32), ObjectError> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ObjectMetadataUpdate {
     pub(crate) acl: Option<Vec<crate::acl::AclEntry>>,
+    /// Replaces the bucket's default object ACL for a newly published generation. Only
+    /// publication reads it; the JSON API accepts it on uploads alone.
+    pub(crate) predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
     pub replace: bool,
     pub content_type: Option<Option<String>>,
     pub content_encoding: Option<Option<String>>,

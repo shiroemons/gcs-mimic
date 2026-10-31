@@ -1106,7 +1106,9 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
             br#"{"iamConfiguration":{"bucketPolicyOnly":{"enabled":false}}}"#,
         )
         .ok();
-    for route in routes {
+    // Without uniform access uploads apply predefinedAcl; copy, rewrite and compose still
+    // reject destinationPredefinedAcl explicitly.
+    for route in &routes[3..6] {
         let reply = server.request("POST", route, ADMIN, b"{}");
         assert_eq!(
             reply.json()["error"]["errors"][0]["reason"],

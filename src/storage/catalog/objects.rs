@@ -856,7 +856,7 @@ impl UploadCommit {
                 origin: super::change_journal::origin(&self.access),
                 notification_mode: NotificationMode::for_access(&self.access),
                 owner_profile: self.principals.as_ref(),
-                acl: super::acl::PublicationAcl::InheritDefault,
+                acl: super::acl::PublicationAcl::requested(self.metadata.predefined_acl),
             },
             |generation| {
                 let mut record = self.record(generation, defaults)?;

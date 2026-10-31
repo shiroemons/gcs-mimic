@@ -526,7 +526,24 @@ pub(super) fn encode_options(o: &ResumableOptions) -> Value {
     if let Some(class) = &m.storage_class {
         options["metadata"]["storageClass"] = class.as_str().into();
     }
+    // Likewise omitted by older sessions, which keep inheriting the bucket's default ACL.
+    if let Some(predefined) = m.predefined_acl {
+        options["metadata"]["predefinedAcl"] = predefined.as_str().into();
+    }
     options
+}
+
+fn decode_predefined_acl(
+    value: &Value,
+) -> Result<Option<crate::acl::PredefinedObjectAcl>, InvalidOptions> {
+    let invalid = || InvalidOptions::new("invalid resumable predefinedAcl");
+    match value {
+        Value::Null => Ok(None),
+        Value::String(value) => crate::acl::PredefinedObjectAcl::parse(value)
+            .map(Some)
+            .ok_or_else(invalid),
+        _ => Err(invalid()),
+    }
 }
 
 /// Stored resumable session options that no longer decode; the catalog treats them as corrupt.
@@ -630,6 +647,7 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, InvalidOptio
         content_type: v["content_type"].as_str().ok_or_else(invalid)?.into(),
         metadata: ObjectMetadataUpdate {
             acl: None,
+            predefined_acl: decode_predefined_acl(&v["metadata"]["predefinedAcl"])?,
             replace: if v["version"] == 2 {
                 v["metadata"]["replace"].as_bool().ok_or_else(invalid)?
             } else {

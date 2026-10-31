@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 pub(crate) struct ObjectInsertParams {
     pub conditions: ObjectConditions,
     pub projection: Projection,
+    pub predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -206,6 +207,12 @@ fn parse_object_query(
     raw: &str,
 ) -> Result<ObjectRequest, JsonError> {
     let mut query = parse_query(raw)?;
+    // Uploads apply predefinedAcl; other methods keep the server's explicit rejection.
+    let predefined_acl = if name.is_none() {
+        query.remove("predefinedAcl")
+    } else {
+        None
+    };
     let content_encoding = take_common_parameters(method, &mut query)?;
     let media = match query.remove("alt").as_deref() {
         None | Some("json") => false,
@@ -226,7 +233,14 @@ fn parse_object_query(
         if_metageneration_not_match: integer(&mut query, "ifMetagenerationNotMatch")?,
     };
     match name {
-        None => parse_upload_query(bucket, query, conditions, content_encoding),
+        None => {
+            let upload = UploadQuery {
+                conditions,
+                content_encoding,
+                predefined_acl,
+            };
+            parse_upload_query(bucket, query, upload)
+        }
         Some(name) => {
             let target = QueryTarget {
                 bucket,
@@ -292,12 +306,32 @@ fn take_common_parameters(
     Ok(content_encoding)
 }
 
+/// Upload options taken from the query before method-specific parsing.
+struct UploadQuery {
+    conditions: ObjectConditions,
+    content_encoding: Option<String>,
+    predefined_acl: Option<String>,
+}
+
 fn parse_upload_query(
     bucket: String,
     mut query: BTreeMap<String, String>,
-    conditions: ObjectConditions,
-    content_encoding: Option<String>,
+    upload: UploadQuery,
 ) -> Result<ObjectRequest, JsonError> {
+    let UploadQuery {
+        conditions,
+        content_encoding,
+        predefined_acl,
+    } = upload;
+    let predefined_acl = predefined_acl
+        .map(|value| {
+            crate::acl::PredefinedObjectAcl::parse(&value).ok_or_else(|| {
+                JsonError::invalid_parameter(format!(
+                    "Invalid predefinedAcl {value:?}; use authenticatedRead, bucketOwnerFullControl, bucketOwnerRead, private, projectPrivate or publicRead (for example, predefinedAcl=publicRead)"
+                ))
+            })
+        })
+        .transpose()?;
     let missing_name =
         || JsonError::new(StatusCode::BAD_REQUEST, "required", "Missing required name");
     let (multipart, resumable) = match query.remove("uploadType").as_deref() {
@@ -329,6 +363,7 @@ fn parse_upload_query(
     let params = ObjectInsertParams {
         conditions,
         projection,
+        predefined_acl,
     };
     if resumable {
         if conditions.if_generation_match.is_some_and(|n| n < 0)
