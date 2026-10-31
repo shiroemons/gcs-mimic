@@ -303,6 +303,14 @@ for hashbrown 0.17.1). Both ship their license texts (indexmap is MIT OR Apache-
 Zlib) and have non-archived publisher repositories. The cost is an insertion-ordered map in place
 of a sorted one; response sizes stay bounded exactly as before.
 
+Side effects of `preserve_order` checked on 2026-10-31. The upload-replay fingerprint hashes
+the `Debug` text of typed values (a `BTreeMap` for custom metadata, never a `serde_json::Map`),
+so replay tokens recorded before the upgrade still match after it; a golden digest recorded on
+the pre-upgrade build is pinned in a test. Pub/Sub JSON payloads now list their fields in the
+object resource's recorded order instead of alphabetically; the payload is the same object and
+consumers parse it as JSON, so the change is cosmetic. `Map::remove` swaps the last field into
+the gap under this feature, so code that drops a field uses `shift_remove`.
+
 The V4 signed-download slice promotes the already locked TLS transitive dependency
 `ring` 0.17.14 to a direct dependency for RSASSA-PKCS1-v1_5 SHA-256 signing,
 verification and canonical-request SHA-256. No second crypto implementation is

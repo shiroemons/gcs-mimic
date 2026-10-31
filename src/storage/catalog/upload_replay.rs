@@ -591,3 +591,51 @@ impl UploadGuard {
         self.replay.as_ref().map(|r| r.snapshot.clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::ObjectMetadataUpdate;
+    use std::collections::BTreeMap;
+
+    /// A replay token outlives a restart, and a restart can be an upgrade, so the fingerprint
+    /// of a request must not change with the JSON library's map ordering. Its input is typed
+    /// and ordered (`BTreeMap`), never a `serde_json::Map`; this golden value was recorded
+    /// before `serde_json` began preserving insertion order and must stay unchanged.
+    #[test]
+    fn fingerprint_is_stable_across_the_json_map_ordering_change() {
+        let metadata = ObjectMetadataUpdate {
+            content_type: Some(Some("text/plain".into())),
+            metadata: Some(Some(BTreeMap::from([
+                ("zeta".to_owned(), Some("1".to_owned())),
+                ("alpha".to_owned(), None),
+                ("mid".to_owned(), Some("3".to_owned())),
+            ]))),
+            acl: Some(vec![
+                crate::acl::AclEntry {
+                    entity: "user-b@example.test".into(),
+                    role: "OWNER".into(),
+                },
+                crate::acl::AclEntry {
+                    entity: "allUsers".into(),
+                    role: "READER".into(),
+                },
+            ]),
+            ..Default::default()
+        };
+        let digest = fingerprint(&(
+            "bucket",
+            "name",
+            "text/plain",
+            &metadata,
+            ObjectConditions::default(),
+            5_u64,
+            [7_u8; 32],
+        ));
+        let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(
+            hex,
+            "efb78fcb6bc2c1dbe3cc0e0e0b4e797c09c5227c43717186eb9271699df8876f"
+        );
+    }
+}

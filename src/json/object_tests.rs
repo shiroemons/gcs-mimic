@@ -952,3 +952,39 @@ fn obj_csek_002_metadata_update_accepts_only_echoed_customer_encryption() {
             .is_err()
     );
 }
+
+/// A Pub/Sub JSON payload drops the listener-dependent links without reordering the other
+/// fields: `serde_json` removes by swapping the last field into the gap unless told to shift.
+#[test]
+fn notification_payload_keeps_the_resource_field_order_after_dropping_links() {
+    let object = record();
+    let message = crate::notification::Message {
+        event: crate::notification::Event::Finalize,
+        object: &object,
+        time: UNIX_EPOCH,
+        replacement: None,
+    };
+    let config = crate::notification::NotificationConfig {
+        topic: "//pubsub.googleapis.com/projects/p/topics/t".into(),
+        payload_format: "JSON_API_V1".into(),
+        event_types: vec![],
+        custom_attributes: Default::default(),
+        object_name_prefix: String::new(),
+    };
+    let encoded: serde_json::Value =
+        serde_json::from_str(&message.encode(&config, None).unwrap()).unwrap();
+    let mut expected = serde_json::Map::new();
+    for (key, value) in object_resource(&object, "", Projection::NoAcl)
+        .unwrap()
+        .as_object()
+        .unwrap()
+    {
+        if key != "selfLink" && key != "mediaLink" {
+            expected.insert(key.clone(), value.clone());
+        }
+    }
+    assert_eq!(
+        encoded["messages"][0]["data"],
+        base64(serde_json::Value::Object(expected).to_string().as_bytes())
+    );
+}

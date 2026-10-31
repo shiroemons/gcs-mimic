@@ -89,8 +89,9 @@ impl Message<'_> {
                     .map_err(invalid_time)?;
             // Notification metadata has no listener-dependent URLs.
             if let Some(fields) = payload.as_object_mut() {
-                fields.remove("selfLink");
-                fields.remove("mediaLink");
+                // shift_remove keeps the recorded order of the remaining fields.
+                fields.shift_remove("selfLink");
+                fields.shift_remove("mediaLink");
             }
             if matches!(self.event, Event::Delete | Event::Archive) {
                 payload["timeDeleted"] =
