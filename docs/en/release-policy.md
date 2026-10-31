@@ -70,9 +70,12 @@ Unreleased user-visible changes that the next minor release notes must state:
 
 - A new native bucket created without `softDeletePolicy` now gets Cloud Storage's
   seven-day soft delete, so deleted objects and buckets keep their bytes for
-  seven days. Set `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0` (or
+  seven days. This includes overwriting an object without versioning: the
+  replaced generation is retained for seven days too. Set
+  `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0` (or
   `--default-soft-delete-retention-seconds 0`) to keep permanent deletion.
-  Existing buckets and the legacy-emulator profile are unchanged.
+  Existing buckets and the legacy-emulator profile are unchanged, and
+  `--backend memory` defaults to 0 unless the setting is given.
 - Native bucket resources carry `satisfiesPZI: true`, nanosecond-scale
   19-digit `generation` values (schema 46 rescales stored ones) and
   millisecond timestamps; JSON media responses no longer send `accept-ranges`.
