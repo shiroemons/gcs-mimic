@@ -55,6 +55,14 @@ pub(super) fn insert_transcoded_headers(headers: &mut HeaderMap) {
     ] {
         headers.remove(name);
     }
+    // The expanded bytes differ from the stored ones, so Cloud Storage sends the tag weak
+    // on every gunzipped response, 200, HEAD and 400 alike, on both APIs.
+    if let Some(etag) = headers.get("etag").cloned()
+        && !etag.as_bytes().starts_with(b"W/")
+        && let Ok(weak) = HeaderValue::from_bytes(&[b"W/", etag.as_bytes()].concat())
+    {
+        headers.insert("etag", weak);
+    }
     headers.insert(
         "x-guploader-response-body-transformations",
         HeaderValue::from_static("gunzipped"),

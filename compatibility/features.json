@@ -28742,7 +28742,7 @@
         },
         {
           "id": "GZIP-REMAINING-PARITY",
-          "description": "Weak ETags on gunzipped responses, double-compression detection, additional encodings and exact provider negotiation/error parity remain pending.",
+          "description": "Gunzipped responses (200, HEAD and the plain-body 400) now carry a weak ETag as observed 2026-10-31, and the 400 pins its cache, pragma and vary headers per API. Double-compression detection, additional encodings and exact provider negotiation/error parity remain pending.",
           "result": "PENDING",
           "test_ids": []
         }

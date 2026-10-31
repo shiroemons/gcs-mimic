@@ -76,13 +76,18 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
             assert!(!expanded.headers.contains_key(name), "{name}");
         }
         for name in [
-            "etag",
             "x-goog-hash",
             "x-goog-stored-content-encoding",
             "x-goog-stored-content-length",
         ] {
             assert_eq!(expanded.headers[name], raw.headers[name], "{name}");
         }
+        // Expanded bytes differ from the stored ones, so the tag is weak (observed 2026-10-31).
+        assert_eq!(
+            expanded.headers["etag"],
+            format!("W/{}", raw.headers["etag"]),
+            "{extra}"
+        );
     }
     let not_modified = server.request(
         "GET",
@@ -541,6 +546,21 @@ fn gunzipping_a_plain_body_fails_400_before_the_headers_are_sent() {
         assert_eq!(reply.headers["x-goog-stored-content-length"], "29");
         assert!(reply.headers.contains_key("x-goog-hash"), "{path}");
         assert!(!reply.headers.contains_key("content-encoding"), "{path}");
+        assert!(!reply.headers.contains_key("accept-ranges"), "{path}");
+        assert!(reply.headers["etag"].starts_with("W/"), "{path}");
+        // The two APIs differ in cache, pragma and vary fields (observed 2026-10-31).
+        if path.starts_with("/storage/") {
+            assert_eq!(
+                reply.headers["cache-control"],
+                "no-cache, no-store, max-age=0, must-revalidate"
+            );
+            assert_eq!(reply.headers["pragma"], "no-cache");
+            assert_eq!(reply.headers["vary"], "Origin, X-Origin");
+        } else {
+            assert_eq!(reply.headers["cache-control"], "private, max-age=0");
+            assert_eq!(reply.headers["vary"], "Accept-Encoding");
+            assert!(!reply.headers.contains_key("pragma"), "{path}");
+        }
     }
     for path in [
         "/storage/v1/b/test-bucket/o/plain?alt=media",

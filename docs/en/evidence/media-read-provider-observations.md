@@ -197,7 +197,16 @@ decompressed (the upload answered 200). Reads of that object:
 Local limits: only the leading magic bytes are checked, so a body that starts
 like gzip and breaks later still aborts mid-stream (as before). An empty
 object is not rejected. HEAD reads no bytes and is not checked; the provider's
-HEAD for such an object was not observed. The weak ETag is not reproduced here.
+HEAD for such an object is covered below. Every gunzipped response carries a weak
+ETag (`W/` plus the stored tag), which is now reproduced; the 400 pins these
+per-API fields:
+
+| Field | JSON | XML |
+| --- | --- | --- |
+| `cache-control` | `no-cache, no-store, max-age=0, must-revalidate` | `private, max-age=0` |
+| `pragma` | `no-cache` | absent |
+| `vary` | `Origin`, `X-Origin` (no `Accept-Encoding`) | `Accept-Encoding` |
+| `accept-ranges` | absent | absent |
 
 ## HEAD with `Range`
 
