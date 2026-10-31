@@ -1580,8 +1580,10 @@ mod tests {
             );
         }
         assert_eq!(retention.retain_until_time.unwrap().seconds, now + 3600);
-        assert!(
-            s.delete_object(
+        // Deleting a retained object is 403 in JSON, so PERMISSION_DENIED with the same text
+        // (observed 2026-11-01).
+        let denied = s
+            .delete_object(
                 Request::new(pb::DeleteObjectRequest {
                     bucket: "projects/_/buckets/retention-objects".into(),
                     object: "kept".into(),
@@ -1590,20 +1592,31 @@ mod tests {
                 None,
             )
             .await
-            .is_err()
+            .unwrap_err();
+        assert_eq!(denied.code(), Code::PermissionDenied);
+        assert!(
+            denied.message().starts_with(
+                "Object 'retention-objects/kept' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until "
+            ),
+            "{}",
+            denied.message()
         );
-        // Shortening an Unlocked configuration requires the override and is 403 in JSON, so
-        // PERMISSION_DENIED here.
-        assert_eq!(
-            s.update_object(
-                Request::new(request("retention-objects", "kept", Some(60), false)),
-                None
-            )
-            .await
-            .unwrap_err()
-            .code(),
-            Code::PermissionDenied
-        );
+        // Shortening or removing an Unlocked configuration requires the override and is 403 in
+        // JSON, so PERMISSION_DENIED here with the same text (observed 2026-11-01).
+        for seconds in [Some(60), None] {
+            let denied = s
+                .update_object(
+                    Request::new(request("retention-objects", "kept", seconds, false)),
+                    None,
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(denied.code(), Code::PermissionDenied, "{seconds:?}");
+            assert_eq!(
+                denied.message(),
+                crate::object::UNLOCKED_RETENTION_OVERRIDE_MESSAGE
+            );
+        }
         let current = s
             .state
             .catalog
@@ -1699,6 +1712,42 @@ mod tests {
         assert_eq!((until.seconds, until.nanos), (now + 3600, 123_456_789));
         let expire = object.retention_expire_time.unwrap();
         assert_eq!((expire.seconds, expire.nanos), (now + 3600, 123_000_000));
+        s.state.catalog.close().await.unwrap();
+    }
+
+    /// With a bucket retention policy, `retention_expire_time` is also cut to the millisecond
+    /// (observed 2026-11-01) while the denial text keeps the microsecond creation time.
+    #[tokio::test]
+    async fn grpc_bucket_policy_expire_time_is_milliseconds() {
+        let (s, _dir) = setup().await;
+        let bytes = br#"{"name":"policy-ms","retentionPolicy":{"retentionPeriod":"3600"}}"#;
+        let record = json::parse_insert(bytes, "local-project", s.state.clock.now()).unwrap();
+        s.state.catalog.insert_bucket(record).await.unwrap();
+        let object = upload_to(&s, "policy-ms", "kept", 3).await;
+        let expire = convert::object(&object)
+            .unwrap()
+            .retention_expire_time
+            .unwrap();
+        assert_eq!(expire.nanos % 1_000_000, 0);
+        let created = object
+            .time_created
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap();
+        assert_eq!(expire.seconds, created.as_secs() as i64 + 3600);
+        assert_eq!(expire.nanos as u32, created.subsec_millis() * 1_000_000);
+        let denied = s
+            .delete_object(
+                Request::new(pb::DeleteObjectRequest {
+                    bucket: "projects/_/buckets/policy-ms".into(),
+                    object: "kept".into(),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(denied.code(), Code::PermissionDenied);
+        assert!(denied.message().contains("bucket's retention policy"));
         s.state.catalog.close().await.unwrap();
     }
 

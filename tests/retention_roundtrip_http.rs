@@ -410,3 +410,31 @@ fn bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention
     assert_eq!(status, 204, "{body}");
     server.stop();
 }
+
+/// Observed on Cloud Storage (2026-11-01): removing or shortening an Unlocked retention
+/// without the override is 403 `forbidden` with one shared text; with the override both work.
+#[test]
+fn unlocked_removal_and_shortening_share_one_refusal_without_the_override() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    setup(&server, &["unlocked"]);
+    set_retention(&server, "unlocked", "Unlocked");
+    let shorter = json!({"retention":{"mode":"Unlocked","retainUntilTime":"2099-01-02T03:04:04Z"}});
+    for body in [json!({"retention":null}), shorter] {
+        let (status, reply) = server.request("PATCH", &object_path("unlocked"), &body.to_string());
+        assert_eq!(status, 403, "{reply}");
+        assert_eq!(reply["error"]["errors"][0]["reason"], "forbidden");
+        assert_eq!(
+            reply["error"]["message"],
+            "The unlocked object retention cannot be removed and its retention period cannot be shortened without overriding unlocked retention intent and permission."
+        );
+    }
+    let (status, reply) = server.request(
+        "PATCH",
+        &format!("{}?overrideUnlockedRetention=true", object_path("unlocked")),
+        r#"{"retention":null}"#,
+    );
+    assert_eq!(status, 200, "{reply}");
+    assert!(reply.get("retention").is_none(), "{reply}");
+    server.stop();
+}
