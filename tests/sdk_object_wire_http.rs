@@ -46,7 +46,7 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
     assert_eq!(raw.status, 200);
     assert_eq!(raw.body, compressed);
     assert_eq!(raw.headers["content-encoding"], "gzip");
-    assert_eq!(raw.headers["vary"], "Origin, Accept-Encoding");
+    assert_eq!(raw.headers["vary"], "Origin, X-Origin, Accept-Encoding");
     assert!(
         !raw.headers
             .contains_key("x-guploader-response-body-transformations")
@@ -66,7 +66,7 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
             "gunzipped"
         );
         assert_eq!(expanded.headers["warning"], "214 UploadServer gunzipped");
-        assert_eq!(expanded.headers["vary"], "Origin");
+        assert_eq!(expanded.headers["vary"], "Origin, X-Origin");
         for name in [
             "content-encoding",
             "content-length",
@@ -114,7 +114,7 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
     let fixed = server.request("GET", path, ADMIN, b"");
     assert_eq!(fixed.body, compressed);
     // no-transform fixes the representation, so it no longer varies by Accept-Encoding.
-    assert_eq!(fixed.headers["vary"], "Origin");
+    assert_eq!(fixed.headers["vary"], "Origin, X-Origin");
 }
 
 #[test]
@@ -169,6 +169,74 @@ fn xml_gzip_gunzips_whole_object_and_keeps_stored_hashes() {
             .headers
             .contains_key("x-guploader-response-body-transformations")
     );
+}
+
+/// The raw `vary` field lines of one response, in order.
+fn vary_fields(server: &Server, method: &str, path: &str, headers: &str) -> Vec<String> {
+    let mut stream = TcpStream::connect(&server.address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    write!(
+        stream,
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{headers}\r\n"
+    )
+    .unwrap();
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).unwrap();
+    let response = String::from_utf8_lossy(&response);
+    let head = response.split("\r\n\r\n").next().unwrap();
+    head.lines()
+        .filter_map(|line| line.split_once(':'))
+        .filter(|(name, _)| name.eq_ignore_ascii_case("vary"))
+        .map(|(_, value)| value.trim().to_owned())
+        .collect()
+}
+
+/// Every Cloud Storage JSON API response sends `vary: Origin` and `vary: X-Origin` as two
+/// fields, with or without an Origin request header and on errors (observed 2026-10-31).
+#[test]
+fn json_responses_vary_by_origin_and_x_origin() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, true);
+    server.bucket();
+    server.put("plain", b"0123456789abcdef").json();
+    gzip_object(&server, "gzip", &gzip(b"compressed"));
+    let both = ["Origin", "X-Origin"];
+    for origin in ["", "Origin: https://example.test\r\n"] {
+        for (method, path, extra, expected) in [
+            ("GET", "/storage/v1/b/test-bucket/o/plain", "", &both[..]),
+            (
+                "GET",
+                "/storage/v1/b/test-bucket/o/plain?alt=media",
+                "",
+                &both,
+            ),
+            ("HEAD", "/storage/v1/b/test-bucket/o/plain", "", &both),
+            ("GET", "/storage/v1/b/test-bucket/o?maxResults=1", "", &both),
+            ("GET", "/storage/v1/b/test-bucket/o/missing", "", &both),
+            ("GET", "/storage/v1/b/test-bucket", "", &both),
+            (
+                "GET",
+                "/download/storage/v1/b/test-bucket/o/gzip?alt=media",
+                "",
+                &both,
+            ),
+            (
+                "GET",
+                "/storage/v1/b/test-bucket/o/gzip?alt=media",
+                "Accept-Encoding: gzip\r\n",
+                &["Origin", "X-Origin", "Accept-Encoding"],
+            ),
+        ] {
+            let headers = format!("{ADMIN}{origin}{extra}");
+            assert_eq!(
+                vary_fields(&server, method, path, &headers),
+                expected,
+                "{method} {path} {origin}"
+            );
+        }
+    }
 }
 
 /// Cloud Storage answers a JSON media HEAD with the GET headers and no body; only the

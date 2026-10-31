@@ -28643,7 +28643,7 @@
         },
         {
           "id": "GZIP-TRANSFORMATION-HEADERS",
-          "description": "Gunzipped JSON and XML responses send x-guploader-response-body-transformations: gunzipped and Warning: 214 UploadServer gunzipped; a compressed response of a negotiable stored-gzip object sends Vary: Origin and Vary: Accept-Encoding; no-transform responses vary only by Origin, as observed on Cloud Storage.",
+          "description": "Gunzipped JSON and XML responses send x-guploader-response-body-transformations: gunzipped and Warning: 214 UploadServer gunzipped; a compressed response of a negotiable stored-gzip object appends Vary: Accept-Encoding after the CORS Vary fields; no-transform responses vary only by the CORS fields, as observed on Cloud Storage.",
           "result": "PASS",
           "test_ids": [
             "json_gzip_negotiation_range_and_conditions_preserve_stored_representation",
@@ -47082,6 +47082,14 @@
           "test_ids": [
             "signed-browser-strict-initial"
           ]
+        },
+        {
+          "id": "JSON-VARY-ORIGIN-X-ORIGIN",
+          "description": "Every routed JSON API response, including media, list, metadata HEAD and 404 errors, sends vary: Origin and vary: X-Origin as two fields with or without an Origin request header, as observed on Cloud Storage on 2026-10-31; a compressed stored-gzip media response appends vary: Accept-Encoding after them. Preflight keeps its Origin, Access-Control-Request-Method, Access-Control-Request-Headers field. Evidence: docs/en/evidence/media-read-provider-observations.md.",
+          "result": "PASS",
+          "test_ids": [
+            "json_responses_vary_by_origin_and_x_origin"
+          ]
         }
       ],
       "test_ids": [
@@ -47089,6 +47097,7 @@
         "cors-browser-permissive-restart",
         "cors-browser-strict-initial",
         "cors-browser-strict-restart",
+        "json_responses_vary_by_origin_and_x_origin",
         "json::cors::tests::cors_origin_syntax_is_independent_of_listener_and_url_schemes",
         "json_cors_preflight_defaults_never_authenticate_or_grant_access",
         "json_cors_wraps_bucket_object_streaming_errors_and_validators",
@@ -47096,6 +47105,15 @@
         "signed-browser-strict-initial"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --test sdk_object_wire_http json_responses_vary",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/media-read-provider-observations.md",
+          "test_ids": [
+            "json_responses_vary_by_origin_and_x_origin"
+          ]
+        },
         {
           "command": "just check",
           "result": "PASS",

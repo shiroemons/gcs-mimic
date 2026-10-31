@@ -161,9 +161,12 @@ impl Reply {
                 break;
             }
             let (key, value) = line.trim_end().split_once(':').unwrap();
-            // XML media reads send one x-goog-hash field per algorithm, as Cloud Storage does.
-            if key.eq_ignore_ascii_case("x-goog-hash")
-                && let Some(joined) = headers.get_mut("x-goog-hash")
+            // XML media reads send one x-goog-hash field per algorithm and JSON responses send
+            // vary: Origin and vary: X-Origin as two fields, as Cloud Storage does.
+            if ["x-goog-hash", "vary"]
+                .iter()
+                .any(|name| key.eq_ignore_ascii_case(name))
+                && let Some(joined) = headers.get_mut(&key.to_ascii_lowercase())
             {
                 let joined: &mut String = joined;
                 joined.push_str(", ");

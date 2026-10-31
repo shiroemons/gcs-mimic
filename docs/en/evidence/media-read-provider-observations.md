@@ -57,9 +57,9 @@ Object: a 35-byte gzip member stored with `Content-Encoding: gzip`.
 | Gunzipped responses carry the two transformation fields | Sent on JSON media GET and XML GET/HEAD | `json_gzip_negotiation_range_and_conditions_preserve_stored_representation`, `xml_gzip_gunzips_whole_object_and_keeps_stored_hashes` |
 | Range is ignored while transcoding | Full 200 on JSON and XML | the same tests |
 | XML expansion keeps one hash field per algorithm | Unchanged stored-object hashes | `xml_gzip_gunzips_whole_object_and_keeps_stored_hashes` |
-| A compressed response adds `vary: Accept-Encoding` | Appended after the CORS `vary: Origin`; omitted on gunzipped and `no-transform` responses | the same tests |
+| A compressed response adds `vary: Accept-Encoding` | Appended after the CORS `vary: Origin` (and, on JSON, `vary: X-Origin`); omitted on gunzipped and `no-transform` responses | the same tests |
 
-`X-Origin` is not sent locally. XML expansion previously returned 501, and JSON
+XML expansion previously returned 501, and JSON
 expansion did not mark the transformed body.
 
 ## Uploads that declare `contentEncoding`
@@ -129,3 +129,23 @@ gcs-mimic previously returned 400 on `/storage/v1` and 405 on `/download`.
 The weak ETag on gunzipped responses is not reproduced: gcs-mimic keeps its
 opaque strong ETag on every representation. HEAD with `Range` on a stored-gzip
 object sent compressed was not observed; locally it states the range length.
+
+## `Vary` on JSON API responses
+
+Observed **2026-10-31**. Object metadata GET, media GET and HEAD, object
+list and a 404 object GET each sent `vary: Origin` and `vary: X-Origin` as two
+fields, with or without an `Origin` request header. A compressed stored-gzip
+media response added `vary: Accept-Encoding` as a third field. gcs-mimic sent
+only `vary: Origin`.
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| `vary: Origin` and `vary: X-Origin` on every JSON response | Sent as two fields by the JSON CORS wrapper on every routed JSON response, including errors | `json_responses_vary_by_origin_and_x_origin` |
+| `vary: Accept-Encoding` follows them on a compressed response | Appended after the two fields | the same test |
+
+JSON preflight responses keep their single
+`Origin, Access-Control-Request-Method, Access-Control-Request-Headers` field;
+preflight was not part of this observation. Errors returned before routing,
+such as a rejected request `Content-Encoding`, carry no `Vary` field.

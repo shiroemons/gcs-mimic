@@ -172,7 +172,7 @@ fn json_cors_wraps_bucket_object_streaming_errors_and_validators() {
         b"",
     );
     assert_eq!(null.headers["access-control-allow-origin"], "null");
-    assert_eq!(plain.headers["vary"], "Origin");
+    assert_eq!(plain.headers["vary"], "Origin, X-Origin");
 }
 
 #[test]

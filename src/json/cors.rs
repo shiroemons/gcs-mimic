@@ -72,7 +72,10 @@ pub(crate) fn response_headers(
     request: CorsRequest,
 ) -> Result<HeaderMap, JsonError> {
     let mut result = HeaderMap::new();
+    // Cloud Storage sends these as two fields on every JSON API response, with or without an
+    // Origin request header and on errors (observed 2026-10-31).
     result.insert("vary", HeaderValue::from_static("Origin"));
+    result.append("vary", HeaderValue::from_static("X-Origin"));
     let Some(origin) = origin(headers) else {
         return Ok(result);
     };
