@@ -1406,6 +1406,17 @@
       "kind": "SOURCE_QUESTION",
       "observed_evidence": "Discovery defines Bucket.lifecycle as an object whose rule property is an array. The lifecycle-configurations page removes all rules with {\"lifecycle\": {\"rule\": []}}, and managing-lifecycles says to set an empty lifecycle configuration. PHP Storage Lifecycle::clearRules() leaves an empty PHP array that the SDK encodes as \"lifecycle\": []. No official source says whether the JSON API treats an array there as an empty configuration or rejects it as the wrong type. Locally the request returns 400 'Invalid lifecycle configuration; use {\"rule\":[]}' (invalidArgument in the native profile, invalid in the legacy-emulator profile) and leaves the bucket unchanged; null, {}, {\"rule\": null} and {\"rule\": []} clear the rules. The PHP suite clears rules with ['lifecycle' => ['rule' => []]]. No real-service request was made.",
       "required_resolution": "Obtain an authoritative statement or explicitly authorized real-service evidence for \"lifecycle\": []. If the provider clears rules, accept only the empty array as an empty configuration (nonempty arrays stay invalid) and promote the PHP clearRules() journey; otherwise keep the actionable 400."
+    },
+    {
+      "id": "SPEC-GRPC-CHECKSUM-SUBPATH",
+      "title": "Provider result of a gRPC read mask that names only a checksum digest the object does not hold",
+      "status": "OPEN",
+      "affected_features": ["RPC-STORAGE-014"],
+      "source_urls": ["https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto"],
+      "observed_at": "2026-11-01",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The official Java SDK lists objects with a read_mask that names checksums.md5_hash. By protobuf field-mask semantics a sub-path keeps only that child, so gcs-mimic accepts checksums.crc32c and checksums.md5_hash (also under the ReadObject metadata. prefix) and returns checksums with only the named digest. A composed object has no MD5, so a mask naming only checksums.md5_hash returns an empty checksums message. No real-service request was made, so whether Cloud Storage returns an empty message, omits checksums, or rejects the path is unobserved.",
+      "required_resolution": "Observe Cloud Storage for a read_mask of only checksums.md5_hash on a composed object (and for the ReadObject metadata. form), then match the result."
     }
   ],
   "resolved_research_items": [

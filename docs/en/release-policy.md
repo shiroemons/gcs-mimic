@@ -118,6 +118,9 @@ Unreleased user-visible changes that the next minor release notes must state:
   `projectNumber` (a numeric project ID verbatim, `0` otherwise), instead of
   `projects/{project ID}`, because SDKs parse it as a number. gRPC read masks accept
   `checksums.crc32c` and `checksums.md5_hash` (only that digest is returned).
+  A gRPC request that passes `projects/0` (what a project without a number
+  renders as) as a bucket project or parent is rejected with
+  `INVALID_ARGUMENT`.
 
 ## The 1.0.0 gate
 

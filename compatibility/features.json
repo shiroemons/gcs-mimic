@@ -21221,7 +21221,7 @@
         },
         {
           "id": "broader_rpc_semantics",
-          "description": "Nested masks other than checksums.crc32c and checksums.md5_hash, explicitly soft-deleted lookups, restore tokens and the owner entity_id/ACL entity_alt fields remain unsupported.",
+          "description": "Nested masks other than checksums.crc32c and checksums.md5_hash (accepted by GetObject, ListObjects and, under metadata., ReadObject; see SPEC-GRPC-CHECKSUM-SUBPATH), explicitly soft-deleted lookups, restore tokens and the owner entity_id/ACL entity_alt fields remain unsupported.",
           "result": "PENDING",
           "test_ids": []
         }

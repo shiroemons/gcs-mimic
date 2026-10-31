@@ -30,6 +30,16 @@ fn project_name(resource: &str) -> Result<&str, Status> {
             Status::invalid_argument("Invalid project; use projects/local-project or projects/_")
         })?;
     json::validate_project(project).map_err(json_error)?;
+    // `Bucket.project` renders a project with no number as `projects/0` (see
+    // `acl::project_number`). That value names no single project, so taking it back as an ID
+    // would silently address a different project called "0".
+    if project.bytes().all(|byte| byte.is_ascii_digit())
+        && crate::acl::project_number(project) == "0"
+    {
+        return Err(Status::invalid_argument(
+            "Invalid project; projects/0 names no project, use projects/local-project or projects/_",
+        ));
+    }
     Ok(project)
 }
 
@@ -539,6 +549,26 @@ mod tests {
     };
     use std::sync::{Arc, atomic::AtomicBool};
     use tonic::Code;
+
+    #[test]
+    fn project_name_takes_back_rendered_numbers_and_rejects_the_placeholder() {
+        // A numeric ID renders as itself, so the client can pass it back unchanged.
+        assert_eq!(project_name("projects/123").unwrap(), "123");
+        assert_eq!(
+            project_name("projects/local-project").unwrap(),
+            "local-project"
+        );
+        // `projects/0` is what a project without a number renders as; it names no project.
+        for placeholder in [
+            "projects/0",
+            "projects/00",
+            "projects/000000000000000000000000",
+        ] {
+            let error = project_name(placeholder).unwrap_err();
+            assert_eq!(error.code(), Code::InvalidArgument, "{placeholder}");
+            assert!(error.message().contains("projects/0"), "{placeholder}");
+        }
+    }
 
     async fn storage(strict: bool) -> (TestDir, Storage) {
         let dir = TestDir::new();
