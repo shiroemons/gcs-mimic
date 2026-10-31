@@ -888,22 +888,60 @@ fn script_assignment<'a>(script: &'a str, name: &str) -> Option<&'a str> {
         .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
 }
 
-/// Lines that are executed, so a mention in a comment cannot satisfy or defeat a check.
-fn code_lines(source: &str) -> impl Iterator<Item = &str> {
-    source
-        .lines()
-        .filter(|line| !line.trim_start().starts_with('#'))
+/// Drops a `#` comment: a `#` at the start of the line or after whitespace (tab included). A `#`
+/// inside a word, as in `$#`, is kept.
+fn strip_comment(line: &str) -> &str {
+    let mut previous_is_space = true;
+    for (index, c) in line.char_indices() {
+        if c == '#' && previous_is_space {
+            return &line[..index];
+        }
+        previous_is_space = c.is_whitespace();
+    }
+    line
 }
+
+/// Logical command lines: backslash continuations are joined and comments removed, so a mention in
+/// a comment cannot satisfy or defeat a check and a split command cannot hide from it.
+fn code_lines(source: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut pending = String::new();
+    for raw in source.lines() {
+        let code = strip_comment(raw);
+        match code.trim_end().strip_suffix('\\') {
+            Some(head) => {
+                pending.push_str(head);
+                pending.push(' ');
+            }
+            None => {
+                pending.push_str(code);
+                lines.push(std::mem::take(&mut pending));
+            }
+        }
+    }
+    if !pending.is_empty() {
+        lines.push(pending);
+    }
+    lines
+}
+
 /// Whether a line runs an apt front end's `install` subcommand, whatever options sit between the
-/// two words. A trailing ` #` comment is dropped; quoting is not parsed, so a quoted mention can
-/// also match, which only makes the check stricter.
+/// two words. Commands are separated at `&&`, `||`, `;`, `|` and `&`, so `install` belonging to
+/// another command (`make install`) does not count. The command name may be a path. Quoting is
+/// not parsed, so a quoted mention can also match, which only makes the check stricter.
 fn installs_packages(line: &str) -> bool {
-    let code = line.split(" #").next().unwrap_or(line);
-    let mut words = code
-        .split_whitespace()
-        .map(|word| word.trim_matches(|c: char| matches!(c, '\'' | '"' | '(' | ')' | ';')));
-    words.any(|word| matches!(word, "apt-get" | "apt" | "aptitude"))
-        && words.any(|word| word == "install")
+    strip_comment(line)
+        .split(['&', '|', ';', '\n'])
+        .any(|command| {
+            let mut words = command.split_whitespace().map(|word| {
+                let word = word.trim_matches(|c: char| {
+                    matches!(c, '\'' | '"' | '(' | ')' | '$' | '{' | '}' | '`')
+                });
+                word.rsplit('/').next().unwrap_or(word)
+            });
+            words.any(|word| matches!(word, "apt-get" | "apt" | "aptitude"))
+                && words.any(|word| word == "install")
+        })
 }
 
 /// Offline part of the apt pin check: the install script must carry the same snapshot and version
@@ -922,10 +960,16 @@ fn verify_apt_pin(package: &Value, script: &str, callers: &[(&str, &str)]) -> Re
     }
     let invocation = format!("/app/{script_path}");
     for (caller, source) in callers {
-        if !code_lines(source).any(|line| line.contains(&invocation)) {
+        if !code_lines(source)
+            .iter()
+            .any(|line| line.contains(&invocation))
+        {
             return Err(format!("apt install script not used: {caller}"));
         }
-        if code_lines(source).any(installs_packages) {
+        if code_lines(source)
+            .iter()
+            .any(|line| installs_packages(line))
+        {
             return Err(format!("unpinned apt install in {caller}"));
         }
     }
@@ -1986,6 +2030,57 @@ mod tests {
         ] {
             assert!(!installs_packages(line), "{line}");
         }
+    }
+
+    #[test]
+    fn apt_install_is_detected_through_paths_substitutions_and_separators() {
+        for line in [
+            "/usr/bin/apt-get install socat",
+            "$(apt-get install socat)",
+            "{ apt-get install socat; }",
+            "make && apt-get install socat",
+            "true || apt install socat",
+            "echo x | apt-get install socat",
+            "sudo -E apt-get -y install socat # comment",
+            "apt-get update;apt-get install socat",
+        ] {
+            assert!(installs_packages(line), "{line}");
+        }
+    }
+
+    #[test]
+    fn apt_install_ignores_install_that_belongs_to_another_command() {
+        for line in [
+            "apt-get update && make install",
+            "apt-get update; install -m 0755 a b",
+            "install apt-get",
+            "apt-get update\tinstall-socat.sh",
+            "apt-get update\t# install socat",
+            "apt-get update #install socat",
+            "echo $# install",
+        ] {
+            assert!(!installs_packages(line), "{line}");
+        }
+    }
+
+    #[test]
+    fn code_lines_join_continuations_and_drop_comments() {
+        let source =
+            "apt-get \\\n  -qq \\\n  install socat\n# apt-get install x\nfoo # bar\n\tbaz\\\n";
+        assert_eq!(
+            code_lines(source)
+                .iter()
+                .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+                .collect::<Vec<_>>(),
+            ["apt-get -qq install socat", "", "foo", "baz"]
+        );
+    }
+
+    #[test]
+    fn apt_pin_rejects_an_install_split_over_continuation_lines() {
+        let caller = format!("{APT_CALLER}apt-get \\\n  -qq \\\n  install socat\n");
+        let err = verify_apt_pin(&apt_package(), APT_SCRIPT, &[("run.sh", &caller)]).unwrap_err();
+        assert!(err.contains("unpinned"), "{err}");
     }
 
     fn index(entries: &[(&str, &str, Option<&str>, &str)]) -> Value {
