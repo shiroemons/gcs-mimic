@@ -19861,6 +19861,14 @@
           ]
         },
         {
+          "id": "grpc_bucket_create_named",
+          "description": "bucket.name equal to projects/_/buckets/<bucket_id>, as the Java SDK sends it, creates the bucket; any other nonempty bucket.name returns INVALID_ARGUMENT and creates nothing.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_buckets_create_accepts_name_matching_bucket_id"
+          ]
+        },
+        {
           "id": "grpc_bucket_create_remaining",
           "description": "Nonempty lifecycle, ACL, requester-pays, encryption, logging, custom placement, hierarchical namespace, object retention and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted.",
           "result": "PENDING",
@@ -19870,10 +19878,20 @@
       "test_ids": [
         "grpc_buckets_create_subset_and_defaults",
         "grpc_buckets_strict_shared_authorization",
+        "grpc_buckets_create_accepts_name_matching_bucket_id",
         "TestGRPCBuckets",
         "TestGRPCBucketsStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib grpc::v2::buckets",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
+          "test_ids": [
+            "grpc_buckets_create_accepts_name_matching_bucket_id"
+          ]
+        },
         {
           "command": "RUST_TEST_THREADS=8 just check",
           "result": "PASS",

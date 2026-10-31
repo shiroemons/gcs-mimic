@@ -331,11 +331,16 @@ impl Storage {
         {
             return Err(unsupported("CreateBucket ACL or object retention", caller));
         }
-        let bucket = request.bucket.unwrap_or_default();
+        let mut bucket = request.bucket.unwrap_or_default();
+        // The Java SDK repeats the new resource name here, and Cloud Storage accepts it. A
+        // different name would leave two candidates for the bucket's name, so it is rejected.
         if !bucket.name.is_empty() {
-            return Err(Status::invalid_argument(
-                "CreateBucket.bucket.name must be empty; use bucket_id=example-bucket",
-            ));
+            if names::bucket_name(&bucket.name).ok() != Some(request.bucket_id.as_str()) {
+                return Err(Status::invalid_argument(
+                    "CreateBucket.bucket.name must be empty or equal projects/_/buckets/<bucket_id>; use bucket_id=example-bucket",
+                ));
+            }
+            bucket.name.clear();
         }
         let project = project_name(&bucket.project)?;
         if let Some(caller) = caller {
@@ -863,6 +868,51 @@ mod tests {
             .create_bucket(Request::new(request), None)
             .await
             .unwrap();
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_buckets_create_accepts_name_matching_bucket_id() {
+        let (_dir, storage) = storage(false).await;
+        // The Java SDK repeats the full resource name of the new bucket in bucket.name.
+        let mut request = create("named-bucket");
+        request.bucket.as_mut().unwrap().name = "projects/_/buckets/named-bucket".into();
+        let created = storage
+            .create_bucket(Request::new(request), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(created.name, "projects/_/buckets/named-bucket");
+        assert_eq!(created.bucket_id, "named-bucket");
+        for name in [
+            "projects/_/buckets/other-bucket",
+            "mismatch-bucket",
+            "projects/p/buckets/mismatch-bucket",
+            "projects/_/buckets/mismatch-bucket/x",
+        ] {
+            let mut request = create("mismatch-bucket");
+            request.bucket.as_mut().unwrap().name = name.into();
+            assert_eq!(
+                storage
+                    .create_bucket(Request::new(request), None)
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument,
+                "{name}"
+            );
+        }
+        for bucket in ["mismatch-bucket", "other-bucket"] {
+            assert!(
+                storage
+                    .state
+                    .catalog
+                    .get_bucket(bucket)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
         storage.state.catalog.close().await.unwrap();
     }
 
