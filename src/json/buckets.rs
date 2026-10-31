@@ -107,12 +107,21 @@ fn parse_insert_json(bytes: &[u8], profile: CompatProfile) -> Result<Value, Json
     })
 }
 
+/// A client that reads a bucket and sends it back carries the emitted `satisfiesPZI: true`;
+/// that exact echo is accepted and ignored, any other value stays unsupported.
+fn is_echoed_output(body: &serde_json::Map<String, Value>, field: &str) -> bool {
+    field == "satisfiesPZI" && body.get(field) == Some(&Value::Bool(true))
+}
+
 fn reject_unsupported_insert_fields(
     body: &serde_json::Map<String, Value>,
     profile: CompatProfile,
 ) -> Result<(), JsonError> {
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
+            if is_echoed_output(body, field) {
+                continue;
+            }
             if profile == CompatProfile::Native
                 && *field == "customPlacementConfig"
                 && body.get(*field).is_some_and(|value| {
@@ -421,7 +430,7 @@ fn parse_bucket_update(
         .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
-            if matches!(*field, "acl" | "defaultObjectAcl") {
+            if matches!(*field, "acl" | "defaultObjectAcl") || is_echoed_output(body, field) {
                 continue;
             }
             return Err(JsonError::unsupported(field));
@@ -745,6 +754,12 @@ pub(crate) fn bucket_resource_with_profile(
         "publicAccessPrevention": if bucket.public_access_prevention_enforced { "enforced" } else { "inherited" },
     });
     value["locationType"] = json!(bucket.location_type);
+    // Cloud Storage returned `satisfiesPZI: true` for a new asia-northeast1 bucket on
+    // 2026-10-31. No other location was observed, so every native bucket reports true. The
+    // reference emulator's bucket shape has no such field.
+    if profile == CompatProfile::Native {
+        value["satisfiesPZI"] = true.into();
+    }
     if let Some(config) = &bucket.autoclass {
         let mut autoclass =
             json!({"enabled": config.enabled, "toggleTime": timestamp(config.toggle_time)?});

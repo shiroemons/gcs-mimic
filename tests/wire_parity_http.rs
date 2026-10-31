@@ -484,6 +484,14 @@ fn legacy_profile_keeps_compact_bodies() {
             .get("generation"),
         None
     );
+    // The reference emulator's bucket shape has no satisfiesPZI.
+    assert_eq!(
+        server
+            .request("GET", "/storage/v1/b/parity", "", b"")
+            .json()
+            .get("satisfiesPZI"),
+        None
+    );
 }
 
 #[test]
@@ -577,8 +585,10 @@ fn bucket_resources_carry_recorded_fields_in_recorded_order() {
             "updated",
             "iamConfiguration",
             "locationType",
+            "satisfiesPZI",
         ]
     );
+    assert_eq!(bucket["satisfiesPZI"], true);
     assert_eq!(bucket["projectNumber"], "123456");
     // Cloud Storage renders times with exactly three fractional digits.
     for field in ["timeCreated", "updated"] {

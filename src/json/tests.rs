@@ -777,6 +777,23 @@ fn bkt_ins_002_recognized_unsupported_fields_never_succeed() {
 }
 
 #[test]
+fn bkt_ins_002_satisfies_pzi_echo_is_accepted_but_no_other_value() {
+    // A read-modify-write client sends back the emitted `satisfiesPZI: true`.
+    let echoed = parse_insert(br#"{"name":"abc","satisfiesPZI":true}"#, "p", UNIX_EPOCH).unwrap();
+    assert_eq!(
+        echoed,
+        parse_insert(br#"{"name":"abc"}"#, "p", UNIX_EPOCH).unwrap()
+    );
+    let rendered = resource(&echoed);
+    assert_eq!(rendered["satisfiesPZI"], true);
+    for value in ["false", "null", "\"true\""] {
+        let body = format!(r#"{{"name":"abc","satisfiesPZI":{value}}}"#);
+        let error = parse_insert(body.as_bytes(), "p", UNIX_EPOCH).unwrap_err();
+        assert_eq!(error.status, StatusCode::BAD_REQUEST, "{value}");
+    }
+}
+
+#[test]
 fn bkt_ins_002_output_only_fields_do_not_override_server_state() {
     let expected = parse_insert(br#"{"name":"abc"}"#, "p", UNIX_EPOCH).unwrap();
     for field in [

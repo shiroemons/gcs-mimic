@@ -131,7 +131,12 @@ rejection is a fail-closed local choice, not a provider error claim:
 acl, autoclass, billing,
 customPlacementConfig, defaultObjectAcl, encryption, hierarchicalNamespace,
 ipFilter, logging, objectRetention, rpo, satisfiesPZI, satisfiesPZS and website.
-Only acl:[] is ignored; defaultObjectAcl:[] remains unsupported. Null/empty
+Only acl:[] is ignored; defaultObjectAcl:[] remains unsupported. The native
+profile now emits `satisfiesPZI: true` after `locationType`, as Cloud Storage
+did for one observed location (asia-northeast1, 2026-10-31; other locations
+were not observed), so the exact echo `satisfiesPZI: true` in an insert, PATCH
+or PUT body is accepted and ignored while every other value stays rejected.
+The legacy profile omits the field. Null/empty
 unsupported settings otherwise retain their existing rejection.
 CORS, PAP/UBLA, lifecycle, retention and soft delete use the existing PATCH
 parsers and shared catalog transaction; omitted settings are preserved.
