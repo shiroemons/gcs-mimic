@@ -888,6 +888,39 @@ fn script_assignment<'a>(script: &'a str, name: &str) -> Option<&'a str> {
         .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
 }
 
+/// Lines that are executed, so a mention in a comment cannot satisfy or defeat a check.
+fn code_lines(source: &str) -> impl Iterator<Item = &str> {
+    source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+}
+
+/// Offline part of the apt pin check: the install script must carry the same snapshot and version
+/// the snapshot file records, every caller must run the script by its in-container path, and no
+/// caller may still install the package itself, which would bypass the pin.
+fn verify_apt_pin(package: &Value, script: &str, callers: &[(&str, &str)]) -> Result<()> {
+    let name = text(package, "name")?;
+    let script_path = text(package, "script")?;
+    for (key, field) in [
+        ("snapshot", "snapshot"),
+        (&format!("{name}_version"), "version"),
+    ] {
+        if script_assignment(script, key) != Some(text(package, field)?) {
+            return Err(format!("apt pin mismatch: {name} {key} in {script_path}"));
+        }
+    }
+    let invocation = format!("/app/{script_path}");
+    for (caller, source) in callers {
+        if !code_lines(source).any(|line| line.contains(&invocation)) {
+            return Err(format!("apt install script not used: {caller}"));
+        }
+        if code_lines(source).any(|line| line.contains("apt-get install")) {
+            return Err(format!("unpinned apt-get install in {caller}"));
+        }
+    }
+    Ok(())
+}
+
 /// OS packages installed into pinned images must pin both the snapshot archive and the version in
 /// their install script, and the snapshot must record the same values. Returns whether the live
 /// Debian suite now carries a different version.
@@ -900,22 +933,14 @@ fn check_apt_packages(root: &Path, status: &Value) -> Result<bool> {
         let name = text(package, "name")?;
         let script_path = text(package, "script")?;
         let script = std::fs::read_to_string(root.join(script_path)).map_err(|e| e.to_string())?;
-        for (key, field) in [
-            ("snapshot", "snapshot"),
-            (&format!("{name}_version"), "version"),
-        ] {
-            if script_assignment(&script, key) != Some(text(package, field)?) {
-                return Err(format!("apt pin mismatch: {name} {key} in {script_path}"));
-            }
-        }
-        let callers = package["callers"].as_array().ok_or("missing apt callers")?;
-        for caller in callers {
+        let mut sources = Vec::new();
+        for caller in package["callers"].as_array().ok_or("missing apt callers")? {
             let caller = caller.as_str().ok_or("invalid apt caller")?;
             let source = std::fs::read_to_string(root.join(caller)).map_err(|e| e.to_string())?;
-            if !source.contains(script_path.rsplit('/').next().unwrap_or(script_path)) {
-                return Err(format!("apt install script not used: {caller}"));
-            }
+            sources.push((caller, source));
         }
+        let callers: Vec<(&str, &str)> = sources.iter().map(|(c, s)| (*c, s.as_str())).collect();
+        verify_apt_pin(package, &script, &callers)?;
         let suite = text(package, "suite")?;
         let versions = json(&fetch(
             &format!("https://sources.debian.org/api/src/{name}/"),
@@ -1744,23 +1769,69 @@ mod tests {
         assert_eq!(script_assignment(script, "socat"), None);
     }
 
+    const APT_SCRIPT: &str = "snapshot=20261027T000000Z\nsocat_version=1.8.0.3-1+deb13u1\n";
+    const APT_CALLER: &str = "docker run img bash -c '\n  /app/sdk-scorecard/install-socat.sh\n'\n";
+
+    fn apt_package() -> Value {
+        serde_json::json!({
+            "name": "socat", "script": "sdk-scorecard/install-socat.sh",
+            "snapshot": "20261027T000000Z", "version": "1.8.0.3-1+deb13u1",
+        })
+    }
+
     #[test]
-    fn recorded_apt_pins_match_the_install_script() {
+    fn recorded_apt_pins_match_the_scripts_and_callers() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let status = crate::read_json(&root.join("compatibility/dependency-status.json")).unwrap();
         for package in status["docker"]["apt_packages"].as_array().unwrap() {
-            let name = text(package, "name").unwrap();
             let script =
                 std::fs::read_to_string(root.join(text(package, "script").unwrap())).unwrap();
-            assert_eq!(
-                script_assignment(&script, "snapshot"),
-                Some(text(package, "snapshot").unwrap())
-            );
-            assert_eq!(
-                script_assignment(&script, &format!("{name}_version")),
-                Some(text(package, "version").unwrap())
-            );
+            let sources: Vec<(&str, String)> = package["callers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| {
+                    let c = c.as_str().unwrap();
+                    (c, std::fs::read_to_string(root.join(c)).unwrap())
+                })
+                .collect();
+            let callers: Vec<(&str, &str)> =
+                sources.iter().map(|(c, s)| (*c, s.as_str())).collect();
+            verify_apt_pin(package, &script, &callers).unwrap();
         }
+    }
+
+    #[test]
+    fn apt_pin_accepts_a_matching_script_and_caller() {
+        verify_apt_pin(&apt_package(), APT_SCRIPT, &[("run.sh", APT_CALLER)]).unwrap();
+    }
+
+    #[test]
+    fn apt_pin_rejects_a_version_mismatch() {
+        let script = APT_SCRIPT.replace("deb13u1", "deb13u2");
+        let err = verify_apt_pin(&apt_package(), &script, &[("run.sh", APT_CALLER)]).unwrap_err();
+        assert!(err.contains("socat_version"), "{err}");
+    }
+
+    #[test]
+    fn apt_pin_rejects_a_snapshot_mismatch() {
+        let script = APT_SCRIPT.replace("20261027", "20261028");
+        let err = verify_apt_pin(&apt_package(), &script, &[("run.sh", APT_CALLER)]).unwrap_err();
+        assert!(err.contains("snapshot"), "{err}");
+    }
+
+    #[test]
+    fn apt_pin_rejects_a_caller_that_only_mentions_the_script_in_a_comment() {
+        let caller = "# see /app/sdk-scorecard/install-socat.sh\napt-get update\n";
+        let err = verify_apt_pin(&apt_package(), APT_SCRIPT, &[("run.sh", caller)]).unwrap_err();
+        assert!(err.contains("not used"), "{err}");
+    }
+
+    #[test]
+    fn apt_pin_rejects_a_caller_that_still_installs_the_package_itself() {
+        let caller = format!("{APT_CALLER}apt-get install -y socat\n");
+        let err = verify_apt_pin(&apt_package(), APT_SCRIPT, &[("run.sh", &caller)]).unwrap_err();
+        assert!(err.contains("unpinned"), "{err}");
     }
 
     #[test]
