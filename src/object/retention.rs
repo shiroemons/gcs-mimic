@@ -33,7 +33,7 @@ impl RetentionMode {
     }
 }
 
-/// Microsecond precision, matching other catalog timestamps.
+/// Written at millisecond precision; records stored earlier may carry microseconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ObjectRetention {
     pub mode: RetentionMode,
@@ -43,6 +43,18 @@ pub(crate) struct ObjectRetention {
 impl ObjectRetention {
     pub(crate) fn active(&self, now: SystemTime) -> bool {
         now < self.retain_until
+    }
+}
+
+/// Drops the sub-millisecond part, the precision JSON responses display.
+fn truncate_to_millis(time: SystemTime) -> SystemTime {
+    match time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(since) => {
+            SystemTime::UNIX_EPOCH
+                + Duration::from_millis(since.as_millis().try_into().unwrap_or(u64::MAX))
+        }
+        // Times before the epoch are not valid retention times; compare them unchanged.
+        Err(_) => time,
     }
 }
 
@@ -111,7 +123,12 @@ pub(crate) fn check_transition(
     let Some(current) = current else {
         return Ok(());
     };
-    let shortened = next.is_none_or(|next| next.retain_until < current.retain_until);
+    // Responses show milliseconds, so a client echoes the displayed time. Configurations stored
+    // before writes were truncated keep microseconds; comparing at millisecond precision keeps
+    // their echo from counting as a shortening.
+    let shortened = next.is_none_or(|next| {
+        truncate_to_millis(next.retain_until) < truncate_to_millis(current.retain_until)
+    });
     match current.mode {
         RetentionMode::Locked => {
             if shortened || next.is_some_and(|next| next.mode != RetentionMode::Locked) {
@@ -188,6 +205,38 @@ mod tests {
                     "{next:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn echoing_the_displayed_millisecond_time_of_a_microsecond_record_is_not_a_shortening() {
+        use RetentionMode::{Locked, Unlocked};
+        let micros = |mode, extra: u64| ObjectRetention {
+            mode,
+            retain_until: UNIX_EPOCH + Duration::from_millis(5_000) + Duration::from_micros(extra),
+        };
+        for mode in [Locked, Unlocked] {
+            let stored = micros(mode, 456);
+            assert!(
+                check_transition(
+                    Some(&stored),
+                    Some(&micros(mode, 0)),
+                    UnlockedOverride::NotRequested
+                )
+                .is_ok()
+            );
+            let earlier = ObjectRetention {
+                mode,
+                retain_until: UNIX_EPOCH + Duration::from_millis(4_999),
+            };
+            assert!(
+                check_transition(
+                    Some(&stored),
+                    Some(&earlier),
+                    UnlockedOverride::NotRequested
+                )
+                .is_err()
+            );
         }
     }
 

@@ -51,9 +51,10 @@ pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError>
     } else {
         UNIX_EPOCH.checked_add(offset)
     };
-    // Catalog timestamps have microsecond precision.
+    // Responses render millisecond precision, so a value is stored at that precision too: a
+    // client that writes back what it read must get exactly the stored time, not an earlier one.
     let retain_until = base
-        .and_then(|time| time.checked_add(Duration::from_micros(u64::from(nanos / 1000))))
+        .and_then(|time| time.checked_add(Duration::from_millis(u64::from(nanos / 1_000_000))))
         .ok_or_else(|| invalid("retention.retainUntilTime is outside the supported range"))?;
     Ok(Some(ObjectRetention { mode, retain_until }))
 }
