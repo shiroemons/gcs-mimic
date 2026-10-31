@@ -122,33 +122,124 @@ microsecond-scale (16 digits) rather than the recorded 19-digit
 nanosecond-scale value, and the default `softDeletePolicy` and `satisfiesPZI`
 stay absent; see `SPEC-RESPONSE-WIRE-REMAINING`.
 
-## satisfiesPZI in write bodies
+## satisfiesPZI and satisfiesPZS in write bodies
 
-The recorded bucket response carried `satisfiesPZI: true` (see
-[JSON bodies](#json-bodies)). Whether a client may set the field was checked
-against the published contracts, not against Cloud Storage:
+Observed **2026-10-31** with curl against the JSON API, using throwaway
+buckets in `asia-northeast1` that were deleted afterwards (each `buckets.get`
+then returned 404). Bucket names, the project and the project number are not
+recorded. Both fields are described only as `Reserved for future use.` by
+[live JSON Discovery](https://storage.googleapis.com/$discovery/rest?version=v1)
+(`schemas.Bucket.properties`, revision `20261026`, SHA-256
+`91588de46b456618d09d202a6595ba1e4d1752658251fce0aa61e7f36781adff`); the
+[Storage v2 proto](https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto)
+(googleapis `d73dfb3c3be52245625b951b9c0bcf65163c549f`, SHA-256
+`a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf`) has no
+`satisfies_pzi` field and marks `satisfies_pzs` `Optional. Reserved for future
+use.` Neither source says what a write does, so the behavior below was observed.
 
-| Source | Revision / digest | Text for the field |
+Every response was `HTTP/2 200` with `content-type: application/json;
+charset=UTF-8`, `vary: Origin` and `vary: X-Origin`, and an
+`x-goog-gcs-base-ts` header whose value changes per request. Writes carried
+`cache-control: no-cache, no-store, max-age=0, must-revalidate`,
+`expires: Mon, 01 Jan 1990 00:00:00 GMT` and `pragma: no-cache`; reads carried
+`cache-control: private, max-age=0, must-revalidate, no-transform` and no
+`pragma`.
+
+| Request | Body member | Status | `satisfiesPZI` in the response | `satisfiesPZS` in the response | `metageneration` / `etag` after |
+| --- | --- | --- | --- | --- | --- |
+| `buckets.insert` | `satisfiesPZI: true` | 200 | `true` | absent | `1` / `CAE=` |
+| `buckets.insert` | `satisfiesPZI: false` | 200 | `true` | absent | `1` / `CAE=` |
+| `buckets.get` after each insert | none | 200 | `true` | absent | `1` / `CAE=` |
+| `buckets.patch` | `satisfiesPZI: true` | 200 | `true` | absent | `1` / `CAE=` (unchanged) |
+| `buckets.patch` | `satisfiesPZI: false` | 200 | `true` | absent | `1` / `CAE=` (unchanged) |
+| `buckets.update` (PUT) | `satisfiesPZI: true` | 200 | `true` | absent | `2` / `CAI=` |
+| `buckets.update` (PUT) | `satisfiesPZI: false` | 200 | `true` | absent | `3` / `CAM=` |
+| `buckets.get` after the PUTs | none | 200 | `true` | absent | `3` / `CAM=` |
+| `buckets.insert` | `satisfiesPZS: true` | 200 | `true` | absent | `1` / `CAE=` |
+| `buckets.insert` | `satisfiesPZS: false` | 200 | `true` | absent | `1` / `CAE=` |
+| `buckets.patch` | `satisfiesPZS: true` | 200 | `true` | absent | `1` / `CAE=` (unchanged) |
+| `buckets.patch` | `satisfiesPZS: false` | 200 | `true` | absent | `1` / `CAE=` (unchanged) |
+| `buckets.update` (PUT) | `satisfiesPZS: true` | 200 | `true` | absent | `2` / `CAI=` |
+| `buckets.update` (PUT) | `satisfiesPZS: false` | 200 | `true` | absent | `3` / `CAM=` |
+| `buckets.get` after the PUTs | none | 200 | `true` | absent | `3` / `CAM=` |
+
+The PUT bodies carried only the one member, and the PUT still succeeded. The
+PATCH responses used the default `projection=full` for the first group (they
+added `acl`, `defaultObjectAcl` and `owner` to the 818-byte resource, 3118
+bytes in all) and `fields=` for the second group.
+
+A PATCH whose body held no writable setting did not advance the resource, and
+the `updated` time stayed as it was. Observed with `fields=metageneration,updated`
+on a bucket at metageneration 3:
+
+| PATCH body | Status | `metageneration` after |
 | --- | --- | --- |
-| [Live JSON Discovery](https://storage.googleapis.com/$discovery/rest?version=v1), `schemas.Bucket.properties.satisfiesPZI` | revision `20261026`, fetched 2026-11-01, SHA-256 `91588de46b456618d09d202a6595ba1e4d1752658251fce0aa61e7f36781adff` | `"type": "boolean"`, `"description": "Reserved for future use."` (`satisfiesPZS` carries the same text) |
-| [Storage v2 proto](https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto), `message Bucket` | googleapis `d73dfb3c3be52245625b951b9c0bcf65163c549f`, SHA-256 `a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf` | No `satisfies_pzi` field. `satisfies_pzs` is `Optional. Reserved for future use.` |
+| `{}` | 200 | `3` (unchanged) |
+| `{"labels":{}}` | 200 | `4` |
+| `{"versioning":{}}` | 200 | `4` (unchanged) |
+| `{"labels":{"missing":null}}` | 200 | `5` |
+| `{"labels":{"a":"b"}}`, sent twice | 200, 200 | `6`, then `7` |
 
-Neither source marks `satisfiesPZI` output-only: Discovery describes it only
-as reserved, and the v2 proto has no such field, so the gRPC adapter has
-nothing to carry. The pinned Discovery inventory
-(`compatibility/upstream/json-schemas.json`, revision `20261013`) lists the
-field as a bare boolean without descriptions.
+### gcs-mimic behavior
 
-gcs-mimic therefore ignores `satisfiesPZI` in insert, PATCH and PUT bodies
-whatever its value and always reports the observed `true`. This is a local
-choice for a reserved field with no documented write semantics, consistent
-with how output-only fields are treated. It is not an observation of how
-Cloud Storage handles a written value: no write of the field was sent to
-Cloud Storage. Rejecting or storing the value would assert behavior that no
-source defines. Tests:
-`json::tests::satisfies_pzi_in_a_write_body_is_ignored_whatever_its_value`,
-`bucket_http::satisfies_pzi_is_ignored_on_insert_patch_and_put_whatever_its_value`.
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| `satisfiesPZI` and `satisfiesPZS`, true and false, are accepted in insert, PATCH and PUT bodies and ignored | Both members are ignored on all three methods and in the legacy profile too; the native profile reports `satisfiesPZI: true` and never emits `satisfiesPZS`. The reply to a write and a following get agree. The gRPC adapter has no `satisfies_pzi`, and its `satisfies_pzs` is never read | `bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value`, `json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value` |
+| A PATCH without a writable setting changes nothing | The catalog returns the stored bucket without advancing the metageneration or `updated`; `labels:{}` and a null label still count as a write. A PUT always advances them. Preconditions are checked first, an order that was not observed | `bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value`, `bucket_http::bucket_patch_empty_null_and_invalid_inputs` |
+
+The earlier recording showed `satisfiesPZI: true` only for `asia-northeast1`;
+the rows above are that location too, so other locations remain unobserved.
 Ledger row: `BUCKET-SATISFIES-PZI`.
+
+## Object retention time precision
+
+Observed **2026-10-31** with curl against the JSON API, using throwaway
+buckets in `us-central1` (STANDARD, created with `enableObjectRetention=true`
+and `softDeletePolicy.retentionDurationSeconds: 0`, no bucket retention
+policy), one 2-byte object, and `retention.mode` `Unlocked` only. A Locked
+retention cannot be undone, so it was not observed. The retention was removed
+with `overrideUnlockedRetention=true` before the object and then the bucket
+were deleted; `buckets.get` then returned 404.
+
+Responses were `HTTP/2 200` unless noted, with the write and read cache
+headers listed above. A PATCH response carried the resource etag with the
+object metageneration incremented (`CLm/tNLR5JcDEAI=` after the first PATCH).
+`fields=retention` was used on reads and writes.
+
+| Request `retainUntilTime` (now + 10 minutes) | Status | Value read back (PATCH reply and GET) |
+| --- | --- | --- |
+| `…:00.123456789Z` | 200 | `…:00.123Z` |
+| then `…:00.123999999Z` | 200 | `…:00.123Z` |
+| then `…:00.123000001Z` | 403 | not changed |
+
+The 403 body was `error.code` 403, reason `forbidden`, message `The unlocked
+object retention cannot be removed and its retention period cannot be
+shortened without overriding unlocked retention intent and permission.` In a
+second bucket the same calls with `…:00.123456789Z` stored first gave:
+
+| Next request | Status | Meaning |
+| --- | --- | --- |
+| `…:00.123456788Z` (1 ns earlier) | 403 | shortening |
+| `…:00.123456789Z` (same) | 200 | accepted, `…:00.123Z` |
+| `…:00.123456790Z` (1 ns later) | 200 | accepted, `…:00.123Z` |
+| `…:00.123Z` (the displayed value) | 403 | shortening |
+
+Cloud Storage therefore compared times at nanosecond precision while the
+response showed the millisecond truncation (not rounding: `.123999999` is
+displayed as `.123`). Writing back the displayed time of an Unlocked
+retention counted as a shortening. gRPC was not observed.
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| Display is the millisecond truncation | `retainUntilTime` is rendered truncated to milliseconds | `json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_microseconds` |
+| Comparison below the displayed millisecond | The catalog stores microseconds, so times that differ by at least a microsecond compare as Cloud Storage did; the nanosecond remainder is dropped, so a difference below a microsecond is not seen (a documented local limit) | `retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond` |
+| The displayed time is a shortening for Unlocked | It needs `overrideUnlockedRetention=true` | `object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening` |
+| Shortening status | Cloud Storage answered 403 `forbidden`; gcs-mimic answers 400 `invalidArgument` with its own message. Not changed | none |
+| Locked echo | A Locked retention was not observed. Resending its displayed millisecond time, or the same nanosecond time, is accepted as unchanged: a local choice | `retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not`, `object::retention::tests::echoing_the_displayed_millisecond_time_keeps_a_locked_microsecond_value` |
+
+Ledger row: `OBJECT-TIME-READ-BACK`.
 
 ## XML listing
 
