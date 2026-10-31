@@ -7156,11 +7156,12 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Implemented subset: labels merge/key removal/map clearing, supported class/versioning/default holds, atomic conditions, strict storage.buckets.update and persistence in both profiles. Contract/evidence: docs/en/slices/bucket-metadata-patch.md and docs/en/evidence/bucket-metadata-patch.md; native/Docker guide checks pass. Fields/read ETags: docs/en/evidence/basic-json-fields-etag.md. CORS/XML policy: docs/en/evidence/cors.md. PAP/local-parent enforcement and public IAM/signed access: docs/en/evidence/public-access-prevention.md. Atomic resource ACL/query booleans and final clean-source five-SDK comparison now pass (Go 57/57, other four 51/51), recorded in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled writable/billing/projection/provider semantics and broader profile limitations.",
+      "notes": "Implemented subset: labels merge/key removal/map clearing, supported class/versioning/default holds, atomic conditions, strict storage.buckets.update and persistence in both profiles. Contract/evidence: docs/en/slices/bucket-metadata-patch.md and docs/en/evidence/bucket-metadata-patch.md; native/Docker guide checks pass. Fields/read ETags: docs/en/evidence/basic-json-fields-etag.md. CORS/XML policy: docs/en/evidence/cors.md. PAP/local-parent enforcement and public IAM/signed access: docs/en/evidence/public-access-prevention.md. Atomic resource ACL/query booleans and final clean-source five-SDK comparison now pass (Go 57/57, other four 51/51), recorded in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled writable/billing/projection/provider semantics and broader profile limitations. If-Match/If-None-Match are accepted and deliberately not evaluated, matching observed Cloud Storage behavior (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md).",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"PATCH-ETAG-HEADERS-IGNORED","description":"If-Match (current, stale, weak or malformed) and If-None-Match on PATCH return 200 and apply the change, as observed on Cloud Storage on 2026-10-31; query metageneration conditions still fail atomically with 412. Accepted-but-ignored by observed provider behavior, not an evaluated precondition.","result":"PASS","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
         {"id":"RETENTION-CONFIG-CONTRIBUTION","description":"PATCH sets/changes/clears unlocked retention, enforces period range and locked removal/shortening, permits extension; contract: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"id":"LIFECYCLE-PATCH-REPLACE","description":"PATCH replaces the full lifecycle list, advances metageneration once and preserves failed conditioned mutations. Null/empty settings clear configuration. Metadata only; docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation","bucket_patch_lifecycle_invalid_input_preserves_state"]},
         {
@@ -7425,6 +7426,7 @@
         }
       ],
       "test_ids": [
+        "bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage",
         "retention_configuration_lock_permissions_and_restart",
         "retention_insert_patch_put_defaults_and_empty_policy_lock",
         "bucket_lifecycle_rules_round_trip_replace_clear_and_validation",
@@ -7506,6 +7508,7 @@
         "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
+        {"command":"cargo test --locked --test bucket_if_match_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-bucket-write-etags.md","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"command":"cargo test --test bucket_http --locked --offline lifecycle","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-lifecycle-config.md","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation", "bucket_patch_lifecycle_invalid_input_preserves_state"]},
         {
@@ -8008,7 +8011,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. PUT replaces bindings; unconditional versions omitted/0/1/3, explicit [] clearing, 1500 occurrences, 64 KiB body and decoded-byte etag CAS are verified. Full positive policy/billing/ACL semantics, cloud normalization/error parity and a missing-allocator startup fixture remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. PUT replaces bindings; unconditional versions omitted/0/1/3, explicit [] clearing, 1500 occurrences, 64 KiB body and decoded-byte etag CAS are verified. Full positive policy/billing/ACL semantics, cloud normalization/error parity and a missing-allocator startup fixture remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. If-Match is compared with the current policy etag inside the write transaction, alongside the body etag, as observed on Cloud Storage (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md).",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008",
@@ -8018,6 +8021,12 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "SET-IAM-IF-MATCH",
+          "description": "If-Match carrying the current policy etag, bare as Google.Apis copies it from the JSON body or quoted as the getIamPolicy ETag header, or a sole wildcard, applies the policy; a stale, foreign or weak tag returns 412 conditionNotMet without change, as does a stale body etag with or without a current header (observed on Cloud Storage on 2026-10-31). Both checks run inside the immediate write transaction: two writes with one tag have exactly one winner. Malformed If-Match, If-None-Match and date/If-Range headers return 400 without change. A body etag wrapped in one pair of HTTP quotes, as Google.Apis sends after copying the getIamPolicy ETag header, names the same tag (local SDK choice; provider handling unobserved).",
+          "result": "PASS",
+          "test_ids": ["iam_policy_writes_compare_if_match_with_the_policy_etag", "concurrent_policy_writes_with_one_if_match_etag_have_exactly_one_winner", "json::iam::tests::etag_accepts_one_pair_of_http_quotes_as_the_same_tag"]
+        },
         {
           "id": "REPLACEMENT",
           "description": "Replace whole bindings, ignore unknown JSON/kind/resourceId, normalize versions omitted/0/1/3, clear explicit [] and leave bucket metageneration unchanged.",
@@ -8233,9 +8242,13 @@
         "obj_http_bad_hashes_and_unsupported_requests_never_publish",
         "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
         "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
-        "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+        "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+        "iam_policy_writes_compare_if_match_with_the_policy_etag",
+        "concurrent_policy_writes_with_one_if_match_etag_have_exactly_one_winner",
+        "json::iam::tests::etag_accepts_one_pair_of_http_quotes_as_the_same_tag"
       ],
       "verification": [
+        {"command":"cargo test --locked --test bucket_if_match_http --test auth_http && cargo test --locked --lib json::iam","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-bucket-write-etags.md","test_ids":["iam_policy_writes_compare_if_match_with_the_policy_etag","concurrent_policy_writes_with_one_if_match_etag_have_exactly_one_winner","json::iam::tests::etag_accepts_one_pair_of_http_quotes_as_the_same_tag"]},
         {
           "command": "just check",
           "result": "PASS",
@@ -8614,13 +8627,14 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "PUT preserves omitted modeled labels, class, versioning/default holds, CORS, PAP/UBLA, lifecycle, retention and soft-delete settings. Supplied labels replace the map; null/empty values retain field-specific contracts. Ruby update blocks and generated Go PUT verify this local choice, not provider parity (SPEC-BUCKET-PUT). Current contract: docs/en/slices/bucket-metadata-put.md; historical evidence in docs/en/evidence/bucket-metadata-put.md predates omission preservation. Atomic conditions, authorization, persistence, fields, CORS/PAP and scoped resource ACL/query booleans remain supported. Final clean-source five-SDK comparison passes in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled fields, billing/full-projection/provider semantics and broader profiles.",
+      "notes": "PUT preserves omitted modeled labels, class, versioning/default holds, CORS, PAP/UBLA, lifecycle, retention and soft-delete settings. Supplied labels replace the map; null/empty values retain field-specific contracts. Ruby update blocks and generated Go PUT verify this local choice, not provider parity (SPEC-BUCKET-PUT). Current contract: docs/en/slices/bucket-metadata-put.md; historical evidence in docs/en/evidence/bucket-metadata-put.md predates omission preservation. Atomic conditions, authorization, persistence, fields, CORS/PAP and scoped resource ACL/query booleans remain supported. Final clean-source five-SDK comparison passes in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled fields, billing/full-projection/provider semantics and broader profiles. If-Match/If-None-Match are accepted and deliberately not evaluated, matching observed Cloud Storage behavior (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md).",
       "dependencies": [
         "JSON-BUCKETS-008"
       ],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"PUT-ETAG-HEADERS-IGNORED","description":"The .NET UpdateBucketAsync If-Match (gzip full-resource PUT) and a stale If-Match on PUT return 200 and apply the replacement, as observed on Cloud Storage on 2026-10-31; query metageneration conditions remain atomic. Accepted-but-ignored by observed provider behavior, not an evaluated precondition.","result":"PASS","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
         {"id":"PUT-RUBY-UPDATE-BLOCK","description":"Ruby Storage 1.62.1 update block changes only PAP while omitted versioning and labels survive reload; equivalent raw Go PUT and all modeled omitted settings preserve state. Local choice without real-GCS verification: SPEC-BUCKET-PUT.","result":"PASS","test_ids":["bucket_put_ruby_update_block_preserves_unrelated_settings","bucket_put_omitted_settings_survive_partial_iam_updates","TestBucketMetadataReplace"]},
         {"id":"RETENTION-CONFIG-CONTRIBUTION","description":"PUT sets/changes explicit retention and preserves omitted policy; explicit null clears unlocked policy and locked removal/shortening fails. Scope: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"id":"LIFECYCLE-UPDATE-REPLACE","description":"PUT replaces supplied lifecycle rules and preserves omitted configuration; explicit null/empty clears. Actions are not executed; docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
@@ -8885,6 +8899,7 @@
         }
       ],
       "test_ids": [
+        "bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage",
         "retention_configuration_lock_permissions_and_restart",
         "retention_insert_patch_put_defaults_and_empty_policy_lock",
         "bucket_lifecycle_rules_round_trip_replace_clear_and_validation",
@@ -8963,6 +8978,7 @@
         "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
+        {"command":"cargo test --locked --test bucket_if_match_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-bucket-write-etags.md","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
         {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["bucket_put_omitted_settings_survive_partial_iam_updates","bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_empty_null_and_invalid_inputs","bucket_put_full_resource_round_trip_preserves_unchanged_fields","bucket_put_settings_control_future_object_effects","bucket_put_null_settings_follow_profile_defaults","bucket_put_uses_clock_and_rolls_back_invalid_replacement","retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","auth::tests::pap_mutations_require_update_and_set_iam_permissions"]},
         {"command":"Getting-started native PUT block extracted with awk and executed once with bash -eu against an isolated HTTP/permissive debug binary","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["guide-bucket-put-native"]},
         {"command":"just check-sdk","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["TestBucketMetadataReplace","TestStrictAuthBucketMetadataReplace","bucket_put_ruby_update_block_preserves_unrelated_settings"]},

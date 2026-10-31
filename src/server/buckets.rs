@@ -10,10 +10,16 @@ use crate::{
     auth::{self, Caller},
     bucket::{BucketAccess, CatalogError},
     config::CompatProfile,
+    http_conditions::EtagError,
     json::{self, BucketRequest, JsonError, WriteMode},
+    storage::failure::unavailable,
 };
 use http_body_util::Full;
-use hyper::{Request, Response, StatusCode, body::Bytes};
+use hyper::{
+    HeaderMap, Request, Response, StatusCode,
+    body::Bytes,
+    header::{HeaderValue, IF_MATCH},
+};
 use serde_json::Value;
 
 /// What every bucket operation needs besides its request.
@@ -127,6 +133,11 @@ fn validate_request(
 ) -> Result<(), JsonError> {
     let etags = match operation {
         BucketRequest::Get { .. } | BucketRequest::GetIam { .. } => json::EtagConditions::Supported,
+        // Google's .NET client sends the fetched resource's etag as If-Match on these writes.
+        // Cloud Storage was observed to ignore both entity-tag headers on bucket updates, so
+        // a stale tag still applies; setIamPolicy evaluates If-Match.
+        BucketRequest::Patch { .. } | BucketRequest::Update { .. } => json::EtagConditions::Ignored,
+        BucketRequest::SetIam { .. } => json::EtagConditions::MatchOnly,
         _ => json::EtagConditions::Unsupported,
     };
     json::validate_read_condition_headers(request.headers(), etags)?;
@@ -317,10 +328,44 @@ async fn set_iam(
     access: &BucketAccess,
     bucket: &str,
 ) -> Result<Value, JsonError> {
+    let if_match = policy_if_match_lines(request.headers());
     let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
     let policy = json::parse_policy(&bytes)?;
-    let policy = ctx.state.catalog.set_policy(bucket, policy, access).await?;
+    let policy =
+        ctx.state
+            .catalog
+            .set_policy_checked(bucket, policy, access, move |current| {
+                let etag = current
+                    .etag
+                    .as_deref()
+                    .ok_or_else(|| unavailable("stored IAM policy has no etag"))?;
+                // The same quoted tag that getIamPolicy returns in its ETag header.
+                crate::http_conditions::require_etag_match(&if_match, &format!("\"{etag}\""))
+                    .map_err(|error| match error {
+                        EtagError::Invalid => {
+                            CatalogError::InvalidMetadata("Invalid If-Match precondition".into())
+                        }
+                        EtagError::PreconditionFailed => CatalogError::PreconditionFailed,
+                    })
+            })
+            .await?;
     Ok(json::policy_resource(&policy, bucket))
+}
+
+/// Copies the `If-Match` field lines for evaluation inside the catalog transaction, quoting a
+/// bare element. A policy's JSON `etag` is unquoted base64 and Google.Apis copies the fetched
+/// body's `etag` verbatim into If-Match, so a bare value names that same opaque tag.
+fn policy_if_match_lines(headers: &HeaderMap) -> HeaderMap {
+    let mut lines = HeaderMap::new();
+    for value in headers.get_all(IF_MATCH) {
+        let tag = value.as_bytes().trim_ascii();
+        let bare = !tag.is_empty() && tag != b"*" && !tag.contains(&b'"') && !tag.contains(&b',');
+        let quoted = bare
+            .then(|| HeaderValue::from_bytes(&[b"\"", tag, b"\""].concat()).ok())
+            .flatten();
+        lines.append(IF_MATCH, quoted.unwrap_or_else(|| value.clone()));
+    }
+    lines
 }
 
 async fn insert(

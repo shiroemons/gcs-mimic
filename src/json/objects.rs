@@ -608,6 +608,8 @@ pub(crate) fn validate_keyed_object_headers(
 pub(crate) enum EtagConditions {
     Supported,
     MatchOnly,
+    /// Accepted and not evaluated, matching an observed Cloud Storage write that ignores both.
+    Ignored,
     Unsupported,
 }
 
@@ -616,7 +618,7 @@ pub(crate) fn validate_read_condition_headers(
     headers: &HeaderMap,
     etags: EtagConditions,
 ) -> Result<(), JsonError> {
-    if etags != EtagConditions::Unsupported {
+    if matches!(etags, EtagConditions::Supported | EtagConditions::MatchOnly) {
         for name in ["if-range", "if-modified-since", "if-unmodified-since"] {
             if (name == "if-modified-since" && headers.contains_key("if-none-match"))
                 || (name == "if-unmodified-since" && headers.contains_key("if-match"))

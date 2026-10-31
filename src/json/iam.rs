@@ -186,6 +186,13 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
 }
 
 fn parse_etag(raw: &str) -> Result<Option<String>, JsonError> {
+    // Google.Apis replaces a fetched policy's body etag with the response's HTTP ETag, which
+    // getIamPolicy sends quoted, and sends that value back; one pair of quotes names the same tag.
+    let raw = raw
+        .strip_prefix('"')
+        .and_then(|tag| tag.strip_suffix('"'))
+        .filter(|tag| !tag.is_empty())
+        .unwrap_or(raw);
     if raw.is_empty() {
         return Ok(None);
     }
@@ -274,6 +281,21 @@ mod tests {
         for bytes in [vec![0], vec![0, 1], vec![0, 1, 2], vec![255; 16]] {
             let encoded = base64(&bytes);
             assert_eq!(parse_etag(&encoded).unwrap(), Some(encoded));
+        }
+    }
+
+    #[test]
+    fn etag_accepts_one_pair_of_http_quotes_as_the_same_tag() {
+        assert_eq!(parse_etag("\"+/8=\"").unwrap().as_deref(), Some("+/8="));
+        for raw in [
+            "\"\"",
+            "\"",
+            "\"+/8=",
+            "+/8=\"",
+            "\"\"+/8=\"\"",
+            "W/\"+/8=\"",
+        ] {
+            assert!(parse_etag(raw).is_err(), "{raw}");
         }
     }
 }

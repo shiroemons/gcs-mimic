@@ -413,6 +413,14 @@ fn json_etag_read_unsupported_lists_dates_and_writes() {
                         + 1
                 );
                 object = updated;
+            } else if path == BUCKET && matches!(method, "PUT" | "PATCH") {
+                // Cloud Storage was observed to ignore both headers on bucket updates.
+                assert_eq!(
+                    reply.status,
+                    200,
+                    "{}",
+                    String::from_utf8_lossy(&reply.body)
+                );
             } else {
                 reply.error(400, "badRequest");
             }

@@ -305,8 +305,21 @@ impl Catalog {
     pub(crate) async fn set_policy(
         &self,
         bucket: &str,
+        policy: Policy,
+        access: &BucketAccess,
+    ) -> Result<Policy, CatalogError> {
+        self.set_policy_checked(bucket, policy, access, |_| Ok(()))
+            .await
+    }
+
+    /// Replaces the policy once `check` accepts the current policy inside the write
+    /// transaction, so an entity-tag precondition cannot pass a concurrently replaced policy.
+    pub(crate) async fn set_policy_checked(
+        &self,
+        bucket: &str,
         mut policy: Policy,
         access: &BucketAccess,
+        check: impl FnOnce(&Policy) -> Result<(), CatalogError> + Send + 'static,
     ) -> Result<Policy, CatalogError> {
         let bucket = bucket.to_owned();
         let access = access.clone();
@@ -318,6 +331,7 @@ impl Catalog {
                 .map_err(unavailable)?;
             authorize_policy(&transaction, &bucket, &access)?;
             let current = read_policy(&transaction, &bucket)?;
+            check(&current)?;
             if policy.etag.is_some() && policy.etag != current.etag {
                 return Err(CatalogError::PreconditionFailed);
             }
