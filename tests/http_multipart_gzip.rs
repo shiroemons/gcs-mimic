@@ -124,7 +124,7 @@ fn multipart_gzip_checks_crc_size_truncation_and_trailers_after_the_mime_close()
 }
 
 #[test]
-fn multipart_gzip_keeps_stored_encoding_separate_and_never_decodes_raw_media() {
+fn multipart_gzip_keeps_stored_encoding_separate_and_never_decodes_the_media_part() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     bucket(&server, "");
@@ -140,17 +140,72 @@ fn multipart_gzip_keeps_stored_encoding_separate_and_never_decodes_raw_media() {
             .body,
         "stored gzip content"
     );
-    let result = server.request(
+}
+
+/// Cloud Storage decompresses a media upload sent with `Content-Encoding: gzip` before
+/// storing it, even when the query also declares `contentEncoding=gzip` (observed 2026-10-31).
+#[test]
+fn media_transport_gzip_stores_the_decoded_body() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--max-object-bytes", "64"]);
+    bucket(&server, "");
+    let media = "/upload/storage/v1/b/gzip-bucket/o?uploadType=media";
+    let gzip_type = "Content-Type: text/plain\r\nContent-Encoding: gzip\r\n";
+    let plain = b"hello gzip transcoding world\n";
+    let members = [gzip(&plain[..10]), gzip(&plain[10..])].concat();
+    let result = server.request("POST", &format!("{media}&name=plain"), gzip_type, &members);
+    result.status(200);
+    assert_eq!(result.json()["size"], plain.len().to_string());
+    assert!(result.json().get("contentEncoding").is_none());
+    let path = "/storage/v1/b/gzip-bucket/o/plain?alt=media";
+    assert_eq!(server.request("GET", path, "", b"").body.as_bytes(), plain);
+    let declared = server.request(
         "POST",
-        "/upload/storage/v1/b/gzip-bucket/o?uploadType=media&name=raw",
-        "Content-Type: text/plain\r\nContent-Encoding: gzip\r\n",
-        b"raw media is not transport gzip",
+        &format!("{media}&name=declared&contentEncoding=gzip"),
+        gzip_type,
+        &gzip(plain),
     );
-    result.status(400);
-    assert!(result.body.contains("content-encoding"));
+    declared.status(200);
+    assert_eq!(declared.json()["contentEncoding"], "gzip");
+    assert_eq!(declared.json()["size"], plain.len().to_string());
+    let raw = server.request(
+        "GET",
+        "/storage/v1/b/gzip-bucket/o/declared?alt=media",
+        "Accept-Encoding: gzip\r\n",
+        b"",
+    );
+    assert_eq!(raw.body.as_bytes(), plain);
+    let before = server
+        .request("GET", "/storage/v1/b/gzip-bucket/o/plain", "", b"")
+        .json();
+    let valid = gzip(b"replacement");
+    let mut bad_crc = valid.clone();
+    bad_crc[valid.len() - 8] ^= 1;
+    for (body, status) in [
+        (b"raw media is not transport gzip".to_vec(), 400),
+        (valid[..valid.len() - 1].to_vec(), 400),
+        (bad_crc, 400),
+        (gzip(&[b'x'; 65]), 413),
+    ] {
+        server
+            .request("POST", &format!("{media}&name=plain"), gzip_type, &body)
+            .status(status);
+        assert_eq!(
+            server
+                .request("GET", "/storage/v1/b/gzip-bucket/o/plain", "", b"")
+                .json(),
+            before
+        );
+    }
     server
-        .request("GET", "/storage/v1/b/gzip-bucket/o/raw", "", b"")
-        .status(404);
+        .request(
+            "POST",
+            &format!("{media}&name=plain"),
+            "Content-Type: text/plain\r\nContent-Encoding: br\r\n",
+            b"x",
+        )
+        .status(400);
+    await_staging(&dir, 0);
 }
 
 #[test]

@@ -17,8 +17,11 @@ This is request transport decoding. Object contentEncoding, download
 transcoding and XML signed-request canonicalization retain their existing
 meanings. POST uploads with uploadType=multipart also accept transport gzip:
 the entire multipart/related envelope is decoded before the existing streaming
-metadata/media parser. Raw-media transport gzip is outside this scope and keeps
-its existing unsupported Content-Encoding error.
+metadata/media parser. POST uploads with uploadType=media stream their body
+through the same decoder and store the decoded bytes, matching Cloud Storage
+(observed 2026-10-31, see
+[media read observations](../evidence/media-read-provider-observations.md)); a
+contentEncoding query parameter still sets the stored metadata independently.
 
 Multipart decoding consumes and produces at most 64 KiB per blocking step,
 with one output channel slot and the same single decoder permit as metadata.

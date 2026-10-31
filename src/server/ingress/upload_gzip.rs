@@ -1,4 +1,6 @@
-//! Java's direct multipart uploader gzips the MIME envelope, not the stored media.
+//! Upload transport gzip: Java's direct multipart uploader gzips the MIME envelope, not the
+//! stored media, and Cloud Storage also decompresses a gzip-encoded media upload body before
+//! storing it (observed 2026-10-31). The stored bytes are the decoded body in both cases.
 
 use super::{RequestBody, RequestCtx, bad_request};
 use crate::{
@@ -72,7 +74,7 @@ pub(super) fn request(
         || encodings.next().is_some()
     {
         return Err(bad_request(
-            "Multipart transport Content-Encoding must be one gzip coding",
+            "Upload transport Content-Encoding must be one gzip coding",
         ));
     }
     ctx.state
@@ -97,7 +99,7 @@ pub(super) fn request(
     let compressed_limit = expanded_limit
         .saturating_add(expanded_limit / 8)
         .saturating_add(64 * 1024);
-    crate::task::spawn_supervised("gzip-multipart-input", async move {
+    crate::task::spawn_supervised("gzip-upload-input", async move {
         let result = tokio::select! {
             result = stream(body, &sender, &activity, compressed_limit, expanded_limit) => result,
             _ = sender.closed() => return,
@@ -179,7 +181,7 @@ async fn stream(
                     .filter(|size| *size <= expanded_limit)
                     .ok_or_else(|| {
                         io::Error::other(
-                            "Expanded multipart exceeds max_object_bytes plus framing budget",
+                            "Expanded upload exceeds max_object_bytes plus framing budget",
                         )
                     })?;
                 if sender.send(Ok(bytes)).await.is_err() {
@@ -197,7 +199,7 @@ async fn stream(
                                 .checked_add(pending.len() as u64)
                                 .filter(|size| *size <= compressed_limit)
                                 .ok_or_else(|| {
-                                    io::Error::other("Compressed multipart exceeds its wire budget")
+                                    io::Error::other("Compressed upload exceeds its wire budget")
                                 })?;
                             super::super::body_progress(activity);
                         }

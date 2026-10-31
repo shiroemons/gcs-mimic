@@ -175,7 +175,8 @@ metadata response disguised as a download; upload requests on the wrong endpoint
 | `Content-MD5` on insert | No JSON support claim; reject 501 rather than silently treating it as validation (SPEC-010) |
 | `Range`, `If-Range` on media get | Single ranges return 206/416 under the [range contract](json-object-range.md); malformed/multiple/repeated ranges use its local 200 fallback. If-Range remains 501. |
 | `If-Match`, `If-None-Match` | Reject 501 until ETag condition semantics exist; query generation conditions remain separate |
-| `Content-Encoding`, custom metadata and encryption semantic headers | Unsupported behavior fails explicitly; no accepted-but-ignored compression, key or metadata request |
+| `Content-Encoding` | One `gzip` coding is decoded as transport compression and the decoded bytes are stored (see [HTTP ingress](http-ingress.md)); other codings fail 400 |
+| Custom metadata and encryption semantic headers | Unsupported behavior fails explicitly; no accepted-but-ignored key or metadata request |
 | `X-Goog-Gcs-Idempotency-Token` | A supplied token must be one nonempty header; empty/duplicate values return 400 invalidParameter. Media/multipart matching retries return the original committed resource through bounded persistent [upload replay](sdk-upload-replay.md), with or without conditions. Metadata/media GET and DELETE retries execute again; repeated DELETE normally returns 404 after its first 204 (SPEC-013). |
 
 Benign transport/client identification headers are not rejected simply for being unknown.

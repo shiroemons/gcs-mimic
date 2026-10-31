@@ -107,7 +107,7 @@ pub(super) async fn decode_metadata(
         && request.uri().path().starts_with("/upload/storage/v1/")
         && crate::json::parse_query(request.uri().query().unwrap_or_default())?
             .get("uploadType")
-            .is_some_and(|kind| kind == "multipart")
+            .is_some_and(|kind| kind == "multipart" || kind == "media")
         && request.headers().contains_key(CONTENT_ENCODING)
     {
         return upload_gzip::request(request, ctx);

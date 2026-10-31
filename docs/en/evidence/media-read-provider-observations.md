@@ -82,3 +82,25 @@ Local choices that were not observed: an invalid value (for example one
 containing a control character) fails 400 before the body is read, and a
 multipart or resumable metadata body that declares a different
 `contentEncoding` fails 400, as resumable initiation already did.
+
+## Media uploads sent with `Content-Encoding: gzip`
+
+Observed **2026-10-31** in a separate, discarded run. A media upload with the
+`contentEncoding=gzip` query parameter that also carried the request header
+`Content-Encoding: gzip` and a gzip body was stored **decompressed**: its
+`size` was that of the plain text, while its metadata still said
+`contentEncoding: gzip`. A later identity GET of that object failed with
+HTTP 400 and an 11-byte `text/plain` body while still sending
+`x-guploader-response-body-transformations: gunzipped`.
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| The request `Content-Encoding: gzip` is removed before storing | Media uploads stream through the bounded upload gzip decoder that multipart uploads already use; the decoded bytes are stored and the query `contentEncoding` still sets the metadata | `media_transport_gzip_stores_the_decoded_body` |
+
+Local choices that were not observed: non-gzip, truncated or CRC-corrupt
+bodies fail 400, a decoded body above `max_object_bytes` fails 413, and codings
+other than one `gzip` fail 400. The provider's 400 on a later identity GET of a
+decompressed object that still declares `contentEncoding: gzip` is not
+reproduced; gcs-mimic aborts that download like any other invalid stored gzip.
