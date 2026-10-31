@@ -8,11 +8,74 @@ use std::{collections::BTreeMap, fmt};
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
+pub(crate) struct SourceAcl {
+    entity: String,
+    role: String,
+    #[serde(rename = "EntityID")]
+    entity_id: String,
+    domain: String,
+    email: String,
+    project_team: Option<serde_json::Value>,
+}
+
+pub(super) fn acl(
+    values: Option<&[SourceAcl]>,
+    kind: crate::acl::AclKind,
+) -> Result<Option<Vec<crate::acl::AclEntry>>, std::io::Error> {
+    let Some(values) = values else {
+        return Ok(None);
+    };
+    let mut entries = Vec::with_capacity(values.len());
+    for source in values {
+        if !source.entity_id.is_empty()
+            || !source.domain.is_empty()
+            || !source.email.is_empty()
+            || source.project_team.is_some()
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "ACL auxiliary identity fields cannot be preserved; retain the source snapshot",
+            ));
+        }
+        entries.push(crate::acl::AclEntry {
+            entity: source.entity.clone(),
+            role: source.role.clone(),
+        });
+    }
+    crate::acl::validate_entries(kind, &entries)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    Ok(Some(entries))
+}
+
+pub(super) fn retention(
+    attrs: &ObjectAttrs,
+) -> Result<Option<crate::object::retention::ObjectRetention>, std::io::Error> {
+    let invalid = |reason| std::io::Error::new(std::io::ErrorKind::InvalidData, reason);
+    let unset = is_unset_time(&attrs.retention_retain_until).map_err(invalid)?;
+    if attrs.retention_mode.is_empty() && unset {
+        return Ok(None);
+    }
+    let mode = crate::object::retention::RetentionMode::parse(&attrs.retention_mode)
+        .ok_or_else(|| invalid("source retention mode must be Locked or Unlocked"))?;
+    if unset {
+        return Err(invalid(
+            "source retention mode requires a nonzero retain-until time",
+        ));
+    }
+    let micros = parse_timestamp(&attrs.retention_retain_until).map_err(invalid)?;
+    Ok(Some(crate::object::retention::ObjectRetention {
+        mode,
+        retain_until: super::filesystem::time(micros)?,
+    }))
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
 pub(crate) struct BucketAttrs {
     pub default_event_based_hold: bool,
     pub versioning_enabled: bool,
     #[serde(rename = "ACL")]
-    pub acl: Option<Vec<serde_json::Value>>,
+    pub acl: Option<Vec<SourceAcl>>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -28,7 +91,7 @@ pub(crate) struct ObjectAttrs {
     pub md5_hash: String,
     pub etag: String,
     #[serde(rename = "ACL")]
-    pub acl: Option<Vec<serde_json::Value>>,
+    pub acl: Option<Vec<SourceAcl>>,
     #[serde(deserialize_with = "unique_metadata")]
     pub metadata: Option<BTreeMap<String, String>>,
     pub created: String,
@@ -110,7 +173,25 @@ pub(crate) fn path_unescape(name: &str) -> Result<String, &'static str> {
         .map_err(|_| "decoded bucket must be UTF-8; restore the original snapshot")
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Precision {
+    Micros,
+    Nanos,
+}
+
 pub(crate) fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
+    parse_timestamp_parts(input, Precision::Micros).map(|(micros, _)| micros)
+}
+
+pub(super) fn parse_bucket_timestamp(input: &str) -> Result<std::time::SystemTime, &'static str> {
+    let (micros, nanos) = parse_timestamp_parts(input, Precision::Nanos)?;
+    super::filesystem::time(micros)
+        .map_err(|_| "bucket timestamp is outside this platform's range")?
+        .checked_add(std::time::Duration::from_nanos(u64::from(nanos)))
+        .ok_or("bucket timestamp is outside this platform's range")
+}
+
+fn parse_timestamp_parts(input: &str, precision: Precision) -> Result<(i64, u32), &'static str> {
     let invalid = "invalid source timestamp; supply a complete RFC3339 source timestamp";
     let bytes = input.as_bytes();
     if bytes.len() < 20
@@ -150,6 +231,7 @@ pub(crate) fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
     }
     let mut index = 19;
     let mut micros = 0;
+    let mut nanos = 0;
     if bytes.get(index) == Some(&b'.') {
         index += 1;
         let start = index;
@@ -157,7 +239,14 @@ pub(crate) fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
             let digit = i64::from(bytes[index] - b'0');
             if index - start < 6 {
                 micros = micros * 10 + digit;
+            } else if index - start < 9 && precision == Precision::Nanos {
+                nanos = nanos * 10 + digit as u32;
             } else if digit != 0 {
+                if precision == Precision::Nanos {
+                    return Err(
+                        "nonzero sub-nanosecond timestamp digits; retain the exact source timestamp without truncation",
+                    );
+                }
                 return Err(
                     "nonzero sub-microsecond timestamp digits; use an exact-microsecond snapshot, without truncation",
                 );
@@ -169,6 +258,9 @@ pub(crate) fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
         }
         for _ in (index - start)..6 {
             micros *= 10;
+        }
+        for _ in (index - start).max(6)..9 {
+            nanos *= 10;
         }
     }
     let zone = bytes.get(index..).ok_or(invalid)?;
@@ -191,11 +283,16 @@ pub(crate) fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
     let mp = month + if month > 2 { -3 } else { 9 };
     let doy = (153 * mp + 2) / 5 + day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    Ok(
-        ((era * 146097 + doe - 719468) * 86400 + hour * 3600 + minute * 60 + second - offset)
-            * 1_000_000
-            + micros,
-    )
+    let micros = ((era * 146097 + doe - 719468) * 86400 + hour * 3600 + minute * 60 + second
+        - offset)
+        * 1_000_000
+        + micros;
+    if !crate::clock::rfc3339_micros(i128::from(micros)) {
+        return Err(
+            "timestamp is outside the supported RFC3339 UTC range after timezone normalization",
+        );
+    }
+    Ok((micros, nanos))
 }
 
 pub(crate) fn is_unset_time(input: &str) -> Result<bool, &'static str> {
@@ -207,6 +304,50 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use proptest::prelude::*;
+    #[test]
+    fn source_acl_duplicate_identity_fields_are_not_silently_overwritten() {
+        assert!(serde_json::from_slice::<ObjectAttrs>(
+            br#"{"ACL":[{"Entity":"allUsers","Entity":"allAuthenticatedUsers","Role":"READER"}]}"#
+        ).is_err());
+    }
+    #[test]
+    fn bucket_nanoseconds_preserve_negative_instants_without_relaxing_object_precision() {
+        use std::time::{Duration, UNIX_EPOCH};
+        for (input, expected) in [
+            (
+                "1970-01-01T09:00:00.123456789+09:00",
+                UNIX_EPOCH + Duration::from_nanos(123_456_789),
+            ),
+            (
+                "1970-01-01T00:00:00.1234567Z",
+                UNIX_EPOCH + Duration::from_nanos(123_456_700),
+            ),
+            (
+                "1970-01-01T00:00:00.12345678Z",
+                UNIX_EPOCH + Duration::from_nanos(123_456_780),
+            ),
+            (
+                "1969-12-31T23:59:59.999999999Z",
+                UNIX_EPOCH - Duration::from_nanos(1),
+            ),
+        ] {
+            assert_eq!(parse_bucket_timestamp(input).unwrap(), expected, "{input}");
+            assert!(parse_timestamp(input).is_err(), "{input}");
+        }
+        for input in [
+            "0000-01-01T00:00:00.000000001Z",
+            "9999-12-31T23:59:59.999999999Z",
+        ] {
+            assert!(parse_bucket_timestamp(input).is_ok(), "{input}");
+        }
+        for input in [
+            "1970-01-01T00:00:00.0000000001Z",
+            "0000-01-01T00:00:00+00:01",
+            "9999-12-31T23:59:59-00:01",
+        ] {
+            assert!(parse_bucket_timestamp(input).is_err(), "{input}");
+        }
+    }
     proptest! {
         #[test]
         fn escaped_names_round_trip(name in any::<String>()) {
@@ -234,6 +375,8 @@ mod tests {
             "1970-01-01T00:00:00.123456001Z",
             "1970-01-01T24:00:00Z",
             "1970-01-01T00:00:00Zx",
+            "9999-12-31T23:59:59-01:00",
+            "0000-01-01T00:00:00+01:00",
         ] {
             assert!(parse_timestamp(input).is_err(), "{input}");
         }

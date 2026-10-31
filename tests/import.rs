@@ -134,8 +134,8 @@ fn corrupt_records_are_all_reported_with_relative_fields_original_values_and_rem
     let (_dir, mut options) = setup();
     let mut attrs: Value = serde_json::from_slice(ATTRS).unwrap();
     attrs["Created"] = json!("2026-10-24T00:00:00.123456001Z");
-    attrs["ACL"] = json!([{"Entity":"allUsers","Role":"READER"}]);
-    attrs["CustomTime"] = json!("2026-01-01T00:00:00Z");
+    attrs["ACL"] = json!([{"Entity":"allUsers","Role":"WRITER"}]);
+    attrs["CustomTime"] = json!("2026-01-01T00:00:00.000000001Z");
     attrs["RetentionMode"] = json!("Locked");
     attrs["Md5Hash"] = json!("bad");
     attrs["Updated"] = json!("not-a-time");
@@ -177,8 +177,8 @@ fn corrupt_records_are_all_reported_with_relative_fields_original_values_and_rem
     for (key, reason) in [
         ("bucket-one/bad:Created", "nonzero sub-microsecond"),
         ("bucket-one/bad:Updated", "invalid source timestamp"),
-        ("bucket-one/bad:ACL", "persisted ACL semantics"),
-        ("bucket-one/bad:CustomTime", "active source semantics"),
+        ("bucket-one/bad:ACL", "Invalid ACL role"),
+        ("bucket-one/bad:CustomTime", "nonzero sub-microsecond"),
         (
             "bucket-one/bad:RetentionMode",
             "retention cannot be enforced",

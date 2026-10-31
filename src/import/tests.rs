@@ -41,6 +41,105 @@ fn xattr_finding(pages: &[serde_json::Value], key: &str, reason: &str) {
 const ATTRS: &[u8] = include_bytes!("../../tests/fixtures/import/object-attrs.json");
 
 #[test]
+fn filesystem_import_preserves_explicit_bucket_and_object_acls_after_restart() {
+    let (_dir, options) = xattr_setup();
+    fs::write(
+        options.source.join("bucket-one.bucketMetadata"),
+        br#"{"ACL":[{"Entity":"allAuthenticatedUsers","Role":"WRITER"}]}"#,
+    )
+    .unwrap();
+    for (name, acl) in [
+        (
+            "public",
+            serde_json::json!([{"Entity":"allUsers","Role":"READER",
+            "EntityID":"","Domain":"","Email":"","ProjectTeam":null}]),
+        ),
+        ("empty", serde_json::json!([])),
+    ] {
+        let mut attrs: serde_json::Value = serde_json::from_slice(ATTRS).unwrap();
+        attrs["ACL"] = acl;
+        fs::write(options.source.join("bucket-one").join(name), b"hello").unwrap();
+        fs::write(
+            options
+                .source
+                .join("bucket-one")
+                .join(format!("{name}.metadata")),
+            serde_json::to_vec(&attrs).unwrap(),
+        )
+        .unwrap();
+    }
+    assert!(
+        execute(options.clone(), Vec::new(), Vec::new())
+            .unwrap()
+            .complete
+    );
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    for _ in 0..2 {
+        runtime.block_on(async {
+            let catalog = crate::storage::Catalog::open(&options.destination)
+                .await
+                .unwrap();
+            let projection = catalog
+                .acl_projection(
+                    "bucket-one",
+                    vec![
+                        ("empty".into(), 1_792_800_000_123_456),
+                        ("public".into(), 1_792_800_000_123_456),
+                    ],
+                )
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                projection.bucket,
+                vec![crate::acl::AclEntry {
+                    entity: "allAuthenticatedUsers".into(),
+                    role: "WRITER".into()
+                }]
+            );
+            assert!(projection.objects[0].is_empty());
+            assert_eq!(
+                projection.objects[1],
+                vec![crate::acl::AclEntry {
+                    entity: "allUsers".into(),
+                    role: "READER".into()
+                }]
+            );
+            catalog.close().await.unwrap();
+        });
+    }
+    assert_eq!(
+        fs::read(options.source.join("bucket-one/public")).unwrap(),
+        b"hello"
+    );
+}
+
+#[test]
+fn source_acl_validation_rejects_unrepresentable_identity_and_ambiguous_grants() {
+    for acl in [
+        serde_json::json!([{"Entity":"allUsers","Role":"WRITER"}]),
+        serde_json::json!([{"Entity":"allUsers","Role":"READER","Email":"x@example.invalid"}]),
+        serde_json::json!([{"Entity":"allUsers","Role":"READER","Unknown":true}]),
+        serde_json::json!([{"Entity":"allUsers","Role":"READER"},{"Entity":"allUsers","Role":"OWNER"}]),
+    ] {
+        let (_dir, options) = xattr_setup();
+        let mut attrs: serde_json::Value = serde_json::from_slice(ATTRS).unwrap();
+        attrs["ACL"] = acl;
+        fs::write(options.source.join("bucket-one/body"), b"hello").unwrap();
+        fs::write(
+            options.source.join("bucket-one/body.metadata"),
+            serde_json::to_vec(&attrs).unwrap(),
+        )
+        .unwrap();
+        let (summary, pages) = xattr_report(options.clone());
+        assert!(!summary.eligible);
+        assert_eq!(summary.blocking_findings, 1, "{pages:?}");
+        assert!(execute(options.clone(), Vec::new(), Vec::new()).is_err());
+        assert!(!options.destination.exists());
+    }
+}
+
+#[test]
 fn filesystem_import_xattr_revalidation_preserves_source_metadata() {
     struct StopAfterObject(usize);
     impl std::io::Write for StopAfterObject {

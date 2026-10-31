@@ -41,6 +41,7 @@ pub enum ImportFailure {
         fields: Vec<ChangedField>,
     },
     Io(io::Error),
+    Json(serde_json::Error),
     Corrupt {
         field: &'static str,
         reason: String,
@@ -49,7 +50,7 @@ pub enum ImportFailure {
     ReportClosed,
 }
 impl ImportFailure {
-    fn corrupt(
+    pub(super) fn corrupt(
         field: &'static str,
         reason: impl Into<String>,
         fix: impl Into<Cow<'static, str>>,
@@ -69,12 +70,26 @@ impl fmt::Display for ImportFailure {
         match self {
             Self::SourceChanged { fields } => write!(f, "source_changed: {fields:?}"),
             Self::Io(error) => write!(f, "source I/O failure ({:?})", error.kind()),
+            Self::Json(error) => write!(f, "invalid source snapshot JSON: {error}"),
             Self::Corrupt { reason, .. } => f.write_str(reason),
             Self::ReportClosed => f.write_str("report output closed"),
         }
     }
 }
-impl std::error::Error for ImportFailure {}
+impl std::error::Error for ImportFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Json(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+impl From<serde_json::Error> for ImportFailure {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
+    }
+}
 impl From<io::Error> for ImportFailure {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
@@ -209,6 +224,13 @@ pub struct BodyStream {
 impl BodyStream {
     pub fn open(path: &Path, max_bytes: u64) -> Result<Self, ImportFailure> {
         let file = open_regular(path)?;
+        Self::from_file(file, path, max_bytes)
+    }
+    pub(super) fn from_file(
+        file: File,
+        path: &Path,
+        max_bytes: u64,
+    ) -> Result<Self, ImportFailure> {
         let before = Fingerprint::of_file(&file)?;
         if before.size > max_bytes {
             return Err(ImportFailure::corrupt(
@@ -224,6 +246,12 @@ impl BodyStream {
             read: 0,
             max_bytes,
         })
+    }
+    pub(super) fn fingerprint(&self) -> &Fingerprint {
+        &self.before
+    }
+    pub(super) fn into_file(self) -> File {
+        self.file
     }
     pub fn next_chunk<'a>(
         &mut self,
@@ -474,8 +502,8 @@ struct ObjectInput<'a> {
 }
 
 /// Values recovered from object attributes that later checks compare against the body.
-struct ObjectChecks {
-    times: [i64; 2],
+pub(super) struct ObjectChecks {
+    pub times: [i64; 2],
     md5: Option<[u8; 16]>,
     crc32c: Option<[u8; 4]>,
 }
@@ -499,7 +527,7 @@ fn reject(
 
 /// Reports every object attribute this conversion cannot preserve and parses the timestamps
 /// and checksums that later steps need.
-fn check_object_fields(
+pub(super) fn check_object_fields(
     report: &mut Reporter,
     relative: &str,
     attrs: &ObjectAttrs,
@@ -549,7 +577,9 @@ fn check_object_fields(
             &attrs.cache_control,
         ),
     ] {
-        if let Err(error) = crate::json::validate_fixed_metadata(key, value) {
+        if !value.is_empty()
+            && let Err(error) = crate::json::validate_fixed_metadata(key, value)
+        {
             reject(report, relative, field, &error.message, value.clone())?;
         }
     }
@@ -562,16 +592,26 @@ fn check_object_fields(
             String::new(),
         )?;
     }
-    if attrs.acl.as_ref().is_some_and(|acl| !acl.is_empty()) {
+    if let Err(error) = codec::acl(attrs.acl.as_deref(), crate::acl::AclKind::Object) {
         reject(
             report,
             relative,
             ObjectField::Acl,
-            "persisted ACL semantics cannot be preserved",
+            &error.to_string(),
             serde_json::to_string(&attrs.acl).map_err(io::Error::other)?,
         )?;
     }
-    check_unset_semantics(report, relative, attrs)?;
+    if !attrs.custom_time.is_empty()
+        && let Err(reason) = codec::parse_timestamp(&attrs.custom_time)
+    {
+        reject(
+            report,
+            relative,
+            ObjectField::CustomTime,
+            reason,
+            attrs.custom_time.clone(),
+        )?;
+    }
     let mut times = [0; 2];
     for (index, (field, value)) in [
         (ObjectField::Created, &attrs.created),
@@ -608,7 +648,7 @@ fn check_object_fields(
     Ok(ObjectChecks { times, md5, crc32c })
 }
 
-/// Reports source semantics (soft deletion, custom time, retention) that must be unset.
+/// Reports source semantics that cannot be represented by this live-filesystem adapter.
 fn check_unset_semantics(
     report: &mut Reporter,
     relative: &str,
@@ -616,7 +656,6 @@ fn check_unset_semantics(
 ) -> Result<(), ImportFailure> {
     for (field, value) in [
         (ObjectField::Deleted, &attrs.deleted),
-        (ObjectField::CustomTime, &attrs.custom_time),
         (
             ObjectField::RetentionRetainUntil,
             &attrs.retention_retain_until,
@@ -647,7 +686,7 @@ fn check_unset_semantics(
 }
 
 /// Hashes the whole body and reports stored checksums that do not match it.
-fn verify_body(
+pub(super) fn verify_body(
     report: &mut Reporter,
     relative: &str,
     attrs: &ObjectAttrs,
@@ -721,17 +760,8 @@ fn object(
     let bytes = metadata_bytes(&body, options, metadata_buffer, report, relative, xattr)?;
     let attrs: ObjectAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt("ObjectAttrs", format!("invalid object metadata JSON: {e}"), "Restore valid ObjectAttrs JSON with exact known field names, unique keys and the pinned field types."))?;
     let errors_before = report.summary.blocking_findings;
-    if report.baseline.is_some() && attrs.storage_class != "STANDARD" {
-        report.finding(
-            relative,
-            "StorageClass",
-            "filesystem publication currently preserves only STANDARD",
-            "Use an importer preserving this stored class; do not silently change source metadata.",
-            Severity::Blocking,
-            Some(attrs.storage_class.clone()),
-        )?;
-    }
     let checks = check_object_fields(report, relative, &attrs)?;
+    check_unset_semantics(report, relative, &attrs)?;
     let verified_hashes = match body_buffer {
         Some(buffer) => Some(verify_body(
             report, relative, &attrs, &checks, &mut body, buffer,
@@ -775,6 +805,7 @@ fn object(
             attributes: Box::new(attrs),
             created_micros: checks.times[0],
             updated_micros: checks.times[1],
+            deleted_micros: None,
             fingerprint: body.before.clone(),
             verified_hashes,
             generated: &["native_etag", "metageneration_1"],
@@ -1059,13 +1090,11 @@ impl Scan<'_> {
         };
         let attrs: BucketAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt("BucketAttrs", format!("invalid bucket metadata JSON: {e}"), "Restore known, unique BucketAttrs fields with the pinned JSON types; an absent sidecar alone means defaults."))?;
         let before = report.summary.blocking_findings;
-        for (field, blocked) in [
-            ("VersioningEnabled", attrs.versioning_enabled),
-            ("ACL", attrs.acl.as_ref().is_some_and(|acl| !acl.is_empty())),
-        ] {
-            if blocked {
-                report.finding(relative, field, "unsupported persisted bucket semantics", "Use an export adapter that preserves these semantics; this filesystem conversion cannot discard them.", Severity::Blocking, None)?;
-            }
+        if attrs.versioning_enabled {
+            report.finding(relative, "VersioningEnabled", "unsupported persisted bucket semantics", "The pinned filesystem backend cannot store history; provide a complete memory export for versioned buckets.", Severity::Blocking, None)?;
+        }
+        if let Err(error) = codec::acl(attrs.acl.as_deref(), crate::acl::AclKind::Bucket) {
+            report.finding(relative, "ACL", error.to_string(), "Restore a supported source ACL without discarding entries or auxiliary identities.", Severity::Blocking, None)?;
         }
         report.manifest("bucket", relative, &[name.as_bytes(), &bytes]);
         if report.summary.blocking_findings == before {
@@ -1075,6 +1104,8 @@ impl Scan<'_> {
                 path: relative.to_owned(),
                 name,
                 attributes: attrs,
+                created_timestamp: None,
+                enable_object_retention: false,
                 generated: &[
                     "project_local-project",
                     "native_location",

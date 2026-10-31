@@ -409,10 +409,59 @@ fn filesystem_import_changed_export_is_terminal_after_source_repair() {
 }
 
 #[test]
+fn filesystem_import_preserves_classes_and_custom_time_through_resume_and_restart() {
+    for class in [
+        "STANDARD",
+        "NEARLINE",
+        "COLDLINE",
+        "ARCHIVE",
+        "MULTI_REGIONAL",
+        "DURABLE_REDUCED_AVAILABILITY",
+    ] {
+        let (_dir, options) = fixture();
+        let sidecar = options.source.join("bucket-one/a.metadata");
+        let mut attrs: Value = serde_json::from_slice(ATTRS).unwrap();
+        attrs["StorageClass"] = json!(class);
+        attrs["CustomTime"] = json!("2026-01-02T03:04:05.123456+09:00");
+        let bytes = serde_json::to_vec(&attrs).unwrap();
+        fs::write(&sidecar, &bytes).unwrap();
+        let before = Fingerprint::of(&fs::metadata(&sidecar).unwrap()).unwrap();
+        assert!(import::execute(options.clone(), Interrupt { remaining: 3 }, Vec::new()).is_err());
+        assert!(execute(options.clone()).unwrap().complete);
+        for _ in 0..2 {
+            runtime().block_on(async {
+                let catalog = Catalog::open(&options.destination).await.unwrap();
+                let object = catalog
+                    .admin(Origin::Import)
+                    .get_object(
+                        &BucketName::new("bucket-one").unwrap(),
+                        &ObjectName::new("a").unwrap(),
+                        None,
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(object.storage_class, class);
+                assert_eq!(
+                    object.custom_time.as_deref(),
+                    Some("2026-01-02T03:04:05.123456+09:00")
+                );
+                assert_eq!(object.generation, GENERATION);
+                catalog.close().await.unwrap();
+            });
+        }
+        assert_eq!(fs::read(&sidecar).unwrap(), bytes);
+        assert_eq!(
+            Fingerprint::of(&fs::metadata(&sidecar).unwrap()).unwrap(),
+            before
+        );
+    }
+}
+
+#[test]
 fn filesystem_import_preflight_blocks_unsupported_metadata_without_creating_destination() {
     for (field, value) in [
-        ("ACL", json!([{"Entity":"allUsers","Role":"READER"}])),
-        ("StorageClass", json!("NEARLINE")),
+        ("ACL", json!([{"Entity":"allUsers","Role":"WRITER"}])),
+        ("StorageClass", json!("UNKNOWN")),
         ("Created", json!("2026-10-24T00:00:00.123456001Z")),
     ] {
         let (_dir, options) = fixture();

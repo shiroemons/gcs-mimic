@@ -4,9 +4,12 @@
 
 Contract checked: **2026-10-24**. Scope: DESIGN-062, DESIGN-072, DESIGN-073 and
 AUDIT-014; delivery gate `source-storage-contract` and migration milestones
-`seed-format-adapter` and `filesystem-state-import`. The local read-only
-dry-run is available; destination publication, conversion recovery and memory
-export remain pending. No Google import API is added; the
+`seed-format-adapter` and `filesystem-state-import`. Read-only inspection and
+scoped destination publication/resume are available. The separate
+[source-preservation](source-state-preservation.md),
+[memory snapshot](source-memory-snapshot.md) and
+[Go capture](go-source-memory-export.md) contracts extend that baseline and own
+their current acceptance and limits. No Google import API is added; the
 [seed adapter](import-seed-adapter.md) implements the explicit seed MIME setting.
 Implementation status remains in `compatibility/features.json`.
 
@@ -22,14 +25,16 @@ the linked inspection evidence.
 The following cases were defined before adapter implementation. The three
 `import-dry-run` cases have executable evidence in
 [the inspection report](../evidence/import-dry-run.md); publication and the
-other owners' runtime cases remain **PENDING**. Existing native seed/publication
-evidence does not establish source conversion support.
+later publication/capture evidence is recorded in the current contracts linked
+above. This original handoff table retains requirements, not a second current
+status. Existing native seed/publication evidence alone does not establish
+source conversion support.
 
 | Case | Feature | Required behavior and negative/boundary checks | Owner |
 | --- | --- | --- | --- |
-| source-seed-profile | DESIGN-062 | Distinguish seed input from durable storage; retain empty buckets, literal names, binary/zero-byte bodies; explicit extension MIME uses pinned inputs and Go extension/lowercase rules; native default stays octet-stream; count and skip only regular OS metadata files at every depth, traverse `._assets/` including its children | import-seed-adapter |
-| source-seed-safety | DESIGN-062 | Preserve all other native seed cases; reject unreadable/invalid/symlink/special inputs instead of source-style silent skipping; exclude only the generated seed ACL; no implicit replay or reseed; shutdown during publication drains side effects, removes temporary files and releases locks | import-seed-adapter |
-| seed-content-type-config | DESIGN-062 | Reject empty/unknown values; CLI overrides environment, then config file, then octet-stream default; verify both MIME profiles and durable-import isolation | import-seed-adapter |
+| source-seed-profile | DESIGN-062 | Distinguish seed input from durable storage; retain empty buckets, literal names, binary/zero-byte bodies; default extension MIME uses pinned inputs and Go extension/lowercase rules, with explicit octet-stream mode; count and skip only regular OS metadata files at every depth, traverse `._assets/` including its children | Seed adapter and atomic replay |
+| source-seed-safety | DESIGN-062 | Reject unreadable/invalid/symlink/special inputs instead of silently skipping; preserve literal `.metadata` bodies; replay configured seed on every startup through an atomic prepared-tree publication; drain owned side effects and cleanup before releasing locks | Seed adapter and atomic replay |
+| seed-content-type-config | DESIGN-062 | Reject empty/unknown values; CLI overrides environment, then config file, then extension default; verify both MIME profiles and durable-import isolation | Seed adapter |
 | source-filesystem-reader | DESIGN-072 | Read escaped bucket names, empty buckets, bucket sidecars and root-wide xattr/sidecar mode without writes; reject ambiguous/missing/orphan/oversize metadata, duplicate decoded names and unsupported fields; test OS-specific errno, typed errors, single-call xattr reads using only SourceMetadataBuffer, exact-cap acceptance, cap-plus-one rejection and Windows source/xattr configuration rejection | import-dry-run |
 | source-integrity-report | DESIGN-072 | Report missing/truncated/changed bodies, invalid JSON/base64/times, checksum mismatches, unrepresentable names and directory-only entries; distinguish metadata-only inspection from streamed hash verification; bounded memory and diagnostics; property-test valid bucket escape round trips and panic-free arbitrary timestamp parsing | import-dry-run |
 | source-name-scope | DESIGN-072 | Fixtures for upstream writes named `a//b`, `a/./b`, `a/../b` and `x/../../other/y` report normalized disk names and unverifiable original names; detect observable collisions/escapes, declare Windows separator rules, never invent lost names | import-dry-run |
@@ -69,18 +74,18 @@ contract describes local conversion of reference-emulator data, not Google
 
 | Format | Input and identity | Metadata and empty buckets | Lifecycle |
 | --- | --- | --- | --- |
-| Seed directory | `seed_dir/BUCKET/OBJECT`; bucket and relative object components are literal UTF-8, joined with `/`; no percent decoding | No persisted object attributes; every top-level bucket directory exists even when empty | Native one-time initialization; source startup/reseed replay is a separate legacy behavior |
+| Seed directory | `seed_dir/BUCKET/OBJECT`; bucket and relative object components are literal UTF-8, joined with `/`; no percent decoding | No persisted object attributes; empty bucket directories are retained; `.metadata` is a literal object suffix | Replay on every startup; source builds add atomic whole-tree publication and opt-in reseed, with disk merge and RAM replacement |
 | Durable filesystem | Snapshot of `-filesystem-root`; bucket directory component is Go `url.PathEscape(bucket)`; decode once with `PathUnescape`; recover normalized disk object paths without URL-unescaping, not original API names | Root-wide xattr or sidecar object attributes; root sibling `<escaped-bucket>.bucketMetadata`; retain empty bucket directories | Stopped writer or immutable snapshot; separate empty destination; checkpointed conversion |
-| Memory live export | In-process `storageMemory.buckets` with `Bucket`, `activeObjects` and `archivedObjects`; each object contains `ObjectAttrs` and bytes | Empty buckets and active/archive membership are explicit; archived generations cannot be reconstructed from a seed tree | Requires a consistent Go-adapter export before process exit; no durable root or implemented export codec |
+| Memory live export | In-process `storageMemory.buckets` with `Bucket`, `activeObjects` and `archivedObjects`; each object contains `ObjectAttrs` and bytes | Empty buckets, original names and live/archive membership are explicit; history cannot be reconstructed from a seed tree | Quiesced Go source capture before process exit, with a versioned manifest, opaque bodies, trailer digest and separate snapshot reader |
 
 Never auto-detect these formats from a directory's shape. Startup seed uses the
-seed profile; the planned `gcs-mimic import fake-gcs-server --source DIR
+seed profile; `gcs-mimic import fake-gcs-server --source DIR
 --data-dir NEW --metadata-mode xattr|sidecar --source-platform unix|windows
 [--dry-run]` command reads durable
 filesystem state. Its dry-run
-report identifies the source format/revision and metadata mode. A future Go
-export gets its own versioned envelope and reader; this slice freezes its
-required information, not an invented upstream on-disk serialization.
+report identifies source format/revision and metadata mode. The explicit
+`--source-format snapshot` selects the separate versioned capture format; no
+directory-shape inference or fabricated upstream disk serialization is used.
 
 Reject malformed percent escapes, duplicate decoded bucket names, names outside
 the existing bucket/object validators and unsafe path mappings. Decode bucket
@@ -107,8 +112,8 @@ profile; block host-ambiguous mappings rather than guessing the source platform.
 
 ### Seed profile and MIME decision
 
-The seed setting is **`seed_content_type`**, with values **`octet-stream`**
-(default) and **`extension`**. Its matching CLI/environment names are
+The seed setting is **`seed_content_type`**, with values **`extension`**
+(default) and **`octet-stream`**. Its matching CLI/environment names are
 `--seed-content-type` and `GCS_MIMIC_SEED_CONTENT_TYPE`. Empty/unknown values are
 configuration errors. The [seed adapter](import-seed-adapter.md) implements
 these settings.
@@ -177,8 +182,9 @@ Seed creates empty buckets and imports binary and zero-byte regular files.
 It computes hashes and assigns native generations/times through shared
 publication; filesystem stat times do not become seed metadata. The source's
 fixed `projectOwner-test-project: OWNER` ACL is generated code, not information
-present in a seed file. Excluding it does not waive the block on **stored** ACLs
-in durable or memory data and never grants anonymous or project access.
+present in a seed file. Excluding it never grants anonymous or project access.
+Stored source ACLs instead follow the shared entity/role validation and
+UBLA/public-access-prevention checks in [source preservation](source-state-preservation.md).
 
 The adapter skips only **regular files** named `.DS_Store` or `._*` at every
 depth using the common OS metadata predicate plus an entry-type check, and
@@ -186,13 +192,13 @@ report `skipped_os_metadata` in the ready seed outcome. Directories such as
 `._assets/` remain ordinary input, including their children; symlinks and
 special files still fail. This qualifies the plan's name-only skip wording
 because silently skipping a directory would discard real input recursively.
-Other hidden entries remain ordinary input. Other top-level regular files,
-unreadable buckets and invalid entries still fail native startup; legacy silent
-skipping is outside this slice. Existing catalogs keep already-imported OS metadata
-objects because seed is one-time. The seed-adapter owner must update
-`slices/seed.md`, its affected test/evidence, UX-002 and release notes together;
-the adapter records that verification separately. Explicit reseed is
-DESIGN-068, outside this contract.
+Other hidden entries remain ordinary input. Top-level regular files are skipped
+with a warning; unreadable buckets and invalid entries fail startup.
+Replay does not delete unrelated existing objects,
+including previously imported OS metadata. The [seed contract](seed.md) and
+[atomic replay/reseed](atomic-seed-reseed.md) record current behavior and
+verification; a changed protected seed fails the complete replay without a
+partial namespace or readiness signal.
 
 ### Durable metadata selection and xattr decision
 
@@ -293,7 +299,7 @@ their observable meaning differs, or report an unsupported representation.
 | Bucket directory / decoded name | Validated `BucketRecord.name`; collisions block; preserve empty buckets |
 | `BucketAttrs.DefaultEventBasedHold` | `BucketRecord.default_event_based_hold`; preserve the bucket setting without synthesizing a per-object hold absent from source `ObjectAttrs`. If shared imported publication cannot prevent ordinary upload-default hold application, block that bucket |
 | `BucketAttrs.VersioningEnabled` | `BucketRecord.versioning_enabled`; true is inconsistent with this filesystem backend and blocks; memory exports may retain true |
-| `BucketAttrs.ACL` | Nonempty stored ACL blocks until shared permission semantics can preserve it; never treat it as the generated seed ACL |
+| `BucketAttrs.ACL` | Preserve supported entity/role entries, including explicit empty lists, atomically with the bucket; unrepresentable auxiliary identities block |
 | Bucket creation time from source stat | Generated destination time; report observed source value/provenance only. Exclude it from preservation, precision blockers and source fingerprints on every platform; inode change time is unstable on child updates/chmod and cannot prove creation time |
 | Fields not stored for buckets | Explicit import project (same validation/default as `seed_project`), native location/class, metageneration 1 and other native defaults; report these as generated values, never as source-restored IAM/CORS/labels |
 | `BucketName`, `Name`, `Size` | Excluded from persisted `ObjectAttrs` JSON by `json:"-"`; derive names from layout and size from body stat/stream; do not trust injected JSON replacements |
@@ -306,8 +312,8 @@ their observable meaning differs, or report an unsupported representation.
 | `Etag` | Generated native ETag, including after metadata patch; retain the upstream value in reports only, even if custom. No imported ETag column, JSON/XML rendering override or source If-Match compatibility is requested |
 | `Created`, `Updated` | `time_created`, `updated`; strict source timestamp parsing; reject missing/invalid/overflowing values. Preserve microseconds exactly by default; block nonzero digits below microsecond precision. No `--timestamp-precision` option or lossy ms mode |
 | `Deleted` | Empty or parsed Go zero time means unset; any other value blocks this live-filesystem import; memory archived membership is separate |
-| `CustomTime` | Empty or parsed Go zero time means unset; any other value blocks until its semantics are supported |
-| `ACL` | Every nonempty persisted ACL blocks, including a seed-looking constant once stored in a runtime snapshot |
+| `CustomTime` | Empty or parsed Go zero time means unset; preserve valid exact-microsecond values, rejecting malformed or lossy precision |
+| `ACL` | Preserve supported entity/role entries atomically with the generation; unrepresentable auxiliary identities block; stored seed-looking ACLs remain real source ACLs |
 | `RetentionMode`, `RetentionRetainUntil` | Empty/zero values are unset; an active retention value blocks until enforceable; malformed/inconsistent pairs block |
 | Metageneration / history | Not in persisted `ObjectAttrs`; generated metageneration 1 is reported. Filesystem has only live objects; it cannot prove preservation of earlier lost versions |
 
@@ -331,11 +337,14 @@ ETags depend on generation/metageneration and are not source MD5 strings;
 the owner's microsecond-preservation decision supersedes the former lossy ms
 proposal. Generated ETags and unstable bucket ctime are excluded from the
 preserved-identity scope. The [catalog timestamp slice](catalog-timestamp-precision.md)
-owns schema 14 microsecond storage and its migration; JSON retains three
-fractional digits with floor toward negative infinity and XML retains its
+owns schema 14 microsecond storage and its migration; JSON retains stored
+microseconds with three to six fractional digits. Bucket resources emit nine
+digits when their checked nanosecond remainder is nonzero. XML retains its
 existing HTTP-date representation. API display precision does not alter the
-stored source instant. shared-imported-identity must accept validated exact
-microseconds without millisecond truncation; the importer is still pending.
+stored source instant. Shared imported publication accepts validated exact
+microseconds without millisecond truncation. Scoped destination publication and
+resume are implemented in [filesystem import](import-filesystem.md); memory
+bucket nanoseconds have the separate [snapshot contract](source-memory-snapshot.md).
 
 A missing bucket sidecar has upstream zero-value semantics, so report defaults
 and retain the empty bucket. Malformed bucket JSON blocks. Directories below a
@@ -344,7 +353,7 @@ directory and discards its body/attributes. Report directory-only candidates
 without manufacturing zero-byte objects. Body absence, stat/hash disagreement,
 or a sidecar/xattr that cannot be paired is corruption, not an empty object.
 
-Unsupported ACL, nonzero `CustomTime`/`Deleted`, retention, history or object
+Unsupported ACL identities, nonzero `Deleted`, retention, history or object
 sub-microsecond timestamp precision blocks with no lossy override. Reports list
 generated ETags, bucket times, metagenerations and every omitted field/generation;
 they must distinguish the declared preservation subset from full original-state
@@ -361,11 +370,12 @@ active/archive membership and every metadata field above. A bucket can have
 archives without any active objects. Trailing-slash names are real memory
 objects and must not be reconstructed using filesystem directory rules.
 
-The Go-adapter slice owns export serialization/versioning, consistency and
-history preservation tests. Import must reject memory-export input until that
-codec and required shared history/permission/precision support exist. A JSON
-API live-object listing, a seed copy or an empty filesystem root is not a full
-memory export. No memory exporter is implemented or claimed here.
+The separate [Go capture](go-source-memory-export.md) and
+[snapshot reader](source-memory-snapshot.md) now implement the declared versioned
+format against the pinned actual memory backend and verify retained history.
+They require an application writer barrier and explicit format selection.
+A JSON API live-object listing, a seed copy or an empty filesystem root does
+not establish a complete memory export.
 
 ## Read-only inspection, publication and recovery
 
@@ -564,7 +574,9 @@ shutdown waits for in-flight side effects, cleans temporary files and releases
 locks. Normal recovery may reclaim unreferenced staging files, so none is a
 resume authority. After all fingerprint, count and verification gates pass,
 completion atomically marks both import and seed complete before the startup
-guard allows serve. Adding `seed_dir` afterward cannot replay migrated data.
+guard allows serve. A later `seed_dir` replays only the explicitly selected
+literal fixtures; it does not implicitly rediscover the migration source.
+An empty fixture directory leaves imported objects and generations untouched.
 
 Source backup/snapshot remains the rollback authority. Do not cut over clients
 until final reports, counts, checksum/generation reads, restart and permission
@@ -572,7 +584,15 @@ checks pass. Rollback keeps the source snapshot untouched and treats the new
 destination as a separate artifact; it is not a reverse converter or an
 implicit catalog downgrade.
 
-## Delivery boundaries
+## Historical delivery plan
+
+The remaining handoff text in this section records the original contract-stage
+plan. Its implementation requests and PENDING labels are historical, rather than
+current availability claims. Shared publication, imported identity, journals,
+seed traversal, source preservation and memory capture now have their own
+implemented subsets and evidence linked above. The feature ledger and
+[integration map](../evidence/migration-integration.md) own current status;
+the old benchmark proposals below are not delivery requirements or results.
 
 The contract stage pinned source evidence before runtime changes. The
 read-only implementation now supplies hashing, bounded traversal/ignore
@@ -607,7 +627,7 @@ requires those implemented, verified shared interfaces.
 `import-dry-run` may proceed independently. No Shared state ledger entry or
 implementation is implied by the remaining Import requests.
 
-### Known limitations and handoffs
+### Original limitations and handoffs
 
 - The Shared state receiving record owns handoff acceptance. The implementation
   owner supplies tests/evidence, the independent reviewer verifies them, and
@@ -646,7 +666,7 @@ upgrade/resource/durability cases remain intact. `import-overlap` and
 coordinator confirmed that this dry-run slice verifies fixed buffers, bounded
 pages and bytes hashed without time/CPU/RSS measurements or performance claims.
 
-### Executable dry-run
+## Executable dry-run
 
 Stop the source writer or supply an immutable snapshot, preferably mounted
 read-only. Use an absent destination with an existing parent or an empty

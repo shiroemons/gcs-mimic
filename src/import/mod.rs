@@ -4,6 +4,7 @@
 pub(crate) mod codec;
 mod filesystem;
 mod reader;
+mod snapshot;
 #[cfg(test)]
 mod tests;
 
@@ -29,14 +30,15 @@ const PUBLICATION_PAGE_SIZE: usize = 8;
 pub(crate) const FINGERPRINT_FORMAT: u8 = 1;
 pub(crate) const HELP: &str = "Usage: gcs-mimic import fake-gcs-server --source DIR --data-dir NEW
        --metadata-mode xattr|sidecar --source-platform unix|windows [--dry-run [--verify-bodies]]
+       gcs-mimic import fake-gcs-server --source DIR --data-dir NEW --source-format snapshot
 
 Import a stopped writer's durable filesystem snapshot without changing the source.
 NEW must be absent or empty, or contain the same unfinished import for automatic resume.
 --dry-run inspects metadata without creating NEW; --verify-bodies also verifies its bodies.
 Actual import always verifies body checksums and keeps unfinished destinations unservable.
 Output is JSON Lines; diagnostics use stderr. Source and destination must be separate.
-Only normalized disk names are recoverable; original API names and history cannot be verified.
-Native bucket defaults/project and ETags are generated. Memory exports are unavailable.
+Filesystem snapshots recover normalized disk names only; original names/history cannot be verified.
+Native project/default placement and ETags are generated. Snapshot format preserves declared memory history.
 No server configuration is read.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -50,6 +52,14 @@ pub enum MetadataMode {
 pub enum SourcePlatform {
     Unix,
     Windows,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceFormat {
+    #[default]
+    Filesystem,
+    Snapshot,
 }
 
 /// Whether the destination must be empty (inspection) or may hold an unfinished import to
@@ -81,6 +91,7 @@ pub struct Options {
     pub destination: PathBuf,
     pub metadata_mode: MetadataMode,
     pub source_platform: SourcePlatform,
+    pub source_format: SourceFormat,
     pub verify_bodies: bool,
     pub max_object_bytes: u64,
     pub max_entries: usize,
@@ -99,6 +110,7 @@ impl Options {
             destination,
             metadata_mode,
             source_platform,
+            source_format: SourceFormat::Filesystem,
             verify_bodies: false,
             max_object_bytes: 1_073_741_824,
             max_entries: 10_000,
@@ -152,7 +164,8 @@ impl Options {
                 "Source and destination parent must exist and be accessible; create only the destination parent before retrying.",
             ),
         }
-        if self.metadata_mode == MetadataMode::Xattr
+        if self.source_format == SourceFormat::Filesystem
+            && self.metadata_mode == MetadataMode::Xattr
             && self.source_platform == SourcePlatform::Windows
         {
             issue(
@@ -192,6 +205,8 @@ pub(crate) enum Record {
         path: String,
         name: String,
         attributes: codec::BucketAttrs,
+        created_timestamp: Option<String>,
+        enable_object_retention: bool,
         generated: &'static [&'static str],
         observed_stat: String,
         #[serde(skip)]
@@ -204,6 +219,7 @@ pub(crate) enum Record {
         attributes: Box<codec::ObjectAttrs>,
         created_micros: i64,
         updated_micros: i64,
+        deleted_micros: Option<i64>,
         fingerprint: Fingerprint,
         verified_hashes: Option<Hashes>,
         generated: &'static [&'static str],
@@ -228,6 +244,7 @@ pub struct Summary {
     pub complete: bool,
     pub eligible: bool,
     pub bodies_verified: bool,
+    pub original_names_verified: bool,
     pub buckets: u64,
     pub objects: u64,
     pub eligible_buckets: u64,
@@ -349,6 +366,10 @@ impl Reporter {
                 "io",
                 "Check read/search permissions and filesystem availability for this relative entry; retry after resolving the reported I/O error.",
             ),
+            ImportFailure::Json(_) => (
+                "snapshot_json",
+                "Restore the complete source snapshot with known, unique fields and the declared JSON types.",
+            ),
             ImportFailure::ReportClosed => (
                 "report",
                 "Keep the JSON report consumer open through the final summary.",
@@ -440,10 +461,18 @@ fn inspect_with_xattr(
     serde_json::to_writer(
         &mut output,
         &serde_json::json!({"event":"import_report", "format_version":1,
-        "source_format":"fake-gcs-server-filesystem", "source_revision":SOURCE_REVISION,
-        "metadata_mode":options.metadata_mode, "source_platform":options.source_platform,
-        "names_recovered_from_normalized_disk_paths":true, "original_names_verified":false,
-        "preservation_scope":"recoverable current live disk state only; no history, IAM or original-name losslessness",
+        "source_format": match options.source_format {
+            SourceFormat::Filesystem => "fake-gcs-server-filesystem",
+            SourceFormat::Snapshot => "fake-gcs-server-memory-snapshot",
+        }, "source_revision":SOURCE_REVISION,
+        "metadata_mode":(options.source_format == SourceFormat::Filesystem).then_some(options.metadata_mode),
+        "source_platform":(options.source_format == SourceFormat::Filesystem).then_some(options.source_platform),
+        "names_recovered_from_normalized_disk_paths":options.source_format == SourceFormat::Filesystem,
+        "original_names_verified":false,
+        "preservation_scope": match options.source_format {
+            SourceFormat::Filesystem => "recoverable current live disk state; no history, IAM or original-name losslessness",
+            SourceFormat::Snapshot => "complete quiesced memory capture with explicit live/archive membership; generated native ETags/metagenerations/project",
+        },
         "dry_run":true, "verify_bodies":options.verify_bodies, "max_object_bytes":options.max_object_bytes,
         "max_entries":options.max_entries,"max_depth":options.max_depth,"page_size":PAGE_SIZE,"channel_pages":2}),
     )?;
@@ -544,7 +573,11 @@ fn spawn_scan(
                 &(options.max_depth as u64).to_be_bytes(),
             ],
         );
-        match reader::scan(&options, &mut reporter, xattr) {
+        let result = match options.source_format {
+            SourceFormat::Filesystem => reader::scan(&options, &mut reporter, xattr),
+            SourceFormat::Snapshot => snapshot::scan(&options, &mut reporter),
+        };
+        match result {
             Ok(()) => reporter.summary.complete = true,
             Err(ImportFailure::ReportClosed) => return Err(ImportFailure::ReportClosed),
             Err(error) => reporter.failure(".", &error)?,
@@ -589,7 +622,8 @@ pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         match key.as_str() {
             "--dry-run" if !dry_run => dry_run = true,
             "--verify-bodies" if !verify => verify = true,
-            "--source" | "--data-dir" | "--metadata-mode" | "--source-platform" => {
+            "--source" | "--data-dir" | "--metadata-mode" | "--source-platform"
+            | "--source-format" => {
                 index += 1;
                 let value = args
                     .get(index)
@@ -629,7 +663,25 @@ pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             )
         })
     };
-    let mode = match required("--metadata-mode")? {
+    let source_format = match values
+        .get("--source-format")
+        .copied()
+        .unwrap_or("filesystem")
+    {
+        "filesystem" => SourceFormat::Filesystem,
+        "snapshot" => SourceFormat::Snapshot,
+        _ => return Err(invalid("--source-format", "Use filesystem or snapshot.").into()),
+    };
+    if source_format == SourceFormat::Snapshot
+        && (values.contains_key("--metadata-mode") || values.contains_key("--source-platform"))
+    {
+        return Err(invalid("--source-format", "Snapshot names and attributes are explicit; remove --metadata-mode and --source-platform.").into());
+    }
+    let mode = match if source_format == SourceFormat::Snapshot {
+        "sidecar"
+    } else {
+        required("--metadata-mode")?
+    } {
         "xattr" => MetadataMode::Xattr,
         "sidecar" => MetadataMode::Sidecar,
         _ => {
@@ -640,7 +692,11 @@ pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             .into());
         }
     };
-    let platform = match required("--source-platform")? {
+    let platform = match if source_format == SourceFormat::Snapshot {
+        "unix"
+    } else {
+        required("--source-platform")?
+    } {
         "unix" => SourcePlatform::Unix,
         "windows" => SourcePlatform::Windows,
         _ => {
@@ -657,6 +713,7 @@ pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         mode,
         platform,
     );
+    options.source_format = source_format;
     options.verify_bodies = verify;
     let summary = if dry_run {
         inspect(options, io::stdout().lock(), io::stderr().lock())?
