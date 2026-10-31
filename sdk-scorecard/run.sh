@@ -87,7 +87,7 @@ docker run --rm --name "$probe_container" -v "$root:/app:ro" "$php_image" php -l
 docker run --rm --name "$probe_container" -v "$root:/app:ro" "$php_image" php /app/sdk-scorecard/php/test-resumable-wire.php
 # "cases" is each probe's actual output line count (51 shared cases plus SDK-specific ones).
 # It is fixed here, so update it whenever a probe adds or removes a case.
-sdks=$(jq -n --arg go"$(cd "$root/sdk-scorecard/go" && go version)" \
+sdks=$(jq -n --arg go "$(cd "$root/sdk-scorecard/go" && go version)" \
   --arg ruby "$(cd "$root/sdk-scorecard/ruby" && ruby --version)" --arg node "$(node --version)" \
   --arg python "$("$root/sdk-scorecard/python/.venv/bin/python" --version)" \
   --arg php "$(docker run --rm "$php_image" php --version | sed -n '1p')" \
