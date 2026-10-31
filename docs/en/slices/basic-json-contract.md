@@ -105,7 +105,7 @@ Content-Length, Accept-Ranges, ETag, x-goog-generation/metageneration/hash,
 x-goog-stored-content-length/encoding and present content encoding/disposition/
 language. A 206 adds Content-Range and uses the selected byte length; hashes
 remain full-object hashes. JSON nonpublic media Cache-Control is `no-cache, no-store, max-age=0, must-revalidate` (recorded); a supported
-allUsers public grant selects stored directives or public, max-age=3600.
+allUsers public grant selects stored directives or public, max-age=3600, must-revalidate.
 allAuthenticatedUsers alone is not public. Complete provider header presence,
 opaque bytes and optional Last-Modified parity remain SPEC-012; no JSON
 Last-Modified header is promised. JSON errors remain unfiltered by fields.

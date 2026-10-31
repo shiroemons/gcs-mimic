@@ -109,7 +109,10 @@ fn public_acl_pap_uniform_access_and_restart_recheck_the_selected_generation() {
     server.grant("allUsers", "READER", generation);
     let public = server.request("GET", &format!("{OBJECT}?alt=media"), "", b"");
     assert_eq!(public.body, b"public body");
-    assert_eq!(public.headers["cache-control"], "public, max-age=3600");
+    assert_eq!(
+        public.headers["cache-control"],
+        "public, max-age=3600, must-revalidate"
+    );
     server.grant("user-reader@example.test", "OWNER", generation);
     server
         .admin(
@@ -174,4 +177,42 @@ fn object_acl_read_does_not_bypass_customer_key_validation() {
         b"keyed body"
     );
     assert_eq!(server.request("GET", &media, OTHER, b"").status, 403);
+}
+
+/// Cloud Storage's JSON media read of a publicly readable object revalidates, varies by the
+/// allowed-resources header ahead of the CORS fields, sends no `pragma`, and keeps
+/// `content-disposition: attachment` (observed 2026-10-31). The XML read keeps its shorter
+/// `cache-control` and sends none of these. A private read of the same object is unchanged.
+#[test]
+fn anonymous_json_media_read_of_a_public_object_carries_the_public_header_set() {
+    let data = TestDir::new();
+    let inputs = TestDir::new();
+    let server = Server::start(&data, &inputs, "disk");
+    server.bucket();
+    let object = server.put(b"public body");
+    let generation = object["generation"].as_str().unwrap();
+    let path = format!("{OBJECT}?alt=media");
+    let private = server.request("GET", &path, OTHER, b"");
+    server.grant("allUsers", "READER", generation);
+    let public = server.request("GET", &path, "", b"");
+    assert_eq!(public.status, 200);
+    assert_eq!(
+        public.headers["cache-control"],
+        "public, max-age=3600, must-revalidate"
+    );
+    assert_eq!(
+        public.headers["vary"],
+        "X-Goog-Allowed-Resources, Origin, X-Origin"
+    );
+    assert!(!public.headers.contains_key("pragma"));
+    assert_eq!(public.headers["content-disposition"], "attachment");
+    let xml = server.request("GET", "/test-bucket/value", "", b"");
+    assert_eq!(xml.headers["cache-control"], "public, max-age=3600");
+    assert!(
+        !xml.headers
+            .get("vary")
+            .is_some_and(|vary| vary.contains("Allowed-Resources"))
+    );
+    assert_eq!(private.headers["vary"], "Origin, X-Origin");
+    assert_eq!(private.headers["pragma"], "no-cache");
 }

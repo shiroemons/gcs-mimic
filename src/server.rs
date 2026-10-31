@@ -1094,6 +1094,9 @@ enum QueryPrecondition {
     Unmatched,
 }
 
+/// Varied on first by a publicly readable JSON media response, ahead of the CORS fields.
+const ALLOWED_RESOURCES_VARY: &str = "X-Goog-Allowed-Resources";
+
 /// The `Cache-Control` Cloud Storage sends with JSON API resources and lists.
 const JSON_RESOURCE_CACHE_CONTROL: &str = "private, max-age=0, must-revalidate, no-transform";
 

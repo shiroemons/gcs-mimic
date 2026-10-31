@@ -8,9 +8,9 @@ use crate::{
     json::{self, JsonError},
     object::{ObjectConditions, ObjectError},
     server::{
-        JSON_RESOURCE_CACHE_CONTROL, ObjectCtx, QueryPrecondition, ResponseBody, acl, boxed, gzip,
-        insert_content_range, insert_unsatisfied_content_range, not_modified_response, object_body,
-        read_etag_not_modified, read_metadata_response,
+        ALLOWED_RESOURCES_VARY, JSON_RESOURCE_CACHE_CONTROL, ObjectCtx, QueryPrecondition,
+        ResponseBody, acl, boxed, gzip, insert_content_range, insert_unsatisfied_content_range,
+        not_modified_response, object_body, read_etag_not_modified, read_metadata_response,
     },
 };
 use http_body_util::{BodyExt, Full};
@@ -88,12 +88,18 @@ async fn media(
     insert_provider_headers(&record, &mut headers)?;
     json::insert_response_headers(&record, &mut headers);
     if reader.publicly_readable {
+        // An anonymous-capable read revalidates, varies by the allowed-resources header and
+        // sends no `pragma` (observed 2026-10-31, anonymous reads only). Whether the header
+        // also depends on the caller being anonymous was not observed; the public
+        // classification is the local condition.
+        headers.remove("pragma");
+        headers.append("vary", HeaderValue::from_static(ALLOWED_RESOURCES_VARY));
         headers.insert(
             "cache-control",
             record
                 .cache_control
                 .as_deref()
-                .unwrap_or("public, max-age=3600")
+                .unwrap_or("public, max-age=3600, must-revalidate")
                 .parse()
                 .map_err(|_| {
                     JsonError::new(

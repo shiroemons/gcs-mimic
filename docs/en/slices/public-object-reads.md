@@ -255,7 +255,8 @@ of whether this request supplied a valid identity or uses permissive mode.
 | Response | Stored Cache-Control | Result |
 | --- | --- | --- |
 | JSON/XML, publicly readable | Present | Stored value |
-| JSON/XML, publicly readable | Absent | `public, max-age=3600` |
+| XML, publicly readable | Absent | `public, max-age=3600` |
+| JSON media, publicly readable | Absent | `public, max-age=3600, must-revalidate`, with `vary: X-Goog-Allowed-Resources, Origin, X-Origin`, no `pragma` and `content-disposition: attachment` (observed on anonymous reads; the vary and `pragma` condition is the public classification, because authenticated reads of public objects were not observed) |
 | JSON, private or `allAuthenticatedUsers` only | Any | `no-cache, no-store, max-age=0, must-revalidate` (recorded; the JSON-specific reference documents `no-cache`) |
 | XML, private or `allAuthenticatedUsers` only | Present | Stored value, per XML-specific reference |
 | XML, private or `allAuthenticatedUsers` only | Absent | Local `private, max-age=0` fallback, consistent with the HEAD example |

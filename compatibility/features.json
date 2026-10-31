@@ -28735,6 +28735,12 @@
           "test_ids": ["media_upload_hash_is_checked_against_the_stored_bytes"]
         },
         {
+          "id": "MEDIA-PUBLIC-HEADERS",
+          "description": "JSON media GET of a publicly readable object sends cache-control 'public, max-age=3600, must-revalidate' (when the object stores none), 'vary: X-Goog-Allowed-Resources' ahead of 'vary: Origin' and 'vary: X-Origin', no pragma, and content-disposition: attachment, as observed on anonymous reads (2026-10-31). XML keeps 'public, max-age=3600' without must-revalidate or the allowed-resources vary, including on the 400 for a plain body declared as gzip. Not observed: whether an authenticated read of a public object also varies by X-Goog-Allowed-Resources (private objects do not); the public classification is the local condition. A stored cache-control on a public JSON object is kept as stored (not observed with must-revalidate appended).",
+          "result": "PASS",
+          "test_ids": ["anonymous_json_media_read_of_a_public_object_carries_the_public_header_set"]
+        },
+        {
           "id": "GZIP-REMAINING-PARITY",
           "description": "Weak ETags on gunzipped responses, double-compression detection, additional encodings and exact provider negotiation/error parity remain pending.",
           "result": "PENDING",
@@ -28754,7 +28760,8 @@
         "gunzipping_a_plain_body_fails_400_before_the_headers_are_sent",
         "head_with_range_answers_206_and_content_range_on_json_and_xml",
         "media_responses_carry_the_provider_object_headers",
-        "media_upload_hash_is_checked_against_the_stored_bytes"
+        "media_upload_hash_is_checked_against_the_stored_bytes",
+        "anonymous_json_media_read_of_a_public_object_carries_the_public_header_set"
       ],
       "verification": [
         {
@@ -28807,6 +28814,15 @@
             "gunzipping_a_plain_body_fails_400_before_the_headers_are_sent",
             "head_with_range_answers_206_and_content_range_on_json_and_xml",
             "media_responses_carry_the_provider_object_headers"
+          ]
+        },
+        {
+          "command": "cargo test --locked --test acl_permission_effects",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/media-read-provider-observations.md",
+          "test_ids": [
+            "anonymous_json_media_read_of_a_public_object_carries_the_public_header_set"
           ]
         }
       ],

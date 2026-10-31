@@ -893,10 +893,16 @@ fn xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticat
         "private, max-age=0"
     );
     grant(&server, "allUsers", "roles/storage.objectViewer");
-    for path in [OBJECT.to_owned(), format!("{JSON_OBJECT}?alt=media")] {
+    for (path, expected) in [
+        (OBJECT.to_owned(), "public, max-age=3600"),
+        (
+            format!("{JSON_OBJECT}?alt=media"),
+            "public, max-age=3600, must-revalidate",
+        ),
+    ] {
         assert_eq!(
             server.get("", &path).ok().headers["cache-control"],
-            "public, max-age=3600"
+            expected
         );
     }
     server

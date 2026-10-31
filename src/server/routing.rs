@@ -210,13 +210,23 @@ async fn respond_xml_cors(
 /// varies by `Accept-Encoding` keeps that field after the CORS `vary`, as Cloud Storage
 /// sends both (observed 2026-10-31).
 fn apply_cors(headers: &mut HeaderMap, cors: HeaderMap, default_vary: Option<&'static str>) {
-    let representation: Vec<HeaderValue> = headers.get_all("vary").iter().cloned().collect();
+    let (leading, representation): (Vec<HeaderValue>, Vec<HeaderValue>) = headers
+        .get_all("vary")
+        .iter()
+        .cloned()
+        .partition(|value| value == super::ALLOWED_RESOURCES_VARY);
     headers.remove("vary");
     headers.extend(cors);
     if let Some(vary) = default_vary
         && !headers.contains_key("vary")
     {
         headers.insert("vary", HeaderValue::from_static(vary));
+    }
+    // Cloud Storage lists the allowed-resources field ahead of the CORS fields.
+    let cors_vary: Vec<HeaderValue> = headers.get_all("vary").iter().cloned().collect();
+    headers.remove("vary");
+    for value in leading.into_iter().chain(cors_vary) {
+        headers.append("vary", value);
     }
     for value in representation {
         headers.append("vary", value);

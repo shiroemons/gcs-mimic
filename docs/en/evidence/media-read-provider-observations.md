@@ -265,3 +265,31 @@ was not observed in the same run.
 
 The 400 for the gzip-bytes digest is a known difference from the observation.
 Validation is not weakened until the provider's rule is understood.
+
+## Anonymous reads of a public object
+
+Observed **2026-10-31** on a bucket that granted `allUsers` object read, with no
+credentials. Object: the 29-byte plain text, and a plain body declared as gzip.
+
+| Request | Status | Notable headers |
+| --- | --- | --- |
+| JSON `alt=media`, identity object | 200 | `cache-control: public, max-age=3600, must-revalidate`; `vary: X-Goog-Allowed-Resources`, `vary: Origin`, `vary: X-Origin` in that order; `content-disposition: attachment`; no `pragma`; no `accept-ranges` |
+| JSON `alt=media`, plain body declared as gzip, `Accept-Encoding: identity` | 400, `Bad Request` | the same cache and vary fields, the gunzipped headers and a weak ETag |
+| XML GET, identity object | 200 | `cache-control: public, max-age=3600`; no `vary`; `accept-ranges: bytes` |
+| XML GET, plain body declared as gzip, `Accept-Encoding: identity` | 400, `Bad Request` | `cache-control: public, max-age=3600`; `vary: Accept-Encoding`; weak ETag |
+
+Authenticated reads of private objects (earlier observations above) carried
+neither `vary: X-Goog-Allowed-Resources` nor `must-revalidate`. An
+authenticated read of a public object was not observed.
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| JSON public media revalidates, varies by the allowed-resources field first, sends no `pragma` | Applied when the object is publicly readable (`allUsers`), whether or not the request carries credentials; a stored `cache-control` is kept as stored | `anonymous_json_media_read_of_a_public_object_carries_the_public_header_set` |
+| XML keeps the shorter `cache-control` and no allowed-resources vary | Unchanged | the same test |
+
+Local limits: the condition for the allowed-resources vary is the public
+classification, because the observation cannot separate anonymity from public
+readability. The JSON media 200 `accept-ranges` (absent in the observation,
+sent locally) is a remaining difference.
