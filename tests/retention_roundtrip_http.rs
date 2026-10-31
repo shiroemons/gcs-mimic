@@ -119,7 +119,7 @@ fn locked_retention_read_back_is_accepted_and_a_shorter_time_is_not() {
     let stored = set_retention(&server, "locked", "Locked");
     assert_eq!(
         stored["retention"]["retainUntilTime"],
-        "2099-01-02T03:04:05.123Z"
+        "2099-01-02T03:04:05.124Z"
     );
 
     for method in ["PATCH", "PUT"] {
@@ -135,7 +135,7 @@ fn locked_retention_read_back_is_accepted_and_a_shorter_time_is_not() {
     let (status, body) = server.request(
         "PATCH",
         &object_path("locked"),
-        r#"{"retention":{"mode":"Locked","retainUntilTime":"2099-01-02T03:04:05.122Z"}}"#,
+        r#"{"retention":{"mode":"Locked","retainUntilTime":"2099-01-02T03:04:05.123Z"}}"#,
     );
     assert_eq!(status, 400, "{body}");
     assert_eq!(body["error"]["errors"][0]["reason"], "invalidArgument");
@@ -160,7 +160,7 @@ fn unlocked_retention_read_back_needs_no_override_and_a_shorter_time_does() {
     let (status, body) = server.request(
         "PATCH",
         &object_path("unlocked"),
-        r#"{"retention":{"mode":"Unlocked","retainUntilTime":"2099-01-02T03:04:05.122Z"}}"#,
+        r#"{"retention":{"mode":"Unlocked","retainUntilTime":"2099-01-02T03:04:05.123Z"}}"#,
     );
     assert_eq!(status, 400, "{body}");
     server.stop();

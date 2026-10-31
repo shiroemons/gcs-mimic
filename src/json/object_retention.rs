@@ -52,10 +52,15 @@ pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError>
         UNIX_EPOCH.checked_add(offset)
     };
     // Responses render millisecond precision, so a value is stored at that precision too: a
-    // client that writes back what it read must get exactly the stored time, not an earlier one.
+    // client that writes back what it read must get exactly the stored time. A finer fraction
+    // rounds up, never down: a retention period must not end earlier than the client asked.
+    let out_of_range = || invalid("retention.retainUntilTime is outside the supported range");
+    let millis = u64::from(nanos.div_ceil(1_000_000));
     let retain_until = base
-        .and_then(|time| time.checked_add(Duration::from_millis(u64::from(nanos / 1_000_000))))
-        .ok_or_else(|| invalid("retention.retainUntilTime is outside the supported range"))?;
+        .and_then(|time| time.checked_add(Duration::from_millis(millis)))
+        .ok_or_else(out_of_range)?;
+    // Rounding up can carry past year 9999, which no response could render.
+    timestamp(retain_until).map_err(|_| out_of_range())?;
     Ok(Some(ObjectRetention { mode, retain_until }))
 }
 
@@ -112,7 +117,7 @@ mod tests {
         );
         assert_eq!(
             render(&parsed).unwrap(),
-            json!({"mode":"Locked","retainUntilTime":"2030-01-01T18:04:05.123Z"})
+            json!({"mode":"Locked","retainUntilTime":"2030-01-01T18:04:05.124Z"})
         );
         for removal in [
             Value::Null,
@@ -137,6 +142,56 @@ mod tests {
                 "{invalid}"
             );
         }
+    }
+
+    fn parsed_render(time: &str) -> Result<String, JsonError> {
+        let parsed = parse(&json!({"mode":"Unlocked","retainUntilTime":time}))?.unwrap();
+        Ok(render(&parsed)?["retainUntilTime"]
+            .as_str()
+            .unwrap()
+            .to_owned())
+    }
+
+    #[test]
+    fn retain_until_rounds_a_finer_fraction_up_to_the_millisecond() {
+        // No fraction and an exact millisecond are kept as sent.
+        assert_eq!(
+            parsed_render("2030-01-01T00:00:00Z").unwrap(),
+            "2030-01-01T00:00:00.000Z"
+        );
+        assert_eq!(
+            parsed_render("2030-01-01T00:00:00.123Z").unwrap(),
+            "2030-01-01T00:00:00.123Z"
+        );
+        // Any sub-millisecond remainder, even one nanosecond, rounds up and never shortens.
+        assert_eq!(
+            parsed_render("2030-01-01T00:00:00.123000001Z").unwrap(),
+            "2030-01-01T00:00:00.124Z"
+        );
+        assert_eq!(
+            parsed_render("2030-01-01T00:00:00.123999999Z").unwrap(),
+            "2030-01-01T00:00:00.124Z"
+        );
+        // The carry crosses the second boundary.
+        assert_eq!(
+            parsed_render("2030-01-01T00:00:00.9995Z").unwrap(),
+            "2030-01-01T00:00:01.000Z"
+        );
+    }
+
+    #[test]
+    fn retain_until_rounding_up_never_carries_past_the_supported_range() {
+        assert_eq!(
+            parsed_render("9999-12-31T23:59:59.999Z").unwrap(),
+            "9999-12-31T23:59:59.999Z"
+        );
+        // Rounding up would reach year 10000, which no response can render.
+        assert_eq!(
+            parsed_render("9999-12-31T23:59:59.9995Z")
+                .unwrap_err()
+                .reason,
+            "invalidArgument"
+        );
     }
 
     #[test]
