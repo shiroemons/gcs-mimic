@@ -14,3 +14,9 @@ Observed on 2026-10-31 against `storage.googleapis.com:443` (`google.storage.v2`
 | ListObjects, all-field read_mask | OK | UNIMPLEMENTED | OK |
 
 The local ACL and owner come from the shared projection that renders JSON `projection=full`, including its omission under uniform bucket-level access and for callers without `storage.objects.getIamPolicy` (the read still succeeds). Test: `grpc_io_full_read_masks_return_acl_and_owner`.
+
+## `finalize_time`
+
+Google reports `finalize_time` on an ordinary finalized object (appendable objects were not observed on Google). The official Java SDK's appendable upload treats the upload as complete only when the returned resource carries `finalize_time`; without it, `finalizeAndClose` timed out after about 10 seconds against gcs-mimic.
+
+gcs-mimic now reports `finalize_time` on every finalized generation, including a finalized appendable object, and omits it on unfinalized appendable generations. The value is the stored time that JSON reports as `timeFinalized` (the generation's creation time). Tests: `append_creates_flushes_reads_and_finalizes_with_reserved_generation`, `grpc_io_full_read_masks_return_acl_and_owner`.

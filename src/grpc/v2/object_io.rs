@@ -1553,6 +1553,9 @@ mod tests {
         assert_eq!((full.name.as_str(), full.size), ("masked", 6));
         assert!(!full.etag.is_empty());
         assert!(full.update_storage_class_time.is_some());
+        // Google reports finalize_time on every ordinary object.
+        assert!(full.finalize_time.is_some());
+        assert_eq!(full.finalize_time, full.create_time);
         assert!(!full.acl.is_empty());
         for entry in &full.acl {
             assert!(!entry.entity.is_empty() && !entry.role.is_empty());

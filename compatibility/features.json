@@ -31551,8 +31551,16 @@
           ]
         },
         {
+          "id": "finalize_time",
+          "description": "Finalized generations, including finished appendable objects, report finalize_time (the stored time JSON reports as timeFinalized); unfinalized appendable generations omit it. The official Java SDK waits for it to complete an appendable upload.",
+          "result": "PASS",
+          "test_ids": [
+            "append_creates_flushes_reads_and_finalizes_with_reserved_generation"
+          ]
+        },
+        {
           "id": "finalized_fields",
-          "description": "Omitting MD5 from finalized appendable objects and reporting finalize_time remain pending.",
+          "description": "Omitting MD5 from finalized appendable objects, and reporting the moment of finalization rather than the creation time as finalize_time, remain pending.",
           "result": "PENDING",
           "test_ids": []
         }

@@ -59,7 +59,8 @@ Google documents early namespace visibility for appendable objects and no JSON w
 - BidiReadObject reads a snapshot bounded by the size persisted when the stream or read handle opened; reopen to observe later appends.
 - A superseded writer learns of the takeover at its next write or flush, not immediately.
 - `routing_token` is accepted without effect because the emulator never redirects.
-- Finalized objects carry an MD5 hash because shared publication computes it, and `finalize_time` is not reported for any object.
+- Finalized objects carry an MD5 hash because shared publication computes it.
+- Finalized objects, ordinary or appendable, report `finalize_time`; unfinalized appendable objects do not. The official Java SDK's appendable upload waits for `finalize_time` before `finalizeAndClose` completes. The value is the stored creation time that JSON reports as `timeFinalized`, so for an appendable object it is the time the generation was created, not the moment `finish_write` arrived.
 - No provider-exact error messages are claimed.
 
 ## Verification

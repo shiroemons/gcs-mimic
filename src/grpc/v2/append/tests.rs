@@ -190,7 +190,10 @@ async fn append_creates_flushes_reads_and_finalizes_with_reserved_generation() {
     assert_eq!(content, b"hello");
     assert_eq!(object.generation, generation);
     assert!(object.checksums.unwrap().md5_hash.is_empty());
-    assert_eq!(get(&storage, "log").await.unwrap().size, 5);
+    assert!(object.finalize_time.is_none());
+    let unfinalized = get(&storage, "log").await.unwrap();
+    assert_eq!(unfinalized.size, 5);
+    assert!(unfinalized.finalize_time.is_none());
 
     // Resuming with the writer's own handle continues at the persisted offset.
     let mut finish = chunk(5, b" world", false);
@@ -228,6 +231,15 @@ async fn append_creates_flushes_reads_and_finalizes_with_reserved_generation() {
         .await
         .unwrap();
     assert_eq!((record.generation, record.size), (generation, 11));
+    // The Java SDK treats an appendable upload as finished only once the resource carries
+    // finalize_time. It is the stored time JSON reports as `timeFinalized`.
+    let finalize_time = Some(prost_types::Timestamp::from(record.time_created));
+    assert_eq!(finalized.finalize_time, finalize_time);
+    assert_eq!(object.finalize_time, finalize_time);
+    assert_eq!(
+        get(&storage, "log").await.unwrap().finalize_time,
+        finalize_time
+    );
 
     let (result, _) = append(&storage, vec![Ok(take_over("log", generation, None))], None).await;
     assert_eq!(result.unwrap_err().code(), Code::FailedPrecondition);

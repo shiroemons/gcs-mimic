@@ -47,10 +47,11 @@ enum Acknowledgement {
 /// Unfinalized generations have no MD5 and no finalize time.
 pub(super) fn object(record: &ObjectRecord, finality: Finality) -> Result<pb::Object, Status> {
     let mut object = convert::object(record)?;
-    if finality == Finality::Unfinalized
-        && let Some(checksums) = object.checksums.as_mut()
-    {
-        checksums.md5_hash.clear();
+    if finality == Finality::Unfinalized {
+        object.finalize_time = None;
+        if let Some(checksums) = object.checksums.as_mut() {
+            checksums.md5_hash.clear();
+        }
     }
     Ok(object)
 }

@@ -110,6 +110,9 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
         // A storage class changes only by rewriting into a new generation, as in JSON
         // `timeStorageClassUpdated`.
         update_storage_class_time: Some(record.time_created.into()),
+        // Catalog records are finalized; the appendable adapter clears this for unfinalized
+        // generations. The same stored time as JSON `timeFinalized`.
+        finalize_time: Some(record.time_created.into()),
         delete_time: record.time_deleted.map(Into::into),
         soft_delete_time: record.soft_delete_time.map(Into::into),
         hard_delete_time: record.hard_delete_time.map(Into::into),
