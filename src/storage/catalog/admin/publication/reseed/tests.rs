@@ -7,7 +7,7 @@ use crate::{
     },
     test_support::TestDir,
 };
-use std::{fs, io::Read};
+use std::fs;
 
 async fn add(batch: &mut SeedBatch, dir: &Path, name: &str, bytes: &[u8]) {
     let path = dir.join("source");
@@ -364,10 +364,15 @@ fn seed_stage_failed_copy_write_never_changes_the_source() {
         .is_err()
     );
     FORCE_COPY.set(false);
-    let mut source = source;
-    let mut contents = Vec::new();
-    source.read_to_end(&mut contents).unwrap();
-    assert_eq!(contents, b"source");
+    // Windows positional reads move the handle's cursor, so check the file by position and by
+    // a fresh open rather than by reading on from the shared cursor.
+    let mut contents = [0; 6];
+    assert_eq!(
+        crate::fsutil::read_at(&source, &mut contents, 0).unwrap(),
+        6
+    );
+    assert_eq!(&contents, b"source");
+    assert_eq!(fs::read(&path).unwrap(), b"source");
 }
 
 #[tokio::test]

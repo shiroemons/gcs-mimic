@@ -87,7 +87,8 @@ pub(crate) enum Step {
     ResetReclaimSync,
     /// Before reclaiming a retired XML multipart staging entry.
     MultipartReclaim,
-    /// Before syncing the multipart staging directory after reclamation.
+    /// Before syncing the multipart staging directory after reclamation (Unix only, like the sync).
+    #[cfg(unix)]
     MultipartReclaimSync,
     /// Before one write of body bytes to the staged file.
     BodyWrite,

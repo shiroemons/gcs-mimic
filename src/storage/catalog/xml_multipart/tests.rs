@@ -220,7 +220,12 @@ async fn part_durable_step_failures_keep_prior_part_and_cleanup_after_restart() 
 
 #[tokio::test]
 async fn abort_commits_before_deferred_cleanup_and_recovery_retries_its_journal() {
-    for step in [Step::MultipartReclaim, Step::MultipartReclaimSync] {
+    // The staging directory sync, and its fault step, exist only on Unix.
+    #[cfg(unix)]
+    let steps = [Step::MultipartReclaim, Step::MultipartReclaimSync];
+    #[cfg(not(unix))]
+    let steps = [Step::MultipartReclaim];
+    for step in steps {
         let (dir, catalog) = setup(Arc::new(SystemClock)).await;
         let target = begin(&catalog).await;
         put(&catalog, &target, 1, b"retired").await.unwrap();
