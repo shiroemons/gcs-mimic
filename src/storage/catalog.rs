@@ -2009,9 +2009,11 @@ fn bucket_metadata_charge(row: &Row<'_>) -> Result<usize, CatalogError> {
     Ok(charge)
 }
 
-/// Largest creation-time seed for a bucket generation (year 2255 in nanoseconds). A time past
+/// Largest creation-time seed for a bucket generation (April 2255 in nanoseconds). A time past
 /// 2262 would saturate at `i64::MAX`, leaving no room for `last + 1` and failing every later
-/// bucket with "generation exhausted"; the cap keeps about 2e17 allocations of headroom.
+/// bucket with "generation exhausted"; the cap keeps about 2e17 allocations of headroom. The
+/// price is that a bucket created after the cap gets `previous + 1` instead of a value tracking
+/// its creation time (documented in docs/en/slices/bucket-soft-delete-restore.md).
 const MAX_GENERATION_SEED: i64 = 9_000_000_000_000_000_000;
 
 fn insert_bucket_in_transaction(
