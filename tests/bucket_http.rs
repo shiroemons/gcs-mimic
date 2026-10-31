@@ -4263,7 +4263,7 @@ fn writing_patch_and_put_evaluate_metageneration_preconditions() {
 }
 
 /// Cloud Storage reported `satisfiesPZI: true` in us-central1 as it did in asia-northeast1
-/// (observed 2026-11-01), so the native profile reports it whatever the location.
+/// (observed 2026-10-31), so the native profile reports it whatever the location.
 #[test]
 fn satisfies_pzi_is_true_in_every_location() {
     let dir = TestDir::new();

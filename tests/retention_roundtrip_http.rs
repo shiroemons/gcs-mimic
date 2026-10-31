@@ -343,7 +343,7 @@ fn fields_selection_rejects_the_grpc_retention_expire_time_name() {
     server.stop();
 }
 
-/// Observed on Cloud Storage (2026-11-01, us-central1): a bucket retention policy denies a
+/// Observed on Cloud Storage (2026-10-31, us-central1): a bucket retention policy denies a
 /// delete and an overwrite with the same 403 `retentionPolicyNotMet` and the same message as
 /// object retention, naming the creation time plus the period in US Pacific time to the
 /// microsecond (trailing zeros trimmed). `retentionPolicy: null` lifts the policy and the
@@ -388,17 +388,23 @@ fn bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention
         head,
         "Object 'policy-bucket/r' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten"
     );
-    // The displayed expiration is the millisecond truncation of the microsecond time.
-    let local = until.rsplit_once('-').unwrap().0;
-    let (clock, fraction) = local
-        .split_once('T')
-        .unwrap()
-        .1
-        .split_once('.')
-        .unwrap_or((local.split_once('T').unwrap().1, ""));
-    assert!(fraction.len() <= 6, "{until}");
-    assert!(!fraction.ends_with('0'), "{until}");
-    assert_eq!(clock[3..], expires[14..19], "{until} {expires}");
+    // Back in UTC, the message time is the creation time plus the period at microsecond
+    // precision, so it equals the JSON expiration once cut to the millisecond.
+    let (local, offset) = until.split_at(until.len() - 6);
+    assert!(offset == "-07:00" || offset == "-08:00", "{until}");
+    let (whole, fraction) = local.split_once('.').unwrap_or((local, ""));
+    assert!(fraction.len() <= 6 && !fraction.ends_with('0'), "{until}");
+    let offset_hours: i64 = offset[1..3].parse().unwrap();
+    assert_eq!(
+        epoch_seconds(whole) + offset_hours * 3600,
+        epoch_seconds(&expires[..19]),
+        "{until} {expires}"
+    );
+    assert_eq!(
+        format!("{fraction:0<6}")[..3],
+        expires[20..23],
+        "{until} {expires}"
+    );
     let (status, body) = server.request(
         "PATCH",
         "/storage/v1/b/policy-bucket",
@@ -411,7 +417,7 @@ fn bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention
     server.stop();
 }
 
-/// Observed on Cloud Storage (2026-11-01): removing or shortening an Unlocked retention
+/// Observed on Cloud Storage (2026-10-31): removing or shortening an Unlocked retention
 /// without the override is 403 `forbidden` with one shared text; with the override both work.
 #[test]
 fn unlocked_removal_and_shortening_share_one_refusal_without_the_override() {
@@ -437,4 +443,17 @@ fn unlocked_removal_and_shortening_share_one_refusal_without_the_override() {
     assert_eq!(status, 200, "{reply}");
     assert!(reply.get("retention").is_none(), "{reply}");
     server.stop();
+}
+
+/// Seconds since the epoch of `YYYY-MM-DDTHH:MM:SS`, read as UTC (civil-date arithmetic).
+fn epoch_seconds(stamp: &str) -> i64 {
+    let field = |range: std::ops::Range<usize>| stamp[range].parse::<i64>().unwrap();
+    let (year, month, day) = (field(0..4), field(5..7), field(8..10));
+    let year = year - i64::from(month <= 2);
+    let era = year.div_euclid(400);
+    let year_of_era = year.rem_euclid(400);
+    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    days * 86_400 + field(11..13) * 3600 + field(14..16) * 60 + field(17..19)
 }

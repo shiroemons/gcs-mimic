@@ -744,7 +744,7 @@ pub(crate) fn bucket_resource_with_profile(
     });
     value["locationType"] = json!(bucket.location_type);
     // Cloud Storage returned `satisfiesPZI: true` for a new bucket in asia-northeast1
-    // (2026-10-31) and in us-central1 (2026-11-01), so every native bucket reports true. The
+    // (2026-10-31) and in us-central1 (same day), so every native bucket reports true. The
     // reference emulator's bucket shape has no such field.
     if profile == CompatProfile::Native {
         value["satisfiesPZI"] = true.into();

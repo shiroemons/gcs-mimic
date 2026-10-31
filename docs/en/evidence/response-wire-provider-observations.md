@@ -296,7 +296,7 @@ Ledger row: `OBJECT-TIME-READ-BACK`.
 
 ## Bucket retention policy, bucket preconditions and gRPC retention
 
-Observed **2026-11-01** with curl against the JSON API and grpcurl against
+Observed **2026-10-31** with curl against the JSON API and grpcurl against
 the gRPC API (googleapis `storage.proto`), using two throwaway buckets in
 `us-central1` (STANDARD, `softDeletePolicy` 0) that were deleted afterwards
 (each `buckets.get` then returned 404). One had

@@ -1581,7 +1581,7 @@ mod tests {
         }
         assert_eq!(retention.retain_until_time.unwrap().seconds, now + 3600);
         // Deleting a retained object is 403 in JSON, so PERMISSION_DENIED with the same text
-        // (observed 2026-11-01).
+        // (observed 2026-10-31).
         let denied = s
             .delete_object(
                 Request::new(pb::DeleteObjectRequest {
@@ -1602,7 +1602,7 @@ mod tests {
             denied.message()
         );
         // Shortening or removing an Unlocked configuration requires the override and is 403 in
-        // JSON, so PERMISSION_DENIED here with the same text (observed 2026-11-01).
+        // JSON, so PERMISSION_DENIED here with the same text (observed 2026-10-31).
         for seconds in [Some(60), None] {
             let denied = s
                 .update_object(
@@ -1716,7 +1716,7 @@ mod tests {
     }
 
     /// With a bucket retention policy, `retention_expire_time` is also cut to the millisecond
-    /// (observed 2026-11-01) while the denial text keeps the microsecond creation time.
+    /// (observed 2026-10-31) while the denial text keeps the microsecond creation time.
     #[tokio::test]
     async fn grpc_bucket_policy_expire_time_is_milliseconds() {
         let (s, _dir) = setup().await;
@@ -1747,7 +1747,15 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(denied.code(), Code::PermissionDenied);
-        assert!(denied.message().contains("bucket's retention policy"));
+        assert_eq!(
+            denied.message(),
+            format!(
+                "Object 'policy-ms/kept' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until {}",
+                crate::object::retention::pacific_rfc3339(
+                    object.time_created + std::time::Duration::from_secs(3600)
+                )
+            )
+        );
         s.state.catalog.close().await.unwrap();
     }
 

@@ -335,7 +335,9 @@ async fn write(
         .is_some_and(|value| value != record.metageneration);
     // Observed on Cloud Storage: a PATCH answers 304 (no body) when ifMetagenerationNotMatch
     // names the current value, after ifMetagenerationMatch held, whether or not the body
-    // carries a writable setting (a PUT was not observed with it).
+    // carries a writable setting (a PUT was not observed with it). That this check runs
+    // before the catalog's own validation (for example a locked policy being shortened) is
+    // an inference.
     if matches!(mode, WriteMode::Patch)
         && conditions
             .if_metageneration_match
@@ -378,7 +380,7 @@ async fn write(
         let failed = matches!(error, CatalogError::PreconditionFailed);
         let mut error = bucket_catalog_error(error, profile, None);
         if failed && profile == CompatProfile::Native {
-            // Observed 2026-10-31 and 2026-11-01 for PATCH (empty or with labels) and PUT
+            // Observed 2026-10-31 for PATCH (empty or with labels) and PUT
             // whose ifMetagenerationMatch failed. The wording is reused for a failed
             // ifMetagenerationNotMatch (unobserved), but `If-Match` is named only when
             // ifMetagenerationMatch failed.

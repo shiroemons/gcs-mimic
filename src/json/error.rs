@@ -393,7 +393,7 @@ impl From<ObjectError> for JsonError {
                 "Object replacement or deletion is not allowed due to an active hold on the object.",
             ),
             // Bucket retention policies and object retention share the reason and wording
-            // (observed 2026-11-01, including the refused overwrite).
+            // (observed 2026-10-31, including the refused overwrite).
             ObjectError::ObjectRetentionNotMet(retained) => Self::new(
                 StatusCode::FORBIDDEN,
                 "retentionPolicyNotMet",
