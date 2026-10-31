@@ -1,5 +1,7 @@
 use super::{
-    ResponseStream, Storage, convert, names, pb,
+    ResponseStream, Storage,
+    append::Finality,
+    convert, names, pb,
     status::{from_json as json_status, unsupported_for as unsupported},
 };
 use crate::{
@@ -105,6 +107,49 @@ fn merge_hashes(first: ExpectedHashes, next: ExpectedHashes) -> Result<ExpectedH
     })
 }
 
+/// The object fields that a default read mask omits, selected by an explicit mask.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct OwnerFields {
+    acl: bool,
+    owner: bool,
+}
+
+impl OwnerFields {
+    /// `*` selects every field; other paths name top-level fields, optionally under `prefix`
+    /// (ReadObject nests the object in `metadata`, where `metadata` alone selects all of it).
+    fn selected(mask: Option<&prost_types::FieldMask>, prefix: Option<&str>) -> Self {
+        let Some(mask) = mask else {
+            return Self::default();
+        };
+        let path = |field: &str| {
+            mask.paths.iter().any(|path| {
+                path == "*"
+                    || match prefix {
+                        None => path == field,
+                        Some(prefix) => {
+                            path == prefix
+                                || path
+                                    .strip_prefix(prefix)
+                                    .and_then(|rest| rest.strip_prefix('.'))
+                                    .is_some_and(|rest| rest == field)
+                        }
+                    }
+            })
+        };
+        Self {
+            acl: path("acl"),
+            owner: path("owner"),
+        }
+    }
+
+    fn any(self) -> bool {
+        self.acl || self.owner
+    }
+}
+
+/// Keeps the top-level `Object` fields a read mask names. Every field is accepted; fields the
+/// local object cannot hold (KMS key, contexts, restore token of a live object) stay empty.
+/// ACL and owner are filled beforehand by [`Storage::add_owner_fields`].
 fn mask_object(
     mut object: pb::Object,
     mask: Option<&prost_types::FieldMask>,
@@ -113,24 +158,6 @@ fn mask_object(
     else {
         return Ok(object);
     };
-    if mask.paths.iter().any(|path| {
-        matches!(
-            path.as_str(),
-            "etag"
-                | "restore_token"
-                | "acl"
-                | "finalize_time"
-                | "kms_key"
-                | "update_storage_class_time"
-                | "contexts"
-                | "owner"
-        )
-    }) {
-        return Err(unsupported(
-            "read_mask requests an unsupported object field; omit ACL, encryption and other unimplemented fields",
-            None,
-        ));
-    }
     macro_rules! fields { ($($field:ident),+ $(,)?) => {{
         for path in &mask.paths {
             if !matches!(path.as_str(), $(stringify!($field))|+) {
@@ -314,10 +341,65 @@ impl Storage {
             )
             .await
             .map_err(object_status)?;
-        Ok(Response::new(mask_object(
-            super::append::object(&record, finality)?,
-            r.read_mask.as_ref(),
-        )?))
+        let mut object = super::append::object(&record, finality)?;
+        if finality == Finality::Finalized {
+            self.add_owner_fields(
+                caller,
+                bucket,
+                std::slice::from_mut(&mut object),
+                OwnerFields::selected(r.read_mask.as_ref(), None),
+            )
+            .await?;
+        }
+        Ok(Response::new(mask_object(object, r.read_mask.as_ref())?))
+    }
+    /// Fills the ACL and owner a read mask selects, from the same shared projection as JSON
+    /// `projection=full`: under uniform bucket-level access, or for an object whose ACL the
+    /// caller may not read (`storage.objects.getIamPolicy`), both stay empty and the read still
+    /// succeeds.
+    async fn add_owner_fields(
+        &self,
+        caller: Option<Caller<'_>>,
+        bucket: &str,
+        objects: &mut [pb::Object],
+        fields: OwnerFields,
+    ) -> Result<(), Status> {
+        if !fields.any() || objects.is_empty() {
+            return Ok(());
+        }
+        let generations = objects
+            .iter()
+            .map(|object| (object.name.clone(), object.generation))
+            .collect();
+        let Some(acl) =
+            crate::server::readable_object_acls(&self.state, caller, bucket, generations)
+                .await
+                .map_err(|e| access_status(e, caller))?
+        else {
+            return Ok(());
+        };
+        for (((object, entries), owner), visible) in objects
+            .iter_mut()
+            .zip(acl.objects)
+            .zip(acl.owners)
+            .zip(acl.visible)
+        {
+            if !visible {
+                continue;
+            }
+            if fields.acl {
+                object.acl = convert::object_acl(object, bucket, &entries);
+            }
+            if fields.owner {
+                object.owner = owner
+                    .and_then(|owner| owner.entity())
+                    .map(|entity| pb::Owner {
+                        entity,
+                        entity_id: String::new(),
+                    });
+            }
+        }
+        Ok(())
     }
     pub(super) async fn read_object(
         &self,
@@ -349,7 +431,16 @@ impl Storage {
         reader.set_range(start, length).await.map_err(|_| {
             Status::internal("Cannot seek object data; restore a valid data directory")
         })?;
-        let object = super::append::object(&record, finality)?;
+        let mut object = super::append::object(&record, finality)?;
+        if finality == Finality::Finalized {
+            self.add_owner_fields(
+                caller,
+                bucket,
+                std::slice::from_mut(&mut object),
+                OwnerFields::selected(r.read_mask.as_ref(), Some("metadata")),
+            )
+            .await?;
+        }
         let mut first = pb::ReadObjectResponse {
             metadata: Some(object.clone()),
             object_checksums: object.checksums,
@@ -576,13 +667,24 @@ impl Storage {
             .map_err(object_status)?;
         let value =
             json::object_list(&page, &params, &self.state.api_base_url).map_err(json_status)?;
-        let objects = page
+        let mut objects = page
             .items
             .iter()
-            .map(|record| mask_object(convert::object(record)?, r.read_mask.as_ref()))
-            .collect::<Result<Vec<_>, Status>>();
+            .map(convert::object)
+            .collect::<Result<Vec<_>, Status>>()?;
+        self.add_owner_fields(
+            caller,
+            bucket,
+            &mut objects,
+            OwnerFields::selected(r.read_mask.as_ref(), None),
+        )
+        .await?;
+        let objects = objects
+            .into_iter()
+            .map(|object| mask_object(object, r.read_mask.as_ref()))
+            .collect::<Result<Vec<_>, Status>>()?;
         Ok(Response::new(pb::ListObjectsResponse {
-            objects: objects?,
+            objects,
             prefixes: page.prefixes,
             next_page_token: value["nextPageToken"]
                 .as_str()
@@ -1363,13 +1465,182 @@ mod tests {
             mask_object(
                 pb::Object::default(),
                 Some(&prost_types::FieldMask {
-                    paths: vec!["acl".into()]
+                    paths: vec!["checksums.crc32c".into()]
                 })
             )
             .unwrap_err()
             .code(),
             tonic::Code::Unimplemented
         );
+    }
+
+    /// Every top-level `Object` field, in proto order: the read mask the Java SDK sends for
+    /// GetObject and ListObjects.
+    const ALL_OBJECT_FIELDS: [&str; 33] = [
+        "name",
+        "bucket",
+        "etag",
+        "generation",
+        "restore_token",
+        "metageneration",
+        "storage_class",
+        "size",
+        "content_encoding",
+        "content_disposition",
+        "cache_control",
+        "acl",
+        "content_language",
+        "delete_time",
+        "finalize_time",
+        "content_type",
+        "create_time",
+        "component_count",
+        "checksums",
+        "update_time",
+        "kms_key",
+        "update_storage_class_time",
+        "temporary_hold",
+        "retention_expire_time",
+        "metadata",
+        "contexts",
+        "event_based_hold",
+        "owner",
+        "customer_encryption",
+        "custom_time",
+        "soft_delete_time",
+        "hard_delete_time",
+        "retention",
+    ];
+
+    fn read_mask(paths: &[&str]) -> Option<prost_types::FieldMask> {
+        Some(prost_types::FieldMask {
+            paths: paths.iter().map(|path| (*path).to_owned()).collect(),
+        })
+    }
+
+    #[tokio::test]
+    async fn grpc_io_full_read_masks_return_acl_and_owner() {
+        let (_dir, storage) = setup(true).await;
+        let mut request = Request::new(());
+        request
+            .metadata_mut()
+            .insert("authorization", "Bearer admin".parse().unwrap());
+        let admin = storage.authenticate(&request).unwrap();
+        storage
+            .receive_write(
+                &mut tonic::codegen::tokio_stream::iter([Ok(message("masked", b"masked"))]),
+                admin,
+                None,
+                EndOfStream::Required,
+            )
+            .await
+            .unwrap();
+        let get = |mask: Option<prost_types::FieldMask>, caller| {
+            storage.get_object(
+                Request::new(pb::GetObjectRequest {
+                    bucket: "projects/_/buckets/grpc-io".into(),
+                    object: "masked".into(),
+                    read_mask: mask,
+                    ..Default::default()
+                }),
+                caller,
+            )
+        };
+        let full = get(read_mask(&ALL_OBJECT_FIELDS), admin)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!((full.name.as_str(), full.size), ("masked", 6));
+        assert!(!full.etag.is_empty());
+        assert!(full.update_storage_class_time.is_some());
+        assert!(!full.acl.is_empty());
+        for entry in &full.acl {
+            assert!(!entry.entity.is_empty() && !entry.role.is_empty());
+            assert!(!entry.id.is_empty() && !entry.etag.is_empty());
+        }
+        assert!(full.acl.iter().any(|entry| {
+            entry
+                .project_team
+                .as_ref()
+                .is_some_and(|team| team.team == "owners")
+        }));
+        assert!(
+            full.owner
+                .as_ref()
+                .is_some_and(|owner| !owner.entity.is_empty())
+        );
+        // No local object has a KMS key, contexts or a restore token, so none is invented.
+        assert!(full.kms_key.is_empty() && full.contexts.is_none());
+        assert!(full.restore_token.is_none());
+
+        let star = get(read_mask(&["*"]), admin).await.unwrap().into_inner();
+        assert_eq!(star, full);
+
+        let acl_only = get(read_mask(&["name", "acl"]), admin)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(acl_only.acl, full.acl);
+        assert!(acl_only.owner.is_none() && acl_only.etag.is_empty());
+        assert_eq!(acl_only.size, 0);
+
+        // The default mask omits ACL and owner.
+        let default = get(None, admin).await.unwrap().into_inner();
+        assert!(default.acl.is_empty() && default.owner.is_none());
+        assert_eq!(default.etag, full.etag);
+
+        // A viewer may read the object but not its ACL; the request still succeeds, as JSON
+        // projection=full does.
+        request
+            .metadata_mut()
+            .insert("authorization", "Bearer reader".parse().unwrap());
+        let reader = storage.authenticate(&request).unwrap();
+        let viewed = get(read_mask(&ALL_OBJECT_FIELDS), reader)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(viewed.size, 6);
+        assert!(viewed.acl.is_empty() && viewed.owner.is_none());
+
+        let listed = storage
+            .list_objects(
+                Request::new(pb::ListObjectsRequest {
+                    parent: "projects/_/buckets/grpc-io".into(),
+                    read_mask: read_mask(&ALL_OBJECT_FIELDS),
+                    ..Default::default()
+                }),
+                admin,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(listed.objects, std::slice::from_ref(&full));
+
+        let mut read = storage
+            .read_object(
+                Request::new(pb::ReadObjectRequest {
+                    bucket: "projects/_/buckets/grpc-io".into(),
+                    object: "masked".into(),
+                    read_mask: read_mask(&["metadata.name", "metadata.acl"]),
+                    ..Default::default()
+                }),
+                admin,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        let metadata = read.next().await.unwrap().unwrap().metadata.unwrap();
+        assert_eq!(metadata.name, "masked");
+        assert_eq!(metadata.acl, full.acl);
+        assert!(metadata.owner.is_none());
+        assert_eq!(
+            get(read_mask(&["checksums.crc32c"]), admin)
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::Unimplemented
+        );
+        storage.state.catalog.close().await.unwrap();
     }
 
     #[tokio::test]

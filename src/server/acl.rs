@@ -9,7 +9,7 @@ use crate::{
         self, JsonError,
         acl::{AclOperation, AclOwner, AclRequest},
     },
-    storage::{AclChange, AclError, AclState},
+    storage::{AclChange, AclError, AclProjection, AclState},
 };
 use http_body_util::Full;
 use hyper::{Method, Request, Response, StatusCode, body::Bytes};
@@ -310,13 +310,17 @@ async fn add_bucket(
     Ok(())
 }
 
-async fn add_objects(
+/// The ACLs and owners of the selected object generations, in input order, for every API that
+/// renders them as resource fields (JSON `projection=full`, gRPC read masks).
+///
+/// `None` when the bucket is gone or uses uniform bucket-level access, where ACLs are not part
+/// of the resource. An object whose ACL the caller may not read is marked invisible.
+pub(crate) async fn readable_object_acls(
     state: &State,
     caller: Option<Caller<'_>>,
     bucket: &str,
-    items: &mut [Value],
-    base_url: &str,
-) -> Result<(), JsonError> {
+    generations: Vec<(String, i64)>,
+) -> Result<Option<AclProjection>, JsonError> {
     let access = authorize_bucket(
         state,
         caller,
@@ -324,6 +328,20 @@ async fn add_objects(
         bucket,
     )
     .await?;
+    let acl = state
+        .catalog
+        .object_acl_projection(bucket, generations, &access)
+        .await?;
+    Ok(acl.filter(|acl| !acl.uniform_access))
+}
+
+async fn add_objects(
+    state: &State,
+    caller: Option<Caller<'_>>,
+    bucket: &str,
+    items: &mut [Value],
+    base_url: &str,
+) -> Result<(), JsonError> {
     let generations: Vec<(String, i64)> = items
         .iter()
         .filter_map(|item| {
@@ -336,16 +354,9 @@ async fn add_objects(
     if generations.len() != items.len() {
         return Ok(());
     }
-    let Some(acl) = state
-        .catalog
-        .object_acl_projection(bucket, generations, &access)
-        .await?
-    else {
+    let Some(acl) = readable_object_acls(state, caller, bucket, generations).await? else {
         return Ok(());
     };
-    if acl.uniform_access {
-        return Ok(());
-    }
     for (((item, entries), owner), visible) in items
         .iter_mut()
         .zip(&acl.objects)

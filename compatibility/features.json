@@ -20944,7 +20944,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested masks, explicitly soft-deleted lookups, restore tokens and unimplemented object fields remain unsupported.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Full and `*` read masks return ACL and owner through the shared JSON ACL projection. Nested masks, explicitly soft-deleted lookups, restore tokens and the owner entity_id/ACL entity_alt fields remain unsupported.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -20961,8 +20961,16 @@
           ]
         },
         {
+          "id": "full_read_mask",
+          "description": "A read mask naming all 33 top-level Object fields, or `*`, succeeds as on Google; `acl` and `owner` come from the shared JSON projection=full ACL view and stay empty under uniform access or without storage.objects.getIamPolicy; fields no local object holds stay empty; `[name, acl]` returns only those fields.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_full_read_masks_return_acl_and_owner"
+          ]
+        },
+        {
           "id": "broader_rpc_semantics",
-          "description": "Nested masks, explicitly soft-deleted lookups, restore tokens and unimplemented object fields remain unsupported.",
+          "description": "Nested masks, explicitly soft-deleted lookups, restore tokens and the owner entity_id/ACL entity_alt fields remain unsupported.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -20970,6 +20978,7 @@
       "test_ids": [
         "grpc_io_checksums_conditions_and_generation_preserve_data",
         "grpc_io_range_and_masks",
+        "grpc_io_full_read_masks_return_acl_and_owner",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOStrict"
       ],
@@ -20982,6 +20991,15 @@
           "test_ids": [
             "grpc_io_checksums_conditions_and_generation_preserve_data",
             "grpc_io_range_and_masks"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib grpc_io_full_read_masks",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/grpc-object-fields.md",
+          "test_ids": [
+            "grpc_io_full_read_masks_return_acl_and_owner"
           ]
         },
         {
@@ -21013,7 +21031,7 @@
         }
       ],
       "known_deviations": [
-        "Nested masks, explicitly soft-deleted lookups, restore tokens and unimplemented object fields remain unsupported."
+        "Full and `*` read masks return ACL and owner through the shared JSON ACL projection. Nested masks, explicitly soft-deleted lookups, restore tokens and the owner entity_id/ACL entity_alt fields remain unsupported."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -21052,6 +21070,14 @@
           ]
         },
         {
+          "id": "metadata_acl_mask",
+          "description": "`metadata.acl`, `metadata.owner`, whole `metadata` and `*` masks select the object's ACL and owner from the shared JSON projection=full ACL view.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_full_read_masks_return_acl_and_owner"
+          ]
+        },
+        {
           "id": "broader_rpc_semantics",
           "description": "Nested object masks, encryption/transcoding and exhaustive provider error precedence remain unsupported or unverified.",
           "result": "PENDING",
@@ -21061,6 +21087,7 @@
       "test_ids": [
         "grpc_io_range_and_masks",
         "grpc_io_checksums_conditions_and_generation_preserve_data",
+        "grpc_io_full_read_masks_return_acl_and_owner",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOWire"
       ],
@@ -21073,6 +21100,15 @@
           "test_ids": [
             "grpc_io_range_and_masks",
             "grpc_io_checksums_conditions_and_generation_preserve_data"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib grpc_io_full_read_masks",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/grpc-object-fields.md",
+          "test_ids": [
+            "grpc_io_full_read_masks_return_acl_and_owner"
           ]
         },
         {
@@ -21535,6 +21571,14 @@
           ]
         },
         {
+          "id": "full_read_mask",
+          "description": "A read mask naming all 33 top-level Object fields, or `*`, succeeds as on Google and returns each listed object's ACL and owner through the shared JSON projection=full ACL view.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_full_read_masks_return_acl_and_owner"
+          ]
+        },
+        {
           "id": "broader_rpc_semantics",
           "description": "Nested masks, explicitly soft-deleted listings, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
           "result": "PENDING",
@@ -21542,9 +21586,19 @@
         }
       ],
       "test_ids": [
+        "grpc_io_full_read_masks_return_acl_and_owner",
         "TestGRPCObjectIO"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib grpc_io_full_read_masks",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/grpc-object-fields.md",
+          "test_ids": [
+            "grpc_io_full_read_masks_return_acl_and_owner"
+          ]
+        },
         {
           "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
           "result": "PASS",

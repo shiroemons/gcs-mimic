@@ -1,6 +1,8 @@
 use super::pb;
 use crate::{
+    acl::{AclEntry, AclKind},
     bucket::BucketRecord,
+    json::acl::AclOwner,
     object::{ObjectRecord, retention::RetentionMode},
 };
 use prost_types::{Duration, Timestamp};
@@ -91,6 +93,8 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
     Ok(pb::Object {
         name: record.name.clone(),
         bucket: format!("projects/_/buckets/{}", record.bucket),
+        // The same validator as the JSON resource, so either API's value names one version.
+        etag: crate::json::object_etag(record),
         generation: record.generation,
         metageneration: record.metageneration,
         size: record.size as i64,
@@ -103,6 +107,9 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
         metadata: record.metadata.clone().into_iter().collect(),
         create_time: Some(record.time_created.into()),
         update_time: Some(record.updated.into()),
+        // A storage class changes only by rewriting into a new generation, as in JSON
+        // `timeStorageClassUpdated`.
+        update_storage_class_time: Some(record.time_created.into()),
         delete_time: record.time_deleted.map(Into::into),
         soft_delete_time: record.soft_delete_time.map(Into::into),
         hard_delete_time: record.hard_delete_time.map(Into::into),
@@ -138,6 +145,43 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
         custom_time,
         ..Default::default()
     })
+}
+
+/// Object ACL entries rendered by the shared JSON renderer, so IDs, etags and entity details
+/// agree with `objectAccessControls`.
+pub(crate) fn object_acl(
+    object: &pb::Object,
+    bucket: &str,
+    entries: &[AclEntry],
+) -> Vec<pb::ObjectAccessControl> {
+    let owner = AclOwner {
+        kind: AclKind::Object,
+        bucket,
+        object: Some((&object.name, object.generation)),
+        metageneration: object.metageneration,
+    };
+    entries
+        .iter()
+        .map(|entry| {
+            // The base URL only reaches `selfLink`, which the protobuf resource does not carry.
+            let value = crate::json::acl::acl_entry_resource("", owner, entry);
+            let text = |value: &serde_json::Value| value.as_str().unwrap_or_default().to_owned();
+            pb::ObjectAccessControl {
+                role: text(&value["role"]),
+                id: text(&value["id"]),
+                entity: text(&value["entity"]),
+                entity_id: text(&value["entityId"]),
+                etag: text(&value["etag"]),
+                email: text(&value["email"]),
+                domain: text(&value["domain"]),
+                project_team: value.get("projectTeam").map(|team| pb::ProjectTeam {
+                    project_number: text(&team["projectNumber"]),
+                    team: text(&team["team"]),
+                }),
+                entity_alt: String::new(),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
