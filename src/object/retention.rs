@@ -33,7 +33,8 @@ impl RetentionMode {
     }
 }
 
-/// Stored at microsecond precision; responses display the millisecond truncation.
+/// Held to the nanosecond, as Cloud Storage compared it; responses display the millisecond
+/// truncation. The catalog stores whole microseconds plus a sub-microsecond remainder column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ObjectRetention {
     pub mode: RetentionMode,

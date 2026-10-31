@@ -336,7 +336,7 @@ fn check_guards(
             return Err(AdminError::Precondition);
         }
         let now = crate::storage::catalog::unix_micros(clock.now())?;
-        let held: bool = transaction.prepare_cached("SELECT EXISTS(SELECT 1 FROM objects JOIN buckets ON objects.bucket = buckets.name WHERE event_based_hold = 1 OR temporary_hold = 1 OR objects.time_created + json_extract(buckets.retention_policy, '$.retention_period') * 1000000 > ?1 OR (CASE WHEN retain_until_time < 0 THEN -retain_until_time > ?1 * 1000 ELSE retain_until_time > ?1 END))")
+        let held: bool = transaction.prepare_cached("SELECT EXISTS(SELECT 1 FROM objects JOIN buckets ON objects.bucket = buckets.name WHERE event_based_hold = 1 OR temporary_hold = 1 OR objects.time_created + json_extract(buckets.retention_policy, '$.retention_period') * 1000000 > ?1 OR retain_until_time > ?1)")
             .and_then(|mut statement| statement.query_row([now], |row| row.get(0))).map_err(objects_error)?;
         if held {
             return Err(AdminError::Hold);

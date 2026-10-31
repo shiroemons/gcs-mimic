@@ -18,6 +18,11 @@ ALTER TABLE objects ADD COLUMN retention_mode TEXT CHECK(retention_mode IN ('Unl
 ALTER TABLE objects ADD COLUMN retain_until_time INTEGER CHECK((retain_until_time IS NULL) = (retention_mode IS NULL));
 PRAGMA user_version = 29;";
 
+/// Schema 47. The nanoseconds past the whole microsecond of `retain_until_time`; rows written
+/// before it keep reading as whole microseconds.
+pub(in crate::storage) const SUB_MICRO_SCHEMA: &str = "ALTER TABLE objects ADD COLUMN retain_until_sub_micro_nanos INTEGER NOT NULL DEFAULT 0 CHECK(retain_until_sub_micro_nanos BETWEEN 0 AND 999 AND (retain_until_sub_micro_nanos = 0 OR retain_until_time IS NOT NULL));
+PRAGMA user_version = 47;";
+
 pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let unavailable = |error: rusqlite::Error| {
         CatalogError::Unavailable(crate::storage::failure::BackendCause::from_error(error))
@@ -27,8 +32,13 @@ pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), Cat
     transaction.commit().map_err(unavailable)
 }
 
-/// Reads the retention pair starting at `index` (mode, then retain-until micros).
-pub(super) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<ObjectRetention>> {
+/// Reads the retention pair starting at `index` (mode, then retain-until micros) and the
+/// sub-microsecond remainder at `sub_index`.
+pub(super) fn read(
+    row: &Row<'_>,
+    index: usize,
+    sub_index: usize,
+) -> rusqlite::Result<Option<ObjectRetention>> {
     let mode: Option<String> = row.get(index)?;
     let until: Option<i64> = row.get(index + 1)?;
     let (Some(mode), Some(until)) = (mode, until) else {
@@ -41,53 +51,33 @@ pub(super) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<Objec
             "invalid retention mode".into(),
         )
     })?;
+    let remainder = u64::try_from(row.get::<_, i64>(sub_index)?).unwrap_or(0);
     Ok(Some(ObjectRetention {
         mode,
-        retain_until: decode_time(until)?,
+        retain_until: system_time_micros(until)? + Duration::from_nanos(remainder),
     }))
 }
 
-/// The `retain_until_time` column holds microseconds. A time with a sub-microsecond remainder
-/// is stored as the negated nanosecond count instead: no retention time precedes the epoch, so
-/// a negative value is unambiguous, rows written earlier keep reading as microseconds and no
-/// schema migration is needed.
-fn encode_time(time: SystemTime) -> Result<i64, ObjectError> {
-    let nanos = time
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|since| i64::try_from(since.as_nanos()).ok());
-    match nanos {
-        Some(nanos) if nanos % 1000 != 0 => Ok(-nanos),
-        // Past year 2262 nanoseconds overflow an i64; the remainder is dropped there.
-        _ => unix_micros(time).map_err(object_unavailable),
-    }
-}
-
-fn decode_time(value: i64) -> rusqlite::Result<SystemTime> {
-    if value < 0 {
-        return Ok(UNIX_EPOCH + Duration::from_nanos(value.unsigned_abs()));
-    }
-    system_time_micros(value)
+/// Values for the (`retention_mode`, `retain_until_time`, `retain_until_sub_micro_nanos`)
+/// columns. The remainder (0 to 999) keeps the nanoseconds that the microsecond column drops.
+pub(super) fn columns(
+    retention: Option<&ObjectRetention>,
+) -> Result<(Option<&'static str>, Option<i64>, i64), ObjectError> {
+    retention
+        .map(|retention| {
+            Ok((
+                Some(retention.mode.as_str()),
+                Some(unix_micros(retention.retain_until).map_err(object_unavailable)?),
+                i64::try_from(sub_micro_nanos(retention.retain_until)).unwrap_or(0),
+            ))
+        })
+        .unwrap_or(Ok((None, None, 0)))
 }
 
 /// The nanoseconds past the last whole microsecond of a retention time.
 fn sub_micro_nanos(time: SystemTime) -> u64 {
     time.duration_since(UNIX_EPOCH)
         .map_or(0, |since| u64::from(since.subsec_nanos() % 1000))
-}
-
-/// Values for the (`retention_mode`, `retain_until_time`) columns.
-pub(super) fn columns(
-    retention: Option<&ObjectRetention>,
-) -> Result<(Option<&'static str>, Option<i64>), ObjectError> {
-    retention
-        .map(|retention| {
-            Ok((
-                Some(retention.mode.as_str()),
-                Some(encode_time(retention.retain_until)?),
-            ))
-        })
-        .unwrap_or(Ok((None, None)))
 }
 
 /// Encodes upload metadata retention for a persisted resumable session.
@@ -183,21 +173,60 @@ mod tests {
     }
 
     #[test]
-    fn column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged() {
-        for time in [at(4_000_000_000, 123_456_789), at(4_000_000_000, 1)] {
-            let stored = encode_time(time).unwrap();
-            assert!(
-                stored < 0,
-                "a sub-microsecond remainder is stored as nanoseconds"
-            );
-            assert_eq!(decode_time(stored).unwrap(), time);
+    fn columns_split_a_time_into_microseconds_and_a_remainder() {
+        let time = at(4_000_000_000, 123_456_789);
+        let retention = ObjectRetention {
+            mode: RetentionMode::Unlocked,
+            retain_until: time,
+        };
+        let (mode, micros, remainder) = columns(Some(&retention)).unwrap();
+        assert_eq!(mode, Some("Unlocked"));
+        assert_eq!(micros, Some(4_000_000_000_123_456));
+        assert_eq!(remainder, 789);
+        let whole = ObjectRetention {
+            retain_until: at(4_000_000_000, 123_456_000),
+            ..retention
+        };
+        assert_eq!(columns(Some(&whole)).unwrap().2, 0);
+        assert_eq!(columns(None).unwrap(), (None, None, 0));
+    }
+
+    /// Schema 47 adds the remainder column to rows written by 0.7.0 and earlier: they read as
+    /// whole microseconds, and the column refuses values that would corrupt the time.
+    #[test]
+    fn sub_micro_column_migrates_microsecond_rows_and_checks_its_range() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE objects (
+                    retention_mode TEXT,
+                    retain_until_time INTEGER CHECK((retain_until_time IS NULL) = (retention_mode IS NULL)));
+                 INSERT INTO objects VALUES ('Unlocked', 4000000000123456), (NULL, NULL);",
+            )
+            .unwrap();
+        connection.execute_batch(SUB_MICRO_SCHEMA).unwrap();
+        let rows: Vec<(Option<i64>, i64)> = connection
+            .prepare("SELECT retain_until_time, retain_until_sub_micro_nanos FROM objects ORDER BY rowid")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(rows, [(Some(4_000_000_000_123_456), 0), (None, 0)]);
+        connection
+            .execute("UPDATE objects SET retain_until_sub_micro_nanos = 999 WHERE retention_mode IS NOT NULL", [])
+            .unwrap();
+        for rejected in [
+            "UPDATE objects SET retain_until_sub_micro_nanos = 1000 WHERE retention_mode IS NOT NULL",
+            "UPDATE objects SET retain_until_sub_micro_nanos = -1 WHERE retention_mode IS NOT NULL",
+            "UPDATE objects SET retain_until_sub_micro_nanos = 1 WHERE retention_mode IS NULL",
+        ] {
+            assert!(connection.execute(rejected, []).is_err(), "{rejected}");
         }
-        // Whole microseconds keep the original encoding, so earlier rows and later readers agree.
-        let whole = at(4_000_000_000, 123_456_000);
-        let stored = encode_time(whole).unwrap();
-        assert_eq!(stored, 4_000_000_000_123_456);
-        assert_eq!(decode_time(stored).unwrap(), whole);
-        assert_eq!(decode_time(0).unwrap(), UNIX_EPOCH);
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 47);
     }
 
     #[test]

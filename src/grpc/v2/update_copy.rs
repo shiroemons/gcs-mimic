@@ -1592,14 +1592,17 @@ mod tests {
             .await
             .is_err()
         );
-        // Shortening an Unlocked configuration requires the override, as in JSON.
-        assert!(
+        // Shortening an Unlocked configuration requires the override and is 403 in JSON, so
+        // PERMISSION_DENIED here.
+        assert_eq!(
             s.update_object(
                 Request::new(request("retention-objects", "kept", Some(60), false)),
                 None
             )
             .await
-            .is_err()
+            .unwrap_err()
+            .code(),
+            Code::PermissionDenied
         );
         let current = s
             .state

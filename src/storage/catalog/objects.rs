@@ -39,7 +39,8 @@ macro_rules! object_columns {
     content_encoding, content_disposition, content_language, cache_control, metadata,
     time_deleted, event_based_hold, component_count, temporary_hold, custom_time,
     time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket), soft_delete_time, hard_delete_time,
-    retention_mode, retain_until_time, customer_key_sha256, md5_available, owner"
+    retention_mode, retain_until_time, customer_key_sha256, md5_available, owner,
+    retain_until_sub_micro_nanos"
     };
 }
 const SELECT_LIVE_OBJECT: &str = concat!(
@@ -1447,7 +1448,8 @@ impl Catalog {
                 )?;
                 retention::validate_publication(&transaction, &record, clock.now())?;
             }
-            let (retention_mode, retain_until) = retention::columns(record.retention.as_ref())?;
+            let (retention_mode, retain_until, retain_sub_micro) =
+                retention::columns(record.retention.as_ref())?;
             record.metageneration = record
                 .metageneration
                 .checked_add(1)
@@ -1460,7 +1462,8 @@ impl Catalog {
                     "UPDATE objects SET metageneration = ?3, updated = ?4, content_type = ?5,
                     content_encoding = ?6, content_disposition = ?7, content_language = ?8,
                     cache_control = ?9, metadata = ?10, event_based_hold = ?11,
-                    temporary_hold = ?13, custom_time = ?14, retention_mode = ?15, retain_until_time = ?16
+                    temporary_hold = ?13, custom_time = ?14, retention_mode = ?15, retain_until_time = ?16,
+                    retain_until_sub_micro_nanos = ?17
                     WHERE bucket = ?1 AND name = ?2 AND generation = ?12",
                 )
                 .and_then(|mut statement| {
@@ -1480,7 +1483,8 @@ impl Catalog {
                         record.temporary_hold,
                         record.custom_time,
                         retention_mode,
-                        retain_until
+                        retain_until,
+                        retain_sub_micro
                     ])
                 })
                 .map_err(object_unavailable)?;
@@ -2489,7 +2493,8 @@ pub(super) fn publish_in_transaction<T>(
     }
     retention::validate_publication(transaction, &record, now)?;
     validate_publication_timestamps(&record)?;
-    let (retention_mode, retain_until) = retention::columns(record.retention.as_ref())?;
+    let (retention_mode, retain_until, retain_sub_micro) =
+        retention::columns(record.retention.as_ref())?;
     if matches!(assignment, GenerationAssignment::Imported(_)) {
         let exists: bool = transaction
             .prepare_cached(
@@ -2533,7 +2538,7 @@ pub(super) fn publish_in_transaction<T>(
     let time_created = unix_micros(record.time_created).map_err(object_unavailable)?;
     let updated = unix_micros(record.updated).map_err(object_unavailable)?;
     transaction.prepare_cached(
-        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time,retention_mode,retain_until_time,customer_key_sha256,md5_available,owner) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21,?22,?23,?24,?25,?26)",
+        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time,retention_mode,retain_until_time,customer_key_sha256,md5_available,owner,retain_until_sub_micro_nanos) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21,?22,?23,?24,?25,?26,?27)",
     ).and_then(|mut statement| statement.execute(params![record.bucket, record.name, generation, record.metageneration,
             record.content_type, size,
             &record.md5[..], record.crc32c, record.storage_class, time_created, blob_id,
@@ -2542,7 +2547,8 @@ pub(super) fn publish_in_transaction<T>(
             updated, record.temporary_hold, record.custom_time,
             retention_mode, retain_until,
             record.customer_key_sha256.as_ref().map(|sha256| &sha256[..]),
-            record.md5_availability == crate::object::Md5Availability::Available, owner]))
+            record.md5_availability == crate::object::Md5Availability::Available, owner,
+            retain_sub_micro]))
     .map_err(object_unavailable)?;
     super::acl::publish_object_acl(transaction, &record, acl)?;
     if notification_mode == NotificationMode::Emit {
@@ -2840,7 +2846,7 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, Stri
                 .get::<_, Option<i64>>(24)?
                 .map(system_time_micros)
                 .transpose()?,
-            retention: retention::read(row, 25)?,
+            retention: retention::read(row, 25, 30)?,
             customer_key_sha256: super::customer_keys::decode(row.get(27)?)?,
         },
         row.get(11)?,
@@ -3054,6 +3060,9 @@ mod tests {
         connection
             .execute_batch(super::super::object_owner::SCHEMA)
             .unwrap();
+        connection
+            .execute_batch(retention::SUB_MICRO_SCHEMA)
+            .unwrap();
         let counter = AtomicUsize::new(0);
         // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
         // SAFETY: This live connection invokes the callback synchronously with the live counter.
@@ -3129,6 +3138,9 @@ mod tests {
             .unwrap();
         connection
             .execute_batch(super::super::object_owner::SCHEMA)
+            .unwrap();
+        connection
+            .execute_batch(retention::SUB_MICRO_SCHEMA)
             .unwrap();
         connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
             INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,time_deleted)

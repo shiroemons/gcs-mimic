@@ -91,7 +91,23 @@ pub(crate) fn downgrade_observation_schema(connection: &rusqlite::Connection) {
 }
 
 /// Restores the schema 44 layout, which predates bucket generations and soft-deleted buckets.
+pub(crate) fn drop_sub_micro_column(connection: &rusqlite::Connection) {
+    let present: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('objects') WHERE name='retain_until_sub_micro_nanos')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if present {
+        connection
+            .execute_batch("ALTER TABLE objects DROP COLUMN retain_until_sub_micro_nanos;")
+            .unwrap();
+    }
+}
+
 pub(crate) fn downgrade_bucket_generation_schema(connection: &rusqlite::Connection) {
+    drop_sub_micro_column(connection);
     connection
         .execute_batch(
             "DROP TABLE IF EXISTS soft_deleted_buckets; DROP TABLE IF EXISTS bucket_generation;",
@@ -191,8 +207,10 @@ pub(crate) fn downgrade_soft_delete_schema(connection: &rusqlite::Connection) {
     connection.execute_batch("DROP INDEX objects_soft_deleted; DROP INDEX objects_soft_expiry; ALTER TABLE objects DROP COLUMN soft_delete_time; ALTER TABLE objects DROP COLUMN hard_delete_time; ALTER TABLE buckets DROP COLUMN soft_delete_policy;").unwrap();
 }
 
-/// Restores the schema 28 layout; retain_until_time's CHECK names retention_mode, so it goes first.
+/// Restores the schema 28 layout; each column dropped here is named by the CHECK of the next, so
+/// the sub-microsecond column goes first, then retain_until_time, then retention_mode.
 pub(crate) fn downgrade_object_retention_schema(connection: &rusqlite::Connection) {
+    drop_sub_micro_column(connection);
     downgrade_customer_key_schema(connection);
     connection
         .execute_batch("ALTER TABLE objects DROP COLUMN retain_until_time; ALTER TABLE objects DROP COLUMN retention_mode; ALTER TABLE buckets DROP COLUMN object_retention_enabled;")
