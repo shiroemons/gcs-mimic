@@ -21684,7 +21684,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested masks, explicitly soft-deleted listings, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested masks, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -21706,15 +21706,26 @@
           ]
         },
         {
+          "id": "soft_deleted_listing",
+          "description": "soft_deleted=true lists soft-deleted generations through the shared JSON softDeleted listing, with soft and hard delete times; combining it with versions returns INVALID_ARGUMENT; strict callers need storage.objects.list.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_list_soft_deleted_objects",
+            "grpc_list_soft_deleted_objects_strict"
+          ]
+        },
+        {
           "id": "broader_rpc_semantics",
-          "description": "Nested masks, explicitly soft-deleted listings, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
+          "description": "Nested masks, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
         "grpc_io_full_read_masks_return_acl_and_owner",
-        "TestGRPCObjectIO"
+        "TestGRPCObjectIO",
+        "grpc_list_soft_deleted_objects",
+        "grpc_list_soft_deleted_objects_strict"
       ],
       "verification": [
         {
@@ -21724,6 +21735,16 @@
           "artifact": "docs/en/evidence/grpc-object-fields.md",
           "test_ids": [
             "grpc_io_full_read_masks_return_acl_and_owner"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib grpc:: -- --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
+          "test_ids": [
+            "grpc_list_soft_deleted_objects",
+            "grpc_list_soft_deleted_objects_strict"
           ]
         },
         {
@@ -21753,7 +21774,7 @@
         }
       ],
       "known_deviations": [
-        "Nested masks, explicitly soft-deleted listings, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified."
+        "Nested masks, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"

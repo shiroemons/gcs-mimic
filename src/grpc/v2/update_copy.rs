@@ -1622,6 +1622,116 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn grpc_list_soft_deleted_objects() {
+        let (s, _dir) = setup().await;
+        let resource = "projects/_/buckets/update-copy-bucket";
+        let deleted = upload(&s, "gone", 3).await;
+        upload(&s, "live", 3).await;
+        s.delete_object(
+            Request::new(pb::DeleteObjectRequest {
+                bucket: resource.into(),
+                object: "gone".into(),
+                ..Default::default()
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+        let list = |soft_deleted: bool, versions: bool| pb::ListObjectsRequest {
+            parent: resource.into(),
+            soft_deleted,
+            versions,
+            ..Default::default()
+        };
+        let live = s
+            .list_objects(Request::new(list(false, false)), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            live.objects.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(),
+            ["live"]
+        );
+        let soft = s
+            .list_objects(Request::new(list(true, false)), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(soft.objects.len(), 1);
+        assert_eq!(soft.objects[0].name, "gone");
+        assert_eq!(soft.objects[0].generation, deleted.generation);
+        assert!(soft.objects[0].soft_delete_time.is_some());
+        assert!(soft.objects[0].hard_delete_time.is_some());
+        // The JSON listing rejects softDeleted with versions; gRPC shares that rule.
+        assert_eq!(
+            s.list_objects(Request::new(list(true, true)), None)
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn grpc_list_soft_deleted_objects_strict() {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        catalog
+            .insert_bucket(
+                json::parse_insert(
+                    br#"{"name":"update-copy-bucket","softDeletePolicy":{"retentionDurationSeconds":"604800"}}"#,
+                    "p",
+                    std::time::SystemTime::now(),
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let s = Storage {
+            state: Arc::new(State {
+                catalog,
+                ready: AtomicBool::new(true),
+                clock: Arc::new(SystemClock),
+                api_base_url: "http://localhost:4443".into(),
+                default_location: "US".into(),
+                auth: Auth::strict(crate::auth::Registry::parse(br#"{"identities":[{"id":"viewer@example.invalid","tokens":["viewer"],"project_roles":{"p":["roles/storage.objectViewer"]}},{"id":"none@example.invalid","tokens":["none"]}]}"#).unwrap()),
+            }),
+            max_object_bytes: 1024,
+        };
+        let caller = |token: &str| {
+            let mut metadata = Request::new(());
+            metadata
+                .metadata_mut()
+                .insert("authorization", format!("Bearer {token}").parse().unwrap());
+            s.authenticate(&metadata).unwrap()
+        };
+        let request = pb::ListObjectsRequest {
+            parent: "projects/_/buckets/update-copy-bucket".into(),
+            soft_deleted: true,
+            ..Default::default()
+        };
+        s.list_objects(Request::new(request.clone()), caller("viewer"))
+            .await
+            .unwrap();
+        assert_eq!(
+            s.list_objects(Request::new(request.clone()), caller("none"))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::PermissionDenied
+        );
+        assert_eq!(
+            s.list_objects(Request::new(request), Some(Caller::Anonymous))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::Unauthenticated
+        );
+        s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn grpc_update_object_retention_strict() {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();

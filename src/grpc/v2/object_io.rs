@@ -620,9 +620,9 @@ impl Storage {
                 "page_size must be nonnegative; use 1000",
             ));
         }
-        if r.soft_deleted || r.include_folders_as_prefixes || !r.filter.is_empty() {
+        if r.include_folders_as_prefixes || !r.filter.is_empty() {
             return Err(unsupported(
-                "ListObjects soft_deleted/include_folders_as_prefixes/filter",
+                "ListObjects include_folders_as_prefixes/filter",
                 caller,
             ));
         }
@@ -639,6 +639,7 @@ impl Storage {
                 r.include_trailing_delimiter.to_string(),
             ),
             ("versions", r.versions.to_string()),
+            ("softDeleted", r.soft_deleted.to_string()),
             ("matchGlob", r.match_glob),
         ]
         .into_iter()

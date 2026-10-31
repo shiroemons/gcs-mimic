@@ -85,3 +85,17 @@ CreateBucket `enable_object_retention` and the UpdateObject `retention` mask and
 An unspecified mode, or a mode without `retain_until_time`, returns INVALID_ARGUMENT. `retention.<field>` masks remain UNIMPLEMENTED. Writes that set retention at upload (WriteObject resource fields) are outside this change.
 
 Tests: `grpc_buckets_create_enables_object_retention`, `grpc_update_object_retention` and `grpc_update_object_retention_strict` failed on the previous source with UNIMPLEMENTED and pass after the change. The negative mask test now uses the still-unsupported `retention.mode` path instead of `retention`.
+
+## Soft-deleted listings
+
+ListObjects `soft_deleted=true` returned UNIMPLEMENTED. The adapter already builds a JSON listing query from the request, so it now forwards `softDeleted` to the shared JSON listing.
+
+| Case | Required behavior |
+| --- | --- |
+| grpc_list_soft_deleted | `soft_deleted=true` returns only soft-deleted generations, with their generation, `soft_delete_time` and `hard_delete_time`; an ordinary listing omits them. |
+| grpc_list_soft_deleted_versions | Combining `soft_deleted` with `versions` returns INVALID_ARGUMENT, as JSON rejects `softDeleted=true&versions=true`. |
+| grpc_list_soft_deleted_strict | Strict mode uses the same `storage.objects.list` check as JSON: a caller with the permission lists, a registered caller without it receives PERMISSION_DENIED and an anonymous caller UNAUTHENTICATED. |
+
+Prefix, delimiter, offsets, glob and page tokens combine with `soft_deleted` exactly as in the JSON listing. `include_folders_as_prefixes` and `filter` remain UNIMPLEMENTED; GetObject `soft_deleted` is outside this change.
+
+Tests: `grpc_list_soft_deleted_objects` and `grpc_list_soft_deleted_objects_strict` failed on the previous source with UNIMPLEMENTED and pass after the change.
