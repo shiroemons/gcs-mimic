@@ -128,8 +128,7 @@ async fn grpc_storage_control_bucket_iam() {
     state
         .catalog
         .insert_bucket(
-            crate::json::parse_insert(br#"{"name":"iam-bucket"}"#, "p", state.clock.now())
-                .unwrap(),
+            crate::json::parse_insert(br#"{"name":"iam-bucket"}"#, "p", state.clock.now()).unwrap(),
         )
         .await
         .unwrap();
@@ -193,9 +192,13 @@ async fn grpc_storage_control_bucket_iam() {
     .await
     .unwrap();
     assert_eq!(current, written);
-    assert!(current.bindings.iter().any(|binding| binding.role
-        == "roles/storage.objectViewer"
-        && binding.members == ["user:someone@example.invalid"]));
+    assert!(
+        current
+            .bindings
+            .iter()
+            .any(|binding| binding.role == "roles/storage.objectViewer"
+                && binding.members == ["user:someone@example.invalid"])
+    );
     let test = iam::TestIamPermissionsRequest {
         resource: resource.clone(),
         permissions: vec!["storage.buckets.get".into(), "storage.objects.list".into()],
