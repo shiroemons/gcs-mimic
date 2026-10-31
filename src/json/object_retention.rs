@@ -52,13 +52,11 @@ pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError>
         UNIX_EPOCH.checked_add(offset)
     };
     // Cloud Storage kept the full nanosecond value for comparisons while responses showed only
-    // the millisecond (observed 2026-10-31, including .123999999 displayed as .123). The catalog
-    // stores microseconds, so the nanosecond remainder is dropped; rounding it up would change
-    // the displayed millisecond. Rendering truncates to milliseconds.
+    // the millisecond (observed 2026-10-31, including .123999999 displayed as .123). The time is
+    // kept to the nanosecond too and rendering truncates to milliseconds.
     let out_of_range = || invalid("retention.retainUntilTime is outside the supported range");
-    let micros = u64::from(nanos / 1000);
     let retain_until = base
-        .and_then(|time| time.checked_add(Duration::from_micros(micros)))
+        .and_then(|time| time.checked_add(Duration::from_nanos(u64::from(nanos))))
         .ok_or_else(out_of_range)?;
     timestamp(retain_until).map_err(|_| out_of_range())?;
     Ok(Some(ObjectRetention { mode, retain_until }))
@@ -153,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn retain_until_displays_milliseconds_and_keeps_microseconds() {
+    fn retain_until_displays_milliseconds_and_keeps_nanoseconds() {
         assert_eq!(
             parsed_render("2030-01-01T00:00:00Z").unwrap(),
             "2030-01-01T00:00:00.000Z"
@@ -177,14 +175,13 @@ mod tests {
                 .unwrap()
                 .retain_until
         };
-        // The microsecond is kept, so times a microsecond apart still compare as different.
+        // The nanosecond is kept, so times a nanosecond apart still compare as different.
         assert_ne!(
-            stored("2030-01-01T00:00:00.123456Z"),
-            stored("2030-01-01T00:00:00.123457Z")
+            stored("2030-01-01T00:00:00.123456788Z"),
+            stored("2030-01-01T00:00:00.123456789Z")
         );
-        assert_eq!(
-            stored("2030-01-01T00:00:00.123456789Z"),
-            stored("2030-01-01T00:00:00.123456Z")
+        assert!(
+            stored("2030-01-01T00:00:00.123456788Z") < stored("2030-01-01T00:00:00.123456789Z")
         );
     }
 

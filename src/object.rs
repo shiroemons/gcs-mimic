@@ -325,6 +325,9 @@ pub struct ComposeSource {
     pub if_generation_match: Option<i64>,
 }
 
+/// The wording Cloud Storage used when it refused to shorten or remove an Unlocked retention.
+pub(crate) const UNLOCKED_RETENTION_OVERRIDE_MESSAGE: &str = "The unlocked object retention cannot be removed and its retention period cannot be shortened without overriding unlocked retention intent and permission.";
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ObjectError {
     BucketNotFound,
@@ -337,6 +340,8 @@ pub(crate) enum ObjectError {
     RetentionPolicyNotMet,
     /// The object's own retain-until time has not passed.
     ObjectRetentionNotMet,
+    /// An Unlocked retention was shortened or removed without `overrideUnlockedRetention`.
+    UnlockedRetentionOverrideRequired,
     ObjectNotSoftDeleted,
     /// The bucket's current owning project is not one the caller was authorized for.
     Forbidden,
@@ -376,6 +381,9 @@ impl fmt::Display for ObjectError {
             }
             Self::ObjectRetentionNotMet => {
                 formatter.write_str("object retain-until time has not elapsed")
+            }
+            Self::UnlockedRetentionOverrideRequired => {
+                formatter.write_str(UNLOCKED_RETENTION_OVERRIDE_MESSAGE)
             }
             Self::ObjectNotSoftDeleted => formatter.write_str(
                 "object is not soft deleted; select a generation from softDeleted=true listing",

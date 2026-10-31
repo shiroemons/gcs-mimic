@@ -10,6 +10,7 @@ use crate::{
     },
 };
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, types::Type};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Schema 29. Both object columns are NULL when the object has no configuration.
 pub(in crate::storage) const SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN object_retention_enabled INTEGER NOT NULL DEFAULT 0 CHECK(object_retention_enabled IN (0, 1));
@@ -42,8 +43,37 @@ pub(super) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<Objec
     })?;
     Ok(Some(ObjectRetention {
         mode,
-        retain_until: system_time_micros(until)?,
+        retain_until: decode_time(until)?,
     }))
+}
+
+/// The `retain_until_time` column holds microseconds. A time with a sub-microsecond remainder
+/// is stored as the negated nanosecond count instead: no retention time precedes the epoch, so
+/// a negative value is unambiguous, rows written earlier keep reading as microseconds and no
+/// schema migration is needed.
+fn encode_time(time: SystemTime) -> Result<i64, ObjectError> {
+    let nanos = time
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|since| i64::try_from(since.as_nanos()).ok());
+    match nanos {
+        Some(nanos) if nanos % 1000 != 0 => Ok(-nanos),
+        // Past year 2262 nanoseconds overflow an i64; the remainder is dropped there.
+        _ => unix_micros(time).map_err(object_unavailable),
+    }
+}
+
+fn decode_time(value: i64) -> rusqlite::Result<SystemTime> {
+    if value < 0 {
+        return Ok(UNIX_EPOCH + Duration::from_nanos(value.unsigned_abs()));
+    }
+    system_time_micros(value)
+}
+
+/// The nanoseconds past the last whole microsecond of a retention time.
+fn sub_micro_nanos(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .map_or(0, |since| u64::from(since.subsec_nanos() % 1000))
 }
 
 /// Values for the (`retention_mode`, `retain_until_time`) columns.
@@ -54,7 +84,7 @@ pub(super) fn columns(
         .map(|retention| {
             Ok((
                 Some(retention.mode.as_str()),
-                Some(unix_micros(retention.retain_until).map_err(object_unavailable)?),
+                Some(encode_time(retention.retain_until)?),
             ))
         })
         .unwrap_or(Ok((None, None)))
@@ -70,7 +100,14 @@ pub(in crate::storage) fn session_value(
     let value = retention.map(|retention| {
         // Parsed RFC 3339 times end at year 9999, far inside the i64 microsecond range.
         let micros = unix_micros(retention.retain_until).unwrap_or(i64::MAX);
-        serde_json::json!({"mode": retention.mode.as_str(), "retainUntilMicros": micros})
+        let mut value =
+            serde_json::json!({"mode": retention.mode.as_str(), "retainUntilMicros": micros});
+        // Absent when zero, so sessions written before nanosecond comparison read unchanged.
+        let remainder = sub_micro_nanos(retention.retain_until);
+        if remainder != 0 {
+            value["retainUntilSubMicroNanos"] = remainder.into();
+        }
+        value
     });
     serde_json::json!({ "value": value })
 }
@@ -92,9 +129,17 @@ pub(in crate::storage) fn from_session(
         .and_then(RetentionMode::parse)
         .ok_or_else(invalid)?;
     let micros = inner["retainUntilMicros"].as_i64().ok_or_else(invalid)?;
+    let remainder = match inner.get("retainUntilSubMicroNanos") {
+        None => 0,
+        Some(value) => value
+            .as_u64()
+            .filter(|nanos| *nanos < 1000)
+            .ok_or_else(invalid)?,
+    };
+    let base = system_time_micros(micros).map_err(|_| invalid())?;
     Ok(Some(Some(ObjectRetention {
         mode,
-        retain_until: system_time_micros(micros).map_err(|_| invalid())?,
+        retain_until: base + Duration::from_nanos(remainder),
     })))
 }
 
@@ -126,4 +171,54 @@ pub(super) fn validate_publication(
         BucketRetention::Disabled
     };
     crate::object::retention::validate_stored(record, bucket, now)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::retention::ObjectRetention;
+
+    fn at(secs: u64, nanos: u32) -> SystemTime {
+        UNIX_EPOCH + Duration::new(secs, nanos)
+    }
+
+    #[test]
+    fn column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged() {
+        for time in [at(4_000_000_000, 123_456_789), at(4_000_000_000, 1)] {
+            let stored = encode_time(time).unwrap();
+            assert!(
+                stored < 0,
+                "a sub-microsecond remainder is stored as nanoseconds"
+            );
+            assert_eq!(decode_time(stored).unwrap(), time);
+        }
+        // Whole microseconds keep the original encoding, so earlier rows and later readers agree.
+        let whole = at(4_000_000_000, 123_456_000);
+        let stored = encode_time(whole).unwrap();
+        assert_eq!(stored, 4_000_000_000_123_456);
+        assert_eq!(decode_time(stored).unwrap(), whole);
+        assert_eq!(decode_time(0).unwrap(), UNIX_EPOCH);
+    }
+
+    #[test]
+    fn session_value_keeps_the_remainder_and_reads_older_sessions() {
+        let retention = ObjectRetention {
+            mode: RetentionMode::Unlocked,
+            retain_until: at(4_000_000_000, 123_456_789),
+        };
+        let value = session_value(Some(&Some(retention)));
+        assert_eq!(value["value"]["retainUntilSubMicroNanos"], 789);
+        assert_eq!(from_session(&value).unwrap(), Some(Some(retention)));
+        // Without a remainder the key is absent, which is also how older sessions look.
+        let whole = ObjectRetention {
+            retain_until: at(4_000_000_000, 123_456_000),
+            ..retention
+        };
+        let value = session_value(Some(&Some(whole)));
+        assert!(value["value"].get("retainUntilSubMicroNanos").is_none());
+        assert_eq!(from_session(&value).unwrap(), Some(Some(whole)));
+        let mut invalid = session_value(Some(&Some(retention)));
+        invalid["value"]["retainUntilSubMicroNanos"] = 1000.into();
+        assert!(from_session(&invalid).is_err());
+    }
 }

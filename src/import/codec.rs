@@ -62,10 +62,11 @@ pub(super) fn retention(
             "source retention mode requires a nonzero retain-until time",
         ));
     }
-    let micros = parse_timestamp(&attrs.retention_retain_until).map_err(invalid)?;
+    // Nanosecond precision, like the JSON adapter: retention times compare exactly.
+    let retain_until = parse_bucket_timestamp(&attrs.retention_retain_until).map_err(invalid)?;
     Ok(Some(crate::object::retention::ObjectRetention {
         mode,
-        retain_until: super::filesystem::time(micros)?,
+        retain_until,
     }))
 }
 

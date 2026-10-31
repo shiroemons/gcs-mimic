@@ -33,7 +33,7 @@ impl RetentionMode {
     }
 }
 
-/// Written at millisecond precision; records stored earlier may carry microseconds.
+/// Stored at microsecond precision; responses display the millisecond truncation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ObjectRetention {
     pub mode: RetentionMode,
@@ -162,10 +162,17 @@ pub(crate) fn check_transition(
         }
         RetentionMode::Unlocked => {
             let locking = next.is_some_and(|next| next.mode == RetentionMode::Locked);
-            if (shortened || locking) && unlocked == UnlockedOverride::NotRequested {
-                return Err(invalid(
-                    "Removing, shortening or locking an Unlocked retention configuration requires overrideUnlockedRetention=true",
-                ));
+            if unlocked == UnlockedOverride::NotRequested {
+                // Cloud Storage answered 403 for shortening or removing (observed 2026-10-31);
+                // locking without the override was not observed and stays a 400.
+                if shortened {
+                    return Err(ObjectError::UnlockedRetentionOverrideRequired);
+                }
+                if locking {
+                    return Err(invalid(
+                        "Locking an Unlocked retention configuration requires overrideUnlockedRetention=true",
+                    ));
+                }
             }
         }
     }
@@ -242,7 +249,7 @@ mod tests {
         Ok(resolved)
     }
 
-    /// A record stored with microseconds, as before writes were truncated.
+    /// A retention whose stored time carries microseconds beyond its displayed millisecond.
     fn micros(mode: RetentionMode, millis: u64, extra_micros: u64) -> ObjectRetention {
         ObjectRetention {
             mode,

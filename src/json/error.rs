@@ -356,6 +356,11 @@ impl From<ObjectError> for JsonError {
                 "Precondition failed",
             ),
             ObjectError::OverwriteForbidden | ObjectError::Forbidden => Self::forbidden(),
+            ObjectError::UnlockedRetentionOverrideRequired => Self::new(
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                crate::object::UNLOCKED_RETENTION_OVERRIDE_MESSAGE,
+            ),
             ObjectError::ActiveHold => Self::new(
                 StatusCode::FORBIDDEN,
                 "objectUnderActiveHold",

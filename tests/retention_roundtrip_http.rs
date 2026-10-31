@@ -151,9 +151,9 @@ fn locked_retention_read_back_is_accepted_and_a_shorter_time_is_not() {
 }
 
 /// Cloud Storage kept the nanosecond value of an Unlocked time for comparisons while showing
-/// milliseconds (observed 2026-10-31): the same time again was accepted, a later one was
-/// accepted, and the displayed millisecond time counted as a shortening. gcs-mimic compares
-/// at microseconds (the catalog precision), so only differences above that are refused.
+/// milliseconds (observed 2026-10-31): a time one nanosecond earlier and the displayed
+/// millisecond time were refused with 403, the same time and a later one were accepted.
+/// gcs-mimic compares at the same precision, also after a restart.
 #[test]
 fn unlocked_retention_compares_below_the_displayed_millisecond() {
     let dir = TestDir::new();
@@ -171,15 +171,39 @@ fn unlocked_retention_compares_below_the_displayed_millisecond() {
             &json!({"retention":{"mode":"Unlocked","retainUntilTime":time}}).to_string(),
         )
     };
+    let refused = |server: &Server, time: &str| {
+        let (status, body) = send(server, time, "");
+        assert_eq!(status, 403, "{time} {body}");
+        assert_eq!(body["error"]["errors"][0]["reason"], "forbidden");
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("The unlocked object retention cannot be removed")
+        );
+    };
+    for time in [
+        "2099-01-02T03:04:05.123456788Z",
+        "2099-01-02T03:04:05.123456Z",
+        "2099-01-02T03:04:05.123Z",
+    ] {
+        refused(&server, time);
+    }
+    // A restart keeps the nanosecond remainder.
+    server.stop();
+    let mut server = Server::start(&dir);
+    refused(&server, "2099-01-02T03:04:05.123456788Z");
     let (status, body) = send(&server, FINE, "");
     assert_eq!(status, 200, "{body}");
+    // One nanosecond later is a real extension; the display does not change.
     let (status, body) = send(&server, "2099-01-02T03:04:05.123456790Z", "");
     assert_eq!(status, 200, "{body}");
-    // The displayed time is earlier than the stored one, so it is a shortening.
-    for earlier in ["2099-01-02T03:04:05.123Z", "2099-01-02T03:04:05.123455Z"] {
-        let (status, body) = send(&server, earlier, "");
-        assert_eq!(status, 400, "{earlier} {body}");
-    }
+    assert_eq!(
+        body["retention"]["retainUntilTime"],
+        "2099-01-02T03:04:05.123Z"
+    );
+    // The new time is now the floor: the original FINE time is a shortening.
+    refused(&server, FINE);
     let (status, body) = send(
         &server,
         "2099-01-02T03:04:05.123Z",
