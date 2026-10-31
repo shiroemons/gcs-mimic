@@ -533,3 +533,38 @@ fn xml_cors_lookup_failure_does_not_precede_authentication() {
             .contains_key("access-control-allow-origin")
     );
 }
+
+/// With the allow-all fallback a failed lookup must not read as "no rules": that would grant
+/// every origin on a bucket whose real rules are unknown.
+#[test]
+fn xml_cors_lookup_failure_does_not_apply_the_allow_all_fallback() {
+    let (_config, data, server) = iam::fixture_with(&["--cors-fallback", "allow-all"]);
+    let object = "/iam-bucket/item";
+    server.upload(ADMIN, "iam-bucket", "item", b"hello").ok();
+    let granted = cors_request(&server, "GET", object, ADMIN, b"");
+    assert_eq!(granted.headers["access-control-allow-origin"], "*");
+    let database = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+    database.busy_timeout(Duration::from_secs(5)).unwrap();
+    database
+        .execute(
+            "UPDATE buckets SET cors = 'not json' WHERE name = 'iam-bucket'",
+            [],
+        )
+        .unwrap();
+    for (auth, status) in [("", 401), (NO_ROLES, 403)] {
+        let reply = cors_request(&server, "GET", object, auth, b"");
+        assert_eq!(reply.status, status);
+        assert!(!reply.headers.contains_key("access-control-allow-origin"));
+    }
+    let preflight = server.request(
+        "OPTIONS",
+        object,
+        &format!("Origin: {ORIGIN}\r\nAccess-Control-Request-Method: GET\r\n"),
+        b"",
+    );
+    assert!(
+        !preflight
+            .headers
+            .contains_key("access-control-allow-origin")
+    );
+}

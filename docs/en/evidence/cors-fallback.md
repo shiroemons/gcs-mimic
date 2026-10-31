@@ -47,7 +47,7 @@ default `none`.
 The XML CORS wrapper runs before authentication. It now reads the full bucket
 only for a request with an `Origin`. Other requests ask only whether the bucket
 stores any rule, and skip even that when the fallback already implies
-`Vary: Origin`. A failed lookup counts as no rules and logs
+`Vary: Origin`. A failed lookup sends no CORS field (the allow-all fallback is not applied to unknown rules) and logs
 `cors_lookup_failed`, so an unauthenticated or unauthorized request receives
 its 401 or 403 instead of a 503; the routed handler still reports a real
 catalog failure after authorizing, and no CORS access is granted without rules.
@@ -55,3 +55,4 @@ catalog failure after authorizing, and no CORS access is granted without rules.
 | Test | Behavior |
 | --- | --- |
 | `xml_cors_lookup_failure_does_not_precede_authentication` | A bucket row whose CORS column cannot be decoded: anonymous and role-less GET/HEAD, with and without `Origin`, answer 401/403 without CORS fields, and a preflight is not 503 |
+| `xml_cors_lookup_failure_does_not_apply_the_allow_all_fallback` | With `--cors-fallback allow-all`, the same undecodable row yields no `access-control-allow-origin` on GET or preflight, while the intact bucket still answers `*` |

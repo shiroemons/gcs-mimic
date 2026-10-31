@@ -141,6 +141,7 @@ async fn respond_xml_cors(
     // handler reports a real catalog failure after authorizing. Without rules no CORS access
     // is granted, so the failure fails closed. A missing bucket has no stored rules either;
     // the fallback lets browsers read the 404.
+    let mut lookup_failed = false;
     let (rules, found, has_rules) = if has_origin {
         match state.catalog.get_bucket(&object.bucket).await {
             Ok(Some(bucket)) => {
@@ -154,6 +155,7 @@ async fn respond_xml_cors(
                     "cors_lookup_failed",
                     serde_json::json!({"bucket": object.bucket, "cause": error.to_string()}),
                 );
+                lookup_failed = true;
                 (Vec::new(), false, false)
             }
         }
@@ -167,7 +169,10 @@ async fn respond_xml_cors(
             .unwrap_or(false);
         (Vec::new(), false, has_rules)
     };
-    let cors = if has_origin {
+    // The fallback applies only once the bucket is known to have no rules (or not to exist).
+    // After a failed lookup that is unknown, and granting every origin would fail open, so no
+    // CORS field is sent at all.
+    let cors = if has_origin && !lookup_failed {
         if found && rules.is_empty() && config.cors_fallback == CorsFallback::None {
             xml::warn_unconfigured_cors(&object.bucket, request.headers());
         }
