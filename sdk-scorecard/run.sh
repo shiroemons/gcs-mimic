@@ -196,7 +196,7 @@ run_probe() {
       # The probe requires loopback URLs, and a container's loopback is not the host's. socat
       # forwards the two loopback ports to the host gateway, so URLs, Host headers and
       # signatures stay unchanged. SSL_CERT_FILE is set by the probe from SCORECARD_CA_CERT.
-      # apt output goes to stderr to keep stdout a pure JSONL stream.
+      # install-socat.sh sends apt output to stderr to keep stdout a pure JSONL stream.
       docker run --rm --name "$rust_container" --add-host host.docker.internal:host-gateway \
         -v "$root:/app:ro" -v "$rust_volume:/target:ro" -v "$ca:/scorecard-ca.pem:ro" \
         -e SCORECARD_ENDPOINT="$endpoint" -e SCORECARD_GRPC_ENDPOINT="$grpc_endpoint" \
@@ -204,8 +204,7 @@ run_probe() {
         -e HTTP_PORT="${endpoint##*:}" -e GRPC_PORT="${grpc_endpoint##*:}" \
         "$rust_image" bash -c '
           set -euo pipefail
-          apt-get update -qq >&2
-          apt-get install -y -qq --no-install-recommends socat >&2
+          /app/sdk-scorecard/install-socat.sh
           for port in "$HTTP_PORT" "$GRPC_PORT"; do
             socat "TCP-LISTEN:$port,bind=127.0.0.1,fork,reuseaddr" "TCP:host.docker.internal:$port" &
           done

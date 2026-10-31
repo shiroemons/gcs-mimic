@@ -880,6 +880,68 @@ fn npm_lock(lock: &Value, pins: &BTreeMap<String, String>) -> Result<()> {
     Ok(())
 }
 
+/// Reads `name=value` assignments from a shell script, so the script stays the single place
+/// that holds an OS package pin.
+fn script_assignment<'a>(script: &'a str, name: &str) -> Option<&'a str> {
+    script
+        .lines()
+        .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
+}
+
+/// OS packages installed into pinned images must pin both the snapshot archive and the version in
+/// their install script, and the snapshot must record the same values. Returns whether the live
+/// Debian suite now carries a different version.
+fn check_apt_packages(root: &Path, status: &Value) -> Result<bool> {
+    let mut drift = false;
+    for package in status["docker"]["apt_packages"]
+        .as_array()
+        .ok_or("missing apt_packages")?
+    {
+        let name = text(package, "name")?;
+        let script_path = text(package, "script")?;
+        let script = std::fs::read_to_string(root.join(script_path)).map_err(|e| e.to_string())?;
+        for (key, field) in [
+            ("snapshot", "snapshot"),
+            (&format!("{name}_version"), "version"),
+        ] {
+            if script_assignment(&script, key) != Some(text(package, field)?) {
+                return Err(format!("apt pin mismatch: {name} {key} in {script_path}"));
+            }
+        }
+        let callers = package["callers"].as_array().ok_or("missing apt callers")?;
+        for caller in callers {
+            let caller = caller.as_str().ok_or("invalid apt caller")?;
+            let source = std::fs::read_to_string(root.join(caller)).map_err(|e| e.to_string())?;
+            if !source.contains(script_path.rsplit('/').next().unwrap_or(script_path)) {
+                return Err(format!("apt install script not used: {caller}"));
+            }
+        }
+        let suite = text(package, "suite")?;
+        let versions = json(&fetch(
+            &format!("https://sources.debian.org/api/src/{name}/"),
+            &[],
+            false,
+        )?)?;
+        let latest = versions["versions"]
+            .as_array()
+            .ok_or("missing Debian source versions")?
+            .iter()
+            .find(|entry| {
+                entry["suites"]
+                    .as_array()
+                    .is_some_and(|suites| suites.iter().any(|s| s == suite))
+            })
+            .and_then(|entry| entry["version"].as_str())
+            .ok_or("package not found in Debian suite")?;
+        drift |= compare(
+            &format!("debian {suite} {name}"),
+            text(package, "version")?,
+            latest,
+        );
+    }
+    Ok(drift)
+}
+
 fn json(source: &str) -> Result<Value> {
     serde_json::from_str(source).map_err(|e| e.to_string())
 }
@@ -1179,9 +1241,11 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
         }
     }
     if scope == Scope::Release {
+        println!("apt packages: SKIPPED development-only inputs");
         println!("SDK ecosystems: SKIPPED development-only inputs");
         return Ok(drift);
     }
+    drift |= check_apt_packages(root, &status)?;
     let scopes = status["sdk_ecosystems"]
         .as_array()
         .ok_or("missing sdk_ecosystems")?;
@@ -1663,6 +1727,40 @@ mod tests {
             );
         }
         assert!(release_input(&serde_json::json!({"reference": "x:1"})).is_err());
+    }
+
+    #[test]
+    fn apt_pins_are_read_from_the_install_script() {
+        let script = "snapshot=20261027T000000Z\nsocat_version=1.8.0.3-1+deb13u1\n# x=1\n";
+        assert_eq!(
+            script_assignment(script, "snapshot"),
+            Some("20261027T000000Z")
+        );
+        assert_eq!(
+            script_assignment(script, "socat_version"),
+            Some("1.8.0.3-1+deb13u1")
+        );
+        assert_eq!(script_assignment(script, "x"), None);
+        assert_eq!(script_assignment(script, "socat"), None);
+    }
+
+    #[test]
+    fn recorded_apt_pins_match_the_install_script() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let status = crate::read_json(&root.join("compatibility/dependency-status.json")).unwrap();
+        for package in status["docker"]["apt_packages"].as_array().unwrap() {
+            let name = text(package, "name").unwrap();
+            let script =
+                std::fs::read_to_string(root.join(text(package, "script").unwrap())).unwrap();
+            assert_eq!(
+                script_assignment(&script, "snapshot"),
+                Some(text(package, "snapshot").unwrap())
+            );
+            assert_eq!(
+                script_assignment(&script, &format!("{name}_version")),
+                Some(text(package, "version").unwrap())
+            );
+        }
     }
 
     #[test]

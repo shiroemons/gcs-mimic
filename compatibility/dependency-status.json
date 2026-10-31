@@ -187,6 +187,16 @@
   "lockfiles": ["Cargo.lock", "go/go.sum", "go/sourceexport/go.sum", "sdk-tests/rust/Cargo.lock", "sdk-tests/java/dependencies.lock", "sdk-tests/dotnet/packages.lock.json", "sdk-scorecard/rust/Cargo.lock", "sdk-scorecard/java/dependencies.lock", "sdk-scorecard/dotnet/packages.lock.json", "sdk-tests/testcontainers/node/package-lock.json", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock", "sdk-scorecard/node/package-lock.json", "sdk-scorecard/php/composer.lock", "sdk-scorecard/python/uv.lock", "sdk-tests/node/package-lock.json", "sdk-tests/php/composer.lock", "sdk-tests/python/uv.lock"],
   "docker": {
     "status": "PINNED",
+    "apt_packages": [
+      {
+        "name": "socat", "suite": "trixie", "version": "1.8.0.3-1+deb13u1",
+        "snapshot": "20261027T000000Z",
+        "script": "sdk-scorecard/install-socat.sh",
+        "callers": ["sdk-scorecard/run.sh", "sdk-scorecard/test-tls.sh"],
+        "purpose": "Development-only loopback forwarder inside the digest-pinned Rust image, so the Rust scorecard probe keeps loopback URLs, Host headers and signatures. apt reads the snapshot.debian.org archive for the timestamp the Rust image itself was built from, so socat and its dependencies are identical on every run; the daily check compares the version with Debian trixie and verifies the script records the same pin.",
+        "source_url": "https://sources.debian.org/api/src/socat/"
+      }
+    ],
     "digests": [
       {
         "repository": "library/composer", "reference": "composer:2.11.1", "release_input": false,

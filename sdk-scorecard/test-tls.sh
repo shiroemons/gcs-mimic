@@ -47,8 +47,7 @@ probe() {
         -e SCORECARD_SIGNING_KEY=/app/fixtures/signing/test-only-private.pem -e HTTP_PORT="$port" \
         "$rust_image" bash -c '
           set -euo pipefail
-          apt-get update -qq >&2
-          apt-get install -y -qq --no-install-recommends socat >&2
+          /app/sdk-scorecard/install-socat.sh
           socat "TCP-LISTEN:$HTTP_PORT,bind=127.0.0.1,fork,reuseaddr" "TCP:host.docker.internal:$HTTP_PORT" &
           until (echo >/dev/tcp/127.0.0.1/"$HTTP_PORT") 2>/dev/null; do sleep 0.1; done
           /target/release/gcs-mimic-scorecard-rust --transport-check' ;;
