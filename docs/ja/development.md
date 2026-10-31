@@ -12,6 +12,8 @@ Node.js 24以降（npm付き）、uv 0.13.6以降を使います。
 Ruby・Bundler・gemは[SDKテストの指定バージョン](../../sdk-tests/ruby/README.md)を
 揃えてください。PythonはuvがPython SDKテスト用の指定バージョンを用意するので、
 別途インストールする必要はありません。PHP SDKテストはDocker上で動くので、PHPも不要です。
+Java・Maven・.NET SDKは、`sdk-tests/java/.java-version`・`.maven-version`と
+`sdk-tests/dotnet/global.json`に書かれたバージョンを揃えてください。
 
 Docker、Compose、Buildxも必要です。Dockerを起動し、AMD64とARM64の
 Linuxコンテナを実行できるようにします。ホストと異なる環境ではエミュレーションを使います。
@@ -27,7 +29,8 @@ just pre-push
 `just pre-push`は次の順序で進みます。
 
 1. Rustとシェルの検証。
-2. Go・Ruby・Node.js・Python・PHP SDKの全テスト。
+2. Go・Ruby・Node.js・Python・PHP・Java・.NET・Rust SDKの全テスト。
+   Java・.NET・RustはHTTP専用のため、`GCS_MIMIC_SDK_SCHEME=https`では`SKIPPED`と表示して飛ばします。
 3. AMD64・ARM64のコンテナ検証を並列実行。
 
 各環境は、自分のビルドが終わり次第、動作確認へ進みます。

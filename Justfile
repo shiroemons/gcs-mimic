@@ -12,11 +12,11 @@ check:
 check-dependencies:
     env -u RUSTUP_TOOLCHAIN cargo xtask dependencies check
 
-# Run the complete pinned Go, Ruby, Node.js, Python and PHP SDK suites against isolated servers.
+# Run the complete pinned Go, Ruby, Node.js, Python, PHP, Java, .NET and Rust SDK suites against isolated servers.
 check-sdk:
-    env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php
+    env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php --with-java --with-dotnet --with-rust
 
-# Run additional pinned native clients and the Go facade/export adapter.
+# Run the pinned Java, .NET and Rust clients plus the Go facade/export adapter.
 check-sdk-clients:
     env -u GCS_MIMIC_GO_TEST_RUN bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-clients
 

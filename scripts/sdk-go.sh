@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-usage='Usage: bash scripts/sdk-go.sh [--with-ruby] [--with-node] [--with-python] [--with-php] [--with-clients]'
+usage='Usage: bash scripts/sdk-go.sh [--with-ruby] [--with-node] [--with-python] [--with-php] [--with-java] [--with-dotnet] [--with-rust] [--with-clients]'
 with_ruby=false
 with_clients=false
 # Each listed suite provides sdk-tests/<sdk>/run.sh, which reads GCS_MIMIC_ENDPOINT,
 # GCS_MIMIC_STRICT_ENDPOINT and, for HTTPS, GCS_MIMIC_CA_CERT.
 suites=()
+add_suite() {
+  if [[ " ${suites[*]-} " != *" $1 "* ]]; then suites+=("$1"); fi
+}
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help) echo "$usage"; exit 0 ;;
     --with-ruby) with_ruby=true ;;
-    --with-node) suites+=(node) ;;
-    --with-python) suites+=(python) ;;
-    --with-php) suites+=(php) ;;
-    --with-clients) with_clients=true; suites+=(java dotnet rust) ;;
+    --with-node) add_suite node ;;
+    --with-python) add_suite python ;;
+    --with-php) add_suite php ;;
+    --with-java) add_suite java ;;
+    --with-dotnet) add_suite dotnet ;;
+    --with-rust) add_suite rust ;;
+    --with-clients) with_clients=true; add_suite java; add_suite dotnet; add_suite rust ;;
     *) echo "$usage" >&2; exit 2 ;;
   esac
   shift
@@ -27,6 +33,9 @@ if [[ $with_clients == true && $scheme != http ]]; then
   echo 'Additional client harnesses currently require the HTTP profile' >&2
   exit 2
 fi
+# The Java, .NET and Rust suites guard a plain loopback HTTP origin only. Under the HTTPS
+# profile they are announced as skipped rather than failing the other SDKs' TLS run.
+http_only_suites=" java dotnet rust "
 env -u RUSTUP_TOOLCHAIN cargo build --locked
 server="$(env -u RUSTUP_TOOLCHAIN cargo metadata --locked --offline --no-deps --format-version 1 | jq -er .target_directory)/debug/gcs-mimic"
 export GCS_MIMIC_BINARY="$server"
@@ -161,6 +170,10 @@ fi
 
 if [[ -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
   for sdk in ${suites[@]+"${suites[@]}"}; do
+    if [[ $scheme != http && $http_only_suites == *" $sdk "* ]]; then
+      echo "== $sdk SDK suite SKIPPED: it supports only the HTTP profile (GCS_MIMIC_SDK_SCHEME=$scheme)" >&2
+      continue
+    fi
     echo "== $sdk SDK suite" >&2
     (
       if [[ $sdk == rust ]]; then export GCS_MIMIC_GRPC_ENDPOINT="$grpc_endpoint"; fi
