@@ -205,7 +205,7 @@ noted; write responses carried the usual no-store headers.
 | `{}` | 200 | metageneration 2 unchanged |
 
 The earlier recording showed `satisfiesPZI: true` only for `asia-northeast1`;
-the rows above are that location too, so other locations remain unobserved.
+the rows above are that location too. `us-central1` was observed later (see below).
 Ledger row: `BUCKET-SATISFIES-PZI`.
 
 ## Object retention time precision
@@ -288,11 +288,85 @@ retentionExpireTime` (the rejected name only), `locationType` `parameter`,
 | Comparison below the displayed millisecond | The time is kept to the nanosecond in memory, in the catalog (schema 47 column `retain_until_sub_micro_nanos`, 0 for rows written earlier, next to the microsecond `retain_until_time`) and in resumable session metadata (`retainUntilSubMicroNanos`, absent when zero). One nanosecond earlier and the displayed millisecond are refused, the same time and a later one are accepted, also after a restart | `retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond`, `storage::catalog::objects::retention::tests::columns_split_a_time_into_microseconds_and_a_remainder`, `storage::catalog::objects::retention::tests::sub_micro_column_migrates_microsecond_rows_and_checks_its_range`, `storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions` |
 | The displayed time is a shortening | Unlocked needs `overrideUnlockedRetention=true`; Locked refuses it whatever the override | `object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening`, `object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override` |
 | Statuses and messages | Unlocked shortening, removal and locking without the override: 403 `forbidden` with message U (gRPC `PERMISSION_DENIED`). Locked shortening, removal and mode change, with or without the override: 403 `forbidden` with message L. The same time again is 200 | `retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond`, `retention_roundtrip_http::locked_retention_refuses_every_reduction_with_403_and_accepts_equal_or_later`, `retention_roundtrip_http::locking_an_unlocked_retention_needs_the_override`, `storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry`, `grpc::v2::update_copy::tests::grpc_update_object_retention` |
-| Retained delete | 403 `retentionPolicyNotMet` naming the object and the retain-until time in US Pacific time to the nanosecond (trailing zeros of the fraction trimmed, an inference); objects.delete accepts and ignores `overrideUnlockedRetention`. The offset follows the US daylight-saving rule (second Sunday of March to first Sunday of November, 02:00 local) because Google's frontends use `America/Los_Angeles`; only the `-07:00` summer offset was observed | `retention_roundtrip_http::deleting_a_retained_object_names_it_and_ignores_the_override`, `object::retention::tests::pacific_time_follows_daylight_saving_and_trims_the_fraction` |
+| Retained delete | 403 `retentionPolicyNotMet` naming the object and the retain-until time in US Pacific time to the nanosecond (trailing zeros of the fraction trimmed); objects.delete accepts and ignores `overrideUnlockedRetention`. The offset follows the US daylight-saving rule (second Sunday of March to first Sunday of November, 02:00 local) because Google's frontends use `America/Los_Angeles`; both `-07:00` and `-08:00` were observed | `retention_roundtrip_http::deleting_a_retained_object_names_it_and_ignores_the_override`, `object::retention::tests::pacific_time_follows_daylight_saving_and_trims_the_fraction` |
 | gRPC | `retention.retain_until_time` keeps nanoseconds; `retention_expire_time` is truncated to milliseconds | `grpc::v2::update_copy::tests::grpc_retention_keeps_nanoseconds_and_expire_time_is_milliseconds` |
 | JSON `fields=retentionExpireTime` | 400 `invalidParameter`, message naming the rejected field only, `locationType` `parameter`, `location` `fields` | `retention_roundtrip_http::fields_selection_rejects_the_grpc_retention_expire_time_name`, `json::fields::tests::fields_reject_malformed_unknown_and_scalar_children` |
 
 Ledger row: `OBJECT-TIME-READ-BACK`.
+
+## Bucket retention policy, bucket preconditions and gRPC retention
+
+Observed **2026-11-01** with curl against the JSON API and grpcurl against
+the gRPC API (googleapis `storage.proto`), using two throwaway buckets in
+`us-central1` (STANDARD, `softDeletePolicy` 0) that were deleted afterwards
+(each `buckets.get` then returned 404). One had
+`enableObjectRetention=true`; the other had an unlocked bucket retention
+policy of 90 seconds. The project, project number, bucket names and user
+are not recorded. All errors are JSON `error` bodies with a `global` domain.
+
+Retained deletes name the retain-until time in US Pacific time. The message
+template is `Object '<bucket>/<name>' is subject to bucket's retention policy
+or object retention and cannot be deleted or overwritten until <time>`:
+
+| Object retention `retainUntilTime` set | Time in the message |
+| --- | --- |
+| `2026-11-03T00:00:00.123456789Z` | `2026-11-02T16:00:00.123456789-08:00` |
+| `2026-11-03T00:00:00.12Z` | `2026-11-02T16:00:00.12-08:00` |
+| `2026-11-03T00:00:00Z` | `2026-11-02T16:00:00-08:00` |
+
+The winter offset is `-08:00`, the nanosecond fraction is kept in full,
+trailing zeros are trimmed and a zero fraction is omitted. A bucket
+retention policy of 90 seconds (the `PATCH` response `effectiveTime` was
+about 60 seconds after the request, not the request time) on an object
+created at `19:17:01.407263Z` gave `retentionExpirationTime`
+`19:18:31.407Z`. The delete and an overwrite (media upload of the same name)
+both returned 403 `retentionPolicyNotMet` with the identical message ending
+`until 2026-10-31T12:18:31.407263-07:00`: the creation time plus the period
+at microsecond precision, with the summer offset. `PATCH`
+`retentionPolicy: null` removed the policy (200) although `effectiveTime` was
+still in the future, and the object was then deleted (204).
+
+Failed bucket preconditions (metageneration 1; the bucket stayed unchanged):
+
+| Request | Status | Result |
+| --- | --- | --- |
+| `PUT` with `ifMetagenerationMatch=99` | 412 | reason `conditionNotMet`, message `At least one of the pre-conditions you specified did not hold.`, `locationType` `header`, `location` `If-Match` |
+| `PATCH {"labels":{"k":"v"}}` with `ifMetagenerationMatch=99` | 412 | identical |
+| `PATCH {"labels":{"k":"v"}}` with `ifMetagenerationNotMatch=1` (the current value) | 304 | empty body, `content-length: 0` |
+| `PATCH {}` with `ifMetagenerationNotMatch=1` | 304 | same |
+
+Removing (`retention: null`) or shortening an Unlocked object retention
+without `overrideUnlockedRetention` returned 403 `forbidden` with the same
+message U as above. Over gRPC:
+
+- `UpdateObject` (mask `retention`) that shortened or removed an Unlocked
+  retention without the override returned `PERMISSION_DENIED` with message U;
+  with `override_unlocked_retention` the removal succeeded and the object had
+  no `retention` or `retention_expire_time`.
+- `DeleteObject` of the retained object returned `PERMISSION_DENIED` with the
+  JSON message, microsecond time included.
+- `GetObject` under the bucket retention policy returned
+  `retention_expire_time` `…:31.407Z` for a creation time of `…:01.407263Z`
+  (milliseconds) and no object-level `retention`.
+
+`satisfiesPZI` was `true` in `us-central1` (`locationType` `region`,
+`location` `US-CENTRAL1`), as in `asia-northeast1`.
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| Winter offset, trailing zeros, zero fraction | `-08:00` outside daylight saving; the fraction is trimmed and omitted when zero | `object::retention::tests::pacific_time_follows_daylight_saving_and_trims_the_fraction`, `retention_roundtrip_http::deleting_a_retained_object_names_it_and_ignores_the_override` |
+| Bucket policy denial | The same 403 `retentionPolicyNotMet` and message as object retention, with the creation time plus the period to the microsecond; delete and overwrite alike. `retentionPolicy: null` lifts it | `retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording` |
+| Writing PATCH with `ifMetagenerationNotMatch` at the current value | 304, empty body (a PUT was not observed with it and stays 412) | `bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions` |
+| PUT and writing PATCH with a failed `ifMetagenerationMatch` | 412 `conditionNotMet`, location `If-Match`, native profile | `bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions` |
+| Unlocked removal and shortening without the override | 403 `forbidden`, message U | `retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override` |
+| gRPC `UpdateObject`, `DeleteObject`, bucket policy `retention_expire_time` | `PERMISSION_DENIED` with the JSON message; `retention_expire_time` truncated to milliseconds | `grpc::v2::update_copy::tests::grpc_update_object_retention`, `grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds` |
+| `satisfiesPZI` in another location | `true` in every location | `bucket_http::satisfies_pzi_is_true_in_every_location` |
+
+Difference kept: gcs-mimic sets a bucket retention policy's `effectiveTime`
+to the request time, not about 60 seconds later. Ledger rows:
+`OBJECT-TIME-READ-BACK`, `BUCKET-SATISFIES-PZI`.
 
 ## XML listing
 

@@ -106,7 +106,14 @@ Unreleased user-visible changes that the next minor release notes must state:
   PATCH answers 304 (no body) when `ifMetagenerationNotMatch` names the current
   value and a native-profile 412 (`At least one of the pre-conditions you
   specified did not hold.`, location `If-Match`) when `ifMetagenerationMatch`
-  does not match.
+  does not match. A bucket PATCH that carries a writable setting now also
+  answers 304 when `ifMetagenerationNotMatch` names the current value.
+- A bucket retention policy now refuses to delete or overwrite an object with
+  the same 403 `retentionPolicyNotMet` message as object retention
+  (`Object '<bucket>/<name>' is subject to bucket's retention policy or object
+  retention and cannot be deleted or overwritten until <time>`), naming the
+  creation time plus the period in US Pacific time to the microsecond. The
+  gRPC `DeleteObject` returns `PERMISSION_DENIED` with that message.
 
 ## The 1.0.0 gate
 
