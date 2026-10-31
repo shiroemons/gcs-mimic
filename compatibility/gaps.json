@@ -1299,7 +1299,7 @@
       ],
       "observed_at": "2026-10-31",
       "kind": "LOCAL_DEVIATION",
-      "observed_evidence": "A recorded Cloud Storage session (docs/en/evidence/response-wire-provider-observations.md) is matched for JSON entity tags. Still different or unrecorded: the XML ETag of composite and encrypted objects (the JSON tag is quoted locally), whether a recreated bucket repeats its tag (an inference from the encoding), and the XML form of validators other than MD5.",
+      "observed_evidence": "A recorded Cloud Storage session (docs/en/evidence/response-wire-provider-observations.md) is matched for JSON entity tags and for cache headers of metadata and list reads, media downloads, media 404 and 416, objects.insert (uploadType=media recorded; multipart follows the same method), JSON errors and XML lists, errors and private objects. Still different or unrecorded: the cache headers of patch, update, copy, compose, rewrite, move, restore, resumable, delete and bucket write responses, IAM policy reads, soft-deleted reads and the XML bucket list; the XML ETag of composite and encrypted objects (the JSON tag is quoted locally), whether a recreated bucket repeats its tag (an inference from the encoding), and the XML form of validators other than MD5.",
       "required_resolution": "Record the unrecorded responses with an opted-in real bucket before changing them."
     },
     {

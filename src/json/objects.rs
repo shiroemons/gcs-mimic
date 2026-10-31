@@ -842,7 +842,7 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
     let mut headers = HeaderMap::new();
     for (key, value) in [
         // The transport substitutes stored/default cache metadata only for an allUsers read grant.
-        ("cache-control", "no-cache".to_owned()),
+        ("cache-control", super::NO_STORE_CACHE_CONTROL.to_owned()),
         (
             "content-type",
             if object.content_type.is_empty() {

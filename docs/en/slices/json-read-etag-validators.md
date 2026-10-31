@@ -143,7 +143,7 @@ rejects standalone date/If-Range conditions while preserving that precedence.
 
 304 carries ETag, Cache-Control and Hyper's Date, with no content or trailers,
 Content-Type, Content-Length, Content-Encoding or Content-Range. Metadata uses
-`no-cache`; media preserves the same private/public Cache-Control as its normal
+`private, max-age=0, must-revalidate, no-transform` for objects and buckets (IAM policy reads keep `no-cache`; their value is unrecorded); media preserves the same private/public Cache-Control as its normal
 200 response, including stored public cache directives after an allUsers grant.
 Content-Location, Vary and Expires are absent on the corresponding normal
 responses and are not invented for 304. Exact exhaustive Google header parity

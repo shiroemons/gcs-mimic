@@ -7,8 +7,8 @@ mod upload;
 
 use super::RequestBody as Incoming;
 use super::{
-    BUCKET_BODY_LIMIT, ObjectCtx, ResponseBody, acl, boxed, empty_response, json_response,
-    resumable, retention_access, validate_bodyless_post,
+    BUCKET_BODY_LIMIT, JsonCache, ObjectCtx, ResponseBody, acl, boxed, empty_response,
+    json_response_cached, resumable, retention_access, validate_bodyless_post,
 };
 use crate::{
     auth,
@@ -57,6 +57,13 @@ pub(super) async fn respond(
         check_predefined_acl(request.uri(), ctx, bucket, &operation, &access).await?;
     }
     validate_request(request.headers(), &operation)?;
+    // Only recorded operations carry a cache header: lists are cacheable-but-revalidated
+    // resources and an object insert forbids every cache. Other writes were not recorded.
+    let cache = match &operation {
+        ObjectRequest::List(_) => JsonCache::Resource,
+        ObjectRequest::Insert { .. } | ObjectRequest::Multipart { .. } => JsonCache::NoStore,
+        _ => JsonCache::Unrecorded,
+    };
     let written = match operation {
         ObjectRequest::Restore {
             bucket,
@@ -141,7 +148,7 @@ pub(super) async fn respond(
         add_acl(ctx, &mut value, written.acl_snapshot).await?;
     }
     fields.apply(&mut value);
-    Ok(boxed(json_response(&value)))
+    Ok(boxed(json_response_cached(&value, cache)))
 }
 
 fn response_fields(uri: &Uri, operation: &ObjectRequest) -> Result<json::Fields, JsonError> {

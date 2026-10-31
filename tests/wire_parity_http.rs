@@ -183,3 +183,88 @@ fn json_etags_encode_generation_and_metageneration_like_cloud_storage() {
     relabeled.status(200);
     assert_eq!(relabeled.json()["etag"], expected_etag(None, 2));
 }
+
+const RESOURCE_CACHE: &str = "private, max-age=0, must-revalidate, no-transform";
+const NO_STORE: &str = "no-cache, no-store, max-age=0, must-revalidate";
+const PRIVATE: &str = "private, max-age=0";
+
+#[test]
+fn cache_headers_follow_each_recorded_response_kind() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    let missing = "/storage/v1/b/parity/o/missing.txt";
+    for (path, cache, pragma) in [
+        (OBJECT.to_owned(), RESOURCE_CACHE, None),
+        ("/storage/v1/b/parity/o".to_owned(), RESOURCE_CACHE, None),
+        ("/storage/v1/b/parity".to_owned(), RESOURCE_CACHE, None),
+        (
+            "/storage/v1/b?project=project-a".to_owned(),
+            RESOURCE_CACHE,
+            None,
+        ),
+        (missing.to_owned(), NO_STORE, Some("no-cache")),
+        (format!("{missing}?alt=media"), PRIVATE, None),
+        ("/parity/plain.txt".to_owned(), PRIVATE, None),
+        ("/parity".to_owned(), PRIVATE, None),
+        ("/parity/missing.txt".to_owned(), PRIVATE, None),
+    ] {
+        let reply = server.request("GET", &path, "", b"");
+        assert_eq!(header(&reply, "cache-control"), Some(cache), "{path}");
+        assert_eq!(header(&reply, "pragma"), pragma, "{path}");
+    }
+    // A media download forbids every cache; its Pragma is covered with the media headers.
+    for range in ["", "Range: bytes=0-4\r\n"] {
+        let media = server.request("GET", &format!("{OBJECT}?alt=media"), range, b"");
+        assert_eq!(header(&media, "cache-control"), Some(NO_STORE), "{range}");
+    }
+    // An unsatisfiable range is a plain error, not a JSON one.
+    let unsatisfiable = server.request(
+        "GET",
+        &format!("{OBJECT}?alt=media"),
+        "Range: bytes=100-200\r\n",
+        b"",
+    );
+    assert_eq!(unsatisfiable.status, 416);
+    assert_eq!(header(&unsatisfiable, "cache-control"), Some(PRIVATE));
+    assert_eq!(header(&unsatisfiable, "pragma"), None);
+    // Other media errors keep the JSON error headers.
+    let invalid = server.request("GET", &format!("{OBJECT}?alt=media&generation=x"), "", b"");
+    assert_eq!(invalid.status, 400);
+    assert_eq!(header(&invalid, "cache-control"), Some(NO_STORE));
+    assert_eq!(header(&invalid, "pragma"), Some("no-cache"));
+}
+
+#[test]
+fn object_inserts_and_json_write_errors_forbid_every_cache() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    let media = server.request(
+        "POST",
+        "/upload/storage/v1/b/parity/o?uploadType=media&name=again.txt",
+        "Content-Type: text/plain\r\n",
+        b"again\n",
+    );
+    media.status(200);
+    let multipart = server.request(
+        "POST",
+        "/upload/storage/v1/b/parity/o?uploadType=multipart",
+        "Content-Type: multipart/related; boundary=b\r\n",
+        b"--b\r\nContent-Type: application/json\r\n\r\n{\"name\":\"multi.txt\"}\r\n--b\r\nContent-Type: text/plain\r\n\r\nmulti\r\n--b--\r\n",
+    );
+    multipart.status(200);
+    for (kind, reply) in [("media", &media), ("multipart", &multipart)] {
+        assert_eq!(header(reply, "cache-control"), Some(NO_STORE), "{kind}");
+        assert_eq!(header(reply, "pragma"), Some("no-cache"), "{kind}");
+    }
+    let rejected = server.request(
+        "POST",
+        "/storage/v1/b?project=project-a",
+        JSON,
+        br#"{"name":"parity"}"#,
+    );
+    assert_eq!(rejected.status, 409);
+    assert_eq!(header(&rejected, "cache-control"), Some(NO_STORE));
+    assert_eq!(header(&rejected, "pragma"), Some("no-cache"));
+}

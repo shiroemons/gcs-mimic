@@ -265,7 +265,10 @@ fn obj_range_http_single_ranges_and_representation_headers() {
                 object["generation"].as_str().unwrap()
             );
             assert_eq!(reply.headers["accept-ranges"], "bytes");
-            assert_eq!(reply.headers["cache-control"], "no-cache");
+            assert_eq!(
+                reply.headers["cache-control"],
+                "no-cache, no-store, max-age=0, must-revalidate"
+            );
         }
     }
     assert_eq!(full.status, 200);

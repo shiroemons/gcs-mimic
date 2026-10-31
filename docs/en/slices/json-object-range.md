@@ -81,7 +81,7 @@ All values come from the same selected record as the opened blob.
 | `Accept-Ranges` | `bytes`, also on successful complete media responses | RFC advertisement; exact Google presence is unverified |
 | `Content-Type` | Stored type, or `application/octet-stream` | Existing media behavior; partial parity tested locally |
 | `Content-Disposition`, `Content-Language` | Stored values when present | Retained representation metadata; complete Google partial header set is unverified |
-| `Cache-Control` | `no-cache` | Existing JSON nonpublic-object rule; stored public cache metadata does not grant public access |
+| `Cache-Control` | `no-cache, no-store, max-age=0, must-revalidate` (recorded) | Existing JSON nonpublic-object rule; stored public cache metadata does not grant public access |
 | `ETag` | Existing quoted opaque local ETag for the selected generation/metageneration | JSON reference documents the field; exact provider encoding remains SPEC-012 |
 | `x-goog-generation`, `x-goog-metageneration` | Selected generation/metageneration in decimal | XML definitions, local wire assertions and pinned Go reader generation assertion; exhaustive JSON parity remains SPEC-012 |
 | `x-goog-hash` | Absent on a partial range; `crc32c=...` only when the range covers the whole object | [Observed on Cloud Storage](../evidence/media-read-provider-observations.md) on 2026-10-31 |

@@ -881,7 +881,7 @@ fn xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticat
             .get(ADMIN, &format!("{JSON_OBJECT}?alt=media"))
             .ok()
             .headers["cache-control"],
-        "no-cache"
+        "no-cache, no-store, max-age=0, must-revalidate"
     );
     grant(
         &server,
@@ -924,7 +924,7 @@ fn xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticat
             .get(ADMIN, &format!("{JSON_OBJECT}?alt=media"))
             .ok()
             .headers["cache-control"],
-        "no-cache"
+        "no-cache, no-store, max-age=0, must-revalidate"
     );
 }
 

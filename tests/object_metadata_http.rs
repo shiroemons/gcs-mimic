@@ -312,7 +312,10 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
         ("content-encoding", "br"),
         ("content-disposition", "attachment; filename=hello.txt"),
         ("content-language", "en"),
-        ("cache-control", "no-cache"),
+        (
+            "cache-control",
+            "no-cache, no-store, max-age=0, must-revalidate",
+        ),
         ("x-goog-stored-content-encoding", "br"),
     ] {
         assert_eq!(media.headers[key], value);

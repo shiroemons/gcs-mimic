@@ -297,9 +297,16 @@ impl Error {
             HeaderValue::from_static("application/xml; charset=UTF-8"),
         );
         headers.insert("content-length", content_length);
+        headers.insert(
+            "cache-control",
+            HeaderValue::from_static(PRIVATE_CACHE_CONTROL),
+        );
         response
     }
 }
+
+/// The `Cache-Control` Cloud Storage sends with XML API lists, errors and private objects.
+pub(crate) const PRIVATE_CACHE_CONTROL: &str = "private, max-age=0";
 
 impl From<JsonError> for Error {
     fn from(error: JsonError) -> Self {
@@ -878,7 +885,7 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
     let mut headers = json::object_media_headers(record)?;
     let cache = record.cache_control.as_deref().unwrap_or(match scope {
         CacheScope::Public => "public, max-age=3600",
-        CacheScope::Private => "private, max-age=0",
+        CacheScope::Private => PRIVATE_CACHE_CONTROL,
     });
     let etag = object_etag(record);
     let date = json::http_date(record.updated).map_err(|_| {

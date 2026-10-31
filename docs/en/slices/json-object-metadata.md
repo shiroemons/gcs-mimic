@@ -110,7 +110,7 @@ and q=0 refuses that coding. Invalid quality/duplicate gzip or wildcard tokens r
 no automatic compression/decompression is performed. Double-compression detection is
 outside the supported subset.
 
-JSON media always returns `Cache-Control: no-cache`, as required for nonpublic objects.
+JSON media returns the recorded `Cache-Control: no-cache, no-store, max-age=0, must-revalidate` for nonpublic objects (the common-header reference documents `no-cache`).
 Stored cache control is exposed in resource JSON and still determines the no-transform
 transcoding rule. Public ACL/IAM grants are unavailable, so every local object uses the
 nonpublic response. Public objects returning their stored cache directive remain for

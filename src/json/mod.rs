@@ -50,6 +50,7 @@ pub(crate) use buckets::{
 pub(crate) use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
 pub(crate) use derived_metadata::{DestinationLocation, derived_component_count, derived_metadata};
 pub use error::JsonError;
+pub(crate) use error::NO_STORE_CACHE_CONTROL;
 pub(crate) use fields::Fields;
 pub(crate) use iam::policy_etag;
 pub(crate) use iam::{parse_policy, policy_resource, test_permissions_query};

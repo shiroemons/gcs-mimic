@@ -527,7 +527,13 @@ async fn respond_json_object(
     if !media || result.is_err() {
         ctx.finish_object_request();
     }
-    result.unwrap_or_else(|error| boxed(error.into_response()))
+    result.unwrap_or_else(|error| {
+        boxed(if media {
+            error.into_media_response()
+        } else {
+            error.into_response()
+        })
+    })
 }
 
 async fn respond_project(

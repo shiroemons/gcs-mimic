@@ -13704,6 +13704,8 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"JSON-OBJECTS-005-PROVIDER-CACHE","description":"Recorded provider cache headers (docs/en/evidence/response-wire-provider-observations.md): object and bucket metadata, object lists and bucket lists send 'private, max-age=0, must-revalidate, no-transform' without Pragma; a media 200 or 206 sends 'no-cache, no-store, max-age=0, must-revalidate' (its Pragma is a separate media-header slice); a media 404 for a missing object and a media 416 send 'private, max-age=0' without Pragma; an objects.insert response (uploadType=media recorded, multipart by the same method) sends 'no-cache, no-store, max-age=0, must-revalidate' with 'Pragma: no-cache'. Public objects keep their stored or 'public, max-age=3600' value and user-specified Cache-Control is unchanged.","result":"PASS","test_ids":["wire_parity_http::cache_headers_follow_each_recorded_response_kind","wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache","json::object_tests::obj_render_002_media_headers_match_selected_generation_and_hashes"]},
+        {"id":"JSON-OBJECTS-005-PROVIDER-CACHE-UNRECORDED","description":"SPEC-RESPONSE-WIRE-REMAINING: cache headers of patch, update, copy, compose, rewrite, move, restore, resumable and delete responses, bucket writes, IAM policy reads, soft-deleted reads, resumable-session inserts and uploadType=multipart/resumable (only uploadType=media was recorded) were not observed and keep their previous behavior.","result":"PENDING","test_ids":[]},
         {
           "id": "JSON-OBJECTS-005-MEDIA",
           "description": "OBJ-MEDIA-001/016..026/031..032/037..043/049: resource strings/timestamps/hashes, exact whole-media bytes/headers, encoded links, read 304 versus 412, missing generation 404 and unsupported semantics rejection.",
@@ -14097,6 +14099,9 @@
       ],
       "test_ids": [
         "json_media_head_sends_get_headers_without_a_body",
+        "wire_parity_http::cache_headers_follow_each_recorded_response_kind",
+        "wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache",
+        "json::object_tests::obj_render_002_media_headers_match_selected_generation_and_hashes",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
         "obj_range_http_single_ranges_and_representation_headers",
         "obj_range_http_unsatisfiable_empty_and_ignored_ranges",
@@ -14193,6 +14198,7 @@
       ],
       "verification": [
         {"command":"cargo test --locked --test sdk_object_wire_http json_media_head","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/media-read-provider-observations.md","test_ids":["json_media_head_sends_get_headers_without_a_body"]},
+        {"command":"cargo test --locked -- --test-threads=4","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["wire_parity_http::cache_headers_follow_each_recorded_response_kind","wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache","json::object_tests::obj_render_002_media_headers_match_selected_generation_and_hashes"]},
         {
           "command": "just check",
           "result": "PASS",
@@ -23217,6 +23223,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
+        {"id":"BASIC-ERROR-PROVIDER-CACHE","description":"Recorded provider errors (docs/en/evidence/response-wire-provider-observations.md): every JSON API error body sends 'Cache-Control: no-cache, no-store, max-age=0, must-revalidate' and 'Pragma: no-cache'; XML error documents send 'Cache-Control: private, max-age=0'; a 304 stays bodyless without either. Media 404 and 416 are the documented exceptions in JSON-OBJECTS-005-PROVIDER-CACHE.","result":"PASS","test_ids":["wire_parity_http::cache_headers_follow_each_recorded_response_kind","wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache"]},
         {
           "id": "BASIC-ERROR-SHAPE",
           "description": "Wire JSON numeric code equals HTTP status; nonempty messages/errors entries have domain/reason/message; fields preserves whole errors, including strict denials. The encoded quote/backslash/Unicode request parses to a valid error, but its missing-object message is generic; the supplementary unit test verifies quote/newline message escaping. Count envelope structure only, excluding exact Content-Type, text, locations, auth/parser/hash reasons and error selection/precedence.",
@@ -23255,7 +23262,7 @@
           ]
         }
       ],
-      "test_ids": [
+      "test_ids": [ "wire_parity_http::cache_headers_follow_each_recorded_response_kind", "wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache",
         "basic_contract_json_errors_keep_complete_envelopes_with_fields_selection",
         "basic_contract_strict_denials_keep_complete_json_envelopes_with_fields_selection",
         "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate",
@@ -23269,6 +23276,7 @@
         "json::tests::bkt_err_001_envelope_content_type_and_catalog_mappings"
       ],
       "verification": [
+        {"command":"cargo test --locked -- --test-threads=4","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["wire_parity_http::cache_headers_follow_each_recorded_response_kind","wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache"]},
         {
           "command": "just check",
           "result": "PASS",
@@ -32773,10 +32781,11 @@
       "acceptance_cases": [
         {"id":"xml-bucket-component-decoding","description":"Decode path-style buckets once for encoded-hyphen XML list and related PUT/GET/copy operations; preserve raw namespace/signature bytes and reject double/malformed/slash/non-ASCII bucket encodings under SPEC-XML-BUCKET-ENCODING.","result":"PASS","test_ids":["xml_path_style_decodes_bucket_once_and_preserves_object_names"]},
         {"id":"xml-list-wire","description":"Verify pagination/markers/versions/encoding and empty pages, cursor scope, strict list denial/revocation, signed-version tampering and restart.","result":"PASS","test_ids":["xml-list-wire"]},
+        {"id":"xml-cache-provider-wire","description":"Recorded provider cache headers (docs/en/evidence/response-wire-provider-observations.md): object listings, error documents and private objects send 'Cache-Control: private, max-age=0' without Pragma. The bucket list and XML upload responses were not recorded and keep their previous headers.","result":"PASS","test_ids":["wire_parity_http::cache_headers_follow_each_recorded_response_kind","xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated"]},
         {"id":"xml-list-remaining","description":"Verify remaining owner/provider wire/error acceptance beyond the passing final native Arrow listing subset.","result":"PENDING","test_ids":["xml-list-remaining"]}
       ],
-      "test_ids": ["xml-list-wire", "xml-list-remaining", "xml_path_style_decodes_bucket_once_and_preserves_object_names"],
-      "verification": [
+      "test_ids": ["xml-list-wire", "xml-list-remaining", "xml_path_style_decodes_bucket_once_and_preserves_object_names", "wire_parity_http::cache_headers_follow_each_recorded_response_kind", "xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated"],
+      "verification": [ {"command":"cargo test --locked -- --test-threads=4","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["wire_parity_http::cache_headers_follow_each_recorded_response_kind","xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated"]},
         {"command":"cargo check --test xml_storage_http; cargo test --test xml_storage_http","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/xml-object-list.md","test_ids":["xml-list-wire"]},
         {"command":"cargo test --locked --offline --test xml_storage_http -- --test-threads=2","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/migration-integration.md","test_ids":["xml_path_style_decodes_bucket_once_and_preserves_object_names"]}
       ],

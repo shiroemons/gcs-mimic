@@ -420,7 +420,7 @@ fn pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates() {
                 .get(VIEWER, "/storage/v1/b/iam-bucket/o/object?alt=media")
                 .ok()
                 .headers["cache-control"],
-            "no-cache"
+            "no-cache, no-store, max-age=0, must-revalidate"
         );
         server
             .upload(CREATOR, "iam-bucket", "bearer", b"allowed")

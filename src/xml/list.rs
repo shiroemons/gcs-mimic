@@ -204,6 +204,10 @@ pub(crate) async fn respond(
         "content-type",
         HeaderValue::from_static("application/xml; charset=UTF-8"),
     );
+    response.headers_mut().insert(
+        "cache-control",
+        HeaderValue::from_static(super::PRIVATE_CACHE_CONTROL),
+    );
     Ok(boxed(response))
 }
 

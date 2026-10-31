@@ -4,6 +4,15 @@ use hyper::{Response, StatusCode, body::Bytes, header};
 use serde_json::{Value, json};
 use std::fmt;
 
+/// The `Cache-Control` Cloud Storage sends with JSON API errors and media downloads.
+pub(crate) const NO_STORE_CACHE_CONTROL: &str = "no-cache, no-store, max-age=0, must-revalidate";
+
+/// The `Cache-Control` of a media download that Cloud Storage answers with a plain error.
+const MEDIA_ERROR_CACHE_CONTROL: &str = "private, max-age=0";
+
+/// The catalog's missing-object message.
+const OBJECT_NOT_FOUND: &str = "Object not found";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JsonError {
     pub status: StatusCode,
@@ -120,6 +129,30 @@ impl JsonError {
         json!({"error": {"code": self.status.as_u16(), "message": self.message, "errors": [item]}})
     }
 
+    /// Whether this is the catalog's missing-object error.
+    pub(crate) fn is_missing_object(&self) -> bool {
+        self.status == StatusCode::NOT_FOUND
+            && self.reason == "notFound"
+            && self.message == OBJECT_NOT_FOUND
+    }
+
+    /// A media download's error. Cloud Storage answers a missing object and an unsatisfiable
+    /// range with `private, max-age=0` and no `Pragma`; other media errors keep the JSON error
+    /// headers because only these two were recorded.
+    pub(crate) fn into_media_response(self) -> Response<Full<Bytes>> {
+        let plain = self.is_missing_object() || self.status == StatusCode::RANGE_NOT_SATISFIABLE;
+        let mut response = self.into_response();
+        if plain {
+            let headers = response.headers_mut();
+            headers.insert(
+                header::CACHE_CONTROL,
+                header::HeaderValue::from_static(MEDIA_ERROR_CACHE_CONTROL),
+            );
+            headers.remove(header::PRAGMA);
+        }
+        response
+    }
+
     pub(crate) fn into_response(self) -> Response<Full<Bytes>> {
         if self.status == StatusCode::NOT_MODIFIED {
             let mut response = Response::new(Full::new(Bytes::new()));
@@ -128,10 +161,17 @@ impl JsonError {
         }
         let mut response = Response::new(Full::new(Bytes::from(self.value().to_string())));
         *response.status_mut() = self.status;
-        response.headers_mut().insert(
+        let headers = response.headers_mut();
+        headers.insert(
             header::CONTENT_TYPE,
             header::HeaderValue::from_static("application/json; charset=UTF-8"),
         );
+        // Recorded Cloud Storage JSON errors forbid every cache, HTTP/1.0 ones included.
+        headers.insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static(NO_STORE_CACHE_CONTROL),
+        );
+        headers.insert(header::PRAGMA, header::HeaderValue::from_static("no-cache"));
         if let Some(allow) = self.allow {
             response
                 .headers_mut()
@@ -271,7 +311,7 @@ impl From<ObjectError> for JsonError {
                 Self::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
             }
             ObjectError::ObjectNotFound => {
-                Self::new(StatusCode::NOT_FOUND, "notFound", "Object not found")
+                Self::new(StatusCode::NOT_FOUND, "notFound", OBJECT_NOT_FOUND)
             }
             ObjectError::ObjectNotSoftDeleted => Self::new(
                 StatusCode::PRECONDITION_FAILED,

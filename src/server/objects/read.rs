@@ -8,8 +8,8 @@ use crate::{
     json::{self, JsonError},
     object::{ObjectConditions, ObjectError},
     server::{
-        ObjectCtx, QueryPrecondition, ResponseBody, acl, boxed, gzip, insert_content_range,
-        insert_unsatisfied_content_range, not_modified_response, object_body,
+        JSON_RESOURCE_CACHE_CONTROL, ObjectCtx, QueryPrecondition, ResponseBody, acl, boxed, gzip,
+        insert_content_range, insert_unsatisfied_content_range, not_modified_response, object_body,
         read_etag_not_modified, read_metadata_response,
     },
 };
@@ -132,7 +132,7 @@ async fn media(
         Ok(range) => range,
         Err(error) => {
             let mut response = error
-                .into_response()
+                .into_media_response()
                 .map(|body| body.map_err(|never| match never {}).boxed_unsync());
             insert_unsatisfied_content_range(response.headers_mut(), record.size);
             return Ok(response);
@@ -331,5 +331,6 @@ async fn metadata(
         resource,
         fields,
         query,
+        JSON_RESOURCE_CACHE_CONTROL,
     )?))
 }

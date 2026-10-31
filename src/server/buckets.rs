@@ -3,8 +3,9 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    BUCKET_BODY_LIMIT, QueryPrecondition, State, acl, authorize_bucket, authorize_project,
-    empty_response, json_response, read_metadata_response, validate_bodyless_post,
+    BUCKET_BODY_LIMIT, JSON_RESOURCE_CACHE_CONTROL, JsonCache, QueryPrecondition, State, acl,
+    authorize_bucket, authorize_project, empty_response, json_response_cached,
+    read_metadata_response, validate_bodyless_post,
 };
 use crate::{
     auth::{self, Caller},
@@ -54,6 +55,12 @@ pub(super) async fn respond<'a>(
             operation,
             BucketRequest::GetSoftDeleted { .. } | BucketRequest::ListSoftDeleted(_)
         );
+    // Only the recorded bucket list carries a cache header; other bucket operations keep none.
+    let cache = if matches!(operation, BucketRequest::List(_)) {
+        JsonCache::Resource
+    } else {
+        JsonCache::Unrecorded
+    };
     let mut value = match operation {
         BucketRequest::LockRetentionPolicy {
             bucket,
@@ -109,7 +116,7 @@ pub(super) async fn respond<'a>(
         acl::add_full_projection(state, caller, &mut value, base_url).await?;
     }
     fields.apply(&mut value);
-    Ok(json_response(&value))
+    Ok(json_response_cached(&value, cache))
 }
 
 async fn authorize(
@@ -375,6 +382,7 @@ async fn get_iam(
         json::policy_resource(&policy, bucket),
         fields,
         QueryPrecondition::Unmatched,
+        super::IAM_POLICY_CACHE_CONTROL,
     )
 }
 
@@ -507,6 +515,7 @@ async fn get(
         resource,
         fields,
         query,
+        JSON_RESOURCE_CACHE_CONTROL,
     )
 }
 

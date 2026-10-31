@@ -3,7 +3,19 @@ use super::*;
 const OBJECT: &str = "/storage/v1/b/range-bucket/o/data";
 const BUCKET: &str = "/storage/v1/b/range-bucket";
 
+/// Selects the private default `Cache-Control` of the read: media downloads forbid storage,
+/// bucket and object metadata resources only require revalidation. IAM policy reads pass their
+/// own value because the provider's was not recorded.
+const CACHE_BY_PATH: &str = "<private default for the path>";
+
 fn not_modified(server: &Server, path: &str, headers: &str, etag: &str, cache: &str) {
+    let cache = match cache {
+        CACHE_BY_PATH if path.contains("alt=media") => {
+            "no-cache, no-store, max-age=0, must-revalidate"
+        }
+        CACHE_BY_PATH => "private, max-age=0, must-revalidate, no-transform",
+        cache => cache,
+    };
     // Closing after the 304 lets the EOF check prove that no content followed it.
     let mut stream = server.open("GET", path, &format!("{headers}Connection: close\r\n"), b"");
     let reply = Reply::headers(&mut stream);
@@ -62,7 +74,7 @@ fn json_etag_read_object_metadata_media_and_range() {
             format!("If-None-Match: \"other\"\r\nIf-None-Match: {etag}\r\n"),
             format!("If-Match: {etag}\r\nIf-None-Match: {etag}\r\n"),
         ] {
-            not_modified(&server, &path, &header, etag, "no-cache");
+            not_modified(&server, &path, &header, etag, CACHE_BY_PATH);
         }
         for header in [
             "If-Match: \"other\"\r\n".to_owned(),
@@ -82,7 +94,7 @@ fn json_etag_read_object_metadata_media_and_range() {
                 &path,
                 &format!("Range: {range}\r\nIf-None-Match: {etag}\r\n"),
                 etag,
-                "no-cache",
+                CACHE_BY_PATH,
             );
             server
                 .request(
@@ -189,7 +201,7 @@ fn json_etag_read_buckets_and_metadata_changes_in_both_profiles() {
             BUCKET,
             &format!("If-None-Match: W/{etag}\r\n"),
             etag,
-            "no-cache",
+            CACHE_BY_PATH,
         );
         assert_eq!(
             server
@@ -231,7 +243,7 @@ fn json_etag_read_buckets_and_metadata_changes_in_both_profiles() {
             &format!("{BUCKET}?fields=name"),
             &format!("If-None-Match: {etag}\r\n"),
             etag,
-            "no-cache",
+            CACHE_BY_PATH,
         );
         assert_eq!(
             server
@@ -272,7 +284,7 @@ fn json_etag_read_selected_generation_zero_byte_and_public_cache() {
             &selected,
             &format!("If-None-Match: {etag}\r\n"),
             etag,
-            "no-cache",
+            CACHE_BY_PATH,
         );
         server
             .request(
@@ -292,7 +304,7 @@ fn json_etag_read_selected_generation_zero_byte_and_public_cache() {
         &format!("{OBJECT}?alt=media"),
         &format!("If-None-Match: {empty_etag}\r\nRange: bytes=0-1\r\n"),
         empty_etag,
-        "no-cache",
+        CACHE_BY_PATH,
     );
     assert_eq!(
         server
@@ -499,7 +511,7 @@ fn json_etag_read_combined_query_conditions_use_one_selected_record() {
                 }
                 let failing_path = format!("{path}&{key}={failing}");
                 if key.ends_with("NotMatch") && expected != 412 {
-                    not_modified(&server, &failing_path, &headers, &etag, "no-cache");
+                    not_modified(&server, &failing_path, &headers, &etag, CACHE_BY_PATH);
                 } else {
                     server
                         .request("GET", &failing_path, &headers, b"")
@@ -654,7 +666,7 @@ fn json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior() {
             &path,
             &format!("If-None-Match: {selected}\r\n{modified}"),
             selected,
-            "no-cache",
+            CACHE_BY_PATH,
         );
         let unmatched = server.request(
             "GET",

@@ -1089,18 +1089,25 @@ enum QueryPrecondition {
     Unmatched,
 }
 
+/// The `Cache-Control` Cloud Storage sends with JSON API resources and lists.
+const JSON_RESOURCE_CACHE_CONTROL: &str = "private, max-age=0, must-revalidate, no-transform";
+
+/// The `Cache-Control` of IAM policy reads, whose provider value has not been recorded.
+const IAM_POLICY_CACHE_CONTROL: &str = "no-cache";
+
 fn read_metadata_response(
     headers: &hyper::HeaderMap,
     etag: &str,
     mut value: serde_json::Value,
     fields: &json::Fields,
     query: QueryPrecondition,
+    cache_control: &'static str,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let not_modified =
         read_etag_not_modified(headers, etag)? || query == QueryPrecondition::NotModified;
-    let no_cache = hyper::header::HeaderValue::from_static("no-cache");
-    // ETags are rendered locally from quoted ASCII digits and base64, so the conversion always
-    // succeeds; omitting the validator is safer than panicking if that ever changes.
+    // ETags are rendered locally from base64 (JSON) or a quoted policy revision, so the
+    // conversion always succeeds; omitting the validator is safer than panicking if that ever
+    // changes.
     let etag = hyper::header::HeaderValue::from_str(etag).ok();
     let mut response = if not_modified {
         empty_response(StatusCode::NOT_MODIFIED)
@@ -1112,8 +1119,48 @@ fn read_metadata_response(
     if let Some(etag) = etag {
         response_headers.insert("etag", etag);
     }
-    response_headers.insert("cache-control", no_cache);
+    response_headers.insert(
+        "cache-control",
+        hyper::header::HeaderValue::from_static(cache_control),
+    );
     Ok(response)
+}
+
+/// The cache headers of a `200 OK` JSON API resource response.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum JsonCache {
+    /// Not recorded for this operation, so no cache header is sent.
+    Unrecorded,
+    /// Reads of object and bucket metadata and lists.
+    Resource,
+    /// Cloud Storage forbids every cache, HTTP/1.0 ones included, for recorded object inserts.
+    NoStore,
+}
+
+/// A `200 OK` JSON API resource with the cache headers its operation records.
+fn json_response_cached(value: &serde_json::Value, cache: JsonCache) -> Response<Full<Bytes>> {
+    let mut response = json_response(value);
+    let headers = response.headers_mut();
+    match cache {
+        JsonCache::Unrecorded => {}
+        JsonCache::Resource => {
+            headers.insert(
+                "cache-control",
+                hyper::header::HeaderValue::from_static(JSON_RESOURCE_CACHE_CONTROL),
+            );
+        }
+        JsonCache::NoStore => {
+            headers.insert(
+                "cache-control",
+                hyper::header::HeaderValue::from_static(json::NO_STORE_CACHE_CONTROL),
+            );
+            headers.insert(
+                "pragma",
+                hyper::header::HeaderValue::from_static("no-cache"),
+            );
+        }
+    }
+    response
 }
 
 fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {

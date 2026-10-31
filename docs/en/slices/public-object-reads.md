@@ -44,7 +44,7 @@ and tagged source URLs are recorded in [Sources](../sources.md#public-object-rea
 | [Make data public](https://docs.cloud.google.com/storage/docs/access-control/making-data-public) | Bucket `allUsers` object-reader bindings; Object Viewer also grants listing |
 | [Public access prevention](https://docs.cloud.google.com/storage/docs/public-access-prevention) | PAP overrides both public principal sets; signed URLs are a separate authorization mechanism |
 | [Object metadata](https://docs.cloud.google.com/storage/docs/metadata#cache-control) | Stored cache directives, public caching/revocation consequences and XML ETag qualifications |
-| [JSON headers](https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol) | Public classification requires `allUsers`; private JSON reads always use `no-cache` |
+| [JSON headers](https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol) | Public classification requires `allUsers`; private JSON media reads use the recorded `no-cache, no-store, max-age=0, must-revalidate` |
 | [Go HTTP reader, storage/v1.70.0](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go) and [reader helpers](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/reader.go) | Exact SDK request construction and response parsing |
 | [fake-gcs-server routes, v1.56.1](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/server.go) and [object handler](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/object.go) | Source-only comparison; never authority for Google behavior |
 
@@ -256,7 +256,7 @@ of whether this request supplied a valid identity or uses permissive mode.
 | --- | --- | --- |
 | JSON/XML, publicly readable | Present | Stored value |
 | JSON/XML, publicly readable | Absent | `public, max-age=3600` |
-| JSON, private or `allAuthenticatedUsers` only | Any | `no-cache`, per JSON-specific reference |
+| JSON, private or `allAuthenticatedUsers` only | Any | `no-cache, no-store, max-age=0, must-revalidate` (recorded; the JSON-specific reference documents `no-cache`) |
 | XML, private or `allAuthenticatedUsers` only | Present | Stored value, per XML-specific reference |
 | XML, private or `allAuthenticatedUsers` only | Absent | Local `private, max-age=0` fallback, consistent with the HEAD example |
 
@@ -331,7 +331,7 @@ evidence. Do not infer passing cases from this table.
 | DESIGN-004 | DESIGN-004-EXISTENCE | Authorized missing bucket/object gets distinct 404 codes; unauthorized existing/missing resources receive the denial without existence disclosure |
 | DESIGN-012 | DESIGN-012-ALLUSERS | A bucket binding granting `storage.objects.get` permits anonymous XML GET/HEAD and JSON metadata/media reads; unrelated permissions remain denied |
 | DESIGN-012 | DESIGN-012-REVOKE | Remove the public grant, deny all subsequent anonymous reads, preserve independent project/bucket grants; restart preserves the final policy |
-| DESIGN-012 | DESIGN-012-CACHE | Public default and stored overrides work for full/range/HEAD; private JSON always uses no-cache; private XML stored directives remain effective |
+| DESIGN-012 | DESIGN-012-CACHE | Public default and stored overrides work for full/range/HEAD; private JSON media always uses the recorded no-store value; private XML stored directives remain effective |
 | DESIGN-013 | DESIGN-013-AUTHENTICATED | `allAuthenticatedUsers` accepts a registered identity with no project grant and denies anonymous and unregistered callers |
 | DESIGN-013 | DESIGN-013-UNION | Named, public and project grants are additive; another bucket and a recreated bucket do not inherit revoked/deleted grants |
 | DESIGN-047 | DESIGN-047-ENCODING | Raw/encoded slashes, `%252F`, Unicode, plus, spaces, escaped question/hash and dot/empty segments select the exact intended object |
