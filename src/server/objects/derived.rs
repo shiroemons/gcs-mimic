@@ -1,6 +1,7 @@
 //! JSON API objects derived from stored objects: copy and compose.
 
 use super::{Written, idempotency_token};
+use crate::server::RequestBody as Incoming;
 use crate::{
     auth,
     bucket::BucketAccess,
@@ -13,7 +14,7 @@ use crate::{
     },
     storage::{CopyReplay, CopyReplaySource, DerivedDestination, ReplayInvocation},
 };
-use hyper::{HeaderMap, Request, body::Incoming};
+use hyper::{HeaderMap, Request};
 
 /// Rejects headers that do not apply to a derived write.
 fn reject_headers(headers: &HeaderMap, names: &[&str]) -> Result<(), JsonError> {
@@ -69,6 +70,8 @@ pub(super) async fn copy(
             &access,
             CopyReplaySource {
                 bucket: &params.source_bucket,
+                name: &params.source_name,
+                generation: params.source_generation,
                 access: &source_access,
             },
             ReplayInvocation {
@@ -101,7 +104,7 @@ pub(super) async fn copy(
     Ok(Written {
         value: json::object_resource_keyed(
             &record,
-            &ctx.state.api_base_url,
+            &ctx.endpoints.api_base_url,
             projection,
             destination_key,
         )?,
@@ -244,7 +247,7 @@ pub(super) async fn compose(
         .await?;
     json::object_resource_keyed(
         &record,
-        &ctx.state.api_base_url,
+        &ctx.endpoints.api_base_url,
         json::Projection::NoAcl,
         key,
     )

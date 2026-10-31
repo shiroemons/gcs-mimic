@@ -3,6 +3,7 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
     hashing::{Hasher, Hashes},
+    notification::NotificationMode,
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
         UploadChunk,
@@ -38,7 +39,7 @@ macro_rules! object_columns {
     content_encoding, content_disposition, content_language, cache_control, metadata,
     time_deleted, event_based_hold, component_count, temporary_hold, custom_time,
     time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket), soft_delete_time, hard_delete_time,
-    retention_mode, retain_until_time, customer_key_sha256"
+    retention_mode, retain_until_time, customer_key_sha256, md5_available, owner"
     };
 }
 const SELECT_LIVE_OBJECT: &str = concat!(
@@ -90,6 +91,16 @@ pub(super) struct NewVersion<'a> {
     pub(super) assignment: GenerationAssignment,
     pub(super) micros: i64,
     pub(super) origin: super::admin::Origin,
+    pub(super) notification_mode: NotificationMode,
+    pub(super) owner_profile: Option<&'a super::principals::Profile>,
+    pub(super) acl: super::acl::PublicationAcl<'a>,
+}
+
+pub(super) struct PublicationDefaults {
+    pub(super) storage_class: String,
+    pub(super) event_based_hold: bool,
+    pub(super) time: std::time::SystemTime,
+    pub(super) owner: Option<crate::object::owner::ObjectOwner>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -429,7 +440,7 @@ fn remove_unretained_staging(connection: &Connection, data_dir: &Path) -> Result
         if os_metadata(&entry) {
             continue;
         }
-        let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1)", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
+        let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1) OR EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id = ?1)", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
         if retained {
             continue;
         }
@@ -552,29 +563,72 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
 
 /// An open immutable generation. Unlinking its directory entry cannot change its bytes.
 pub struct ObjectReader {
-    file: tokio::fs::File,
+    file: ReaderData,
     remaining: u64,
     /// Selected with the object and authorization, so a concurrent policy change cannot mix headers.
     pub(crate) publicly_readable: bool,
 }
 
+enum ReaderData {
+    Disk(tokio::fs::File),
+    Memory(super::super::memory::Reader),
+}
+
+#[cfg(test)]
+impl ReaderData {
+    async fn stream_position(&mut self) -> io::Result<u64> {
+        match self {
+            Self::Disk(file) => file.stream_position().await,
+            Self::Memory(reader) => io::Seek::stream_position(reader),
+        }
+    }
+}
+
 impl ObjectReader {
+    pub(super) fn bounded_memory(reader: super::super::memory::Reader, remaining: u64) -> Self {
+        Self {
+            file: ReaderData::Memory(reader),
+            remaining,
+            publicly_readable: false,
+        }
+    }
+
     /// Appendable generations grow in place, so reads stop at the persisted size.
     pub(super) fn bounded(file: tokio::fs::File, remaining: u64) -> Self {
         Self {
-            file,
+            file: ReaderData::Disk(file),
             remaining,
             publicly_readable: false,
         }
     }
 
     /// Transfers the already-opened immutable generation; no storage path is exposed.
-    pub async fn into_file(self) -> File {
-        self.file.into_std().await
+    pub async fn into_file(self) -> io::Result<File> {
+        match self.file {
+            ReaderData::Disk(file) => Ok(file.into_std().await),
+            ReaderData::Memory(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "RAM objects have no filesystem descriptor",
+            )),
+        }
+    }
+
+    pub(crate) async fn into_reader(self) -> Box<dyn io::Read + Send> {
+        match self.file {
+            ReaderData::Disk(file) => Box::new(file.into_std().await),
+            ReaderData::Memory(reader) => Box::new(reader),
+        }
     }
 
     pub(crate) async fn set_range(&mut self, offset: u64, length: u64) -> io::Result<()> {
-        self.file.seek(io::SeekFrom::Start(offset)).await?;
+        match &mut self.file {
+            ReaderData::Disk(file) => {
+                file.seek(io::SeekFrom::Start(offset)).await?;
+            }
+            ReaderData::Memory(reader) => {
+                io::Seek::seek(reader, io::SeekFrom::Start(offset))?;
+            }
+        }
         self.remaining = length;
         Ok(())
     }
@@ -584,10 +638,20 @@ impl ObjectReader {
             return Ok(None);
         }
         let limit = self.remaining.min(CHUNK_SIZE as u64);
+        if let ReaderData::Memory(reader) = &mut self.file {
+            let bytes = reader
+                .next_chunk(limit as usize)
+                .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))?;
+            self.remaining -= bytes.len() as u64;
+            return Ok(Some(bytes));
+        }
         // Reading into spare capacity skips zero-filling a buffer the read overwrites;
         // `take` keeps the read within the persisted size even if capacity is larger.
         let mut buffer = BytesMut::with_capacity(limit as usize);
-        let length = (&mut self.file).take(limit).read_buf(&mut buffer).await?;
+        let ReaderData::Disk(file) = &mut self.file else {
+            return Err(io::Error::other("invalid object reader backend"));
+        };
+        let length = file.take(limit).read_buf(&mut buffer).await?;
         if length == 0 {
             return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
         }
@@ -597,7 +661,10 @@ impl ObjectReader {
 }
 
 /// Creates the staging file for a new blob, refusing an ID whose final path already exists.
-async fn create_upload_stage(stage: PathBuf, published: PathBuf) -> Result<File, ObjectError> {
+pub(super) async fn create_upload_stage(
+    stage: PathBuf,
+    published: PathBuf,
+) -> Result<File, ObjectError> {
     tokio::task::spawn_blocking(move || -> io::Result<File> {
         if published.try_exists()? {
             return Err(io::Error::new(
@@ -625,18 +692,27 @@ struct UploadedBody {
 
 /// Everything a single-request upload commits once its blob is durable.
 struct UploadCommit {
+    backend: crate::config::Backend,
     bucket: String,
     name: String,
     content_type: String,
     metadata: ObjectMetadataUpdate,
     conditions: ObjectConditions,
     access: BucketAccess,
+    principals: Option<super::principals::Profile>,
     mode: super::admin::PublishMode,
     identity: Option<super::admin::ImportedIdentity>,
+    owner: OwnerAssignment,
     replay: Option<super::upload_replay::UploadReplay>,
     clock: Arc<dyn Clock>,
     blob_id: String,
     body: UploadedBody,
+}
+
+pub(super) enum OwnerAssignment {
+    Request,
+    Preserve(Option<crate::object::owner::ObjectOwner>),
+    Unknown,
 }
 
 impl UploadCommit {
@@ -651,6 +727,49 @@ impl UploadCommit {
             self.body.size,
             self.body.sha256,
         ))
+    }
+
+    fn record(
+        &self,
+        generation: i64,
+        defaults: PublicationDefaults,
+    ) -> Result<ObjectRecord, ObjectError> {
+        let mut record = ObjectRecord {
+            bucket: self.bucket.clone(),
+            name: self.name.clone(),
+            generation,
+            metageneration: 1,
+            owner: defaults.owner,
+            content_type: self.content_type.clone(),
+            size: self.body.size,
+            md5: self.body.md5,
+            md5_availability: Default::default(),
+            crc32c: self.body.crc32c,
+            component_count: None,
+            storage_class: defaults.storage_class,
+            content_encoding: None,
+            content_disposition: None,
+            content_language: None,
+            cache_control: None,
+            metadata: Default::default(),
+            time_created: defaults.time,
+            updated: defaults.time,
+            time_deleted: None,
+            soft_delete_time: None,
+            hard_delete_time: None,
+            event_based_hold: defaults.event_based_hold,
+            temporary_hold: false,
+            custom_time: None,
+            retention_expiration_time: None,
+            retention: None,
+            customer_key_sha256: None,
+        };
+        self.metadata.clone().apply(&mut record)?;
+        if let Some(identity) = self.identity {
+            record.time_created = identity.time_created();
+            record.updated = identity.updated();
+        }
+        Ok(record)
     }
 
     /// Publishes the upload in one immediate transaction, or returns the replayed or
@@ -707,6 +826,20 @@ impl UploadCommit {
         }
         let micros = unix_micros(now).map_err(object_unavailable)?;
         let time = system_time_micros(micros).map_err(object_unavailable)?;
+        let defaults = PublicationDefaults {
+            storage_class,
+            event_based_hold: default_hold,
+            time,
+            owner: match &self.owner {
+                OwnerAssignment::Request => Some(super::object_owner::for_publication(
+                    &transaction,
+                    &self.bucket,
+                    &self.access,
+                )?),
+                OwnerAssignment::Preserve(owner) => owner.clone(),
+                OwnerAssignment::Unknown => None,
+            },
+        };
         let (record, _retired, ()) = publish_in_transaction(
             &transaction,
             previous.as_ref(),
@@ -715,54 +848,23 @@ impl UploadCommit {
                 blob_id: &self.blob_id,
                 assignment: self
                     .identity
+                    .and_then(|value| value.generation())
                     .map_or(GenerationAssignment::Automatic, |value| {
-                        GenerationAssignment::Imported(value.generation())
+                        GenerationAssignment::Imported(value)
                     }),
                 micros,
                 origin: super::change_journal::origin(&self.access),
+                notification_mode: NotificationMode::for_access(&self.access),
+                owner_profile: self.principals.as_ref(),
+                acl: super::acl::PublicationAcl::InheritDefault,
             },
             |generation| {
-                let mut record = ObjectRecord {
-                    bucket: self.bucket.clone(),
-                    name: self.name.clone(),
-                    generation,
-                    metageneration: 1,
-                    content_type: self.content_type.clone(),
-                    size: body.size,
-                    md5: body.md5,
-                    crc32c: body.crc32c,
-                    component_count: None,
-                    storage_class,
-                    content_encoding: None,
-                    content_disposition: None,
-                    content_language: None,
-                    cache_control: None,
-                    metadata: Default::default(),
-                    time_created: time,
-                    updated: time,
-                    time_deleted: None,
-                    soft_delete_time: None,
-                    hard_delete_time: None,
-                    event_based_hold: default_hold,
-                    temporary_hold: false,
-                    custom_time: None,
-                    retention_expiration_time: None,
-                    retention: None,
-                    customer_key_sha256: None,
-                };
-                self.metadata.clone().apply(&mut record)?;
+                let mut record = self.record(generation, defaults)?;
                 inherit_metadata(self.mode, previous.as_ref(), &mut record);
-                if let Some(identity) = self.identity {
-                    record.time_created = identity.time_created();
-                    record.updated = identity.updated();
-                }
                 Ok((record, ()))
             },
         )?;
-        // Only a reserved generation can match an appendable row.
-        if self.identity.is_some() {
-            super::appendable::retire_published(&transaction, &record)?;
-        }
+        self.finish_metadata(&transaction, &record)?;
         if let Some(replay) = &self.replay {
             replay.store(
                 &transaction,
@@ -770,10 +872,29 @@ impl UploadCommit {
                 &fingerprint,
                 &record,
                 &self.access,
+                None,
             )?;
         }
         commit_publication(transaction)?;
         Ok(record)
+    }
+
+    fn finish_metadata(
+        &self,
+        transaction: &Transaction<'_>,
+        record: &ObjectRecord,
+    ) -> Result<(), ObjectError> {
+        super::admin::apply_acl(
+            transaction,
+            self.metadata.acl.as_deref(),
+            &self.access,
+            record,
+        )?;
+        // Only a reserved generation can match an appendable row.
+        if self.identity.is_some() {
+            super::appendable::retire_published(transaction, record, self.backend)?;
+        }
+        Ok(())
     }
 }
 
@@ -839,11 +960,12 @@ impl Catalog {
         execution: OwnedSemaphorePermit,
         operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
     ) -> Result<T, ObjectError> {
+        let activity = self.activity().map_err(object_unavailable)?;
         let inner = self.0.clone();
         self.0
             .executor
             .run(move || {
-                let _execution = execution;
+                let (_execution, _activity) = (execution, activity);
                 match inner.with_connection(operation) {
                     Ok(result) => result,
                     Err(super::ConnectionUnavailable::Closed) => {
@@ -945,6 +1067,7 @@ impl Catalog {
     }
 
     pub(crate) fn admit_object_upload(&self) -> Result<UploadGuard, ObjectError> {
+        let activity = self.activity().map_err(object_unavailable)?;
         let mut uploads = self.0.uploads.lock().map_err(object_unavailable)?;
         if uploads.closed || !self.is_healthy() {
             return Err(object_unavailable("catalog is closed"));
@@ -954,6 +1077,7 @@ impl Catalog {
             catalog: Some(self.clone()),
             _admin: None,
             replay: None,
+            _activity: activity,
         })
     }
 
@@ -969,6 +1093,7 @@ impl Catalog {
             permit,
             super::admin::PublishMode::Replace,
             None,
+            OwnerAssignment::Request,
         )
         .await
     }
@@ -980,6 +1105,7 @@ impl Catalog {
         mut permit: UploadGuard,
         mode: super::admin::PublishMode,
         identity: Option<super::admin::ImportedIdentity>,
+        owner: OwnerAssignment,
     ) -> Result<ObjectRecord, ObjectError> {
         let ObjectUpload {
             bucket,
@@ -1006,30 +1132,44 @@ impl Catalog {
             let id = blob.to_hex();
             let stage = blob.staging_path(&catalog.0.data_dir);
             let published = blob.blob_path(&catalog.0.data_dir);
-            let file = create_upload_stage(stage.clone(), published.clone()).await?;
+            let mut file = if let Some(memory) = &catalog.0.memory {
+                UploadSink::Memory(memory.stage().map_err(object_unavailable)?)
+            } else {
+                UploadSink::Disk(tokio::fs::File::from_std(
+                    create_upload_stage(stage.clone(), published.clone()).await?,
+                ))
+            };
             let result = async {
-                let (size, md5, crc32c, sha256) = write_body(
-                    tokio::fs::File::from_std(file),
-                    expected,
-                    max_bytes,
-                    body,
-                    cancellation,
-                    #[cfg(test)]
-                    &catalog.0.data_dir,
-                )
-                .await?;
-                catalog
-                    .publish_staged(stage.clone(), published.clone())
-                    .await?;
+                let (size, md5, crc32c, sha256) =
+                    write_stream(&mut file, expected, max_bytes, body, cancellation, &catalog)
+                        .await?;
+                match file {
+                    UploadSink::Memory(memory) => {
+                        memory.publish(id.clone()).map_err(object_unavailable)?
+                    }
+                    UploadSink::Disk(file) => {
+                        drop(file);
+                        catalog
+                            .publish_staged(stage.clone(), published.clone())
+                            .await?;
+                    }
+                }
                 let commit = UploadCommit {
+                    backend: if catalog.0.memory.is_some() {
+                        crate::config::Backend::Memory
+                    } else {
+                        crate::config::Backend::Disk
+                    },
                     bucket,
                     name,
                     content_type,
                     metadata,
                     conditions,
                     access,
+                    principals: catalog.0.principals.get().cloned(),
                     mode,
                     identity,
+                    owner,
                     replay,
                     clock: catalog.0.clock.clone(),
                     blob_id: id.clone(),
@@ -1071,15 +1211,22 @@ impl Catalog {
         id: String,
     ) -> Result<(), ObjectError> {
         let data_dir = self.0.data_dir.clone();
+        let memory = self.0.memory.clone();
         // Probe the committed reference before cleanup: SQL commit errors can be ambiguous.
         self.run_upload(move |connection| {
-            unlink(&stage).map_err(object_unavailable)?;
+            if memory.is_none() {
+                unlink(&stage).map_err(object_unavailable)?;
+            }
             let referenced: bool = connection
                 .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
                 .and_then(|mut statement| statement.query_row([&id], |r| r.get(0)))
                 .map_err(object_unavailable)?;
             if !referenced {
-                reclaim(connection, &data_dir, &id)?;
+                if let Some(memory) = &memory {
+                    memory.remove(&id).map_err(object_unavailable)?;
+                } else {
+                    reclaim(connection, &data_dir, &id)?;
+                }
             }
             Ok(())
         })
@@ -1127,6 +1274,26 @@ impl Catalog {
                 &access,
             )
             .map(|(record, _)| record)
+        })
+        .await
+    }
+
+    pub(crate) async fn authorize_object_snapshot(
+        &self,
+        record: &ObjectRecord,
+        access: &BucketAccess,
+    ) -> Result<(), ObjectError> {
+        let record = record.clone();
+        let access = access.clone();
+        self.run_object(move |connection| {
+            let transaction = connection.transaction().map_err(object_unavailable)?;
+            authorize_generation(
+                &transaction,
+                &record.bucket,
+                &record.name,
+                record.generation,
+                &access,
+            )
         })
         .await
     }
@@ -1206,6 +1373,7 @@ impl Catalog {
         let name = name.to_owned();
         let clock = self.0.clock.clone();
         let access = access.clone();
+        let principals = self.0.principals.get().cloned();
         self.run_object(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1230,10 +1398,12 @@ impl Catalog {
                     },
                     entries,
                     &access,
+                    principals.as_ref(),
                 ).map_err(|error| match error {
                     CatalogError::Forbidden => ObjectError::Forbidden,
                     CatalogError::PublicAccessPrevention => ObjectError::PublicAccessPrevention,
                     CatalogError::InvalidMetadata(reason) => ObjectError::InvalidFixedMetadata(reason),
+                    CatalogError::UnsupportedMetadata(reason) => ObjectError::UnsupportedMetadata(reason),
                     error => object_unavailable(error),
                 })?;
             }
@@ -1351,7 +1521,7 @@ impl Catalog {
 /// Shared selection preserves protocol conditions and access.
 pub(super) fn open_selected(
     connection: &mut Connection,
-    data_dir: &Path,
+    catalog: &Catalog,
     bucket: &str,
     name: &str,
     generation: Option<i64>,
@@ -1369,7 +1539,12 @@ pub(super) fn open_selected(
         access,
     )?;
     // Open under the same execution permit that serializes deletes and overwrites.
-    let file = File::open(blob_path(data_dir, &id)?).map_err(object_unavailable)?;
+    let file = match catalog.0.memory.as_deref() {
+        Some(memory) => ReaderData::Memory(memory.open(&id).map_err(object_unavailable)?),
+        None => ReaderData::Disk(tokio::fs::File::from_std(
+            File::open(blob_path(&catalog.0.data_dir, &id)?).map_err(object_unavailable)?,
+        )),
+    };
     let remaining = record.size;
     let publicly_readable = super::policies::read_policy(&transaction, bucket)
         .map_err(object_unavailable)?
@@ -1378,11 +1553,23 @@ pub(super) fn open_selected(
             crate::auth::OBJECTS_GET,
             super::policies::policy_public_access(&transaction, bucket)
                 .map_err(object_unavailable)?,
-        );
+        )
+        || super::acl::object_granted(
+            &transaction,
+            bucket,
+            name,
+            record.generation,
+            &BucketAccess::Policy {
+                identity: None,
+                permission: crate::auth::Permission::ObjectsGet,
+                project: None,
+            },
+        )
+        .map_err(object_unavailable)?;
     Ok((
         record,
         ObjectReader {
-            file: tokio::fs::File::from_std(file),
+            file,
             remaining,
             publicly_readable,
         },
@@ -1449,25 +1636,53 @@ pub(super) fn delete_selected(
         Some(&(record, id)),
         retirement,
         unix_micros(clock.now()).map_err(object_unavailable)?,
+        super::change_journal::origin(access),
+        None,
+        NotificationMode::for_access(access),
     )?;
     transaction.commit().map_err(object_unavailable)?;
     Ok(())
 }
 
-async fn write_body(
-    mut file: tokio::fs::File,
+pub(super) enum UploadSink {
+    Disk(tokio::fs::File),
+    Memory(super::super::memory::Stage),
+}
+
+pub(super) async fn write_body(
+    file: &mut UploadSink,
+    expected: ExpectedHashes,
+    max_bytes: u64,
+    body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
+    cancellation: oneshot::Receiver<()>,
+    catalog: &Catalog,
+) -> Result<(u64, [u8; 16], u32, [u8; 32]), ObjectError> {
+    write_stream(file, expected, max_bytes, body, cancellation, catalog).await
+}
+
+async fn write_stream(
+    file: &mut UploadSink,
     mut expected: ExpectedHashes,
     max_bytes: u64,
     mut body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     mut cancellation: oneshot::Receiver<()>,
-    #[cfg(test)] data_dir: &Path,
+    catalog: &Catalog,
 ) -> Result<(u64, [u8; 16], u32, [u8; 32]), ObjectError> {
     let mut size = 0_u64;
     let mut hasher = Hasher::default();
     let mut sha256 = ring::digest::Context::new(&ring::digest::SHA256);
+    let closing = catalog.0.admin_shutdown.notified();
+    tokio::pin!(closing);
+    closing.as_mut().enable();
+    #[cfg(test)]
+    let data_dir = &catalog.0.data_dir;
     loop {
+        if catalog.0.admission.is_closed() {
+            return Err(object_unavailable("catalog is closing"));
+        }
         let chunk = tokio::select! {
             biased;
+            _ = &mut closing => return Err(object_unavailable("catalog is closing")),
             _ = &mut cancellation => return Err(ObjectError::BodyAborted("upload cancelled".into())),
             chunk = body.recv() => chunk,
         };
@@ -1506,7 +1721,10 @@ async fn write_body(
             sha256.update(part);
             #[cfg(test)]
             fault::hit(data_dir, Step::BodyWrite).map_err(object_unavailable)?;
-            file.write_all(part).await.map_err(object_unavailable)?;
+            match file {
+                UploadSink::Disk(file) => file.write_all(part).await.map_err(object_unavailable)?,
+                UploadSink::Memory(stage) => stage.write(part).map_err(object_unavailable)?,
+            }
         }
     }
     let Hashes { md5, crc32c } = hasher.finish();
@@ -1515,12 +1733,14 @@ async fn write_body(
     {
         return Err(ObjectError::ChecksumMismatch);
     }
-    make_durable(
-        &mut file,
-        #[cfg(test)]
-        data_dir,
-    )
-    .await?;
+    if let UploadSink::Disk(file) = file {
+        make_durable(
+            file,
+            #[cfg(test)]
+            data_dir,
+        )
+        .await?;
+    }
     Ok((
         size,
         md5,
@@ -2008,8 +2228,8 @@ pub(super) fn selected(
     request: RequestKind,
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, String), ObjectError> {
-    authorized_bucket(connection, bucket, access)?;
-    let (record, id) = if let Some(generation) = generation {
+    let object_acl = object_acl_authority(connection, bucket, access)?;
+    let record = if let Some(generation) = generation {
         connection
             .prepare_cached(SELECT_OBJECT_GENERATION)
             .and_then(|mut statement| {
@@ -2019,10 +2239,59 @@ pub(super) fn selected(
             .map_err(object_unavailable)?
     } else {
         lookup(connection, bucket, name)?
+    };
+    if let Some(access) = object_acl {
+        let granted = record
+            .as_ref()
+            .map(|(record, _)| {
+                super::acl::object_granted(connection, bucket, name, record.generation, access)
+            })
+            .transpose()
+            .map_err(object_unavailable)?
+            .unwrap_or(false);
+        if !granted {
+            return Err(ObjectError::Forbidden);
+        }
     }
-    .ok_or(ObjectError::ObjectNotFound)?;
+    let (record, id) = record.ok_or(ObjectError::ObjectNotFound)?;
     check_conditions(Some(&record), conditions, request)?;
     Ok((record, id))
+}
+
+pub(super) fn object_acl_authority<'a>(
+    connection: &Connection,
+    bucket: &str,
+    access: &'a BucketAccess,
+) -> Result<Option<&'a BucketAccess>, ObjectError> {
+    match authorized_bucket(connection, bucket, access) {
+        Ok(_) => Ok(None),
+        Err(ObjectError::Forbidden)
+            if matches!(
+                access,
+                BucketAccess::Policy { permission, .. } if crate::acl::object_permission(*permission)
+            ) =>
+        {
+            Ok(Some(access))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Rechecks a pinned source without selecting a newer generation.
+pub(super) fn authorize_generation(
+    connection: &Connection,
+    bucket: &str,
+    name: &str,
+    generation: i64,
+    access: &BucketAccess,
+) -> Result<(), ObjectError> {
+    if let Some(access) = object_acl_authority(connection, bucket, access)?
+        && !super::acl::object_granted(connection, bucket, name, generation, access)
+            .map_err(object_unavailable)?
+    {
+        return Err(ObjectError::Forbidden);
+    }
+    Ok(())
 }
 
 /// Preconditions are evaluated first: a failing precondition means nothing would be replaced.
@@ -2138,6 +2407,9 @@ pub(super) fn publish_in_transaction<T>(
         assignment,
         micros,
         origin,
+        notification_mode,
+        owner_profile,
+        acl,
     } = version;
     let last: i64 = transaction
         .prepare_cached("SELECT last_generation FROM object_generation WHERE singleton = 1")
@@ -2151,6 +2423,9 @@ pub(super) fn publish_in_transaction<T>(
         GenerationAssignment::Imported(generation) => generation.get(),
     };
     let (mut record, prepared) = prepare(generation)?;
+    if let Some(owner) = &mut record.owner {
+        super::object_owner::canonicalize(owner, owner_profile);
+    }
     let period: Option<i64> = transaction
         .prepare_cached(
             "SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name = ?1",
@@ -2173,6 +2448,7 @@ pub(super) fn publish_in_transaction<T>(
         previous.check_object_retention(now)?;
     }
     retention::validate_publication(transaction, &record, now)?;
+    validate_publication_timestamps(&record)?;
     let (retention_mode, retain_until) = retention::columns(record.retention.as_ref())?;
     if matches!(assignment, GenerationAssignment::Imported(_)) {
         let exists: bool = transaction
@@ -2190,11 +2466,25 @@ pub(super) fn publish_in_transaction<T>(
         }
     }
     let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
+    let owner = record
+        .owner
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(object_unavailable)?;
     let retirement = match versioning {
         Versioning::Enabled => Retirement::Noncurrent,
         Versioning::Disabled => Retirement::Removed,
     };
-    let retired = retire_previous(transaction, previous, retirement, micros)?;
+    let retired = retire_previous(
+        transaction,
+        previous,
+        retirement,
+        micros,
+        origin,
+        Some(generation),
+        notification_mode,
+    )?;
     transaction
         .prepare_cached("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1")
         .and_then(|mut statement| statement.execute([last.max(generation)]))
@@ -2203,7 +2493,7 @@ pub(super) fn publish_in_transaction<T>(
     let time_created = unix_micros(record.time_created).map_err(object_unavailable)?;
     let updated = unix_micros(record.updated).map_err(object_unavailable)?;
     transaction.prepare_cached(
-        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time,retention_mode,retain_until_time,customer_key_sha256) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21,?22,?23,?24)",
+        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time,retention_mode,retain_until_time,customer_key_sha256,md5_available,owner) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21,?22,?23,?24,?25,?26)",
     ).and_then(|mut statement| statement.execute(params![record.bucket, record.name, generation, record.metageneration,
             record.content_type, size,
             &record.md5[..], record.crc32c, record.storage_class, time_created, blob_id,
@@ -2211,9 +2501,14 @@ pub(super) fn publish_in_transaction<T>(
             record.cache_control, metadata, record.event_based_hold, record.component_count,
             updated, record.temporary_hold, record.custom_time,
             retention_mode, retain_until,
-            record.customer_key_sha256.as_ref().map(|sha256| &sha256[..])]))
+            record.customer_key_sha256.as_ref().map(|sha256| &sha256[..]),
+            record.md5_availability == crate::object::Md5Availability::Available, owner]))
     .map_err(object_unavailable)?;
-    super::acl::inherit_default_object_acl(transaction, &record.bucket, &record.name, generation)?;
+    super::acl::publish_object_acl(transaction, &record, acl)?;
+    if notification_mode == NotificationMode::Emit {
+        super::notification_outbox::published(transaction, origin, &record, previous, now)
+            .map_err(object_unavailable)?;
+    }
     super::change_journal::object(
         transaction,
         origin,
@@ -2222,6 +2517,24 @@ pub(super) fn publish_in_transaction<T>(
     )
     .map_err(object_unavailable)?;
     Ok((record, retired, prepared))
+}
+
+fn validate_publication_timestamps(record: &ObjectRecord) -> Result<(), ObjectError> {
+    for time in [
+        Some(record.time_created),
+        Some(record.updated),
+        record.retention_expiration_time,
+        record.retention.map(|retention| retention.retain_until),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let micros = unix_micros(time).map_err(object_unavailable)?;
+        if !crate::clock::rfc3339_micros(i128::from(micros)) {
+            return Err(ObjectError::InvalidFixedMetadata("Object timestamps and computed retention expiration must remain within the supported RFC3339 UTC range".into()));
+        }
+    }
+    Ok(())
 }
 
 impl Catalog {
@@ -2236,6 +2549,7 @@ impl Catalog {
     }
 
     pub(super) async fn reclaim_pending(&self) -> Result<(), ObjectError> {
+        let activity = self.activity().map_err(object_unavailable)?;
         let permit = self
             .0
             .reclamation
@@ -2246,7 +2560,7 @@ impl Catalog {
         let catalog = self.clone();
         // Detached callers retain the cleanup slot until filesystem work and SQL settle.
         let task = crate::task::spawn_supervised("blob-reclamation", async move {
-            let _permit = permit;
+            let (_permit, _activity) = (permit, activity);
             let ids = catalog
                 .run_upload(|connection| {
                     let ids = connection
@@ -2279,7 +2593,15 @@ impl Catalog {
                 return Ok(());
             }
             let data_dir = catalog.0.data_dir.clone();
+            let memory = catalog.0.memory.clone();
             let (removed, failure) = tokio::task::spawn_blocking(move || {
+                if let Some(memory) = memory {
+                    for id in &ids {
+                        memory.remove_draft(id).map_err(object_unavailable)?;
+                        memory.remove(id).map_err(object_unavailable)?;
+                    }
+                    return Ok((ids, None));
+                }
                 let mut shards = std::collections::BTreeMap::<PathBuf, Vec<String>>::new();
                 let mut failure = None;
                 for id in ids {
@@ -2341,10 +2663,28 @@ pub(super) fn retire_previous(
     previous: Option<&(ObjectRecord, String)>,
     retirement: Retirement,
     micros: i64,
+    origin: super::admin::Origin,
+    replacement: Option<i64>,
+    notification_mode: NotificationMode,
 ) -> Result<Option<String>, ObjectError> {
     let Some((record, id)) = previous else {
         return Ok(None);
     };
+    if origin != super::admin::Origin::Import && notification_mode == NotificationMode::Emit {
+        super::notification_outbox::enqueue(
+            connection,
+            crate::notification::Message {
+                event: match retirement {
+                    Retirement::Noncurrent => crate::notification::Event::Archive,
+                    Retirement::Removed => crate::notification::Event::Delete,
+                },
+                object: record,
+                time: system_time_micros(micros).map_err(object_unavailable)?,
+                replacement,
+            },
+        )
+        .map_err(object_unavailable)?;
+    }
     if retirement == Retirement::Noncurrent {
         connection
             .prepare_cached("UPDATE objects SET time_deleted = ?2 WHERE blob_id = ?1")
@@ -2424,6 +2764,7 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, Stri
             name: row.get(1)?,
             generation: row.get(2)?,
             metageneration: row.get(3)?,
+            owner: super::object_owner::read(row, 29)?,
             content_type: row.get(4)?,
             content_encoding: row.get(12)?,
             content_disposition: row.get(13)?,
@@ -2434,6 +2775,7 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, Stri
             })?,
             size: read_size(row, 5)?,
             md5,
+            md5_availability: super::md5_availability::read(row, 28)?,
             crc32c: row.get(7)?,
             component_count: row.get(19)?,
             storage_class: row.get(8)?,
@@ -2568,7 +2910,7 @@ mod tests {
         file.seek(io::SeekFrom::Start(size - 3)).unwrap();
         file.write_all(b"end").unwrap();
         let mut reader = ObjectReader {
-            file: tokio::fs::File::from_std(file),
+            file: ReaderData::Disk(tokio::fs::File::from_std(file)),
             remaining: size,
             publicly_readable: false,
         };
@@ -2605,10 +2947,12 @@ mod tests {
             }
         }
         let blob = Blob(temp_catalog_dir("final-write"));
+        let context = crate::test_support::TestDir::new();
+        let catalog = Catalog::open(&context.0).await.unwrap();
         fs::write(&blob.0, b"").unwrap();
         // tokio completes a write in the background after write_all returns, so a
         // read-only handle makes exactly that final, unreported write fail.
-        let file = tokio::fs::File::open(&blob.0).await.unwrap();
+        let mut file = UploadSink::Disk(tokio::fs::File::open(&blob.0).await.unwrap());
         let (sender, body) = mpsc::channel(2);
         sender
             .send(Ok(UploadChunk::Data(Bytes::from_static(b"tail"))))
@@ -2617,12 +2961,12 @@ mod tests {
         sender.send(Ok(UploadChunk::End)).await.unwrap();
         let (_cancel, cancellation) = oneshot::channel();
         let result = write_body(
-            file,
+            &mut file,
             ExpectedHashes::default(),
             1024,
             body,
             cancellation,
-            &blob.0,
+            &catalog,
         )
         .await;
         assert!(
@@ -2633,6 +2977,7 @@ mod tests {
             "{result:?}"
         );
         assert_eq!(fs::metadata(&blob.0).unwrap().len(), 0);
+        catalog.close().await.unwrap();
     }
 
     #[test]
@@ -2662,6 +3007,12 @@ mod tests {
         connection.execute_batch(retention::SCHEMA).unwrap();
         connection
             .execute_batch(super::super::customer_keys::SCHEMA)
+            .unwrap();
+        connection
+            .execute_batch(super::super::md5_availability::SCHEMA)
+            .unwrap();
+        connection
+            .execute_batch(super::super::object_owner::SCHEMA)
             .unwrap();
         let counter = AtomicUsize::new(0);
         // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
@@ -2732,6 +3083,12 @@ mod tests {
         connection.execute_batch(retention::SCHEMA).unwrap();
         connection
             .execute_batch(super::super::customer_keys::SCHEMA)
+            .unwrap();
+        connection
+            .execute_batch(super::super::md5_availability::SCHEMA)
+            .unwrap();
+        connection
+            .execute_batch(super::super::object_owner::SCHEMA)
             .unwrap();
         connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
             INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,time_deleted)
@@ -3380,6 +3737,117 @@ mod tests {
             assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);
             catalog.close().await.unwrap();
             fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn object_acl_revocation_rechecks_admitted_reads_and_keeps_opened_snapshot() {
+        use crate::{
+            acl::AclTarget,
+            auth::{Auth, OBJECTS_GET, Registry},
+            storage::catalog::acl::AclChange,
+        };
+        for memory in [false, true] {
+            let directory = temp_catalog_dir("revoked-object-acl");
+            let catalog = if memory {
+                Catalog::open_memory_for_server(
+                    1024 * 1024,
+                    4 * 1024 * 1024,
+                    Arc::new(crate::clock::SystemClock),
+                    crate::storage::admin::LocalAdmin::Disabled,
+                )
+                .await
+                .unwrap()
+            } else {
+                Catalog::open(&directory).await.unwrap()
+            };
+            create_bucket(&catalog, "project").await;
+            let current = put(&catalog, "object", b"selected snapshot").await;
+            let auth = Auth::strict(
+                Registry::parse(br#"{"identities":[{"id":"reader","tokens":["token"]}]}"#).unwrap(),
+            );
+            let mut headers = hyper::HeaderMap::new();
+            headers.insert("authorization", "Bearer token".parse().unwrap());
+            let identity = auth
+                .authenticate(&headers, None)
+                .unwrap()
+                .unwrap()
+                .principal()
+                .unwrap();
+            let access = catalog
+                .bucket_access("bucket", Some(identity), OBJECTS_GET)
+                .await
+                .unwrap();
+            assert_eq!(
+                catalog
+                    .get_object_authorized("bucket", "object", None, Default::default(), &access)
+                    .await,
+                Err(ObjectError::Forbidden)
+            );
+            let target = AclTarget::Object {
+                bucket: "bucket".into(),
+                name: "object".into(),
+                generation: Some(current.generation),
+            };
+            catalog
+                .change_acl(
+                    target.clone(),
+                    AclChange::Upsert {
+                        entity: "user-reader".into(),
+                        role: Some("READER".into()),
+                    },
+                    &BucketAccess::Permissive,
+                )
+                .await
+                .unwrap();
+            let (_, reader) = catalog
+                .open_object_authorized("bucket", "object", None, Default::default(), &access)
+                .await
+                .unwrap();
+            let revoke = catalog.change_acl(
+                target,
+                AclChange::Delete {
+                    entity: "user-reader".into(),
+                },
+                &BucketAccess::Permissive,
+            );
+            let read = catalog.get_object_authorized(
+                "bucket",
+                "object",
+                None,
+                Default::default(),
+                &access,
+            );
+            let (revoked, concurrent) = tokio::join!(revoke, read);
+            revoked.unwrap();
+            assert!(
+                concurrent
+                    .as_ref()
+                    .is_ok_and(|record| record.generation == current.generation)
+                    || concurrent == Err(ObjectError::Forbidden)
+            );
+            assert_eq!(
+                catalog
+                    .get_object_authorized(
+                        "bucket",
+                        "object",
+                        None,
+                        ObjectConditions {
+                            if_generation_match: Some(0),
+                            ..Default::default()
+                        },
+                        &access
+                    )
+                    .await,
+                Err(ObjectError::Forbidden)
+            );
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut reader.into_reader().await, &mut bytes).unwrap();
+            assert_eq!(bytes, b"selected snapshot");
+            catalog.close().await.unwrap();
+            if !memory {
+                fs::remove_dir_all(directory).unwrap();
+            }
         }
     }
 

@@ -1,5 +1,6 @@
 //! JSON API object reads: media downloads and metadata.
 
+use crate::server::RequestBody as Incoming;
 use crate::{
     bucket::BucketAccess,
     json::{self, JsonError},
@@ -11,7 +12,7 @@ use crate::{
     },
 };
 use http_body_util::BodyExt;
-use hyper::{Request, Response, StatusCode, body::Incoming};
+use hyper::{Request, Response, StatusCode};
 
 pub(super) async fn get(
     request: &Request<Incoming>,
@@ -62,11 +63,6 @@ async fn media(
     target: &ReadTarget<'_>,
 ) -> Result<Response<ResponseBody>, JsonError> {
     let params = target.params;
-    json::validate_keyed_object_headers(
-        request.headers(),
-        json::ObjectRead::Media,
-        &[crate::csek::DESTINATION_PREFIX],
-    )?;
     let key = json::request_key(request.headers())?;
     let (record, mut reader) = ctx
         .state
@@ -80,6 +76,12 @@ async fn media(
             key,
         )
         .await?;
+    json::validate_read_condition_headers(request.headers(), json::EtagConditions::Supported)?;
+    json::validate_keyed_object_headers(
+        request.headers(),
+        json::ObjectRead::Media,
+        &[crate::csek::DESTINATION_PREFIX],
+    )?;
     let mut headers = json::object_media_headers(&record)?;
     json::insert_response_headers(&record, &mut headers);
     if reader.publicly_readable {
@@ -159,11 +161,6 @@ async fn metadata(
     fields: &json::Fields,
 ) -> Result<Response<ResponseBody>, JsonError> {
     let params = target.params;
-    json::validate_keyed_object_headers(
-        request.headers(),
-        json::ObjectRead::Metadata,
-        &[crate::csek::DESTINATION_PREFIX],
-    )?;
     let key = json::request_key(request.headers())?;
     let catalog = &ctx.state.catalog;
     let record = if params.soft_deleted {
@@ -190,13 +187,25 @@ async fn metadata(
             )
             .await?
     };
+    json::validate_read_condition_headers(request.headers(), json::EtagConditions::Supported)?;
+    json::validate_keyed_object_headers(
+        request.headers(),
+        json::ObjectRead::Metadata,
+        &[crate::csek::DESTINATION_PREFIX],
+    )?;
     // Metadata needs no key; a supplied key must match and then reveals hashes.
     crate::csek::check_metadata(record.customer_key_sha256, key)
         .map_err(ObjectError::CustomerEncryption)?;
     let mut resource =
-        json::object_resource_keyed(&record, &ctx.state.api_base_url, params.projection, key)?;
+        json::object_resource_keyed(&record, &ctx.endpoints.api_base_url, params.projection, key)?;
     if params.projection == json::Projection::Full {
-        acl::add_full_projection(ctx.state, ctx.caller, &mut resource).await?;
+        acl::add_full_projection(
+            ctx.state,
+            ctx.caller,
+            &mut resource,
+            &ctx.endpoints.api_base_url,
+        )
+        .await?;
     }
     let query = if params.conditions.if_generation_not_match == Some(record.generation)
         || params.conditions.if_metageneration_not_match == Some(record.metageneration)

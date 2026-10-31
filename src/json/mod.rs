@@ -53,7 +53,7 @@ pub(crate) use fields::Fields;
 pub(crate) use iam::policy_etag;
 pub(crate) use iam::{parse_policy, policy_resource, test_permissions_query};
 pub(crate) use multipart::{
-    Multipart, PartKind, form_data_boundary, multipart_boundary, multipart_metadata,
+    Multipart, PartKind, batch_boundary, form_data_boundary, multipart_boundary, multipart_metadata,
 };
 pub(crate) use object_copy::ObjectCopyParams;
 pub(crate) use object_list::{ObjectListParams, object_list};
@@ -72,8 +72,8 @@ pub(crate) use objects::{
     validate_object_media_encoding, validate_object_name,
 };
 pub(crate) use page_token::{
-    decode_all_projects_page_token, decode_page_token, encode_all_projects_page_token,
-    encode_page_token,
+    decode_all_projects_page_token, decode_object_page_token, decode_page_token,
+    encode_all_projects_page_token, encode_object_page_token, encode_page_token,
 };
 pub(crate) use projects::{
     ProjectRequest, hmac_key_list, hmac_key_metadata, hmac_key_resource, parse_hmac_key_update,

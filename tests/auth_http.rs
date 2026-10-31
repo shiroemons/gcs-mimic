@@ -686,6 +686,53 @@ fn auth_http_admin_full_crud_and_restart_with_same_registry() {
 }
 
 #[test]
+fn null_generation_metadata_updates_keep_strict_authorization() {
+    let config = TestDir::new();
+    let dir = TestDir::new();
+    let mut server = Server::strict(&dir, &identity_file(&config));
+    server.create_bucket(ADMIN, "project-a", "bucket-a").ok();
+    server.upload(ADMIN, "bucket-a", "o", b"original").ok();
+    let path = "/storage/v1/b/bucket-a/o/o";
+    let body = br#"{"generation":null,"metadata":{"fixture":"updated"}}"#;
+    for (method, headers) in [
+        ("PATCH", ""),
+        ("PUT", ""),
+        ("POST", "X-HTTP-Method-Override: PATCH\r\n"),
+    ] {
+        let before = server.get(ADMIN, path).ok().json();
+        for (auth, status, reason) in [("", 401, "required"), (VIEWER, 403, "forbidden")] {
+            server
+                .request(
+                    method,
+                    path,
+                    &format!("{auth}{headers}Content-Type: application/json\r\n"),
+                    body,
+                )
+                .error(status, reason);
+            assert_eq!(server.get(ADMIN, path).ok().json(), before);
+        }
+        let updated = server
+            .request(
+                method,
+                path,
+                &format!("{ADMIN}{headers}Content-Type: application/json\r\n"),
+                body,
+            )
+            .ok()
+            .json();
+        assert_eq!(updated["metadata"], json!({"fixture":"updated"}));
+        for field in ["generation", "size", "md5Hash", "crc32c"] {
+            assert_eq!(updated[field], before[field]);
+        }
+        assert_eq!(
+            server.get(ADMIN, &format!("{path}?alt=media")).ok().body,
+            b"original"
+        );
+    }
+    server.stop();
+}
+
+#[test]
 fn auth_http_project_roles_gate_each_route() {
     let config = TestDir::new();
     let dir = TestDir::new();
@@ -733,7 +780,10 @@ fn auth_http_project_roles_gate_each_route() {
         .forbidden();
 
     // objectCreator creates new objects, but overwriting needs storage.objects.delete.
-    server.upload(CREATOR, "bucket-a", "created", b"new").ok();
+    let created = server
+        .upload(CREATOR, "bucket-a", "created", b"new")
+        .ok()
+        .json();
     server
         .multipart(CREATOR, "bucket-a", "created-multi", b"new")
         .ok();
@@ -771,11 +821,27 @@ fn auth_http_project_roles_gate_each_route() {
             .body,
         b"new"
     );
+    assert_eq!(
+        server
+            .get(CREATOR, "/storage/v1/b/bucket-a/o/created")
+            .ok()
+            .json(),
+        created
+    );
+    assert_eq!(
+        server
+            .get(CREATOR, "/storage/v1/b/bucket-a/o/created?alt=media")
+            .body,
+        b"new"
+    );
     server
-        .get(CREATOR, "/storage/v1/b/bucket-a/o/created")
+        .get(CREATOR, "/storage/v1/b/bucket-a/o/o")
         .forbidden();
     server
-        .get(CREATOR, "/storage/v1/b/bucket-a/o/created?alt=media")
+        .get(NO_ROLES, "/storage/v1/b/bucket-a/o/created")
+        .forbidden();
+    server
+        .request("DELETE", "/storage/v1/b/bucket-a/o/created", CREATOR, b"")
         .forbidden();
     server.get(CREATOR, "/storage/v1/b/bucket-a/o").forbidden();
 

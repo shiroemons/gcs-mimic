@@ -1,5 +1,7 @@
 # JSON object metadata mutation
 
+<!-- markdownlint-configure-file {"MD013": false} -->
+
 Contract checked: **2026-10-22**. Scope: JSON-OBJECTS-010, JSON-OBJECTS-015,
 BEHAVIOR-COMMON-006 and the metadata-related cases of BEHAVIOR-OBJECT-001,
 BEHAVIOR-OBJECT-002, BEHAVIOR-OBJECT-006 and BEHAVIOR-COMMON-011.
@@ -65,7 +67,8 @@ Recognized writable fields `acl`, holds, retention, contexts, customTime and enc
 settings are rejected even when null. Custom time is not stored; its monotonicity is
 outside this slice. Unknown input fields also fail 501 pending legacy JSON evidence.
 
-GET resources can be PUT back unchanged. Server-managed fields are accepted only when
+GET resources can be PUT back unchanged. Except for the scoped null-generation
+case below, server-managed fields are accepted only when
 their JSON values exactly equal the selected resource, checked inside the transaction:
 kind, id, selfLink, mediaLink, name, bucket, generation, metageneration, size, md5Hash,
 crc32c, etag, storageClass and creation/update/finalization/storage-class timestamps.
@@ -74,6 +77,27 @@ stored integer. Changing them, supplying the wrong type, or supplying an unmodel
 501 `notImplemented`. This conservative rule is a local compatibility boundary, not a
 claim that Google rejects changed output-only input; see SPEC-015. In particular,
 storageClass changes require rewrite and are not silently ignored.
+
+### SDK null-generation exception
+
+The integrated metadata mutation handler treats a body `generation: null` as
+unspecified for PATCH, PUT and POST with PATCH override. Java Storage 2.76.0
+`StorageImpl.update` selects generation even when absent and serializes
+`Data.nullOf(Long.class)`. Actual JUL capture confirms that body and method
+override. The pinned source archive and digest are recorded in SPEC-015.
+
+This body field does not select a generation or act as a write/precondition:
+query parameters retain those roles. Other read-only nulls, changed non-null
+generation, unknown inputs, selected-generation 404, stale-condition 412 and
+strict authorization denials remain enforced. Two dedicated wire tests verify
+identity/hash/bytes preservation and these rejection boundaries; the unchanged
+official Java multipart/PATCH/resumable/read/list scenario now passes against
+the repaired runtime. This is a narrow SDK-backed local interpretation, with
+actual Google service differential verification unexecuted.
+
+The remaining sections record the original slice baseline. Later authentication,
+ACL, hold, timestamp and download-transcoding additions have their own contracts
+and evidence in the canonical feature ledger.
 
 Media returns stored content type, encoding, disposition and language,
 plus the existing lengths/hashes/generation/ETag headers. Custom metadata is returned

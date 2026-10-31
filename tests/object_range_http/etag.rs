@@ -348,7 +348,7 @@ fn json_etag_read_authorization_precedes_validators() {
 fn json_etag_read_unsupported_lists_dates_and_writes() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, false);
-    server.setup("", b"data");
+    let mut object = server.setup("", b"data");
     for path in [
         OBJECT.to_owned(),
         format!("{OBJECT}?alt=media"),
@@ -394,9 +394,28 @@ fn json_etag_read_unsupported_lists_dates_and_writes() {
         ),
     ] {
         for header in ["If-Match: *\r\n", "If-None-Match: *\r\n"] {
-            server
-                .request(method, path, header, body)
-                .error(400, "badRequest");
+            let reply = server.request(method, path, header, body);
+            if path == OBJECT && matches!(method, "PUT" | "PATCH") && header == "If-Match: *\r\n" {
+                assert_eq!(reply.status, 200);
+                let updated: Value = serde_json::from_slice(&reply.body).unwrap();
+                assert_ne!(updated["etag"], object["etag"]);
+                assert_eq!(
+                    updated["metageneration"]
+                        .as_str()
+                        .unwrap()
+                        .parse::<u64>()
+                        .unwrap(),
+                    object["metageneration"]
+                        .as_str()
+                        .unwrap()
+                        .parse::<u64>()
+                        .unwrap()
+                        + 1
+                );
+                object = updated;
+            } else {
+                reply.error(400, "badRequest");
+            }
         }
     }
     assert_eq!(server.get("", "").body, b"data");

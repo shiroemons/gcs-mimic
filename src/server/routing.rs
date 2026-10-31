@@ -3,6 +3,7 @@
 //! The order of the checks in `respond_routed` is part of the wire contract: earlier routes
 //! claim overlapping paths, so the routes are tried in a fixed sequence.
 
+use super::RequestBody as Incoming;
 use super::{
     DeadlineWatch, RequestCtx, ResponseBody, State, acl, anonymous_error, boxed, buckets,
     notifications, objects, probe_or_unknown, project_resources, resumable, rewrite, unsupported,
@@ -15,29 +16,66 @@ use crate::{
     xml,
 };
 use http_body_util::{BodyExt, Full};
-use hyper::{
-    Method, Request, Response, StatusCode,
-    body::{Bytes, Incoming},
-    header::HeaderValue,
-};
+use hyper::{Method, Request, Response, StatusCode, body::Bytes, header::HeaderValue};
 
 /// Wraps CORS headers around the routed response. CORS never authorizes a request.
 pub(super) async fn respond(
-    request: Request<Incoming>,
+    mut request: Request<Incoming>,
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
-    let selected = match xml::select_object(request.uri(), request.headers(), ctx.config) {
+    let selected = match xml::select_object_with_endpoints(
+        request.uri(),
+        request.headers(),
+        ctx.config,
+        ctx.endpoints,
+    ) {
         Ok(selected) => selected,
         Err(error) => return boxed(error.response(xml::ErrorBody::for_method(request.method()))),
+    };
+    if selected.is_none()
+        && (matches!(
+            request.uri().path(),
+            "/_internal/config"
+                | "/_internal/objects"
+                | "/_internal/reset"
+                | "/_internal/reseed"
+                | "/_internal/delete_all"
+        ) || request.uri().path() == "/_internal/sync"
+            || request.uri().path().starts_with("/_internal/sync/"))
+    {
+        return super::admin::respond(request, ctx).await;
+    }
+    if selected.is_none() && request.uri().path() == "/batch/storage/v1" {
+        return super::batch::respond(request, ctx).await;
+    }
+    let xml_bucket = xml::buckets::matches(request.method(), request.uri(), selected.as_ref());
+    if (selected.is_some() || xml_bucket)
+        && request.headers().contains_key("x-http-method-override")
+    {
+        return boxed(
+            xml::Error::from(JsonError::invalid_argument(
+                "Method override is supported only by the JSON API",
+            ))
+            .response(xml::ErrorBody::for_method(request.method())),
+        );
+    }
+    if let Err(error) = super::ingress::override_method(&mut request) {
+        return boxed(error.into_response());
+    }
+    let request = match if selected.is_none() && !xml_bucket {
+        super::ingress::decode_metadata(request, ctx).await
+    } else {
+        Ok(request)
+    } {
+        Ok(request) => request,
+        Err(error) => return boxed(error.into_response()),
     };
     if selected.is_none() && json::cors::is_route(request.uri()) {
         return respond_json_cors(request, ctx).await;
     }
     // CORS must also wrap invalid object names and signed queries without authorizing them.
     if selected.as_ref().is_some_and(|object| {
-        !object.name().is_empty()
-            && json::validate_bucket_name_for_profile(&object.bucket, ctx.config.compat_profile)
-                .is_ok()
+        json::validate_bucket_name_for_profile(&object.bucket, ctx.config.compat_profile).is_ok()
     }) {
         return respond_xml_cors(request, ctx, selected).await;
     }
@@ -149,10 +187,13 @@ async fn respond_routed(
     selected: Option<xml::ObjectPath>,
 ) -> Response<ResponseBody> {
     let (method, uri, profile) = (request.method(), request.uri(), ctx.config.compat_profile);
+    if xml::buckets::matches(method, uri, selected.as_ref()) {
+        return xml::buckets::respond(request, selected.as_ref(), ctx).await;
+    }
     if selected.is_none()
         && let Some(parsed) = json::acl::route_acl(method, uri, profile)
     {
-        return respond_acl(request, ctx.state, parsed).await;
+        return respond_acl(request, ctx, parsed).await;
     }
     if selected.is_none()
         && let Some(route) = unsupported::route(method, uri)
@@ -160,10 +201,9 @@ async fn respond_routed(
         return respond_unsupported(&request, ctx.state, route);
     }
     // POST Object targets the bucket itself and authenticates from form fields in the body.
-    if let Some(object) = selected
-        .as_ref()
-        .filter(|object| method == Method::POST && object.name().is_empty())
-    {
+    if let Some(object) = selected.as_ref().filter(|object| {
+        method == Method::POST && object.name().is_empty() && !xml::multipart::matches(uri)
+    }) {
         let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
         let result = xml::post::respond(request, object, ctx, deadline).await;
         ctx.finish_object_request();
@@ -172,10 +212,14 @@ async fn respond_routed(
     if selected.is_none()
         && let Some(parsed) = json::notifications::route(method, uri, profile)
     {
-        return respond_notifications(request, ctx.state, parsed).await;
+        return respond_notifications(request, ctx, parsed).await;
     }
-    if let Some(parsed) = xml::route(method, ctx.config, selected) {
-        return respond_xml_object(request, ctx, parsed).await;
+    let signature_resource = selected.as_ref().map_or(
+        crate::auth::signature::Resource::PathStyle,
+        xml::ObjectPath::signature_resource,
+    );
+    if let Some(parsed) = xml::route(method, ctx.config, selected, request.headers()) {
+        return respond_xml_object(request, ctx, parsed, signature_resource).await;
     }
     if let Some(parsed) = json::resumable::session_route(method, uri, profile) {
         let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
@@ -195,10 +239,10 @@ async fn respond_routed(
         return respond_json_object(request, ctx, parsed).await;
     }
     if let Some(parsed) = json::route_project(method, uri) {
-        return respond_project(request, ctx.state, parsed).await;
+        return respond_project(request, ctx, parsed).await;
     }
     if let Some(parsed) = json::route_with_profile(method, uri, profile, &ctx.config.seed_project) {
-        return respond_bucket(request, ctx.state, profile, parsed).await;
+        return respond_bucket(request, ctx, profile, parsed).await;
     }
     boxed(probe_or_unknown(&request, ctx.state))
 }
@@ -209,20 +253,31 @@ fn authenticate<'a>(
 ) -> Result<Option<Caller<'a>>, JsonError> {
     state
         .auth
-        .authenticate(request.headers(), request.uri().query())
+        .authenticate_at(
+            request.headers(),
+            request.uri().query(),
+            state.clock.as_ref(),
+        )
         .map_err(JsonError::from)
 }
 
 async fn respond_acl(
     request: Request<Incoming>,
-    state: &State,
+    ctx: RequestCtx<'_>,
     parsed: Result<json::acl::AclRequest, JsonError>,
 ) -> Response<ResponseBody> {
+    let state = ctx.state;
     let result =
         match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok((operation, caller)) => acl::respond(request, operation, caller, state)
-                .await
-                .map_err(|error| anonymous_error(error, caller)),
+            Ok((operation, caller)) => acl::respond(
+                request,
+                operation,
+                caller,
+                state,
+                &ctx.endpoints.api_base_url,
+            )
+            .await
+            .map_err(|error| anonymous_error(error, caller)),
             Err(error) => Err(error),
         };
     boxed(result.unwrap_or_else(JsonError::into_response))
@@ -248,42 +303,73 @@ fn respond_unsupported(
 
 async fn respond_notifications(
     request: Request<Incoming>,
-    state: &State,
+    ctx: RequestCtx<'_>,
     parsed: Result<(json::notifications::NotificationRequest, json::Fields), JsonError>,
 ) -> Response<ResponseBody> {
+    let state = ctx.state;
     let result =
         match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok(((operation, fields), caller)) => {
-                notifications::respond(request, operation, fields, caller, state)
-                    .await
-                    .map_err(|error| anonymous_error(error, caller))
-            }
+            Ok(((operation, fields), caller)) => notifications::respond(
+                request,
+                operation,
+                fields,
+                caller,
+                state,
+                &ctx.endpoints.api_base_url,
+            )
+            .await
+            .map_err(|error| anonymous_error(error, caller)),
             Err(error) => Err(error),
         };
     boxed(result.unwrap_or_else(JsonError::into_response))
 }
 
 async fn respond_xml_object(
-    request: Request<Incoming>,
+    mut request: Request<Incoming>,
     ctx: RequestCtx<'_>,
     parsed: Result<xml::ReadRequest, xml::Error>,
+    resource: crate::auth::signature::Resource,
 ) -> Response<ResponseBody> {
     let head = request.method() == Method::HEAD;
     let error_body = xml::ErrorBody::for_method(request.method());
     let put = request.method() == Method::PUT;
     let delete = request.method() == Method::DELETE;
+    let multipart = xml::multipart::matches(request.uri());
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
-    let result = match xml::authenticate(
-        &ctx.state.auth,
-        request.method(),
-        request.uri(),
-        request.headers(),
-        ctx.state.clock.as_ref(),
-    ) {
-        Ok(caller) => {
+    let authentication = if put && !multipart {
+        xml::authenticate_upload_target(
+            &ctx.state.auth,
+            &ctx.state.catalog,
+            request.method(),
+            request.uri(),
+            request.headers(),
+            ctx.state.clock.as_ref(),
+            &resource,
+        )
+        .await
+    } else {
+        xml::authenticate_target(
+            &ctx.state.auth,
+            &ctx.state.catalog,
+            request.method(),
+            request.uri(),
+            request.headers(),
+            ctx.state.clock.as_ref(),
+            &resource,
+        )
+        .await
+        .map(|caller| (caller, None))
+    };
+    let result = match authentication {
+        Ok((caller, streaming)) => {
             let object_ctx = ctx.object(caller, deadline);
-            match parsed {
-                Ok(operation) if put => xml::put::respond(request, operation, object_ctx).await,
+            match xml::normalize_legacy_headers(request.headers_mut()).and(parsed) {
+                Ok(operation) if multipart => {
+                    xml::multipart::respond(request, operation, object_ctx).await
+                }
+                Ok(operation) if put => {
+                    xml::put::respond(request, operation, object_ctx, streaming).await
+                }
                 Ok(operation) => xml_read::respond(request, operation, object_ctx).await,
                 Err(error) => Err(error),
             }
@@ -291,7 +377,7 @@ async fn respond_xml_object(
         Err(error) => Err(error),
     };
     // A successful GET keeps its deadline while the response body streams.
-    if head || put || delete || result.is_err() {
+    if head || put || delete || multipart || result.is_err() {
         ctx.finish_object_request();
     }
     result.unwrap_or_else(|error| boxed(error.response(error_body)))
@@ -357,16 +443,22 @@ async fn respond_json_object(
 
 async fn respond_project(
     request: Request<Incoming>,
-    state: &State,
+    ctx: RequestCtx<'_>,
     parsed: Result<(json::ProjectRequest, json::Fields), JsonError>,
 ) -> Response<ResponseBody> {
+    let state = ctx.state;
     let result =
         match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok(((operation, fields), caller)) => {
-                project_resources::respond(request, operation, fields, caller, state)
-                    .await
-                    .map_err(|error| anonymous_error(error, caller))
-            }
+            Ok(((operation, fields), caller)) => project_resources::respond(
+                request,
+                operation,
+                fields,
+                caller,
+                state,
+                &ctx.endpoints.api_base_url,
+            )
+            .await
+            .map_err(|error| anonymous_error(error, caller)),
             Err(error) => Err(error),
         };
     boxed(result.unwrap_or_else(JsonError::into_response))
@@ -374,15 +466,23 @@ async fn respond_project(
 
 async fn respond_bucket(
     request: Request<Incoming>,
-    state: &State,
+    ctx: RequestCtx<'_>,
     profile: CompatProfile,
     parsed: Result<json::BucketRequest, JsonError>,
 ) -> Response<ResponseBody> {
+    let state = ctx.state;
     let result =
         match authenticate(&request, state).and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok((operation, caller)) => buckets::respond(request, operation, caller, state, profile)
-                .await
-                .map_err(|error| anonymous_error(error, caller)),
+            Ok((operation, caller)) => buckets::respond(
+                request,
+                operation,
+                caller,
+                state,
+                profile,
+                &ctx.endpoints.api_base_url,
+            )
+            .await
+            .map_err(|error| anonymous_error(error, caller)),
             Err(error) => Err(error),
         };
     let response = result

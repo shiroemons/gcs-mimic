@@ -158,6 +158,88 @@ fn request_headers(address: &str, method: &str, path: &str, body: &[u8], headers
 }
 
 #[test]
+fn null_generation_metadata_updates_preserve_identity_and_enforce_conditions() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    let original = server.setup();
+    let path = "/storage/v1/b/test-bucket/o/dir%2Ffile";
+    for (method, headers) in [
+        ("PATCH", ""),
+        ("PUT", ""),
+        ("POST", "X-HTTP-Method-Override: PATCH\r\n"),
+    ] {
+        let send = |query: &str, body: Value| {
+            request_headers(
+                &server.address,
+                method,
+                &format!("{path}?projection=full{query}"),
+                body.to_string().as_bytes(),
+                headers,
+            )
+        };
+        let body = json!({"bucket":"test-bucket", "name":"dir/file", "generation":null,
+            "metadata":{"fixture":method}});
+        let before = server.request("GET", path, b"").json();
+        let updated = send("", body.clone()).json();
+        assert_eq!(updated["metadata"], json!({"fixture":method}));
+        assert_eq!(
+            updated["metageneration"]
+                .as_str()
+                .unwrap()
+                .parse::<u64>()
+                .unwrap(),
+            before["metageneration"]
+                .as_str()
+                .unwrap()
+                .parse::<u64>()
+                .unwrap()
+                + 1
+        );
+        for field in [
+            "generation",
+            "size",
+            "md5Hash",
+            "crc32c",
+            "timeCreated",
+            "timeFinalized",
+        ] {
+            assert_eq!(updated[field], original[field], "{method}: {field}");
+        }
+        let rejected = json!({"generation":null, "metadata":{"fixture":"rejected"}});
+        for (query, status, reason) in [
+            ("&generation=0", 404, "notFound"),
+            ("&ifGenerationMatch=0", 412, "conditionNotMet"),
+            ("&ifMetagenerationMatch=1", 412, "conditionNotMet"),
+        ] {
+            send(query, rejected.clone()).error(status, reason);
+            assert_eq!(
+                server
+                    .request("GET", &format!("{path}?projection=full"), b"")
+                    .json(),
+                updated
+            );
+        }
+        for generation in [json!(0), json!("0"), json!(true), json!([])] {
+            send(
+                "",
+                json!({"generation":generation, "metadata":{"fixture":"rejected"}}),
+            )
+            .error(400, "badRequest");
+            assert_eq!(
+                server
+                    .request("GET", &format!("{path}?projection=full"), b"")
+                    .json(),
+                updated
+            );
+        }
+        let media = server.request("GET", &format!("{path}?alt=media"), b"");
+        assert_eq!(media.status, 200);
+        assert_eq!(media.body, b"payload");
+    }
+    server.stop();
+}
+
+#[test]
 fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir);
@@ -608,7 +690,6 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             "customerEncryption",
             "name",
             "bucket",
-            "generation",
             "metageneration",
             "size",
             "md5Hash",

@@ -50,7 +50,7 @@ pub(super) fn body(
     crate::task::spawn_supervised("gzip-object-body", async move {
         let mut progress = activity.subscribe();
         let stream = async {
-            let file = reader.into_file().await;
+            let file = reader.into_reader().await;
             let mut decoder = tokio::task::spawn_blocking(move || {
                 MultiGzDecoder::new(Input {
                     reader: BufReader::new(file.take(stored_size)),

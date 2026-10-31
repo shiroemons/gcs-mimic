@@ -1,11 +1,11 @@
 //! XML objects. Shared authorization, generation selection and bytes live in storage.
 
 use crate::{
-    config::Config,
+    config::{Config, EndpointSnapshot},
     json::{self, JsonError},
     object::{ObjectConditions, ObjectRecord},
 };
-use http_body_util::Full;
+use http_body_util::{BodyExt, Full};
 use hyper::{
     HeaderMap, Method, Response, StatusCode, Uri,
     body::Bytes,
@@ -13,55 +13,214 @@ use hyper::{
 };
 use std::time::UNIX_EPOCH;
 
+pub(crate) mod buckets;
+mod copy;
 mod cors;
+mod document;
+pub(crate) mod list;
+pub(crate) mod multipart;
 pub(crate) use cors::{cors, warn_unconfigured_cors};
 pub(crate) mod post;
 pub(crate) mod put;
 
-pub(crate) fn authenticate<'a>(
+#[cfg(test)]
+pub(crate) async fn authenticate<'a>(
     auth: &'a crate::auth::Auth,
+    catalog: &crate::storage::Catalog,
     method: &Method,
     uri: &Uri,
     headers: &HeaderMap,
     clock: &dyn crate::clock::Clock,
 ) -> Result<Option<crate::auth::Caller<'a>>, Error> {
-    if crate::auth::signature::is_signed(uri.query()) {
-        auth.authenticate_signed(method, uri, headers, clock)
-            .map_err(|failure| {
-                use crate::auth::signature::Failure;
-                let (status, code, message) = match failure {
-                    Failure::Malformed => (
-                        StatusCode::BAD_REQUEST,
-                        "InvalidAuthentication",
-                        "Invalid V2/V4 signing parameters; use exactly one signing version (for example, GoogleAccessId, Expires=1793090000 and Signature for V2).",
-                    ),
-                    Failure::UnknownSigner => (
-                        StatusCode::FORBIDDEN,
-                        "InvalidAccessKeyId",
-                        "The signing identity or RSA public key is unknown; register GoogleAccessId and its RSA public_keys in the identity file (for example, local-admin@example.invalid). HMAC/GOOG1 keys are unsupported.",
-                    ),
-                    Failure::Mismatch => (
-                        StatusCode::FORBIDDEN,
-                        "SignatureDoesNotMatch",
-                        "The request signature does not match.",
-                    ),
-                    Failure::Expired => (
-                        StatusCode::BAD_REQUEST,
-                        "ExpiredToken",
-                        "The signed URL has expired.",
-                    ),
-                    Failure::NotYetValid => (
+    authenticate_target(
+        auth,
+        catalog,
+        method,
+        uri,
+        headers,
+        clock,
+        &crate::auth::signature::Resource::PathStyle,
+    )
+    .await
+}
+
+pub(crate) async fn authenticate_target<'a>(
+    auth: &'a crate::auth::Auth,
+    catalog: &crate::storage::Catalog,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    clock: &dyn crate::clock::Clock,
+    resource: &crate::auth::signature::Resource,
+) -> Result<Option<crate::auth::Caller<'a>>, Error> {
+    if crate::auth::signature::is_signed(uri.query()) || crate::auth::signature::has_header(headers)
+    {
+        auth.authenticate_xml_resource(catalog, method, uri, headers, clock, resource)
+            .await
+            .map_err(|error| {
+                if crate::auth::signature::has_header(headers)
+                    && !headers.get("authorization").is_some_and(|value| {
+                        value.as_bytes().starts_with(b"GOOG4")
+                            || value.as_bytes().starts_with(b"AWS4")
+                    })
+                    && matches!(
+                        error,
+                        crate::auth::signature::VerificationError::Signature(
+                            crate::auth::signature::Failure::Expired
+                                | crate::auth::signature::Failure::NotYetValid
+                        )
+                    )
+                {
+                    Error::new(
                         StatusCode::FORBIDDEN,
                         "RequestTimeTooSkewed",
-                        "The signed URL is not yet usable.",
-                    ),
-                };
-                Error::new(status, code, message)
+                        "The legacy signature timestamp is outside the allowed time window.",
+                    )
+                } else {
+                    signature_error(error)
+                }
             })
     } else {
-        auth.authenticate(headers, uri.query())
+        auth.authenticate_at(headers, uri.query(), clock)
             .map_err(|e| Error::from(JsonError::from(e)))
     }
+}
+
+fn signature_error(failure: crate::auth::signature::VerificationError) -> Error {
+    use crate::auth::signature::{Failure, VerificationError};
+    let failure = match failure {
+        VerificationError::Signature(failure) => failure,
+        VerificationError::Catalog(error) => return Error::from(JsonError::from(error)),
+        VerificationError::Worker(_) => {
+            return Error::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "ServiceUnavailable",
+                "The signature verifier is unavailable.",
+            );
+        }
+    };
+    let (status, code, message) = match failure {
+        Failure::Malformed => (
+            StatusCode::BAD_REQUEST,
+            "InvalidAuthentication",
+            "Invalid V2/V4 signing parameters; use exactly one signing version (for example, GoogleAccessId, Expires=1793090000 and Signature for V2).",
+        ),
+        Failure::UnknownSigner => (
+            StatusCode::FORBIDDEN,
+            "InvalidAccessKeyId",
+            "The signing key or its registered identity is unknown or inactive.",
+        ),
+        Failure::Mismatch => (
+            StatusCode::FORBIDDEN,
+            "SignatureDoesNotMatch",
+            "The request signature does not match.",
+        ),
+        Failure::Expired => (
+            StatusCode::BAD_REQUEST,
+            "ExpiredToken",
+            "The request signature has expired.",
+        ),
+        Failure::NotYetValid => (
+            StatusCode::FORBIDDEN,
+            "RequestTimeTooSkewed",
+            "The request signature is not yet usable.",
+        ),
+    };
+    Error::new(status, code, message)
+}
+
+#[cfg(test)]
+pub(crate) async fn authenticate_upload<'a>(
+    auth: &'a crate::auth::Auth,
+    catalog: &crate::storage::Catalog,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    clock: &dyn crate::clock::Clock,
+) -> Result<
+    (
+        Option<crate::auth::Caller<'a>>,
+        Option<crate::auth::signature::Streaming>,
+    ),
+    Error,
+> {
+    authenticate_upload_target(
+        auth,
+        catalog,
+        method,
+        uri,
+        headers,
+        clock,
+        &crate::auth::signature::Resource::PathStyle,
+    )
+    .await
+}
+
+pub(crate) async fn authenticate_upload_target<'a>(
+    auth: &'a crate::auth::Auth,
+    catalog: &crate::storage::Catalog,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    clock: &dyn crate::clock::Clock,
+    resource: &crate::auth::signature::Resource,
+) -> Result<
+    (
+        Option<crate::auth::Caller<'a>>,
+        Option<crate::auth::signature::Streaming>,
+    ),
+    Error,
+> {
+    if headers
+        .get("x-amz-content-sha256")
+        .is_some_and(|value| value == crate::auth::signature::STREAMING_PAYLOAD)
+    {
+        let (caller, streaming) = auth
+            .authenticate_streaming(catalog, method, uri, headers, clock)
+            .await
+            .map_err(signature_error)?;
+        Ok((Some(caller), Some(streaming)))
+    } else {
+        authenticate_target(auth, catalog, method, uri, headers, clock, resource)
+            .await
+            .map(|caller| (caller, None))
+    }
+}
+
+pub(crate) fn normalize_legacy_headers(headers: &mut HeaderMap) -> Result<(), Error> {
+    if !crate::auth::signature::legacy_aws(headers) {
+        return Ok(());
+    }
+    let mut replacements = Vec::new();
+    for name in headers
+        .keys()
+        .filter(|name| name.as_str().starts_with("x-amz-"))
+    {
+        let suffix = &name.as_str()[6..];
+        if suffix == "date" || suffix == "project-id" || suffix.starts_with("meta-") {
+            let target = HeaderName::from_bytes(format!("x-goog-{suffix}").as_bytes())
+                .map_err(|_| Error::unsupported(name.as_str()))?;
+            if headers.contains_key(&target) {
+                return Err(Error::new(
+                    StatusCode::BAD_REQUEST,
+                    "InvalidArgument",
+                    "Ambiguous legacy extension headers.",
+                ));
+            }
+            replacements.push((
+                name.clone(),
+                target,
+                headers.get_all(name).iter().cloned().collect::<Vec<_>>(),
+            ));
+        }
+    }
+    for (raw, target, values) in replacements {
+        headers.remove(raw);
+        for value in values {
+            headers.append(target.clone(), value);
+        }
+    }
+    Ok(())
 }
 
 pub(crate) struct ReadRequest {
@@ -156,6 +315,9 @@ impl From<JsonError> for Error {
             StatusCode::FORBIDDEN if error.reason == "retentionPolicyNotMet" => {
                 "RetentionPolicyNotMet"
             }
+            StatusCode::FORBIDDEN if error.reason == "objectUnderActiveHold" => {
+                "ObjectUnderActiveHold"
+            }
             StatusCode::FORBIDDEN => "AccessDenied",
             StatusCode::NOT_FOUND if error.message == "Bucket not found" => "NoSuchBucket",
             StatusCode::NOT_FOUND => "NoSuchKey",
@@ -216,11 +378,14 @@ pub(crate) fn bucket_for_authority(host: &str, domains: &[String]) -> Option<Str
     None
 }
 
-fn legacy_public_authority(config: &Config) -> Option<&hyper::http::uri::Authority> {
+fn legacy_public_authority<'a>(
+    config: &Config,
+    endpoints: &'a EndpointSnapshot,
+) -> Option<&'a hyper::http::uri::Authority> {
     if config.compat_profile != crate::config::CompatProfile::LegacyEmulator {
         return None;
     }
-    config
+    endpoints
         .public_base_url
         .as_ref()
         .map(crate::url::PublicOrigin::authority)
@@ -250,11 +415,11 @@ fn public_authority_matches(request: &str, public: &str) -> bool {
 fn legacy_virtual_bucket(
     authority: &hyper::http::uri::Authority,
     public: &hyper::http::uri::Authority,
-    config: &Config,
+    endpoints: &EndpointSnapshot,
 ) -> (Option<String>, bool) {
     let host = authority.host().to_ascii_lowercase();
     let host = host.strip_suffix('.').unwrap_or(&host);
-    let domain = config.xml_virtual_host_domains.iter().find(|domain| {
+    let domain = endpoints.xml_virtual_host_domains.iter().find(|domain| {
         host == domain.as_str()
             || host
                 .strip_suffix(domain.as_str())
@@ -275,7 +440,7 @@ fn legacy_virtual_bucket(
         (bucket, true)
     } else {
         (
-            bucket_for_authority(authority.as_str(), &config.xml_virtual_host_domains),
+            bucket_for_authority(authority.as_str(), &endpoints.xml_virtual_host_domains),
             false,
         )
     }
@@ -288,18 +453,40 @@ pub(crate) struct ObjectPath {
 }
 
 impl ObjectPath {
+    pub(crate) fn signature_resource(&self) -> crate::auth::signature::Resource {
+        if self.name_start == 1 {
+            crate::auth::signature::Resource::VirtualHosted(self.bucket.clone())
+        } else {
+            crate::auth::signature::Resource::PathStyle
+        }
+    }
     pub(crate) fn name(&self) -> &str {
         &self.uri.path()[self.name_start..]
     }
 }
 
 /// Preserve the raw object path and reuse one routing decision for CORS and dispatch.
+#[cfg(test)]
 pub(crate) fn select_object(
     uri: &Uri,
     headers: &HeaderMap,
     config: &Config,
 ) -> Result<Option<ObjectPath>, Error> {
-    let public = legacy_public_authority(config);
+    let endpoints = EndpointSnapshot {
+        api_base_url: config.effective_api_base_url(config.listen),
+        public_base_url: config.public_base_url.clone(),
+        xml_virtual_host_domains: config.xml_virtual_host_domains.clone(),
+    };
+    select_object_with_endpoints(uri, headers, config, &endpoints)
+}
+
+pub(crate) fn select_object_with_endpoints(
+    uri: &Uri,
+    headers: &HeaderMap,
+    config: &Config,
+    endpoints: &EndpointSnapshot,
+) -> Result<Option<ObjectPath>, Error> {
+    let public = legacy_public_authority(config, endpoints);
     let legacy_authority = if public.is_some() {
         Some(request_authority(headers).ok_or_else(|| {
             Error::new(
@@ -312,16 +499,17 @@ pub(crate) fn select_object(
         None
     };
     let (virtual_bucket, public_domain) = match (&legacy_authority, public) {
-        (Some(authority), Some(public)) => legacy_virtual_bucket(authority, public, config),
+        (Some(authority), Some(public)) => legacy_virtual_bucket(authority, public, endpoints),
         _ => (
-            virtual_bucket(headers, &config.xml_virtual_host_domains),
+            virtual_bucket(headers, &endpoints.xml_virtual_host_domains),
             false,
         ),
     };
     if let Some(authority) = uri.authority()
         && (public.is_some()
             || virtual_bucket.is_some()
-            || bucket_for_authority(authority.as_str(), &config.xml_virtual_host_domains).is_some())
+            || bucket_for_authority(authority.as_str(), &endpoints.xml_virtual_host_domains)
+                .is_some())
     {
         let mut hosts = headers.get_all("host").iter();
         if !hosts
@@ -361,7 +549,7 @@ pub(crate) fn select_object(
         }
         _ => {
             let (bucket, name) = path.split_once('/').unwrap_or((path, ""));
-            (bucket.to_owned(), name)
+            (json::decode(bucket, json::Decoding::Path)?, name)
         }
     };
     if public.is_none()
@@ -381,6 +569,7 @@ pub(crate) fn route(
     method: &Method,
     config: &Config,
     selected: Option<ObjectPath>,
+    headers: &HeaderMap,
 ) -> Option<Result<ReadRequest, Error>> {
     let ObjectPath {
         bucket,
@@ -390,6 +579,38 @@ pub(crate) fn route(
     let name = &uri.path()[name_start..];
     Some((|| {
         json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
+        let mut query =
+            crate::auth::signature::xml_query(uri.query().unwrap_or_default(), headers)?;
+        let v2 = query
+            .keys()
+            .any(|key| crate::auth::signature::V2_PARAMETERS.contains(&key.as_str()));
+        if v2 && (query.contains_key("generation") || (name.is_empty() && name_start == 1)) {
+            return Err(Error::unsupported(
+                "V2 generation selection or virtual-host bucket query; use V4 signing",
+            ));
+        }
+        if multipart::matches(&uri) {
+            let name = json::decode(name, json::Decoding::Path)?;
+            if !name.is_empty() {
+                json::validate_object_name(&name)?;
+            }
+            return Ok(ReadRequest {
+                bucket,
+                name,
+                generation: None,
+                conditions: ObjectConditions::default(),
+                response_overrides: HeaderMap::new(),
+            });
+        }
+        if *method == Method::GET && name.is_empty() {
+            return Ok(ReadRequest {
+                bucket,
+                name: String::new(),
+                generation: None,
+                conditions: ObjectConditions::default(),
+                response_overrides: HeaderMap::new(),
+            });
+        }
         if !matches!(
             *method,
             Method::GET | Method::HEAD | Method::PUT | Method::DELETE
@@ -401,15 +622,6 @@ pub(crate) fn route(
         }
         let name = json::decode(name, json::Decoding::Path)?;
         json::validate_object_name(&name)?;
-        let mut query = json::parse_query(uri.query().unwrap_or_default())?;
-        let v2 = query
-            .keys()
-            .any(|key| crate::auth::signature::V2_PARAMETERS.contains(&key.as_str()));
-        if v2 && (name_start == 1 || *method == Method::HEAD || query.contains_key("generation")) {
-            return Err(Error::unsupported(
-                "V2 virtual-host, HEAD or generation selection; use path-style GET/PUT /BUCKET/OBJECT",
-            ));
-        }
         if *method == Method::PUT
             && let Some(key) = query.keys().find(|key| !signing_parameter(key))
         {
@@ -419,7 +631,7 @@ pub(crate) fn route(
             .remove("generation")
             .map(|value| number(&value, MinValue::One))
             .transpose()?;
-        if *method == Method::DELETE && !query.is_empty() {
+        if *method == Method::DELETE && query.keys().any(|key| !signing_parameter(key)) {
             return Err(Error::unsupported(
                 "DELETE options; use DELETE /BUCKET/OBJECT with only an optional generation",
             ));
@@ -465,6 +677,7 @@ pub(crate) fn route(
 
 fn signing_parameter(key: &str) -> bool {
     crate::auth::signature::PARAMETERS.contains(&key)
+        || crate::auth::signature::AWS_PARAMETERS.contains(&key)
         || crate::auth::signature::V2_PARAMETERS.contains(&key)
 }
 
@@ -495,23 +708,19 @@ fn number(raw: &str, min: MinValue) -> Result<i64, Error> {
 }
 
 pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<(), Error> {
-    if let Some(hash) = headers.get("x-goog-content-sha256") {
-        if headers.get_all("x-goog-content-sha256").iter().count() != 1 {
-            return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "ExcessHeaderValues",
-                "Expected a single content hash.",
-            ));
-        }
-        if hash != "UNSIGNED-PAYLOAD"
-            && hash != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        {
-            return Err(Error::new(
-                StatusCode::BAD_REQUEST,
-                "BadDigest",
-                "The content hash does not match the empty read body.",
-            ));
-        }
+    if let Some(hash) = crate::auth::signature::payload_hash(headers).map_err(|_| {
+        Error::new(
+            StatusCode::BAD_REQUEST,
+            "InvalidDigest",
+            "Invalid SHA256 declaration.",
+        )
+    })? && hash.as_slice() != ring::digest::digest(&ring::digest::SHA256, b"").as_ref()
+    {
+        return Err(Error::new(
+            StatusCode::BAD_REQUEST,
+            "BadDigest",
+            "The content hash does not match the empty read body.",
+        ));
     }
     let mut tokens = headers.get_all("x-goog-gcs-idempotency-token").iter();
     if let Some(token) = tokens.next() {
@@ -537,6 +746,7 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
         // Customer-supplied key headers are parsed by the GET/HEAD and DELETE callers.
         if (key.starts_with("x-goog-")
             && !crate::csek::is_key_header(key, crate::csek::DESTINATION_PREFIX)
+            && !crate::auth::signature::authentication_header(key)
             && !matches!(
                 key,
                 "x-goog-if-generation-match"
@@ -545,6 +755,7 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
                     | "x-goog-gcs-idempotency-token"
                     | "x-goog-content-sha256"
             ))
+            || (key.starts_with("x-amz-") && !crate::auth::signature::authentication_header(key))
             || matches!(
                 key,
                 "if-match"
@@ -590,14 +801,37 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
             )?);
         }
     }
-    if headers.contains_key("transfer-encoding")
-        || headers.get("content-length").is_some_and(|v| v != "0")
-    {
-        return Err(Error::new(
+    Ok(())
+}
+
+pub(crate) async fn empty_body<B>(mut body: B) -> Result<(), Error>
+where
+    B: hyper::body::Body<Data = Bytes> + Unpin,
+{
+    let unexpected = || {
+        Error::new(
             StatusCode::BAD_REQUEST,
             "UnexpectedContent",
-            "This method requires an empty body.",
-        ));
+            "This operation requires an empty body.",
+        )
+    };
+    if body.size_hint().lower() > 0 {
+        return Err(unexpected());
+    }
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|_| {
+            Error::new(
+                StatusCode::BAD_REQUEST,
+                "InvalidArgument",
+                "Could not read request body.",
+            )
+        })?;
+        let data = frame
+            .into_data()
+            .map_err(|_| Error::unsupported("request trailers"))?;
+        if !data.is_empty() {
+            return Err(unexpected());
+        }
     }
     Ok(())
 }
@@ -610,25 +844,41 @@ pub(crate) enum CacheScope {
     Private,
 }
 
+fn object_etag(record: &ObjectRecord) -> String {
+    // MD5 ETags apply only to objects without customer-supplied encryption.
+    if !record.has_md5() || record.customer_key_sha256.is_some() {
+        json::object_etag(record)
+    } else {
+        format!("\"{}\"", crate::hashing::encode_lower(&record.md5))
+    }
+}
+
+fn element(body: &mut String, name: &str, value: &str) {
+    body.push('<');
+    body.push_str(name);
+    body.push('>');
+    for ch in value.chars() {
+        match ch {
+            '&' => body.push_str("&amp;"),
+            '<' => body.push_str("&lt;"),
+            '>' => body.push_str("&gt;"),
+            '"' => body.push_str("&quot;"),
+            '\'' => body.push_str("&apos;"),
+            _ => body.push(ch),
+        }
+    }
+    body.push_str("</");
+    body.push_str(name);
+    body.push('>');
+}
+
 pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<HeaderMap, Error> {
     let mut headers = json::object_media_headers(record)?;
     let cache = record.cache_control.as_deref().unwrap_or(match scope {
         CacheScope::Public => "public, max-age=3600",
         CacheScope::Private => "private, max-age=0",
     });
-    // MD5 ETags apply only to objects without customer-supplied encryption.
-    let etag = if record.component_count.is_some() || record.customer_key_sha256.is_some() {
-        json::object_etag(record)
-    } else {
-        format!(
-            "\"{}\"",
-            record
-                .md5
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>()
-        )
-    };
+    let etag = object_etag(record);
     let timestamp = json::timestamp(record.updated)?;
     let invalid_timestamp = || {
         Error::new(

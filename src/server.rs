@@ -54,12 +54,18 @@ impl State {
 
 pub(crate) const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
+mod batch;
 mod buckets;
 mod context;
+mod ingress;
 mod objects;
 mod routing;
+mod transport;
+#[cfg(unix)]
+pub mod unix;
 mod xml_read;
 pub(crate) use context::{DeadlineWatch, ObjectCtx, RequestCtx};
+pub(crate) use ingress::RequestBody;
 
 #[cfg(test)]
 tokio::task_local! { static FORCE_LISTENER_ERROR: bool; }
@@ -89,8 +95,9 @@ fn report_connection_task_failure(error: &tokio::task::JoinError) {
 }
 
 mod acl;
+mod admin;
 pub(crate) mod chunk_body;
-mod copy;
+pub(crate) mod copy;
 mod gzip;
 mod notifications;
 mod project_resources;
@@ -126,10 +133,14 @@ fn has_body(request: &Request<Incoming>) -> bool {
 }
 
 impl DeadlineReply {
-    fn new(request: &Request<Incoming>, config: &Config) -> Self {
+    fn new(
+        request: &Request<Incoming>,
+        config: &Config,
+        endpoints: &crate::config::EndpointSnapshot,
+    ) -> Self {
         let headers = request.headers();
         let xml = matches!(
-            xml::select_object(request.uri(), headers, config),
+            xml::select_object_with_endpoints(request.uri(), headers, config, endpoints),
             Ok(Some(_))
         );
         let upload_route = request.uri().path().starts_with("/upload/")
@@ -337,15 +348,55 @@ pub(crate) async fn serve_with_tls_and_drain(
 }
 
 pub async fn serve_with_grpc_and_drain(
-    mut listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
+    listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
     grpc: Option<TcpListener>,
     config: impl Into<Arc<Config>>,
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
     background_drain: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
+    serve_transports(
+        listeners
+            .into_iter()
+            .map(|(listener, tls)| (transport::Listener::Tcp(listener), tls))
+            .collect(),
+        grpc,
+        config.into(),
+        state,
+        shutdown,
+        background_drain,
+    )
+    .await
+}
+
+#[cfg(unix)]
+pub async fn serve_with_unix_and_drain(
+    listener: unix::Listener,
+    config: impl Into<Arc<Config>>,
+    state: Arc<State>,
+    shutdown: impl Future<Output = io::Result<()>>,
+    background_drain: impl Future<Output = io::Result<()>>,
+) -> io::Result<()> {
+    serve_transports(
+        vec![(transport::Listener::Unix(listener), None)],
+        None,
+        config.into(),
+        state,
+        shutdown,
+        background_drain,
+    )
+    .await
+}
+
+async fn serve_transports(
+    mut listeners: Vec<(transport::Listener, Option<tokio_rustls::TlsAcceptor>)>,
+    grpc: Option<TcpListener>,
+    config: Arc<Config>,
+    state: Arc<State>,
+    shutdown: impl Future<Output = io::Result<()>>,
+    background_drain: impl Future<Output = io::Result<()>>,
+) -> io::Result<()> {
     // Connections and requests share one configuration instead of cloning it per request.
-    let config: Arc<Config> = config.into();
     if listeners.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -354,7 +405,7 @@ pub async fn serve_with_grpc_and_drain(
     }
     let grpc_index = grpc.as_ref().map(|_| listeners.len());
     if let Some(listener) = grpc {
-        listeners.push((listener, None));
+        listeners.push((transport::Listener::Tcp(listener), None));
     }
     let (stop, _) = watch::channel(false);
     // True while every connection slot is taken, so idle keep-alive connections
@@ -381,7 +432,7 @@ pub async fn serve_with_grpc_and_drain(
                 for offset in 0..listeners.len() {
                     let index = (next_listener + offset) % listeners.len();
                     if let std::task::Poll::Ready(result) = listeners[index].0.poll_accept(cx) {
-                        return std::task::Poll::Ready(result.map(|(stream, _)| (index, stream)));
+                        return std::task::Poll::Ready(result.map(|stream| (index, stream)));
                     }
                 }
                 std::task::Poll::Pending
@@ -392,30 +443,18 @@ pub async fn serve_with_grpc_and_drain(
                 };
                 next_listener = (index + 1) % listeners.len();
                 let state = state.clone();
-                let mut stopping = stop.subscribe();
+                let stopping = stop.subscribe();
                 let saturated = full.subscribe();
                 let config = config.clone();
                 let acceptor = listeners[index].1.clone();
                 let connection = async move {
-                    if grpc_index == Some(index) {
-                        crate::grpc::serve_connection(stream, &config, state, stopping).await;
-                    } else if let Some(acceptor) = acceptor {
-                        let handshake = tokio::time::timeout(
-                            Duration::from_millis(config.tls_handshake_timeout_ms),
-                            acceptor.accept(stream),
-                        );
-                        let stream = tokio::select! {
-                            biased;
-                            _ = stopping.changed() => return,
-                            result = handshake => match result {
-                                Ok(Ok(stream)) => stream,
-                                Ok(Err(_)) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_failed", serde_json::json!({"message":"TLS handshake failed; check client protocol and trust configuration"})); return; }
-                                Err(_) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"})); return; }
-                            }
-                        };
-                        serve_connection(stream, state, config, stopping, saturated).await;
-                    } else {
-                        serve_connection(stream, state, config, stopping, saturated).await;
+                    match stream {
+                        transport::Stream::Tcp(stream) if grpc_index == Some(index) => {
+                            crate::grpc::serve_connection(stream, &config, state, stopping).await;
+                        }
+                        transport::Stream::Tcp(stream) => serve_http(stream, acceptor, state, config, stopping, saturated).await,
+                        #[cfg(unix)]
+                        transport::Stream::Unix(stream) => serve_http(stream, None, state, config, stopping, saturated).await,
                     }
                 };
                 connections.spawn(with_test_hooks(connection));
@@ -429,7 +468,11 @@ pub async fn serve_with_grpc_and_drain(
         serde_json::json!({}),
     );
     state.ready.store(false, Ordering::Release);
-    drop(listeners);
+    let mut listener_result = Ok(());
+    for (listener, _) in listeners {
+        listener_result =
+            crate::diagnostics::combine_shutdown_results(listener_result, listener.close().await);
+    }
     stop.send_replace(true);
     let drain_result = drain_connections(
         &mut connections,
@@ -439,11 +482,42 @@ pub async fn serve_with_grpc_and_drain(
     let background_result = background_drain.await;
     crate::diagnostics::combine_shutdown_results(
         crate::diagnostics::combine_shutdown_results(
-            signal_result.and(drain_result),
+            crate::diagnostics::combine_shutdown_results(
+                signal_result.and(drain_result),
+                listener_result,
+            ),
             background_result,
         ),
         state.catalog.close().await.map_err(io::Error::other),
     )
+}
+
+async fn serve_http(
+    stream: impl AsyncRead + AsyncWrite + Unpin,
+    acceptor: Option<tokio_rustls::TlsAcceptor>,
+    state: Arc<State>,
+    config: Arc<Config>,
+    mut stopping: watch::Receiver<bool>,
+    saturated: watch::Receiver<bool>,
+) {
+    if let Some(acceptor) = acceptor {
+        let handshake = tokio::time::timeout(
+            Duration::from_millis(config.tls_handshake_timeout_ms),
+            acceptor.accept(stream),
+        );
+        let stream = tokio::select! {
+            biased;
+            _ = stopping.changed() => return,
+            result = handshake => match result {
+                Ok(Ok(stream)) => stream,
+                Ok(Err(_)) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_failed", serde_json::json!({"message":"TLS handshake failed; check client protocol and trust configuration"})); return; }
+                Err(_) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"})); return; }
+            }
+        };
+        serve_connection(stream, state, config, stopping, saturated).await;
+    } else {
+        serve_connection(stream, state, config, stopping, saturated).await;
+    }
 }
 
 /// Task-locals do not cross spawn, so test hooks are carried into the connection task.
@@ -628,18 +702,36 @@ impl ConnectionService {
             activity: activity.clone(),
             reads,
         };
-        let expiry = DeadlineReply::new(&request, &config);
         let sent_body = has_body(&request);
+        let endpoints = match config
+            .runtime_endpoints
+            .snapshot(&config, &state.api_base_url)
+        {
+            Ok(endpoints) => endpoints,
+            Err(_) => {
+                return Ok(boxed(
+                    JsonError::new(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "backendError",
+                        "Runtime endpoint state is unavailable; restart the emulator",
+                    )
+                    .into_response(),
+                )
+                .map(|body| finished.track(body)));
+            }
+        };
+        let expiry = DeadlineReply::new(&request, &config, &endpoints);
         let ctx = RequestCtx {
             state: &state,
             config: &config,
+            endpoints: &endpoints,
             activity: &activity,
         };
         // Dropping the handler cancels its work exactly as closing the
         // connection did, so an unfinished upload is still never published.
         let mut response = tokio::select! {
             biased;
-            response = routing::respond(request, ctx) => response,
+            response = routing::respond(request.map(RequestBody::Transport), ctx) => response,
             _ = expired.wait_for(|expired| *expired) => expiry.response(),
         };
         // Handlers stop reading a body early only to reject it, and hyper then
@@ -869,7 +961,7 @@ fn object_body(
 }
 
 async fn validate_bodyless_post(
-    request: Request<Incoming>,
+    request: Request<RequestBody>,
     expected: &std::collections::BTreeMap<String, String>,
 ) -> Result<(), JsonError> {
     // Ruby's generated client repeats URL query parameters in form-encoded POST bodies.
@@ -902,7 +994,7 @@ async fn validate_bodyless_post(
 }
 
 pub(crate) async fn stream_upload(
-    mut body: Incoming,
+    mut body: RequestBody,
     sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
     max_bytes: u64,
     activity: &watch::Sender<ObjectActivity>,
@@ -1057,9 +1149,12 @@ fn insert_unsatisfied_content_range(headers: &mut hyper::HeaderMap, size: u64) {
     }
 }
 
-fn probe_or_unknown(request: &Request<Incoming>, state: &State) -> Response<Full<Bytes>> {
+fn probe_or_unknown(request: &Request<RequestBody>, state: &State) -> Response<Full<Bytes>> {
     let path = request.uri().path();
-    let internal = matches!(path, "/_internal/health" | "/_internal/ready");
+    let internal = matches!(
+        path,
+        "/_internal/health" | "/_internal/ready" | "/_internal/healthcheck"
+    );
     let (status, body) = if !internal {
         (
             StatusCode::NOT_FOUND,
@@ -1080,7 +1175,7 @@ fn probe_or_unknown(request: &Request<Incoming>, state: &State) -> Response<Full
             StatusCode::PAYLOAD_TOO_LARGE,
             "{\"error\":\"probe bodies are not supported\"}".to_owned(),
         )
-    } else if path == "/_internal/ready" && !state.is_ready() {
+    } else if matches!(path, "/_internal/ready" | "/_internal/healthcheck") && !state.is_ready() {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             "{\"status\":\"not ready\"}".to_owned(),

@@ -105,6 +105,19 @@ pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonErro
     Ok(boundary)
 }
 
+pub(crate) fn batch_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
+    let mut values = headers.get_all("content-type").iter();
+    let value = values.next().ok_or_else(invalid)?;
+    if values.next().is_some() {
+        return Err(invalid());
+    }
+    let (mime, params) = content_type(value.to_str().map_err(|_| invalid())?)?;
+    if mime != "multipart/mixed" || params.iter().any(|(key, _)| key != "boundary") {
+        return Err(invalid());
+    }
+    boundary(&params)
+}
+
 /// XML POST Object forms use the same RFC 2046 boundary grammar as multipart/related.
 pub(crate) fn form_data_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
     let value = headers

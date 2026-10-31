@@ -18,11 +18,21 @@ impl ObjectMetadataRequest {
         let resource = super::object_resource(record, base, super::Projection::Full)
             .map_err(ObjectError::backend)?;
         for (key, value) in unchanged {
+            // The Java SDK uses generation:null for an unspecified generation.
+            if key == "generation" && value.is_null() {
+                continue;
+            }
             let same_integer = matches!(key.as_str(), "generation" | "metageneration" | "size")
                 && value.as_u64().is_some_and(|number| {
                     resource[key].as_str() == Some(number.to_string().as_str())
                 });
-            if resource.get(key) != Some(value) && !same_integer {
+            let same_owner = key == "owner"
+                && record
+                    .owner
+                    .as_ref()
+                    .and_then(|owner| owner.entity())
+                    .is_some_and(|entity| *value == serde_json::json!({"entity":entity}));
+            if resource.get(key) != Some(value) && !same_integer && !same_owner {
                 return Err(ObjectError::UnsupportedMetadata(key.clone()));
             }
         }

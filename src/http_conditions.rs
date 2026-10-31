@@ -10,10 +10,16 @@ pub(crate) enum EtagError {
 
 /// Returns true for a cache hit; the caller must first authorize and select a representation.
 pub(crate) fn etag_not_modified(headers: &HeaderMap, etag: &str) -> Result<bool, EtagError> {
+    require_etag_match(headers, etag)?;
+    Ok(matches_field(headers, "if-none-match", etag, Comparison::Weak)? == Some(true))
+}
+
+/// Call inside the mutation transaction when a write uses the selected representation.
+pub(crate) fn require_etag_match(headers: &HeaderMap, etag: &str) -> Result<(), EtagError> {
     if matches_field(headers, "if-match", etag, Comparison::Strong)? == Some(false) {
         return Err(EtagError::PreconditionFailed);
     }
-    Ok(matches_field(headers, "if-none-match", etag, Comparison::Weak)? == Some(true))
+    Ok(())
 }
 
 /// RFC 9110 comparison: If-Match uses strong comparison, If-None-Match weak comparison.

@@ -1,6 +1,7 @@
 //! JSON API bucket operations: one handler per operation after shared authorization and
 //! request validation.
 
+use super::RequestBody as Incoming;
 use super::{
     BUCKET_BODY_LIMIT, QueryPrecondition, State, acl, authorize_bucket, authorize_project,
     empty_response, json_response, read_metadata_response, validate_bodyless_post,
@@ -12,16 +13,14 @@ use crate::{
     json::{self, BucketRequest, JsonError, WriteMode},
 };
 use http_body_util::Full;
-use hyper::{
-    Request, Response, StatusCode,
-    body::{Bytes, Incoming},
-};
+use hyper::{Request, Response, StatusCode, body::Bytes};
 use serde_json::Value;
 
 /// What every bucket operation needs besides its request.
 #[derive(Clone, Copy)]
 struct BucketCtx<'a> {
     state: &'a State,
+    base_url: &'a str,
     caller: Option<Caller<'a>>,
     profile: CompatProfile,
 }
@@ -32,9 +31,11 @@ pub(super) async fn respond<'a>(
     caller: Option<Caller<'a>>,
     state: &'a State,
     profile: CompatProfile,
+    base_url: &'a str,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let ctx = BucketCtx {
         state,
+        base_url,
         caller,
         profile,
     };
@@ -71,7 +72,7 @@ pub(super) async fn respond<'a>(
         }
     };
     if acl_full {
-        acl::add_full_projection(state, caller, &mut value).await?;
+        acl::add_full_projection(state, caller, &mut value, base_url).await?;
     }
     fields.apply(&mut value);
     Ok(json_response(&value))
@@ -193,12 +194,7 @@ async fn lock_retention_policy(
             access,
         )
         .await?;
-    json::bucket_resource_with_profile(
-        &record,
-        &ctx.state.api_base_url,
-        json::Projection::NoAcl,
-        ctx.profile,
-    )
+    json::bucket_resource_with_profile(&record, ctx.base_url, json::Projection::NoAcl, ctx.profile)
 }
 
 async fn test_iam_permissions(
@@ -214,7 +210,16 @@ async fn test_iam_permissions(
     let mut granted = Vec::new();
     for permission in permissions {
         match authorize_bucket(ctx.state, ctx.caller, &permission, bucket).await {
-            Ok(_) => granted.push(permission),
+            Ok(access)
+                if ctx
+                    .state
+                    .catalog
+                    .has_bucket_permission(bucket, &access)
+                    .await? =>
+            {
+                granted.push(permission)
+            }
+            Ok(_) => {}
             Err(error) if error.status == StatusCode::FORBIDDEN => {}
             Err(error) => return Err(error),
         }
@@ -278,7 +283,7 @@ async fn write(
         }
     }
     .map_err(|error| bucket_catalog_error(error, profile, None))?;
-    json::bucket_resource_with_profile(&record, &state.api_base_url, params.projection, profile)
+    json::bucket_resource_with_profile(&record, ctx.base_url, params.projection, profile)
 }
 
 async fn get_iam(
@@ -350,7 +355,7 @@ async fn insert(
         .insert_bucket(record)
         .await
         .map_err(|error| bucket_catalog_error(error, profile, Some(&name)))?;
-    json::bucket_resource_with_profile(&record, &state.api_base_url, params.projection, profile)
+    json::bucket_resource_with_profile(&record, ctx.base_url, params.projection, profile)
 }
 
 async fn get(
@@ -365,6 +370,7 @@ async fn get(
         state,
         caller,
         profile,
+        ..
     } = ctx;
     let record = state
         .catalog
@@ -389,14 +395,10 @@ async fn get(
     {
         return Ok(empty_response(StatusCode::NOT_MODIFIED));
     }
-    let mut resource = json::bucket_resource_with_profile(
-        &record,
-        &state.api_base_url,
-        params.projection,
-        profile,
-    )?;
+    let mut resource =
+        json::bucket_resource_with_profile(&record, ctx.base_url, params.projection, profile)?;
     if params.projection == json::Projection::Full {
-        acl::add_full_projection(state, caller, &mut resource).await?;
+        acl::add_full_projection(state, caller, &mut resource, ctx.base_url).await?;
     }
     read_metadata_response(
         request.headers(),
@@ -431,7 +433,7 @@ async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Value, Jso
     json::bucket_list_with_profile(
         &page.items,
         token.as_deref(),
-        &ctx.state.api_base_url,
+        ctx.base_url,
         params.projection,
         ctx.profile,
     )

@@ -17,8 +17,13 @@ enforced. No dependency, schema, storage transaction or XML route changed.
 
 The shared parser/comparison lives in `src/http_conditions.rs`; JSON maps its
 outcomes to responses. It can be reused by a later XML slice without importing
-JSON errors. `objects.list`, `buckets.list` and mutations reject
-these headers with 501 rather than accepting ignored conditions.
+JSON errors. `objects.list`, `buckets.list` and unrelated mutations reject
+these headers rather than accepting ignored conditions. The later
+[metadata If-Match extension](json-metadata-if-match.md) supports only object
+metadata PUT/PATCH and POST PATCH override, using the same strong comparison
+inside the immediate mutation transaction. It is SDK-backed local compatibility;
+the GET contract does not establish Google write parity. Current unsupported
+JSON inputs return 400 `badRequest`; the historical execution below used 501.
 Collection responses have no etag; ACL GET routes do not exist. JSON date
 validators, XML conditions and HEAD are outside this documented GET subset.
 
@@ -130,8 +135,9 @@ invalidates it. Authorization and missing-policy errors precede comparison.
 Google's policy resource documents an HTTP entity tag but does not establish
 this response-header spelling; provider confirmation remains SPEC-JSON-ETAG-WIRE.
 IAM GET now follows other supported GETs for stray date/If-Range headers: alone
-they return 501; If-Modified-Since is ignored with If-None-Match and
-If-Unmodified-Since is ignored with If-Match. Non-GET/list behavior is unchanged.
+they reject explicitly; If-Modified-Since is ignored with If-None-Match and
+If-Unmodified-Since is ignored with If-Match. The later metadata extension
+rejects standalone date/If-Range conditions while preserving that precedence.
 
 304 carries ETag, Cache-Control and Hyper's Date, with no content or trailers,
 Content-Type, Content-Length, Content-Encoding or Content-Range. Metadata uses
@@ -175,7 +181,7 @@ questions or excluded implementation, not skipped tests counted as success.
 | ETAG-READ-EMPTY-PUBLIC | Empty media, empty unsatisfiable range overridden by 304, and stored public Cache-Control on 304 | `etag::json_etag_read_selected_generation_zero_byte_and_public_cache` | PASS |
 | ETAG-READ-PERMISSIONS | Anonymous and creator-only strict requests fail before successful, failed or malformed ETag evaluation | `etag::json_etag_read_authorization_precedes_validators` | PASS |
 | ETAG-READ-SNAPSHOT | Conditional open response retains original ETag, generation, metageneration and bytes through metadata update and overwrite | `etag::json_etag_read_metadata_update_and_overwrite_pin_open_reader` | PASS |
-| ETAG-READ-REJECTIONS | ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data | `etag::json_etag_read_unsupported_lists_dates_and_writes`; `obj_http_bad_hashes_and_unsupported_requests_never_publish`; `json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected` | PASS |
+| ETAG-READ-REJECTIONS | Lists and unrelated writes reject ETag conditions; metadata PUT/PATCH If-Match is the explicit local extension. Standalone dates/If-Range and unsupported conditions still fail without mutation. | `etag::json_etag_read_unsupported_lists_dates_and_writes`; `obj_http_bad_hashes_and_unsupported_requests_never_publish`; `json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected` | PASS |
 | ETAG-READ-FIELDS | Bucket/object fields=name retains the complete-resource HTTP ETag; matching cache validator returns bodyless 304 and failed If-Match returns an unfiltered 412 error | `fields_http::fields_read_etag_validators_use_the_complete_resource` | PASS |
 | ETAG-READ-FIELDS-ORDER | Malformed fields returns 400 before failing If-Match or matching If-None-Match; parameter validation precedes condition evaluation | `fields_http::fields_invalid_selection_precedes_read_etag_evaluation` | PASS |
 | ETAG-READ-DATE-PRECEDENCE | If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads; stray date/If-Range headers retain existing ignored behavior on writes and lists | `etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior`; `etag::json_etag_read_if_match_overrides_if_unmodified_since` | PASS |
@@ -186,19 +192,21 @@ questions or excluded implementation, not skipped tests counted as success.
 
 ## Explicit exclusions and gaps
 
-- All write-side ETag conditions remain 501; GET-only Google header support does
-  not authorize silently implementing an unsafe mutation condition.
-- Collection validators remain 501 pending a collection contract. Discovery
+- Write-side ETag conditions remain rejected outside the explicit atomic
+  [metadata If-Match subset](json-metadata-if-match.md). That local SDK extension
+  retains provider-write parity as unverified under SPEC-METADATA-IF-MATCH.
+- Collection validators remain rejected pending a collection contract. Discovery
   lacks collection etag fields; generated SDK list-call IfNoneMatch helpers
   alone do not establish actual Google behavior.
 - ACL resource validators, XML, gRPC and HEAD are outside this slice.
   Existing JSON HEAD routing still rejects the method. XML validators retain
   their existing rejection and no XML route calls the new shared evaluator.
-- If-Range remains excluded under SPEC-RANGE-VALIDATORS and returns 501 on
+- If-Range remains excluded under SPEC-RANGE-VALIDATORS and rejects on
   supported GETs, including requests without Range. JSON date validators return
-  501 on those reads, except If-Modified-Since is ignored when If-None-Match is
+  errors on those reads, except If-Modified-Since is ignored when If-None-Match is
   present and If-Unmodified-Since is ignored when If-Match is present, as RFC 9110 requires.
-  Non-GET and list routes preserve their existing ignored date/If-Range behavior.
+  Lists and unrelated routes retain their existing behavior; metadata writes
+  reject standalone date/If-Range conditions through their explicit extension.
 - Two bucket incarnations created in the same millisecond with equal revisions
   can share the record-derived HTTP tag; this slice does not add an incarnation allocator.
 - For gzip-stored media with an ETag request header, Accept-Encoding validation

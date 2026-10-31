@@ -5,6 +5,7 @@ mod derived;
 mod read;
 mod upload;
 
+use super::RequestBody as Incoming;
 use super::{
     BUCKET_BODY_LIMIT, ObjectCtx, ResponseBody, acl, boxed, empty_response, json_response,
     resumable, retention_access, validate_bodyless_post,
@@ -14,18 +15,11 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     json::{self, JsonError, ObjectRequest},
     object::{ObjectError, retention::UnlockedOverride},
-    storage::{MoveAccess, ObjectSelector},
+    storage::{MoveAccess, ObjectSelector, UploadAclSnapshot},
 };
-use hyper::{HeaderMap, Request, Response, StatusCode, Uri, body::Incoming};
+use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
 use serde_json::Value;
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, OnceLock},
-};
-
-/// The ACL entries an upload replay recorded with its first response; the catalog sets them
-/// once the first attempt publishes.
-type UploadAclSnapshot = Arc<OnceLock<Option<Vec<crate::acl::AclEntry>>>>;
+use std::collections::BTreeMap;
 
 /// A written object's resource and, for a replayed upload, the ACL it recorded.
 struct Written {
@@ -203,11 +197,13 @@ async fn reject_predefined_acl(
 
 /// Header and body checks that precede every operation's own validation.
 fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<(), JsonError> {
-    let etags = match operation {
-        ObjectRequest::Get { .. } => json::EtagConditions::Supported,
-        _ => json::EtagConditions::Unsupported,
-    };
-    json::validate_read_condition_headers(headers, etags)?;
+    if !matches!(operation, ObjectRequest::Get { .. }) {
+        let etags = match operation {
+            ObjectRequest::Update { .. } => json::EtagConditions::MatchOnly,
+            _ => json::EtagConditions::Unsupported,
+        };
+        json::validate_read_condition_headers(headers, etags)?;
+    }
     let accepts_body = matches!(
         operation,
         ObjectRequest::Insert { .. }
@@ -237,9 +233,10 @@ async fn add_acl(
     snapshot: Option<UploadAclSnapshot>,
 ) -> Result<(), JsonError> {
     let Some(snapshot) = snapshot else {
-        return acl::add_full_projection(ctx.state, ctx.caller, value).await;
+        return acl::add_full_projection(ctx.state, ctx.caller, value, &ctx.endpoints.api_base_url)
+            .await;
     };
-    if let Some(entries) = snapshot.get().ok_or_else(|| {
+    if let Some(snapshot) = snapshot.get().ok_or_else(|| {
         JsonError::from(ObjectError::Unavailable(
             "Missing upload replay snapshot".into(),
         ))
@@ -247,8 +244,26 @@ async fn add_acl(
         let bucket = value["bucket"]
             .as_str()
             .ok_or_else(|| JsonError::from(ObjectError::InvalidMetadata))?;
-        if acl::may_read(ctx.state, ctx.caller, crate::acl::AclKind::Object, bucket).await? {
-            json::acl::add_object_acl_fields(value, &ctx.state.api_base_url, entries);
+        if !snapshot.matches_resource(
+            bucket,
+            value["name"].as_str(),
+            value["generation"]
+                .as_str()
+                .and_then(|generation| generation.parse::<i64>().ok()),
+        ) {
+            return Err(JsonError::from(ObjectError::InvalidMetadata));
+        }
+        let access = ctx.authorize(auth::OBJECTS_GET_IAM, bucket).await?;
+        if let Some(snapshot) = ctx
+            .state
+            .catalog
+            .object_acl_snapshot(snapshot.clone(), &access)
+            .await?
+        {
+            json::acl::add_object_acl_fields(value, &ctx.endpoints.api_base_url, &snapshot.entries);
+            if let Some(entity) = snapshot.owner.as_ref().and_then(|owner| owner.entity()) {
+                value["owner"] = serde_json::json!({"entity":entity});
+            }
         }
     }
     Ok(())
@@ -289,7 +304,7 @@ async fn restore(
             &create_access,
         )
         .await?;
-    json::object_resource(&record, &ctx.state.api_base_url, target.projection)
+    json::object_resource(&record, &ctx.endpoints.api_base_url, target.projection)
 }
 
 async fn move_object(
@@ -326,7 +341,7 @@ async fn move_object(
             },
         )
         .await?;
-    json::object_resource(&record, &ctx.state.api_base_url, params.projection)
+    json::object_resource(&record, &ctx.endpoints.api_base_url, params.projection)
 }
 
 async fn list(
@@ -346,7 +361,7 @@ async fn list(
     {
         log_empty_soft_deleted_listing(ctx, access, params, &page).await;
     }
-    json::object_list(&page, params, &ctx.state.api_base_url)
+    json::object_list(&page, params, &ctx.endpoints.api_base_url)
 }
 
 /// Explains an empty soft-deleted listing in debug logs. Diagnostic reads must not change the
@@ -410,6 +425,7 @@ async fn update(
         &[crate::csek::DESTINATION_PREFIX],
     )?;
     let key = json::request_key(request.headers())?;
+    let etags = request.headers().clone();
     // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
     let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
     let mut update = json::parse_object_metadata_mutation(&bytes, mode)?;
@@ -421,7 +437,7 @@ async fn update(
         retention_override,
     )
     .await?;
-    let base = ctx.state.api_base_url.clone();
+    let base = ctx.endpoints.api_base_url.clone();
     let record = ctx
         .state
         .catalog
@@ -437,10 +453,21 @@ async fn update(
                 // A wrong key fails before the metadata change commits.
                 crate::csek::check_metadata(record.customer_key_sha256, key)
                     .map_err(ObjectError::CustomerEncryption)?;
+                crate::http_conditions::require_etag_match(&etags, &json::object_etag(record))
+                    .map_err(|error| match error {
+                        crate::http_conditions::EtagError::Invalid => {
+                            ObjectError::InvalidFixedMetadata(
+                                "Invalid If-Match precondition".into(),
+                            )
+                        }
+                        crate::http_conditions::EtagError::PreconditionFailed => {
+                            ObjectError::PreconditionFailed
+                        }
+                    })?;
                 json::ObjectMetadataRequest::validate_unchanged(&update.unchanged, record, &base)
             },
             access,
         )
         .await?;
-    json::object_resource_keyed(&record, &ctx.state.api_base_url, params.projection, key)
+    json::object_resource_keyed(&record, &ctx.endpoints.api_base_url, params.projection, key)
 }

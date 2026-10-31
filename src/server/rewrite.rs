@@ -1,6 +1,8 @@
+use super::RequestBody as Incoming;
 use super::*;
 use crate::{
     json::rewrite::{RewriteRequest, RewriteSide},
+    object::ObjectConditions,
     storage::{
         DerivedDestination,
         rewrite::{RewriteBinding, RewriteError, RewriteStart},
@@ -22,6 +24,44 @@ fn error(error: RewriteError) -> JsonError {
     }
 }
 
+async fn authorize_source(
+    catalog: &Catalog,
+    operation: &RewriteRequest,
+    access: &BucketAccess,
+) -> Result<(), JsonError> {
+    if catalog
+        .has_bucket_permission(&operation.path[0], access)
+        .await?
+    {
+        return Ok(());
+    }
+    let requested = operation.number("sourceGeneration");
+    let generation = if let Some(token) = &operation.token {
+        match catalog.rewrite_session(token).await {
+            Ok(session)
+                if session.binding.source_bucket == operation.path[0]
+                    && session.binding.source_object == operation.path[1] =>
+            {
+                Some(session.binding.source_generation)
+            }
+            Ok(_) | Err(RewriteError::Invalid | RewriteError::Gone) => requested,
+            Err(failure) => return Err(error(failure)),
+        }
+    } else {
+        requested
+    };
+    catalog
+        .get_object_authorized(
+            &operation.path[0],
+            &operation.path[1],
+            generation,
+            ObjectConditions::default(),
+            access,
+        )
+        .await?;
+    Ok(())
+}
+
 pub(super) async fn respond(
     request: Request<Incoming>,
     operation: RewriteRequest,
@@ -34,6 +74,7 @@ pub(super) async fn respond(
         ..
     } = ctx;
     let source_access = ctx.authorize(auth::OBJECTS_GET, &operation.path[0]).await?;
+    authorize_source(&state.catalog, &operation, &source_access).await?;
     let destination_access = ctx
         .authorize(auth::OBJECTS_CREATE, &operation.path[2])
         .await?;
@@ -101,7 +142,7 @@ pub(super) async fn respond(
             job,
             state.catalog.clone(),
             config.max_object_bytes,
-            state.api_base_url.clone(),
+            ctx.endpoints.api_base_url.clone(),
         ),
     )
     .await;

@@ -399,6 +399,12 @@ fn obj_range_http_strict_authorization_precedes_range_evaluation() {
     );
     assert_eq!(reply.status, 206);
     assert_eq!(reply.body, b"789");
+    server
+        .get(
+            "",
+            "Authorization: Bearer local-viewer-token\r\nRange: bytes=0-1\r\nIf-Range: opaque\r\n",
+        )
+        .error(400, "badRequest");
     server.stop();
 }
 

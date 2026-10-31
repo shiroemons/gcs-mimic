@@ -1,6 +1,7 @@
 //! JSON API simple (media) and multipart object uploads.
 
 use super::{Written, idempotency_token};
+use crate::server::RequestBody as Incoming;
 use crate::{
     bucket::BucketAccess,
     csek::CustomerKey,
@@ -12,7 +13,7 @@ use crate::{
 use http_body_util::BodyExt;
 use hyper::{
     HeaderMap, Request,
-    body::{Body, Bytes, Incoming},
+    body::{Body, Bytes},
 };
 use std::{future::Future, io};
 use tokio::sync::mpsc;
@@ -110,7 +111,7 @@ pub(super) async fn insert(
     Ok(Written {
         value: json::object_resource_keyed(
             &record,
-            &ctx.state.api_base_url,
+            &ctx.endpoints.api_base_url,
             params.projection,
             key,
         )?,
@@ -207,7 +208,7 @@ pub(super) async fn multipart(
     Ok(Written {
         value: json::object_resource_keyed(
             &record,
-            &ctx.state.api_base_url,
+            &ctx.endpoints.api_base_url,
             params.projection,
             key,
         )?,
