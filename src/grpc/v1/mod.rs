@@ -77,7 +77,8 @@ pub(crate) fn known_method(path: &str) -> bool {
 fn object_error(error: ObjectError) -> Status {
     from_json(error.into())
 }
-/// Object reads and updates defer their ACL decision to the catalog, past `access`.
+/// The catalog can deny after `access` (deferred object ACLs, overwrite, holds, compose sources);
+/// anonymous callers then still get JSON's credentials-required mapping.
 fn object_access_error(error: ObjectError, caller: Option<Caller<'_>>) -> Status {
     crate::grpc::v2::status::anonymous(object_error(error), caller)
 }
@@ -610,7 +611,7 @@ impl pb::storage_server::Storage for Storage {
                 &access,
             )
             .await
-            .map_err(object_error)?;
+            .map_err(|error| object_access_error(error, caller))?;
         Ok(Response::new(()))
     }
 
@@ -783,7 +784,7 @@ impl pb::storage_server::Storage for Storage {
                 self.max_object_bytes,
             )
             .await
-            .map_err(object_error)?;
+            .map_err(|error| object_access_error(error, caller))?;
         Ok(Response::new(convert::object(&record)?))
     }
 
@@ -795,5 +796,6 @@ impl pb::storage_server::Storage for Storage {
         self.upload(request.into_inner(), caller)
             .await
             .map(Response::new)
+            .map_err(|status| crate::grpc::v2::status::anonymous(status, caller))
     }
 }

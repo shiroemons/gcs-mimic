@@ -510,8 +510,9 @@ impl Storage {
                     .await
                     .map(|_| ())
             };
+            // Terminal stream errors bypass the RPC wrapper's anonymous mapping.
             if let Err(error) = result {
-                let _ = tx.send(Err(error)).await;
+                let _ = tx.send(Err(super::status::anonymous(error, caller))).await;
             }
         });
         Ok(Response::new(Box::pin(ReceiverStream::new(rx))))

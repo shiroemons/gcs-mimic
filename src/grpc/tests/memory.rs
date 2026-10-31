@@ -812,3 +812,151 @@ async fn strict_anonymous_object_denials_ask_for_credentials_on_both_grpc_versio
     assert_eq!(unchanged[0].content_type, "text/plain");
     state.catalog.close().await.unwrap();
 }
+
+fn bidi_write(name: &str, content: &'static [u8]) -> pb::BidiWriteObjectRequest {
+    pb::BidiWriteObjectRequest {
+        first_message: Some(
+            pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec(name)),
+        ),
+        finish_write: true,
+        data: Some(pb::bidi_write_object_request::Data::ChecksummedData(
+            pb::ChecksummedData {
+                content: Bytes::from_static(content),
+                crc32c: Some(crc32c::crc32c(content)),
+            },
+        )),
+        ..Default::default()
+    }
+}
+
+/// Denials decided while publishing (overwrite without delete, private compose sources) arrive
+/// after admission and, for BidiWriteObject, inside the response stream.
+#[tokio::test]
+async fn strict_anonymous_publication_denials_ask_for_credentials_on_both_grpc_versions() {
+    let state = state(1024 * 1024).await;
+    let mut service = v2::service(state.clone(), 1024 * 1024);
+    for name in ["existing", "private-source"] {
+        let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
+            &mut service,
+            "WriteObject",
+            Some("admin"),
+            &[write(name, b"admin")],
+        )
+        .await;
+        assert_eq!(code, Code::Ok);
+    }
+    state
+        .catalog
+        .set_policy(
+            "memory-grpc",
+            crate::auth::Policy {
+                bindings: vec![crate::auth::Binding {
+                    role: "roles/storage.objectCreator".into(),
+                    members: vec!["allUsers".into()],
+                }],
+                etag: None,
+            },
+            &crate::bucket::BucketAccess::Permissive,
+        )
+        .await
+        .unwrap();
+    // Public creation is admitted, so the mapping must not hide a granted write.
+    let (code, _): (_, Vec<pb::BidiWriteObjectResponse>) = call(
+        &mut service,
+        "BidiWriteObject",
+        None,
+        &[bidi_write("anonymous-new", b"public")],
+    )
+    .await;
+    assert_eq!(code, Code::Ok);
+    let (code, _): (_, Vec<pb::BidiWriteObjectResponse>) = call(
+        &mut service,
+        "BidiWriteObject",
+        None,
+        &[bidi_write("existing", b"overwrite")],
+    )
+    .await;
+    assert_eq!(code, Code::Unauthenticated);
+    let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
+        &mut service,
+        "WriteObject",
+        None,
+        &[write("existing", b"overwrite")],
+    )
+    .await;
+    assert_eq!(code, Code::Unauthenticated);
+    let mut legacy = v1::service(
+        state.clone(),
+        8192,
+        crate::config::CompatProfile::LegacyEmulator,
+    );
+    let insert = v1::pb::InsertObjectRequest {
+        first_message: Some(
+            v1::pb::insert_object_request::FirstMessage::InsertObjectSpec(
+                v1::pb::InsertObjectSpec {
+                    resource: Some(v1::pb::Object {
+                        bucket: "memory-grpc".into(),
+                        name: "existing".into(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ),
+        data: Some(v1::pb::insert_object_request::Data::ChecksummedData(
+            v1::pb::ChecksummedData {
+                content: Bytes::from_static(b"overwrite"),
+                crc32c: Some(crc32c::crc32c(b"overwrite")),
+            },
+        )),
+        finish_write: true,
+        ..Default::default()
+    };
+    let (code, _): (_, Vec<v1::pb::Object>) = rpc(
+        &mut legacy,
+        "/google.storage.v1.Storage/InsertObject",
+        None,
+        &[insert],
+    )
+    .await;
+    assert_eq!(code, Code::Unauthenticated);
+    let (code, _): (_, Vec<v1::pb::Object>) = rpc(
+        &mut legacy,
+        "/google.storage.v1.Storage/ComposeObject",
+        None,
+        &[v1::pb::ComposeObjectRequest {
+            destination_bucket: "memory-grpc".into(),
+            destination_object: "anonymous-composite".into(),
+            source_objects: vec![v1::pb::compose_object_request::SourceObjects {
+                name: "private-source".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+    )
+    .await;
+    assert_eq!(code, Code::Unauthenticated);
+    // A registered principal keeps PermissionDenied for the same publication denial.
+    let (code, _): (_, Vec<pb::BidiWriteObjectResponse>) = call(
+        &mut service,
+        "BidiWriteObject",
+        Some("reader"),
+        &[bidi_write("existing", b"overwrite")],
+    )
+    .await;
+    assert_eq!(code, Code::PermissionDenied);
+    assert_eq!(read(&mut service, "existing").await, b"admin");
+    let (code, _): (_, Vec<pb::Object>) = call(
+        &mut service,
+        "GetObject",
+        Some("admin"),
+        &[pb::GetObjectRequest {
+            bucket: BUCKET.into(),
+            object: "anonymous-composite".into(),
+            ..Default::default()
+        }],
+    )
+    .await;
+    assert_eq!(code, Code::NotFound);
+    state.catalog.close().await.unwrap();
+}
