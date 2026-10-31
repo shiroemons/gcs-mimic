@@ -13,41 +13,134 @@ type Platforms = BTreeSet<String>;
 /// that names the shipped architectures must agree with it.
 const AUTHORITY: &str = ".github/workflows/ghcr.yaml";
 
+/// How a source names the shipped set.
+enum Kind {
+    /// A workflow matrix: each `platform:` entry names one platform and the entries are merged.
+    /// Fails closed: any other non-comment line mentioning `linux/` is an error, so a spelling
+    /// the line selector does not understand cannot hide a platform.
+    Matrix,
+    /// Selected lines each name the full set and must agree.
+    Lines,
+}
+
 /// One repository file that names the shipped architectures, and which of its lines count.
 struct Source {
     path: &'static str,
+    kind: Kind,
+    /// Restricts a workflow to one job: from this key until the next job key.
+    job: Option<&'static str>,
     selects: fn(&str) -> bool,
 }
 
 const SOURCES: &[Source] = &[
     Source {
         path: AUTHORITY,
-        selects: |line| {
-            line.trim_start_matches("- ")
-                .starts_with("platform: linux/")
-        },
+        kind: Kind::Matrix,
+        job: None,
+        selects: |line| platform_value(line).is_some(),
     },
     Source {
         path: ".github/workflows/ci.yaml",
-        selects: |line| {
-            line.trim_start_matches("- ")
-                .starts_with("platform: linux/")
-        },
+        kind: Kind::Matrix,
+        job: Some("containers"),
+        selects: |line| platform_value(line).is_some(),
     },
     Source {
         path: "Justfile",
+        kind: Kind::Lines,
+        job: None,
         selects: |line| line.starts_with("check-containers:"),
     },
     Source {
         path: "scripts/smoke-containers.sh",
-        // The default platform list and the accepted-platform case pattern.
-        selects: |line| line.contains("set -- linux/") || line.trim_start().starts_with("linux/"),
+        kind: Kind::Lines,
+        job: None,
+        // The usage text, the default platform list and the accepted-platform case pattern.
+        selects: |line| {
+            line.contains("Usage:") || line.contains("set -- linux/") || line.starts_with("linux/")
+        },
     },
     Source {
         path: "scripts/container-mirror.sh",
+        kind: Kind::Lines,
+        job: None,
         selects: |line| line.contains("keys == [\"linux/"),
     },
 ];
+
+/// The value of a `platform:` key on a line, in block or flow form, quotes removed. Empty values
+/// (the job named `platform`) yield `None`.
+fn platform_value(line: &str) -> Option<&str> {
+    let mut from = 0;
+    while let Some(at) = line[from..].find("platform:") {
+        let start = from + at;
+        from = start + "platform:".len();
+        let boundary = line[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| c.is_whitespace() || matches!(c, '{' | ',' | '-'));
+        if !boundary {
+            continue;
+        }
+        let value = line[from..]
+            .split([',', '}'])
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .trim_matches(['"', '\'']);
+        if !value.is_empty() {
+            return Some(value);
+        }
+    }
+    None
+}
+
+/// Drops a trailing comment (`#` at line start or after whitespace) and surrounding whitespace.
+fn strip_comment(line: &str) -> &str {
+    let cut = line
+        .char_indices()
+        .find(|&(i, c)| {
+            c == '#'
+                && line[..i]
+                    .chars()
+                    .next_back()
+                    .is_none_or(char::is_whitespace)
+        })
+        .map_or(line.len(), |(i, _)| i);
+    line[..cut].trim()
+}
+
+/// Comment-free, trimmed lines with backslash continuations joined into one logical line.
+fn logical_lines(contents: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut pending = String::new();
+    for raw in contents.lines() {
+        let line = strip_comment(raw);
+        if let Some(head) = line.strip_suffix('\\') {
+            pending.push_str(head.trim_end());
+            pending.push(' ');
+        } else {
+            pending.push_str(line);
+            lines.push(std::mem::take(&mut pending));
+        }
+    }
+    if !pending.is_empty() {
+        lines.push(pending);
+    }
+    lines
+}
+
+/// The lines of one job body, found by its two-space-indented key.
+fn job_lines<'a>(contents: &'a str, job: &str) -> Result<Vec<&'a str>> {
+    let key = format!("  {job}:");
+    let mut lines = contents.lines().skip_while(|l| l.trim_end() != key);
+    lines.next().ok_or_else(|| format!("job {job} not found"))?;
+    Ok(lines
+        .take_while(|l| {
+            !(l.starts_with("  ") && !l.starts_with("   ") && l.trim_end().ends_with(':'))
+        })
+        .collect())
+}
 
 /// Every `linux/<arch>[/<variant>]` token on a line.
 fn line_platforms(line: &str) -> Platforms {
@@ -62,36 +155,48 @@ fn line_platforms(line: &str) -> Platforms {
         .collect()
 }
 
-/// The platform set of each selected line of a source. Each line must stand for the full
-/// shipped set on its own, except matrix entries, which each name one platform and are merged.
+/// The platform set a source names.
 fn source_platforms(source: &Source, contents: &str) -> Result<Platforms> {
-    let matrix = source.path.ends_with(".yaml");
+    let scoped = match source.job {
+        Some(job) => job_lines(contents, job)?.join("\n"),
+        None => contents.to_owned(),
+    };
     let mut merged = Platforms::new();
-    let mut lines = 0;
-    for line in contents
-        .lines()
-        .map(str::trim)
-        .filter(|l| (source.selects)(l))
-    {
-        let found = line_platforms(line);
-        if found.is_empty() {
+    let mut count = 0;
+    for line in logical_lines(&scoped) {
+        let selected = (source.selects)(&line);
+        if !selected {
+            if matches!(source.kind, Kind::Matrix) && line.contains("linux/") {
+                return Err(format!(
+                    "{}: unrecognised platform line `{line}`",
+                    source.path
+                ));
+            }
             continue;
         }
-        lines += 1;
-        if matrix {
-            merged.extend(found);
-        } else if lines == 1 {
-            merged = found;
-        } else if found != merged {
+        let found = line_platforms(&line);
+        if found.is_empty() {
             return Err(format!(
-                "{}: lines disagree about the shipped platforms ({}) vs ({})",
-                source.path,
-                join(&merged),
-                join(&found)
+                "{}: selected line names no linux/ platform: `{line}`",
+                source.path
             ));
         }
+        count += 1;
+        match source.kind {
+            Kind::Matrix => merged.extend(found),
+            Kind::Lines if count == 1 => merged = found,
+            Kind::Lines if found != merged => {
+                return Err(format!(
+                    "{}: lines disagree about the shipped platforms ({}) vs ({})",
+                    source.path,
+                    join(&merged),
+                    join(&found)
+                ));
+            }
+            Kind::Lines => {}
+        }
     }
-    if lines == 0 {
+    if count == 0 {
         return Err(format!("{}: no shipped platforms found", source.path));
     }
     Ok(merged)
@@ -243,12 +348,16 @@ mod tests {
     fn matrix_entries_merge_and_script_lines_must_agree() {
         let yaml = Source {
             path: "w.yaml",
+            kind: Kind::Matrix,
+            job: None,
             selects: SOURCES[0].selects,
         };
         let text = "include:\n  - runner: r\n    platform: linux/amd64\n  - platform: linux/arm64\n    architecture: arm64\n  platform:\n";
         assert_eq!(source_platforms(&yaml, text).unwrap(), set(BOTH));
         let script = Source {
             path: "s.sh",
+            kind: Kind::Lines,
+            job: None,
             selects: |l| l.contains("keys =="),
         };
         let agree = "keys == [\"linux/amd64\", \"linux/arm64\"]\nkeys == [\"linux/amd64\", \"linux/arm64\"]";
@@ -263,6 +372,51 @@ mod tests {
         assert_eq!(
             line_platforms("linux/arm/v7|linux/amd64)"),
             set(&["linux/arm/v7", "linux/amd64"])
+        );
+    }
+
+    fn matrix(text: &str) -> Result<Platforms> {
+        source_platforms(&SOURCES[0], text)
+    }
+
+    #[test]
+    fn matrix_spellings_are_all_understood() {
+        assert_eq!(
+            matrix("- platform: \"linux/riscv64\"").unwrap(),
+            set(&["linux/riscv64"])
+        );
+        assert_eq!(matrix("platform:  linux/x").unwrap(), set(&["linux/x"]));
+        assert_eq!(
+            matrix("- {runner: r, platform: linux/x}").unwrap(),
+            set(&["linux/x"])
+        );
+        assert_eq!(
+            matrix("  platform:\n    - platform: linux/a # linux/b later").unwrap(),
+            set(&["linux/a"])
+        );
+    }
+
+    #[test]
+    fn matrix_fails_closed() {
+        assert!(matrix("platform:\n").is_err());
+        assert!(matrix("- platform: amd64\n").is_err());
+        assert!(matrix("- platform: linux/a\n  other: linux/b\n").is_err());
+        assert_eq!(
+            matrix("# linux/b\n- platform: linux/a").unwrap(),
+            set(&["linux/a"])
+        );
+    }
+
+    #[test]
+    fn continuations_join_and_jobs_are_scoped() {
+        assert_eq!(
+            logical_lines("a: \\\n  linux/x\nb"),
+            vec!["a: linux/x", "b"]
+        );
+        let ci = "jobs:\n  other:\n    platform: linux/z\n  containers:\n    platform: linux/a\n  next:\n    platform: linux/y\n";
+        assert_eq!(
+            source_platforms(&SOURCES[1], ci).unwrap(),
+            set(&["linux/a"])
         );
     }
 }
