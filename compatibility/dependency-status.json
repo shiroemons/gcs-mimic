@@ -1,6 +1,6 @@
 {
   "checked_at_utc": "2026-10-31T01:14:16Z",
-  "scope": "The 2026-10-31 refresh adopts Composer 2.11.1 with PHP 8.5.12, records the approved quick-xml 0.42.0 addition for bounded XML parsing and promotes the already resolved httpdate 1.0.3 to a direct dependency for legacy signature dates. The httpdate edge adds no resolved package or version. The other Cargo, SDK and runtime graph is retained. All fifteen SDK manifests are covered by daily detection. Hyper client support reuses the existing runtime graph. This snapshot does not establish final combined SDK/container/browser success for the current source.",
+  "scope": "The 2026-10-31 refresh adopts Composer 2.11.1 with PHP 8.5.12, records the approved quick-xml 0.42.0 addition for bounded XML parsing and promotes the already resolved httpdate 1.0.3 to a direct dependency for legacy signature dates. The httpdate edge adds no resolved package or version. The other Cargo, SDK and runtime graph is retained. All eighteen SDK manifests are covered by daily detection. Hyper client support reuses the existing runtime graph. This snapshot does not establish final combined SDK/container/browser success for the current source.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
     "exit_code": 1,
@@ -184,7 +184,7 @@
       "resolution_constraints": "Already locked transitively with windows-link 0.2.1; direct use only on Windows, with console/threading features limited to tests. No additional package version is introduced."
     }
   ],
-  "lockfiles": ["Cargo.lock", "go/go.sum", "go/sourceexport/go.sum", "sdk-tests/rust/Cargo.lock", "sdk-tests/java/dependencies.lock", "sdk-tests/dotnet/packages.lock.json", "sdk-tests/testcontainers/node/package-lock.json", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock", "sdk-scorecard/node/package-lock.json", "sdk-scorecard/php/composer.lock", "sdk-scorecard/python/uv.lock", "sdk-tests/node/package-lock.json", "sdk-tests/php/composer.lock", "sdk-tests/python/uv.lock"],
+  "lockfiles": ["Cargo.lock", "go/go.sum", "go/sourceexport/go.sum", "sdk-tests/rust/Cargo.lock", "sdk-tests/java/dependencies.lock", "sdk-tests/dotnet/packages.lock.json", "sdk-scorecard/rust/Cargo.lock", "sdk-scorecard/java/dependencies.lock", "sdk-scorecard/dotnet/packages.lock.json", "sdk-tests/testcontainers/node/package-lock.json", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock", "sdk-scorecard/node/package-lock.json", "sdk-scorecard/php/composer.lock", "sdk-scorecard/python/uv.lock", "sdk-tests/node/package-lock.json", "sdk-tests/php/composer.lock", "sdk-tests/python/uv.lock"],
   "docker": {
     "status": "PINNED",
     "digests": [
@@ -330,6 +330,46 @@
         {"name": "Testcontainers", "current": "4.16.0", "license": "MIT", "nupkg_bytes": 1441518}
       ],
       "resolution_constraints": "Exact NuGet references, requested/resolved lock graph and content hashes; rollForward disabled. Daily checks discover semver2 registration resources, exclude unlisted/prerelease releases and compare the newest supported stable .NET SDK across channels. Compile/self-check evidence is separate from runtime acceptance."
+    },
+    {
+      "ecosystem": "cargo", "manifest": "sdk-scorecard/rust/Cargo.toml", "source_checked_at": "2026-10-31",
+      "toolchain": {"version": "1.99.1", "pin": "rust-toolchain.toml"},
+      "direct_dependencies": [
+        {"name": "bytes", "current": "1.12.1", "license": "MIT", "compressed_crate_bytes": 75667, "sha256": "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"},
+        {"name": "google-cloud-storage", "current": "1.21.0", "license": "Apache-2.0", "compressed_crate_bytes": 523750, "sha256": "8343454507711c984d4b367ccd79fe66284b63f7e90299c800e2d407e9bbe626"},
+        {"name": "google-cloud-auth", "current": "1.18.0", "license": "Apache-2.0", "compressed_crate_bytes": 185594, "sha256": "d563c7b987f40249c274a4e6a671661df6be2d084f08476dda2f0f931576cfcf"},
+        {"name": "google-cloud-gax", "current": "1.15.0", "license": "Apache-2.0", "compressed_crate_bytes": 84728, "sha256": "fc64ee071c0d22cb68662b454f1bea5424506cafeaddc51260fbc585bac1d29d"},
+        {"name": "google-cloud-iam-v1", "current": "1.13.0", "license": "Apache-2.0", "compressed_crate_bytes": 39982, "sha256": "48f0895fa7b7bd70629ae58daaa962677e93a72c251b2f297bc058a035940821"},
+        {"name": "google-cloud-wkt", "current": "1.10.0", "license": "Apache-2.0", "compressed_crate_bytes": 113289, "sha256": "75baa147c141fa2b11047827e7ff4eea3a84ab00c3d2cf44fccd132b2ed326cf"},
+        {"name": "reqwest", "current": "0.13.5", "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 160871, "sha256": "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"},
+        {"name": "serde_json", "current": "1.0.154", "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 158079, "sha256": "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"},
+        {"name": "tokio", "current": "1.54.1", "license": "MIT", "compressed_crate_bytes": 983384, "sha256": "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3"},
+        {"name": "url", "current": "2.5.8", "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 86512, "sha256": "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"}
+      ],
+      "resolution_constraints": "Development-only scorecard probe; standalone locked Cargo graph outside the application workspace. It runs in the digest-pinned Linux rust image because the SDK cannot trust the scorecard CA on macOS. Daily checks use actual locked offline Cargo metadata and verify every direct registry resolution; the gax, iam-v1, wkt and reqwest edges name crates already in the SDK graph."
+    },
+    {
+      "ecosystem": "maven", "manifest": "sdk-scorecard/java/pom.xml", "source_checked_at": "2026-10-31",
+      "toolchain": {"version": "27.0.1.0.2+1", "pin": "sdk-scorecard/java/.java-version"},
+      "maven_version": "3.10.0",
+      "direct_dependencies": [
+        {"name": "com.google.cloud:google-cloud-storage", "current": "2.76.0", "license": "Apache-2.0", "jar_bytes": 1536327},
+        {"name": "com.google.auth:google-auth-library-oauth2-http", "current": "1.55.0", "jar_bytes": 377507}
+      ],
+      "plugins": [
+        {"name": "org.apache.maven.plugins:maven-compiler-plugin", "current": "3.16.0"},
+        {"name": "org.codehaus.mojo:exec-maven-plugin", "current": "3.6.4"},
+        {"name": "org.apache.maven.plugins:maven-dependency-plugin", "current": "3.11.0"}
+      ],
+      "resolution_constraints": "Development-only scorecard probe; exact literal Maven pins, with dependencies.lock recording the independent graph and checked against the pins. google-auth-library-oauth2-http is the version the SDK already resolves and is named for offline RSA signing; its license is not recorded here because no local registry artifact states it. Daily checks cover packages, build plugins, Maven and the newest Temurin GA runtime."
+    },
+    {
+      "ecosystem": "nuget", "manifest": "sdk-scorecard/dotnet/Probe.csproj", "source_checked_at": "2026-10-31",
+      "toolchain": {"version": "10.0.403", "pin": "sdk-scorecard/dotnet/global.json"},
+      "direct_dependencies": [
+        {"name": "Google.Cloud.Storage.V1", "current": "5.0.0", "license": "Apache-2.0", "nupkg_bytes": 291825}
+      ],
+      "resolution_constraints": "Development-only scorecard probe; exact NuGet reference, requested/resolved lock graph and content hashes restored with --locked-mode; rollForward disabled. Daily checks discover semver2 registration resources, exclude unlisted/prerelease releases and compare the newest supported stable .NET SDK across channels."
     },
     {
       "ecosystem": "npm", "manifest": "sdk-tests/testcontainers/node/package.json", "source_checked_at": "2026-10-30",

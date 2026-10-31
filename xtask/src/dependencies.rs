@@ -1205,13 +1205,11 @@ pub fn check(root: &Path, scope: Scope) -> Result<bool> {
         return Err("expected the declared Go and Ruby SDK ecosystems".into());
     }
     missing_registry_manifests(&manifests)?;
-    for manifest in [
-        "go/go.mod",
-        "go/sourceexport/go.mod",
-        "sdk-tests/rust/Cargo.toml",
-        "sdk-tests/java/pom.xml",
-        "sdk-tests/dotnet/Scenario.csproj",
-    ] {
+    let client_manifests = clients::MANIFESTS.iter().map(|(_, manifest)| *manifest);
+    for manifest in ["go/go.mod", "go/sourceexport/go.mod"]
+        .into_iter()
+        .chain(client_manifests)
+    {
         if !manifests.contains(manifest) {
             return Err(format!("undeclared SDK manifest: {manifest}"));
         }

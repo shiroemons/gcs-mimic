@@ -135,6 +135,9 @@ fn every_extra_manifest_is_declared_in_the_canonical_snapshot() {
         "sdk-tests/java/pom.xml",
         "sdk-tests/dotnet/Scenario.csproj",
         "sdk-tests/testcontainers/node/package.json",
+        "sdk-scorecard/rust/Cargo.toml",
+        "sdk-scorecard/java/pom.xml",
+        "sdk-scorecard/dotnet/Probe.csproj",
     ] {
         let scopes = snapshot["sdk_ecosystems"].as_array().unwrap();
         assert_eq!(

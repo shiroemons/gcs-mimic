@@ -26,17 +26,38 @@ pub(super) fn snapshot_pins(scope: &Value, pins: &BTreeMap<String, String>) -> R
     Ok(())
 }
 
+/// Standalone client graphs: the official SDK suites and their scorecard probes keep separate
+/// manifests and lockfiles, so each one is checked even when the pins agree.
+pub(super) const MANIFESTS: &[(&str, &str)] = &[
+    ("cargo", "sdk-tests/rust/Cargo.toml"),
+    ("cargo", "sdk-scorecard/rust/Cargo.toml"),
+    ("maven", "sdk-tests/java/pom.xml"),
+    ("maven", "sdk-scorecard/java/pom.xml"),
+    ("nuget", "sdk-tests/dotnet/Scenario.csproj"),
+    ("nuget", "sdk-scorecard/dotnet/Probe.csproj"),
+];
+
 pub(super) fn check(root: &Path, scope: &Value) -> Result<bool> {
-    match (text(scope, "ecosystem")?, text(scope, "manifest")?) {
-        ("cargo", "sdk-tests/rust/Cargo.toml") => cargo(root, scope),
-        ("maven", "sdk-tests/java/pom.xml") => maven(root, scope),
-        ("nuget", "sdk-tests/dotnet/Scenario.csproj") => nuget(root, scope),
-        _ => Err("unsupported additional SDK manifest".into()),
+    let declared = (text(scope, "ecosystem")?, text(scope, "manifest")?);
+    if !MANIFESTS.contains(&declared) {
+        return Err("unsupported additional SDK manifest".into());
+    }
+    match declared.0 {
+        "cargo" => cargo(root, scope),
+        "maven" => maven(root, scope),
+        _ => nuget(root, scope),
     }
 }
 
 fn read(root: &Path, path: &str) -> Result<String> {
     std::fs::read_to_string(root.join(path)).map_err(|error| error.to_string())
+}
+
+/// Reads a lock or runtime pin that lives beside the scope's manifest.
+fn read_sibling(root: &Path, scope: &Value, name: &str) -> Result<String> {
+    let manifest = Path::new(text(scope, "manifest")?);
+    let dir = manifest.parent().ok_or("SDK manifest has no directory")?;
+    std::fs::read_to_string(root.join(dir).join(name)).map_err(|error| error.to_string())
 }
 
 fn cargo(root: &Path, scope: &Value) -> Result<bool> {
@@ -78,7 +99,7 @@ fn cargo(root: &Path, scope: &Value) -> Result<bool> {
         .as_array()
         .ok_or("missing SDK Cargo packages")?
         .iter()
-        .find(|package| package["name"] == "gcs-mimic-rust-sdk-scenarios")
+        .find(|package| package["id"] == metadata["resolve"]["root"])
         .ok_or("missing Rust SDK package")?;
     if package["dependencies"]
         .as_array()
@@ -193,7 +214,7 @@ fn maven(root: &Path, scope: &Value) -> Result<bool> {
         &serde_json::json!({"direct_dependencies":scope["plugins"]}),
         &plugins,
     )?;
-    let lock = read(root, "sdk-tests/java/dependencies.lock")?;
+    let lock = read_sibling(root, scope, "dependencies.lock")?;
     for (name, pin) in &packages {
         if !lock.contains(&format!("{name}:jar:{pin}:compile")) {
             return Err(format!("Maven dependency lock mismatch: {name}"));
@@ -212,7 +233,7 @@ fn maven(root: &Path, scope: &Value) -> Result<bool> {
         )?)?;
         drift |= compare(&format!("maven:{name}"), &pin, &latest);
     }
-    let maven = read(root, "sdk-tests/java/.maven-version")?;
+    let maven = read_sibling(root, scope, ".maven-version")?;
     if scope["maven_version"] != maven.trim() {
         return Err("Maven runtime snapshot mismatch".into());
     }
@@ -225,7 +246,7 @@ fn maven(root: &Path, scope: &Value) -> Result<bool> {
             false,
         )?)?,
     );
-    let java = read(root, "sdk-tests/java/.java-version")?;
+    let java = read_sibling(root, scope, ".java-version")?;
     if scope["toolchain"]["version"] != java.trim() {
         return Err("Java runtime snapshot mismatch".into());
     }
@@ -351,7 +372,7 @@ fn latest_nuget(
 fn nuget(root: &Path, scope: &Value) -> Result<bool> {
     let pins = nuget_pins(&read(root, text(scope, "manifest")?)?)?;
     snapshot_pins(scope, &pins)?;
-    let lock = json(&read(root, "sdk-tests/dotnet/packages.lock.json")?)?;
+    let lock = json(&read_sibling(root, scope, "packages.lock.json")?)?;
     let framework = element(&read(root, text(scope, "manifest")?)?, "TargetFramework")?;
     let entries = lock["dependencies"][&framework]
         .as_object()
@@ -392,7 +413,7 @@ fn nuget(root: &Path, scope: &Value) -> Result<bool> {
         let latest = latest_nuget(&source, base, &mut |url| fetch(url, &[], false))?;
         drift |= compare(&format!("nuget:{name}"), &pin, &latest);
     }
-    let global = json(&read(root, "sdk-tests/dotnet/global.json")?)?;
+    let global = json(&read_sibling(root, scope, "global.json")?)?;
     let pin = text(&global["sdk"], "version")?;
     if global["sdk"]["rollForward"] != "disable" || scope["toolchain"]["version"] != pin {
         return Err(".NET exact toolchain snapshot mismatch".into());

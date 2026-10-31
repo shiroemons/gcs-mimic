@@ -8,7 +8,7 @@ fn sdk_scopes_and_lockfiles_are_declared() {
     )
     .unwrap();
     let scopes = status["sdk_ecosystems"].as_array().unwrap();
-    assert_eq!(scopes.len(), 15);
+    assert_eq!(scopes.len(), 18);
     for (ecosystem, manifest, lockfile) in [
         ("go", "go/go.mod", "go/go.sum"),
         ("go", "go/sourceexport/go.mod", "go/sourceexport/go.sum"),
@@ -72,6 +72,21 @@ fn sdk_scopes_and_lockfiles_are_declared() {
             "pypi",
             "sdk-tests/python/pyproject.toml",
             "sdk-tests/python/uv.lock",
+        ),
+        (
+            "cargo",
+            "sdk-scorecard/rust/Cargo.toml",
+            "sdk-scorecard/rust/Cargo.lock",
+        ),
+        (
+            "maven",
+            "sdk-scorecard/java/pom.xml",
+            "sdk-scorecard/java/dependencies.lock",
+        ),
+        (
+            "nuget",
+            "sdk-scorecard/dotnet/Probe.csproj",
+            "sdk-scorecard/dotnet/packages.lock.json",
         ),
     ] {
         let scope = scopes
