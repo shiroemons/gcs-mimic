@@ -160,16 +160,24 @@ fn signed_chunks_transfer_binary_and_empty_objects_over_content_length_and_trans
             .map(|index| (index % 251) as u8)
             .collect::<Vec<_>>();
         for pieces in [None, Some(1), Some(65536), Some(usize::MAX)] {
+            // The server receives each HTTP chunk as its own frame, so one-byte framing costs
+            // per byte; a minimum 8 KiB chunk plus a final chunk still splits every chunk
+            // header, signature, payload and boundary across HTTP chunks.
+            let (object, split) = if pieces == Some(1) {
+                (&bytes[..8192 + 1000], 8192)
+            } else {
+                (&bytes[..], 65536)
+            };
             let signed = headers(
                 &key,
                 "/test-bucket/stream%252Fraw",
-                bytes.len() as u64,
+                object.len() as u64,
                 Some("aws-chunked"),
             );
-            let body = chain(&key, &signed, &[&bytes[..65536], &bytes[65536..]]);
+            let body = chain(&key, &signed, &[&object[..split], &object[split..]]);
             assert_eq!(send(&server, &signed, &body, pieces, false).status, 200);
             let reply = server.request("GET", "/test-bucket/stream%252Fraw", ADMIN, b"");
-            assert_eq!(reply.body, bytes);
+            assert_eq!(reply.body, object);
             assert!(!reply.headers.contains_key("content-encoding"));
         }
         for pieces in [None, Some(1)] {
