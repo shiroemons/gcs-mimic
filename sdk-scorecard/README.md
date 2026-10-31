@@ -204,15 +204,21 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
-The [2026-10-31 eight-SDK comparison](results/2026-10-31/summary.md) executes
-1,359 cases (453 per product) from clean source `b7975c3`. gcs-mimic scores
-**99.6**: Go **57/57**; Ruby, Node.js, PHP and Python each **51/51**; .NET
-**70/70** (1 n/a); Java **69/70**; Rust **46/47** (4 n/a). Its two failures are
-Java `sdk.grpc_basic_object` (`StorageException: Illegal embedded sign
-character`) and Rust `object.acl` (`ACL missing`). fake-gcs-server scores
-**39.8** and gcp-storage-emulator **37.7**; neither serves the gRPC API that
-the Rust SDK uses for bucket operations, so both record 0/47 for Rust. The
+The [final 2026-10-31 eight-SDK comparison](results/2026-10-31-2/summary.md)
+executes 1,359 cases (453 per product) from clean source `35de4e1`. gcs-mimic
+scores **100**: Go **57/57**; Ruby, Node.js, PHP and Python each **51/51**; Java
+and .NET each **70/70** (.NET 1 n/a); Rust **47/47** (4 n/a). fake-gcs-server
+scores **39.8** and gcp-storage-emulator **37.7**; neither serves the gRPC API
+that the Rust SDK uses for bucket operations, so both record 0/47 for Rust. The
 weights differ from the five-SDK runs below, so compare scores only within a run.
+
+The [first 2026-10-31 eight-SDK run](results/2026-10-31/summary.md) at
+`b7975c3` remains historical evidence: gcs-mimic scored **99.6** with two
+failures. Java `sdk.grpc_basic_object` (`StorageException: Illegal embedded
+sign character`) came from a gRPC `Bucket.project` that held the project ID
+instead of the project number, followed by rejected `checksums.*` read-mask
+paths. Rust `object.acl` (`ACL missing`) came from the probe reading without the
+`acl` read mask that the proto requires.
 
 The [final 2026-10-29 shared-HTTPS comparison](results/2026-10-29-5/summary.md)
 executes 783 cases from clean source `e7fb384`: gcs-mimic scores **100**, with
