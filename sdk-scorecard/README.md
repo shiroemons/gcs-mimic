@@ -2,8 +2,8 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-The scorecard measures workflows using the official Go, Ruby, Node.js, PHP and
-Python Cloud Storage SDKs against local emulators. Within each SDK, it runs the
+The scorecard measures workflows using the official Go, Ruby, Node.js, PHP, Python, Java, .NET and Rust
+Cloud Storage SDKs against local emulators. Within each SDK, it runs the
 same probes, inputs and pass criteria against gcs-mimic, fake-gcs-server and
 gcp-storage-emulator. Shared case IDs across SDKs do not establish identical
 inputs, assertions or endpoint adaptations. Cross-SDK equivalence is not yet
@@ -17,14 +17,28 @@ result for that workflow; it does not mean the underlying API method is
 
 ## Scoring
 
-A product that passes every case in all five SDKs scores 100.
+A product that passes every scored case in all eight SDKs scores 100.
 
-- Each SDK contributes 20 points.
-- Within an SDK, every case has equal weight: `20 × passed / total`.
-- Score = sum of the five SDK contributions, rounded to one decimal.
-- Historical two-SDK runs keep their original 50-point weights when rescored.
+- Each SDK contributes 12.5 points (100 divided by the number of SDKs in the run).
+- Within an SDK, every scored case has equal weight: `12.5 × passed / total`.
+- Score = sum of the SDK contributions, rounded to one decimal.
+- Historical runs keep their original weights when rescored: two SDKs 50
+  points each, five SDKs 20 points each.
 
-Only the Go probe exercises gRPC, so it has more cases than the other probes.
+The `bucket`, `object` and `signed` areas are the shared core, with identical
+IDs in every SDK. The `grpc` area (Go) and the `sdk` area (Java and .NET, IDs
+starting with `sdk.`) hold each SDK's own transports and idioms, so SDKs have
+different case counts. `summary.md` therefore reports two totals: `Score`
+counts every case, `Core` counts only the shared core and is the figure to
+compare across SDKs.
+
+A case marked `unsupported` (`"unsupported": true` in the JSONL, with a
+detail naming the reason) is an operation the SDK has no public API for. It is
+shown as `n/a` and excluded from that SDK's denominator, so it neither lowers
+nor raises any emulator's score. The marking comes from the probe, not the
+emulator, and the scorer rejects runs where products disagree on it. At least
+one scored case must remain per SDK.
+
 Equal weighting is a deliberate simplification: an ACL round trip counts as much
 as resumable upload. Read the per-area table in each `summary.md` alongside the
 total.
@@ -50,19 +64,25 @@ scorecard.
 
 ## Areas
 
-| Area | Go | Ruby | Node.js | PHP | Python | Scope |
-| --- | --- | --- | --- | --- | --- | --- |
-| bucket | 20 | 20 | 20 | 20 | 20 | Bucket CRUD/listing, labels, preconditions, versioning, lifecycle, CORS, retention and lock, UBLA, PAP, IAM, soft-delete policy, autoclass, ACL/default ACL, notifications, HMAC keys, service account |
-| object | 27 | 27 | 27 | 27 | 27 | Uploads (single, resumable, metadata, checksums), range reads, PATCH, delete, generation/metageneration conditions, listing (delimiter, paging, offsets, glob), copy, rewrite, compose, move, ACL, holds, object retention, custom time, storage class, gzip transcoding, CSEK, soft delete/restore |
-| signed | 4 | 4 | 4 | 4 | 4 | V4 GET/PUT, V2 GET, V4 POST policy |
-| grpc | 6 | – | – | – | – | `storage.NewGRPCClient`: bucket CRUD, write/read, list, update/delete, MultiRangeDownloader, appendable objects |
+| Area | Go | Ruby | Node.js | PHP | Python | Java | .NET | Rust | Scope |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| bucket | 20 | 20 | 20 | 20 | 20 | 20 | 20 | 20 | Bucket CRUD/listing, labels, preconditions, versioning, lifecycle, CORS, retention and lock, UBLA, PAP, IAM, soft-delete policy, autoclass, ACL/default ACL, notifications, HMAC keys, service account |
+| object | 27 | 27 | 27 | 27 | 27 | 27 | 27 | 27 | Uploads (single, resumable, metadata, checksums), range reads, PATCH, delete, generation/metageneration conditions, listing (delimiter, paging, offsets, glob), copy, rewrite, compose, move, ACL, holds, object retention, custom time, storage class, gzip transcoding, CSEK, soft delete/restore |
+| signed | 4 | 4 | 4 | 4 | 4 | 4 | 4 | 4 | V4 GET/PUT, V2 GET, V4 POST policy |
+| grpc | 6 | – | – | – | – | – | – | – | `storage.NewGRPCClient`: bucket CRUD, write/read, list, update/delete, MultiRangeDownloader, appendable objects |
+| sdk | – | – | – | – | – | 19 | 20 | – | The SDK's own idioms: blob handles, channels and write sessions, Transfer Manager, batch, retry, progress and resumable-session handling, signed-URL templates, rewrite loops, CSEK rotation, plus Java's gRPC transport |
 
-Case IDs are shared between the SDKs. The probes live in
-[`go/main.go`](go/main.go), [`ruby/probe.rb`](ruby/probe.rb),
-[`node/probe.mjs`](node/probe.mjs), [`php/probe.php`](php/probe.php) and
-[`python/probe.py`](python/probe.py). The scorer rejects missing files,
-incomplete/duplicate cases, invalid pass values, different SDK inputs or case
-sets across products, and differing shared case IDs across SDKs.
+Case IDs in `bucket`, `object` and `signed` are shared between the SDKs. The
+probes live in [`go/main.go`](go/main.go), [`ruby/probe.rb`](ruby/probe.rb),
+[`node/probe.mjs`](node/probe.mjs), [`php/probe.php`](php/probe.php),
+[`python/probe.py`](python/probe.py), [`java/`](java/README.md),
+[`dotnet/`](dotnet/README.md) and [`rust/`](rust/README.md); the last three
+list their unsupported cases and the grounds in their READMEs. The scorer
+rejects missing files, incomplete/duplicate cases, invalid pass values,
+different SDK inputs, case sets or unsupported markers across products, and
+differing shared case IDs across SDKs. The SDKs with unsupported cases are
+.NET (`object.gzip_transcoding`) and Rust (`bucket.notifications`,
+`project.hmac_keys`, `project.service_account`, `signed.v2_get`).
 
 ## Pinned inputs
 
@@ -73,6 +93,9 @@ sets across products, and differing shared case IDs across SDKs.
 | Node.js SDK | `@google-cloud/storage` 8.4.0 (`node/package-lock.json`); measured on Node.js 26.13.0, requires Node.js 24+ |
 | PHP SDK | `google/cloud-storage` 2.6.1 (`php/composer.lock`); official Composer 2.11.0 / PHP 8.5.12 image, digest pinned in `run.sh` |
 | Python SDK | `google-cloud-storage` 3.17.1, `cryptography` 50.0.2 for offline RSA signing (`python/uv.lock`); Python 3.15.2 |
+| Java SDK | `com.google.cloud:google-cloud-storage` 2.76.0 and `google-auth-library-oauth2-http` 1.55.0 for offline signing (`java/pom.xml`, graph in `java/dependencies.lock`); JDK and Maven pinned in `java/.java-version` and `java/.maven-version` |
+| .NET SDK | `Google.Cloud.Storage.V1` 5.0.0 (`dotnet/Probe.csproj`, hashes in `dotnet/packages.lock.json`); exact .NET SDK in `dotnet/global.json` |
+| Rust SDK | `google-cloud-storage` 1.21.0 with `google-cloud-auth` 1.18.0 (`rust/Cargo.toml`, `rust/Cargo.lock`); built and run in the official `rust:1.99.1-slim-trixie` image, digest pinned in `run.sh` |
 | gcs-mimic | Release build of the checked-out source; the commit is recorded in `*.meta.json` |
 | fake-gcs-server | `fsouza/fake-gcs-server:1.56.1` |
 | gcp-storage-emulator | `oittaa/gcp-storage-emulator:v2026.07.19` |
@@ -87,8 +110,9 @@ They are maintained by Google and licensed Apache-2.0. `cryptography` is
 maintained by PyCA under Apache-2.0 OR BSD-3-Clause. Exact artifact hashes,
 source revisions and dependency versions are in the lockfiles; package sizes
 and provenance are in `compatibility/dependency-status.json`.
-`cargo xtask dependencies check` includes these three ecosystems and the
-Composer image in the existing daily update detection.
+`cargo xtask dependencies check` includes these three ecosystems, the Java,
+.NET and Rust probe manifests and the Composer and Rust images in the existing
+daily update detection.
 
 ## Emulator configuration
 
@@ -96,7 +120,10 @@ Every product receives the same HTTPS loopback origin through a Go
 standard-library TLS frontend and a temporary development CA. Each official
 SDK and signed-request client verifies that CA and the certificate hostname.
 The HTTP backends bind only loopback and use a fresh in-memory or temporary
-data store in their most capable documented configuration:
+data store in their most capable documented configuration. The runner starts a
+fresh emulator for every SDK probe (emulator x SDK), because probes consume
+state such as resumable upload sessions and one SDK's leftovers must not
+change another SDK's result:
 
 - gcs-mimic: `serve --scheme http --grpc-listen ...` with the default
   permissive authentication profile.
@@ -155,7 +182,9 @@ browser behavior.
 ## Running
 
 Requires Bash, Rust, Go, Ruby 4.0.9 with Bundler, Node.js 24+ with npm, uv,
-Docker, curl and jq. uv selects Python 3.15.2; PHP and Composer run in Docker.
+the JDK and Maven pinned in `java/`, the .NET SDK pinned in `dotnet/global.json`,
+Docker, curl and jq. uv selects Python 3.15.2; PHP and Composer run in Docker,
+and so does the Rust probe (see Limitations).
 
 ```sh
 bash sdk-scorecard/run.sh                       # all products, results/<UTC date>/
@@ -219,7 +248,8 @@ Each `results/<date>/` directory keeps the raw evidence:
 
 - `<emulator>.meta.json`: product, version, measurement time, source dirty flag,
   SDK/runtime versions, PHP image digest and expected case counts;
-- `<emulator>.<sdk>.jsonl` for `go`, `ruby`, `node`, `php`, `python`: one line per case with the
+- `<emulator>.<sdk>.jsonl` for `go`, `ruby`, `node`, `php`, `python` (and `java`,
+  `dotnet`, `rust` in runs that include them): one line per case with the
   failure detail;
 - `summary.md`: totals, per-area counts and the case matrix.
 
@@ -251,6 +281,19 @@ ordinary compatibility failures remain recorded `pass: false` cases.
   PHP kept HTTPS and failed the origin guard. That failure measured an endpoint
   constraint. Current runs use common HTTPS and send both signed URLs unchanged;
   historical scores cannot be compared as equivalent transport evidence.
+- The Rust SDK builds its own HTTP client and trusts only the operating system's
+  roots: on macOS that is the Keychain, which ignores `SSL_CERT_FILE`, so the
+  scorecard CA cannot be trusted natively. The Rust probe therefore always runs
+  in the pinned Linux container, with the container's loopback ports forwarded to
+  the host by `socat`, which is installed from the image's Debian mirror at run
+  time (an unpinned input) and needs network access. `run.sh` and
+  `test-tls.sh` require a working Docker for it; neither skips the Rust probe
+  when Docker is unavailable.
+- Each probe runs against its own freshly started emulator. This removes
+  cross-SDK state leakage but means products are restarted eight times per run
+  and per-SDK results are not from one continuous server state.
+- The SDK-specific `sdk` area exists only for Java and .NET, so their `Score`
+  includes cases other SDKs do not run; use `Core` to compare SDKs.
 - Equal case weights do not reflect how often each feature is used.
 - Historical scores measure permissive HTTP and default-region behavior. Current
   runs use a shared HTTPS frontend, not each emulator's native TLS listener.
