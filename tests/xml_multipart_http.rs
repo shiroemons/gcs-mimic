@@ -305,6 +305,19 @@ fn multipart_rejects_bad_completion_hashes_order_small_parts_and_unsupported_con
     );
 }
 
+/// Bucket deletion and restart recovery sweep multipart sessions in the background; until the
+/// sweep releases the lock, multipart requests answer the retryable 503 Busy.
+fn after_sweep(mut send: impl FnMut() -> Reply) -> Reply {
+    for _ in 0..100 {
+        let reply = send();
+        if reply.status != 503 || !reply.body.contains("already in progress") {
+            return reply;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("multipart sweep did not become idle");
+}
+
 #[test]
 fn multipart_reset_and_bucket_recreation_invalidate_sessions_and_remove_parts() {
     let dir = TestDir::new();
@@ -319,14 +332,15 @@ fn multipart_reset_and_bucket_recreation_invalidate_sessions_and_remove_parts() 
         204
     );
     bucket(&server, "");
-    server
-        .request(
+    after_sweep(|| {
+        server.request(
             "PUT",
             &format!("/multipart-bucket/value?uploadId={id}&partNumber=1"),
             "",
             b"retarget",
         )
-        .status(404);
+    })
+    .status(404);
     let id = begin(&server, "value", "");
     part(&server, "value", &id, 1, "", b"discard");
     let mut reset = None;
@@ -350,14 +364,15 @@ fn multipart_reset_and_bucket_recreation_invalidate_sessions_and_remove_parts() 
     drop(server);
     let server = Server::start(&dir, &[]);
     bucket(&server, "");
-    server
-        .request(
+    after_sweep(|| {
+        server.request(
             "GET",
             &format!("/multipart-bucket/value?uploadId={id}"),
             "",
             b"",
         )
-        .status(404);
+    })
+    .status(404);
 }
 
 #[test]
