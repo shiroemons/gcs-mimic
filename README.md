@@ -262,11 +262,15 @@ Each official SDK runs the same workflows against all three emulators
 | Node.js | 51/51 | 25/51 | 22/51 |
 | PHP | 51/51 | 25/51 | 20/51 |
 | Python | 51/51 | 19/51 | 24/51 |
-| Score (/100) | 100 | 44.9 | 41.5 |
+| Java | 69/70 | 35/70 | 35/70 |
+| .NET | 70/70 (1 n/a) | 31/70 (1 n/a) | 31/70 (1 n/a) |
+| Rust | 46/47 (4 n/a) | 0/47 (4 n/a) | 0/47 (4 n/a) |
+| Score (/100) | 99.6 | 39.8 | 37.7 |
 
-Recorded on 2026-10-29 at commit `e7fb384`
-([results](sdk-scorecard/results/2026-10-29-5/summary.md)). A passing case
-means an ordinary SDK workflow works, not that the API is complete.
+Recorded on 2026-10-31 at commit `b7975c3`
+([results](sdk-scorecard/results/2026-10-31/summary.md)). A passing case
+means an ordinary SDK workflow works, not that the API is complete. n/a marks a
+case the SDK has no public API for; it is excluded from that SDK's denominator.
 
 ## More information
 

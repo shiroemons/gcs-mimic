@@ -1,0 +1,70 @@
+{"sdk":"java","id":"bucket.create_get_delete","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.list_prefix_paging","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.update_labels","area":"bucket","pass":false,"detail":"AssertionError: null"}
+{"sdk":"java","id":"bucket.metageneration_precondition","area":"bucket","pass":false,"detail":"AssertionError: expected HTTP 412, got success"}
+{"sdk":"java","id":"bucket.versioning_history","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.lifecycle","area":"bucket","pass":false,"detail":"AssertionError: []"}
+{"sdk":"java","id":"bucket.cors","area":"bucket","pass":false,"detail":"AssertionError: null"}
+{"sdk":"java","id":"bucket.retention_policy","area":"bucket","pass":false,"detail":"AssertionError: expected HTTP 403, got success"}
+{"sdk":"java","id":"bucket.retention_lock","area":"bucket","pass":false,"detail":"StorageException: Not Found"}
+{"sdk":"java","id":"bucket.uniform_bucket_level_access","area":"bucket","pass":false,"detail":"NullPointerException: Cannot invoke \"com.google.cloud.storage.BucketInfo$IamConfiguration.toBuilder()\" because the return value of \"com.google.cloud.storage.Bucket.getIamConfiguration()\" is null"}
+{"sdk":"java","id":"bucket.public_access_prevention","area":"bucket","pass":false,"detail":"NullPointerException: Cannot invoke \"com.google.cloud.storage.BucketInfo$IamConfiguration.toBuilder()\" because the return value of \"com.google.cloud.storage.Bucket.getIamConfiguration()\" is null"}
+{"sdk":"java","id":"bucket.iam_policy","area":"bucket","pass":false,"detail":"StorageException: 404 Not Found\nGET https://127.0.0.1:56003/storage/v1/b/sc-java-be5b706af0b2/iam?optionsRequestedPolicyVersion=3\nNot Found\n"}
+{"sdk":"java","id":"bucket.iam_test_permissions","area":"bucket","pass":false,"detail":"StorageException: 404 Not Found\nGET https://127.0.0.1:56003/storage/v1/b/sc-java-0de49fd276f4/iam/testPermissions?permissions=storage.buckets.get&permissions=storage.objects.list\nNot Found\n"}
+{"sdk":"java","id":"bucket.soft_delete_policy","area":"bucket","pass":false,"detail":"AssertionError: soft delete policy differs"}
+{"sdk":"java","id":"bucket.autoclass","area":"bucket","pass":false,"detail":"AssertionError: autoclass not enabled"}
+{"sdk":"java","id":"bucket.acl","area":"bucket","pass":false,"detail":"AssertionError: ACL missing"}
+{"sdk":"java","id":"bucket.default_object_acl","area":"bucket","pass":false,"detail":"StorageException: 404 Not Found\nGET https://127.0.0.1:56003/storage/v1/b/sc-java-099ab85b31da/defaultObjectAcl\nNot Found\n"}
+{"sdk":"java","id":"bucket.notifications","area":"bucket","pass":true}
+{"sdk":"java","id":"project.hmac_keys","area":"bucket","pass":false,"detail":"StorageException: Not Found"}
+{"sdk":"java","id":"project.service_account","area":"bucket","pass":false,"detail":"StorageException: 404 Not Found\nGET https://127.0.0.1:56003/storage/v1/projects/local-project/serviceAccount\nNot Found\n"}
+{"sdk":"java","id":"object.write_read_small","area":"object","pass":true}
+{"sdk":"java","id":"object.resumable_large","area":"object","pass":true}
+{"sdk":"java","id":"object.metadata_on_write","area":"object","pass":true}
+{"sdk":"java","id":"object.checksum_rejected","area":"object","pass":true}
+{"sdk":"java","id":"object.md5_accepted","area":"object","pass":true}
+{"sdk":"java","id":"object.range_reads","area":"object","pass":true}
+{"sdk":"java","id":"object.update_metadata","area":"object","pass":false,"detail":"AssertionError: {a=, b=2, c=3}"}
+{"sdk":"java","id":"object.delete_not_found","area":"object","pass":true}
+{"sdk":"java","id":"object.does_not_exist_precondition","area":"object","pass":true}
+{"sdk":"java","id":"object.generation_match_precondition","area":"object","pass":false,"detail":"AssertionError: expected HTTP 412, got success"}
+{"sdk":"java","id":"object.metageneration_match_precondition","area":"object","pass":false,"detail":"AssertionError: expected HTTP 412, got success"}
+{"sdk":"java","id":"object.list_prefix_delimiter","area":"object","pass":true}
+{"sdk":"java","id":"object.list_paging","area":"object","pass":true}
+{"sdk":"java","id":"object.list_offsets","area":"object","pass":true}
+{"sdk":"java","id":"object.list_match_glob","area":"object","pass":false,"detail":"AssertionError: glob listing: [x/a.txt, x/b.csv, y/c.txt]"}
+{"sdk":"java","id":"object.copy_with_metadata","area":"object","pass":true}
+{"sdk":"java","id":"object.rewrite_storage_class","area":"object","pass":false,"detail":"AssertionError: storage class differs"}
+{"sdk":"java","id":"object.compose","area":"object","pass":false,"detail":"AssertionError: component count"}
+{"sdk":"java","id":"object.move","area":"object","pass":false,"detail":"StorageException: Metadata in the request couldn't decode"}
+{"sdk":"java","id":"object.acl","area":"object","pass":true}
+{"sdk":"java","id":"object.holds","area":"object","pass":false,"detail":"AssertionError: expected HTTP 403, got success"}
+{"sdk":"java","id":"object.retention","area":"object","pass":false,"detail":"AssertionError: expected HTTP 403, got success"}
+{"sdk":"java","id":"object.custom_time","area":"object","pass":true}
+{"sdk":"java","id":"object.storage_class_on_write","area":"object","pass":true}
+{"sdk":"java","id":"object.gzip_transcoding","area":"object","pass":true}
+{"sdk":"java","id":"object.customer_supplied_key","area":"object","pass":false,"detail":"AssertionError: expected an API error without the key, got success"}
+{"sdk":"java","id":"object.soft_delete_restore","area":"object","pass":false,"detail":"AssertionError: soft-deleted listing: []"}
+{"sdk":"java","id":"signed.v4_get","area":"signed","pass":true}
+{"sdk":"java","id":"signed.v4_put","area":"signed","pass":true}
+{"sdk":"java","id":"signed.v2_get","area":"signed","pass":true}
+{"sdk":"java","id":"signed.post_policy_v4","area":"signed","pass":true}
+{"sdk":"java","id":"sdk.blob_handle_roundtrip","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.default_upload_crc32c","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.create_from_path_download_to","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.write_channel_streaming","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.read_channel_chunked","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.list_iterate_all","area":"sdk","pass":false,"detail":"AssertionError: currentDirectory [d/1, d/2] [d/sub/, d/sub/]"}
+{"sdk":"java","id":"sdk.storage_batch","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.default_retry_resumable_recovery","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.blob_write_session_default","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.transfer_manager_upload","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.transfer_manager_download","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.transfer_manager_parallel_composite","area":"sdk","pass":false,"detail":"AssertionError: not a composite object: componentCount null"}
+{"sdk":"java","id":"sdk.write_session_parallel_composite","area":"sdk","pass":false,"detail":"AssertionError: not a composite object: componentCount null"}
+{"sdk":"java","id":"sdk.write_session_buffer_to_disk","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.grpc_basic_object","area":"sdk","pass":false,"detail":"StorageException: INTERNAL: http2 exception"}
+{"sdk":"java","id":"sdk.grpc_blob_read_session","area":"sdk","pass":false,"detail":"StorageException: INTERNAL: http2 exception\n\t|> x-goog-request-params: bucket=projects/_/buckets/sc-java-d0eeeeb4915c\n\t|> [\n\t|> \tcom.google.storage.v2.WriteObjectRequest{\n\t|> \t\tchecksummed_data: {range: [0:1048585], crc32c: 2600124153}\n\t|> \t\tfinish_write: true\n\t|> \t\tobject_checksums: {\n\t|> \t\t\tcrc32c"}
+{"sdk":"java","id":"sdk.grpc_write_session_bidi","area":"sdk","pass":false,"detail":"StorageException: INTERNAL: http2 exception"}
+{"sdk":"java","id":"sdk.grpc_write_session_journaling","area":"sdk","pass":false,"detail":"StorageException: INTERNAL: http2 exception"}
+{"sdk":"java","id":"sdk.grpc_appendable_upload","area":"sdk","pass":false,"detail":"StorageException: INTERNAL: http2 exception"}
