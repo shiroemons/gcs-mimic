@@ -380,3 +380,112 @@ fn batch_bounds_part_count_total_bytes_and_mime_framing() {
             .status(400);
     }
 }
+
+fn statuses(body: &str) -> Vec<&str> {
+    body.lines()
+        .filter(|line| line.starts_with("HTTP/1.1 "))
+        .collect()
+}
+
+#[test]
+fn batch_accepts_absolute_targets_only_on_the_advertised_api_origin() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--api-base-url", "http://gcs.invalid:4443"]);
+    setup(&server, "");
+    // The Java client writes absolute request lines built from its configured endpoint, and
+    // Google answers them like relative paths; equivalent spellings of the origin must match.
+    for origin in [
+        "http://gcs.invalid:4443",
+        "HTTP://GCS.Invalid:4443",
+        "http://GCS.INVALID:4443",
+    ] {
+        let reply = server.request(
+            "POST",
+            "/batch/storage/v1",
+            TYPE,
+            &envelope(&[
+                part(
+                    Some("abs"),
+                    "GET",
+                    &format!("{origin}{BUCKET}/o/object?fields=name"),
+                    "",
+                    "",
+                ),
+                part(Some("rel"), "GET", &format!("{BUCKET}/o/missing"), "", ""),
+            ]),
+        );
+        reply.status(200);
+        assert_eq!(
+            statuses(&reply.body),
+            ["HTTP/1.1 200 OK", "HTTP/1.1 404 Not Found"]
+        );
+        assert!(reply.body.contains("\"object\""));
+    }
+    // A foreign origin is never forwarded, and the whole envelope fails before any deletion.
+    let first = part(None, "DELETE", &format!("{BUCKET}/o/object"), "", "");
+    for target in [
+        "http://other.invalid:4443/storage/v1/b/batch-bucket",
+        "https://gcs.invalid:4443/storage/v1/b/batch-bucket",
+        "http://gcs.invalid:4444/storage/v1/b/batch-bucket",
+        "http://gcs.invalid/storage/v1/b/batch-bucket",
+        "http://127.0.0.1:4443/storage/v1/b/batch-bucket",
+        "http://user@gcs.invalid:4443/storage/v1/b/batch-bucket",
+        "http://user:secret@gcs.invalid:4443/storage/v1/b/batch-bucket",
+        "http://gcs.invalid:4443@other.invalid/storage/v1/b/batch-bucket",
+        "ftp://gcs.invalid:4443/storage/v1/b/batch-bucket",
+        "http://gcs.invalid:4443",
+        "http://gcs.invalid:4443/_internal/config",
+        "http://gcs.invalid:4443/batch/storage/v1",
+        "http://gcs.invalid:4443/upload/storage/v1/b/batch-bucket/o?uploadType=media&name=x",
+        "http://gcs.invalid:4443/storage/v1/b/batch-bucket/o/object?alt=media",
+        "http://gcs.invalid:4443//storage/v1/b/batch-bucket",
+        "http://gcs.invalid:4443/storage/v1/b/batch-bucket#fragment",
+    ] {
+        server
+            .request(
+                "POST",
+                "/batch/storage/v1",
+                TYPE,
+                &envelope(&[first.clone(), part(None, "GET", target, "", "")]),
+            )
+            .status(400);
+        server
+            .request("GET", &format!("{BUCKET}/o/object"), "", b"")
+            .status(200);
+    }
+}
+
+#[test]
+fn batch_absolute_targets_include_the_advertised_path_prefix() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--api-base-url", "https://proxy.invalid/gcs/"]);
+    setup(&server, "");
+    let reply = server.request(
+        "POST",
+        "/batch/storage/v1",
+        TYPE,
+        &envelope(&[part(
+            None,
+            "GET",
+            &format!("https://proxy.invalid:443/gcs{BUCKET}/o/object?fields=name"),
+            "",
+            "",
+        )]),
+    );
+    reply.status(200);
+    assert_eq!(statuses(&reply.body), ["HTTP/1.1 200 OK"]);
+    for target in [
+        format!("https://proxy.invalid{BUCKET}"),
+        format!("https://proxy.invalid/gcsx{BUCKET}"),
+        format!("https://proxy.invalid/other/gcs{BUCKET}"),
+    ] {
+        server
+            .request(
+                "POST",
+                "/batch/storage/v1",
+                TYPE,
+                &envelope(&[part(None, "GET", &target, "", "")]),
+            )
+            .status(400);
+    }
+}

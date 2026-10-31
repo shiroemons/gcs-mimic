@@ -22946,12 +22946,13 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id":"batch-wire","description":"Validate malformed later parts before any mutation; verify mixed per-part statuses, IDs, encoded names, credential/query overrides, connection-slot independence and request/response bounds.","result":"PASS","test_ids":["batch-wire"]},
+        {"id":"batch-absolute-origin","description":"Accept absolute part request lines whose normalized scheme and authority equal the advertised API endpoint and whose path continues below its prefix with /storage/v1/; reject other hosts, schemes, ports, userinfo and prefixes for the whole envelope before any part runs.","result":"PASS","test_ids":["batch-absolute-origin"]},
         {"id":"batch-final-profiles","description":"Execute final combined SDK workflows and reconcile remaining provider/profile field and malformed-input edges.","result":"PENDING","test_ids":["batch-final-profiles"]}
       ],
-      "test_ids": ["batch-wire", "batch-final-profiles"],
-      "verification": [{"command":"cargo check --tests; cargo test --test http_batch","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/http-batch.md","test_ids":["batch-wire"]}],
+      "test_ids": ["batch-wire", "batch-absolute-origin", "batch-final-profiles"],
+      "verification": [{"command":"cargo check --tests; cargo test --test http_batch","result":"PASS","verified_at":"2026-10-30","artifact":"docs/en/slices/http-batch.md","test_ids":["batch-wire"]},{"command":"cargo test --test http_batch","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/http-batch-absolute-targets.md","test_ids":["batch-absolute-origin"]}],
       "sdk_evidence": [],
-      "known_deviations": ["Local execution is sequential but clients must not rely on order; a valid batch is not atomic. Per-part 512 KiB and whole-response 10,000,000-byte budgets may return responseTooLarge after an operation completed. Full provider/profile edges and final SDK integration remain pending."],
+      "known_deviations": ["Local execution is sequential but clients must not rely on order; a valid batch is not atomic. Per-part 512 KiB and whole-response 10,000,000-byte budgets may return responseTooLarge after an operation completed. Full provider/profile edges and final SDK integration remain pending.", "Absolute part URLs on a foreign origin fail the whole envelope with a local 400; Cloud Storage behavior for foreign origins is unobserved. An advertised host that the public-origin rules reject, such as a name with an underscore, accepts only relative parts."],
       "implemented_in": null,
       "last_verified": "2026-10-30"
     },

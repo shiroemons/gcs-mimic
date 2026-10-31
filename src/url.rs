@@ -185,6 +185,29 @@ pub(crate) fn normalize_base_url(value: &str) -> Result<String, UrlError> {
     Ok(value.trim_end_matches('/').to_owned())
 }
 
+/// Return the path and query of an absolute `target` below the advertised `base` URL, or `None`
+/// when it names another origin or leaves the base path. Both origins go through the public
+/// origin normalization, so case and default ports compare equal while credentials, other
+/// schemes, hosts or ports never match: an absolute URL is never a route to another server.
+pub(crate) fn path_below_base<'a>(target: &'a str, base: &str) -> Option<&'a str> {
+    let (origin, rest) = split_origin(target)?;
+    let (base_origin, base_path) = split_origin(base)?;
+    if PublicOrigin::parse(origin).ok()?.base != PublicOrigin::parse(base_origin).ok()?.base {
+        return None;
+    }
+    let below = rest.strip_prefix(base_path.trim_end_matches('/'))?;
+    below.starts_with('/').then_some(below)
+}
+
+/// Split `scheme://authority` from the raw remainder without decoding or normalizing the path.
+fn split_origin(url: &str) -> Option<(&str, &str)> {
+    let (_, after_scheme) = url.split_once("://")?;
+    let end = after_scheme
+        .find(['/', '?', '#'])
+        .unwrap_or(after_scheme.len());
+    Some(url.split_at(url.len() - after_scheme.len() + end))
+}
+
 /// Normalize a public origin before deriving routing domains or signing helper URLs.
 pub(crate) fn normalize_public_base_url(value: &str) -> Result<String, UrlError> {
     PublicOrigin::parse(value).map(|origin| origin.base)

@@ -10,8 +10,16 @@ must not depend on ordering: the Google service can execute calls in any order.
 
 Each inner request uses an HTTP/1.1 request line with a relative /storage/v1/
 target. Raw encoded object paths reach the existing JSON dispatcher unchanged.
-Absolute URLs, authorities, Host, hop-by-hop headers, nested batches, helper and
-internal endpoints, upload routes and alt=media downloads are rejected. The
+An absolute target is accepted only on the advertised API endpoint
+(api_base_url): its scheme and authority must equal the advertised origin after
+the public-origin normalization (case-insensitive scheme and DNS host, default
+port omitted), and its path must continue below the advertised path prefix with
+/storage/v1/. The Java client sends such request lines, and Cloud Storage answers
+them like relative paths. Any other scheme, host, port, userinfo or prefix
+rejects the whole envelope with 400 before any part runs, so a part is never
+forwarded to another server. Scheme-relative targets, Host, hop-by-hop headers,
+nested batches, helper and internal endpoints, upload routes and alt=media
+downloads are rejected. The
 outer envelope's Content- headers and transport headers are not inherited.
 Other outer headers and query parameters supply defaults; an inner value for
 the same header or decoded query key replaces the default. Every operation
@@ -49,6 +57,13 @@ verification and the remaining provider/profile edge contract are reconciled.
 This HTTP envelope is separate from the Storage Batch Operations service.
 
 ## Sources
+
+The batch guide checked on 2026-10-31 says request lines "must only contain the
+path portion of the URL; full URLs can have undefined behavior", and that a
+request that cannot be parsed into sub-requests returns 400. A Cloud Storage
+observation on 2026-10-31 answered absolute parts on its own endpoint normally
+([evidence](../evidence/http-batch-absolute-targets.md)); foreign origins were
+not observed, so the local 400 for them is a safety choice.
 
 Checked on 2026-10-30:
 

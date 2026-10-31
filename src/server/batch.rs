@@ -67,6 +67,7 @@ async fn execute(
         .acquire()
         .await
         .map_err(|_| invalid("Batch parser unavailable"))?;
+    let api_base_url = ctx.endpoints.api_base_url.clone();
     let parts = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         parse::parts(
@@ -74,6 +75,7 @@ async fn execute(
             &boundary,
             &outer.headers,
             outer.uri.query(),
+            &api_base_url,
         )
     })
     .await

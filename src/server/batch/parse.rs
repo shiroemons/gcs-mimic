@@ -77,7 +77,17 @@ fn single<'a>(headers: &'a HeaderMap, key: &str) -> Result<Option<&'a str>, Json
         .map_err(|_| invalid("Invalid batch framing header"))
 }
 
-fn uri(raw: &str, outer_query: Option<&str>) -> Result<Uri, JsonError> {
+fn uri(raw: &str, outer_query: Option<&str>, api_base_url: &str) -> Result<Uri, JsonError> {
+    // Google answers absolute request lines on its own endpoint like relative paths, and SDKs
+    // such as the Java client send them. Only the advertised API origin is accepted; any other
+    // origin fails the whole envelope so no part is executed or forwarded elsewhere.
+    let raw = if raw.starts_with('/') {
+        raw
+    } else {
+        crate::url::path_below_base(raw, api_base_url).ok_or_else(|| {
+            invalid("Absolute batch part URLs must use the advertised API endpoint")
+        })?
+    };
     if !raw.starts_with("/storage/v1/") || raw.contains(['#', '\\']) {
         return Err(invalid(
             "Batch parts require relative Google JSON API paths; uploads, downloads, internal routes and nested batches are unsupported",
@@ -114,7 +124,12 @@ fn uri(raw: &str, outer_query: Option<&str>) -> Result<Uri, JsonError> {
     Ok(uri)
 }
 
-fn part(bytes: &Bytes, outer: &HeaderMap, query: Option<&str>) -> Result<Part, JsonError> {
+fn part(
+    bytes: &Bytes,
+    outer: &HeaderMap,
+    query: Option<&str>,
+    api_base_url: &str,
+) -> Result<Part, JsonError> {
     let (mime, http) = block(bytes)?;
     let mime = headers(mime)?;
     if single(&mime, "content-type")?
@@ -153,7 +168,7 @@ fn part(bytes: &Bytes, outer: &HeaderMap, query: Option<&str>) -> Result<Part, J
     ) {
         return Err(invalid("Unsupported batch method"));
     }
-    let uri = uri(target, query)?;
+    let uri = uri(target, query, api_base_url)?;
     let (inner, body) = block(&http[line_end + 2..])?;
     let inner = headers(inner)?;
     if inner
@@ -223,6 +238,7 @@ pub(super) fn parts(
     boundary: &str,
     outer: &HeaderMap,
     query: Option<&str>,
+    api_base_url: &str,
 ) -> Result<Vec<Part>, JsonError> {
     let first = format!("--{boundary}").into_bytes();
     let delimiter = format!("\r\n--{boundary}").into_bytes();
@@ -250,7 +266,7 @@ pub(super) fn parts(
             .position(|window| window == delimiter)
             .map(|end| offset + end)
             .ok_or_else(|| invalid("Missing batch closing boundary"))?;
-        result.push(part(&bytes.slice(offset..end), outer, query)?);
+        result.push(part(&bytes.slice(offset..end), outer, query, api_base_url)?);
         offset = end + delimiter.len();
     }
 }
