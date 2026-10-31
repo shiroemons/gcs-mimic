@@ -24,7 +24,12 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
     let first = server.cli("deletions", &["--revision", old, "--limit", "37"], true);
     let cursor = first["next_cursor"].as_str().unwrap();
     server
-        .request("PATCH", "/storage/v1/b/test-bucket", None, b"{}")
+        .request(
+            "PATCH",
+            "/storage/v1/b/test-bucket",
+            None,
+            br#"{"labels":{"k":"v"}}"#,
+        )
         .json();
     assert_eq!(
         server.cli("deletions", &["--revision", old, "--cursor", cursor], false)["error"]["code"],

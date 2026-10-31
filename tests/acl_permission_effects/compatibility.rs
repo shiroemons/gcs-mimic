@@ -35,7 +35,7 @@ fn legacy_bucket_views_reconcile_before_ready_and_keep_role_union_and_restart_et
             {"entity":"user-reader@example.test","role":"OWNER"},
             {"entity":"allUsers","role":"READER"}
         ]).to_string()]).unwrap();
-        connection.execute_batch("DROP TABLE soft_deleted_buckets; DROP TABLE bucket_generation; ALTER TABLE buckets DROP COLUMN generation; ALTER TABLE objects DROP COLUMN owner; ALTER TABLE buckets DROP COLUMN acl_policy_bound; PRAGMA user_version=42;").unwrap();
+        connection.execute_batch("DROP TABLE soft_deleted_buckets; DROP TABLE bucket_generation; ALTER TABLE buckets DROP COLUMN generation; ALTER TABLE objects DROP COLUMN retain_until_sub_micro_nanos; ALTER TABLE objects DROP COLUMN owner; ALTER TABLE buckets DROP COLUMN acl_policy_bound; PRAGMA user_version=42;").unwrap();
     }
     let mut server = Server::start(&data, &inputs, "disk");
     let policy = server.request("GET", &iam, ADMIN, b"").json();
