@@ -580,6 +580,14 @@ fn bucket_resources_carry_recorded_fields_in_recorded_order() {
         ]
     );
     assert_eq!(bucket["projectNumber"], "123456");
+    // Cloud Storage renders times with exactly three fractional digits.
+    for field in ["timeCreated", "updated"] {
+        let time = bucket[field].as_str().unwrap();
+        assert!(
+            time.len() == 24 && &time[19..20] == "." && time.ends_with('Z'),
+            "{field} {time}"
+        );
+    }
     // The generation is the catalog's stored incarnation counter, not a derived value.
     let generation = bucket["generation"].as_str().unwrap();
     assert!(

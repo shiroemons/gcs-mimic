@@ -190,11 +190,12 @@ fn direct_fixtures_preserve_metadata_generation_and_times_across_restart() {
         "metadata",
         "storageClass",
         "customTime",
-        "updated",
     ] {
         assert_eq!(resource[key], metadata[key], "{key}");
     }
-    assert_eq!(resource["timeCreated"], metadata["created"]);
+    // The fixture keeps its microseconds; resource times render with milliseconds.
+    assert_eq!(resource["timeCreated"], "2001-02-03T04:05:06.123Z");
+    assert_eq!(resource["updated"], "2002-03-04T05:06:07.654Z");
     assert_eq!(resource["size"], "13");
     assert!(resource["md5Hash"].is_string());
     assert!(resource["crc32c"].is_string());

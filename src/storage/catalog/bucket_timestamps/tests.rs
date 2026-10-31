@@ -15,15 +15,11 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
     let one_nanosecond = UNIX_EPOCH - Duration::from_nanos(1);
     let (created, rendered, nanos) =
         if UNIX_EPOCH.duration_since(one_nanosecond).ok() == Some(Duration::from_nanos(1)) {
-            (
-                one_nanosecond,
-                "1969-12-31T23:59:59.999999999Z",
-                999_999_999,
-            )
+            (one_nanosecond, "1969-12-31T23:59:59.999Z", 999_999_999)
         } else {
             (
                 UNIX_EPOCH - Duration::from_nanos(100),
-                "1969-12-31T23:59:59.999999900Z",
+                "1969-12-31T23:59:59.999Z",
                 999_999_900,
             )
         };

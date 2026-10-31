@@ -268,8 +268,9 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
                 crate::json::Projection::NoAcl,
             )
             .unwrap();
-            assert_eq!(resource["timeCreated"], "2026-01-01T00:00:00.123456789Z");
-            assert_eq!(resource["updated"], "2026-01-01T00:00:00.123456789Z");
+            // The catalog keeps the nanoseconds; the JSON rendering shows milliseconds.
+            assert_eq!(resource["timeCreated"], "2026-01-01T00:00:00.123Z");
+            assert_eq!(resource["updated"], "2026-01-01T00:00:00.123Z");
             let timestamp: prost_types::Timestamp = settings.time_created.into();
             assert_eq!(timestamp.nanos, 123_456_789);
             catalog.close().await.unwrap();

@@ -4433,7 +4433,7 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id":"BUCKET-PROVIDER-WIRE","description":"Recorded provider wire (docs/en/evidence/response-wire-provider-observations.md): bucket get and list bodies are 2-space pretty JSON in the recorded order kind, selfLink, id, name, projectNumber, generation (native profile only), metageneration, location, storageClass, etag, timeCreated, updated, softDeletePolicy (when configured), iamConfiguration (bucketPolicyOnly, uniformBucketLevelAccess, publicAccessPrevention), locationType; generation is the catalog's stored bucket version. Fields absent from the recording follow locationType in an unverified order, and the bucket list layout was not recorded.","result":"PASS","test_ids":["wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order","wire_parity_http::legacy_profile_keeps_compact_bodies"]},
-        {"id":"BUCKET-PROVIDER-WIRE-DEVIATIONS","description":"SPEC-RESPONSE-WIRE-REMAINING: the recorded bucket generation is a 19-digit nanosecond-scale value while the catalog's stored generation is microsecond-scale; the default 7-day softDeletePolicy and satisfiesPZI that the recorded bucket carried remain deliberately absent (soft delete is opt-in locally; residency outputs are reserved); timestamps keep microsecond precision.","result":"PENDING","test_ids":[]},
+        {"id":"BUCKET-PROVIDER-WIRE-DEVIATIONS","description":"SPEC-RESPONSE-WIRE-REMAINING: the recorded bucket generation is a 19-digit nanosecond-scale value while the catalog's stored generation is microsecond-scale; the default 7-day softDeletePolicy and satisfiesPZI that the recorded bucket carried remain deliberately absent (soft delete is opt-in locally; residency outputs are reserved); timestamps now render with millisecond precision.","result":"PENDING","test_ids":[]},
         {"id":"BUCKET-SOFT-DELETED-GET","description":"Native resources include generation; softDeleted=true&generation=G returns the version with softDeleteTime/hardDeleteTime, each parameter requires the other (400 required, 'Bucket generation is required.'), unknown or expired versions return 404 and strict mode checks storage.buckets.get on the version's project. Contract: docs/en/slices/bucket-soft-delete-restore.md.","result":"PASS","test_ids":["bucket_soft_delete_get_list_and_restore_round_trip","strict_soft_deleted_bucket_access_uses_project_permissions","bucket_query_booleans_keep_supported_and_unsupported_semantics"]},
         {"id":"RETENTION-METADATA-CONTRIBUTION","description":"Get returns persisted retention period, effectiveTime and isLocked; scope and pending interactions: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart"]},
         {
@@ -26339,14 +26339,14 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Media generations initialize timeCreated/updated/timeStorageClassUpdated/timeFinalized consistently from injected Clock. Current object JSON retains stored microseconds with three to six fractional digits; imported bucket nanoseconds have the separate source-memory-snapshot contract. Scope/evidence: docs/en/slices/json-object-media.md, docs/en/slices/catalog-timestamp-precision.md and docs/en/evidence/object-media.md. Custom time, deletion and metadata updates have separately scoped contracts; automatic lifecycle timing remains incomplete.",
+      "notes": "Media generations initialize timeCreated/updated/timeStorageClassUpdated/timeFinalized consistently from injected Clock. Current object JSON renders stored times with exactly three fractional digits, as Cloud Storage does (observed 2026-10-31); stored microseconds and imported bucket nanoseconds (source-memory-snapshot contract) are unchanged. Scope/evidence: docs/en/slices/json-object-media.md, docs/en/slices/catalog-timestamp-precision.md and docs/en/evidence/object-media.md. Custom time, deletion and metadata updates have separately scoped contracts; automatic lifecycle timing remains incomplete.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
           "id": "BEHAVIOR-OBJECT-003-MEDIA",
-          "description": "OBJ-MEDIA-016..019: RFC 3339 UTC resource rendering retains stored microseconds with three to six fractional digits; same-generation timestamps and persisted metadata agree.",
+          "description": "OBJ-MEDIA-016..019: RFC 3339 UTC resource rendering floors stored times to exactly three fractional digits (observed 2026-10-31); same-generation timestamps and persisted metadata agree.",
           "result": "PASS",
           "test_ids": [
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",

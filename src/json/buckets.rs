@@ -729,9 +729,8 @@ pub(crate) fn bucket_resource_with_profile(
     value["location"] = json!(bucket.location);
     value["storageClass"] = json!(bucket.storage_class);
     value["etag"] = bucket_etag(bucket).into();
-    value["timeCreated"] =
-        timestamp_with_precision(bucket.time_created, TimestampPrecision::Nanos)?.into();
-    value["updated"] = timestamp_with_precision(bucket.updated, TimestampPrecision::Nanos)?.into();
+    value["timeCreated"] = timestamp(bucket.time_created)?.into();
+    value["updated"] = timestamp(bucket.updated)?.into();
     if let Some(policy) = &bucket.soft_delete_policy {
         value["softDeletePolicy"] = json!({"retentionDurationSeconds": policy.retention_duration_seconds.to_string(), "effectiveTime": timestamp(policy.effective_time)?});
     }
@@ -904,10 +903,6 @@ fn timestamp_error() -> JsonError {
     )
 }
 
-pub(crate) fn timestamp(time: SystemTime) -> Result<String, JsonError> {
-    timestamp_with_precision(time, TimestampPrecision::Micros)
-}
-
 /// The RFC 9110 date of a stored timestamp, as `Last-Modified` carries it. The weekday and month
 /// come from the validated RFC 3339 rendering so no platform calendar is involved.
 pub(crate) fn http_date(time: SystemTime) -> Result<String, JsonError> {
@@ -938,31 +933,16 @@ pub(crate) fn http_date(time: SystemTime) -> Result<String, JsonError> {
     ))
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum TimestampPrecision {
-    Micros,
-    Nanos,
-}
-
-fn timestamp_with_precision(
-    time: SystemTime,
-    precision: TimestampPrecision,
-) -> Result<String, JsonError> {
-    let nanos = epoch_nanos(time);
-    let micros = nanos.div_euclid(1000);
+/// Render a stored time as RFC 3339 UTC with exactly three fractional digits, the precision
+/// Cloud Storage emits (observed 2026-10-31). Stored times keep their finer precision; only
+/// the rendering floors, so ordering and stored deadlines are unaffected.
+pub(crate) fn timestamp(time: SystemTime) -> Result<String, JsonError> {
+    let micros = epoch_nanos(time).div_euclid(1000);
     if !crate::clock::rfc3339_micros(micros) {
         return Err(timestamp_error());
     }
     let seconds = micros.div_euclid(1_000_000) as i64;
-    let fraction = if precision == TimestampPrecision::Nanos && nanos.rem_euclid(1000) != 0 {
-        format!("{:09}", nanos.rem_euclid(1_000_000_000))
-    } else {
-        let mut fraction = format!("{:06}", micros.rem_euclid(1_000_000));
-        while fraction.len() > 3 && fraction.ends_with('0') {
-            fraction.pop();
-        }
-        fraction
-    };
+    let fraction = format!("{:03}", micros.div_euclid(1000).rem_euclid(1000));
     let daytime = seconds.rem_euclid(86400);
     // Gregorian 400-year cycles avoid platform-local timezone and time_t limits.
     let days = seconds.div_euclid(86400) + 719468;

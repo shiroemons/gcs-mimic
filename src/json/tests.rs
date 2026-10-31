@@ -1082,10 +1082,7 @@ fn bkt_id_001_utc_milliseconds_leap_century_and_range() {
         UNIX_EPOCH - Duration::from_nanos(100),
     )
     .unwrap();
-    assert_eq!(
-        resource(&bucket)["timeCreated"],
-        "1969-12-31T23:59:59.999999900Z"
-    );
+    assert_eq!(resource(&bucket)["timeCreated"], "1969-12-31T23:59:59.999Z");
     for millis in [-62_167_219_200_001i64, 253_402_300_800_000] {
         let Some(time) = system_time_or_unrepresentable(millis) else {
             continue;
@@ -1103,17 +1100,19 @@ fn bkt_id_001_utc_milliseconds_leap_century_and_range() {
 }
 
 #[test]
-fn utc_timestamps_preserve_microseconds_and_floor_nanoseconds() {
+fn utc_timestamps_floor_to_milliseconds() {
+    // Cloud Storage renders three fractional digits (observed 2026-10-31); the stored
+    // microseconds are unchanged and only the rendering floors.
     for (micros, expected) in [
         (0_i64, "1970-01-01T00:00:00.000Z"),
-        (1, "1970-01-01T00:00:00.000001Z"),
+        (1, "1970-01-01T00:00:00.000Z"),
         (123_000, "1970-01-01T00:00:00.123Z"),
-        (123_400, "1970-01-01T00:00:00.1234Z"),
-        (999_999, "1970-01-01T00:00:00.999999Z"),
-        (-1, "1969-12-31T23:59:59.999999Z"),
+        (123_400, "1970-01-01T00:00:00.123Z"),
+        (999_999, "1970-01-01T00:00:00.999Z"),
+        (-1, "1969-12-31T23:59:59.999Z"),
         (-123_000, "1969-12-31T23:59:59.877Z"),
-        (-123_400, "1969-12-31T23:59:59.8766Z"),
-        (-999_999, "1969-12-31T23:59:59.000001Z"),
+        (-123_400, "1969-12-31T23:59:59.876Z"),
+        (-999_999, "1969-12-31T23:59:59.000Z"),
     ] {
         let duration = Duration::from_micros(micros.unsigned_abs());
         let time = if micros < 0 {

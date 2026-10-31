@@ -21,12 +21,11 @@ check exited 1 for the already recorded Composer latest-index publication
 exception, with review due 2026-11-06; the release-scope check passed.
 
 Fixture wire acceptance exposed an existing representation gap: the catalog
-already preserved source microseconds, but the shared JSON timestamp renderer
-discarded them on POST and GET responses. This slice extends that renderer to
-at most six fractional digits, retaining the previous three digits for exact
-millisecond values. Values floor toward negative infinity at microsecond
-precision; timezone, valid year range and millisecond-derived bucket ETags
-remain unchanged. XML HTTP dates and signing basic timestamps still select
+already preserved source microseconds. Resource times render with exactly
+three fractional digits, as Cloud Storage does (observed 2026-10-31), so the
+preserved microseconds are stored but not echoed on the wire. Values floor
+toward negative infinity at millisecond precision; timezone, valid year range
+and millisecond-derived bucket ETags remain unchanged. XML HTTP dates and signing basic timestamps still select
 whole seconds. This is a source-preservation extension of the historical
 [catalog timestamp representation](catalog-timestamp-precision.md).
 
