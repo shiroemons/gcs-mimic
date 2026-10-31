@@ -61,24 +61,29 @@ fn pap_metadata_insert_patch_update_fields_conditions_and_restart() {
         );
         for method in ["PATCH", "PUT"] {
             let before = server.get(ADMIN, BUCKET).ok().json();
-            for condition in [
-                "ifMetagenerationMatch=0",
-                &format!(
-                    "ifMetagenerationNotMatch={}",
-                    before["metageneration"].as_str().unwrap()
-                ),
-            ] {
+            let not_match = format!(
+                "ifMetagenerationNotMatch={}",
+                before["metageneration"].as_str().unwrap()
+            );
+            for condition in ["ifMetagenerationMatch=0", not_match.as_str()] {
                 let reply = server.request(
                     method,
                     &format!("{BUCKET}?{condition}"),
                     ADMIN,
                     br#"{"iamConfiguration":{"publicAccessPrevention":"inherited"}}"#,
                 );
-                assert_eq!(reply.status, 412);
-                assert_eq!(
-                    reply.json()["error"]["errors"][0]["reason"],
-                    "conditionNotMet"
-                );
+                // Cloud Storage answers a PATCH whose ifMetagenerationNotMatch names the
+                // current value with 304 and no body (observed 2026-10-31); PUT stays 412.
+                if method == "PATCH" && condition == not_match {
+                    assert_eq!(reply.status, 304);
+                    assert!(reply.body.is_empty());
+                } else {
+                    assert_eq!(reply.status, 412);
+                    assert_eq!(
+                        reply.json()["error"]["errors"][0]["reason"],
+                        "conditionNotMet"
+                    );
+                }
                 assert_eq!(server.get(ADMIN, BUCKET).ok().json(), before);
             }
             let meta = before["metageneration"]
