@@ -223,3 +223,27 @@ XML HEAD used to answer 200 for a Range, following the method reference. The
 JSON media HEAD no longer seeks the object. The XML unsatisfiable HEAD was not
 observed and follows the JSON observation; the provider's 416 body type
 (`text/html`) is not reproduced.
+
+## Object fields on media responses
+
+Observed **2026-10-31** on JSON media GET and HEAD (identity, gunzipped,
+compressed and ranged) and on XML GET and HEAD:
+
+| Field | JSON media | XML |
+| --- | --- | --- |
+| `last-modified` | HTTP date of the last update | the same |
+| `x-goog-metageneration` | present | present |
+| `x-goog-storage-class` | present, for example `STANDARD` | present |
+| `pragma: no-cache` | present | absent |
+| `content-disposition: attachment` | present although the object set none | absent |
+
+### gcs-mimic behavior
+
+| Observation | Local behavior | Test |
+| --- | --- | --- |
+| The JSON fields above are sent on GET and HEAD | Sent on every JSON media response, including the 400 for a plain body declared as gzip | `media_responses_carry_the_provider_object_headers` |
+| XML sends the date, metageneration and storage class only | Unchanged; the test pins that XML adds neither `pragma` nor a default disposition | the same test |
+
+An object that stores its own `contentDisposition` keeps it in place of the
+JSON default. Cloud Storage's behavior for such an object was not observed.
+`etag`, `cache-control` and error bodies are outside this change.

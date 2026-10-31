@@ -637,3 +637,82 @@ fn head_with_range_answers_206_and_content_range_on_json_and_xml() {
         );
     }
 }
+
+/// Cloud Storage's JSON media responses carry `last-modified`, the storage class,
+/// `pragma: no-cache` and `content-disposition: attachment` unless the object sets its own
+/// disposition; the XML API has the first two but neither of the others (observed 2026-10-31).
+#[test]
+fn media_responses_carry_the_provider_object_headers() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, true);
+    server.bucket();
+    server.put("plain", b"0123456789abcdef").json();
+    gzip_object(&server, "gzip", &gzip(b"hello gzip transcoding world\n"));
+    server.put("named", b"named").json();
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/test-bucket/o/named",
+            ADMIN,
+            br#"{"contentDisposition":"inline; filename=\"n.txt\""}"#,
+        )
+        .json();
+    let http_date =
+        |value: &str| httpdate::parse_http_date(value).is_ok() && value.ends_with("GMT");
+    for method in ["GET", "HEAD"] {
+        for (object, extra) in [
+            ("plain", ""),
+            ("plain", "Range: bytes=0-4\r\n"),
+            ("gzip", ""),
+            ("gzip", "Accept-Encoding: gzip\r\n"),
+        ] {
+            // gzip_object patches the encoding, which advances the metageneration.
+            let metageneration = if object == "gzip" { "2" } else { "1" };
+            let path = format!("/storage/v1/b/test-bucket/o/{object}?alt=media");
+            let reply = server.request(method, &path, &format!("{ADMIN}{extra}"), b"");
+            let label = format!("JSON {method} {object} {extra}");
+            assert!(http_date(&reply.headers["last-modified"]), "{label}");
+            assert_eq!(
+                reply.headers["x-goog-metageneration"], metageneration,
+                "{label}"
+            );
+            assert_eq!(reply.headers["x-goog-storage-class"], "STANDARD", "{label}");
+            assert_eq!(reply.headers["pragma"], "no-cache", "{label}");
+            assert_eq!(
+                reply.headers["content-disposition"], "attachment",
+                "{label}"
+            );
+            let xml = server.request(
+                method,
+                &format!("/test-bucket/{object}"),
+                &format!("{ADMIN}{extra}"),
+                b"",
+            );
+            let label = format!("XML {method} {object} {extra}");
+            assert!(http_date(&xml.headers["last-modified"]), "{label}");
+            assert_eq!(
+                xml.headers["x-goog-metageneration"], metageneration,
+                "{label}"
+            );
+            assert_eq!(xml.headers["x-goog-storage-class"], "STANDARD", "{label}");
+            assert!(!xml.headers.contains_key("pragma"), "{label}");
+            assert!(!xml.headers.contains_key("content-disposition"), "{label}");
+            assert_eq!(
+                reply.headers["last-modified"], xml.headers["last-modified"],
+                "{label}"
+            );
+        }
+        // The object's own disposition wins over the JSON default.
+        let named = server.request(
+            method,
+            "/storage/v1/b/test-bucket/o/named?alt=media",
+            ADMIN,
+            b"",
+        );
+        assert_eq!(
+            named.headers["content-disposition"],
+            "inline; filename=\"n.txt\""
+        );
+        assert_eq!(named.headers["pragma"], "no-cache");
+    }
+}

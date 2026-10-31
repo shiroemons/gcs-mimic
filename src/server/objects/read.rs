@@ -84,6 +84,7 @@ async fn media(
         &[crate::csek::DESTINATION_PREFIX],
     )?;
     let mut headers = json::object_media_headers(&record)?;
+    insert_provider_headers(&record, &mut headers)?;
     json::insert_response_headers(&record, &mut headers);
     if reader.publicly_readable {
         headers.insert(
@@ -188,6 +189,39 @@ async fn media(
     }
     *response.headers_mut() = headers;
     Ok(response)
+}
+
+/// Fields the JSON API sends on every media response beyond the representation headers
+/// (observed 2026-10-31): the modification date, the storage class, `pragma: no-cache` and
+/// `content-disposition: attachment`. An object that sets its own disposition keeps it; XML
+/// reads send neither of the last two.
+fn insert_provider_headers(
+    record: &ObjectRecord,
+    headers: &mut HeaderMap,
+) -> Result<(), JsonError> {
+    let invalid = || {
+        JsonError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "backendError",
+            "Invalid stored object response header",
+        )
+    };
+    headers.insert(
+        "last-modified",
+        HeaderValue::try_from(json::http_date(record.updated)?).map_err(|_| invalid())?,
+    );
+    headers.insert(
+        "x-goog-storage-class",
+        HeaderValue::try_from(record.storage_class.as_str()).map_err(|_| invalid())?,
+    );
+    headers.insert("pragma", HeaderValue::from_static("no-cache"));
+    if !headers.contains_key("content-disposition") {
+        headers.insert(
+            "content-disposition",
+            HeaderValue::from_static("attachment"),
+        );
+    }
+    Ok(())
 }
 
 /// Cloud Storage's JSON API omits `x-goog-hash` from a partial range, and sends only the

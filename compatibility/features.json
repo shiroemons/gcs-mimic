@@ -28690,6 +28690,12 @@
           "test_ids": ["head_with_range_answers_206_and_content_range_on_json_and_xml"]
         },
         {
+          "id": "MEDIA-PROVIDER-HEADERS",
+          "description": "JSON media GET and HEAD send last-modified, x-goog-storage-class, pragma: no-cache and content-disposition: attachment, as observed on Cloud Storage (2026-10-31); an object that sets its own contentDisposition keeps it (not observed; the stored value is the only sensible reading). XML GET and HEAD send last-modified, x-goog-metageneration and x-goog-storage-class and neither pragma nor a default content-disposition. Unverified: a customer-managed-key object, requester-pays reads and the JSON default disposition for an object with a stored inline disposition on real Cloud Storage.",
+          "result": "PASS",
+          "test_ids": ["media_responses_carry_the_provider_object_headers"]
+        },
+        {
           "id": "GZIP-REMAINING-PARITY",
           "description": "Weak ETags on gunzipped responses, double-compression detection, additional encodings and exact provider negotiation/error parity remain pending.",
           "result": "PENDING",
@@ -28707,7 +28713,8 @@
         "json_media_head_sends_get_headers_without_a_body",
         "xml_vary_follows_bucket_cors_and_stored_gzip",
         "gunzipping_a_plain_body_fails_400_before_the_headers_are_sent",
-        "head_with_range_answers_206_and_content_range_on_json_and_xml"
+        "head_with_range_answers_206_and_content_range_on_json_and_xml",
+        "media_responses_carry_the_provider_object_headers"
       ],
       "verification": [
         {
@@ -28755,7 +28762,8 @@
             "xml_gzip_gunzips_whole_object_and_keeps_stored_hashes",
             "json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof",
             "gunzipping_a_plain_body_fails_400_before_the_headers_are_sent",
-            "head_with_range_answers_206_and_content_range_on_json_and_xml"
+            "head_with_range_answers_206_and_content_range_on_json_and_xml",
+            "media_responses_carry_the_provider_object_headers"
           ]
         }
       ],

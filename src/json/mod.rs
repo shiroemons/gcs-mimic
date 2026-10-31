@@ -37,7 +37,7 @@ pub(crate) mod rewrite;
 pub(crate) use body::read_body;
 pub use buckets::parse_insert;
 pub(crate) use buckets::{
-    PredefinedAclTarget, UniformAccess, bucket_etag, reject_predefined_acl, timestamp,
+    PredefinedAclTarget, UniformAccess, bucket_etag, http_date, reject_predefined_acl, timestamp,
     validate_bucket_name_for_profile,
 };
 #[cfg(test)]

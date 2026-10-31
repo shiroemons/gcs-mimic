@@ -904,6 +904,36 @@ pub(crate) fn timestamp(time: SystemTime) -> Result<String, JsonError> {
     timestamp_with_precision(time, TimestampPrecision::Micros)
 }
 
+/// The RFC 9110 date of a stored timestamp, as `Last-Modified` carries it. The weekday and month
+/// come from the validated RFC 3339 rendering so no platform calendar is involved.
+pub(crate) fn http_date(time: SystemTime) -> Result<String, JsonError> {
+    let timestamp = timestamp(time)?;
+    let days = time
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| timestamp_error())?
+        .as_secs()
+        / 86400;
+    let weekday = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"][(days % 7) as usize];
+    // RFC 3339 timestamps always carry a two-digit month at bytes 5..7.
+    let month = timestamp
+        .get(5..7)
+        .and_then(|month| month.parse::<usize>().ok())
+        .and_then(|month| {
+            [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ]
+            .get(month.checked_sub(1)?)
+            .copied()
+        })
+        .ok_or_else(timestamp_error)?;
+    Ok(format!(
+        "{weekday}, {} {month} {} {} GMT",
+        &timestamp[8..10],
+        &timestamp[..4],
+        &timestamp[11..19]
+    ))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TimestampPrecision {
     Micros,

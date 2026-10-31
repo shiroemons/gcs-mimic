@@ -11,7 +11,6 @@ use hyper::{
     body::Bytes,
     header::{HeaderName, HeaderValue},
 };
-use std::time::UNIX_EPOCH;
 
 pub(crate) mod buckets;
 mod copy;
@@ -880,39 +879,13 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
         CacheScope::Private => "private, max-age=0",
     });
     let etag = object_etag(record);
-    let timestamp = json::timestamp(record.updated)?;
-    let invalid_timestamp = || {
+    let date = json::http_date(record.updated).map_err(|_| {
         Error::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "ServiceUnavailable",
             "Invalid stored timestamp.",
         )
-    };
-    let days = record
-        .updated
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| invalid_timestamp())?
-        .as_secs()
-        / 86400;
-    let weekday = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"][(days % 7) as usize];
-    // RFC 3339 timestamps always carry a two-digit month at bytes 5..7.
-    let month = timestamp
-        .get(5..7)
-        .and_then(|month| month.parse::<usize>().ok())
-        .and_then(|month| {
-            [
-                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-            ]
-            .get(month.checked_sub(1)?)
-            .copied()
-        })
-        .ok_or_else(invalid_timestamp)?;
-    let date = format!(
-        "{weekday}, {} {month} {} {} GMT",
-        &timestamp[8..10],
-        &timestamp[..4],
-        &timestamp[11..19]
-    );
+    })?;
     for (key, value) in [
         ("cache-control", cache),
         ("etag", &etag),
