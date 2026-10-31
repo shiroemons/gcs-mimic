@@ -342,3 +342,71 @@ fn fields_selection_rejects_the_grpc_retention_expire_time_name() {
     assert_eq!(status, 200, "{body}");
     server.stop();
 }
+
+/// Observed on Cloud Storage (2026-11-01, us-central1): a bucket retention policy denies a
+/// delete and an overwrite with the same 403 `retentionPolicyNotMet` and the same message as
+/// object retention, naming the creation time plus the period in US Pacific time to the
+/// microsecond (trailing zeros trimmed). `retentionPolicy: null` lifts the policy and the
+/// delete then succeeds.
+#[test]
+fn bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    let (status, body) = server.request(
+        "POST",
+        "/storage/v1/b?project=local",
+        r#"{"name":"policy-bucket","retentionPolicy":{"retentionPeriod":"3600"}}"#,
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = server.request(
+        "POST",
+        "/upload/storage/v1/b/policy-bucket/o?uploadType=media&name=r",
+        "payload",
+    );
+    assert_eq!(status, 200, "{body}");
+    let expires = body["retentionExpirationTime"].as_str().unwrap().to_owned();
+    let delete = server.request("DELETE", "/storage/v1/b/policy-bucket/o/r", "");
+    let overwrite = server.request(
+        "POST",
+        "/upload/storage/v1/b/policy-bucket/o?uploadType=media&name=r",
+        "again",
+    );
+    for (status, body) in [&delete, &overwrite] {
+        assert_eq!(*status, 403, "{body}");
+        assert_eq!(
+            body["error"]["errors"][0]["reason"],
+            "retentionPolicyNotMet"
+        );
+    }
+    assert_eq!(
+        delete.1["error"]["message"],
+        overwrite.1["error"]["message"]
+    );
+    let message = delete.1["error"]["message"].as_str().unwrap();
+    let (head, until) = message.split_once(" until ").unwrap();
+    assert_eq!(
+        head,
+        "Object 'policy-bucket/r' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten"
+    );
+    // The displayed expiration is the millisecond truncation of the microsecond time.
+    let local = until.rsplit_once('-').unwrap().0;
+    let (clock, fraction) = local
+        .split_once('T')
+        .unwrap()
+        .1
+        .split_once('.')
+        .unwrap_or((local.split_once('T').unwrap().1, ""));
+    assert!(fraction.len() <= 6, "{until}");
+    assert!(!fraction.ends_with('0'), "{until}");
+    assert_eq!(clock[3..], expires[14..19], "{until} {expires}");
+    let (status, body) = server.request(
+        "PATCH",
+        "/storage/v1/b/policy-bucket",
+        r#"{"retentionPolicy":null}"#,
+    );
+    assert_eq!(status, 200, "{body}");
+    assert!(body.get("retentionPolicy").is_none(), "{body}");
+    let (status, body) = server.request("DELETE", "/storage/v1/b/policy-bucket/o/r", "");
+    assert_eq!(status, 204, "{body}");
+    server.stop();
+}

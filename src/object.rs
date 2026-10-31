@@ -84,9 +84,19 @@ impl ObjectRecord {
             .retention_expiration_time
             .is_some_and(|deadline| now < deadline)
         {
-            return Err(ObjectError::RetentionPolicyNotMet);
+            return Err(self.retained_until(self.retention_expiration_time.unwrap_or(now)));
         }
         Ok(())
+    }
+
+    /// Bucket policy and object retention share one denial; the time keeps the stored
+    /// precision (microseconds for a policy, nanoseconds for object retention).
+    fn retained_until(&self, until: SystemTime) -> ObjectError {
+        ObjectError::ObjectRetentionNotMet(Box::new(RetainedObject {
+            bucket: self.bucket.clone(),
+            name: self.name.clone(),
+            until,
+        }))
     }
 
     /// The object-lock guide allows a retained live version to become noncurrent, so
@@ -96,15 +106,10 @@ impl ObjectRecord {
             .retention
             .is_some_and(|retention| retention.active(now))
         {
-            return Err(ObjectError::ObjectRetentionNotMet(Box::new(
-                RetainedObject {
-                    bucket: self.bucket.clone(),
-                    name: self.name.clone(),
-                    until: self
-                        .retention
-                        .map_or(now, |retention| retention.retain_until),
-                },
-            )));
+            return Err(self.retained_until(
+                self.retention
+                    .map_or(now, |retention| retention.retain_until),
+            ));
         }
         Ok(())
     }
@@ -358,8 +363,7 @@ pub(crate) enum ObjectError {
     /// Publication would replace a live object, but the caller may not delete it.
     OverwriteForbidden,
     ActiveHold,
-    RetentionPolicyNotMet,
-    /// The object's own retain-until time has not passed.
+    /// The bucket retention policy or the object's own retain-until time has not passed.
     ObjectRetentionNotMet(Box<RetainedObject>),
     /// An Unlocked retention was shortened or removed without `overrideUnlockedRetention`.
     UnlockedRetentionOverrideRequired,
@@ -399,11 +403,8 @@ impl fmt::Display for ObjectError {
             }
             Self::OverwriteForbidden => formatter.write_str("overwrite forbidden"),
             Self::ActiveHold => formatter.write_str("object under active hold"),
-            Self::RetentionPolicyNotMet => {
-                formatter.write_str("object retention period has not elapsed")
-            }
             Self::ObjectRetentionNotMet(_) => {
-                formatter.write_str("object retain-until time has not elapsed")
+                formatter.write_str("object retention period has not elapsed")
             }
             Self::LockedRetention => formatter.write_str(LOCKED_RETENTION_MESSAGE),
             Self::UnlockedRetentionOverrideRequired => {

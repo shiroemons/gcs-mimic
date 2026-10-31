@@ -392,13 +392,8 @@ impl From<ObjectError> for JsonError {
                 "objectUnderActiveHold",
                 "Object replacement or deletion is not allowed due to an active hold on the object.",
             ),
-            ObjectError::RetentionPolicyNotMet => Self::new(
-                StatusCode::FORBIDDEN,
-                "retentionPolicyNotMet",
-                "Object retention period has not elapsed; wait until retentionExpirationTime or remove an unlocked bucket retention policy.",
-            ),
-            // The object-lock guide documents denial of retained deletes and replacements;
-            // the reason string is shared with bucket retention as a local choice.
+            // Bucket retention policies and object retention share the reason and wording
+            // (observed 2026-11-01, including the refused overwrite).
             ObjectError::ObjectRetentionNotMet(retained) => Self::new(
                 StatusCode::FORBIDDEN,
                 "retentionPolicyNotMet",
