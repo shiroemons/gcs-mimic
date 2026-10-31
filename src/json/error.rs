@@ -410,7 +410,7 @@ impl From<ObjectError> for JsonError {
     }
 }
 
-fn safe_backend_cause(cause: &str) -> &'static str {
+pub(crate) fn safe_backend_cause(cause: &str) -> &'static str {
     // Only known fixed causes are safe; backend strings may embed credentials or SQL values.
     const SAFE_CAUSES: &[&str] = &[
         "database is locked",

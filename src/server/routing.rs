@@ -11,6 +11,7 @@ use super::{
 };
 use crate::{
     auth::Caller,
+    bucket::CatalogError,
     config::{CompatProfile, CorsFallback},
     json::{self, JsonError, ObjectRequest, cors::CorsRequest},
     xml,
@@ -150,11 +151,7 @@ async fn respond_xml_cors(
             }
             Ok(None) => (Vec::new(), false, false),
             Err(error) => {
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Warn,
-                    "cors_lookup_failed",
-                    serde_json::json!({"bucket": object.bucket, "cause": error.to_string()}),
-                );
+                report_cors_lookup_failed(&object.bucket, &error);
                 lookup_failed = true;
                 (Vec::new(), false, false)
             }
@@ -162,11 +159,13 @@ async fn respond_xml_cors(
     } else if config.cors_fallback != CorsFallback::None {
         (Vec::new(), false, false)
     } else {
-        let has_rules = state
-            .catalog
-            .bucket_has_cors(&object.bucket)
-            .await
-            .unwrap_or(false);
+        let has_rules = match state.catalog.bucket_has_cors(&object.bucket).await {
+            Ok(has_rules) => has_rules,
+            Err(error) => {
+                report_cors_lookup_failed(&object.bucket, &error);
+                false
+            }
+        };
         (Vec::new(), false, has_rules)
     };
     // The fallback applies only once the bucket is known to have no rules (or not to exist).
@@ -209,6 +208,26 @@ async fn respond_xml_cors(
 /// CORS fields replace the routed response's, except `vary`: a representation that also
 /// varies by `Accept-Encoding` keeps that field after the CORS `vary`, as Cloud Storage
 /// sends both (observed 2026-10-31).
+/// The fields of a failed CORS rule lookup. The cause passes through the same allow-list as
+/// client-visible backend errors, because catalog messages may embed SQL values.
+fn cors_lookup_failure(bucket: &str, error: &CatalogError) -> serde_json::Value {
+    let cause = match error {
+        CatalogError::Unavailable(cause) => json::safe_backend_cause(cause.message()).to_owned(),
+        CatalogError::Io(cause) => format!("catalog I/O: {cause}"),
+        CatalogError::Corrupt(_) => "catalog corrupt".to_owned(),
+        other => json::safe_backend_cause(&other.to_string()).to_owned(),
+    };
+    serde_json::json!({"bucket": bucket, "cause": cause})
+}
+
+fn report_cors_lookup_failed(bucket: &str, error: &CatalogError) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Warn,
+        "cors_lookup_failed",
+        cors_lookup_failure(bucket, error),
+    );
+}
+
 fn apply_cors(headers: &mut HeaderMap, cors: HeaderMap, default_vary: Option<&'static str>) {
     let (leading, representation): (Vec<HeaderValue>, Vec<HeaderValue>) = headers
         .get_all("vary")
@@ -655,4 +674,25 @@ async fn legacy_bucket_body(response: Response<Full<Bytes>>) -> Response<Full<By
         .headers
         .insert("content-type", HeaderValue::from_static("application/json"));
     Response::from_parts(parts, Full::new(Bytes::from(bytes)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cors_lookup_failure_withholds_backend_details_outside_the_allow_list() {
+        let leaky = CatalogError::Unavailable("UNIQUE failed: buckets.name = 'secret-name'".into());
+        let fields = cors_lookup_failure("bucket", &leaky);
+        assert_eq!(fields["bucket"], "bucket");
+        assert_eq!(
+            fields["cause"],
+            "unrecognized backend failure (private details withheld)"
+        );
+        let known = CatalogError::Unavailable("database is locked".into());
+        assert_eq!(
+            cors_lookup_failure("bucket", &known)["cause"],
+            "database is locked"
+        );
+    }
 }
