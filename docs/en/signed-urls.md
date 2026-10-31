@@ -293,6 +293,44 @@ for a matching body; no object is changed. To bind SHA256 locally, use
 the same header. The helper keeps the official query UNSIGNED-PAYLOAD rule and
 the server checks the streamed bytes. See SPEC-SIGNED-PAYLOAD.
 
+## Legacy V2 HMAC and header signatures
+
+Strict XML accepts HMAC V2 query credentials
+(`GoogleAccessId`, `Expires`, `Signature`) and `GOOG1`/`AWS` Authorization
+headers. They use HMAC-SHA1 over the literal UTF-8 secret and legacy canonical
+request, with a base64 signature. Each request resolves an ACTIVE key and its
+registered signer before shared IAM/ACL, PAP and UBLA authorization. Key-admin
+privileges and a key's project do not grant object access.
+
+Object GET/HEAD/PUT/DELETE support path-style and configured virtual-host
+resources. Virtual hosts sign `/BUCKET/OBJECT` while sending `/OBJECT`;
+generation selection remains rejected. Header signatures bind documented
+response overrides and preserve literal `+` in query values. Google V2 query
+signatures retain Google's explicitly unsigned response overrides. Header date
+validation uses a local inclusive 15-minute window; exact Google legacy error
+parity remains open. JSON does not accept these signature credentials.
+
+See the [contract, independent vectors and remaining scope](slices/xml-v2-hmac-signatures.md).
+Broader forms, signed resumable operations, virtual bucket query edges and
+strict SDK/provider verification remain separate pending work.
+
+## Signed header chunk uploads
+
+Strict XML object PUT supports `AWS4-HMAC-SHA256` Authorization with the
+`STREAMING-AWS4-HMAC-SHA256-PAYLOAD` marker, an ACTIVE local HMAC key,
+`x-amz-decoded-content-length` and signed data/zero chunks. Use
+`Content-Encoding: aws-chunked`; HTTP Content-Length counts the encoded body,
+while the object-size limit and Content-MD5 count decoded stored bytes. Outer
+HTTP chunked framing is also accepted. The aws-chunked token is removed from
+stored encoding metadata; other encodings and their bytes are preserved.
+
+Google forbids x-goog extension headers on the signed chunked transfer path.
+Do not mix query/header credentials or substitute Google signing prefixes for
+the linked AWS chunk algorithm. No-encoding HTTP chunked cases and remaining
+provider/operation limits are explicit in the
+[signed chunk upload evidence](slices/xml-signed-chunked-upload.md). A failed
+chunk, zero signature, decoded length or transport EOF cannot publish an object.
+
 ## Signed POST policy form uploads
 
 `POST /BUCKET` with `multipart/form-data` accepts HTML form uploads (DESIGN-041,
@@ -306,34 +344,52 @@ document, not the host, so the form can target the emulator's path-style URL
 without re-signing.
 
 Supported fields: `key` (including `${filename}`), `bucket`, `policy`,
-`x-goog-algorithm` (`GOOG4-RSA-SHA256`), `x-goog-credential`, `x-goog-date`,
-`x-goog-signature`, `success_action_status`, `success_action_redirect`,
+V4 `x-goog-algorithm` (`GOOG4-RSA-SHA256` or `GOOG4-HMAC-SHA256`),
+`x-goog-credential`, `x-goog-date`, `x-goog-signature`, V2 `GoogleAccessId` and
+`signature`, `success_action_status`, `success_action_redirect`,
 `Content-Type`, `Cache-Control`, `Content-Disposition`, `Content-Encoding`,
 `Content-Length`, `x-goog-custom-time` and `x-goog-meta-*`. Field names are
 case-insensitive. Other fields fail with 400 instead of being ignored: `acl`,
-`Expires`, V2 `GoogleAccessId`/`signature`, `GOOG4-HMAC-SHA256` and unknown
-names. The file part's own Content-Type is not stored; send a `Content-Type`
+`Expires`, AWS form aliases and unknown names. V2 and V4 credentials cannot be
+mixed or combined with an Authorization header. The file part's own Content-Type
+is not stored; send a `Content-Type`
 field.
 
 The policy document must contain `expiration` (ISO 8601 basic or RFC 3339 with
 any UTC offset) and `conditions`. Supported conditions are `{"field": "value"}`,
 `["eq", "$field", "value"]`, `["starts-with", "$field", "prefix"]` and one
 `["content-length-range", min, max]` (inclusive file size). A bucket condition is
-required and binds the request bucket. Every form field except `policy` and
-`x-goog-signature` needs a condition, and every condition must name a submitted
-field. The `key` condition matches the submitted value before `${filename}`
+required for V4 and binds the request bucket. V2 permits a policy without a
+bucket condition; such a policy does not bind the bucket, but the resolved
+principal must still have permission on the request bucket. Every V4 form field
+except `policy` and `x-goog-signature` needs a condition; V2 exempts `policy`,
+`GoogleAccessId` and `signature`. The file part is not a policy field. Every
+condition must name a submitted field or the request bucket. The `key` condition
+currently matches the submitted value before `${filename}`
 substitution. Violations, expiry and malformed documents return 400
 `InvalidPolicyDocument`; the file size outside the range returns 400
 `EntityTooSmall` or `EntityTooLarge` and leaves no object.
 
-In strict mode the registered signer's RSA public key verifies the signature
+In strict mode the registered signer's RSA public key or ACTIVE HMAC key verifies the signature
 (403 `SignatureDoesNotMatch` or `InvalidAccessKeyId`), and the signer's IAM
 permissions authorize the write: create for new objects, delete as well for
-overwrites. A verified policy also gets the signed URL validity window: it is
+overwrites. V4 HMAC derives the signing key from the literal UTF-8 secret and the
+four credential-scope components, then verifies HMAC-SHA256 over the exact
+base64 policy field. V2 signs that exact field with RSA-SHA256 or legacy
+HMAC-SHA1 and uses a base64 signature. RSA verification failure never retries
+with HMAC. Every HMAC request resolves the current registered principal and key
+state; key administration alone grants no object access.
+
+A verified V4 policy currently gets a local signed URL validity window: it is
 rejected more than 15 minutes before `x-goog-date`, and its `expiration` may be
-at most 7 days after `x-goog-date` (400 `InvalidPolicyDocument`). Valid signer
+at most 7 days after `x-goog-date` (400 `InvalidPolicyDocument`). These limits
+have not been established as Google's form-policy contract; V2 checks expiration
+only and does not inherit them. Valid signer
 uploads work under public access prevention. A form
-without `policy` is anonymous and needs a public create grant. The permissive
+without `policy` or an `Authorization` header is anonymous and needs a public
+create grant. As a local extension, a form without `policy` can instead use an
+`Authorization` header and the authenticated principal's permissions; this is
+not a verified Google form authentication contract. The permissive
 profile ignores policy credentials as it does for signed URLs, but still
 enforces the policy conditions and expiration.
 
@@ -343,4 +399,4 @@ default, an empty 200, a 201 `PostResponse` XML document with `Location`,
 is used unchanged). Fields before the file are limited to 64 KiB each and
 256 KiB in total. Exact provider error wording, redirect query parameters and
 browser CORS for `POST /BUCKET` are not verified; see
-`compatibility/features.json`.
+`compatibility/features.json` and [the policy variant evidence](slices/xml-post-policy-variants.md).

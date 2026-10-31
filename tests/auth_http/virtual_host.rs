@@ -523,10 +523,20 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
             404,
             "NoSuchKey",
         );
+        let listing = request(&server, "GET", &authority, "/", ADMIN, b"");
+        listing.ok();
+        assert_eq!(
+            listing.headers["content-type"],
+            "application/xml; charset=UTF-8"
+        );
+        let body = String::from_utf8_lossy(&listing.body);
+        assert!(body.contains("<ListBucketResult "));
+        assert!(body.contains("<Name>probe-bucket</Name>"));
+        assert!(body.contains("<Key>object</Key>"));
         error(
-            &request(&server, "GET", &authority, "/", ADMIN, b""),
-            400,
-            "InvalidArgument",
+            &request(&server, "GET", &authority, "/", NO_ROLES, b""),
+            403,
+            "AccessDenied",
         );
         error(
             &request(&server, "GET", &authority, "/missing", VIEWER, b""),
@@ -1118,10 +1128,22 @@ fn virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style() {
         current.headers["x-goog-generation"]
     );
     request(&server, "PUT", &host, "/new", &format!("{ADMIN}x-goog-if-generation-match: {generation}\r\nx-goog-if-metageneration-match: 1\r\n"), b"condition bytes").ok();
+    let listing = request(&server, "GET", &host, "/", ADMIN, b"");
+    listing.ok();
+    assert_eq!(
+        listing.headers["content-type"],
+        "application/xml; charset=UTF-8"
+    );
+    let body = String::from_utf8_lossy(&listing.body);
+    assert!(body.contains("<ListBucketResult "));
+    assert!(body.contains(&format!("<Name>{BUCKET}</Name>")));
+    for key in ["object", "storage/v1/b", "_internal/ready"] {
+        assert!(body.contains(&format!("<Key>{key}</Key>")), "{body}");
+    }
     error(
-        &request(&server, "GET", &host, "/", ADMIN, b""),
-        400,
-        "InvalidArgument",
+        &request(&server, "GET", &host, "/", "", b""),
+        401,
+        "AuthenticationRequired",
     );
     error(
         &request(&server, "GET", &host, "/bad%GG", ADMIN, b""),
@@ -1239,9 +1261,10 @@ fn virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch() {
         .body,
         b"hello world"
     );
-    assert_eq!(
-        request(&disabled, "GET", &host, "/object", VIEWER, b"").status,
-        400
+    error(
+        &request(&disabled, "GET", &host, "/object", VIEWER, b""),
+        404,
+        "NoSuchBucket",
     );
 }
 

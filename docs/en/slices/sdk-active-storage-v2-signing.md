@@ -4,6 +4,12 @@
 
 Scope: DESIGN-040 (PARTIAL) and DESIGN-084 (PARTIAL). No new configuration or dependencies.
 
+This records the original RSA/SDK slice and its historical acceptance results.
+The later [V2 HMAC/header slice](xml-v2-hmac-signatures.md) adds HMAC queries,
+GOOG1/AWS headers, HEAD and virtual-host object resources. Its current supported
+subset and remaining questions supersede the original exclusions below; the
+parent feature still remains PARTIAL.
+
 ## Acceptance contract
 
 | Case | Required behavior | Result |

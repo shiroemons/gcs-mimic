@@ -89,11 +89,125 @@ fn v2_signed(
             );
         }
     }
+    let separator = if path.contains('?') { '&' } else { '?' };
     format!(
-        "http://localhost:4443{path}?GoogleAccessId={}&Expires={expires}&Signature={}",
+        "http://localhost:4443{path}{separator}GoogleAccessId={}&Expires={expires}&Signature={}",
         encode_query_component(SIGNER),
         encode_query_component(&encoded)
     )
+}
+
+#[test]
+fn v2_multipart_signatures_bind_upload_and_part_subresources() {
+    let now = UNIX_EPOCH + Duration::from_secs(1000);
+    for (method, path, changed) in [
+        (
+            Method::POST,
+            "/bucket/value?uploads",
+            "/bucket/value?uploadId=other",
+        ),
+        (
+            Method::PUT,
+            "/bucket/value?partNumber=2&uploadId=session",
+            "/bucket/value?partNumber=3&uploadId=session",
+        ),
+        (
+            Method::POST,
+            "/bucket/value?uploadId=session",
+            "/bucket/value?uploadId=other",
+        ),
+        (
+            Method::DELETE,
+            "/bucket/value?uploadId=session",
+            "/bucket/value?other=1",
+        ),
+    ] {
+        let signed = v2_signed(method.as_str(), path, "1060", "", "", "");
+        assert_eq!(
+            verify(&signed, &method, HeaderMap::new(), now),
+            Ok(SIGNER.into())
+        );
+        assert_eq!(
+            verify(
+                &signed.replacen(path, changed, 1),
+                &method,
+                HeaderMap::new(),
+                now
+            ),
+            Err(Failure::Mismatch)
+        );
+    }
+    let signed = v2_signed(
+        "PUT",
+        "/bucket/value?partNumber=2&uploadId=session",
+        "1060",
+        "",
+        "",
+        "",
+    );
+    assert_eq!(
+        verify(
+            &signed.replace(
+                "partNumber=2&uploadId=session",
+                "uploadId=session&partNumber=2"
+            ),
+            &Method::PUT,
+            HeaderMap::new(),
+            now
+        ),
+        Ok(SIGNER.into())
+    );
+}
+
+#[test]
+fn v2_binds_versions_subresource_and_value_while_ordinary_list_filters_are_unsigned() {
+    let now = UNIX_EPOCH + Duration::from_secs(1000);
+    let plain = v2_signed("GET", "/bucket", "1060", "", "", "");
+    assert_eq!(
+        verify(&plain, &Method::GET, HeaderMap::new(), now),
+        Ok(SIGNER.into())
+    );
+    assert_eq!(
+        verify(
+            &format!("{plain}&versions"),
+            &Method::GET,
+            HeaderMap::new(),
+            now
+        ),
+        Err(Failure::Mismatch)
+    );
+    for resource in ["/bucket?versions", "/bucket?versions=true"] {
+        let signed = v2_signed("GET", resource, "1060", "", "", "");
+        assert_eq!(
+            verify(&signed, &Method::GET, HeaderMap::new(), now),
+            Ok(SIGNER.into())
+        );
+        let removed = signed
+            .replace("versions=true&", "")
+            .replace("versions&", "");
+        assert_eq!(
+            verify(&removed, &Method::GET, HeaderMap::new(), now),
+            Err(Failure::Mismatch)
+        );
+        let changed = if resource.ends_with("=true") {
+            signed.replace("versions=true", "versions=false")
+        } else {
+            signed.replace("versions&", "versions=true&")
+        };
+        assert_eq!(
+            verify(&changed, &Method::GET, HeaderMap::new(), now),
+            Err(Failure::Mismatch)
+        );
+    }
+    assert_eq!(
+        verify(
+            &format!("{plain}&prefix=folder/&max-keys=1&marker=a&delimiter=/"),
+            &Method::GET,
+            HeaderMap::new(),
+            now
+        ),
+        Ok(SIGNER.into())
+    );
 }
 
 #[test]
@@ -243,13 +357,17 @@ async fn v2_structure_permissive_credentials_and_injected_expiry() {
             .is_none()
     );
     let auth = auth();
+    let dir = crate::test_support::TestDir::new();
+    let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
     let error = crate::xml::authenticate(
         &auth,
+        &catalog,
         &Method::GET,
         &expired.parse().unwrap(),
         &HeaderMap::new(),
         &Fixed(now),
     )
+    .await
     .err()
     .unwrap();
     let response = error.response(crate::xml::ErrorBody::Include);
@@ -318,6 +436,43 @@ fn signed_time_boundaries_use_the_injected_clock_and_documented_skew() {
         }
         assert_eq!(timestamp(parse_timestamp(date).unwrap()).unwrap(), date);
     }
+}
+
+#[test]
+fn delete_signatures_bind_method_host_raw_path_and_generation() {
+    let now = parse_timestamp(DATE).unwrap();
+    let url = signed(
+        "https://localhost:4443/bucket/a%2Fb?generation=123",
+        &Method::DELETE,
+        HeaderMap::new(),
+    );
+    assert!(verify(&url, &Method::DELETE, HeaderMap::new(), now).is_ok());
+    for changed in [
+        url.replace("a%2Fb", "a/b"),
+        url.replace("generation=123", "generation=124"),
+        url.replace("localhost:4443", "other.invalid:4443"),
+    ] {
+        assert_eq!(
+            verify(&changed, &Method::DELETE, HeaderMap::new(), now),
+            Err(Failure::Mismatch)
+        );
+    }
+    assert_eq!(
+        verify(&url, &Method::GET, HeaderMap::new(), now),
+        Err(Failure::Mismatch)
+    );
+    assert!(
+        sign_url(
+            "https://localhost/bucket/object",
+            &Method::POST,
+            SIGNER,
+            PRIVATE,
+            60,
+            now,
+            HeaderMap::new()
+        )
+        .is_err()
+    );
 }
 
 #[test]

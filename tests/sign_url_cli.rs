@@ -132,13 +132,13 @@ fn signing_cli_validates_duration_methods_timestamps_and_private_key_inputs() {
         assert!(!output.status.success(), "{duration}");
         assert!(output.stdout.is_empty());
     }
-    for method in ["GET", "HEAD", "PUT"] {
+    for method in ["GET", "HEAD", "PUT", "DELETE"] {
         let mut args = options();
         args[9] = method;
         assert!(run_options(&args, &[]).status.success());
     }
     for (index, value) in [
-        (9, "DELETE"),
+        (9, "POST"),
         (17, "20260229T000000Z"),
         (15, "fixtures/signing/test-only-public.pem"),
         (15, "fixtures/signing/absent.pem"),

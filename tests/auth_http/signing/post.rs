@@ -289,6 +289,11 @@ fn v4_policy_rejects_tampering_unknown_signers_expiry_and_condition_violations()
         ),
         (
             replace("x-goog-algorithm", "GOOG4-HMAC-SHA256"),
+            403,
+            "InvalidAccessKeyId",
+        ),
+        (
+            replace("x-goog-algorithm", "GOOG4-HMAC-SHA512"),
             400,
             "InvalidArgument",
         ),

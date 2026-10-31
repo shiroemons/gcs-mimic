@@ -803,7 +803,7 @@ fn xml_put_versioning_and_default_event_holds_match_shared_uploads() {
     xml_error(
         &server.request("PUT", OBJECT, ADMIN, b"denied"),
         403,
-        "AccessDenied",
+        "ObjectUnderActiveHold",
     );
     assert_eq!(snapshot(&server, &data), before);
     server.stop();

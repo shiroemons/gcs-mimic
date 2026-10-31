@@ -1,4 +1,4 @@
-//! Bounded, local V2/V4 RSA query verification and V4 signing. No Google IAM calls.
+//! Bounded, local V2/V4 XML signature verification and RSA signing. No Google IAM calls.
 
 use super::{Auth, Caller};
 use crate::{clock::Clock, hashing::encode_lower, json, url::push_percent_encoded};
@@ -19,11 +19,39 @@ pub(crate) const PARAMETERS: &[&str] = &[
     "X-Goog-SignedHeaders",
     "X-Goog-Signature",
 ];
+pub(crate) const AWS_PARAMETERS: &[&str] = &[
+    "X-Amz-Algorithm",
+    "X-Amz-Credential",
+    "X-Amz-Date",
+    "X-Amz-Expires",
+    "X-Amz-SignedHeaders",
+    "X-Amz-Signature",
+];
 const ALGORITHM: &str = "GOOG4-RSA-SHA256";
 pub(crate) const MAX_EXPIRES: u64 = 604800;
 pub(crate) const V2_PARAMETERS: &[&str] = &["GoogleAccessId", "Expires", "Signature"];
 
+pub(crate) enum Resource {
+    PathStyle,
+    VirtualHosted(String),
+}
+
+mod policy;
+mod streaming;
 mod v2;
+mod v4;
+mod verify;
+pub(crate) use streaming::{STREAMING_PAYLOAD, Streaming};
+pub(crate) use v2::{legacy_aws, xml_query};
+pub(crate) use verify::VerificationError;
+pub(crate) use verify::has_header;
+
+pub(crate) fn authentication_header(name: &str) -> bool {
+    matches!(
+        name,
+        "x-goog-date" | "x-amz-date" | "x-goog-content-sha256" | "x-amz-content-sha256"
+    )
+}
 
 #[cfg(test)]
 mod tests;
@@ -78,7 +106,7 @@ impl fmt::Display for SigningError {
             Self::TimestampOutOfRange => f.write_str("timestamp out of range"),
             Self::InvalidUrl => f.write_str("invalid signing URL"),
             Self::UnsupportedRequest => f.write_str(
-                "signing requires an HTTP(S) URL, GET/HEAD/PUT, a signer ID and 1..604800 seconds",
+                "signing requires an HTTP(S) URL, GET/HEAD/PUT/DELETE, a signer ID and 1..604800 seconds",
             ),
             Self::ReservedHeader => {
                 f.write_str("host and authorization cannot be supplied as signing headers")
@@ -104,7 +132,7 @@ impl fmt::Display for SigningError {
 // `source()`.
 impl std::error::Error for SigningError {}
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct PublicKey {
     n: Vec<u8>,
     e: Vec<u8>,
@@ -162,7 +190,7 @@ impl PublicKey {
         })
     }
 
-    fn verify(&self, message: &[u8], bytes: &[u8]) -> bool {
+    pub(super) fn verify(&self, message: &[u8], bytes: &[u8]) -> bool {
         signature::RsaPublicKeyComponents {
             n: &self.n,
             e: &self.e,
@@ -214,6 +242,7 @@ pub(crate) fn is_signed(query: Option<&str>) -> bool {
             let key = super::lenient_decode(pair.split('=').next().unwrap_or_default());
             PARAMETERS
                 .iter()
+                .chain(AWS_PARAMETERS)
                 .chain(V2_PARAMETERS)
                 .any(|name| key.eq_ignore_ascii_case(name.as_bytes()))
         })
@@ -294,39 +323,6 @@ impl Auth {
         Ok(Some(caller))
     }
 
-    /// Verify a V4 POST policy: RSA-SHA256 over the exact base64 `policy` field value.
-    /// The permissive profile ignores credentials, as it does for signed URLs; policy
-    /// conditions and expiration are form constraints that the adapter always enforces.
-    pub(crate) fn authenticate_policy(
-        &self,
-        algorithm: &str,
-        credential: &str,
-        date: &str,
-        signature: &str,
-        policy: &str,
-    ) -> Result<Option<Caller<'_>>, Failure> {
-        if self.registry.is_none() {
-            return Ok(None);
-        }
-        if algorithm != ALGORITHM {
-            return Err(Failure::Malformed);
-        }
-        let parts: Vec<_> = credential.split('/').collect();
-        if parts.len() != 5
-            || parts[0].is_empty()
-            || parts[2].is_empty()
-            || parts[3..] != ["storage", "goog4_request"]
-        {
-            return Err(Failure::Malformed);
-        }
-        parse_timestamp(date).map_err(|_| Failure::Malformed)?;
-        if parts[1] != &date[..8] {
-            return Err(Failure::Malformed);
-        }
-        let bytes = unhex(signature)?;
-        self.verify_signer(parts[0], policy, &bytes).map(Some)
-    }
-
     fn verify_signer(
         &self,
         signer: &str,
@@ -356,6 +352,18 @@ fn canonical_request(
     headers: &HeaderMap,
     query: &BTreeMap<String, String>,
     signed: &str,
+) -> Result<String, Failure> {
+    payload_hash(headers)?;
+    canonical_with_payload(method, uri, headers, query, signed, "UNSIGNED-PAYLOAD")
+}
+
+fn canonical_with_payload(
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    query: &BTreeMap<String, String>,
+    signed: &str,
+    payload: &str,
 ) -> Result<String, Failure> {
     let names: Vec<_> = signed.split(';').collect();
     if !names.contains(&"host")
@@ -404,20 +412,26 @@ fn canonical_request(
         canonical_headers.push('\n');
     }
     let path = canonical_path(uri.path())?;
-    payload_hash(headers)?;
-    // Query signatures always use UNSIGNED-PAYLOAD; a declared digest is checked by the adapter.
     Ok(format!(
-        "{method}\n{path}\n{}\n{canonical_headers}\n{signed}\nUNSIGNED-PAYLOAD",
+        "{method}\n{path}\n{}\n{canonical_headers}\n{signed}\n{payload}",
         canonical_query(query)
     ))
 }
 
 pub(crate) fn payload_hash(headers: &HeaderMap) -> Result<Option<[u8; 32]>, Failure> {
-    match headers.get("x-goog-content-sha256") {
+    let name = if headers.contains_key("x-amz-content-sha256") {
+        if headers.contains_key("x-goog-content-sha256") {
+            return Err(Failure::Malformed);
+        }
+        "x-amz-content-sha256"
+    } else {
+        "x-goog-content-sha256"
+    };
+    match headers.get(name) {
         None => Ok(None),
         Some(value) => {
             let value = value.to_str().map_err(|_| Failure::Malformed)?;
-            if headers.get_all("x-goog-content-sha256").iter().count() != 1
+            if headers.get_all(name).iter().count() != 1
                 || (value != "UNSIGNED-PAYLOAD"
                     && (value.len() != 64
                         || !value
@@ -482,7 +496,7 @@ pub fn encode_query_component(raw: &str) -> String {
 fn canonical_query(query: &BTreeMap<String, String>) -> String {
     query
         .iter()
-        .filter(|(k, _)| k.as_str() != "X-Goog-Signature")
+        .filter(|(k, _)| !matches!(k.as_str(), "X-Goog-Signature" | "X-Amz-Signature"))
         .map(|(k, v)| {
             format!(
                 "{}={}",
@@ -581,7 +595,10 @@ pub fn sign_url(
     if !matches!(scheme.as_str(), "http" | "https")
         || authority.as_str().contains('@')
         || url.contains('#')
-        || !matches!(*method, Method::GET | Method::HEAD | Method::PUT)
+        || !matches!(
+            *method,
+            Method::GET | Method::HEAD | Method::PUT | Method::DELETE
+        )
         || !super::visible_ascii(signer, 254)
         || signer.contains('/')
         || !(1..=MAX_EXPIRES).contains(&expires)
@@ -616,10 +633,12 @@ pub fn sign_url(
     let scope = format!("{}/auto/storage/goog4_request", &date[..8]);
     let mut query = json::parse_query(uri.query().unwrap_or_default())
         .map_err(|e| SigningError::InvalidQuery(e.message))?;
-    if query
-        .keys()
-        .any(|k| PARAMETERS.iter().any(|p| k.eq_ignore_ascii_case(p)))
-    {
+    if query.keys().any(|k| {
+        PARAMETERS
+            .iter()
+            .chain(AWS_PARAMETERS)
+            .any(|p| k.eq_ignore_ascii_case(p))
+    }) {
         return Err(SigningError::ExistingSigningParameters);
     }
     let mut names: Vec<_> = headers.keys().map(|h| h.as_str()).collect();

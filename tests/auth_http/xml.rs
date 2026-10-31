@@ -595,8 +595,24 @@ fn xml_bucket_paths_reserve_only_api_namespaces() {
             b"bytes"
         );
     }
+    let batch = server.get(ADMIN, "/batch/storage/v1");
+    batch.error(400, "badRequest");
+    assert!(
+        batch.json()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("POST /batch/storage/v1")
+    );
+    server
+        .request(
+            "POST",
+            "/batch/storage/v1",
+            &format!("{ADMIN}Content-Type: multipart/mixed; boundary=batch\r\n"),
+            b"not a multipart envelope",
+        )
+        .error(400, "badRequest");
+    assert_eq!(server.get(ADMIN, "/batch/x").ok().body, b"bytes");
     for path in [
-        "/batch/storage/v1",
         "/batch/storage/v1/x",
         "/storage/v1/x",
         "/upload/storage/v1/x",
@@ -614,9 +630,10 @@ fn xml_bucket_paths_reserve_only_api_namespaces() {
 fn xml_unsupported_operations_fail_before_reading_a_body() {
     let (_config, _data, server) = fixture();
     grant(&server, "allUsers", "roles/storage.objectViewer");
+    let before = server.get(ADMIN, JSON_OBJECT).ok().json();
     for (method, path) in [
-        ("GET", "/iam-bucket"),
-        ("GET", "/iam-bucket/"),
+        ("GET", "/iam-bucket?acl"),
+        ("GET", "/iam-bucket/?uploads=unexpected"),
         ("PUT", "/iam-bucket/object?acl"),
         ("POST", OBJECT),
         ("OPTIONS", OBJECT),
@@ -624,10 +641,24 @@ fn xml_unsupported_operations_fail_before_reading_a_body() {
         ("GET", "/iam-bucket/object?uploads"),
         ("GET", "/iam-bucket/object?response-cache-control=no-cache"),
     ] {
-        let request =
-            format!("{method} {path} HTTP/1.1\r\nHost: local\r\nContent-Length: 999999\r\n\r\n");
+        let request = format!(
+            "{method} {path} HTTP/1.1\r\nHost: local\r\n{ADMIN}Content-Length: 999999\r\n\r\n"
+        );
         xml_error(&server.raw(request.as_bytes()), 400, "InvalidArgument");
     }
+    for (auth, status, code) in [
+        ("", 401, "AuthenticationRequired"),
+        (NO_ROLES, 403, "AccessDenied"),
+    ] {
+        let request = format!(
+            "GET /iam-bucket/?uploads HTTP/1.1\r\nHost: local\r\n{auth}Content-Length: 999999\r\n\r\n"
+        );
+        xml_error(&server.raw(request.as_bytes()), status, code);
+    }
+    let uploads = server.get(ADMIN, "/iam-bucket/?uploads");
+    assert_eq!(uploads.status, 200);
+    assert!(String::from_utf8_lossy(&uploads.body).contains("<ListMultipartUploadsResult"));
+    assert_eq!(server.get(ADMIN, JSON_OBJECT).ok().json(), before);
     assert_eq!(server.get("", OBJECT).ok().body, b"hello world");
 }
 

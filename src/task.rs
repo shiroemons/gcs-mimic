@@ -117,6 +117,15 @@ pub(crate) fn catch_job<T>(name: &'static str, job: impl FnOnce() -> T) -> Resul
     })
 }
 
+/// Run an admitted CPU job on the runtime's bounded blocking pool, reporting its panic.
+pub(crate) fn spawn_blocking<F, T>(name: &'static str, job: F) -> JoinHandle<Result<T, JobPanicked>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || catch_job(name, job))
+}
+
 /// Whether a background task is doing its work, as readiness reports it.
 ///
 /// A task is down while it waits to restart after a panic and until a pass of the replacement
@@ -160,7 +169,7 @@ impl TaskHealth {
             });
     }
 
-    fn mark_restarting(&self) {
+    pub(crate) fn mark_restarting(&self) {
         self.0.restarting.store(true, Ordering::Release);
     }
 

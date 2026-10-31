@@ -1,17 +1,21 @@
 //! XML API object GET, HEAD and DELETE.
 
+use super::RequestBody as Incoming;
 use super::{
     ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, insert_content_range,
     insert_unsatisfied_content_range, object_body,
 };
 use crate::{auth, bucket::BucketAccess, csek::CustomerKey, json, xml};
-use hyper::{Method, Request, Response, StatusCode, body::Incoming};
+use hyper::{Method, Request, Response, StatusCode};
 
 pub(super) async fn respond(
-    request: Request<Incoming>,
+    mut request: Request<Incoming>,
     mut operation: xml::ReadRequest,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, xml::Error> {
+    if operation.name.is_empty() {
+        return xml::list::respond(request, operation, ctx).await;
+    }
     let delete = request.method() == Method::DELETE;
     let permission = if delete {
         auth::OBJECTS_DELETE
@@ -30,6 +34,8 @@ pub(super) async fn respond(
         return Err(xml::Error::unsupported(&name));
     }
     let key = json::request_key(request.headers())?;
+    // Reads and DELETE have no payload; consume framing before any mutation or response.
+    xml::empty_body(request.body_mut()).await?;
     if delete {
         ctx.state
             .catalog

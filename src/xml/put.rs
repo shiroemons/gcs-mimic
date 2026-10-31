@@ -1,4 +1,5 @@
 use super::{Error, MinValue, ReadRequest, number};
+use crate::server::RequestBody as Incoming;
 use crate::{
     auth::{self, Caller},
     json,
@@ -7,22 +8,22 @@ use crate::{
     storage::ObjectUpload,
 };
 use http_body_util::Full;
-use hyper::{
-    HeaderMap, Request, Response, StatusCode,
-    body::{Bytes, Incoming},
-};
+use hyper::{HeaderMap, Request, Response, StatusCode, body::Bytes};
 use std::{collections::BTreeMap, io};
 use tokio::sync::mpsc;
 
-struct Headers {
-    content_type: String,
-    expected: ExpectedHashes,
-    conditions: ObjectConditions,
-    metadata: ObjectMetadataUpdate,
-    sha256: Option<[u8; 32]>,
+mod streaming;
+
+pub(super) struct Headers {
+    pub(super) content_type: String,
+    pub(super) expected: ExpectedHashes,
+    pub(super) conditions: ObjectConditions,
+    pub(super) metadata: ObjectMetadataUpdate,
+    pub(super) sha256: Option<[u8; 32]>,
+    pub(super) decoded_length: Option<u64>,
 }
 
-fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, Error> {
+pub(super) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, Error> {
     let mut values = headers.get_all(name).iter();
     let Some(value) = values.next() else {
         return Ok(None);
@@ -43,20 +44,30 @@ fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, Err
     })
 }
 
-/// Whether the request is a signed URL, whose signature may declare `x-goog-content-sha256`.
+/// Signature-specific headers are validated before the operation adapter sees them.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Signing {
+pub(super) enum Signing {
     SignedUrl,
     Header,
+    Streaming,
 }
 
-fn headers(headers: &HeaderMap, max_bytes: u64, signing: Signing) -> Result<Headers, Error> {
+pub(super) fn headers(
+    headers: &HeaderMap,
+    max_bytes: u64,
+    signing: Signing,
+) -> Result<Headers, Error> {
     reject_unsupported_headers(headers, signing)?;
     let conditions = conditions(headers)?;
     validate_framing(headers, max_bytes)?;
     let (content_type, expected) = content_type_and_hashes(headers, conditions)?;
     let metadata = metadata(headers)?;
-    let sha256 = auth::signature::payload_hash(headers).map_err(|_| {
+    let sha256 = if signing == Signing::Streaming {
+        Ok(None)
+    } else {
+        auth::signature::payload_hash(headers)
+    }
+    .map_err(|_| {
         Error::new(
             StatusCode::BAD_REQUEST,
             "InvalidDigest",
@@ -69,6 +80,12 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signing: Signing) -> Result<Head
         conditions,
         metadata,
         sha256,
+        decoded_length: single(headers, "x-amz-decoded-content-length")?
+            .map(|raw| {
+                raw.parse::<u64>()
+                    .map_err(|_| Error::unsupported("invalid decoded length"))
+            })
+            .transpose()?,
     })
 }
 
@@ -78,7 +95,7 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
         if (name.starts_with("x-goog-")
             && !name.starts_with("x-goog-meta-")
             && !crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)
-            && !(signing == Signing::SignedUrl && name == "x-goog-content-sha256")
+            && !(signing != Signing::Header && auth::signature::authentication_header(name))
             && !matches!(
                 name,
                 "x-goog-hash"
@@ -88,7 +105,10 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
                     | "x-goog-gcs-idempotency-token"
                     | "x-goog-storage-class"
             ))
-            || name.starts_with("x-amz-")
+            || (name.starts_with("x-amz-")
+                && !(signing != Signing::Header
+                    && (auth::signature::authentication_header(name)
+                        || name == "x-amz-decoded-content-length")))
             || matches!(
                 name,
                 "content-range"
@@ -177,7 +197,13 @@ fn validate_framing(headers: &HeaderMap, max_bytes: u64) -> Result<(), Error> {
             "Content-Length or chunked transfer encoding is required.",
         ));
     }
-    if length.is_some_and(|length| length > max_bytes) {
+    let declared = single(headers, "x-amz-decoded-content-length")?
+        .map(|raw| {
+            raw.parse::<u64>()
+                .map_err(|_| Error::unsupported("invalid decoded length"))
+        })
+        .transpose()?;
+    if declared.or(length).is_some_and(|length| length > max_bytes) {
         return Err(storage_error(ObjectError::TooLarge, None));
     }
     Ok(())
@@ -307,11 +333,14 @@ pub(crate) async fn respond(
     request: Request<Incoming>,
     operation: ReadRequest,
     ctx: ObjectCtx<'_>,
+    streaming: Option<auth::signature::Streaming>,
 ) -> Result<Response<ResponseBody>, Error> {
+    if request.headers().contains_key("x-goog-copy-source") {
+        return super::copy::respond(request, operation, ctx).await;
+    }
     let ObjectCtx {
         state,
         config,
-        activity,
         caller,
         ..
     } = ctx;
@@ -319,7 +348,11 @@ pub(crate) async fn respond(
         .authorize(auth::OBJECTS_CREATE, &operation.bucket)
         .await
         .map_err(|error| anonymous_error(error, caller))?;
-    let signing = if auth::signature::is_signed(request.uri().query()) {
+    let signing = if streaming.is_some() {
+        Signing::Streaming
+    } else if auth::signature::is_signed(request.uri().query())
+        || auth::signature::has_header(request.headers())
+    {
         Signing::SignedUrl
     } else {
         Signing::Header
@@ -328,9 +361,13 @@ pub(crate) async fn respond(
         content_type,
         expected,
         conditions,
-        metadata,
+        mut metadata,
         sha256,
+        decoded_length,
     } = headers(request.headers(), config.max_object_bytes, signing)?;
+    if streaming.is_some() {
+        metadata.content_encoding = streaming::stored_encoding(request.headers())?;
+    }
     let permit = ctx
         .await_catalog(state.catalog.prepare_object_upload(
             &operation.bucket,
@@ -358,12 +395,15 @@ pub(crate) async fn respond(
     tokio::pin!(upload);
     let record = tokio::select! {
         result = &mut upload => result,
-        result = stream_upload(request.into_body(), &sender, config.max_object_bytes, activity, sha256) => {
+        result = streaming::upload(request.into_body(), &sender, ctx, streaming, decoded_length, sha256) => {
             if let Err(error) = result {
-                if sender.send(Err(io::Error::other(error.to_string()))).await.is_err() {
-                    return Err(storage_error(upload.await.err().unwrap_or(error), caller));
+                let _ = sender.send(Err(io::Error::other("XML upload validation failed"))).await;
+                drop(sender);
+                match ctx.await_catalog(upload).await {
+                    Ok(_) | Err(ObjectError::BodyAborted(_)) => {}
+                    Err(error) => return Err(storage_error(error, caller)),
                 }
-                return Err(storage_error(error, caller));
+                return Err(error);
             }
             ctx.await_catalog(async {
                 let _ = sender.send(Ok(UploadChunk::End)).await;

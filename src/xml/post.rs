@@ -1,10 +1,11 @@
-//! XML POST Object HTML form uploads, optionally authorized by a V4 policy document.
+//! XML POST Object HTML form uploads, optionally authorized by a V2 or V4 policy document.
 //!
 //! Form fields before `file` are read into a bounded map; the file part then streams
 //! through the shared object write path, so generations, checksums and catalog
 //! admission are the same as for an XML PUT.
 
 use super::{Error, ObjectPath, put::storage_error};
+use crate::server::RequestBody as Incoming;
 use crate::{
     auth::{
         self, Caller,
@@ -21,7 +22,7 @@ use crate::{
 use http_body_util::{BodyExt, Full};
 use hyper::{
     HeaderMap, Request, Response, StatusCode, Uri,
-    body::{Body, Bytes, Incoming},
+    body::{Body, Bytes},
     header::HeaderValue,
 };
 use std::{
@@ -30,6 +31,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::mpsc;
+
+mod policy;
+use policy::Version;
+#[cfg(test)]
+mod failure_tests;
 
 /// One form field value, which bounds the policy document as well.
 const FIELD_CAP: usize = 64 * 1024;
@@ -53,12 +59,23 @@ fn policy_error(details: impl std::fmt::Display) -> Error {
     )
 }
 
-fn signature_error(failure: Failure) -> Error {
+fn signature_error(failure: signature::VerificationError) -> Error {
+    let failure = match failure {
+        signature::VerificationError::Signature(failure) => failure,
+        signature::VerificationError::Catalog(error) => return Error::from(JsonError::from(error)),
+        signature::VerificationError::Worker(_) => {
+            return Error::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "ServiceUnavailable",
+                "The policy verifier is unavailable.",
+            );
+        }
+    };
     match failure {
         Failure::UnknownSigner => Error::new(
             StatusCode::FORBIDDEN,
             "InvalidAccessKeyId",
-            "The policy signer or its RSA public key is unknown; register the x-goog-credential identity and its RSA public_keys in the identity file (for example, local-admin@example.invalid). HMAC/GOOG4-HMAC-SHA256 policies are unsupported.",
+            "The policy signing key or its registered identity is unknown or inactive.",
         ),
         Failure::Mismatch => Error::new(
             StatusCode::FORBIDDEN,
@@ -66,7 +83,7 @@ fn signature_error(failure: Failure) -> Error {
             "The policy signature does not match.",
         ),
         Failure::Malformed | Failure::Expired | Failure::NotYetValid => invalid(
-            "Invalid V4 policy credentials; use x-goog-algorithm GOOG4-RSA-SHA256, x-goog-credential SIGNER/YYYYMMDD/auto/storage/goog4_request matching x-goog-date YYYYMMDDTHHMMSSZ, and a hex x-goog-signature.",
+            "Invalid policy credentials; use exactly one supported signing version with its required fields and signature encoding.",
         ),
     }
 }
@@ -233,11 +250,6 @@ fn expiration(raw: &str) -> Option<SystemTime> {
     }
 }
 
-/// Fields that need no condition: the signature, the policy itself and the file part.
-fn unconditioned(field: &str) -> bool {
-    matches!(field, "x-goog-signature" | "policy")
-}
-
 /// Check that the policy has not expired and, for a verified signature, that it is already
 /// valid and expires within the V4 signing limit.
 fn check_policy_window(
@@ -289,6 +301,7 @@ fn check_policy(
     bucket: &str,
     now: SystemTime,
     signed_at: Option<SystemTime>,
+    version: Version,
 ) -> Result<Option<(u64, u64)>, Error> {
     let document = decode_base64(encoded)
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
@@ -381,14 +394,14 @@ fn check_policy(
         }
         covered.insert(field);
     }
-    if !covered.contains("bucket") {
+    if version == Version::V4 && !covered.contains("bucket") {
         return Err(policy_error(
             "The policy document requires a bucket condition.",
         ));
     }
     if let Some(field) = fields
         .keys()
-        .find(|field| !unconditioned(field) && !covered.contains(*field))
+        .find(|field| !version.unconditioned(field) && !covered.contains(*field))
     {
         return Err(policy_error(format!(
             "Form field {field} has no policy condition."
@@ -409,6 +422,7 @@ struct Plan {
     metadata: ObjectMetadataUpdate,
     declared_length: Option<u64>,
     success: Success,
+    version: Option<Version>,
 }
 
 fn header_value(field: &str, value: &str) -> Result<String, Error> {
@@ -432,6 +446,8 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
             "key"
             | "bucket"
             | "policy"
+            | "googleaccessid"
+            | "signature"
             | "x-goog-algorithm"
             | "x-goog-credential"
             | "x-goog-date"
@@ -444,32 +460,11 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
             | "content-encoding"
             | "content-length"
             | "x-goog-custom-time" => {}
-            "googleaccessid" | "signature" => {
-                return Err(Error::unsupported(
-                    "V2 POST policy form fields GoogleAccessId and signature; sign a V4 policy (GOOG4-RSA-SHA256)",
-                ));
-            }
             name if name.len() > "x-goog-meta-".len() && name.starts_with("x-goog-meta-") => {}
             name => return Err(Error::unsupported(&format!("POST form field {name}"))),
         }
     }
-    let credentials = [
-        "x-goog-algorithm",
-        "x-goog-credential",
-        "x-goog-date",
-        "x-goog-signature",
-    ];
-    if fields.contains_key("policy") {
-        if let Some(missing) = credentials.iter().find(|name| !fields.contains_key(**name)) {
-            return Err(invalid(format!(
-                "Form field {missing} is required with policy."
-            )));
-        }
-    } else if let Some(present) = credentials.iter().find(|name| fields.contains_key(**name)) {
-        return Err(invalid(format!(
-            "Form field {present} requires a policy field."
-        )));
-    }
+    let version = Version::select(fields)?;
     if fields.get("bucket").is_some_and(|value| value != bucket) {
         return Err(invalid(
             "The bucket form field must match the bucket in the request URL.",
@@ -519,6 +514,7 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
         metadata: form_metadata(fields)?,
         declared_length,
         success,
+        version,
     })
 }
 
@@ -600,6 +596,7 @@ pub(crate) async fn respond(
         state,
         config,
         activity,
+        ..
     } = ctx;
     let bucket = object.bucket.clone();
     json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
@@ -627,17 +624,25 @@ pub(crate) async fn respond(
         metadata,
         declared_length,
         success,
+        version,
     } = plan(&form, &bucket)?;
     let fields = &form.fields;
-    let caller = authenticate(state, &headers, fields)?;
+    let caller = authenticate(state, &headers, fields, version).await?;
     let range = fields
         .get("policy")
         .map(|policy| {
             let signed_at = caller
-                .is_some()
+                .is_some_and(|_| version == Some(Version::V4))
                 .then(|| signature::parse_timestamp(&fields["x-goog-date"]).ok())
                 .flatten();
-            check_policy(policy, fields, &bucket, state.clock.now(), signed_at)
+            check_policy(
+                policy,
+                fields,
+                &bucket,
+                state.clock.now(),
+                signed_at,
+                version.ok_or_else(|| invalid("Missing policy version."))?,
+            )
         })
         .transpose()?
         .flatten();
@@ -675,20 +680,21 @@ pub(crate) async fn respond(
         declared_length,
     };
     let record = stream_file(&mut parser, ctx, upload, sender, limits).await?;
-    success_response(success, &record, &state.api_base_url)
+    success_response(success, &record, &ctx.endpoints.api_base_url)
 }
 
 /// Authenticates a form upload from its policy fields, or from its Authorization header when
 /// the form has no policy.
-fn authenticate<'a>(
+async fn authenticate<'a>(
     state: &'a State,
     headers: &HeaderMap,
     fields: &BTreeMap<String, String>,
+    version: Option<Version>,
 ) -> Result<Option<Caller<'a>>, Error> {
     let Some(policy) = fields.get("policy") else {
         return state
             .auth
-            .authenticate(headers, None)
+            .authenticate_at(headers, None, state.clock.as_ref())
             .map_err(|error| Error::from(JsonError::from(error)));
     };
     if headers.contains_key("authorization") {
@@ -696,15 +702,29 @@ fn authenticate<'a>(
             "Send either a policy form or an Authorization header, not both.",
         ));
     }
+    if version == Some(Version::V2) {
+        return state
+            .auth
+            .authenticate_policy_v2(
+                &state.catalog,
+                &fields["googleaccessid"],
+                &fields["signature"],
+                policy,
+            )
+            .await
+            .map_err(signature_error);
+    }
     state
         .auth
         .authenticate_policy(
+            &state.catalog,
             &fields["x-goog-algorithm"],
             &fields["x-goog-credential"],
             &fields["x-goog-date"],
             &fields["x-goog-signature"],
             policy,
         )
+        .await
         .map_err(signature_error)
 }
 
@@ -930,7 +950,7 @@ mod tests {
         ] {
             let encoded = policy(expiration, sdk_conditions());
             assert_eq!(
-                check_policy(&encoded, &sdk_fields(), "b", at(NOW), None).unwrap(),
+                check_policy(&encoded, &sdk_fields(), "b", at(NOW), None, Version::V4).unwrap(),
                 None,
                 "{expiration}"
             );
@@ -942,17 +962,27 @@ mod tests {
         let seven_days = "2026-11-05T00:00:00Z";
         let encoded = policy(seven_days, sdk_conditions());
         let fields = sdk_fields();
-        check_policy(&encoded, &fields, "b", at(NOW), Some(at(NOW))).unwrap();
-        check_policy(&encoded, &fields, "b", at(NOW - 900), Some(at(NOW))).unwrap();
+        check_policy(&encoded, &fields, "b", at(NOW), Some(at(NOW)), Version::V4).unwrap();
+        check_policy(
+            &encoded,
+            &fields,
+            "b",
+            at(NOW - 900),
+            Some(at(NOW)),
+            Version::V4,
+        )
+        .unwrap();
         // The permissive profile ignores credentials, so only the policy expiration applies.
         let beyond = policy("2026-11-05T00:00:01Z", sdk_conditions());
-        check_policy(&beyond, &fields, "b", at(NOW), None).unwrap();
+        check_policy(&beyond, &fields, "b", at(NOW), None, Version::V4).unwrap();
         for (encoded, now, expected) in [
             (&beyond, NOW, "no more than 7 days"),
             (&encoded, NOW - 901, "Policy not yet valid"),
         ] {
-            let (status, code, message) =
-                details(check_policy(encoded, &fields, "b", at(now), Some(at(NOW))).unwrap_err());
+            let (status, code, message) = details(
+                check_policy(encoded, &fields, "b", at(now), Some(at(NOW)), Version::V4)
+                    .unwrap_err(),
+            );
             assert_eq!(
                 (status, code),
                 (StatusCode::BAD_REQUEST, "InvalidPolicyDocument")
@@ -964,14 +994,15 @@ mod tests {
     #[test]
     fn policy_rejects_expiry_at_the_exact_instant_and_malformed_documents() {
         let encoded = policy("2026-10-29T00:00:00Z", sdk_conditions());
-        let (status, code, message) =
-            details(check_policy(&encoded, &sdk_fields(), "b", at(NOW), None).unwrap_err());
+        let (status, code, message) = details(
+            check_policy(&encoded, &sdk_fields(), "b", at(NOW), None, Version::V4).unwrap_err(),
+        );
         assert_eq!(
             (status, code),
             (StatusCode::BAD_REQUEST, "InvalidPolicyDocument")
         );
         assert!(message.contains("Policy expired"), "{message}");
-        check_policy(&encoded, &sdk_fields(), "b", at(NOW - 1), None).unwrap();
+        check_policy(&encoded, &sdk_fields(), "b", at(NOW - 1), None, Version::V4).unwrap();
         for encoded in [
             "not base64".to_owned(),
             base64(b"[]"),
@@ -983,7 +1014,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                check_policy(&encoded, &sdk_fields(), "b", at(NOW), None)
+                check_policy(&encoded, &sdk_fields(), "b", at(NOW), None, Version::V4)
                     .unwrap_err()
                     .code,
                 "InvalidPolicyDocument",
@@ -1011,6 +1042,7 @@ mod tests {
             "b",
             at(NOW),
             None,
+            Version::V4,
         )
         .unwrap();
         let cases: Vec<(Vec<serde_json::Value>, &str, &str)> = vec![
@@ -1074,6 +1106,7 @@ mod tests {
                 bucket,
                 at(NOW),
                 None,
+                Version::V4,
             )
             .unwrap_err();
             assert_eq!(error.code, "InvalidPolicyDocument");
@@ -1094,7 +1127,8 @@ mod tests {
                 &form,
                 "b",
                 at(NOW),
-                None
+                None,
+                Version::V4,
             )
             .unwrap(),
             Some((1, 10))
@@ -1107,9 +1141,16 @@ mod tests {
         ] {
             let conditions = [conditions.clone(), vec![range.clone()]].concat();
             assert_eq!(
-                check_policy(&policy(expiration, conditions), &form, "b", at(NOW), None)
-                    .unwrap_err()
-                    .code,
+                check_policy(
+                    &policy(expiration, conditions),
+                    &form,
+                    "b",
+                    at(NOW),
+                    None,
+                    Version::V4
+                )
+                .unwrap_err()
+                .code,
                 "InvalidPolicyDocument",
                 "{range}"
             );
