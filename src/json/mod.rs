@@ -44,7 +44,8 @@ pub(crate) use buckets::{
 pub(crate) use buckets::{bucket_list, bucket_resource};
 pub(crate) use buckets::{
     bucket_list_with_profile, bucket_resource_with_profile, parse_bucket_patch,
-    parse_bucket_replacement, parse_insert_with_profile, validate_bucket_name,
+    parse_bucket_replacement, parse_insert_with_profile, soft_deleted_bucket_list,
+    soft_deleted_bucket_resource, validate_bucket_name,
 };
 pub(crate) use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
 pub(crate) use derived_metadata::{DestinationLocation, derived_component_count, derived_metadata};
@@ -73,7 +74,8 @@ pub(crate) use objects::{
 };
 pub(crate) use page_token::{
     decode_all_projects_page_token, decode_object_page_token, decode_page_token,
-    encode_all_projects_page_token, encode_object_page_token, encode_page_token,
+    decode_soft_deleted_page_token, encode_all_projects_page_token, encode_object_page_token,
+    encode_page_token, encode_soft_deleted_page_token,
 };
 pub(crate) use projects::{
     ProjectRequest, hmac_key_list, hmac_key_metadata, hmac_key_resource, parse_hmac_key_update,
@@ -82,8 +84,8 @@ pub(crate) use projects::{
 #[cfg(test)]
 pub(crate) use query::route;
 pub(crate) use query::{
-    BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection, route_with_profile,
-    validate_project,
+    BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection,
+    SoftDeletedListParams, route_with_profile, validate_project,
 };
 pub(crate) use query::{Decoding, decode, parse_query};
 

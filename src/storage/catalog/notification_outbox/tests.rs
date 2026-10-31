@@ -400,7 +400,9 @@ async fn full_outbox_rolls_back_the_object_mutation() {
         connection.prepare_cached("SELECT last_generation, (SELECT count(*) FROM acl_object_entries) FROM object_generation")
             .and_then(|mut statement| statement.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))).map_err(unavailable)
     }).await.unwrap();
-    assert_eq!((generation, acl_rows), (0, 0));
+    // The bucket's own generation is the last one allocated; the failed upload took none.
+    let bucket = catalog.get_bucket("test-bucket").await.unwrap().unwrap();
+    assert_eq!((generation, acl_rows), (bucket.generation, 0));
     catalog.acknowledge_notification(1).await.unwrap();
     put(&catalog, "prefix/item", Default::default())
         .await

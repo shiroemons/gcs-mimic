@@ -1038,9 +1038,10 @@ fn bucket_metadata_generation_query(method: &str) {
         let before = server.insert("patch-generation-query", "project").json();
         let path = "/storage/v1/b/patch-generation-query";
         let query_path = format!("{path}?generation=1");
+        // On GET, generation selects a soft-deleted version and needs softDeleted=true.
         server
             .request("GET", &query_path, "")
-            .error(400, "badRequest");
+            .error(400, "required");
         server
             .request(method, &query_path, r#"{"labels":{"lost":"no"}}"#)
             .error(400, "invalidParameter");
@@ -3109,9 +3110,11 @@ fn bucket_core_migrates_v7_settings() {
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
         // Schema 7 stores milliseconds, so its fixture must be losslessly representable there.
+        // Schema 45 backfills the generation from the creation time, so keep them aligned.
         connection
             .execute_batch(
                 "UPDATE buckets SET
+                 generation = (time_created / 1000 - (time_created % 1000 < 0)) * 1000,
                  time_created = (time_created / 1000 - (time_created % 1000 < 0)) * 1000,
                  updated = (updated / 1000 - (updated % 1000 < 0)) * 1000;",
             )
@@ -3656,7 +3659,6 @@ fn bkt_http_query_body_name_and_route_boundaries() {
     }
     for query in [
         "fields=",
-        "softDeleted=true",
         "returnPartialSuccess=true",
         "userProject=x",
         "key=x",

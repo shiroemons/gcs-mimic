@@ -3,7 +3,8 @@
 <!-- markdownlint-configure-file {"MD013": {"code_blocks": false}} -->
 
 Scope: BEHAVIOR-BUCKET-015, BEHAVIOR-OBJECT-030, BEHAVIOR-OBJECT-031 and
-JSON-OBJECTS-011. Bucket soft deletion and JSON-BUCKETS-010 remain NOT_STARTED.
+JSON-OBJECTS-011. Bucket soft deletion and JSON-BUCKETS-010 are covered by
+[bucket-soft-delete-restore.md](bucket-soft-delete-restore.md).
 All four scoped rows remain PARTIAL because the exclusions below are PENDING.
 
 ## Acceptance contract
@@ -57,7 +58,9 @@ for the separate diagnostic checks; no HTTP response is changed.
   soft-deleted list and restore reclaim at most 100 expired rows per bucket call.
   No polling, timer or startup scan is added.
 - SOFT-DELETE-BUCKET-DELETE: a bucket containing only soft-deleted generations can
-  be deleted permanently together with those generations.
+  be deleted. Without a positive policy it is deleted permanently together with
+  those generations; with one it becomes a soft-deleted bucket version that keeps
+  them (see the bucket soft-delete contract).
 - SOFT-DELETE-AUTH: strict bucket update, object list/get and restore/create plus
   conditional overwrite delete use existing transaction authorization.
 - SOFT-DELETE-PERSIST: additive catalog schema 26 preserves policy and generations.
@@ -82,7 +85,7 @@ the local inclusive upper boundary follows the requested range and overview.
 effectiveTime changes on increases; policy changes do not change existing object
 deadlines. Null/empty behavior lacks an explicit provider guarantee and is a
 local normalization. Unlike GCS's seven-day default, local new buckets disable
-soft delete. Deleting a bucket does not simulate bucket soft deletion.
+soft delete. Bucket soft deletion follows the bucket's policy at deletion time.
 The official list and restore references require a soft delete policy and
 document 400 errors when it is absent. Locally omission and explicit zero are
 equivalent: listing and generation lookup depend on retained objects, not on

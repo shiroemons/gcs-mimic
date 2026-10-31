@@ -3868,6 +3868,16 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "BUCKET-SOFT-DELETE-CONTRIBUTION",
+          "description": "With a positive soft delete policy, deletion keeps a soft-deleted version and its retained objects in the same transaction; without one it stays permanent. Contract: docs/en/slices/bucket-soft-delete-restore.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_soft_delete_get_list_and_restore_round_trip",
+            "bucket_without_soft_delete_policy_is_deleted_permanently",
+            "failed_transitions_leave_the_catalog_unchanged"
+          ]
+        },
+        {
           "id": "BKT-DEL-001",
           "description": "Empty delete/missing bucket responses and no successful body.",
           "result": "PASS",
@@ -4000,6 +4010,9 @@
         }
       ],
       "test_ids": [
+        "bucket_soft_delete_get_list_and_restore_round_trip",
+        "bucket_without_soft_delete_policy_is_deleted_permanently",
+        "failed_transitions_leave_the_catalog_unchanged",
         "bkt_http_crud_metadata_conditions_and_errors",
         "delete_preconditions_are_atomic_and_preserve_failed_records",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
@@ -4063,6 +4076,8 @@
         "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection"
       ],
       "verification": [
+        {"command":"cargo test --locked --offline --test bucket_soft_delete_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/bucket-soft-delete-restore.md","test_ids":["bucket_soft_delete_get_list_and_restore_round_trip","bucket_without_soft_delete_policy_is_deleted_permanently"]},
+        {"command":"cargo test --locked --offline --lib bucket_soft_delete","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/bucket-soft-delete-restore.md","test_ids":["failed_transitions_leave_the_catalog_unchanged"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -4417,6 +4432,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"BUCKET-SOFT-DELETED-GET","description":"Native resources include generation; softDeleted=true&generation=G returns the version with softDeleteTime/hardDeleteTime, each parameter requires the other (400 required, 'Bucket generation is required.'), unknown or expired versions return 404 and strict mode checks storage.buckets.get on the version's project. Contract: docs/en/slices/bucket-soft-delete-restore.md.","result":"PASS","test_ids":["bucket_soft_delete_get_list_and_restore_round_trip","strict_soft_deleted_bucket_access_uses_project_permissions","bucket_query_booleans_keep_supported_and_unsupported_semantics"]},
         {"id":"RETENTION-METADATA-CONTRIBUTION","description":"Get returns persisted retention period, effectiveTime and isLocked; scope and pending interactions: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart"]},
         {
           "id": "BUCKET-INIT-INDEPENDENT-SETTINGS",
@@ -4746,6 +4762,9 @@
         }
       ],
       "test_ids": [
+        "bucket_soft_delete_get_list_and_restore_round_trip",
+        "strict_soft_deleted_bucket_access_uses_project_permissions",
+        "bucket_query_booleans_keep_supported_and_unsupported_semantics",
         "retention_configuration_lock_permissions_and_restart",
         "initialized_settings_are_independent_and_api_changes_survive_restart",
         "strict_initialization_grants_no_api_permissions_and_legacy_preserves_native_metadata",
@@ -4841,6 +4860,8 @@
         "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
+        {"command":"cargo test --locked --offline --test bucket_soft_delete_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/bucket-soft-delete-restore.md","test_ids":["bucket_soft_delete_get_list_and_restore_round_trip","strict_soft_deleted_bucket_access_uses_project_permissions"]},
+        {"command":"cargo test --locked --offline --lib json::tests","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/bucket-soft-delete-restore.md","test_ids":["bucket_query_booleans_keep_supported_and_unsupported_semantics"]},
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart"]},
         {
           "command": "cargo test --offline --test bucket_initialization",
@@ -5279,7 +5300,7 @@
         "Strict mode enforces storage.buckets.get through project-plus-bucket predefined roles; broader bucket policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
-        "Supported fields selection is delivered; recognized unsupported generation/billing semantics and named selector edges return 501.",
+        "Supported fields selection is delivered; recognized unsupported billing semantics and named selector edges return 501. generation is accepted only with softDeleted=true (SPEC-BUCKET-SOFT-DELETE).",
         "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md.",
         "Source-profile creation is capped at 666 ASCII bytes to match bounded lookup segments; reference regex has no comparable length cap. List entries now use the active profile, while project scoping/empty-item omission/pagination remain native.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
@@ -6579,6 +6600,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"BUCKET-SOFT-DELETED-LIST","description":"softDeleted=true lists only unexpired soft-deleted versions of the project in (name, generation) order with prefix, maxResults and a generation-carrying page token that live listings cannot replay; strict mode checks storage.buckets.list. Contract: docs/en/slices/bucket-soft-delete-restore.md.","result":"PASS","test_ids":["soft_deleted_bucket_listing_pages_by_name_and_generation","strict_soft_deleted_bucket_access_uses_project_permissions"]},
         {"id":"RETENTION-METADATA-CONTRIBUTION","description":"List returns persisted retention period, effectiveTime and isLocked; scope and pending interactions: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart"]},
         {
           "id": "buckets-list-without-project-legacy",
@@ -6774,6 +6796,8 @@
         }
       ],
       "test_ids": [
+        "soft_deleted_bucket_listing_pages_by_name_and_generation",
+        "strict_soft_deleted_bucket_access_uses_project_permissions",
         "retention_configuration_lock_permissions_and_restart",
         "bkt_http_list_clamps_to_1000_with_lookahead",
         "bucket_list_omitted_project_obeys_profile_and_seed_project",
@@ -6822,6 +6846,7 @@
         "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection"
       ],
       "verification": [
+        {"command":"cargo test --locked --offline --test bucket_soft_delete_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/bucket-soft-delete-restore.md","test_ids":["soft_deleted_bucket_listing_pages_by_name_and_generation","strict_soft_deleted_bucket_access_uses_project_permissions"]},
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart"]},
         {
           "command": "cargo test --workspace --locked",
@@ -7942,26 +7967,116 @@
       "interface": "storage.buckets.restore",
       "phase": "P4",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/restore",
+        "https://docs.cloud.google.com/storage/docs/soft-delete",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
-      "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: generation, projection, userProject. Bucket soft deletion and restore remain unsupported; configuring an object softDeletePolicy does not implement this operation. See docs/en/slices/sdk-local-auth-softdelete-notes.md.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "source_checked_at": "2026-10-31",
+      "source_evidence": "SPEC_AND_DISCOVERY_CONFIRMED",
+      "notes": "POST b/{bucket}/restore?generation=G (projection optional, empty body) restores an unexpired soft-deleted version in one catalog transaction with its generation, metadata, IAM bindings (new revision), bucket/default object ACL entries and a new incarnation; retained objects return to the bucket but stay soft-deleted, as documented and observed on Cloud Storage. Missing generation 400 required, unknown or expired version 404, live bucket with the same name 409 conflict. Strict mode requires storage.buckets.restore on the version's project. Contract: docs/en/slices/bucket-soft-delete-restore.md; evidence: docs/en/evidence/bucket-soft-delete-restore.md. userProject keeps the shared unsupported response.",
+      "dependencies": [
+        "BEHAVIOR-BUCKET-017"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-RESTORE",
+          "description": "Restore by generation keeps generation and metadata, clears deletion times, restores IAM/ACL and leaves objects soft-deleted; 400/404/409 failures and injected failures leave state unchanged.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_soft_delete_get_list_and_restore_round_trip",
+            "failed_transitions_leave_the_catalog_unchanged",
+            "restore_brings_back_iam_and_acl_with_a_new_policy_revision"
+          ]
+        },
+        {
+          "id": "BUCKET-RESTORE-AUTH",
+          "description": "Strict storage.buckets.restore on the soft-deleted version's project; anonymous 401, other projects and bucketViewer 403.",
+          "result": "PASS",
+          "test_ids": [
+            "strict_soft_deleted_bucket_access_uses_project_permissions"
+          ]
+        },
+        {
+          "id": "BUCKET-RESTORE-SDK",
+          "description": "Pinned .NET SDK 5.0.0 RestoreBucketAsync journey including RestoreObjectAsync and reading the restored bytes.",
+          "result": "PASS",
+          "test_ids": [
+            "sdk.bucket_soft_delete_restore"
+          ]
+        },
+        {
+          "id": "BUCKET-RESTORE-PENDING",
+          "description": "gRPC restore, managed folders, userProject, HNS restore tokens, provider conflict status and error reasons (SPEC-BUCKET-SOFT-DELETE).",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bucket_soft_delete_get_list_and_restore_round_trip",
+        "failed_transitions_leave_the_catalog_unchanged",
+        "restore_brings_back_iam_and_acl_with_a_new_policy_revision",
+        "strict_soft_deleted_bucket_access_uses_project_permissions",
+        "sdk.bucket_soft_delete_restore"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test bucket_soft_delete_http",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/bucket-soft-delete-restore.md",
+          "test_ids": [
+            "bucket_soft_delete_get_list_and_restore_round_trip",
+            "strict_soft_deleted_bucket_access_uses_project_permissions"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib bucket_soft_delete",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/bucket-soft-delete-restore.md",
+          "test_ids": [
+            "failed_transitions_leave_the_catalog_unchanged",
+            "restore_brings_back_iam_and_acl_with_a_new_policy_revision"
+          ]
+        },
+        {
+          "command": "SCORECARD_ENDPOINT=http://127.0.0.1:<port> SCORECARD_SIGNING_KEY=fixtures/signing/test-only-private.pem SCORECARD_RUN=bucket_soft_delete_restore bash sdk-scorecard/dotnet/run.sh --no-build",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/bucket-soft-delete-restore.md",
+          "test_ids": [
+            "sdk.bucket_soft_delete_restore"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": ".NET",
+          "toolchain": "net10.0",
+          "sdk": "Google.Cloud.Storage.V1",
+          "version": "5.0.0",
+          "transport": "HTTP JSON; GetBucketAsync with SoftDeleted/Generation, RestoreBucketAsync, RestoreObjectAsync",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "command": "SCORECARD_ENDPOINT=http://127.0.0.1:<port> SCORECARD_SIGNING_KEY=fixtures/signing/test-only-private.pem SCORECARD_RUN=bucket_soft_delete_restore bash sdk-scorecard/dotnet/run.sh --no-build",
+          "artifact": "docs/en/evidence/bucket-soft-delete-restore.md",
+          "test_ids": [
+            "sdk.bucket_soft_delete_restore"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-BUCKET-SOFT-DELETE: a live bucket with the same name makes restore return a local 409 conflict; notification configurations are not retained; gRPC restore is not implemented."
+      ],
       "implemented_in": null,
-      "last_verified": null,
+      "last_verified": "2026-10-31",
       "http_method": "POST",
       "path": "b/{bucket}/restore",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -17268,7 +17383,7 @@
         }
       ],
       "known_deviations": [
-        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion permanently removes retained generations without bucket soft deletion. Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
+        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion without a positive policy permanently removes retained generations; with one the bucket is soft-deleted with them (SPEC-BUCKET-SOFT-DELETE). Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
       ],
       "implemented_in": "a5807b8",
       "last_verified": "2026-10-27",
@@ -25305,7 +25420,7 @@
         }
       ],
       "known_deviations": [
-        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion permanently removes retained generations without bucket soft deletion. Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying/full projection, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
+        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion without a positive policy permanently removes retained generations; with one the bucket is soft-deleted with them (SPEC-BUCKET-SOFT-DELETE). Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying/full projection, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
       ],
       "implemented_in": "a5807b8",
       "last_verified": "2026-10-27"
@@ -25347,26 +25462,146 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/soft-delete",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/get",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/list",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/restore",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-31",
       "source_evidence": "SPEC_BASED",
-      "notes": "Generation selection, list/get softDeleted, naming conflicts; bucket restore does not restore its objects.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "notes": "Buckets carry a catalog-assigned generation. Deleting a bucket with a positive soft delete policy moves its row, IAM bindings, ACL entries and retained soft-deleted objects aside in the deletion transaction (hardDeleteTime is at least the latest retained object's); a recreated name never sees them. softDeleted get/list expose generation, softDeleteTime and hardDeleteTime; restore by generation returns the empty bucket and its objects stay soft-deleted, as observed on Cloud Storage. Injected-clock reads hide expired versions and the maintenance scheduler removes them at the earliest hardDeleteTime without polling. Schema 45. Contract: docs/en/slices/bucket-soft-delete-restore.md; evidence: docs/en/evidence/bucket-soft-delete-restore.md.",
+      "dependencies": [
+        "BEHAVIOR-BUCKET-015"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-GENERATION",
+          "description": "Native resources render a catalog-assigned generation that survives restart and restore; schema 45 backfills existing buckets and recreated names get a new generation.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_soft_delete_get_list_and_restore_round_trip",
+            "schema_45_backfills_generations_and_keeps_new_ones_unique"
+          ]
+        },
+        {
+          "id": "BUCKET-SOFT-DELETE",
+          "description": "Deletion with a positive policy creates a soft-deleted version atomically; without one deletion stays permanent; injected statement failures leave the live bucket unchanged.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_soft_delete_get_list_and_restore_round_trip",
+            "bucket_without_soft_delete_policy_is_deleted_permanently",
+            "failed_transitions_leave_the_catalog_unchanged"
+          ]
+        },
+        {
+          "id": "BUCKET-SOFT-DELETE-OBJECTS",
+          "description": "Retained objects are isolated from a recreated same-name bucket and return soft-deleted after restore, restorable with objects.restore.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_soft_delete_get_list_and_restore_round_trip"
+          ]
+        },
+        {
+          "id": "BUCKET-SOFT-DELETE-EXPIRY",
+          "description": "hardDeleteTime covers retained objects; expired versions are hidden at once and the maintenance deadline removes them with their objects in bounded batches.",
+          "result": "PASS",
+          "test_ids": [
+            "soft_deleted_bucket_outlives_its_objects_and_expires_through_maintenance",
+            "maintenance_purges_expired_versions_in_bounded_batches"
+          ]
+        },
+        {
+          "id": "BUCKET-SOFT-DELETE-SDK",
+          "description": "Pinned .NET SDK 5.0.0 delete, soft-deleted get by generation, restore, object restore and read.",
+          "result": "PASS",
+          "test_ids": [
+            "sdk.bucket_soft_delete_restore"
+          ]
+        },
+        {
+          "id": "BUCKET-SOFT-DELETE-PENDING",
+          "description": "gRPC soft-deleted access, retained notifications, managed folders, HNS tokens, XML access, GCS seven-day default and provider error parity (SPEC-BUCKET-SOFT-DELETE).",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bucket_soft_delete_get_list_and_restore_round_trip",
+        "bucket_without_soft_delete_policy_is_deleted_permanently",
+        "soft_deleted_bucket_listing_pages_by_name_and_generation",
+        "strict_soft_deleted_bucket_access_uses_project_permissions",
+        "soft_deleted_bucket_outlives_its_objects_and_expires_through_maintenance",
+        "maintenance_purges_expired_versions_in_bounded_batches",
+        "failed_transitions_leave_the_catalog_unchanged",
+        "restore_brings_back_iam_and_acl_with_a_new_policy_revision",
+        "schema_45_backfills_generations_and_keeps_new_ones_unique",
+        "sdk.bucket_soft_delete_restore"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test bucket_soft_delete_http",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/bucket-soft-delete-restore.md",
+          "test_ids": [
+            "bucket_soft_delete_get_list_and_restore_round_trip",
+            "bucket_without_soft_delete_policy_is_deleted_permanently",
+            "soft_deleted_bucket_listing_pages_by_name_and_generation",
+            "strict_soft_deleted_bucket_access_uses_project_permissions"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib bucket_soft_delete",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/bucket-soft-delete-restore.md",
+          "test_ids": [
+            "soft_deleted_bucket_outlives_its_objects_and_expires_through_maintenance",
+            "maintenance_purges_expired_versions_in_bounded_batches",
+            "failed_transitions_leave_the_catalog_unchanged",
+            "restore_brings_back_iam_and_acl_with_a_new_policy_revision",
+            "schema_45_backfills_generations_and_keeps_new_ones_unique"
+          ]
+        },
+        {
+          "command": "SCORECARD_ENDPOINT=http://127.0.0.1:<port> SCORECARD_SIGNING_KEY=fixtures/signing/test-only-private.pem SCORECARD_RUN=bucket_soft_delete_restore bash sdk-scorecard/dotnet/run.sh --no-build",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "artifact": "docs/en/evidence/bucket-soft-delete-restore.md",
+          "test_ids": [
+            "sdk.bucket_soft_delete_restore"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": ".NET",
+          "toolchain": "net10.0",
+          "sdk": "Google.Cloud.Storage.V1",
+          "version": "5.0.0",
+          "transport": "HTTP JSON; DeleteBucketAsync, GetBucketAsync with SoftDeleted/Generation, RestoreBucketAsync, RestoreObjectAsync",
+          "result": "PASS",
+          "verified_at": "2026-10-31",
+          "command": "SCORECARD_ENDPOINT=http://127.0.0.1:<port> SCORECARD_SIGNING_KEY=fixtures/signing/test-only-private.pem SCORECARD_RUN=bucket_soft_delete_restore bash sdk-scorecard/dotnet/run.sh --no-build",
+          "artifact": "docs/en/evidence/bucket-soft-delete-restore.md",
+          "test_ids": [
+            "sdk.bucket_soft_delete_restore"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-BUCKET-SOFT-DELETE: local new buckets still default to no soft delete policy; restore over a live bucket returns a local 409; soft-deleted reads authorize against project roles only and omit ACL fields; notification configurations are not retained; the legacy-emulator profile does not render generation."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-31"
     },
     {
       "id": "BEHAVIOR-BUCKET-018",
@@ -30236,7 +30471,7 @@
         }
       ],
       "known_deviations": [
-        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion permanently removes retained generations without bucket soft deletion. Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying/full projection, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
+        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion without a positive policy permanently removes retained generations; with one the bucket is soft-deleted with them (SPEC-BUCKET-SOFT-DELETE). Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying/full projection, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
       ],
       "implemented_in": "a5807b8",
       "last_verified": "2026-10-27"
@@ -30361,7 +30596,7 @@
         }
       ],
       "known_deviations": [
-        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion permanently removes retained generations without bucket soft deletion. Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying/full projection, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
+        "SPEC-SOFT-DELETE: local new-bucket default disabled; null/empty means omission, inclusive 90-day boundary and immediate policy effects. Bucket deletion without a positive policy permanently removes retained generations; with one the bucket is soft-deleted with them (SPEC-BUCKET-SOFT-DELETE). Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying/full projection, Autoclass/lifecycle and initialization-file policies remain pending; SPEC-SDK-UNSUPPORTED applies."
       ],
       "implemented_in": "a5807b8",
       "last_verified": "2026-10-27"
@@ -32392,7 +32627,7 @@
         {"command":"cargo test --locked --test xml_bucket_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/xml-bucket-operations.md","test_ids":["xml_bucket_create_delete_defaults_fields_conflicts_nonempty_and_restart","xml_bucket_strict_creation_retention_signed_body_and_deletion_permissions"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Shared deletion purges soft-deleted object state instead of preserving Google's bucket soft-delete behavior (SPEC-SOFT-DELETE). V4 HMAC query and ordinary V4 headers use the shared verifier (DESIGN-031/039); full method-specific authentication, incomplete-upload interactions, bucket ACL permission effects, requester billing, provider-exact errors/headers and SDK/platform evidence remain pending."],
+      "known_deviations": ["Shared deletion soft-deletes the bucket with its retained objects only when its soft delete policy is positive; otherwise it purges them (SPEC-SOFT-DELETE, SPEC-BUCKET-SOFT-DELETE). V4 HMAC query and ordinary V4 headers use the shared verifier (DESIGN-031/039); full method-specific authentication, incomplete-upload interactions, bucket ACL permission effects, requester billing, provider-exact errors/headers and SDK/platform evidence remain pending."],
       "implemented_in": null,
       "last_verified": "2026-10-31"
     },

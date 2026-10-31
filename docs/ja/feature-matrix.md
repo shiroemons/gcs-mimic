@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 205 | 0 | 104 | 1 | 0 | 0 |
-| behavior | 201 | 91 | 0 | 71 | 39 | 0 | 0 |
+| api_operation | 310 | 204 | 0 | 105 | 1 | 0 | 0 |
+| behavior | 201 | 90 | 0 | 72 | 39 | 0 | 0 |
 | project_requirement | 95 | 26 | 0 | 40 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 205 | 48 | 39 | 18 | 0 | 0 |
-| behavior | 92 | 67 | 38 | 4 | 0 | 0 |
+| api_operation | 204 | 49 | 39 | 18 | 0 | 0 |
+| behavior | 91 | 68 | 38 | 4 | 0 | 0 |
 | project_requirement | 26 | 0 | 0 | 0 | 0 | 69 |
 
 ## api_operation
@@ -101,7 +101,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-BUCKETS-007 | buckets.lockRetentionPolicy | PARTIAL | P4 | EXACT | EXACT | 2 |
 | JSON-BUCKETS-008 | buckets.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 | JSON-BUCKETS-009 | buckets.relocate | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| JSON-BUCKETS-010 | buckets.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| JSON-BUCKETS-010 | buckets.restore | PARTIAL | P4 | EXACT | EXACT | 1 |
 | JSON-BUCKETS-011 | buckets.setIamPolicy | PARTIAL | P2 | EXACT | EXACT | 2 |
 | JSON-BUCKETS-012 | buckets.testIamPermissions | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-BUCKETS-013 | buckets.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
@@ -532,7 +532,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-014 | 公開アクセス防止 | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-BUCKET-015 | Soft deleteポリシー | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-BUCKET-016 | 恒久削除一時停止フィールド | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-017 | バケットのSoft deleteと復元 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-017 | バケットのSoft deleteと復元 | PARTIAL | P4 | EXACT | EXACT | 1 |
 | BEHAVIOR-BUCKET-018 | 階層名前空間設定 | NOT_STARTED | P5 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-019 | Autoclass設定 | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-BUCKET-020 | Autoclassの状態遷移 | NOT_STARTED | P4 | EXACT | NONE | 0 |

@@ -33,6 +33,7 @@ pub(crate) const BUCKETS_DELETE: &str = "storage.buckets.delete";
 pub(crate) const BUCKETS_GET: &str = "storage.buckets.get";
 pub(crate) const BUCKETS_UPDATE: &str = "storage.buckets.update";
 pub(crate) const BUCKETS_LIST: &str = "storage.buckets.list";
+pub(crate) const BUCKETS_RESTORE: &str = "storage.buckets.restore";
 pub(crate) const BUCKETS_GET_IAM: &str = "storage.buckets.getIamPolicy";
 pub(crate) const BUCKETS_SET_IAM: &str = "storage.buckets.setIamPolicy";
 pub(crate) const OBJECTS_CREATE: &str = "storage.objects.create";
@@ -55,6 +56,7 @@ pub(crate) enum Permission {
     BucketsGet,
     BucketsUpdate,
     BucketsList,
+    BucketsRestore,
     BucketsGetIam,
     BucketsSetIam,
     ObjectsCreate,
@@ -81,6 +83,7 @@ impl Permission {
             Self::BucketsGet => BUCKETS_GET,
             Self::BucketsUpdate => BUCKETS_UPDATE,
             Self::BucketsList => BUCKETS_LIST,
+            Self::BucketsRestore => BUCKETS_RESTORE,
             Self::BucketsGetIam => BUCKETS_GET_IAM,
             Self::BucketsSetIam => BUCKETS_SET_IAM,
             Self::ObjectsCreate => OBJECTS_CREATE,
@@ -110,6 +113,7 @@ impl TryFrom<&str> for Permission {
             Self::BucketsGet,
             Self::BucketsUpdate,
             Self::BucketsList,
+            Self::BucketsRestore,
             Self::BucketsGetIam,
             Self::BucketsSetIam,
             Self::ObjectsCreate,
@@ -909,7 +913,7 @@ mod tests {
             std::time::UNIX_EPOCH,
         )
         .unwrap();
-        catalog.insert_bucket(record.clone()).await.unwrap();
+        let record = catalog.insert_bucket(record).await.unwrap();
         let identity = Identity {
             id: "local".into(),
             acl_entity: None,

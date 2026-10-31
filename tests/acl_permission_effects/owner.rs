@@ -180,7 +180,7 @@ fn owner_upgrade_does_not_guess_legacy_uploaders_and_aliasless_uploads_keep_actu
     server.stop();
     {
         let db = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
-        db.execute_batch("ALTER TABLE objects DROP COLUMN owner; PRAGMA user_version=43;")
+        db.execute_batch("DROP TABLE soft_deleted_buckets; ALTER TABLE buckets DROP COLUMN generation; ALTER TABLE objects DROP COLUMN owner; PRAGMA user_version=43;")
             .unwrap();
     }
     server = Server::start_with_registry(&data, &inputs, "disk", &registry);

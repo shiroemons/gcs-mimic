@@ -319,6 +319,7 @@ mod tests {
             public_access_prevention_enforced: false,
             uniform_bucket_level_access_locked_time: Some(now),
             metageneration: 3,
+            generation: 0,
             time_created: now,
             updated: now,
         };

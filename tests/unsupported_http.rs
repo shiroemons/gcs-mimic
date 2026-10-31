@@ -36,6 +36,7 @@ fn unsupported_google_routes_and_inputs() {
         "storage.buckets.list",
         "storage.buckets.lockRetentionPolicy",
         "storage.buckets.patch",
+        "storage.buckets.restore",
         "storage.buckets.setIamPolicy",
         "storage.buckets.testIamPermissions",
         "storage.buckets.update",

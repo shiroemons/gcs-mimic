@@ -220,6 +220,7 @@ impl Harness {
                     object_retention_enabled: false,
                     cors: Vec::new(),
                     metageneration: 1,
+                    generation: 0,
                     time_created: UNIX_EPOCH,
                     updated: UNIX_EPOCH,
                 })

@@ -90,7 +90,27 @@ pub(crate) fn downgrade_observation_schema(connection: &rusqlite::Connection) {
         .unwrap();
 }
 
+/// Restores the schema 44 layout, which predates bucket generations and soft-deleted buckets.
+pub(crate) fn downgrade_bucket_generation_schema(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch("DROP TABLE IF EXISTS soft_deleted_buckets;")
+        .unwrap();
+    let present: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('buckets') WHERE name='generation')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if present {
+        connection
+            .execute_batch("ALTER TABLE buckets DROP COLUMN generation;")
+            .unwrap();
+    }
+}
+
 pub(crate) fn downgrade_conflict_schema(connection: &rusqlite::Connection) {
+    downgrade_bucket_generation_schema(connection);
     let owner: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('objects') WHERE name='owner')",

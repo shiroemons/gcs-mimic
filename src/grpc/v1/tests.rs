@@ -31,6 +31,7 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
         object_retention_enabled: false,
         cors: Vec::new(),
         metageneration: 1,
+        generation: 0,
         time_created: UNIX_EPOCH + Duration::from_secs(1),
         updated: UNIX_EPOCH + Duration::from_secs(1),
     }

@@ -48,7 +48,12 @@ pub(super) async fn respond<'a>(
     let access = authorize(ctx, &operation).await?;
     validate_request(&request, &operation)?;
     let fields = response_fields(&request, &operation)?;
-    let acl_full = acl::full_projection(request.method(), request.uri().query());
+    // ACL entries of a soft-deleted version are kept for restore but not rendered.
+    let acl_full = acl::full_projection(request.method(), request.uri().query())
+        && !matches!(
+            operation,
+            BucketRequest::GetSoftDeleted { .. } | BucketRequest::ListSoftDeleted(_)
+        );
     let mut value = match operation {
         BucketRequest::LockRetentionPolicy {
             bucket,
@@ -75,6 +80,29 @@ pub(super) async fn respond<'a>(
         BucketRequest::List(params) => list(ctx, params).await?,
         BucketRequest::Delete { bucket, conditions } => {
             return delete(ctx, &access, &bucket, conditions).await;
+        }
+        BucketRequest::GetSoftDeleted {
+            bucket,
+            generation,
+            projection,
+        } => {
+            let version = state
+                .catalog
+                .get_soft_deleted_bucket(&bucket, generation, &access)
+                .await?;
+            json::soft_deleted_bucket_resource(&version, base_url, projection, profile)?
+        }
+        BucketRequest::ListSoftDeleted(params) => list_soft_deleted(ctx, params).await?,
+        BucketRequest::Restore {
+            bucket,
+            generation,
+            projection,
+        } => {
+            let record = state
+                .catalog
+                .restore_bucket(&bucket, generation, &access)
+                .await?;
+            json::bucket_resource_with_profile(&record, base_url, projection, profile)?
         }
     };
     if acl_full {
@@ -123,6 +151,34 @@ async fn authorize(
             authorize_bucket(state, caller, auth::BUCKETS_SET_IAM, bucket).await?
         }
         BucketRequest::TestIam { .. } => BucketAccess::Permissive,
+        BucketRequest::ListSoftDeleted(params) => {
+            authorize_project(caller, auth::BUCKETS_LIST, &params.project)?;
+            BucketAccess::Permissive
+        }
+        BucketRequest::GetSoftDeleted { .. } => soft_deleted_access(caller, auth::BUCKETS_GET)?,
+        BucketRequest::Restore { .. } => soft_deleted_access(caller, auth::BUCKETS_RESTORE)?,
+    })
+}
+
+/// A soft-deleted bucket has no live policy and its project is known only to the catalog,
+/// so the caller is authenticated here and the catalog checks the project-level grant.
+fn soft_deleted_access(
+    caller: Option<Caller<'_>>,
+    permission: &str,
+) -> Result<BucketAccess, JsonError> {
+    let Some(caller) = caller else {
+        return Ok(BucketAccess::Permissive);
+    };
+    caller.authorize(permission, None)?;
+    let identity = match caller {
+        Caller::Anonymous => None,
+        Caller::Principal(identity) => Some(identity.clone()),
+    };
+    Ok(BucketAccess::Policy {
+        identity,
+        permission: auth::Permission::try_from(permission)
+            .map_err(|error| CatalogError::InvalidMetadata(error.into()))?,
+        project: None,
     })
 }
 
@@ -172,7 +228,7 @@ fn response_fields(
         return json::Fields::from_query(None, "Bucket");
     }
     let schema = match operation {
-        BucketRequest::List(_) => "Buckets",
+        BucketRequest::List(_) | BucketRequest::ListSoftDeleted(_) => "Buckets",
         BucketRequest::GetIam { .. } | BucketRequest::SetIam { .. } => "Policy",
         _ => "Bucket",
     };
@@ -476,6 +532,38 @@ async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Value, Jso
         None => None,
     };
     json::bucket_list_with_profile(
+        &page.items,
+        token.as_deref(),
+        ctx.base_url,
+        params.projection,
+        ctx.profile,
+    )
+}
+
+async fn list_soft_deleted(
+    ctx: BucketCtx<'_>,
+    params: json::SoftDeletedListParams,
+) -> Result<Value, JsonError> {
+    let page = ctx
+        .state
+        .catalog
+        .list_soft_deleted_buckets(
+            &params.project,
+            &params.prefix,
+            params.start_after,
+            params.max_results as usize,
+        )
+        .await?;
+    let token = match page.items.last().filter(|_| page.has_more) {
+        Some(last) => Some(json::encode_soft_deleted_page_token(
+            &params.project,
+            &params.prefix,
+            &last.record.name,
+            last.record.generation,
+        )?),
+        None => None,
+    };
+    json::soft_deleted_bucket_list(
         &page.items,
         token.as_deref(),
         ctx.base_url,

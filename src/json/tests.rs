@@ -52,15 +52,34 @@ fn bucket_query_booleans_keep_supported_and_unsupported_semantics() {
             "/storage/v1/b?project=p&enableObjectRetention=",
             true,
         ),
-        (Method::GET, "/storage/v1/b?project=p&softDeleted=", false),
+        (Method::GET, "/storage/v1/b?project=p&softDeleted=", true),
         (
             Method::GET,
             "/storage/v1/b?project=p&returnPartialSuccess=",
             false,
         ),
         (Method::GET, "/storage/v1/b?project=p&prettyPrint=", false),
-        (Method::GET, "/storage/v1/b/abc?softDeleted=", false),
+        (
+            Method::GET,
+            "/storage/v1/b/abc?generation=1&softDeleted=",
+            true,
+        ),
     ] {
+        // A soft-deleted get needs both parameters; only softDeleted=true selects it.
+        if path.contains("generation=1") {
+            for value in ["true", "True"] {
+                request(method.clone(), &format!("{path}{value}")).unwrap();
+            }
+            for value in ["false", "False"] {
+                assert_eq!(
+                    request(method.clone(), &format!("{path}{value}"))
+                        .unwrap_err()
+                        .reason,
+                    "required"
+                );
+            }
+            continue;
+        }
         for (canonical, python) in [("true", "True"), ("false", "False")] {
             let parsed = request(method.clone(), &format!("{path}{python}"));
             assert_eq!(
@@ -404,17 +423,71 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
         .reason,
         "invalidParameter"
     );
-    for path in [
-        "/storage/v1/b/abc?generation=1",
-        "/storage/v1/b/abc?softDeleted=true",
-        "/storage/v1/b?project=p&softDeleted=true",
-        "/storage/v1/b?project=p&returnPartialSuccess=true",
+    for (path, reason) in [
+        ("/storage/v1/b/abc?generation=1", "required"),
+        ("/storage/v1/b/abc?softDeleted=true", "required"),
+        (
+            "/storage/v1/b/abc?softDeleted=true&generation=1&ifMetagenerationMatch=1",
+            "badRequest",
+        ),
+        (
+            "/storage/v1/b/abc?softDeleted=true&generation=0",
+            "invalidParameter",
+        ),
+        (
+            "/storage/v1/b?project=p&returnPartialSuccess=true",
+            "badRequest",
+        ),
     ] {
+        let error = request(Method::GET, path).unwrap_err();
         assert_eq!(
-            request(Method::GET, path).unwrap_err().status,
-            StatusCode::BAD_REQUEST
+            (error.status, error.reason),
+            (StatusCode::BAD_REQUEST, reason),
+            "{path}"
         );
     }
+    assert!(matches!(
+        request(
+            Method::GET,
+            "/storage/v1/b/abc?softDeleted=true&generation=7"
+        ),
+        Ok(BucketRequest::GetSoftDeleted { generation: 7, .. })
+    ));
+    assert!(matches!(
+        request(Method::GET, "/storage/v1/b?project=p&softDeleted=true"),
+        Ok(BucketRequest::ListSoftDeleted(_))
+    ));
+    for (method, path, reason) in [
+        (Method::POST, "/storage/v1/b/abc/restore", "required"),
+        (
+            Method::POST,
+            "/storage/v1/b/abc/restore?generation=x",
+            "invalidParameter",
+        ),
+        (
+            Method::GET,
+            "/storage/v1/b/abc/restore?generation=1",
+            "methodNotAllowed",
+        ),
+        (
+            Method::POST,
+            "/storage/v1/b/abc/restore?generation=1&unknown=1",
+            "invalidParameter",
+        ),
+    ] {
+        assert_eq!(request(method, path).unwrap_err().reason, reason, "{path}");
+    }
+    assert_eq!(
+        request(
+            Method::POST,
+            "/storage/v1/b/abc/restore?generation=9&projection=full"
+        ),
+        Ok(BucketRequest::Restore {
+            bucket: "abc".into(),
+            generation: 9,
+            projection: Projection::Full,
+        })
+    );
 }
 
 #[test]

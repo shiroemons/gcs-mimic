@@ -187,6 +187,7 @@ const CLEAR: &[&str] = &[
     "DELETE FROM change_journal",
     "DELETE FROM hmac_keys",
     "DELETE FROM objects",
+    "DELETE FROM soft_deleted_buckets",
     "DELETE FROM bucket_policies",
     "DELETE FROM bucket_incarnations",
     "DELETE FROM buckets",

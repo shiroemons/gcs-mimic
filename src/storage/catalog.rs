@@ -80,6 +80,7 @@ mod object_owner;
 mod objects;
 #[cfg(test)]
 pub(crate) use objects::Versioning;
+mod bucket_soft_delete;
 mod soft_delete;
 pub(crate) use objects::{
     ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader, ObjectSelector, ObjectUpload,
@@ -115,7 +116,7 @@ pub(crate) mod acl;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = 44;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = 45;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -141,14 +142,14 @@ macro_rules! bucket_columns {
                       metageneration, time_created, updated, versioning_enabled,
                       default_event_based_hold, cors, public_access_prevention_enforced,
                       uniform_bucket_level_access_locked_time, lifecycle, retention_policy, soft_delete_policy,
-                      object_retention_enabled, autoclass, time_created_nanos, updated_nanos"
+                      object_retention_enabled, autoclass, time_created_nanos, updated_nanos, generation"
     };
 }
 use bucket_columns;
 const INSERT_BUCKET: &str = concat!(
     "INSERT INTO buckets (",
     bucket_columns!(),
-    ", acl_policy_bound) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, 0, 0, 1)
+    ", acl_policy_bound) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, 0, 0, ?19, 1)
          ON CONFLICT(name) DO NOTHING"
 );
 const SELECT_BUCKET: &str = concat!(
@@ -355,6 +356,7 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
     (42, sync_state::conflicts::SCHEMA, None),
     (43, acl::POLICY_BINDING_SCHEMA, None),
     (44, object_owner::SCHEMA, None),
+    (45, bucket_soft_delete::SCHEMA, None),
 ];
 
 #[expect(
@@ -880,6 +882,7 @@ const MIGRATIONS: &[(i64, Migration)] = &[
     (42, Migration::Statements(sync_state::conflicts::SCHEMA)),
     (43, Migration::Statements(acl::POLICY_BINDING_SCHEMA)),
     (44, Migration::Statements(object_owner::SCHEMA)),
+    (45, Migration::Statements(bucket_soft_delete::SCHEMA)),
 ];
 
 /// Resets volatile state and completes crash recovery before the catalog serves requests.
@@ -1611,6 +1614,7 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         let maintenance_wake = self.0.maintenance_wake.clone();
+        let clock = self.0.clock.clone();
         self.run(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1638,6 +1642,9 @@ impl Catalog {
             if nonempty {
                 return Err(CatalogError::NotEmpty);
             }
+            // With a soft delete policy the version and its retained objects move aside first,
+            // so the permanent deletions below no longer find them.
+            bucket_soft_delete::retire(&transaction, &name, unix_micros(clock.now())?)?;
             let execute = |sql: &'static str| {
                 transaction
                     .prepare_cached(sql)
@@ -1975,6 +1982,16 @@ fn insert_bucket_in_transaction(
         })
         .transpose()?;
     let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
+    // The object allocator is shared so a recreated name never repeats a soft-deleted
+    // version's generation, even under a frozen injected clock.
+    let last: i64 = transaction
+        .prepare_cached("SELECT last_generation FROM object_generation WHERE singleton = 1")
+        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
+        .map_err(unavailable)?;
+    record.generation = created.max(
+        last.checked_add(1)
+            .ok_or_else(|| unavailable("generation exhausted"))?,
+    );
     let changed = transaction
         .prepare_cached(INSERT_BUCKET)
         .map_err(unavailable)?
@@ -2010,11 +2027,16 @@ fn insert_bucket_in_transaction(
                 .transpose()
                 .map_err(unavailable)?,
             record.object_retention_enabled,
+            record.generation,
         ])
         .map_err(unavailable)?;
     if changed == 0 {
         return Err(CatalogError::AlreadyExists);
     }
+    transaction
+        .prepare_cached("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1")
+        .and_then(|mut statement| statement.execute([record.generation]))
+        .map_err(unavailable)?;
     bucket_autoclass::insert(transaction, record)?;
     insert_policy(
         transaction,
@@ -2110,6 +2132,7 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         lifecycle: serde_json::from_str(&row.get::<_, String>(14)?)
             .map_err(|e| rusqlite::Error::FromSqlConversionFailure(14, Type::Text, Box::new(e)))?,
         metageneration: row.get(6)?,
+        generation: row.get("generation")?,
         time_created: bucket_timestamps::read(row, row.get(7)?, "time_created_nanos")?,
         updated: bucket_timestamps::read(row, row.get(8)?, "updated_nanos")?,
         object_retention_enabled: row.get(17)?,
@@ -2254,7 +2277,7 @@ mod tests {
             .unwrap();
         let mut replacement = record;
         replacement.project = "other".into();
-        catalog.insert_bucket(replacement.clone()).await.unwrap();
+        let replacement = catalog.insert_bucket(replacement).await.unwrap();
         assert_eq!(
             catalog
                 .update_bucket("patch-policy", update, None, None, &access, mode)

@@ -58,6 +58,7 @@ async fn setup(dir: &TestDir, clock: Arc<impl Clock + 'static>) -> Catalog {
                 object_retention_enabled: false,
                 cors: Vec::new(),
                 metageneration: 1,
+                generation: 0,
                 time_created: UNIX_EPOCH,
                 updated: UNIX_EPOCH,
             })
@@ -532,6 +533,7 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
                 object_retention_enabled: false,
                 cors: Vec::new(),
                 metageneration: 1,
+                generation: 0,
                 time_created: UNIX_EPOCH,
                 updated: UNIX_EPOCH,
             })

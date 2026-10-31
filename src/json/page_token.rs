@@ -57,12 +57,55 @@ pub(crate) fn decode_all_projects_page_token(
     decode_bucket_cursor(token, ALL_PROJECTS, "", prefix)
 }
 
-fn decode_bucket_cursor(
-    token: &str,
-    expected_version: &str,
+/// Soft-deleted listings continue after a (name, generation) pair; a distinct version tag
+/// keeps live and soft-deleted cursors from being replayed against each other.
+const SOFT_DELETED: &str = "b1s";
+
+pub(crate) fn encode_soft_deleted_page_token(
     project: &str,
     prefix: &str,
+    last_name: &str,
+    last_generation: i64,
 ) -> Result<String, JsonError> {
+    super::query::validate_project(project)?;
+    if prefix.len() > 222 || !last_name.starts_with(prefix) {
+        return Err(invalid());
+    }
+    validate_bucket_name_for_profile(last_name, CompatProfile::LegacyEmulator)?;
+    let payload = serde_json::json!([
+        SOFT_DELETED,
+        project,
+        prefix,
+        last_name,
+        last_generation.to_string()
+    ])
+    .to_string();
+    let encoded = crate::hashing::encode_lower(payload.as_bytes());
+    Ok(format!("{encoded}.{:016x}", checksum(payload.as_bytes())))
+}
+
+pub(crate) fn decode_soft_deleted_page_token(
+    token: &str,
+    project: &str,
+    prefix: &str,
+) -> Result<(String, i64), JsonError> {
+    let fields = decode_cursor_fields(token)?;
+    let [version, token_project, token_prefix, name, generation] = fields.as_slice() else {
+        return Err(invalid());
+    };
+    if version != SOFT_DELETED
+        || token_project != project
+        || token_prefix != prefix
+        || !name.starts_with(prefix)
+    {
+        return Err(invalid());
+    }
+    validate_bucket_name_for_profile(name, CompatProfile::LegacyEmulator).map_err(|_| invalid())?;
+    let generation = generation.parse::<i64>().map_err(|_| invalid())?;
+    Ok((name.clone(), generation))
+}
+
+fn decode_cursor_fields(token: &str) -> Result<Vec<String>, JsonError> {
     if token.len() > MAX_TOKEN_BYTES {
         return Err(invalid());
     }
@@ -77,7 +120,16 @@ fn decode_bucket_cursor(
     if u64::from_str_radix(digest, 16).map_err(|_| invalid())? != checksum(&bytes) {
         return Err(invalid());
     }
-    let fields: Vec<String> = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+    serde_json::from_slice(&bytes).map_err(|_| invalid())
+}
+
+fn decode_bucket_cursor(
+    token: &str,
+    expected_version: &str,
+    project: &str,
+    prefix: &str,
+) -> Result<String, JsonError> {
+    let fields = decode_cursor_fields(token)?;
     let [version, token_project, token_prefix, name] = fields.as_slice() else {
         return Err(invalid());
     };

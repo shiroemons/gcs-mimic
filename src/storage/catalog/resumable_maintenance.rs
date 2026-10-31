@@ -252,11 +252,13 @@ impl Catalog {
             .await?;
         let rewrite_deadline = self.maintain_rewrite_sessions(now).await?;
         let multipart_deadline = self.maintain_xml_multipart(now).await?;
+        let bucket_deadline = self.maintain_soft_deleted_buckets(now).await?;
         Ok(resumable_deadline
             .into_iter()
             .chain(derived_deadline)
             .chain(rewrite_deadline)
             .chain(multipart_deadline)
+            .chain(bucket_deadline)
             .min())
     }
 

@@ -119,9 +119,21 @@ pub struct BucketRecord {
     pub public_access_prevention_enforced: bool,
     pub uniform_bucket_level_access_locked_time: Option<SystemTime>,
     pub metageneration: i64,
+    /// Version of the bucket; the catalog assigns it at creation and keeps it across a
+    /// soft delete and restore. Values supplied to an insert are replaced.
+    pub(crate) generation: i64,
     /// Microsecond precision; the catalog floors sub-microsecond values.
     pub time_created: SystemTime,
     pub updated: SystemTime,
+}
+
+/// A soft-deleted bucket version: the metadata it had when deleted plus its deletion times.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SoftDeletedBucket {
+    pub record: BucketRecord,
+    pub soft_delete_time: SystemTime,
+    /// Always at or after the latest hard delete time of an object retained with the bucket.
+    pub hard_delete_time: SystemTime,
 }
 
 #[derive(Clone, Debug, Default)]

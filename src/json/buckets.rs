@@ -1,7 +1,7 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
-    BucketMetadataUpdate, BucketRecord, CorsRule, UNIFORM_ACCESS_LOCK_PERIOD, bucket_location,
-    cors_from_value, cors_value, valid_label, validate_storage_class,
+    BucketMetadataUpdate, BucketRecord, CorsRule, SoftDeletedBucket, UNIFORM_ACCESS_LOCK_PERIOD,
+    bucket_location, cors_from_value, cors_value, valid_label, validate_storage_class,
 };
 use crate::config::CompatProfile;
 use hyper::StatusCode;
@@ -333,6 +333,7 @@ pub(crate) fn parse_insert_with_profile(
             None
         },
         metageneration: 1,
+        generation: 0,
         time_created: now,
         updated: now,
     })
@@ -722,6 +723,10 @@ pub(crate) fn bucket_resource_with_profile(
         "location": bucket.location, "locationType": bucket.location_type, "storageClass": bucket.storage_class,
         "iamConfiguration": {"publicAccessPrevention": if bucket.public_access_prevention_enforced { "enforced" } else { "inherited" }},
     });
+    // The reference emulator's bucket shape has no generation; keep that profile unchanged.
+    if profile == CompatProfile::Native {
+        value["generation"] = bucket.generation.to_string().into();
+    }
     let mut uniform_access =
         json!({"enabled": bucket.uniform_bucket_level_access_locked_time.is_some()});
     if let Some(locked_time) = bucket.uniform_bucket_level_access_locked_time {
@@ -818,6 +823,40 @@ pub(crate) fn bucket_list_with_profile(
         value["items"] = buckets
             .iter()
             .map(|bucket| bucket_resource_with_profile(bucket, base_url, projection, profile))
+            .collect::<Result<Vec<_>, _>>()?
+            .into();
+    }
+    if let Some(token) = next_page_token {
+        value["nextPageToken"] = token.into();
+    }
+    Ok(value)
+}
+
+/// A soft-deleted version renders as its bucket plus the two deletion times.
+pub(crate) fn soft_deleted_bucket_resource(
+    version: &SoftDeletedBucket,
+    base_url: &str,
+    projection: Projection,
+    profile: CompatProfile,
+) -> Result<Value, JsonError> {
+    let mut value = bucket_resource_with_profile(&version.record, base_url, projection, profile)?;
+    value["softDeleteTime"] = timestamp(version.soft_delete_time)?.into();
+    value["hardDeleteTime"] = timestamp(version.hard_delete_time)?.into();
+    Ok(value)
+}
+
+pub(crate) fn soft_deleted_bucket_list(
+    versions: &[SoftDeletedBucket],
+    next_page_token: Option<&str>,
+    base_url: &str,
+    projection: Projection,
+    profile: CompatProfile,
+) -> Result<Value, JsonError> {
+    let mut value = json!({"kind": "storage#buckets"});
+    if !versions.is_empty() {
+        value["items"] = versions
+            .iter()
+            .map(|version| soft_deleted_bucket_resource(version, base_url, projection, profile))
             .collect::<Result<Vec<_>, _>>()?
             .into();
     }

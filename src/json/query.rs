@@ -40,8 +40,30 @@ pub(crate) struct ListParams {
     pub start_after: Option<String>,
 }
 
+/// `buckets.list` with `softDeleted=true`; the cursor is the last (name, generation).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SoftDeletedListParams {
+    pub project: String,
+    pub projection: Projection,
+    pub max_results: u32,
+    pub prefix: String,
+    pub start_after: Option<(String, i64)>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum BucketRequest {
+    /// `buckets.get` with `softDeleted=true` and the selected `generation`.
+    GetSoftDeleted {
+        bucket: String,
+        generation: i64,
+        projection: Projection,
+    },
+    ListSoftDeleted(SoftDeletedListParams),
+    Restore {
+        bucket: String,
+        generation: i64,
+        projection: Projection,
+    },
     LockRetentionPolicy {
         bucket: String,
         metageneration: i64,
@@ -119,6 +141,115 @@ fn parse_lock_retention_policy(
     })
 }
 
+/// `POST /storage/v1/b/BUCKET/restore?generation=G`; `segment` is the raw bucket segment.
+fn parse_restore(
+    method: &Method,
+    segment: &str,
+    uri: &Uri,
+    profile: CompatProfile,
+) -> Result<BucketRequest, JsonError> {
+    if *method != Method::POST {
+        let mut error = JsonError::new(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "methodNotAllowed",
+            "Use POST to restore a soft-deleted bucket",
+        );
+        error.allow = Some("POST");
+        return Err(error);
+    }
+    let bucket = decode(segment, Decoding::Path)?;
+    validate_bucket_name_for_profile(&bucket, profile)?;
+    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    super::Fields::take(&mut query, "Bucket")?;
+    common(&mut query)?;
+    let generation = bucket_generation(&mut query)?.ok_or_else(generation_required)?;
+    let projection = projection(&mut query)?;
+    finish(&query)?;
+    Ok(BucketRequest::Restore {
+        bucket,
+        generation,
+        projection,
+    })
+}
+
+fn bucket_generation(query: &mut BTreeMap<String, String>) -> Result<Option<i64>, JsonError> {
+    query
+        .remove("generation")
+        .map(|value| {
+            value
+                .parse::<i64>()
+                .ok()
+                .filter(|generation| *generation > 0 && !value.starts_with('+'))
+                .ok_or_else(|| JsonError::invalid_parameter("generation must be a positive int64"))
+        })
+        .transpose()
+}
+
+/// Matches the observed Cloud Storage message for a soft-deleted read without a generation.
+fn generation_required() -> JsonError {
+    JsonError::new(
+        StatusCode::BAD_REQUEST,
+        "required",
+        "Bucket generation is required.",
+    )
+}
+
+/// `GET /storage/v1/b?softDeleted=true`; called after the shared list parameters are parsed.
+fn soft_deleted_list(
+    query: &mut BTreeMap<String, String>,
+    project: String,
+    projection: Projection,
+    max_results: u32,
+    prefix: String,
+) -> Result<BucketRequest, JsonError> {
+    let start_after = query
+        .remove("pageToken")
+        .filter(|token| !token.is_empty())
+        .map(|token| super::decode_soft_deleted_page_token(&token, &project, &prefix))
+        .transpose()?;
+    finish(query)?;
+    Ok(BucketRequest::ListSoftDeleted(SoftDeletedListParams {
+        project,
+        projection,
+        max_results,
+        prefix,
+        start_after,
+    }))
+}
+
+/// `GET /storage/v1/b/BUCKET?softDeleted=true&generation=G`. `softDeleted` and `generation`
+/// require each other; metageneration conditions are not modeled for soft-deleted reads.
+fn soft_deleted_get(
+    query: &mut BTreeMap<String, String>,
+    bucket: &str,
+) -> Result<Option<BucketRequest>, JsonError> {
+    let soft_deleted = boolean(query, "softDeleted")?;
+    let generation = bucket_generation(query)?;
+    let generation = match (soft_deleted, generation) {
+        (false, None) => return Ok(None),
+        (true, Some(generation)) => generation,
+        (true, None) => return Err(generation_required()),
+        (false, Some(_)) => {
+            return Err(JsonError::new(
+                StatusCode::BAD_REQUEST,
+                "required",
+                "generation selects a soft-deleted bucket; add softDeleted=true",
+            ));
+        }
+    };
+    unsupported(
+        query,
+        &["ifMetagenerationMatch", "ifMetagenerationNotMatch"],
+    )?;
+    let projection = projection(query)?;
+    finish(query)?;
+    Ok(Some(BucketRequest::GetSoftDeleted {
+        bucket: bucket.to_owned(),
+        generation,
+        projection,
+    }))
+}
+
 /// `GET` or `PUT /storage/v1/b/BUCKET/iam`; `segment` is the raw bucket segment.
 fn parse_iam(
     method: &Method,
@@ -176,6 +307,15 @@ pub(crate) fn route_with_profile(
         && !segment.contains('/')
     {
         return Some(parse_lock_retention_policy(method, segment, uri, profile));
+    }
+    if let Some(segment) = uri
+        .path()
+        .strip_prefix("/storage/v1/b/")
+        .and_then(|path| path.strip_suffix("/restore"))
+        && !segment.is_empty()
+        && !segment.contains('/')
+    {
+        return Some(parse_restore(method, segment, uri, profile));
     }
     if let Some(result) = super::iam::route_test_permissions(method, uri, profile) {
         return Some(result);
@@ -280,7 +420,7 @@ fn parse(
             }))
         }
         (&Method::GET, None) => {
-            false_only(&mut query, "softDeleted")?;
+            let soft_deleted = boolean(&mut query, "softDeleted")?;
             false_only(&mut query, "returnPartialSuccess")?;
             if profile == CompatProfile::LegacyEmulator {
                 query
@@ -314,6 +454,9 @@ fn parse(
             if prefix.len() > 222 {
                 return Err(JsonError::invalid_parameter("prefix exceeds 222 bytes"));
             }
+            if soft_deleted {
+                return soft_deleted_list(&mut query, project, projection, max_results, prefix);
+            }
             let start_after = query
                 .remove("pageToken")
                 .filter(|token| !token.is_empty())
@@ -330,8 +473,9 @@ fn parse(
         }
         (&Method::GET | &Method::PATCH | &Method::PUT, Some(bucket)) => {
             if *method == Method::GET {
-                unsupported(&query, &["generation"])?;
-                false_only(&mut query, "softDeleted")?;
+                if let Some(request) = soft_deleted_get(&mut query, &bucket)? {
+                    return Ok(request);
+                }
             } else {
                 query.remove("predefinedAcl");
                 query.remove("predefinedDefaultObjectAcl");

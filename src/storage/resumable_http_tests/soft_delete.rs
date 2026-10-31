@@ -696,6 +696,9 @@ async fn soft_delete_filters_paging_expiry_holds_and_bucket_delete() {
     );
     assert_ne!(held["generation"], Value::Null);
     assert_eq!(retained(&h).await.len(), 1);
+    // A disabled policy keeps permanent bucket deletion; a positive one would soft-delete the
+    // bucket with its retained generations (bucket_soft_delete_http covers that path).
+    policy(&h, 0).await;
     assert_eq!(
         h.request("DELETE", "/storage/v1/b/bucket", ADMIN, b"")
             .await

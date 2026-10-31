@@ -59,7 +59,7 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(unavailable)
 }
 
-fn next_revision(connection: &Connection) -> Result<i64, CatalogError> {
+pub(super) fn next_revision(connection: &Connection) -> Result<i64, CatalogError> {
     connection
         .prepare_cached("UPDATE policy_revision SET last_revision = last_revision + 1 WHERE singleton = 1 AND last_revision < 9223372036854775807 RETURNING last_revision")
         .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
