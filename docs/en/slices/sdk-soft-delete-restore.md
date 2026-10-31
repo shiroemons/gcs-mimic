@@ -35,7 +35,8 @@ for the separate diagnostic checks; no HTTP response is changed.
   equal to `timeCreated` (observed 2026-10-31). The server setting
   `default_soft_delete_retention_seconds` (`--default-soft-delete-retention-seconds`,
   `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`, JSON `default_soft_delete_retention_seconds`;
-  0 or 604800 through 7776000, default 604800) changes it; 0 stores no policy, so
+  0 or 604800 through 7776000, default 604800, or 0 with `--backend memory`
+  unless set) changes it; 0 stores no policy, so
   deletion is permanent and uses no extra disk, as before the default existed.
   An explicit policy in the request, zero included, is kept as sent. Existing
   buckets keep their stored policy. Buckets created by `import`, directory sync

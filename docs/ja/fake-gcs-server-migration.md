@@ -74,7 +74,7 @@ Railsは既存の検証優先対象です。このconsumer調査で代表的なR
 
 | soft deleteの操作 | gcs-mimicでの動作 |
 | --- | --- |
-| Go `BucketAttrs.SoftDeletePolicy`、Ruby `bucket.soft_delete_policy=` | JSON APIで0または604800～7776000秒を設定できます。作成時に省略するとGCSと同じ既定の604800秒になり、**削除したオブジェクトやバケットの本文が7日間残ります**（fake-gcs-serverや従来のgcs-mimicとは異なります）。削除を即座に完全削除にしてディスクを節約するには、サーバーを`--default-soft-delete-retention-seconds 0`（または`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0`）で起動するか、バケット作成時に`softDeletePolicy.retentionDurationSeconds`へ0を指定します。既存のバケットと`--compat-profile legacy-emulator`は変わりません。PATCH・PUTで省略した場合は既存設定を保持します。 |
+| Go `BucketAttrs.SoftDeletePolicy`、Ruby `bucket.soft_delete_policy=` | JSON APIで0または604800～7776000秒を設定できます。作成時に省略するとGCSと同じ既定の604800秒になり、**削除したオブジェクトやバケットの本文が7日間残ります**（fake-gcs-serverや従来のgcs-mimicとは異なります）。削除を即座に完全削除にしてディスクを節約するには、サーバーを`--default-soft-delete-retention-seconds 0`（または`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0`）で起動するか、バケット作成時に`softDeletePolicy.retentionDurationSeconds`へ0を指定します。`--backend memory`では、削除したデータが残るとメモリ予算を使い切り、書き込みが503 `Storage capacity exhausted`になるため、既定がすでに0です。メモリバックエンドで7日間保持するには、オプションを明示します。既存のバケットと`--compat-profile legacy-emulator`は変わりません。PATCH・PUTで省略した場合は既存設定を保持します。 |
 | 削除済み一覧・世代指定のメタデータ取得・restore | 古い本文を期限まで保持し、復元では新世代を作ります。元の削除済み世代は残ります。ポリシーを持たないバケットと0を明示したバケットはいずれも一覧200となり、保持中の世代がなければ空です。該当世代がなければget・restoreは404です。ポリシーなしを400にするGoogleの仕様とは異なります。ホールドと保持ポリシーによる拒否も引き続き適用します。 |
 | 削除済み世代だけのバケットを削除 | 正の保持期間があれば、バケットは保持中の世代ごとsoft deleteされ、generationを指定して復元できます（`buckets.restore`）。オブジェクトはsoft deleteされたままで、別途復元します。保持期間がなければ完全削除します。初期化ファイルの設定は未対応です。[対応範囲](sdk-soft-delete-restore.md)を参照してください。 |
 

@@ -13,6 +13,12 @@ use std::{
 const AUTH: &str = "Authorization: Bearer admin\r\n";
 const OBJECT: &str = "/storage/v1/b/test-bucket/o/value";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SoftDeleteEnv {
+    Pinned,
+    Unset,
+}
+
 struct Server {
     child: Child,
     stdout: BufReader<ChildStdout>,
@@ -23,7 +29,16 @@ struct Server {
 
 impl Server {
     fn start(data: &Path, options: &[&str]) -> Self {
-        let mut child = common::server_command()
+        Self::start_with(data, options, SoftDeleteEnv::Pinned)
+    }
+
+    fn start_with(data: &Path, options: &[&str], env: SoftDeleteEnv) -> Self {
+        let mut command = common::server_command();
+        if env == SoftDeleteEnv::Unset {
+            // The suite pins the default to 0; the memory default is only reachable without it.
+            command.env_remove("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS");
+        }
+        let mut child = command
             .args([
                 "serve",
                 "--scheme",
@@ -1058,4 +1073,75 @@ fn memory_seed_streams_read_only_fixtures_without_a_disk_catalog() {
         b"seed bytes"
     );
     assert!(!data.exists());
+}
+
+const SMALL_BUDGET: [&str; 2] = ["--memory-max-bytes", "260"];
+
+#[test]
+fn memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity() {
+    let dir = common::TestDir::new();
+    let data = dir.0.join("never-created");
+    let mut server = Server::start_with(&data, &SMALL_BUDGET, SoftDeleteEnv::Unset);
+    server.bucket(false);
+    for round in 0..8 {
+        let put = server.put(b"body");
+        assert_eq!(
+            put.status,
+            200,
+            "round {round}: {}",
+            String::from_utf8_lossy(&put.body)
+        );
+        assert_eq!(
+            server.request("DELETE", OBJECT, AUTH, b"").status,
+            204,
+            "round {round}"
+        );
+    }
+    let bucket = server
+        .request("GET", "/storage/v1/b/test-bucket", AUTH, b"")
+        .json();
+    assert_ne!(
+        bucket["softDeletePolicy"]["retentionDurationSeconds"],
+        "604800"
+    );
+    server.stop();
+}
+
+#[test]
+fn memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause() {
+    let dir = common::TestDir::new();
+    let data = dir.0.join("never-created");
+    let mut options = SMALL_BUDGET.to_vec();
+    options.extend(["--default-soft-delete-retention-seconds", "604800"]);
+    let mut server = Server::start_with(&data, &options, SoftDeleteEnv::Unset);
+    server.bucket(false);
+    let bucket = server
+        .request("GET", "/storage/v1/b/test-bucket", AUTH, b"")
+        .json();
+    assert_eq!(
+        bucket["softDeletePolicy"]["retentionDurationSeconds"],
+        "604800"
+    );
+    let mut exhausted = None;
+    for _ in 0..8 {
+        let put = server.put(b"body");
+        if put.status == 503 {
+            exhausted = Some(put);
+            break;
+        }
+        assert_eq!(put.status, 200, "{}", String::from_utf8_lossy(&put.body));
+        assert_eq!(server.request("DELETE", OBJECT, AUTH, b"").status, 204);
+    }
+    let exhausted = exhausted.expect("retained soft-deleted data must exhaust the small budget");
+    exhausted.error(503, "backendError");
+    let message: Value = serde_json::from_slice(&exhausted.body).unwrap();
+    let message = message["error"]["message"].as_str().unwrap();
+    for needle in [
+        "soft delete",
+        "default_soft_delete_retention_seconds",
+        "softDeletePolicy",
+    ] {
+        assert!(message.contains(needle), "{needle}: {message}");
+    }
+    server.stop();
 }

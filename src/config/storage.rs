@@ -49,6 +49,11 @@ impl ConfigurationReport {
             }
             return;
         }
+        // Deleted data kept by soft delete counts against the fixed RAM budget, so the seven-day
+        // default would exhaust it after a few create/delete cycles. An explicit setting wins.
+        if !settings.contains_key("default_soft_delete_retention_seconds") {
+            self.config.default_soft_delete_retention_seconds = 0;
+        }
         for key in ["sync_dir", "sync_reinitialize"] {
             if let Some(input) = settings.get(key) {
                 self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
@@ -63,6 +68,54 @@ impl ConfigurationReport {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn memory_backend_defaults_soft_delete_off_unless_the_setting_is_explicit() {
+        let load = |args: &[&str], env: &[(&str, &str)]| {
+            Config::load(
+                &args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+                &env.iter()
+                    .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                    .collect(),
+            )
+            .unwrap()
+            .default_soft_delete_retention_seconds
+        };
+        assert_eq!(load(&[], &[]), 604_800);
+        assert_eq!(load(&["--backend", "memory"], &[]), 0);
+        assert_eq!(
+            load(
+                &["--backend", "memory"],
+                &[("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS", "604800")]
+            ),
+            604_800
+        );
+        assert_eq!(
+            load(
+                &[
+                    "--backend",
+                    "memory",
+                    "--default-soft-delete-retention-seconds",
+                    "1209600"
+                ],
+                &[]
+            ),
+            1_209_600
+        );
+        assert_eq!(
+            load(
+                &[
+                    "--backend",
+                    "memory",
+                    "--default-soft-delete-retention-seconds",
+                    "0"
+                ],
+                &[]
+            ),
+            0
+        );
+        assert_eq!(load(&["--backend", "disk"], &[]), 604_800);
+    }
 
     #[test]
     fn memory_defaults_aliases_budgets_and_unsupported_startup_options() {

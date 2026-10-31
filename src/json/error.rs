@@ -47,7 +47,7 @@ impl JsonError {
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "backendError",
-            "Storage capacity exhausted; for backend=memory release objects/readers or restart with larger memory_max_bytes and memory_catalog_max_bytes (restart loses RAM data), and for backend=disk free disk space; retry with generation preconditions after capacity is available",
+            "Storage capacity exhausted; for backend=memory release objects/readers or restart with larger memory_max_bytes and memory_catalog_max_bytes (restart loses RAM data), and for backend=disk free disk space; data kept by soft delete also uses capacity, so lower default_soft_delete_retention_seconds to 0 or set softDeletePolicy.retentionDurationSeconds to 0 on the bucket to free deleted data at once; retry with generation preconditions after capacity is available",
         )
     }
 
