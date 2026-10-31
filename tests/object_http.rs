@@ -392,7 +392,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     assert_eq!(existing.status, 200);
     let generation = existing.json()["generation"].as_str().unwrap().to_owned();
     for (header, read_status, read_reason) in [
-        ("If-Match: opaque\r\n", 400, "invalidParameter"),
+        ("If-Match: opaque tag\r\n", 400, "invalidParameter"),
         ("If-None-Match: *\r\n", 304, "notModified"),
         ("X-Goog-Encryption-Kms-Key-Name: key\r\n", 400, "badRequest"),
         ("X-Goog-Meta-Example: value\r\n", 400, "badRequest"),

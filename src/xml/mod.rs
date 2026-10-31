@@ -845,9 +845,11 @@ pub(crate) enum CacheScope {
 }
 
 fn object_etag(record: &ObjectRecord) -> String {
-    // MD5 ETags apply only to objects without customer-supplied encryption.
+    // MD5 ETags apply only to objects without customer-supplied encryption. Other objects quote
+    // the JSON validator, because XML entity tags are always quoted; Cloud Storage's XML ETag for
+    // composite and encrypted objects has not been recorded.
     if !record.has_md5() || record.customer_key_sha256.is_some() {
-        json::object_etag(record)
+        format!("\"{}\"", json::object_etag(record))
     } else {
         format!("\"{}\"", crate::hashing::encode_lower(&record.md5))
     }

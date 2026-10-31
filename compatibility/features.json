@@ -4701,7 +4701,7 @@
         },
         {
           "id": "ETAG-READ-PROVIDER-WIRE",
-          "description": "SPEC-JSON-ETAG-WIRE: exact provider opaque tags, malformed-input errors, complete response headers, same-millisecond bucket incarnation identity and mixed-extension ordering remain unverified; local GET support passes.",
+          "description": "SPEC-JSON-ETAG-WIRE: the provider tag encoding is recorded (BEHAVIOR-OBJECT-006-PROVIDER-ENCODING); malformed-input errors, complete response headers and mixed-extension ordering remain unverified; local GET support passes.",
           "test_ids": [],
           "result": "PENDING"
         },
@@ -5546,7 +5546,7 @@
         },
         {
           "id": "ETAG-READ-PROVIDER-WIRE",
-          "description": "SPEC-JSON-ETAG-WIRE: exact provider opaque tags, malformed-input errors, complete response headers, same-millisecond bucket incarnation identity and mixed-extension ordering remain unverified; local GET support passes.",
+          "description": "SPEC-JSON-ETAG-WIRE: the provider tag encoding is recorded (BEHAVIOR-OBJECT-006-PROVIDER-ENCODING); malformed-input errors, complete response headers and mixed-extension ordering remain unverified; local GET support passes.",
           "test_ids": [],
           "result": "PENDING"
         },
@@ -14048,7 +14048,7 @@
         },
         {
           "id": "ETAG-READ-PROVIDER-WIRE",
-          "description": "SPEC-JSON-ETAG-WIRE: exact provider opaque tags, malformed-input errors, complete response headers, same-millisecond bucket incarnation identity and mixed-extension ordering remain unverified; local GET support passes.",
+          "description": "SPEC-JSON-ETAG-WIRE: the provider tag encoding is recorded (BEHAVIOR-OBJECT-006-PROVIDER-ENCODING); malformed-input errors, complete response headers and mixed-extension ordering remain unverified; local GET support passes.",
           "test_ids": [],
           "result": "PENDING"
         },
@@ -26594,8 +26594,19 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "BEHAVIOR-OBJECT-006-PROVIDER-ENCODING",
+          "description": "Recorded provider encoding (docs/en/evidence/response-wire-provider-observations.md): the JSON object ETag is unquoted base64 of a protobuf message with the generation as field 1 and the metageneration as field 2; the bucket ETag encodes the metageneration only; the ETag header equals the body etag; ACL entry, object, bucket and gRPC etags share one encoder. Bare and quoted If-Match/If-None-Match members name the same tag, while members with whitespace or stray quotes, and a wildcard inside a list, still fail with 400. XML keeps the quoted MD5 and quotes the JSON tag for composite and encrypted objects (the XML form for those is unrecorded). That a recreated bucket repeats its tag is an inference from the encoding, not an observation.",
+          "result": "PASS",
+          "test_ids": [
+            "wire_parity_http::json_etags_encode_generation_and_metageneration_like_cloud_storage",
+            "http_conditions::tests::unquoted_json_validators_match_bare_and_quoted_members",
+            "json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links",
+            "json::tests::bkt_id_002_etag_encodes_only_the_metageneration"
+          ]
+        },
+        {
           "id": "BEHAVIOR-OBJECT-006-MEDIA",
-          "description": "Quoted local ETag represents the selected record; JSON read validators now pass the linked ETAG-READ cases.",
+          "description": "The unquoted JSON ETag represents the selected record's generation and metageneration; JSON read validators now pass the linked ETAG-READ cases.",
           "result": "PASS",
           "test_ids": [
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
@@ -26780,12 +26791,16 @@
         },
         {
           "id": "ETAG-READ-PROVIDER-WIRE",
-          "description": "SPEC-JSON-ETAG-WIRE: exact provider opaque tags, malformed-input errors, complete response headers, same-millisecond bucket incarnation identity and mixed-extension ordering remain unverified; local GET support passes.",
+          "description": "SPEC-JSON-ETAG-WIRE: the provider tag encoding is recorded (BEHAVIOR-OBJECT-006-PROVIDER-ENCODING); malformed-input errors, complete response headers and mixed-extension ordering remain unverified; local GET support passes.",
           "test_ids": [],
           "result": "PENDING"
         }
       ],
       "test_ids": [
+        "wire_parity_http::json_etags_encode_generation_and_metageneration_like_cloud_storage",
+        "http_conditions::tests::unquoted_json_validators_match_bare_and_quoted_members",
+        "json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links",
+        "json::tests::bkt_id_002_etag_encodes_only_the_metageneration",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
         "json::object_tests::obj_render_002_media_headers_match_selected_generation_and_hashes",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
@@ -26814,6 +26829,7 @@
         "etag::json_etag_read_combined_query_conditions_use_one_selected_record"
       ],
       "verification": [
+        {"command":"cargo test --locked -- --test-threads=4","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["wire_parity_http::json_etags_encode_generation_and_metageneration_like_cloud_storage","http_conditions::tests::unquoted_json_validators_match_bare_and_quoted_members","json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links","json::tests::bkt_id_002_etag_encodes_only_the_metageneration"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",

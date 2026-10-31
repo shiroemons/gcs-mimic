@@ -113,11 +113,13 @@ Query conditions without ETag headers retain their existing 304/412 rules.
 ### Representation identity, response headers and races
 
 Object metadata `etag`, metadata GET's new `ETag` header, and whole/range media
-`ETag` use the same selected generation/metageneration and existing opaque local
-encoding. Both content overwrites and metadata changes invalidate the old tag.
-This equality is the supported local JSON contract, not a claim about the exact
-opaque bytes used by Google or XML. For native buckets the metadata field and
-header are also equal.
+`ETag` use the same selected generation/metageneration in the recorded Cloud Storage
+encoding (unquoted base64 protobuf). Both content overwrites and metadata changes
+invalidate the old tag. See
+[recorded provider responses](../evidence/response-wire-provider-observations.md);
+XML keeps the quoted MD5. A bare or quoted `If-Match`/`If-None-Match` member names the
+same JSON tag, because SDKs echo the unquoted body `etag`; members with whitespace or a
+stray quote are still 400. For native buckets the metadata field and header are also equal.
 
 The legacy bucket's metageneration-1 JSON field remains `RVRhZw==` to preserve its
 source-profile representation. Its HTTP header and validator instead use the

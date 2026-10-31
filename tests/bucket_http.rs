@@ -2571,7 +2571,7 @@ fn bucket_core_create_get_defaults() {
         if profile == "legacy-emulator" {
             assert_eq!(resource["etag"], "RVRhZw==");
         } else {
-            assert!(resource["etag"].as_str().unwrap().starts_with("\"b-"));
+            assert_eq!(resource["etag"], "CAE=");
         }
         assert_settings(&resource, profile, false, false);
         for query in ["", "?projection=full", "?projection=noAcl"] {

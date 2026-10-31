@@ -1164,18 +1164,17 @@ fn system_time_or_unrepresentable(millis: i64) -> Option<SystemTime> {
 }
 
 #[test]
-fn bkt_id_002_etag_changes_with_revision_and_incarnation() {
+fn bkt_id_002_etag_encodes_only_the_metageneration() {
     let original = record();
-    assert_eq!(resource(&original)["etag"], resource(&original)["etag"]);
+    assert_eq!(resource(&original)["etag"], "CAE=");
     let mut changed = original.clone();
-    changed.metageneration += 1;
-    assert_ne!(resource(&changed)["etag"], resource(&original)["etag"]);
+    changed.metageneration = 300;
+    assert_eq!(resource(&changed)["etag"], "CKwC");
+    // The encoding carries no incarnation, so by inference a recreated bucket repeats its etag.
     changed = original.clone();
     changed.time_created += Duration::from_millis(1);
-    assert_ne!(resource(&changed)["etag"], resource(&original)["etag"]);
-    changed = original.clone();
     changed.updated += Duration::from_millis(1);
-    assert_ne!(resource(&changed)["etag"], resource(&original)["etag"]);
+    assert_eq!(resource(&changed)["etag"], resource(&original)["etag"]);
 }
 
 #[test]

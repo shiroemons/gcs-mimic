@@ -5,7 +5,7 @@ use super::{
     Decoding, Fields, JsonError,
     buckets::encode_segment,
     decode,
-    objects::base64,
+    objects::revision_etag,
     parse_query,
     query::{common, finish},
     validate_bucket_name_for_profile, validate_object_name,
@@ -235,29 +235,6 @@ pub(crate) fn parse_acl_body(
     Ok(AclBody { entity, role })
 }
 
-/// The protobuf-encoded version that the service uses for ACL etags: generation (field 1, objects
-/// only) then metageneration.
-fn etag(generation: Option<i64>, metageneration: i64) -> String {
-    fn varint(bytes: &mut Vec<u8>, mut value: u64) {
-        while value >= 0x80 {
-            bytes.push((value as u8) | 0x80);
-            value >>= 7;
-        }
-        bytes.push(value as u8);
-    }
-    let mut bytes = Vec::new();
-    match generation {
-        Some(generation) => {
-            bytes.push(0x08);
-            varint(&mut bytes, generation as u64);
-            bytes.push(0x10);
-        }
-        None => bytes.push(0x08),
-    }
-    varint(&mut bytes, metageneration as u64);
-    base64(&bytes)
-}
-
 fn entity_fields(resource: &mut Map<String, Value>, entity: &str) {
     match Entity::parse(entity) {
         Ok(Entity::UserEmail(email) | Entity::GroupEmail(email)) => {
@@ -342,7 +319,7 @@ pub(crate) fn acl_entry_resource(base_url: &str, owner: AclOwner<'_>, entry: &Ac
     entity_fields(&mut resource, &entry.entity);
     resource.insert(
         "etag".into(),
-        etag(
+        revision_etag(
             owner.object.map(|(_, generation)| generation),
             owner.metageneration,
         )

@@ -785,13 +785,10 @@ pub(crate) fn bucket_resource_with_profile(
     Ok(value)
 }
 
+/// Cloud Storage encodes only the metageneration, so by inference from the encoding a recreated
+/// bucket repeats its etag; that repetition itself has not been observed.
 pub(crate) fn bucket_etag(bucket: &BucketRecord) -> String {
-    format!(
-        "\"b-{}-{}-{}\"",
-        epoch_millis(bucket.time_created),
-        epoch_millis(bucket.updated),
-        bucket.metageneration
-    )
+    super::objects::revision_etag(None, bucket.metageneration)
 }
 
 /// Render one already bounded, sorted catalog page; the caller decides whether a token is due.
@@ -879,10 +876,6 @@ pub(super) fn encode_segment(segment: &str) -> String {
         }
     }
     encoded
-}
-
-fn epoch_millis(time: SystemTime) -> i128 {
-    epoch_nanos(time).div_euclid(1_000_000)
 }
 
 fn epoch_nanos(time: SystemTime) -> i128 {

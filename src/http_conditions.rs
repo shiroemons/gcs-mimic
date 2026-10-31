@@ -29,6 +29,14 @@ enum Comparison {
     Weak,
 }
 
+/// Whether the selected representation's validator is an RFC 9110 quoted entity tag or an
+/// unquoted JSON API token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TagSyntax {
+    Quoted,
+    Opaque,
+}
+
 fn matches_field(
     headers: &HeaderMap,
     name: &str,
@@ -36,6 +44,13 @@ fn matches_field(
     comparison: Comparison,
 ) -> Result<Option<bool>, EtagError> {
     let strong = comparison == Comparison::Strong;
+    // A JSON API validator is an unquoted base64 token that clients copy verbatim from a
+    // resource's `etag`, so a bare list member names the same tag as its quoted form. Quoted
+    // validators (the XML API) keep strict RFC 9110 syntax.
+    let (syntax, target) = match etag.strip_prefix('"').and_then(|tag| tag.strip_suffix('"')) {
+        Some(inner) => (TagSyntax::Quoted, inner.as_bytes()),
+        None => (TagSyntax::Opaque, etag.as_bytes()),
+    };
     let values = headers.get_all(name);
     let mut iter = values.iter();
     if let (Some(only), None) = (iter.next(), iter.next())
@@ -61,24 +76,35 @@ fn matches_field(
             if weak {
                 rest = &rest[2..];
             }
-            if !rest.starts_with(b"\"") {
+            let (tag, tail) = if let Some(quoted) = rest.strip_prefix(b"\"") {
+                let end = quoted
+                    .iter()
+                    .position(|byte| *byte == b'"')
+                    .ok_or(EtagError::Invalid)?;
+                (&quoted[..end], &quoted[end + 1..])
+            } else if syntax == TagSyntax::Opaque {
+                let end = rest
+                    .iter()
+                    .position(|byte| *byte == b',' || byte.is_ascii_whitespace())
+                    .unwrap_or(rest.len());
+                // A wildcard is valid only as the entire field value.
+                if end == 0 || rest[..end].contains(&b'"') || &rest[..end] == b"*" {
+                    return Err(EtagError::Invalid);
+                }
+                (&rest[..end], &rest[end..])
+            } else {
                 return Err(EtagError::Invalid);
-            }
-            let end = rest[1..]
-                .iter()
-                .position(|byte| *byte == b'"')
-                .map(|end| end + 1)
-                .ok_or(EtagError::Invalid)?;
-            if rest[1..end]
+            };
+            if tag
                 .iter()
                 .any(|byte| !matches!(byte, 0x21 | 0x23..=0x7e | 0x80..=0xff))
             {
                 return Err(EtagError::Invalid);
             }
-            if (!strong || !weak) && &rest[..=end] == etag.as_bytes() {
+            if (!strong || !weak) && tag == target {
                 matched = Some(true);
             }
-            rest = rest[end + 1..].trim_ascii_start();
+            rest = tail.trim_ascii_start();
             if rest.is_empty() {
                 break;
             }
@@ -130,6 +156,42 @@ mod tests {
             etag_not_modified(&headers, "\"selected\""),
             Err(EtagError::PreconditionFailed)
         );
+    }
+
+    #[test]
+    fn unquoted_json_validators_match_bare_and_quoted_members() {
+        for (value, strong, weak) in [
+            ("CAE=", true, true),
+            ("\"CAE=\"", true, true),
+            ("W/CAE=", false, true),
+            ("W/\"CAE=\"", false, true),
+            ("CAI=, CAE=", true, true),
+            ("CAI=,\"CAE=\"", true, true),
+            ("CAI=", false, false),
+            ("*", true, true),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert("if-match", HeaderValue::from_str(value).unwrap());
+            assert_eq!(
+                matches_field(&headers, "if-match", "CAE=", Comparison::Strong),
+                Ok(Some(strong)),
+                "{value}"
+            );
+            assert_eq!(
+                matches_field(&headers, "if-match", "CAE=", Comparison::Weak),
+                Ok(Some(weak)),
+                "{value}"
+            );
+        }
+        for value in ["CAE= extra", "CA\"E=", "\"CAE=", "W/", "*, CAE=", "CAE=, *"] {
+            let mut headers = HeaderMap::new();
+            headers.insert("if-none-match", HeaderValue::from_str(value).unwrap());
+            assert_eq!(
+                etag_not_modified(&headers, "CAE="),
+                Err(EtagError::Invalid),
+                "{value}"
+            );
+        }
     }
 
     #[test]

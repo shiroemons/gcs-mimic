@@ -112,15 +112,18 @@ fn json_etag_read_syntax_and_missing_resources() {
         BUCKET.to_owned(),
     ] {
         for header in ["If-Match", "If-None-Match"] {
+            // JSON entity tags are unquoted tokens, so a bare token is valid; space-separated
+            // tokens and stray quotes are not.
             for value in [
-                "unquoted",
-                "W/unquoted",
+                "two tokens",
+                "W/two tokens",
+                "bare\"quote",
                 "w/\"weak\"",
                 "\"open",
                 "\"has space\"",
                 "*, \"other\"",
                 "*,*",
-                "\"other\", bad",
+                "\"other\", bad tag",
             ] {
                 server
                     .request("GET", &path, &format!("{header}: {value}\r\n"), b"")
@@ -176,7 +179,8 @@ fn json_etag_read_buckets_and_metadata_changes_in_both_profiles() {
         let etag = &initial.headers["etag"];
         if legacy {
             assert_eq!(resource["etag"], "RVRhZw==");
-            assert!(etag.starts_with("\"b-"));
+            // The legacy body keeps fake-gcs-server's tag; the header validator is the record's.
+            assert_eq!(etag, "CAE=");
         } else {
             assert_eq!(resource["etag"], etag.as_str());
         }
@@ -220,21 +224,21 @@ fn json_etag_read_buckets_and_metadata_changes_in_both_profiles() {
                 .status,
             200
         );
-        let recreated = server.request(
-            "GET",
+        // The bucket etag encodes only the metageneration, so by inference from the encoding a
+        // recreated bucket at metageneration 1 repeats the first incarnation's validator.
+        not_modified(
+            &server,
             &format!("{BUCKET}?fields=name"),
             &format!("If-None-Match: {etag}\r\n"),
-            b"",
+            etag,
+            "no-cache",
         );
-        assert_eq!(recreated.status, 200);
         assert_eq!(
-            serde_json::from_slice::<Value>(&recreated.body).unwrap(),
-            serde_json::json!({"name":"range-bucket"})
+            server
+                .request("GET", BUCKET, &format!("If-Match: {etag}\r\n"), b"")
+                .status,
+            200
         );
-        assert_ne!(recreated.headers["etag"], *etag);
-        server
-            .request("GET", BUCKET, &format!("If-Match: {etag}\r\n"), b"")
-            .error(412, "conditionNotMet");
         server.stop();
     }
 }

@@ -83,7 +83,11 @@ fn compose_order_checksums_metadata_fields_and_restart() {
     assert_eq!(xml.status, 200);
     assert_eq!(xml.body, b"123456789");
     assert!(!xml.headers["x-goog-hash"].contains("md5="));
-    assert_eq!(xml.headers["etag"], result["etag"].as_str().unwrap());
+    // XML entity tags are quoted; a composite object has no MD5 to report.
+    assert_eq!(
+        xml.headers["etag"],
+        format!("\"{}\"", result["etag"].as_str().unwrap())
+    );
     assert_eq!(xml.headers["x-goog-component-count"], "2");
     let head = server.request("HEAD", "/test-bucket/dir%2F%E9%9B%AA%25", "", b"");
     assert_eq!(head.status, 200);
@@ -127,7 +131,7 @@ fn compose_order_checksums_metadata_fields_and_restart() {
     let updated_xml = server.request("GET", "/test-bucket/dir%2F%E9%9B%AA%25", "", b"");
     assert_eq!(
         updated_xml.headers["etag"],
-        updated["etag"].as_str().unwrap()
+        format!("\"{}\"", updated["etag"].as_str().unwrap())
     );
     assert_ne!(updated_xml.headers["etag"], xml.headers["etag"]);
     server.stop();

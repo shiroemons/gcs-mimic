@@ -116,8 +116,11 @@ fn metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validatio
         (format!("W/{etag}"), 412),
         ("\"stale\"".into(), 412),
         (String::new(), 412),
-        ("bare-tag".into(), 400),
-        (format!("{etag}, bad"), 400),
+        // JSON entity tags are unquoted tokens, so a bare tag is valid and fails only to match.
+        ("bare-tag".into(), 412),
+        ("bare tag".into(), 400),
+        ("bare\"tag".into(), 400),
+        (format!("{etag}, bad tag"), 400),
         (format!("*, {etag}"), 400),
         ("*\r\nIf-Match: *".into(), 400),
     ] {

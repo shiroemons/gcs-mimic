@@ -85,7 +85,9 @@ bucket defaults only and implements no object placement or class transitions.
 Soft delete, retention, lifecycle, default ACLs and organization policy defaults are
 not simulated. In particular, Google's default soft-delete retention is not applied: deleting
 an empty local bucket removes it immediately. Responses omit these unsupported configurations.
-ETags are opaque deterministic local identifiers, not Google's encoding. Dotted-name ownership
+ETags use the recorded Cloud Storage encoding, base64 of the protobuf-encoded metageneration
+(`CAE=` at metageneration 1), so a recreated bucket repeats its tag (inferred from the encoding,
+not observed). Dotted-name ownership
 verification and the full undocumented set of close misspellings of `google` are not reproduced.
 
 ## Method and parameter decisions

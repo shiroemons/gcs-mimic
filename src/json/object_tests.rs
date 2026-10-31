@@ -770,7 +770,7 @@ fn obj_render_001_exact_resource_and_encoded_generation_links() {
         "name":"dir/猫 %2F?#", "bucket":"test-bucket", "generation":"9007199254740993", "metageneration":"2",
         "contentType":"text/plain; charset=utf-8", "storageClass":"STANDARD", "size":"5",
         "md5Hash":"AAAAAAAAAAAAAAAAAAAAAA==", "crc32c":"AQIDBA==",
-        "etag":"\"o-AAAAAAAAAAAAAAAAAAAAAA==-9007199254740993-2\"",
+        "etag":"CIGAgICAgIAQEAI=",
         "timeCreated":"1970-01-01T00:00:01.234Z", "updated":"1970-01-01T00:00:02.345Z", "timeStorageClassUpdated":"1970-01-01T00:00:01.234Z", "timeFinalized":"1970-01-01T00:00:01.234Z",
     });
     for projection in [Projection::NoAcl, Projection::Full] {
@@ -808,7 +808,7 @@ fn obj_render_002_media_headers_match_selected_generation_and_hashes() {
         ),
         ("x-goog-stored-content-length", "5"),
         ("x-goog-stored-content-encoding", "identity"),
-        ("etag", "\"o-AAAAAAAAAAAAAAAAAAAAAA==-9007199254740993-2\""),
+        ("etag", "CIGAgICAgIAQEAI="),
     ] {
         assert_eq!(headers[name], value);
     }

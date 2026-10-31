@@ -267,13 +267,15 @@ fn completed(value: &serde_json::Value) -> Result<Response<ResponseBody>, Error>
         text("etag").ok_or_else(unavailable)?,
     );
     let md5 = text("md5Hash");
-    // XML reports a plain object's MD5 as its ETag; other objects keep the JSON validator.
+    // XML reports a plain object's MD5 as its ETag; other objects quote the JSON validator,
+    // matching `xml::object_etag`.
+    let plain = value.get("customerEncryption").is_none() && value.get("componentCount").is_none();
     let etag = match md5 {
-        Some(md5) if etag.starts_with("\"o-") => format!(
+        Some(md5) if plain => format!(
             "\"{}\"",
             crate::hashing::encode_lower(&json::decode_hash::<16>(md5)?)
         ),
-        _ => etag.to_owned(),
+        _ => format!("\"{etag}\""),
     };
     let hash = md5.map_or_else(
         || format!("crc32c={crc32c}"),

@@ -985,23 +985,35 @@ pub(crate) fn object_media_transcoding(
     Ok(!gzip.or(wildcard).unwrap_or(false))
 }
 
+/// The JSON API validator of one object generation. It carries no content hash, so a keyless
+/// metadata read of an encrypted object learns nothing about its plaintext.
 pub(crate) fn object_etag(object: &ObjectRecord) -> String {
-    if object.component_count.is_some() {
-        return format!("\"c-{}-{}\"", object.generation, object.metageneration);
+    revision_etag(Some(object.generation), object.metageneration)
+}
+
+/// The unquoted base64 protobuf message Cloud Storage uses as a JSON API ETag: the generation
+/// as field 1 (objects only) and the metageneration as field 2 (field 1 for buckets). Recorded
+/// responses carry the same value in the `ETag` header and the resource `etag` field. ACL
+/// entries, buckets, objects and gRPC messages all share this encoding.
+pub(crate) fn revision_etag(generation: Option<i64>, metageneration: i64) -> String {
+    fn varint(bytes: &mut Vec<u8>, mut value: u64) {
+        while value >= 0x80 {
+            bytes.push((value as u8) | 0x80);
+            value >>= 7;
+        }
+        bytes.push(value as u8);
     }
-    if !object.has_md5() {
-        return format!("\"m-{}-{}\"", object.generation, object.metageneration);
+    let mut bytes = Vec::new();
+    match generation {
+        Some(generation) => {
+            bytes.push(0x08);
+            varint(&mut bytes, generation as u64);
+            bytes.push(0x10);
+        }
+        None => bytes.push(0x08),
     }
-    // A keyless metadata read must not learn the plaintext MD5 through the validator.
-    if object.customer_key_sha256.is_some() {
-        return format!("\"e-{}-{}\"", object.generation, object.metageneration);
-    }
-    format!(
-        "\"o-{}-{}-{}\"",
-        base64(&object.md5),
-        object.generation,
-        object.metageneration
-    )
+    varint(&mut bytes, metageneration as u64);
+    base64(&bytes)
 }
 
 pub(crate) fn base64(bytes: &[u8]) -> String {
