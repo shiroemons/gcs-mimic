@@ -6,7 +6,7 @@
     "exit_code": 1,
     "result": "UPDATE_AVAILABLE",
     "artifact": "docs/en/evidence/dependency-refresh.md",
-    "follow_up": "The 2026-10-31 check reached all fifteen SDK manifests: Rust 1.99.1 and non-Composer packages/runtimes were CURRENT; fake-gcs-server v1.56.1 was PINNED_REFERENCE. Composer 2.11.1 changed both supported platform images and is now adopted. Its latest index still includes the old 2.10.3 riscv64 image, unlike the pinned version-consistent 2.11.1 index; the composer-riscv64-publication-lag exception retains its 2026-11-06 review deadline. Post-update full freshness and final PHP suites require their own results. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-10-31."
+    "follow_up": "The 2026-10-31 check reached all fifteen SDK manifests: Rust 1.99.1 and non-Composer packages/runtimes were CURRENT; fake-gcs-server v1.56.1 was PINNED_REFERENCE. Composer 2.11.1 changed both supported platform images and is now adopted. The latest index differs only by a linux/riscv64 entry, so the pin is CURRENT on the declared amd64 and arm64 platforms and the riscv64 difference is reported as INFO. Post-update full freshness and final PHP suites require their own results. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01."
   },
   "toolchain": {
     "channel": "stable",
@@ -203,8 +203,8 @@
         "tag": "2.11.1", "latest_tag": "latest",
         "digest": "sha256:537fb03057ed901ae06bde7ef25af348903485ae1acc7fc789b80d8bac666f35",
         "latest_verified_digest": "sha256:4ed71c38c6d788eb4e4e3747b5332f5b40d5b5a6fcadd5062a1a70986a118e0a",
-        "verification_status": "PUBLICATION_LAG",
-        "update_scope": "Composer 2.11.1 (released 2026-10-30; official download and changelog verified 2026-10-31) with PHP 8.5.12. The official composer/docker revision is 2af913cf6c428737e8eec2a3e9297d12d96eeac6. The exact 2.11.1 index lacks linux/riscv64. The latest index has the same new amd64 and arm64 manifests but retains riscv64 Composer 2.10.3. Both supported manifests changed from the old 2.11.0 pin; their checks must be rerun. See the composer-riscv64-publication-lag exception.",
+        "verification_status": "ADOPTED",
+        "update_scope": "Composer 2.11.1 (released 2026-10-30; official download and changelog verified 2026-10-31) with PHP 8.5.12. The official composer/docker revision is 2af913cf6c428737e8eec2a3e9297d12d96eeac6. The exact 2.11.1 index lacks linux/riscv64. The latest index has the same new amd64 and arm64 manifests but retains riscv64 Composer 2.10.3. Both supported manifests changed from the old 2.11.0 pin; their checks must be rerun. The pin is CURRENT on the declared linux/amd64 and linux/arm64 platforms; the riscv64-only difference in latest is reported as INFO. See docs/en/evidence/dependency-refresh.md#refresh-2026-11-01.",
         "platforms": {
           "linux/amd64": "sha256:22844d23aacc7140fccf24992829ae98bc2c92e0240ccca3b35716bf5d82ed70",
           "linux/arm64": "sha256:9c383fb6f07d2b2cbbf0f21133789b335a55996c4c857c0f2775d16f31922872"
