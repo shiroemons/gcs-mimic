@@ -304,16 +304,34 @@ SDK gate. The creator fixture was updated to the existing immutable-uploader
 OWNER contract outside uniform access: it now verifies exact own-object
 attributes and bytes while retaining overwrite denial and adding owner-delete
 denial. No production owner permission was broadened by that fixture repair.
-Independent static review identified two unresolved status-mapping gaps outside
-the verified cases. Terminal errors emitted inside v2 `BidiWriteObject` by
-`receive_write` or `receive_append` can bypass anonymous translation; an
+Independent static review identified two status-mapping gaps outside the
+verified cases. Terminal errors emitted inside v2 `BidiWriteObject` by
+`receive_write` or `receive_append` bypassed anonymous translation, so an
 anonymous overwrite of an existing object under an `allUsers` object-creator
-grant can therefore retain `PermissionDenied`. Delayed catalog denials in v1
-`ComposeObject` and `InsertObject` can also retain `PermissionDenied` for an
-anonymous caller. Authorization still denies these operations; the gaps concern
-the returned status code. These findings were inferred from source and were not
-reproduced in this run. They remain explicit follow-up work, without changes to
-negative expectations or the immutable-owner contract.
+grant returned `PermissionDenied`. Delayed catalog denials in v1
+`ComposeObject`, `InsertObject` and `DeleteObject` did the same. Authorization
+denied these operations either way; the gaps concerned the returned status code.
+
+A follow-up after the integration gates applied the same anonymous rule to the
+`BidiWriteObject` terminal error and to those v1 handlers. A new regression
+reproduces each path: anonymous `BidiWriteObject` and `WriteObject` overwrite,
+v1 `InsertObject` overwrite and v1 `ComposeObject` from a private source return
+`Unauthenticated`, a registered principal keeps `PermissionDenied`, anonymous
+public creation still succeeds, and the existing object and absent composite are
+unchanged. Removing the `BidiWriteObject` mapping made the regression fail with
+`PermissionDenied`. For that follow-up source, workspace Clippy, format, the
+production lint, the full native suite (64 binaries and doctests, 1,810 passed,
+0 failed, the opt-in Pub/Sub case ignored), the three cross targets and the
+HTTPS Go SDK suite (89 top-level tests) passed. The other SDK, container and
+browser lanes above ran on the source before this follow-up and were not
+repeated for it.
+
+The same follow-up full run exposed a test race in
+`multipart_reset_and_bucket_recreation_invalidate_sessions_and_remove_parts`:
+after bucket recreation or restart, the background multipart sweep can briefly
+answer the retryable `503` busy response before the expected `404`. Thirty
+unloaded repetitions passed; the test now retries only that busy response, as
+the same test already did for reset, and still requires `404`.
 
 The SDK lane subsequently ran the following commands against the current
 accepted manifest, with Cargo incremental compilation disabled and build jobs
