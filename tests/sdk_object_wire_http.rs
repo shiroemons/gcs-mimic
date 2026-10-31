@@ -651,10 +651,56 @@ fn head_with_range_answers_206_and_content_range_on_json_and_xml() {
         );
         assert_eq!(head.status, 416, "{path}");
         assert!(head.body.is_empty(), "{path}");
-        assert!(
-            head.headers["content-range"].starts_with("bytes */"),
-            "{path}"
+        if path.starts_with("/storage/") {
+            assert!(
+                head.headers["content-range"].starts_with("bytes */"),
+                "{path}"
+            );
+            // The JSON HEAD 416 states no length (observed 2026-10-31).
+            assert!(!head.headers.contains_key("content-length"), "{path}");
+        } else {
+            assert!(!head.headers.contains_key("content-range"), "{path}");
+        }
+    }
+}
+
+/// The XML API answers an unsatisfiable Range with the object's own headers (tag,
+/// generation, hashes, `accept-ranges`) and an `InvalidRange` document whose `Details`
+/// echoes the request's Range value; HEAD states that document's length (observed
+/// 2026-10-31). Unlike the JSON API it sends no `content-range`.
+#[test]
+fn xml_unsatisfiable_range_carries_object_headers_and_echoes_the_range() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, true);
+    server.bucket();
+    server.put("plain", b"0123456789abcdef").json();
+    let extra = format!("{ADMIN}Range: bytes=100-200\r\n");
+    let body = "<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidRange</Code>\
+<Message>The requested range cannot be satisfied.</Message>\
+<Details>bytes=100-200</Details></Error>";
+    let get = server.request("GET", "/test-bucket/plain", &extra, b"");
+    assert_eq!(get.status, 416);
+    assert_eq!(get.body, body.as_bytes());
+    let head = server.request("HEAD", "/test-bucket/plain", &extra, b"");
+    assert_eq!(head.status, 416);
+    assert!(head.body.is_empty());
+    for reply in [&get, &head] {
+        assert_eq!(
+            reply.headers["content-type"],
+            "application/xml; charset=UTF-8"
         );
+        assert_eq!(reply.headers["content-length"], body.len().to_string());
+        assert_eq!(reply.headers["accept-ranges"], "bytes");
+        assert!(!reply.headers.contains_key("content-range"));
+        for name in [
+            "etag",
+            "x-goog-generation",
+            "x-goog-metageneration",
+            "x-goog-hash",
+            "x-goog-stored-content-length",
+        ] {
+            assert!(reply.headers.contains_key(name), "{name}");
+        }
     }
 }
 

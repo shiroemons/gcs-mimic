@@ -281,6 +281,18 @@ impl Error {
         self
     }
 
+    /// The 416 for a Range no byte satisfies; `Details` echoes the request's Range value as
+    /// Cloud Storage does (observed 2026-10-31).
+    pub(crate) fn unsatisfiable_range(requested: &str) -> Self {
+        let mut error = Self::new(
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            "InvalidRange",
+            "The requested range cannot be satisfied.",
+        );
+        error.details = Some(requested.to_owned());
+        error
+    }
+
     pub(crate) fn unsupported(name: &str) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,

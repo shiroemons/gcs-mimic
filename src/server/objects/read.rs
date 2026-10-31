@@ -137,9 +137,13 @@ async fn media(
     let range = match json::object_media_range(request.headers(), record.size) {
         Ok(range) => range,
         Err(error) => {
-            let mut response = error
-                .into_media_response()
-                .map(|body| body.map_err(|never| match never {}).boxed_unsync());
+            // The JSON HEAD 416 states no length: the omitted HTML body is not measured
+            // (observed 2026-10-31).
+            let mut response = error.into_media_response().map(|body| {
+                if head { Full::new(Bytes::new()) } else { body }
+                    .map_err(|never| match never {})
+                    .boxed_unsync()
+            });
             insert_unsatisfied_content_range(response.headers_mut(), record.size);
             return Ok(response);
         }

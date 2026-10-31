@@ -219,19 +219,24 @@ stored-gzip object.
 | XML HEAD, `Range: bytes=0-4`, identity | 206, no body | `content-range: bytes 0-4/29`, `content-length: 5`, both `x-goog-hash` fields |
 | JSON media HEAD, `Accept-Encoding: gzip`, `Range: bytes=0-4`, stored gzip | 206, no body | `content-range: bytes 0-4/49`, `content-encoding: gzip`, no Content-Length |
 | XML HEAD, `Accept-Encoding: gzip`, `Range: bytes=0-4`, stored gzip | 206, no body | `content-range: bytes 0-4/49`, `content-encoding: gzip`, no Content-Length, both `x-goog-hash` fields |
-| JSON media HEAD, `Range: bytes=100-200` | 416 | `content-range: bytes */29`, `content-type: text/html; charset=UTF-8` |
+| JSON media HEAD, `Range: bytes=100-200` | 416 | `content-range: bytes */29`, `content-type: text/html; charset=UTF-8`, no `content-length` |
+| XML HEAD, `Range: bytes=100-200`, identity | 416 | the object's `etag`, `last-modified`, `x-goog-generation`, `x-goog-metageneration`, stored-content headers, both `x-goog-hash` fields, `x-goog-storage-class` and `accept-ranges: bytes`; `content-type: application/xml; charset=UTF-8`, `cache-control: private, max-age=0`, `content-length: 169`; no `content-range` |
+| XML GET, `Range: bytes=100-200`, identity | 416 | the same headers, with the 169-byte body `<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidRange</Code><Message>The requested range cannot be satisfied.</Message><Details>bytes=100-200</Details></Error>`; `Details` is the request's Range value |
 
 ### gcs-mimic behavior
 
 | Observation | Local behavior | Test |
 | --- | --- | --- |
 | HEAD with a satisfiable Range is 206 on both APIs | JSON and XML answer 206 with `content-range`; the identity range length is `content-length`; a compressed stored-gzip HEAD states none | `head_with_range_answers_206_and_content_range_on_json_and_xml` |
-| HEAD with an unsatisfiable Range is 416 | JSON and XML answer 416 with `content-range: bytes */size` and no body | the same test |
+| JSON HEAD with an unsatisfiable Range is 416 | `content-range: bytes */size`, no body and no `content-length` | the same test |
+| XML HEAD and GET with an unsatisfiable Range are 416 | The object's headers and `accept-ranges`, no `content-range`, the `InvalidRange` document above with `Details` escaped for `&`, `<` and `>` only; HEAD states the document's length | `head_with_range_answers_206_and_content_range_on_json_and_xml`, `xml_unsatisfiable_range_carries_object_headers_and_echoes_the_range` |
 
 XML HEAD used to answer 200 for a Range, following the method reference. The
-JSON media HEAD no longer seeks the object. The XML unsatisfiable HEAD was not
-observed and follows the JSON observation; the provider's 416 body type
-(`text/html`) is not reproduced.
+JSON media HEAD no longer seeks the object. The provider's JSON 416 body type
+(`text/html`) is reproduced for GET. The JSON media HEAD still opens the blob
+through the keyed reader instead of the metadata-only reader the XML HEAD uses,
+because a JSON HEAD of a customer-supplied-key object without the key was not
+observed and the metadata-only reader would expose it.
 
 ## Object fields on media responses
 

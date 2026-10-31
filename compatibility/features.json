@@ -28735,6 +28735,12 @@
           "test_ids": ["media_upload_hash_is_checked_against_the_stored_bytes"]
         },
         {
+          "id": "XML-RANGE-416",
+          "description": "An XML GET or HEAD with an unsatisfiable Range answers 416 with the object's headers and accept-ranges, no content-range, content-length of the InvalidRange document and, for GET, that document with Details set to the request's Range value (observed 2026-10-31). The JSON media HEAD 416 states no content-length.",
+          "result": "PASS",
+          "test_ids": ["xml_unsatisfiable_range_carries_object_headers_and_echoes_the_range", "head_with_range_answers_206_and_content_range_on_json_and_xml"]
+        },
+        {
           "id": "MEDIA-PUBLIC-HEADERS",
           "description": "JSON media GET of a publicly readable object sends cache-control 'public, max-age=3600, must-revalidate' (when the object stores none), 'vary: X-Goog-Allowed-Resources' ahead of 'vary: Origin' and 'vary: X-Origin', no pragma, and content-disposition: attachment, as observed on anonymous reads (2026-10-31). XML keeps 'public, max-age=3600' without must-revalidate or the allowed-resources vary, including on the 400 for a plain body declared as gzip. Not observed: whether an authenticated read of a public object also varies by X-Goog-Allowed-Resources (private objects do not); the public classification is the local condition. A stored cache-control on a public JSON object is kept as stored (not observed with must-revalidate appended).",
           "result": "PASS",
@@ -28761,7 +28767,8 @@
         "head_with_range_answers_206_and_content_range_on_json_and_xml",
         "media_responses_carry_the_provider_object_headers",
         "media_upload_hash_is_checked_against_the_stored_bytes",
-        "anonymous_json_media_read_of_a_public_object_carries_the_public_header_set"
+        "anonymous_json_media_read_of_a_public_object_carries_the_public_header_set",
+        "xml_unsatisfiable_range_carries_object_headers_and_echoes_the_range"
       ],
       "verification": [
         {
@@ -28813,6 +28820,7 @@
             "json_gzip_corruption_and_expansion_limit_abort_instead_of_clean_eof",
             "gunzipping_a_plain_body_fails_400_before_the_headers_are_sent",
             "head_with_range_answers_206_and_content_range_on_json_and_xml",
+            "xml_unsatisfiable_range_carries_object_headers_and_echoes_the_range",
             "media_responses_carry_the_provider_object_headers"
           ]
         },

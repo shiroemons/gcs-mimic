@@ -3,7 +3,7 @@
 use super::RequestBody as Incoming;
 use super::{
     ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, gzip, insert_content_range,
-    insert_unsatisfied_content_range, object_body,
+    object_body,
 };
 use crate::{auth, bucket::BucketAccess, csek::CustomerKey, json, object::ObjectRecord, xml};
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValue};
@@ -134,13 +134,10 @@ async fn read(
     headers.extend(operation.response_overrides);
     let range = match json::object_media_range(request.headers(), record.size) {
         Ok(range) => range,
-        Err(error) => {
-            let mut response = boxed(
-                xml::Error::from(error).response(xml::ErrorBody::for_method(request.method())),
-            );
-            insert_unsatisfied_content_range(response.headers_mut(), record.size);
-            return Ok(response);
+        Err(error) if error.status == StatusCode::RANGE_NOT_SATISFIABLE => {
+            return Ok(unsatisfiable_range(request, headers));
         }
+        Err(error) => return Err(error.into()),
     };
     if let Some((offset, length)) = range {
         if !head {
@@ -168,6 +165,40 @@ async fn read(
     }
     *response.headers_mut() = headers;
     Ok(response)
+}
+
+/// An unsatisfiable Range keeps the object's validators, generation, hashes and
+/// `accept-ranges`, with an `InvalidRange` document in place of the representation
+/// headers, and no `content-range` (observed 2026-10-31).
+fn unsatisfiable_range(
+    request: &Request<Incoming>,
+    mut headers: HeaderMap,
+) -> Response<ResponseBody> {
+    let requested = request
+        .headers()
+        .get("range")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let error = xml::Error::unsatisfiable_range(requested)
+        .response(xml::ErrorBody::for_method(request.method()));
+    for name in [
+        "content-range",
+        "content-encoding",
+        "content-language",
+        "content-disposition",
+    ] {
+        headers.remove(name);
+    }
+    let (parts, body) = error.into_parts();
+    for name in ["content-type", "content-length"] {
+        if let Some(value) = parts.headers.get(name) {
+            headers.insert(name, value.clone());
+        }
+    }
+    let mut response = boxed(Response::new(body));
+    *response.status_mut() = parts.status;
+    *response.headers_mut() = headers;
+    response
 }
 
 /// Cloud Storage's XML API sends one `x-goog-hash` field per algorithm, always for the
