@@ -69,10 +69,21 @@ impl ObjectRecord {
         self.event_based_hold || self.temporary_hold
     }
 
-    /// Guards removing this generation permanently (or soft deleting it).
+    /// Guards removing this generation permanently (or soft deleting it). With both a bucket
+    /// policy and an object retention in force, the denial names the later deadline (an
+    /// inference; Cloud Storage was only observed with one of them).
     pub(crate) fn check_retention(&self, now: SystemTime) -> Result<(), ObjectError> {
-        self.check_policy_and_holds(now)?;
-        self.check_object_retention(now)
+        match (
+            self.check_policy_and_holds(now),
+            self.check_object_retention(now),
+        ) {
+            (
+                Err(ObjectError::ObjectRetentionNotMet(_)),
+                Err(ObjectError::ObjectRetentionNotMet(_)),
+            ) => Err(self.retained_until(self.earliest_deletion_time().unwrap_or(now))),
+            (Err(error), _) | (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
+        }
     }
 
     /// Holds and the bucket policy also forbid making a live object noncurrent.
@@ -339,7 +350,7 @@ pub struct ComposeSource {
 }
 
 /// The wording Cloud Storage used when it refused to shorten or remove an Unlocked retention
-/// without the override (observed 2026-10-31 and 2026-11-01, identical for both, over JSON and
+/// without the override (observed 2026-10-31, identical for both, over JSON and
 /// gRPC); locking without the override was seen with it too.
 pub(crate) const UNLOCKED_RETENTION_OVERRIDE_MESSAGE: &str = "The unlocked object retention cannot be removed and its retention period cannot be shortened without overriding unlocked retention intent and permission.";
 
