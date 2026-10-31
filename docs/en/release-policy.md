@@ -83,12 +83,30 @@ Unreleased user-visible changes that the next minor release notes must state:
   400; the member is ignored and never emitted, as Cloud Storage did. A bucket
   PATCH that carries no writable setting (for example `{}` or only
   `satisfiesPZI`) no longer advances `metageneration` or `updated`.
-- Shortening or removing an Unlocked object retention without
-  `overrideUnlockedRetention=true` now returns 403 `forbidden` (gRPC
-  `PERMISSION_DENIED`) instead of 400 `invalidArgument`. `retainUntilTime` is
+- Object retention follows Cloud Storage more closely. `retainUntilTime` is
   compared to the nanosecond and displayed truncated to the millisecond, so
-  writing back the displayed millisecond value is a shortening for an Unlocked
-  retention. Data stored by 0.7.0 (microseconds) reads unchanged.
+  writing back the displayed millisecond value is a shortening. Shortening or
+  removing an Unlocked retention, or locking it, without
+  `overrideUnlockedRetention=true` returns 403 `forbidden` (gRPC
+  `PERMISSION_DENIED`) instead of 400 `invalidArgument`. A Locked retention
+  refuses shortening, removal and a mode change with 403 `forbidden` and the
+  message `The locked object retention cannot be removed. Its retention mode
+  cannot be changed and its retention period cannot be shortened.`, with or
+  without the override; sending the same time again is accepted. Deleting a
+  retained object returns 403 `retentionPolicyNotMet` naming the object and
+  the retain-until time in US Pacific time, and `objects.delete` ignores
+  `overrideUnlockedRetention`. gRPC returns `retention_expire_time` at
+  millisecond precision, and the JSON `fields=retentionExpireTime` is
+  rejected with 400 `invalidParameter`.
+- Catalog schema 47 adds `objects.retain_until_sub_micro_nanos` for the
+  nanosecond remainder. The migration is automatic and one-way like the
+  earlier ones (the log names the versions); rows stored by 0.7.0 (whole
+  microseconds) keep their time with a zero remainder.
+- A bucket PATCH that carries `autoclass:{}` is a no-op like `{}`. An empty
+  PATCH answers 304 (no body) when `ifMetagenerationNotMatch` names the current
+  value and a native-profile 412 (`At least one of the pre-conditions you
+  specified did not hold.`, location `If-Match`) when `ifMetagenerationMatch`
+  does not match.
 
 ## The 1.0.0 gate
 

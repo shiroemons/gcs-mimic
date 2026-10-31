@@ -185,7 +185,24 @@ on a bucket at metageneration 3:
 | Observation | Local behavior | Test |
 | --- | --- | --- |
 | `satisfiesPZI` and `satisfiesPZS`, true and false, are accepted in insert, PATCH and PUT bodies and ignored | Both members are ignored on all three methods and in the legacy profile too; the native profile reports `satisfiesPZI: true` and never emits `satisfiesPZS`. The reply to a write and a following get agree. The gRPC adapter has no `satisfies_pzi`, and its `satisfies_pzs` is never read | `bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value`, `json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value` |
-| A PATCH without a writable setting changes nothing | The catalog returns the stored bucket without advancing the metageneration or `updated`; `labels:{}` and a null label still count as a write. A PUT always advances them. Preconditions are checked first, an order that was not observed | `bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value`, `bucket_http::bucket_patch_empty_null_and_invalid_inputs` |
+| A PATCH without a writable setting changes nothing | The catalog returns the stored bucket without advancing the metageneration or `updated`; `labels:{}` and a null label still count as a write. A PUT always advances them | `bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value`, `bucket_http::bucket_patch_empty_null_and_invalid_inputs` |
+| `autoclass:{}` is a no-op, `autoclass:{"enabled":false}` is a write | `autoclass:{}` counts as no writable setting; `enabled:false` advances the metageneration, etag and `updated` | `bucket_http::empty_patch_evaluates_metageneration_preconditions_and_keeps_the_metageneration` |
+| Preconditions of an empty PATCH | A mismatching `ifMetagenerationMatch` is 412; an `ifMetagenerationNotMatch` naming the current value is an empty 304; otherwise 200 unchanged. The native profile words the 412 and names `If-Match` as observed (PUT and non-empty PATCH share the wording, unobserved) | same test |
+
+A second session (2026-10-31, `us-central1` buckets with
+`softDeletePolicy.retentionDurationSeconds: 0`) covered `autoclass` and the
+metageneration preconditions of an empty PATCH. All responses were 200 unless
+noted; write responses carried the usual no-store headers.
+
+| PATCH body (bucket at metageneration 1, then 2) | Status | Result |
+| --- | --- | --- |
+| `{"autoclass":{}}` | 200 | metageneration 1, etag `CAE=` and `updated` unchanged, no `autoclass` member |
+| `{"autoclass":{"enabled":false}}` | 200 | metageneration 2, etag `CAI=`, `updated` advanced, still no `autoclass` member (also on a following GET) |
+| `{}` with `ifMetagenerationMatch=1` (current 2) | 412 | reason `conditionNotMet`, message `At least one of the pre-conditions you specified did not hold.`, `locationType` `header`, `location` `If-Match` |
+| `{}` with `ifMetagenerationMatch=2` | 200 | metageneration 2, `updated` unchanged |
+| `{}` with `ifMetagenerationNotMatch=2` | 304 | empty body, `content-length: 0`, `content-type: application/json` |
+| `{}` with `ifMetagenerationNotMatch=1` | 200 | metageneration 2 unchanged |
+| `{}` | 200 | metageneration 2 unchanged |
 
 The earlier recording showed `satisfiesPZI: true` only for `asia-northeast1`;
 the rows above are that location too, so other locations remain unobserved.
@@ -196,10 +213,10 @@ Ledger row: `BUCKET-SATISFIES-PZI`.
 Observed **2026-10-31** with curl against the JSON API, using throwaway
 buckets in `us-central1` (STANDARD, created with `enableObjectRetention=true`
 and `softDeletePolicy.retentionDurationSeconds: 0`, no bucket retention
-policy), one 2-byte object, and `retention.mode` `Unlocked` only. A Locked
-retention cannot be undone, so it was not observed. The retention was removed
-with `overrideUnlockedRetention=true` before the object and then the bucket
-were deleted; `buckets.get` then returned 404.
+policy), one 2-byte object, and `retention.mode` `Unlocked` in the first
+session. The retention was removed with `overrideUnlockedRetention=true`
+before the object and then the bucket were deleted; `buckets.get` then
+returned 404.
 
 Responses were `HTTP/2 200` unless noted, with the write and read cache
 headers listed above. A PATCH response carried the resource etag with the
@@ -227,17 +244,53 @@ second bucket the same calls with `…:00.123456789Z` stored first gave:
 Cloud Storage therefore compared times at nanosecond precision while the
 response showed the millisecond truncation (not rounding: `.123999999` is
 displayed as `.123`). Writing back the displayed time of an Unlocked
-retention counted as a shortening. gRPC was not observed.
+retention counted as a shortening.
+
+A second session (a Locked retention is irreversible, so it used a deadline
+about two minutes ahead and waited it out) covered gRPC, Locked retention and
+retained deletes. Messages, all `403` with reason `forbidden`:
+
+- U: `The unlocked object retention cannot be removed and its retention period cannot be shortened without overriding unlocked retention intent and permission.`
+- L: `The locked object retention cannot be removed. Its retention mode cannot be changed and its retention period cannot be shortened.`
+
+| Request on a retained object | Without `overrideUnlockedRetention` | With `overrideUnlockedRetention=true` |
+| --- | --- | --- |
+| Unlocked to Locked, same time | 403 U | 200 (now Locked) |
+| Locked, same time again | 200, metageneration advances | 200, metageneration advances |
+| Locked, displayed millisecond value (456789 ns shorter) | 403 L | 403 L |
+| Locked, 30 s shorter | 403 L | 403 L |
+| Locked, `retention: null` | 403 L | 403 L |
+| Locked, mode back to Unlocked | 403 L | 403 L |
+| Locked, 1 ns later | 200 | 200 |
+| `objects.delete` on a Locked or Unlocked retained object | 403 `retentionPolicyNotMet` | 403 `retentionPolicyNotMet` (the override is ignored on delete) |
+
+The delete denial read `Object '<bucket>/<name>' is subject to bucket's
+retention policy or object retention and cannot be deleted or overwritten
+until 2026-10-31T10:03:59.123456793-07:00` for a retain-until time of
+17:03:59.123456793Z: US Pacific time (daylight offset `-07:00` on that date),
+the fraction at full nanosecond precision. An Unlocked object printed
+`…T10:00:00.123456789-07:00` for 17:00:00.123456789Z.
+
+Over gRPC (`GetObject`, googleapis `ff8fd20f3840386e12f4f69750eff6dc99f6e1b7`)
+an Unlocked object set with `…00.123456789Z` returned
+`retention.retain_until_time` with seconds and nanos `123456789`, and
+`retention_expire_time` at millisecond precision (`…00.123Z`). `GetObject`
+and a JSON `fields=retentionExpireTime` differ: the JSON selector is rejected
+with 400, reason `invalidParameter`, message `Invalid field selection
+retentionExpireTime` (the rejected name only), `locationType` `parameter`,
+`location` `fields`.
 
 ### gcs-mimic behavior
 
 | Observation | Local behavior | Test |
 | --- | --- | --- |
 | Display is the millisecond truncation | `retainUntilTime` is rendered truncated to milliseconds | `json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds` |
-| Comparison below the displayed millisecond | The time is kept to the nanosecond in memory, in the catalog column (negated nanoseconds when it is not a whole microsecond, so rows written as microseconds by 0.7.0 still read unchanged) and in resumable session metadata (`retainUntilSubMicroNanos`, absent when zero). One nanosecond earlier and the displayed millisecond are refused, the same time and a later one are accepted, also after a restart | `retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond`, `storage::catalog::objects::retention::tests::column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged`, `storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions` |
-| The displayed time is a shortening for Unlocked | It needs `overrideUnlockedRetention=true` | `object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening` |
-| Shortening status | 403 `forbidden` with the observed message, in JSON and as `PERMISSION_DENIED` over gRPC, for shortening or removing an Unlocked retention without the override. Locking without the override and every Locked refusal were not observed and stay 400 `invalidArgument` | `retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond`, `storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry` |
-| Locked echo | A Locked retention was not observed. Resending its displayed millisecond time, or the same nanosecond time, is accepted as unchanged: a local choice | `retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not`, `object::retention::tests::echoing_the_displayed_millisecond_time_keeps_a_locked_microsecond_value` |
+| Comparison below the displayed millisecond | The time is kept to the nanosecond in memory, in the catalog (schema 47 column `retain_until_sub_micro_nanos`, 0 for rows written earlier, next to the microsecond `retain_until_time`) and in resumable session metadata (`retainUntilSubMicroNanos`, absent when zero). One nanosecond earlier and the displayed millisecond are refused, the same time and a later one are accepted, also after a restart | `retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond`, `storage::catalog::objects::retention::tests::columns_split_a_time_into_microseconds_and_a_remainder`, `storage::catalog::objects::retention::tests::sub_micro_column_migrates_microsecond_rows_and_checks_its_range`, `storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions` |
+| The displayed time is a shortening | Unlocked needs `overrideUnlockedRetention=true`; Locked refuses it whatever the override | `object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening`, `object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override` |
+| Statuses and messages | Unlocked shortening, removal and locking without the override: 403 `forbidden` with message U (gRPC `PERMISSION_DENIED`). Locked shortening, removal and mode change, with or without the override: 403 `forbidden` with message L. The same time again is 200 | `retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond`, `retention_roundtrip_http::locked_retention_refuses_every_reduction_with_403_and_accepts_equal_or_later`, `retention_roundtrip_http::locking_an_unlocked_retention_needs_the_override`, `storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry`, `grpc::v2::update_copy::tests::grpc_update_object_retention` |
+| Retained delete | 403 `retentionPolicyNotMet` naming the object and the retain-until time in US Pacific time to the nanosecond (trailing zeros of the fraction trimmed, an inference); objects.delete accepts and ignores `overrideUnlockedRetention`. The offset follows the US daylight-saving rule (second Sunday of March to first Sunday of November, 02:00 local) because Google's frontends use `America/Los_Angeles`; only the `-07:00` summer offset was observed | `retention_roundtrip_http::deleting_a_retained_object_names_it_and_ignores_the_override`, `object::retention::tests::pacific_time_follows_daylight_saving_and_trims_the_fraction` |
+| gRPC | `retention.retain_until_time` keeps nanoseconds; `retention_expire_time` is truncated to milliseconds | `grpc::v2::update_copy::tests::grpc_retention_keeps_nanoseconds_and_expire_time_is_milliseconds` |
+| JSON `fields=retentionExpireTime` | 400 `invalidParameter`, message naming the rejected field only, `locationType` `parameter`, `location` `fields` | `retention_roundtrip_http::fields_selection_rejects_the_grpc_retention_expire_time_name`, `json::fields::tests::fields_reject_malformed_unknown_and_scalar_children` |
 
 Ledger row: `OBJECT-TIME-READ-BACK`.
 
