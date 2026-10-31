@@ -4,14 +4,18 @@
 
 [日本語](../ja/roadmap.md)
 
-Updated **2026-10-29** against the `0.5.0` source, tests and recorded evidence.
+Updated **2026-10-31** for the current source checkout. Published installation
+examples use `0.7.0`; unreleased additions require a source build and their
+scoped SDK, browser and distribution results are recorded in the
+[combined verification](evidence/migration-integration.md). Those source results
+do not change the published image or complete the broader feature rows.
 Continue closing the gaps in existing fake-gcs-server workflows through useful
 `0.x` increments; reserve **1.0.0** for verified reference compatibility plus
 the named extensions. The order below selects work, not release dates.
 
 ## Available today
 
-The [0.5.0 release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.5.0)
+The [0.7.0 release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.7.0)
 provides native archives and Linux AMD64/ARM64 images on GHCR and Docker Hub.
 The HTTP quick start, HTTPS default, simultaneous HTTP/HTTPS listeners,
 public-host routing, default bucket location and log-level controls are available.
@@ -32,12 +36,14 @@ See the [0.5.0 release notes](releases/0.5.0.md) and the
 [0.4.0 feature scope and limits](releases/0.4.0.md).
 
 Bucket initialization creates missing buckets and preserves API changes.
-Seed files are applied on every startup and use extension-derived MIME types.
-They replace differing objects at the same names, subject to holds and retention;
-identical objects keep their generation. A sync directory mirrors API changes
-and ingests external creates/edits at startup or an internal rescan.
-The importer converts supported live filesystem snapshots with metadata
-and source identities.
+Seed files replay on every startup with extension-derived MIME types. The
+source checkout prepares the complete tree and publishes it atomically; a
+changed protected fixture fails the replay instead of skipping that file.
+Identical objects keep their generation. A sync directory mirrors API changes
+and ingests external creates/edits; continuous observation, revision-bound
+deletion and recovery controls extend that path with explicit limits.
+The importer converts scoped filesystem snapshots, while a separate Go capture
+and snapshot reader preserve declared memory history and original names.
 See [container usage](container-usage.md) and the
 [migration guide](fake-gcs-server-migration.md).
 
@@ -45,10 +51,11 @@ SDK and browser evidence covers declared subsets. The
 [five-SDK scorecard](../../sdk-scorecard/README.md) passes every Go, Ruby,
 Node.js, PHP and Python case in its permissive HTTPS profile; scope and
 remaining profiles are tracked in [SDK integration](slices/sdk-scorecard-integration.md).
-Rails Active Storage
-has a [working application credential recipe](slices/sdk-local-auth-softdelete-notes.md),
-but default `storage.yml` authentication still attempts external OAuth and fails
-the offline scenario. These are not whole-API compatibility claims. See the
+Rails Active Storage has a [working storage.yml recipe](rails-active-storage.md)
+with a non-Google universe. The source checkout additionally verifies registered
+local JWTs and supplies final-origin signing adapters; default Google-universe
+OAuth still requires Google and is not a local credential recipe.
+These are not whole-API compatibility claims. See the
 [comparison](feature-comparison.md) and [feature matrix](feature-matrix.md).
 
 ## Missing capabilities, in priority order
@@ -58,41 +65,64 @@ blocks another track; a higher-priority row does not make every later row wait.
 
 | Priority | User outcome | Prerequisite | Can run alongside |
 | --- | --- | --- | --- |
-| First | Observe external file creates/edits continuously | Bounded watcher/rescan contract | Import and reference coverage |
-| Next | Complete safe bidirectional synchronization | Deletion approval, conflicts and recovery | Independent client/protocol work |
-| Next | Preserve the remaining source state on migration | Source history, classes and cutover contract | Directory sync |
+| First | Complete safe bidirectional synchronization | Conflict/recovery controls, strict authorization and final platform evidence | Independent client/protocol work |
+| Next | Verify migration and local adapters together | Quiesced source, explicit cutover and final SDK/container runs | Directory sync |
 | Then | Close reference behavior and ordinary Rails setup | Scoped API/profile and credential contracts | Independent reference capabilities |
 | Every release | Reconcile evidence and pass distribution gates | Platform, dependency and artifact verification | All implementation tracks |
 | Final gate | Release the verified superset as 1.0.0 | Complete baseline and named extensions | Combine verified scopes |
 
-The next proposed slice is continuous observation of external creates/edits,
-reusing the existing [ingestion/rescan path](../../src/sync/ingest.rs).
-Define bounded event handling, missed-event reconciliation, partial-write settling
-and shutdown cases before implementation. Preserve the current no-external-delete
-and conflict-preservation rules; do not bundle deletion or strict sync into it.
+Current work closes remaining acceptance cases in small source increments.
+The recorded migration checkpoint does not validate subsequent XML, ACL or
+authentication changes; final combined verification remains an integration gate.
+Continuous observation and guarded deletion are scoped source
+implementations, not merely future proposals. Findings/status paging, bounded
+waits have native scoped checks; conflict/recovery controls, supported strict
+startup and the combined final runs still require their own acceptance.
 DESIGN-062, DESIGN-072 and DESIGN-074 remain `PARTIAL`.
 
-Further sync work includes external deletion and rename removal, deletion approval,
-conflict transfer/control, interrupted write-back recovery and platform guarantees.
-The [sync contract](slices/directory-synchronization.md) separates these pending
-cases from continuous API export and existing external create/edit ingestion.
+The [sync contract](slices/directory-synchronization.md) and
+[deletion controls](slices/external-deletion-controls.md) separate tested
+revision-bound deletion from remaining conflict/control/recovery and platform
+guarantees. A live CLI talks to the running server rather than opening its data
+directory from another process.
 
-Import is no longer an unimplemented track. Its remaining scope includes archived
-or memory-backend history, original names lost by source normalization, source
-IAM/settings and safe cutover/rollback. Filesystem publication currently rejects
-non-`STANDARD` source object classes. Seed metadata sidecars remain unsupported.
+Import is no longer an unimplemented track. The source-state and memory-snapshot
+contracts add scoped class, metadata, names and history preservation. Remaining
+limits include information already lost by filesystem normalization, quiescence,
+cutover/rollback and platform boundaries. Seed `.metadata` files are literal
+objects; durable import sidecars remain a separate explicitly selected format.
 See the [import contract](slices/import-filesystem.md).
 
-Remaining reference work includes JSON/XML field and wire differences, HTTP batch,
-helper/reset/reseed routes, event publication, embedded Go and the memory backend.
+The source checkout now has scoped HTTP batch/method override, XML
+list/copy/multipart, helper/reset/reseed routes, local event delivery, a Go
+subprocess facade and bounded RAM storage. Scoped checks passed for the source
+checkpoint recorded in the combined evidence. Remaining work includes declared
+JSON/XML fields,
+the full exported Go API,
+platform and provider-contract differences.
 Existing legacy v1 RPCs still need full reference input/response coverage.
-ACL entries are stored and inherited but do not authorize object access;
-notification configurations do not publish events. HMAC keys do not authenticate
-requests. Autoclass automatic transitions and lifecycle action execution remain
+Notification configurations select immutable events into a bounded transactional
+outbox; delivery requires a separately supplied local Pub/Sub emulator. This
+does not implement Google's delivery service. HMAC keys now authenticate V4 XML
+query and Authorization signatures through registered principals and current
+key state. V4 HMAC and V2 RSA/HMAC form-policy cores now pass their declared
+variant and write-failure subsets. Full form routing, fields, browser/client
+and provider contracts remain pending. Legacy V2 HMAC queries and GOOG1/AWS
+headers support the named native method and virtual-object subsets;
+DESIGN-040 retains signed resumable, virtual bucket, provider and SDK boundaries.
+AWS4 header-authenticated signed chunks now work for ordinary object PUT;
+DESIGN-039 retains other operation/format and exact provider questions.
+Autoclass automatic transitions and lifecycle action execution remain
 absent; customer-supplied keys enforce reads without encrypting local disk bytes.
 Broader Google behavior is separate from the pinned-reference minimum.
 Source inventory determines the final reference set; these examples do not exclude
 an unlisted source capability.
+
+Current migration work follows the investigated fake-gcs-server workflow
+obstacles and the approved responses in the [delivery plan](delivery-plan.md).
+General Google API coverage is a separate objective; the
+[feature inventory](feature-matrix.md) is not the task list or effort estimate
+for this migration work. Its existing statuses and pending cases remain intact.
 
 ## Parallel development boundaries
 
@@ -118,11 +148,15 @@ does not delete a bucket. Its [version-1 schema and local administrative authori
 are implemented; IAM policy bootstrap remains outside that schema.
 
 Directory sync must handle API/file conflicts, unusual names, partial writes,
-missed events and recovery. The delivered subset leaves conflicting files in
-place; fix the remaining deletion and conflict-transfer policies before
-implementing them. Sync currently requires permissive authentication; strict
-original-owner authorization remains pending. A permanent write-back I/O error
-can delay graceful shutdown until space or permissions are repaired.
+missed events and recovery. The source includes bounded conflict retention,
+revision-bound resolution and guarded deletion. Both authentication profiles
+support startup; strict controls require explicit project administrator grants
+covering current buckets and retained original owners. Background filesystem
+work uses separate startup administrative authority. Scoped native, SDK,
+container and browser checks pass; remaining platform and broader workflow
+acceptance stays explicit in the feature ledger. A permanent
+write-back I/O error can delay graceful shutdown until space or permissions
+are repaired.
 SQLite remains the catalog; monitoring files and updating only their sizes is
 not sufficient. See the [filesystem requirements](fake-gcs-server-storage.md#required-gcs-mimic-follow-up).
 
@@ -139,8 +173,8 @@ the specified extensions. Full Google API coverage is separate. See the
 
 ## First useful release
 
-The first useful `0.x` release has shipped; `0.5.0` is the current release
-baseline. The original gate covered scoped JSON, public/private access and URL
+The first useful `0.x` release has shipped; published examples now use `0.7.0`.
+The original gate covered scoped JSON, public/private access and URL
 workflows, persistent storage, fixtures, Go/Ruby, CORS and local HTTPS.
 Rails, lifecycle, gRPC and full parity were not prerequisites for that first release.
 

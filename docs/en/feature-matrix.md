@@ -14,9 +14,9 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 222 | 0 | 87 | 1 | 0 | 0 |
-| behavior | 201 | 100 | 0 | 63 | 38 | 0 | 0 |
-| project_requirement | 95 | 31 | 0 | 33 | 31 | 0 | 0 |
+| api_operation | 310 | 209 | 0 | 100 | 1 | 0 | 0 |
+| behavior | 201 | 93 | 0 | 69 | 39 | 0 | 0 |
+| project_requirement | 95 | 26 | 0 | 40 | 29 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -35,9 +35,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 222 | 38 | 32 | 18 | 0 | 0 |
-| behavior | 101 | 60 | 36 | 4 | 0 | 0 |
-| project_requirement | 31 | 0 | 0 | 0 | 0 | 64 |
+| api_operation | 209 | 45 | 38 | 18 | 0 | 0 |
+| behavior | 94 | 65 | 38 | 4 | 0 | 0 |
+| project_requirement | 26 | 0 | 0 | 0 | 0 | 69 |
 
 ## api_operation
 
@@ -392,30 +392,30 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-XML-001 | GET Service / list buckets | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| EXT-XML-002 | DELETE Bucket | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| EXT-XML-003 | GET Bucket / list objects | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| EXT-XML-004 | GET Bucket / list multipart uploads | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-001 | GET Service / list buckets | PARTIAL | P2 | EXACT | EXACT | 0 |
+| EXT-XML-002 | DELETE Bucket | PARTIAL | P2 | EXACT | EXACT | 0 |
+| EXT-XML-003 | GET Bucket / list objects | PARTIAL | P2 | EXACT | EXACT | 0 |
+| EXT-XML-004 | GET Bucket / list multipart uploads | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-005 | GET Bucket ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-006 | HEAD Bucket | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| EXT-XML-006 | HEAD Bucket | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-007 | POST Bucket / multi-object delete | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-008 | PUT Bucket / create | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| EXT-XML-008 | PUT Bucket / create | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-009 | PUT Bucket ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-010 | DELETE Object | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| EXT-XML-011 | Abort multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-010 | DELETE Object | PARTIAL | P2 | EXACT | EXACT | 0 |
+| EXT-XML-011 | Abort multipart upload | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-012 | GET Object / download | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 8 |
-| EXT-XML-013 | GET Object / list parts | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-013 | GET Object / list parts | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-014 | GET Object ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | GET Object encryption | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | GET Object retention | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-017 | HEAD Object | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 5 |
 | EXT-XML-018 | Initiate resumable upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-019 | Initiate XML multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-020 | Complete XML multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-019 | Initiate XML multipart upload | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-020 | Complete XML multipart upload | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-021 | HTML form upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-022 | PUT Object / upload | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
-| EXT-XML-023 | Upload XML multipart part | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-024 | Copy Object | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-023 | Upload XML multipart part | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-024 | Copy Object | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-025 | Compose Object | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-026 | PUT Object ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-027 | PUT Object retention | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -567,7 +567,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-COMMON-005 | Projection full/noAcl | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-006 | PUT replacement versus PATCH merge | PARTIAL | P1 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-007 | HTTP and JSON error envelopes | IMPLEMENTED | P1 | EXACT | EXACT | 0 |
-| BEHAVIOR-COMMON-008 | HTTP batch request format | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-008 | HTTP batch request format | PARTIAL | P3 | EXACT | EXACT | 0 |
 | BEHAVIOR-COMMON-009 | Strong data and listing consistency | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-010 | Authorization propagation model | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
 | BEHAVIOR-COMMON-011 | Generation/metageneration preconditions | IMPLEMENTED | P1 | EXACT | EXACT | 1 |
@@ -619,8 +619,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | AUDIT-019 | Resource Manager tags and tag-binding boundary | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-032 | Pub/Sub event payload and outbox | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-033 | Google Pub/Sub delivery service | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-032 | Pub/Sub event payload and outbox | PARTIAL | P7 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-BEH-033 | Google Pub/Sub delivery service | PARTIAL | P7 | EXTERNAL | LOCAL_SIMULATION | 0 |
 | EXT-BEH-034 | Firebase Storage API and Security Rules | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
 | EXT-BEH-035 | Cloud Storage FUSE client compatibility | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | EXT-BEH-036 | Real geographic replication and durability | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
@@ -651,7 +651,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-013 | allAuthenticatedUsers grants | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-014 | Bucket IAM permission enforcement | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 | DESIGN-016 | Inherited and bucket policy evaluation | PARTIAL | P2 | EXACT | EXACT | 1 |
-| DESIGN-017 | Object ACL enforcement with bucket IAM | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-017 | Object ACL enforcement with bucket IAM | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-018 | Default object ACL inheritance on creation | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
 | DESIGN-019 | Predefined ACL permission effects | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-020 | UBLA disables ACL operations and grants | PARTIAL | P2 | EXACT | EXACT | 0 |
@@ -763,7 +763,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-030 | V4 RSA signed URL verification | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
-| DESIGN-031 | V4 HMAC signed URL verification | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-031 | V4 HMAC signed URL verification | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-032 | Signed URL time and expiration bounds | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-033 | V4 canonical host and port | IMPLEMENTED | P2 | EXACT | EXACT | 5 |
 | DESIGN-034 | V4 path encoding and Unicode | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
@@ -771,7 +771,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-036 | V4 signed headers normalization | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-037 | V4 payload digest and UNSIGNED-PAYLOAD | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-038 | Signed method and resource restrictions | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
-| DESIGN-039 | V4 Authorization header signatures | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-039 | V4 Authorization header signatures | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-040 | Legacy V2 signed URLs | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-041 | Signed POST form policy validation | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-042 | Signed resumable initiation | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -808,7 +808,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-BEH-001 | XML pagination and markers | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-BEH-001 | XML pagination and markers | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-BEH-002 | XML namespace and error envelopes | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-BEH-003 | Resumable continuation, probing and cancellation | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-BEH-004 | Signed form policy validation | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
@@ -869,7 +869,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-065 | HTTP and optional test TLS | IMPLEMENTED | P0 | PROJECT | PROJECT | 2 |
 | DESIGN-066 | Non-root minimal runtime image | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-067 | Health, readiness and graceful shutdown | PARTIAL | P0 | PROJECT | PROJECT | 0 |
-| DESIGN-068 | Isolated reset/reseed admin operations | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-068 | Isolated reset/reseed admin operations | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-069 | Deterministic clock and maintenance stepping | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-100 | CORS fallback for buckets without rules for fake-gcs-server migration | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 
@@ -878,14 +878,14 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | UX-001 | Clean-checkout source Docker build | PARTIAL | P0 | PROJECT | PROJECT | 0 |
-| UX-002 | Seed then ready startup | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
+| UX-002 | Seed then ready startup | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-003 | Host and peer-container CRUD flow | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-004 | Go and Ruby first-use examples | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | Private/public authorization journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
 | UX-006 | Signed access and invalid-signature journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | UX-007 | Browser CORS and direct upload journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | UX-008 | Restart preserves data and permissions | PARTIAL | P1 | PROJECT | PROJECT | 0 |
-| UX-009 | Stop versus deliberate reset semantics | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
+| UX-009 | Stop versus deliberate reset semantics | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-010 | Isolated parallel CI runs | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-011 | Resource-limited large-object workflow | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-012 | Canonical English guide and troubleshooting verification | PARTIAL | P0 | PROJECT | PROJECT | 0 |
@@ -939,7 +939,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-074 | Cross-file crash recovery journal | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-075 | Opaque blob paths preserve object keys | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-076 | Single-process data-directory lock | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
-| DESIGN-077 | Bounded memory-backend mode | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-077 | Bounded memory-backend mode | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-078 | Idle CPU without busy polling | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-079 | RSS and cgroup memory benchmarks | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-080 | CPU/latency/throughput benchmark matrix | NOT_STARTED | P1 | PROJECT | NONE | 0 |
@@ -949,8 +949,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-001 | Official Java SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
-| AUDIT-002 | Official .NET SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
+| AUDIT-001 | Official Java SDK integration | PARTIAL | P7 | PROJECT | PROJECT | 0 |
+| AUDIT-002 | Official .NET SDK integration | PARTIAL | P7 | PROJECT | PROJECT | 0 |
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | Official PHP SDK integration | PARTIAL | P7 | PROJECT | PROJECT | 2 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
@@ -959,7 +959,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-084 | Rails Active Storage workflows | PARTIAL | P2 | PROJECT | PROJECT | 1 |
 | DESIGN-085 | Node official SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 2 |
 | DESIGN-086 | Python official SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 2 |
-| DESIGN-087 | Official Rust SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
+| DESIGN-087 | Official Rust SDK integration | PARTIAL | P3 | PROJECT | PROJECT | 0 |
 | DESIGN-088 | Hermetic SDK tests deny unintended egress | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-089 | Optional Google differential conformance | NOT_STARTED | P0 | EXTERNAL | NONE | 0 |
 | DESIGN-090 | Deterministic fault injection | NOT_STARTED | P0 | PROJECT | NONE | 0 |

@@ -13,7 +13,7 @@ gcs-mimicは、ローカル開発とCIで使うGoogle Cloud Storageエミュレ�
 Google Cloudのアカウントなしで、公式のCloud Storage SDKをそのまま使えます。
 
 - **SDKでそのまま動く**: Go・Ruby・Node.js・Python・PHPが[SDKスコアカード](#sdkスコアカード)の全ケースを通過します。
-- **fake-gcs-serverから乗り換えやすい**: イメージ名を変えるだけで、旧フラグや`FAKE_GCS_*`の多くがそのまま動きます（[移行](#fake-gcs-serverから移行する)を参照）。
+- **旧設定を読み替える**: 旧フラグや`FAKE_GCS_*`の多くを受け付けます。保存データの変換やクライアントアダプターには対応範囲があります（[移行](#fake-gcs-serverから移行する)を参照）。
 - **コンテナ1つ**: ディレクトリから初期ファイルを読み込み、ボリュームにデータを残せます。
 
 [English](../../README.md) ·
@@ -150,7 +150,7 @@ gcs_emulator:
 
 ## fake-gcs-serverから移行する
 
-イメージを替え、データ用のボリュームを付けます。
+対象のコンテナ用途ではイメージを替え、別のデータ用ボリュームを付けます。全面的な置換を保証する手順ではありません。
 `command:`のフラグ、`FAKE_GCS_*`環境変数、`./data:/data`のマウントは、多くがそのまま動きます。
 
 ```diff
@@ -165,7 +165,7 @@ gcs_emulator:
 ```
 
 旧設定は、起動時に`GCS_MIMIC_*`の名前付きで警告されます。都合のよいときに名前を変えてください。
-例外と違いは次のとおりです。
+公開済み0.7.0の例外と違いは次のとおりです。
 
 | fake-gcs-server | gcs-mimic |
 | --- | --- |
@@ -177,6 +177,15 @@ gcs_emulator:
 | resumableアップロードの取り消し | 499を返します。Googleが取り消し成功として定めている値で、エラーではありません。 |
 
 [移行手順](fake-gcs-server-migration.md)と[設定・環境変数の対応](fake-gcs-server-configuration.md)を参照してください。
+
+開発中ソースには、上限付きRAM保存、ローカルPub/Sub配信、HTTP batch・method override、
+XML一覧・コピー・multipart、明示的な管理・reset・reseed、strictのローカルJWT、SDKアダプターを追加しています。
+ディレクトリの継続監視、削除承認、復旧とlive `sync`コマンドは統合中です。
+これらにはソースからのビルドが必要で、上の0.7.0イメージには含まれません。
+[対応範囲と検証表（英語）](../en/evidence/migration-integration.md)を参照してください。
+GoはRust子プロセスを使い、`NoListener`はUnix HTTPです。
+`fake-gcs-server`実行ファイル名を固定したラッパーは、イメージの変更だけでは移行できず、
+明示的なアダプターが必要です。
 
 ## よく使う設定
 

@@ -6,6 +6,12 @@
 
 [日本語](../ja/fake-gcs-server-migration.md)
 
+Published container examples below use **0.7.0**. The current source checkout
+adds separately scoped migration adapters and protocols; these require a source
+build. The [integration acceptance map](evidence/migration-integration.md)
+distinguishes native wire proof, prepared client harnesses and unexecuted final
+SDK/container/browser gates. Full replacement remains an unmet product gate.
+
 ## Replace a fake-gcs-server Compose service
 
 This walkthrough covers UX-012, DESIGN-061 and UX-001: HTTP, initialized empty
@@ -251,7 +257,7 @@ refresh the token at Google. The entry works only with the permissive profile.
 | Symptom | Cause | Repair |
 | --- | --- | --- |
 | Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | 0.6.0 and earlier do not translate source names | Upgrade to 0.7.0 or later, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
-| Startup rejects `-event.pubsub-topic` or another `FAKE_GCS_EVENT_*` | Event publishing is unavailable | Remove the event settings; tests that need notifications cannot run against gcs-mimic yet. |
+| Startup rejects `-event.pubsub-topic` or another `FAKE_GCS_EVENT_*` | Published 0.7.0 lacks delivery; source builds require complete local publisher configuration | For a source build, supply project/topic and an explicit local Pub/Sub emulator endpoint; provision its topic/subscriptions separately. See the [notification contract](slices/pubsub-notification-delivery.md). |
 | SDK initiation succeeds but its next request cannot connect | Location contains loopback or a host-only address | Set `GCS_MIMIC_API_BASE_URL: http://gcs:4443` for container clients and recreate the service. |
 | Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when translating unsigned URLs. |
 | A newly added empty directory creates no bucket | 0.2.1 and earlier imported seed files once; see the [0.3.0 release notes](releases/0.3.0.md) | Upgrade to 0.3.0, which replays seed on every startup and creates the bucket after a restart, or add `{"name":"exports"}` to the version-1 buckets file and restart; do not erase the data volume. |
@@ -267,8 +273,10 @@ stricter Google-contract validation, broader capabilities and resource controls.
 CLI spelling, configuration structure and internal storage need not be identical
 to fake-gcs-server. Document equivalent uses and explicit differences; the broader
 full-superset gate below tracks remaining functional coverage.
-This is a target, not a current compatibility claim. Migration importers,
-Go embedding and source-only startup settings remain unavailable.
+This is a target, not a current compatibility claim. Filesystem import and
+quiesced memory capture now have separate contracts. Go integration uses a
+Rust subprocess facade with a supported exported subset; literal in-process
+embedding and the complete source Go API remain unsupported.
 The existing `legacy-emulator` profile covers a limited bucket contract; it does
 not implement the complete migration profile described here.
 
@@ -276,8 +284,10 @@ gcs-mimic serves path-style and opt-in virtual-host XML GET/HEAD/PUT, strict
 V4 RSA signed transfers, path-style V2 RSA GET/PUT and scoped public access
 prevention, with
 [recorded evidence](evidence/signed-urls.md). URL construction and authorization
-remain separate. Broader XML/listing, ACLs, UBLA transitions, permissive legacy
-signing and complete endpoint/configuration equivalence remain gaps.
+remain separate. The source checkout adds XML listing, copying and multipart
+with explicit field/resource bounds. Broader XML fields, ACL/UBLA interactions,
+provider error parity and complete endpoint/configuration equivalence remain
+gaps; see the [acceptance map](evidence/migration-integration.md).
 
 The first reference is the fake-gcs-server release in the
 [detailed comparison](feature-comparison.md).
@@ -398,11 +408,36 @@ executable contract; these examples are not the entire inventory.
 | gRPC | v1.56.1 imports Storage **v1** protobufs | gcs-mimic optionally opens separate plaintext `grpc_listen` (for example `127.0.0.1:4444`); point Go `STORAGE_EMULATOR_HOST_GRPC` there. Storage v2 bucket CRUD, object reads/writes/deletes/listing and resumable uploads share JSON state, metadata validation and strict authorization. Scoped bucket/object updates, bucket IAM, retention locking, rewrite, compose, same-bucket move and soft-delete restore use that same shared state. BidiReadObject supports Go `NewMultiRangeDownloader` with `storage.WithGRPCBidiReads()`, CRC32C and generation-pinned read handles; handles retain the latest 64 initial selections within the process and require current authorization on reconnect. CancelResumableWrite discards a resumable session through the same catalog operation as the JSON session DELETE. Appendable objects support creation, flush, gRPC reads while appending, takeover and finalization ([Rapid append contract](slices/grpc-v2-rapid-append.md)). Unsupported fields and unknown RPCs return non-retryable `UNIMPLEMENTED` with ErrorInfo and JSON API guidance. The same h2c endpoint independently serves the reference's twelve legacy v1 bucket/object RPCs through shared state and strict permissions, with bounded multi-message uploads and atomic conditions. Legacy v1 bucket listing without a project spans every project, as in the reference (strict callers see only projects they may list), and objects support a documented metadata subset; it does not claim Google GA/EXACT compatibility. Other v1 methods, media reads and resumable uploads return the same explicit UNIMPLEMENTED. See the [legacy contract](slices/grpc-v1-legacy.md), [v2 bucket contract](slices/grpc-v2-buckets.md), [object I/O contract](slices/grpc-v2-object-io.md), [update/copy contract](slices/grpc-v2-update-copy.md), [bidi read contract](slices/grpc-v2-bidi-read.md) and [foundation contract](slices/grpc-v2-foundation.md). |
 | Helpers/events | Internal config/reseed routes and notification/event settings | Inventory and test local behavior plus explicit external integration boundaries |
 
-Application source should not need modification. Renaming environment keys,
-changing an image/binary or a Go module replacement and performing an explicit
-data conversion are deployment steps, which must be documented and tested.
-Do not claim literal in-process Go library replacement merely because equivalent
-HTTP operations exist.
+Ordinary endpoint-based SDK workflows can retain application calls within their
+tested subset. Renaming settings, changing images and converting data are
+deployment steps. Go facade adoption and wrappers that hard-code executable
+names may require an explicit module or client adapter. This is not a guarantee
+of unchanged application source or literal in-process Go library replacement.
+
+## Observed GitHub uses and migration boundaries
+
+These source files were inspected at the fixed revisions linked below. Their
+applications were **not executed** against this checkout. They show concrete
+uses to cover, rather than proving compatibility or every use on GitHub.
+The migration reference remains upstream fake-gcs-server v1.56.1; a consumer's
+older dependency or fork is not that reference's universal contract.
+
+| Observed use | Migration obstacle | Current adaptation and boundary |
+| --- | --- | --- |
+| [gcsfuse fixtures](https://github.com/GoogleCloudPlatform/gcsfuse/blob/4fefe6330742a00f4706cf48cae01a15b4766e86/internal/storage/fake_storage_util.go): explicit generations, metadata, gzip bytes, Client/Stop | A seed directory alone loses fixture identity and metadata | Go constructor fixtures use dedicated bounded administration; explicit generations and content encoding are preserved within the declared fixture subset. |
+| [Apache Beam Go filesystem tests](https://github.com/apache/beam/blob/e843314a31dad586cdb585a7f96a67499a448e97/sdks/go/pkg/beam/io/filesystem/gcs/gcs_test.go): NewServer/Client/Stop and filesystem operations | HTTP endpoints alone do not provide the exported Go constructors/lifecycle | Use the [subprocess facade](slices/go-subprocess-facade.md); its own integration harness covers selected SDK operations, not the full Beam suite. |
+| [go-feature-flag helper](https://github.com/thomaspoignant/go-feature-flag/blob/d6ef445437b5c644e3acb4540e0d4d8646289fb4/testutils/gcs_mock.go): CreateObject with a supplied MD5 | Direct fixtures need validated body/hash publication | The facade forwards fixtures through shared integrity/condition/publication paths; unsupported identities or metadata fail explicitly. |
+| [TiDB NoListener tests](https://github.com/pingcap/tidb/blob/49ad420278001b896de85fd7985b35ff49be877f/pkg/objstore/gcs_test.go): CreateBucketWithOpts, injected HTTPClient, reads/ranges and 1003-file walks | In-process transport and bucket helper methods differ from a standalone Rust binary | `NoListener` uses private Unix HTTP and no TCP listener. Bucket helpers forward all three source fields, preserving duplicate versioning/hold rules. This remains a subprocess and does not reproduce every backend API. |
+| [Node Testcontainers module](https://github.com/testcontainers/testcontainers-node/blob/b99bb381be1c2470691a533937c23efd25389953/packages/modules/gcloud/src/cloudstorage-emulator-container.ts): hard-coded executable, readiness log and endpoint update | Changing only the image leaves the old entrypoint/readiness assumptions | Use the [generic-container adapters](slices/sdk-client-adapters.md): normal entrypoint, healthcheck, random mapped port and explicit opt-in externalUrl/publicHost update before resumable initiation. |
+| [.NET FakeGcsServerBuilder](https://github.com/testcontainers/testcontainers-dotnet/blob/a6ce741af4dde9e8eb5f8c49bf2b90040b981187/src/Testcontainers.FakeGcsServer/FakeGcsServerBuilder.cs): shell script and fake-gcs-server binary | The sealed source-specific builder cannot use the distroless Rust image unchanged | The separate generic .NET adapter selects the native entrypoint and bounded RAM/HTTP configuration; it is not an image-only substitution. |
+| [Aiven Java wrapper](https://github.com/Aiven-Open/testcontainers-fake-gcs-server/blob/ec7c605b593d648527f29b3df65cdfacda93985a/src/main/java/io/aiven/testcontainers/fakegcsserver/FakeGcsServerContainer.java): fixed binary and externalUrl update | Source-specific startup and management assumptions | Use the generic Java adapter and explicitly enabled management endpoint; this source is an Aiven wrapper, not a built-in Java Testcontainers module. |
+| [Arrow object_store CI](https://github.com/apache/arrow-rs-object-store/blob/a0dc669ecf50aee37ec4f8e19dbd759f7028613f/.github/workflows/ci.yml): HTTP/memory/public-host against a fork | Fork behavior and XML/condition limitations differ from upstream and Google | The independent Arrow harness selects the local endpoint and tests XML operations. It remains separate from the official Rust SDK and from the fork's own excluded cases. |
+
+Rails/Active Storage is an existing project verification priority. The linked
+consumer inspection did not establish a representative Rails consumer source;
+the project's Rails harness and official client sources supply that separate
+evidence. A passing SDK scorecard is not proof that these consumer applications
+or their source-specific wrappers pass unchanged.
 
 ## Startup options and current equivalents
 
@@ -422,13 +457,13 @@ and native `GCS_MIMIC_*` environment variables.
 | `-port-http` | `--listen-http IP:PORT`, `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; default primary IP:8000 |
 | `-external-url` | `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Fixed origin for API-generated links; not a public-host allowlist |
 | `-public-host` | `--public-base-url`, `GCS_MIMIC_PUBLIC_BASE_URL` | HTTP(S) origin; adds a DNS virtual domain. Legacy Host matching requires `--compat-profile legacy-emulator`; native path-style accepts any Host. |
-| `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` | Applied before readiness on every startup. Differing objects, including API metadata edits, are replaced as in the source; an exactly identical object keeps its generation instead of getting a new one; no reseed route or live synchronization |
+| `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` | Applied before readiness on every startup. Exactly identical objects keep their generation. Source builds publish the complete tree atomically, fail the entire replay on a differing protected object, and add opt-in reseed; live synchronization uses a separate `--sync-dir`. The published 0.7.0 image lacks those additions. |
 | `-filesystem-root` | `--data-dir`, `GCS_MIMIC_DATA_DIR` | Persistent destination with a different format; cannot reuse the source root directly |
 | `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
 | `-log-level` | `--log-level`, `GCS_MIMIC_LOG_LEVEL`, JSON `log_level` | Minimum runtime stderr severity; default info; debug/info/warn/error and warning alias; diagnostics and stdout lifecycle are unfiltered |
 | `-cors-headers` | Remove it. Only for browser reads of XML/public URLs: bucket `cors`, or `--cors-fallback allow-all` / `GCS_MIMIC_CORS_FALLBACK=allow-all` | The source extends one global request-header allowlist. JSON already allows every valid requested header. The `allow-all` fallback allows every valid header on XML/public routes of buckets without stored rules; stored bucket rules stay exact. See [CORS fallback](slices/cors-fallback.md) |
 | `-location` | `--default-location`, `GCS_MIMIC_DEFAULT_LOCATION`, JSON `default_location` | Native accepts official regional/predefined dual-region and `US`, `EU`, `ASIA` names, case-insensitively; API/initializer nonempty location wins. Legacy profile retains fixed `US-CENTRAL1` and rejects the global default. No physical placement or configurable dual-region simulation; see [location contract](slices/sdk-regional-locations.md). |
-| `-backend memory` | None | Current backend is persistent SQLite metadata plus files |
+| `-backend memory` | `--backend memory`, `GCS_MIMIC_BACKEND=memory` in source builds | Process-local SQLite and leased chunks, with explicit aggregate storage budgets and empty restart; see the [RAM contract](slices/memory-backend.md). Disk remains default. |
 
 The source's `-public-host` controls public URL construction and Host matching
 on relevant public routes; it does not select the listener. A configured port
@@ -506,8 +541,9 @@ The existing `auth_mode=permissive` is not already a complete legacy profile.
 - Native seeding replays on every startup: an object
   that differs from its seed file in bytes or metadata is replaced as a new
   generation, so seed files win over API edits at restart; only an exactly
-  identical object keeps its generation. A reseed route is not
-  implemented. Durable migration must never silently replay fixtures over
+  identical object keeps its generation. Source builds add opt-in atomic reseed
+  (disk merge, RAM replacement); a changed protected fixture rejects the complete
+  replay. Durable migration must never silently replay fixtures over
   imported changes; do not mount seed files that overlap imported objects unless
   the seed file should win.
 - Resource limits and unsupported settings remain visible. A recognized setting
@@ -522,13 +558,18 @@ required conflict blocks the full compatibility claim.
 
 Replacement also requires a visible bucket/object directory with bidirectional
 synchronization: external additions, changes and deletions reach the API, and API
-mutations appear in that directory. This is not implemented. Native seed import
-and the planned one-time source converter do not satisfy this requirement.
+mutations appear in that directory. The source checkout provides bounded
+observation, shared create/edit ingestion, API write-back and revision-bound
+deletion controls. Complete conflict/recovery/strict/platform acceptance is
+still being integrated. Seed/import alone does not satisfy this requirement.
 
 SQLite may remain the metadata/index catalog. A synchronized working tree can
 feed the existing bounded publication engine while preserving immutable internal
 blobs. Conflict behavior, synchronization delay and unusual-name representation
-must be settled before implementation. The planning contract is
+remain explicit in the [sync contract](slices/directory-synchronization.md).
+Use the [live CLI](slices/sync-cli.md) for supported status/findings/deletion,
+rescan, approval and fixed-fence waits without opening another catalog process.
+The planning contract is
 `delivery_plan.migration.filesystem_sync_contract` in the feature ledger.
 See the [source investigation and executed file-edit cases](fake-gcs-server-storage.md).
 Safe reconciliation must update hashes and generations; copying the source's

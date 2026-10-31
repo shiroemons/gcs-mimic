@@ -2,9 +2,15 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-**Status: broader end-to-end design specification.** The current JSON, strict IAM, XML GET/HEAD/PUT and V4 RSA query signing implementation has a separate [runnable guide](getting-started.md). The registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), with bounded inline RSA public keys; the server never needs a signer private key. The [signed access journey](signed-urls.md#signed-private-downloads-and-uploads) covers native/source-built Docker signing, private GET/PUT, method/object/host/expiry/header failures, conditions, restart and peer endpoints. It also covers the two response overrides, opt-in virtual hosts, PAP enforcement with preserved public bindings, valid signed GET/PUT and public reactivation. The [integrated evidence](evidence/signed-urls.md) records execution and UX-006 status. TOML, broader fixtures/SDKs, proxy-derived origins and other signing formats below remain future acceptance targets, not current commands/settings. Fixed `api_base_url` is implemented. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
+**Status: broader end-to-end design specification.** The current JSON, strict IAM, XML and RSA signing implementation has a separate [runnable guide](getting-started.md). The registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), with bounded inline RSA public keys; the server never needs a signer private key. The [signed access journey](signed-urls.md#signed-private-downloads-and-uploads) covers signing, private transfers, negative conditions, restart and peer endpoints. Its [integrated evidence](evidence/signed-urls.md) records the verified scope and UX-006 status. TOML, proxy-derived origins and broader acceptance targets below do not define current commands/settings. Published examples select 0.7.0; new source-only scopes are identified in their slice contracts. The project/CLI/image name is `gcs-mimic`.
 
-This English document is canonical. Any Japanese companion is optional supplementary planning material outside the project's canonical documentation tree. Implementation prompts are Japanese; source code, identifiers, commits and project documentation remain English.
+This English document is canonical. Japanese user guides live in `docs/ja` and retain the same feature status and supported scope. Historical Japanese planning notes are separate. Implementation prompts are Japanese; source code, identifiers, commits and canonical documentation remain English.
+
+Source-checkout additions and their unexecuted final-source gates are mapped in
+[migration integration](evidence/migration-integration.md). Published examples
+use 0.7.0; unreleased commands/settings below require a source build. This
+specification's historical milestone text does not override the feature ledger
+or the current seed, synchronization, storage and authentication slice contracts.
 
 The current object walkthrough selects `name,size` from metadata and
 `items(name),nextPageToken` from listing, captures the HTTP ETag header, requires
@@ -95,7 +101,7 @@ checks; the [historical PUT evidence](evidence/bucket-metadata-put.md) records
 native/Docker blocks, restart equality and pinned Go SDK verification from before
 omission preservation.
 
-The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart and bounded JSON resumable uploads, versioning/default holds, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, initial seed directories, Go SDK tests, stopping and isolated smoke checks. Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
+The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart and bounded JSON resumable uploads, versioning/default holds, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, seed directories, SDK tests, stopping and isolated smoke checks. Ruby and Rails have separately documented [tested scopes](rails-active-storage.md); strict local JWT/signing additions require the current source checkout. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
 The delivered [local TLS journey](local-https.md#local-https-with-an-explicit-development-ca)
 uses HTTPS by default with a built-in development certificate/key and exported
@@ -177,7 +183,9 @@ For generated API links such as resumable Location, `validated_request_origin` u
 
 ## 3. Fixtures, persistence and Docker Compose
 
-Use separate paths for read-only fixture input and persistent storage. Normal restarts must not overwrite mutations by replaying fixtures.
+Use separate paths for read-only fixture input and persistent storage. Seed files
+replay on every startup and win over differing API objects at matching names;
+omit seed input when API edits to those names must survive unchanged.
 
 ```bash
 mkdir -p fixtures/local-bucket
@@ -187,7 +195,7 @@ printf 'Hello from the emulator.\n' > fixtures/local-bucket/hello.txt
 This reduced layout follows the checked-in `compose.yaml`: it keeps the image's
 CMD, which binds `0.0.0.0:4443` and stores data on the named volume, and uses the
 default HTTPS scheme. It does not mount the host-loopback development JSON.
-Use `compose.seed.yaml` for one-time fixture loading; the structured TOML example
+Use `compose.seed.yaml` for fixture replay on every startup; the structured TOML example
 above remains a future target.
 
 ```yaml
@@ -503,7 +511,15 @@ docker compose -f compose.yaml -f compose.strict.yaml restart gcs
 docker compose -f compose.yaml -f compose.strict.yaml up -d --wait
 ```
 
-The new object and metadata survive and the seed does not overwrite them. Also verify an interrupted upload follows the documented recovery behavior. Keep the same compose file set for the rest of this walkthrough; running base-only `up` could recreate the service in permissive mode. Confirm the effective mode in the startup/config summary after recreation.
+The new object and metadata survive unless the same name is present in the seed
+tree: seed replays on every startup and replaces differing seeded objects,
+subject to protection checks. Identical seeded objects keep their generation.
+The source-checkout [atomic seed/reseed contract](slices/atomic-seed-reseed.md)
+publishes the prepared tree together or rolls it back on failure. Seed files
+ending in `.metadata` remain ordinary object bodies; foreign import sidecars
+belong to a different input format. Also verify interrupted-upload recovery.
+Keep the same Compose file set throughout; base-only `up` could recreate the
+service in permissive mode. Confirm the effective mode after recreation.
 
 ```bash
 docker compose -f compose.yaml -f compose.strict.yaml stop

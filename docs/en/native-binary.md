@@ -282,13 +282,16 @@ bytes and seed Content-Type, with no Content-Encoding, Content-Disposition,
 Content-Language, Cache-Control, custom time or custom metadata) keeps its
 generation. Any other difference, including API metadata edits, is replaced as
 a new live generation with seed default metadata (versioned buckets keep the
-previous one as noncurrent). A differing object under a hold or retention is
-left unchanged and reported as `blocked`; holds and storage class are not
-compared. Objects without a seed file are untouched, and removing a
-seed file never deletes an object. Restart to apply fixture edits; there is no
-watcher or reseed endpoint. The ready event's `seed` field reports `buckets` and
+previous one as noncurrent). In the source checkout, a changed protected fixture
+fails the complete prepared-tree replay, preserving the preceding namespace and
+emitting no ready event. An identical protected fixture is unchanged. Holds and
+storage class are not part of same-body comparison. Objects without a seed file
+are untouched, and removing a seed file never deletes an object. Seed input is
+not watched. Source builds add an opt-in [reseed endpoint](slices/atomic-seed-reseed.md)
+with disk merge and RAM replacement. The ready event's `seed` field reports `buckets` and
 `objects` (newly created), `replaced`, `unchanged`, `blocked` and
-`skipped_os_metadata`. 0.2.1 and earlier imported seed files once into a fresh
+`skipped_os_metadata`; successful atomic replay has `blocked=0`. Published 0.7.0
+had per-file blocked counting. 0.2.1 and earlier imported seed files once into a fresh
 catalog with an `octet-stream` default; see the
 [0.3.0 release notes](releases/0.3.0.md). Import is administrative in both profiles; strict API reads
 still need a permitted local bearer token. See the [seed contract](slices/seed.md).

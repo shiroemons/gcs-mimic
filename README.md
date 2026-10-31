@@ -14,8 +14,9 @@ Use the official Cloud Storage SDKs against it without a Google Cloud account.
 
 - **Works with your SDK**: Go, Ruby, Node.js, Python and PHP pass every case in
   the [SDK scorecard](#sdk-scorecard).
-- **Replaces fake-gcs-server**: swap the image; most old flags and
-  `FAKE_GCS_*` variables keep working (see
+- **Maps common fake-gcs-server settings**: most old flags and
+  `FAKE_GCS_*` variables keep working; data conversion and client adapters
+  have explicit limits (see
   [migrating](#migrating-from-fake-gcs-server)).
 - **One container**: preload files from a directory, keep data in a volume.
 
@@ -162,8 +163,9 @@ bucket and CORS setup, Rails in containers and CI.
 
 ## Migrating from fake-gcs-server
 
-Swap the image and mount a data volume. Most `command:` flags, `FAKE_GCS_*`
-variables and the `./data:/data` mount keep working:
+For the scoped container workflow, change the image and mount a separate data
+volume. Most `command:` flags, `FAKE_GCS_*` variables and the `./data:/data`
+mount keep working. This is not a blanket drop-in replacement claim:
 
 ```diff
  gcs:
@@ -177,7 +179,7 @@ variables and the `./data:/data` mount keep working:
 ```
 
 Each old setting is logged as a warning with its `GCS_MIMIC_*` name; rename
-them when convenient. Exceptions and differences:
+them when convenient. The published **0.7.0** example has these differences:
 
 | fake-gcs-server | gcs-mimic |
 | --- | --- |
@@ -190,6 +192,19 @@ them when convenient. Exceptions and differences:
 
 See the [migration guide](docs/en/fake-gcs-server-migration.md) and the
 [setting mapping](docs/en/fake-gcs-server-configuration.md).
+
+The **unreleased source checkout** adds scoped RAM storage, local Pub/Sub
+delivery, HTTP batch/method override, XML list/copy/multipart, opt-in fixture
+administration/reset/reseed, strict local JWTs and client adapters. Directory
+observation, deletion controls and recovery are being integrated with live
+`sync` commands. These additions require a source build; the image above does
+not contain them. See the [scope and verification map](docs/en/evidence/migration-integration.md).
+Broader rows stay partial until all their acceptance cases pass.
+
+Go embedding uses a Rust subprocess facade, with Unix HTTP for `NoListener`.
+Wrappers that hard-code the `fake-gcs-server` executable need an explicit
+adapter; changing their image alone is insufficient. The migration guide maps
+[observed GitHub uses to these boundaries](docs/en/fake-gcs-server-migration.md#observed-github-uses-and-migration-boundaries).
 
 ## Common settings
 

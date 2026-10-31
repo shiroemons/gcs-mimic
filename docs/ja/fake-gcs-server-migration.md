@@ -12,6 +12,33 @@
 UX-012とUX-001はPARTIAL、DESIGN-061は既存のホスト・コンテナ接続範囲で
 IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置き換えは含みません。
 
+公開イメージの例は0.7.0です。開発中ソースのRAM保存、ローカルPub/Sub、HTTP batch、
+XML一覧・コピー・multipart、管理・reset・reseed、strict JWT、追加SDKアダプターには
+ソースからのビルドが必要です。[機能と検証の対応表（英語）](../en/evidence/migration-integration.md)では、
+実施済みの通信テストと、未実施の最終SDK・コンテナ・ブラウザー検証を分けています。
+機能の実装状態は共通の台帳を原本とし、全面置換は未達のままです。
+
+## GitHubで確認した利用例と移行時の違い
+
+以下はリンク先のcommitでソースを確認した結果です。各アプリ自体をこのソースに接続して
+実行した結果ではなく、GitHub全体を網羅した調査でもありません。
+古い参照版やforkの挙動を、upstream v1.56.1やGoogleの仕様と同一視しません。
+
+| 利用例 | 移行時の違いと今回の対応 |
+| --- | --- |
+| [gcsfuse](https://github.com/GoogleCloudPlatform/gcsfuse/blob/4fefe6330742a00f4706cf48cae01a15b4766e86/internal/storage/fake_storage_util.go) | InitialObjectsの明示世代・metadata・gzip本文を使います。単なるseedでは不足するため、Go facadeから管理用の共通公開処理へ渡します。 |
+| [Apache Beam](https://github.com/apache/beam/blob/e843314a31dad586cdb585a7f96a67499a448e97/sdks/go/pkg/beam/io/filesystem/gcs/gcs_test.go) | NewServer・Client・Stopを使います。Go facadeで対応する範囲はRust子プロセスであり、同一プロセスへの組み込みではありません。 |
+| [go-feature-flag](https://github.com/thomaspoignant/go-feature-flag/blob/d6ef445437b5c644e3acb4540e0d4d8646289fb4/testutils/gcs_mock.go) | CreateObjectへ本文とMD5を渡します。fixtureも共通のチェックサム・条件・公開処理で検証します。 |
+| [TiDB](https://github.com/pingcap/tidb/blob/49ad420278001b896de85fd7985b35ff49be877f/pkg/objstore/gcs_test.go) | NoListener・HTTPClient・CreateBucketWithOptsを使います。Unix HTTPと3フィールドのバケットhelperを提供し、既存値を更新しない重複規則を保ちます。Windows NoListenerや全Backend APIには対応していません。 |
+| [Node Testcontainers](https://github.com/testcontainers/testcontainers-node/blob/b99bb381be1c2470691a533937c23efd25389953/packages/modules/gcloud/src/cloudstorage-emulator-container.ts) | 実行ファイル名・ログ待機・起動後endpoint更新を固定しています。通常entrypoint・healthcheck・ランダムportを使うgeneric adapterが必要です。 |
+| [.NET Testcontainers](https://github.com/testcontainers/testcontainers-dotnet/blob/a6ce741af4dde9e8eb5f8c49bf2b90040b981187/src/Testcontainers.FakeGcsServer/FakeGcsServerBuilder.cs) | shellと旧バイナリを固定したsealed builderは、イメージの差し替えだけでは動きません。独立したgeneric adapterを使います。 |
+| [Aiven Java wrapper](https://github.com/Aiven-Open/testcontainers-fake-gcs-server/blob/ec7c605b593d648527f29b3df65cdfacda93985a/src/main/java/io/aiven/testcontainers/fakegcsserver/FakeGcsServerContainer.java) | 旧バイナリと内部config更新を前提とします。通常entrypointと明示的な管理APIを使うgeneric adapterへ移行します。Java Testcontainers本体の専用moduleとは別です。 |
+| [Arrow object_store](https://github.com/apache/arrow-rs-object-store/blob/a0dc669ecf50aee37ec4f8e19dbd759f7028613f/.github/workflows/ci.yml) | CIでforkを使い、XMLや世代条件に比較対象固有の制限があります。独立したArrow harnessで確認し、公式Google Rust SDKの結果と混同しません。 |
+
+追加アダプターの範囲と最終実行の条件は[契約（英語）](../en/slices/sdk-client-adapters.md)にあります。
+Railsは既存の検証優先対象です。このconsumer調査で代表的なRailsアプリの一次ソースを
+確認したとはしておらず、公式SDK・Active Storageと本プロジェクトのharnessで別に検証します。
+
 ## fake-gcs-serverのComposeを置き換える
 
 | gRPCの移行元 | gcs-mimicでの対応 |

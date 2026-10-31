@@ -6,7 +6,7 @@
 
 Build a resource-efficient Cloud Storage emulator for local development and CI. Ship a Rust binary and Docker image with familiar fixture loading and endpoint configuration. Expand compatibility incrementally while keeping a precise, evidence-backed progress ledger.
 
-P0 implements the bounded HTTP/1 runtime, configuration, Clock, Docker/Compose and ledger/freshness tooling. P1 adds persistent JSON bucket/object operations with checksums and atomic conditions. P2 implements explicit permissive/strict profiles, registered local principals, additive project/bucket roles, bucket IAM policies and public/signed URL helpers. Path-style and opt-in virtual-host XML GET/HEAD/PUT supports bearer and V4 RSA query authentication, bounded uploads, declared integrity checks and atomic conditions; GET/HEAD supports two response overrides. PAP preserves public bindings while suppressing their authorization, without blocking explicit signer grants. Its parent policy fixture remains LOCAL_SIMULATION. The [combined evidence](evidence/signed-urls.md) records integrated behavior, SDK adaptations and native/container journeys. Object ACLs, UBLA transitions and other signing formats remain pending. Provider duplicate-query, override validation, signature error and optional payload parity keep DESIGN-035/037/044 and broad XML/auth rows PARTIAL under their named gaps. The JSON resumable engine retains its [evidence and limits](evidence/resumable-upload.md). No comparative performance result is claimed. `compatibility/features.json` is authoritative. The project, CLI and repository name is **gcs-mimic**: **A lightweight Google Cloud Storage emulator in Rust.**
+P0 implements the bounded HTTP/1 runtime, configuration, Clock, Docker/Compose and ledger/freshness tooling. P1 adds persistent JSON bucket/object operations with checksums and atomic conditions. P2 implements explicit permissive/strict profiles, registered local principals, additive project/bucket roles, bucket IAM policies and public/signed URL helpers. Path-style and opt-in virtual-host XML GET/HEAD/PUT supports bearer and V4 RSA query authentication, bounded uploads, declared integrity checks and atomic conditions; GET/HEAD supports two response overrides. PAP preserves public bindings while suppressing their authorization, without blocking explicit signer grants. Its parent policy fixture remains LOCAL_SIMULATION. The [combined evidence](evidence/signed-urls.md) records integrated behavior, SDK adaptations and native/container journeys. JSON ACL storage, inheritance and UBLA transitions have scoped contracts; ACL permission effects remain pending. Signing formats and provider edges remain scoped separately. Provider duplicate-query, override validation, signature error and optional payload parity keep DESIGN-035/037/044 and broad XML/auth rows PARTIAL under their named gaps. The JSON resumable engine retains its [evidence and limits](evidence/resumable-upload.md). No comparative performance result is claimed. `compatibility/features.json` is authoritative. The project, CLI and repository name is **gcs-mimic**: **A lightweight Google Cloud Storage emulator in Rust.**
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
@@ -19,10 +19,24 @@ Google strict behavior and permissive source behavior need separate profiles
 and evidence. The existing permissive auth mode is not a complete legacy profile.
 
 Replacement also requires an inspectable bucket/object directory with
-bidirectional synchronization. This is not implemented. SQLite may remain the
-catalog while external edits enter shared ingestion and API changes update a
-visible working tree. The [filesystem investigation](fake-gcs-server-storage.md)
-records the requirement and open conflict/name-mapping decisions.
+bidirectional synchronization. The scoped implementation retains SQLite and
+opaque blobs, exports API changes into a visible working tree and ingests
+external creates/edits through shared publication. Continuous observation and
+revision-bound deletion/recovery controls extend that path; auth/platform and
+unfinished-recovery limits remain explicit in the
+[sync contract](slices/directory-synchronization.md). The
+[filesystem investigation](fake-gcs-server-storage.md) records the original
+requirement, rather than a second implementation-status source.
+
+The unreleased migration additions use the same authorization, conditions,
+generation allocation, bounded workers and durable publication paths. RAM uses
+connection-local SQLite and a leased chunk budget, not temporary disk storage;
+its body and database-page limits are separate from process RSS. Local Pub/Sub
+uses a bounded transactional outbox and an explicit local emulator endpoint.
+The Go facade starts a Rust process; `NoListener` uses a private Unix HTTP
+socket. These boundaries and the full acceptance map are recorded in
+[migration integration](evidence/migration-integration.md). They do not establish
+full replacement or availability in the published 0.7.0 image.
 
 P0-P7 group coverage; the ordered capabilities and prerequisites in
 `delivery_plan` determine execution. Complete a bounded useful scope before
@@ -281,7 +295,9 @@ Indexed paging and atomic metadata conditions fit a transactional catalog;
 bounded body streams avoid database transactions held for an entire transfer.
 SQLite BLOBs, embedded transactional key/value stores, filesystem metadata and
 memory each have tradeoffs documented in `docs/en/storage-backends.md`.
-No equivalent-workload benchmark or alternative backend has been implemented.
+No equivalent-workload benchmark is claimed. The bounded process-local
+[memory backend](slices/memory-backend.md) is an optional small-test profile;
+its separately budgeted blobs and SQLite pages do not bound total RSS.
 
 Keep foreign-format readers outside catalog internals and protocol handlers.
 Seed trees, persistent xattr/sidecar roots and live memory exports are different
@@ -481,8 +497,11 @@ state with the startup registry's bounded project fixture. Shared catalog
 transactions suppress both public principal sets for reads, writes, derived
 transfers and publication, while preserving stored policy bindings/etag and
 explicit bearer/signer grants. Disabling effective enforcement reactivates those
-bindings. Parent policy is LOCAL_SIMULATION; ACL/UBLA transitions, organization
-APIs and propagation/cache effects are outside this scope (SPEC-PAP-EDGES).
+bindings. Parent policy is LOCAL_SIMULATION. The [ACL contract](slices/json-acl.md)
+separately covers stored entries, default inheritance, UBLA hiding/restoration
+and PAP rejection of public entries. Those entries grant no access; ACL grant
+effects, organization APIs and propagation/cache effects remain outside this
+scope (SPEC-PAP-EDGES).
 
 The [virtual-host contract](slices/xml-virtual-host.md) defaults off and requires
 configured DNS suffixes, client DNS and a supplied matching SAN certificate for

@@ -14,9 +14,9 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 222 | 0 | 87 | 1 | 0 | 0 |
-| behavior | 201 | 100 | 0 | 63 | 38 | 0 | 0 |
-| project_requirement | 95 | 31 | 0 | 33 | 31 | 0 | 0 |
+| api_operation | 310 | 209 | 0 | 100 | 1 | 0 | 0 |
+| behavior | 201 | 93 | 0 | 69 | 39 | 0 | 0 |
+| project_requirement | 95 | 26 | 0 | 40 | 29 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -35,9 +35,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 222 | 38 | 32 | 18 | 0 | 0 |
-| behavior | 101 | 60 | 36 | 4 | 0 | 0 |
-| project_requirement | 31 | 0 | 0 | 0 | 0 | 64 |
+| api_operation | 209 | 45 | 38 | 18 | 0 | 0 |
+| behavior | 94 | 65 | 38 | 4 | 0 | 0 |
+| project_requirement | 26 | 0 | 0 | 0 | 0 | 69 |
 
 ## api_operation
 
@@ -392,30 +392,30 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-XML-001 | バケット一覧 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| EXT-XML-002 | バケット削除 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| EXT-XML-003 | オブジェクト一覧 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| EXT-XML-004 | マルチパートセッション一覧 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-001 | バケット一覧 | PARTIAL | P2 | EXACT | EXACT | 0 |
+| EXT-XML-002 | バケット削除 | PARTIAL | P2 | EXACT | EXACT | 0 |
+| EXT-XML-003 | オブジェクト一覧 | PARTIAL | P2 | EXACT | EXACT | 0 |
+| EXT-XML-004 | マルチパートセッション一覧 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-005 | バケットACL取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-006 | バケット存在確認 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| EXT-XML-006 | バケット存在確認 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-007 | 複数オブジェクト削除 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-008 | バケット作成 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| EXT-XML-008 | バケット作成 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | EXT-XML-009 | バケットACL設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-010 | オブジェクト削除 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| EXT-XML-011 | マルチパート中止 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-010 | オブジェクト削除 | PARTIAL | P2 | EXACT | EXACT | 0 |
+| EXT-XML-011 | マルチパート中止 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-012 | オブジェクトダウンロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 8 |
-| EXT-XML-013 | アップロード済みパート一覧 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-013 | アップロード済みパート一覧 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-014 | オブジェクトACL取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | オブジェクト暗号化情報取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | オブジェクト保持設定取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-017 | オブジェクトメタデータ取得 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 5 |
 | EXT-XML-018 | 再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-019 | XMLマルチパート開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-020 | XMLマルチパート完了 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-019 | XMLマルチパート開始 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-020 | XMLマルチパート完了 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-021 | HTMLフォームアップロード | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-022 | オブジェクトアップロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
-| EXT-XML-023 | XMLマルチパートのパート送信 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-024 | オブジェクトコピー | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-XML-023 | XMLマルチパートのパート送信 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-024 | オブジェクトコピー | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-025 | オブジェクト合成 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-026 | オブジェクトACL設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-027 | オブジェクト保持設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -567,7 +567,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-COMMON-005 | projectionのfull/noAcl | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-006 | PUT置換とPATCH部分更新 | PARTIAL | P1 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-007 | HTTPステータスとJSONエラー | IMPLEMENTED | P1 | EXACT | EXACT | 0 |
-| BEHAVIOR-COMMON-008 | HTTPバッチ形式 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-008 | HTTPバッチ形式 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | BEHAVIOR-COMMON-009 | データと一覧の強整合性 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-010 | 認可変更の反映モデル | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
 | BEHAVIOR-COMMON-011 | 世代・メタ世代の前提条件 | IMPLEMENTED | P1 | EXACT | EXACT | 1 |
@@ -619,8 +619,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | AUDIT-019 | Resource Managerタグとtag bindingの境界 | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
-| EXT-BEH-032 | Pub/Subイベントと永続送信キュー | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| EXT-BEH-033 | Google Pub/Subサービス | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
+| EXT-BEH-032 | Pub/Subイベントと永続送信キュー | PARTIAL | P7 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-BEH-033 | Google Pub/Subサービス | PARTIAL | P7 | EXTERNAL | LOCAL_SIMULATION | 0 |
 | EXT-BEH-034 | Firebase Storage API・Security Rules | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
 | EXT-BEH-035 | Cloud Storage FUSEクライアント互換 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | EXT-BEH-036 | 実際の地理冗長化・耐久性 | NOT_STARTED | P7 | EXTERNAL | NONE | 0 |
@@ -651,7 +651,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-013 | allAuthenticatedUsersによる認証済みユーザーへの許可 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-014 | バケットIAMの実アクセス制御 | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 | DESIGN-016 | 継承ポリシーとバケットポリシーの評価 | PARTIAL | P2 | EXACT | EXACT | 1 |
-| DESIGN-017 | オブジェクトACLとバケットIAMの併用評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-017 | オブジェクトACLとバケットIAMの併用評価 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-018 | 作成時のデフォルトオブジェクトACL適用 | PARTIAL | P2 | EXACT | METADATA_ONLY | 0 |
 | DESIGN-019 | 定義済みACLの権限への反映 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-020 | UBLAによるACL操作・権限の無効化 | PARTIAL | P2 | EXACT | EXACT | 0 |
@@ -763,7 +763,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-030 | V4 RSA署名付きURLの検証 | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
-| DESIGN-031 | V4 HMAC署名付きURLの検証 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-031 | V4 HMAC署名付きURLの検証 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-032 | 署名付きURLの日時・有効期限制約 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-033 | V4の正規化対象Host・ポート | IMPLEMENTED | P2 | EXACT | EXACT | 5 |
 | DESIGN-034 | V4のパス符号化・Unicode処理 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
@@ -771,7 +771,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-036 | V4署名対象ヘッダーの正規化 | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-037 | V4のペイロードハッシュ・UNSIGNED-PAYLOAD | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-038 | 署名対象メソッド・リソースの制限 | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
-| DESIGN-039 | V4 Authorizationヘッダー署名 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-039 | V4 Authorizationヘッダー署名 | PARTIAL | P2 | EXACT | EXACT | 0 |
 | DESIGN-040 | 従来のV2署名付きURL | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-041 | 署名付きPOSTフォームポリシーの検証 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-042 | 署名による再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -808,7 +808,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| EXT-BEH-001 | XML一覧のページング | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| EXT-BEH-001 | XML一覧のページング | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-BEH-002 | XML名前空間・エラー形式 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-BEH-003 | 再開可能アップロード継続・状態確認・中止 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-BEH-004 | 署名付きフォームのポリシー検証 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
@@ -869,7 +869,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-065 | HTTP・任意のテストTLS | IMPLEMENTED | P0 | PROJECT | PROJECT | 2 |
 | DESIGN-066 | 非root・最小ランタイムイメージ | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-067 | ヘルス・準備完了確認・正常停止 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
-| DESIGN-068 | 分離された初期化・再投入管理操作 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-068 | 分離された初期化・再投入管理操作 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-069 | 決定的な時計・メンテナンス実行 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-100 | fake-gcs-server移行向け、CORSルールのないバケットの扱い | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 
@@ -878,14 +878,14 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | UX-001 | クリーンチェックアウトからDockerビルド | PARTIAL | P0 | PROJECT | PROJECT | 0 |
-| UX-002 | 初期データ投入後の起動完了 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
+| UX-002 | 初期データ投入後の起動完了 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-003 | ホスト・別コンテナ双方からのCRUD | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-004 | Go・Rubyの初回利用例 | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | 非公開・公開の権限制御フロー | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
 | UX-006 | 署名付きアクセスと不正署名の検証フロー | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | UX-007 | ブラウザCORS・直接アップロード | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | UX-008 | 再起動後のデータ・権限保持 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
-| UX-009 | 停止と明示的データ初期化の区別 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
+| UX-009 | 停止と明示的データ初期化の区別 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-010 | 並列CI実行の分離 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-011 | 資源制限下の大容量オブジェクト操作 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-012 | 英語正本の導入ガイド・トラブルシューティング検証 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
@@ -939,7 +939,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-074 | 複数ファイルにまたがるクラッシュ回復 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-075 | 不透明なblob保存パスとキーの完全保持 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-076 | データディレクトリの単一プロセス制約 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
-| DESIGN-077 | 上限付きインメモリ動作 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-077 | 上限付きインメモリ動作 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-078 | ビジーループを避けたアイドルCPU低減 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-079 | RSS・cgroupメモリ測定 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-080 | CPU・レイテンシ・スループット測定表 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
@@ -949,8 +949,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-001 | 公式Java SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
-| AUDIT-002 | 公式.NET SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
+| AUDIT-001 | 公式Java SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 0 |
+| AUDIT-002 | 公式.NET SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 0 |
 | AUDIT-003 | 公式C++ SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | 公式PHP SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 2 |
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
@@ -959,7 +959,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-084 | Rails Active Storageの一連の操作 | PARTIAL | P2 | PROJECT | PROJECT | 1 |
 | DESIGN-085 | Node公式SDKとの統合検証 | PARTIAL | P3 | PROJECT | PROJECT | 2 |
 | DESIGN-086 | Python公式SDKとの統合検証 | PARTIAL | P3 | PROJECT | PROJECT | 2 |
-| DESIGN-087 | Rust公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
+| DESIGN-087 | Rust公式SDKとの統合検証 | PARTIAL | P3 | PROJECT | PROJECT | 0 |
 | DESIGN-088 | SDK試験の意図しない外部通信防止 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-089 | 任意の実GCS差分適合試験 | NOT_STARTED | P0 | EXTERNAL | NONE | 0 |
 | DESIGN-090 | 決定的な障害注入 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
