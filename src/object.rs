@@ -338,9 +338,9 @@ pub struct ComposeSource {
     pub if_generation_match: Option<i64>,
 }
 
-/// The wording Cloud Storage used when it refused to shorten an Unlocked retention (observed
-/// 2026-10-31); locking without the override was seen with it too. Using it for every
-/// unoverridden Unlocked refusal, removal included, is an inference.
+/// The wording Cloud Storage used when it refused to shorten or remove an Unlocked retention
+/// without the override (observed 2026-10-31 and 2026-11-01, identical for both, over JSON and
+/// gRPC); locking without the override was seen with it too.
 pub(crate) const UNLOCKED_RETENTION_OVERRIDE_MESSAGE: &str = "The unlocked object retention cannot be removed and its retention period cannot be shortened without overriding unlocked retention intent and permission.";
 
 /// The wording Cloud Storage used when it refused to change a Locked retention.

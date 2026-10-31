@@ -61,11 +61,11 @@ pub(crate) fn truncate_to_millis(time: SystemTime) -> SystemTime {
 
 /// Formats a time as RFC 3339 in US Pacific time with the fraction trimmed of trailing zeros,
 /// the form Cloud Storage used in the retained-object denial (observed 2026-10-31:
-/// `…T10:03:59.123456793-07:00` for 17:03:59 UTC while daylight time applied). Google's
+/// `…T10:03:59.123456793-07:00` for 17:03:59 UTC while daylight time applied; 2026-11-01:
+/// `…T16:00:00.12-08:00` in winter time, and no fraction at all when it is zero). Google's
 /// frontends use the `America/Los_Angeles` zone, so the offset follows the US rule in force
 /// since 2007 (second Sunday of March 02:00 to first Sunday of November 02:00); earlier years
-/// use the same rule, which is an inference, not an observation; so is trimming the fraction
-/// when it is zero or ends in zeros (only nine-digit fractions were seen).
+/// use the same rule, which is an inference, not an observation.
 pub(crate) fn pacific_rfc3339(time: SystemTime) -> String {
     let since = time
         .duration_since(SystemTime::UNIX_EPOCH)

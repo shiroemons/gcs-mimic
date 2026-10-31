@@ -378,9 +378,10 @@ async fn write(
         let failed = matches!(error, CatalogError::PreconditionFailed);
         let mut error = bucket_catalog_error(error, profile, None);
         if failed && profile == CompatProfile::Native {
-            // Observed 2026-10-31 for an empty PATCH whose ifMetagenerationMatch failed. The
-            // wording is reused for a failed ifMetagenerationNotMatch and for PUT (both
-            // unobserved), but `If-Match` is named only when ifMetagenerationMatch failed.
+            // Observed 2026-10-31 and 2026-11-01 for PATCH (empty or with labels) and PUT
+            // whose ifMetagenerationMatch failed. The wording is reused for a failed
+            // ifMetagenerationNotMatch (unobserved), but `If-Match` is named only when
+            // ifMetagenerationMatch failed.
             error.message = "At least one of the pre-conditions you specified did not hold.".into();
             if match_failed {
                 error.location = Some(&crate::json::IF_MATCH_HEADER);

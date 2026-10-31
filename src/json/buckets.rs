@@ -743,8 +743,8 @@ pub(crate) fn bucket_resource_with_profile(
         "publicAccessPrevention": if bucket.public_access_prevention_enforced { "enforced" } else { "inherited" },
     });
     value["locationType"] = json!(bucket.location_type);
-    // Cloud Storage returned `satisfiesPZI: true` for a new asia-northeast1 bucket on
-    // 2026-10-31. No other location was observed, so every native bucket reports true. The
+    // Cloud Storage returned `satisfiesPZI: true` for a new bucket in asia-northeast1
+    // (2026-10-31) and in us-central1 (2026-11-01), so every native bucket reports true. The
     // reference emulator's bucket shape has no such field.
     if profile == CompatProfile::Native {
         value["satisfiesPZI"] = true.into();

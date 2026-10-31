@@ -4249,3 +4249,20 @@ fn writing_patch_and_put_evaluate_metageneration_preconditions() {
         assert!(after.get("labels").is_none(), "{profile}");
     }
 }
+
+/// Cloud Storage reported `satisfiesPZI: true` in us-central1 as it did in asia-northeast1
+/// (observed 2026-11-01), so the native profile reports it whatever the location.
+#[test]
+fn satisfies_pzi_is_true_in_every_location() {
+    let dir = TestDir::new();
+    let server = profile_server(&dir, "native");
+    for (index, location) in ["US-CENTRAL1", "ASIA-NORTHEAST1", "US", "EU"]
+        .into_iter()
+        .enumerate()
+    {
+        let body = json!({"name":format!("pzi-{index}"),"location":location}).to_string();
+        let reply = server.request("POST", "/storage/v1/b?project=project", &body);
+        assert_eq!(reply.status, 200, "{location} {}", reply.body);
+        assert_eq!(reply.json()["satisfiesPZI"], true, "{location}");
+    }
+}
