@@ -330,7 +330,7 @@ impl From<ObjectError> for AdminError {
             ObjectError::PreconditionFailed => Self::Precondition,
             ObjectError::ActiveHold
             | ObjectError::RetentionPolicyNotMet
-            | ObjectError::ObjectRetentionNotMet => Self::Hold,
+            | ObjectError::ObjectRetentionNotMet(_) => Self::Hold,
             ObjectError::BucketNotFound | ObjectError::ObjectNotFound => Self::NotFound,
             ObjectError::ChecksumMismatch => Self::Checksum,
             ObjectError::TooLarge => Self::TooLarge,

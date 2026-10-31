@@ -1654,6 +1654,54 @@ mod tests {
         s.state.catalog.close().await.unwrap();
     }
 
+    /// Cloud Storage returned `retention.retain_until_time` with its nanoseconds over gRPC and
+    /// `retention_expire_time` at millisecond precision (observed 2026-10-31).
+    #[tokio::test]
+    async fn grpc_retention_keeps_nanoseconds_and_expire_time_is_milliseconds() {
+        let (s, _dir) = setup().await;
+        let mut record = json::parse_insert(
+            br#"{"name":"retention-ns"}"#,
+            "local-project",
+            s.state.clock.now(),
+        )
+        .unwrap();
+        record.object_retention_enabled = true;
+        s.state.catalog.insert_bucket(record).await.unwrap();
+        upload_to(&s, "retention-ns", "kept", 3).await;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let object = s
+            .update_object(
+                Request::new(pb::UpdateObjectRequest {
+                    object: Some(pb::Object {
+                        bucket: "projects/_/buckets/retention-ns".into(),
+                        name: "kept".into(),
+                        retention: Some(pb::object::Retention {
+                            mode: pb::object::retention::Mode::Unlocked as i32,
+                            retain_until_time: Some(prost_types::Timestamp {
+                                seconds: now + 3600,
+                                nanos: 123_456_789,
+                            }),
+                        }),
+                        ..Default::default()
+                    }),
+                    update_mask: update_mask(&["retention"]),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        let until = object.retention.unwrap().retain_until_time.unwrap();
+        assert_eq!((until.seconds, until.nanos), (now + 3600, 123_456_789));
+        let expire = object.retention_expire_time.unwrap();
+        assert_eq!((expire.seconds, expire.nanos), (now + 3600, 123_000_000));
+        s.state.catalog.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn grpc_list_soft_deleted_objects() {
         let (s, _dir) = setup().await;

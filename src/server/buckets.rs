@@ -330,6 +330,21 @@ async fn write(
         json::PredefinedAclTarget::Bucket,
     )?;
     let conditions = params.conditions;
+    // Observed on Cloud Storage: a PATCH without a writable setting answers 304 (no body) when
+    // ifMetagenerationNotMatch names the current value, after ifMetagenerationMatch held.
+    if matches!(mode, WriteMode::Patch)
+        && update.is_empty()
+        && conditions
+            .if_metageneration_match
+            .is_none_or(|value| value == record.metageneration)
+        && conditions.if_metageneration_not_match == Some(record.metageneration)
+    {
+        return Err(JsonError::new(
+            StatusCode::NOT_MODIFIED,
+            "notModified",
+            "Not modified",
+        ));
+    }
     let record = match mode {
         WriteMode::Replace => {
             state
@@ -356,7 +371,17 @@ async fn write(
                 .await
         }
     }
-    .map_err(|error| bucket_catalog_error(error, profile, None))?;
+    .map_err(|error| {
+        let failed = matches!(error, CatalogError::PreconditionFailed);
+        let mut error = bucket_catalog_error(error, profile, None);
+        if failed && profile == CompatProfile::Native {
+            // Cloud Storage worded and located a failed metageneration query precondition
+            // this way for PATCH (observed 2026-10-31); PUT shares the path.
+            error.message = "At least one of the pre-conditions you specified did not hold.".into();
+            error.location = Some(&crate::json::IF_MATCH_HEADER);
+        }
+        error
+    })?;
     json::bucket_resource_with_profile(&record, ctx.base_url, params.projection, profile)
 }
 

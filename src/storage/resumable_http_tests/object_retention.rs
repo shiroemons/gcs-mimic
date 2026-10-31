@@ -317,7 +317,7 @@ async fn object_retention_mode_transitions_and_injected_clock_expiry() {
     assert_eq!(edited.status, 200);
     assert_eq!(edited.json()["retention"], created["retention"]);
     // Unlocked: extension is free; shortening, removal and locking need the override. Cloud
-    // Storage answered 403 for shortening and removal; locking is unobserved and stays 400.
+    // Storage answered 403 for shortening, removal and locking (observed 2026-10-31).
     for (body, status, reason) in [
         (
             json!({"retention": retention("Unlocked", HALF_HOUR)}),
@@ -328,8 +328,8 @@ async fn object_retention_mode_transitions_and_injected_clock_expiry() {
         (json!({"retention": {}}), 403, "forbidden"),
         (
             json!({"retention": retention("Locked", TWO_HOURS)}),
-            400,
-            "invalidArgument",
+            403,
+            "forbidden",
         ),
     ] {
         patch(&h, "locked/o/kept", "", body.clone(), ADMIN)
@@ -396,7 +396,7 @@ async fn object_retention_mode_transitions_and_injected_clock_expiry() {
             ADMIN,
         )
         .await
-        .error(400, "invalidArgument");
+        .error(403, "forbidden");
     }
     let put = h
         .request(
@@ -433,7 +433,7 @@ async fn object_retention_mode_transitions_and_injected_clock_expiry() {
         ADMIN,
     )
     .await
-    .error(400, "invalidArgument");
+    .error(403, "forbidden");
     media(&h, "locked", "kept").await;
     let replaced = h
         .request("GET", "/storage/v1/b/locked/o/kept", ADMIN, b"")

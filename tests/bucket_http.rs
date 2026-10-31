@@ -1753,7 +1753,7 @@ fn bucket_metadata_conditions(method: &str) {
             "ifMetagenerationMatch=9223372036854775807",
         ] {
             server
-                .request(method, &format!("{path}?{query}"), "{}")
+                .request(method, &format!("{path}?{query}"), r#"{"labels":{}}"#)
                 .error(412, "conditionNotMet");
             assert_eq!(server.request("GET", path, "").json(), original);
         }
@@ -1768,7 +1768,7 @@ fn bucket_metadata_conditions(method: &str) {
             "unknown=value",
         ] {
             server
-                .request(method, &format!("{path}?{query}"), "{}")
+                .request(method, &format!("{path}?{query}"), r#"{"labels":{}}"#)
                 .error(400, "invalidParameter");
         }
         for query in [
@@ -3634,7 +3634,7 @@ fn bkt_http_conditional_delete_and_metadata_mutation_have_one_winner() {
                     raw(
                         &address,
                         &format!(
-                            "{method} /storage/v1/b/conditional?ifMetagenerationMatch=1 HTTP/1.1\r\nHost: local\r\nContent-Length: 2\r\n\r\n{{}}"
+                            "{method} /storage/v1/b/conditional?ifMetagenerationMatch=1 HTTP/1.1\r\nHost: local\r\nContent-Length: 13\r\n\r\n{{\"labels\":{{}}}}"
                         ),
                     )
                 });
@@ -4166,24 +4166,46 @@ fn bucket_cors_large_metadata_lists_page_without_loss() {
     }
 }
 
-/// A PATCH without a writable setting is a no-op (observed on Cloud Storage), but its
-/// metageneration precondition is still evaluated first (the order was not observed).
+/// Observed on Cloud Storage: a PATCH without a writable setting (`{}`, or `autoclass:{}`)
+/// changes nothing, and its metageneration preconditions are evaluated first: a mismatch is
+/// 412 (reason `conditionNotMet`, location `If-Match`), an `ifMetagenerationNotMatch` naming
+/// the current value is an empty 304, and a satisfied condition answers 200 unchanged.
+/// `autoclass:{"enabled":false}` is a write and advances the metageneration.
 #[test]
-fn empty_patch_checks_if_metageneration_match_and_keeps_the_metageneration() {
+fn empty_patch_evaluates_metageneration_preconditions_and_keeps_the_metageneration() {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
         server.insert("empty-patch", "project");
         let path = "/storage/v1/b/empty-patch";
-        server
-            .request("PATCH", &format!("{path}?ifMetagenerationMatch=2"), "{}")
-            .error(412, "conditionNotMet");
-        let reply = server.request("PATCH", &format!("{path}?ifMetagenerationMatch=1"), "{}");
+        let rejected = server.request("PATCH", &format!("{path}?ifMetagenerationMatch=2"), "{}");
+        rejected.error(412, "conditionNotMet");
+        if profile == "native" {
+            assert_eq!(
+                rejected.json()["error"]["errors"][0]["location"],
+                "If-Match"
+            );
+            assert_eq!(
+                rejected.json()["error"]["message"],
+                "At least one of the pre-conditions you specified did not hold."
+            );
+        }
+        let same = server.request("PATCH", &format!("{path}?ifMetagenerationNotMatch=1"), "{}");
+        assert_eq!((same.status, same.body.as_str()), (304, ""), "{profile}");
+        for (query, body) in [
+            ("ifMetagenerationMatch=1", "{}"),
+            ("ifMetagenerationNotMatch=2", "{}"),
+            ("", "{}"),
+            ("", r#"{"autoclass":{}}"#),
+        ] {
+            let reply = server.request("PATCH", &format!("{path}?{query}"), body);
+            assert_eq!(reply.status, 200, "{profile} {query} {body}");
+            assert_eq!(reply.json()["metageneration"], "1", "{profile} {body}");
+        }
+        let before = server.request("GET", path, "").json();
+        let reply = server.request("PATCH", path, r#"{"autoclass":{"enabled":false}}"#);
         assert_eq!(reply.status, 200, "{profile}");
-        assert_eq!(reply.json()["metageneration"], "1", "{profile}");
-        assert_eq!(
-            server.request("GET", path, "").json()["metageneration"],
-            "1"
-        );
+        assert_eq!(reply.json()["metageneration"], "2", "{profile}");
+        assert_ne!(reply.json()["etag"], before["etag"], "{profile}");
     }
 }

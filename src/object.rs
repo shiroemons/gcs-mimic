@@ -96,7 +96,15 @@ impl ObjectRecord {
             .retention
             .is_some_and(|retention| retention.active(now))
         {
-            return Err(ObjectError::ObjectRetentionNotMet);
+            return Err(ObjectError::ObjectRetentionNotMet(Box::new(
+                RetainedObject {
+                    bucket: self.bucket.clone(),
+                    name: self.name.clone(),
+                    until: self
+                        .retention
+                        .map_or(now, |retention| retention.retain_until),
+                },
+            )));
         }
         Ok(())
     }
@@ -328,6 +336,17 @@ pub struct ComposeSource {
 /// The wording Cloud Storage used when it refused to shorten or remove an Unlocked retention.
 pub(crate) const UNLOCKED_RETENTION_OVERRIDE_MESSAGE: &str = "The unlocked object retention cannot be removed and its retention period cannot be shortened without overriding unlocked retention intent and permission.";
 
+/// The wording Cloud Storage used when it refused to change a Locked retention.
+pub(crate) const LOCKED_RETENTION_MESSAGE: &str = "The locked object retention cannot be removed. Its retention mode cannot be changed and its retention period cannot be shortened.";
+
+/// The retained object named by a denied delete or overwrite. Boxed to keep [`ObjectError`] small.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RetainedObject {
+    pub bucket: String,
+    pub name: String,
+    pub until: SystemTime,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ObjectError {
     BucketNotFound,
@@ -339,9 +358,11 @@ pub(crate) enum ObjectError {
     ActiveHold,
     RetentionPolicyNotMet,
     /// The object's own retain-until time has not passed.
-    ObjectRetentionNotMet,
+    ObjectRetentionNotMet(Box<RetainedObject>),
     /// An Unlocked retention was shortened or removed without `overrideUnlockedRetention`.
     UnlockedRetentionOverrideRequired,
+    /// A Locked retention was shortened, removed or unlocked; the override never applies.
+    LockedRetention,
     ObjectNotSoftDeleted,
     /// The bucket's current owning project is not one the caller was authorized for.
     Forbidden,
@@ -379,9 +400,10 @@ impl fmt::Display for ObjectError {
             Self::RetentionPolicyNotMet => {
                 formatter.write_str("object retention period has not elapsed")
             }
-            Self::ObjectRetentionNotMet => {
+            Self::ObjectRetentionNotMet(_) => {
                 formatter.write_str("object retain-until time has not elapsed")
             }
+            Self::LockedRetention => formatter.write_str(LOCKED_RETENTION_MESSAGE),
             Self::UnlockedRetentionOverrideRequired => {
                 formatter.write_str(UNLOCKED_RETENTION_OVERRIDE_MESSAGE)
             }

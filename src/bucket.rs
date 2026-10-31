@@ -188,7 +188,9 @@ impl BucketMetadataUpdate {
             && object_retention_enabled.is_none()
             && labels.is_none()
             && storage_class.is_none()
-            && autoclass.is_none()
+            && autoclass
+                .as_ref()
+                .is_none_or(|update| *update == autoclass::AutoclassUpdate::default())
             && versioning_enabled.is_none()
             && default_event_based_hold.is_none()
             && public_access_prevention_enforced.is_none()

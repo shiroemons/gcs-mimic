@@ -111,8 +111,13 @@ fn set_retention(server: &Server, name: &str, mode: &str) -> Value {
     body
 }
 
+/// Observed on Cloud Storage (2026-10-31): a Locked retention refuses shortening, removal and a
+/// mode change with 403 `forbidden` and its own message, with or without the override. The
+/// displayed millisecond value is a shortening, the same time again is accepted (and counts as a
+/// metadata write), and a time a nanosecond later extends it.
 #[test]
-fn locked_retention_read_back_is_accepted_and_a_shorter_time_is_not() {
+fn locked_retention_refuses_every_reduction_with_403_and_accepts_equal_or_later() {
+    const LOCKED_MESSAGE: &str = "The locked object retention cannot be removed. Its retention mode cannot be changed and its retention period cannot be shortened.";
     let dir = TestDir::new();
     let mut server = Server::start(&dir);
     setup(&server, &["locked"]);
@@ -121,32 +126,68 @@ fn locked_retention_read_back_is_accepted_and_a_shorter_time_is_not() {
         stored["retention"]["retainUntilTime"],
         "2099-01-02T03:04:05.123Z"
     );
-
-    // Sending the same nanosecond time again changes nothing (Locked behaviour is unobserved).
-    let (status, body) = server.request(
-        "PATCH",
-        &object_path("locked"),
-        &json!({"retention":{"mode":"Locked","retainUntilTime":FINE}}).to_string(),
-    );
-    assert_eq!(status, 200, "{body}");
-    assert_eq!(body["retention"], stored["retention"]);
-    for method in ["PATCH", "PUT"] {
-        let (status, body) = server.request(
-            method,
-            &object_path("locked"),
-            &json!({"retention":stored["retention"]}).to_string(),
-        );
-        assert_eq!(status, 200, "{method} {body}");
-        assert_eq!(body["retention"], stored["retention"]);
+    let patch = |server: &Server, body: Value, query: &str| {
+        server.request(
+            "PATCH",
+            &format!("{}{query}", object_path("locked")),
+            &body.to_string(),
+        )
+    };
+    let locked = |time: &str| json!({"retention":{"mode":"Locked","retainUntilTime":time}});
+    for query in ["", "?overrideUnlockedRetention=true"] {
+        for body in [
+            locked("2099-01-02T03:04:05.123Z"),
+            locked("2099-01-02T03:04:05.123456788Z"),
+            locked("2099-01-02T03:03:35.123456789Z"),
+            json!({"retention":null}),
+            json!({"retention":{"mode":"Unlocked","retainUntilTime":FINE}}),
+        ] {
+            let (status, reply) = patch(&server, body.clone(), query);
+            assert_eq!(status, 403, "{body} {query} {reply}");
+            assert_eq!(reply["error"]["errors"][0]["reason"], "forbidden");
+            assert_eq!(reply["error"]["message"], LOCKED_MESSAGE);
+        }
     }
-    // One millisecond earlier is a real shortening and stays refused.
-    let (status, body) = server.request(
-        "PATCH",
-        &object_path("locked"),
-        r#"{"retention":{"mode":"Locked","retainUntilTime":"2099-01-02T03:04:05.122Z"}}"#,
+    let (status, same) = patch(&server, locked(FINE), "");
+    assert_eq!(status, 200, "{same}");
+    let (status, later) = patch(&server, locked("2099-01-02T03:04:05.123456790Z"), "");
+    assert_eq!(status, 200, "{later}");
+    assert_eq!(
+        later["retention"]["retainUntilTime"],
+        "2099-01-02T03:04:05.123Z"
     );
-    assert_eq!(status, 400, "{body}");
-    assert_eq!(body["error"]["errors"][0]["reason"], "invalidArgument");
+    // A restart keeps the nanoseconds, so the earlier time is now a shortening.
+    server.stop();
+    let mut server = Server::start(&dir);
+    let (status, reply) = patch(&server, locked(FINE), "");
+    assert_eq!(status, 403, "{reply}");
+    server.stop();
+}
+
+/// Locking an Unlocked retention needs the override, with the Unlocked wording (observed).
+#[test]
+fn locking_an_unlocked_retention_needs_the_override() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    setup(&server, &["lock"]);
+    set_retention(&server, "lock", "Unlocked");
+    let body = json!({"retention":{"mode":"Locked","retainUntilTime":FINE}}).to_string();
+    let (status, reply) = server.request("PATCH", &object_path("lock"), &body);
+    assert_eq!(status, 403, "{reply}");
+    assert_eq!(reply["error"]["errors"][0]["reason"], "forbidden");
+    assert!(
+        reply["error"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("The unlocked object retention cannot be removed")
+    );
+    let (status, reply) = server.request(
+        "PATCH",
+        &format!("{}?overrideUnlockedRetention=true", object_path("lock")),
+        &body,
+    );
+    assert_eq!(status, 200, "{reply}");
+    assert_eq!(reply["retention"]["mode"], "Locked");
     server.stop();
 }
 
@@ -238,5 +279,66 @@ fn custom_time_read_back_is_accepted_and_a_decrease_is_not() {
         r#"{"customTime":"2099-01-02T03:04:05.123456788Z"}"#,
     );
     assert_eq!(status, 400, "{body}");
+    server.stop();
+}
+
+/// Observed on Cloud Storage (2026-10-31): deleting a retained object is 403
+/// `retentionPolicyNotMet`; the message names the object and the retain-until time in US
+/// Pacific time to the nanosecond, and `overrideUnlockedRetention` is honoured on PATCH only.
+#[test]
+fn deleting_a_retained_object_names_it_and_ignores_the_override() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    setup(&server, &["held", "locked"]);
+    set_retention(&server, "held", "Unlocked");
+    set_retention(&server, "locked", "Locked");
+    for name in ["held", "locked"] {
+        for query in ["", "?overrideUnlockedRetention=true"] {
+            let (status, body) =
+                server.request("DELETE", &format!("{}{query}", object_path(name)), "");
+            assert_eq!(status, 403, "{name} {query} {body}");
+            assert_eq!(
+                body["error"]["errors"][0]["reason"],
+                "retentionPolicyNotMet"
+            );
+            assert_eq!(
+                body["error"]["message"],
+                format!(
+                    "Object 'rt-bucket/{name}' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until 2099-01-01T19:04:05.123456789-08:00"
+                )
+            );
+        }
+    }
+    server.stop();
+}
+
+/// `retentionExpireTime` is a gRPC field name, not a JSON one (observed 2026-10-31).
+#[test]
+fn fields_selection_rejects_the_grpc_retention_expire_time_name() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    setup(&server, &["fields"]);
+    let (status, body) = server.request(
+        "GET",
+        &format!("{}?fields=name,retentionExpireTime", object_path("fields")),
+        "",
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["errors"][0]["reason"], "invalidParameter");
+    assert_eq!(
+        body["error"]["message"],
+        "Invalid field selection retentionExpireTime"
+    );
+    assert_eq!(body["error"]["errors"][0]["locationType"], "parameter");
+    assert_eq!(body["error"]["errors"][0]["location"], "fields");
+    let (status, body) = server.request(
+        "GET",
+        &format!(
+            "{}?fields=name,retentionExpirationTime",
+            object_path("fields")
+        ),
+        "",
+    );
+    assert_eq!(status, 200, "{body}");
     server.stop();
 }

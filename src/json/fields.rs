@@ -49,7 +49,9 @@ impl Fields {
         fields
             .validate(&SCHEMAS["schemas"][schema])
             .map_err(|mut error| {
-                error.message = format!("{}: {value}", error.message);
+                // Cloud Storage named only the rejected field, at the `fields` parameter
+                // (observed 2026-10-31 for retentionExpireTime).
+                error.location = Some(&super::error::FIELDS_PARAMETER);
                 error
             })?;
         Ok(fields)
@@ -284,7 +286,13 @@ mod tests {
                 (400, "invalidParameter"),
                 "{selector}"
             );
-            assert!(error.message.contains(selector), "{}", error.message);
+            // Syntax errors quote the selector; a rejected name is reported alone, at `fields`.
+            assert!(
+                error.message.contains(selector)
+                    || error.location == Some(&crate::json::error::FIELDS_PARAMETER),
+                "{}",
+                error.message
+            );
         }
         for selector in [
             "",

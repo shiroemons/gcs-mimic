@@ -38,9 +38,30 @@ pub struct JsonError {
     pub reason: &'static str,
     pub message: String,
     pub allow: Option<&'static str>,
-    /// Request header named by `locationType`/`location` in the error item, if any.
-    pub header_location: Option<&'static str>,
+    /// The `locationType`/`location` pair of the error item, if any. A reference keeps the error
+    /// small, which `Result` returns throughout the crate depend on.
+    pub location: Option<&'static ErrorLocation>,
 }
+
+/// Where a rejected value was sent: `locationType` and `location` of an error item.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ErrorLocation {
+    pub kind: &'static str,
+    pub name: &'static str,
+}
+
+pub(crate) const AUTHORIZATION_HEADER: ErrorLocation = ErrorLocation {
+    kind: "header",
+    name: "Authorization",
+};
+pub(crate) const IF_MATCH_HEADER: ErrorLocation = ErrorLocation {
+    kind: "header",
+    name: "If-Match",
+};
+pub(crate) const FIELDS_PARAMETER: ErrorLocation = ErrorLocation {
+    kind: "parameter",
+    name: "fields",
+};
 
 impl JsonError {
     fn storage_capacity() -> Self {
@@ -103,7 +124,7 @@ impl JsonError {
             reason,
             message: message.into(),
             allow: None,
-            header_location: None,
+            location: None,
         }
     }
 
@@ -141,9 +162,9 @@ impl JsonError {
 
     pub(crate) fn value(&self) -> Value {
         let mut item = json!({"message": self.message, "domain": "global", "reason": self.reason});
-        if let Some(location) = self.header_location {
-            item["locationType"] = "header".into();
-            item["location"] = location.into();
+        if let Some(location) = self.location {
+            item["locationType"] = location.kind.into();
+            item["location"] = location.name.into();
         }
         json!({"error": {"code": self.status.as_u16(), "message": self.message, "errors": [item]}})
     }
@@ -227,14 +248,14 @@ impl From<AuthFailure> for JsonError {
             // Documented status-code example for a missing credential.
             AuthFailure::LoginRequired => {
                 let mut error = Self::new(StatusCode::UNAUTHORIZED, "required", "Login Required");
-                error.header_location = Some("Authorization");
+                error.location = Some(&AUTHORIZATION_HEADER);
                 error
             }
             // The reason is documented; message and location are a local choice.
             AuthFailure::InvalidCredentials => {
                 let mut error =
                     Self::new(StatusCode::UNAUTHORIZED, "authError", "Invalid Credentials");
-                error.header_location = Some("Authorization");
+                error.location = Some(&AUTHORIZATION_HEADER);
                 error
             }
             // The service's longer "<principal> does not have <permission> access" text is
@@ -361,6 +382,11 @@ impl From<ObjectError> for JsonError {
                 "forbidden",
                 crate::object::UNLOCKED_RETENTION_OVERRIDE_MESSAGE,
             ),
+            ObjectError::LockedRetention => Self::new(
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                crate::object::LOCKED_RETENTION_MESSAGE,
+            ),
             ObjectError::ActiveHold => Self::new(
                 StatusCode::FORBIDDEN,
                 "objectUnderActiveHold",
@@ -373,10 +399,15 @@ impl From<ObjectError> for JsonError {
             ),
             // The object-lock guide documents denial of retained deletes and replacements;
             // the reason string is shared with bucket retention as a local choice.
-            ObjectError::ObjectRetentionNotMet => Self::new(
+            ObjectError::ObjectRetentionNotMet(retained) => Self::new(
                 StatusCode::FORBIDDEN,
                 "retentionPolicyNotMet",
-                "Object is retained until retention.retainUntilTime; wait until then, or shorten or remove an Unlocked configuration with overrideUnlockedRetention=true.",
+                format!(
+                    "Object '{}/{}' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until {}",
+                    retained.bucket,
+                    retained.name,
+                    crate::object::retention::pacific_rfc3339(retained.until)
+                ),
             ),
             ObjectError::ChecksumMismatch => Self::new(
                 StatusCode::BAD_REQUEST,

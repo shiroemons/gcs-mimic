@@ -227,7 +227,11 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
         component_count: record.component_count.unwrap_or_default() as i32,
         temporary_hold: record.temporary_hold,
         event_based_hold: Some(record.event_based_hold),
-        retention_expire_time: record.earliest_deletion_time().map(Into::into),
+        // Cloud Storage returned retention_expire_time at millisecond precision while
+        // retention.retain_until_time kept its nanoseconds (observed 2026-10-31).
+        retention_expire_time: record
+            .earliest_deletion_time()
+            .map(|time| crate::object::retention::truncate_to_millis(time).into()),
         retention: record.retention.map(|retention| pb::object::Retention {
             mode: match retention.mode {
                 RetentionMode::Unlocked => pb::object::retention::Mode::Unlocked,

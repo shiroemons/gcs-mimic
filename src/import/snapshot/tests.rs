@@ -404,7 +404,13 @@ fn snapshot_retention_remains_enforced_after_restart() {
             catalog
                 .delete_object("bucket-one", "retained", Some(7), Default::default())
                 .await,
-            Err(crate::object::ObjectError::ObjectRetentionNotMet)
+            Err(crate::object::ObjectError::ObjectRetentionNotMet(Box::new(
+                crate::object::RetainedObject {
+                    bucket: "bucket-one".into(),
+                    name: "retained".into(),
+                    until: record.retention.unwrap().retain_until,
+                }
+            )))
         );
         assert_eq!(
             admin.get_object(&bucket, &name, None).await.unwrap(),

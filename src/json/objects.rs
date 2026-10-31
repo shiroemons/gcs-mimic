@@ -479,6 +479,9 @@ fn parse_named_object_query(
             },
         });
     }
+    // Cloud Storage accepted the parameter on objects.delete and ignored it: a retained object
+    // stayed protected (observed 2026-10-31). Only PATCH and PUT honour the override.
+    boolean(&mut query, "overrideUnlockedRetention")?;
     finish(&query)?;
     Ok(ObjectRequest::Delete {
         bucket,
