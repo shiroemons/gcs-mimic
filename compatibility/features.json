@@ -21213,7 +21213,7 @@
         },
         {
           "id": "full_read_mask",
-          "description": "A read mask naming all 33 top-level Object fields, or `*`, succeeds as on Google; `acl` and `owner` come from the shared JSON projection=full ACL view and stay empty under uniform access or without storage.objects.getIamPolicy; fields no local object holds stay empty; `[name, acl]` returns only those fields.",
+          "description": "A read mask naming all 33 top-level Object fields, or `*`, succeeds as on Google; `acl` and `owner` come from the shared JSON projection=full ACL view and stay empty under uniform access or without storage.objects.getIamPolicy; fields no local object holds stay empty; `[name, acl]` returns only those fields; `checksums.crc32c` or `checksums.md5_hash` keeps only that digest.",
           "result": "PASS",
           "test_ids": [
             "grpc_io_full_read_masks_return_acl_and_owner"
@@ -21221,7 +21221,7 @@
         },
         {
           "id": "broader_rpc_semantics",
-          "description": "Nested masks, explicitly soft-deleted lookups, restore tokens and the owner entity_id/ACL entity_alt fields remain unsupported.",
+          "description": "Nested masks other than checksums.crc32c and checksums.md5_hash, explicitly soft-deleted lookups, restore tokens and the owner entity_id/ACL entity_alt fields remain unsupported.",
           "result": "PENDING",
           "test_ids": []
         }

@@ -114,6 +114,10 @@ Unreleased user-visible changes that the next minor release notes must state:
   retention and cannot be deleted or overwritten until <time>`), naming the
   creation time plus the period in US Pacific time to the microsecond. The
   gRPC `DeleteObject` returns `PERMISSION_DENIED` with that message.
+- gRPC `Bucket.project` is `projects/{project number}`, like JSON
+  `projectNumber` (a numeric project ID verbatim, `0` otherwise), instead of
+  `projects/{project ID}`, because SDKs parse it as a number. gRPC read masks accept
+  `checksums.crc32c` and `checksums.md5_hash` (only that digest is returned).
 
 ## The 1.0.0 gate
 

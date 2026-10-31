@@ -158,9 +158,25 @@ fn mask_object(
     else {
         return Ok(object);
     };
+    // The Java SDK lists with `checksums.crc32c` and `checksums.md5_hash`; a sub-path keeps only
+    // that digest, as protobuf field-mask semantics require.
+    let digest = |name: &str| {
+        mask.paths
+            .iter()
+            .any(|p| p == "checksums" || p.strip_prefix("checksums.") == Some(name))
+    };
+    let kept_checksums = object.checksums.take().map(|mut sums| {
+        if !digest("crc32c") {
+            sums.crc32c = None;
+        }
+        if !digest("md5_hash") {
+            sums.md5_hash = Default::default();
+        }
+        sums
+    });
     macro_rules! fields { ($($field:ident),+ $(,)?) => {{
         for path in &mask.paths {
-            if !matches!(path.as_str(), $(stringify!($field))|+) {
+            if !matches!(path.as_str(), $(stringify!($field))|+ | "checksums.crc32c" | "checksums.md5_hash") {
                 return Err(unsupported(&format!("read_mask path {path}; request a supported top-level object field"), None));
             }
         }
@@ -201,6 +217,9 @@ fn mask_object(
         hard_delete_time,
         retention
     );
+    if digest("crc32c") || digest("md5_hash") {
+        object.checksums = kept_checksums;
+    }
     Ok(object)
 }
 
@@ -1466,7 +1485,7 @@ mod tests {
             mask_object(
                 pb::Object::default(),
                 Some(&prost_types::FieldMask {
-                    paths: vec!["checksums.crc32c".into()]
+                    paths: vec!["owner.entity".into()]
                 })
             )
             .unwrap_err()
@@ -1638,11 +1657,33 @@ mod tests {
         assert_eq!(metadata.acl, full.acl);
         assert!(metadata.owner.is_none());
         assert_eq!(
-            get(read_mask(&["checksums.crc32c"]), admin)
+            get(read_mask(&["owner.entity"]), admin)
                 .await
                 .unwrap_err()
                 .code(),
             tonic::Code::Unimplemented
+        );
+        // A checksum sub-path keeps only that digest, as the Java SDK lists objects.
+        let sums = full.checksums.clone().unwrap();
+        assert!(sums.crc32c.is_some() && !sums.md5_hash.is_empty());
+        let md5_only = get(read_mask(&["name", "checksums.md5_hash"]), admin)
+            .await
+            .unwrap()
+            .into_inner();
+        let md5_only = md5_only.checksums.unwrap();
+        assert_eq!(
+            (md5_only.crc32c, md5_only.md5_hash),
+            (None, sums.md5_hash.clone())
+        );
+        let crc_only = get(read_mask(&["checksums.crc32c"]), admin)
+            .await
+            .unwrap()
+            .into_inner()
+            .checksums
+            .unwrap();
+        assert_eq!(
+            (crc_only.crc32c, crc_only.md5_hash.is_empty()),
+            (sums.crc32c, true)
         );
         storage.state.catalog.close().await.unwrap();
     }

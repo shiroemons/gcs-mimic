@@ -101,7 +101,9 @@ pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
         bucket_id: record.name.clone(),
         etag: crate::json::bucket_etag(record),
         lifecycle: lifecycle(&record.lifecycle),
-        project: format!("projects/{}", record.project),
+        // Cloud Storage returns the project number here, and the Java SDK parses it as a number.
+        // The local registry has no project numbers, so this matches JSON `projectNumber`.
+        project: format!("projects/{}", crate::acl::project_number(&record.project)),
         metageneration: record.metageneration,
         location: record.location.clone(),
         location_type: record.location_type.clone(),
@@ -330,6 +332,13 @@ mod tests {
         let value =
             json::bucket_resource(&bucket_record, "http://localhost", Projection::NoAcl).unwrap();
         let proto = bucket(&bucket_record);
+        assert_eq!(proto.project, "projects/123");
+        let named = BucketRecord {
+            project: "local-project".into(),
+            ..bucket_record.clone()
+        };
+        // SDKs parse the project as a number, so an ID with no registered number renders as 0.
+        assert_eq!(bucket(&named).project, "projects/0");
         assert_eq!(proto.bucket_id, value["name"]);
         assert_eq!(proto.storage_class, value["storageClass"]);
         assert_eq!(proto.location, value["location"]);

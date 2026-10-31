@@ -24,3 +24,15 @@ gcs-mimic now reports `finalize_time` on every finalized generation, including a
 ## Checksums on a single-message appendable upload
 
 The pinned proto's `BidiWriteObjectRequest.object_checksums` documentation allows appendable uploads to send checksums on the last request, the one with `finish_write`. The official Java SDK sends `write_object_spec`, data, `finish_write` and `object_checksums` in one message for a small appendable object; gcs-mimic rejected that message with INVALID_ARGUMENT because it was also the first. gcs-mimic now accepts it and verifies the CRC32C at finalization (a mismatch returns INVALID_ARGUMENT and leaves the object unfinalized). MD5 is still rejected, and first-message checksums without `finish_write` are still rejected before the object is created. Test: `append_accepts_checksums_on_a_single_finishing_message`.
+
+## Checksum sub-paths in read masks
+
+The official Java SDK's `ListObjects` mask names `checksums.md5_hash`; gcs-mimic rejected every nested path as UNIMPLEMENTED, which failed the SDK's basic object workflow. By protobuf field-mask semantics a sub-path selects only that child, so gcs-mimic now accepts `checksums.crc32c` and `checksums.md5_hash` and returns `checksums` with only the named digest. Other nested paths (for example `owner.entity`) are still UNIMPLEMENTED. This is derived from the field-mask contract and the SDK's request, not from a fresh Google observation. Test: `grpc_io_full_read_masks_return_acl_and_owner`.
+
+## Bucket `project`
+
+`google.storage.v2.Bucket.project` is `projects/{project number}` on Google, and the Java SDK parses the value as a number (`StorageException: Illegal embedded sign character` for `projects/local-project`). gcs-mimic now renders the same project number as JSON `projectNumber` (a numeric project ID verbatim, `0` otherwise). Test: `grpc_record_conversion`.
+
+## GetObject without a read mask
+
+The pinned `storage.proto` documents the default `GetObject` mask as every field except `acl` and `owner`, and gcs-mimic follows it. The Rust scorecard probe for `object.acl` read the ACL without a mask and reported `ACL missing`; the probe now requests `acl` explicitly.
