@@ -51,9 +51,9 @@ and [buckets.restore](https://docs.cloud.google.com/storage/docs/json_api/v1/buc
   the matching internal key and seeds the allocator, so order, uniqueness and
   `restore?generation=` keep working. Limitation: a generation is an `i64`
   nanosecond count, so the creation-time seed is capped at
-  `9_000_000_000_000_000_000` (April 2255). A bucket created with a clock past
-  that instant, which only a fixed or fast-forwarded test clock can produce,
-  no longer gets a generation that tracks its creation time: allocation
+  `9_000_000_000_000_000_000` (2255-03-14T16:00:00Z). A bucket created with a
+  clock past that instant, which only a fixed or fast-forwarded test clock can
+  produce, no longer gets a generation that tracks its creation time: allocation
   continues from the cap as `previous + 1`, so generations stay unique and
   increasing for about 2e17 further buckets, after which creation fails with
   "generation exhausted". Without the cap a time past 2262 would saturate at
