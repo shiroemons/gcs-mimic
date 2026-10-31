@@ -17,7 +17,20 @@ struct Server {
 
 impl Server {
     fn start(dir: &TestDir, options: &[&str]) -> Self {
-        let mut child = common::server_command()
+        Self::start_with(dir, options, false)
+    }
+
+    /// Starts without the suite's pinned default so the genuine, unconfigured default applies.
+    fn start_unconfigured(dir: &TestDir, options: &[&str]) -> Self {
+        Self::start_with(dir, options, true)
+    }
+
+    fn start_with(dir: &TestDir, options: &[&str], unconfigured: bool) -> Self {
+        let mut command = common::server_command();
+        if unconfigured {
+            command.env_remove("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS");
+        }
+        let mut child = command
             .args([
                 "serve",
                 "--scheme",
@@ -496,6 +509,25 @@ fn new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted() 
             "",
         )
         .ok();
+}
+
+#[test]
+fn unconfigured_native_server_gives_new_buckets_the_seven_day_default() {
+    let dir = TestDir::new();
+    let server = Server::start_unconfigured(&dir, &[]);
+    let bucket = create(&server, "genuine-default", None);
+    assert_eq!(
+        bucket["softDeletePolicy"]["retentionDurationSeconds"],
+        "604800"
+    );
+}
+
+#[test]
+fn unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy() {
+    let dir = TestDir::new();
+    let server = Server::start_unconfigured(&dir, &["--compat-profile", "legacy-emulator"]);
+    let bucket = create(&server, "legacy-default", None);
+    assert!(bucket.get("softDeletePolicy").is_none(), "{bucket}");
 }
 
 #[test]
