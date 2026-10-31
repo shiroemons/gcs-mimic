@@ -51,3 +51,11 @@ excluded from the Rust denominator.
 | `project.hmac_keys` | 1.21.0 has no public API for HMAC keys. |
 | `project.service_account` | 1.21.0 has no public API for the project service account. |
 | `signed.v2_get` | 1.21.0 has no public API for V2 signed URLs. |
+
+## ACL reads need a read mask
+
+`StorageControl::get_object` without a read mask returns no `acl` or `owner`: the
+pinned `google.storage.v2` proto documents the default `GetObject` mask as every
+field except `metadata.acl` and `metadata.owner`. `object.acl` therefore sets
+`read_mask` to `acl` for both reads. Before this, the case read the ACL without a
+mask and failed with `ACL missing` against a correct emulator.

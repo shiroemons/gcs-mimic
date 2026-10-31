@@ -2,7 +2,7 @@
 //! metadata reads and updates go through `StorageControl` (gRPC), the only public
 //! metadata API in the Rust SDK.
 
-use crate::harness::{Ctx, Expect, Result, check, collect, expect_error, fail, path};
+use crate::harness::{Ctx, Expect, Result, check, collect, expect_error, fail, mask, path};
 use crate::transport::chain;
 use bytes::Bytes;
 use google_cloud_gax::error::rpc::Code;
@@ -227,12 +227,30 @@ pub(super) async fn metageneration_match_precondition(ctx: &Ctx) -> Result<()> {
     expect_error(result, Expect::PreconditionFailed)
 }
 
+/// GetObject omits `acl` unless the read mask names it (the pinned storage.proto documents the
+/// default as every field except `acl` and `owner`), so the probe asks for it.
+async fn get_object_with_acl(
+    ctx: &Ctx,
+    bucket: &str,
+    name: &str,
+) -> Result<Vec<ObjectAccessControl>> {
+    let object = ctx
+        .control()?
+        .get_object()
+        .set_bucket(path(bucket))
+        .set_object(name)
+        .set_read_mask(mask(&["acl"]))
+        .send()
+        .await?;
+    Ok(object.acl)
+}
+
 /// Appends a READER entry and saves the whole object ACL, as Python's `acl.save()`
 /// does; the Rust SDK exposes object ACLs only as an object field.
 pub(super) async fn acl(ctx: &Ctx) -> Result<()> {
     let bucket = ctx.bucket().await?;
     ctx.upload(&bucket, "acl.txt", b"x").await?;
-    let mut acl = ctx.get_object(&bucket, "acl.txt").await?.acl;
+    let mut acl = get_object_with_acl(ctx, &bucket, "acl.txt").await?;
     acl.push(
         ObjectAccessControl::new()
             .set_entity("allUsers")
@@ -240,7 +258,7 @@ pub(super) async fn acl(ctx: &Ctx) -> Result<()> {
     );
     ctx.update_object(object_ref(&bucket, "acl.txt").set_acl(acl), &["acl"])
         .await?;
-    let acl = ctx.get_object(&bucket, "acl.txt").await?.acl;
+    let acl = get_object_with_acl(ctx, &bucket, "acl.txt").await?;
     check(
         acl.iter()
             .any(|e| e.entity == "allUsers" && e.role == "READER"),
