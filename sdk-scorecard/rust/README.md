@@ -27,6 +27,19 @@ On Linux the binary takes `SCORECARD_ENDPOINT`, `SCORECARD_GRPC_ENDPOINT`,
 verifies CA, hostname and origin handling. The probe sets `SSL_CERT_FILE` from
 `SCORECARD_CA_CERT` itself and clears proxy, credential and metadata variables.
 
+## Host header without a port
+
+For a non-`googleapis.com` endpoint, the SDK's HTTP requests (object uploads,
+downloads, listing and the other JSON object calls) send `Host: <endpoint host>`
+with the port removed (`google-cloud-gax-internal` 0.7.21, `host.rs`: "Emulators
+... fall back to the passed-in service host"; `http_builder_with_url` sets the
+header from it). No public builder option changes this, and the scorecard origin
+needs an explicit port, so the TLS frontend accepts `Host: 127.0.0.1` as well as
+`127.0.0.1:<port>`. Any other name or port is still rejected with 400, and the
+frontend rewrites the outgoing Host to the full origin authority, so the backends
+see the same Host as for every other SDK. Before this, 32 of 47 scored Rust cases
+failed with `unexpected frontend Host` for every product.
+
 ## Unsupported cases
 
 Cases the SDK has no public API for are emitted with `unsupported: true` and

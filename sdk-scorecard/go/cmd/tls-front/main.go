@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,10 +39,27 @@ func (b *lingeringBody) Close() error {
 	return nil
 }
 
+// hostAllowed accepts the origin authority and the same loopback name without
+// its port. The Rust SDK (google-cloud-gax-internal host.rs) builds the Host
+// header of its JSON object requests from the endpoint's host only, dropping
+// the port, when the endpoint is not a googleapis.com name. The name must still
+// equal the origin's, so a request aimed at any other host is rejected; the
+// proxy rewrites the outgoing Host to the full origin authority.
+func hostAllowed(host string, origin *url.URL) bool {
+	if host == origin.Host {
+		return true
+	}
+	name := origin.Hostname()
+	if strings.Contains(name, ":") {
+		name = "[" + name + "]"
+	}
+	return host == name
+}
+
 func frontendHandler(backend, origin *url.URL) http.Handler {
 	proxy := frontend(backend, origin)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Host != origin.Host {
+		if !hostAllowed(r.Host, origin) {
 			http.Error(w, "unexpected frontend Host", http.StatusBadRequest)
 			return
 		}

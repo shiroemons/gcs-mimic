@@ -140,3 +140,28 @@ func TestLoopbackConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestHostAllowedAcceptsOriginAuthorityAndPortlessName(t *testing.T) {
+	for _, tc := range []struct {
+		origin, host string
+		want         bool
+	}{
+		{"https://127.0.0.1:4443", "127.0.0.1:4443", true},
+		{"https://127.0.0.1:4443", "127.0.0.1", true},
+		{"https://127.0.0.1:4443", "127.0.0.1:4444", false},
+		{"https://127.0.0.1:4443", "localhost", false},
+		{"https://127.0.0.1:4443", "storage.googleapis.com", false},
+		{"https://127.0.0.1:4443", "", false},
+		{"https://[::1]:4443", "[::1]", true},
+		{"https://[::1]:4443", "[::1]:4443", true},
+		{"https://[::1]:4443", "127.0.0.1", false},
+	} {
+		origin, err := url.Parse(tc.origin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := hostAllowed(tc.host, origin); got != tc.want {
+			t.Errorf("hostAllowed(%q, %s) = %v, want %v", tc.host, tc.origin, got, tc.want)
+		}
+	}
+}
