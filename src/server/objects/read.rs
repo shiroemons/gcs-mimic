@@ -2,6 +2,7 @@
 
 use crate::object::ObjectRecord;
 use crate::server::RequestBody as Incoming;
+use crate::storage::ObjectReader;
 use crate::{
     bucket::BucketAccess,
     json::{self, JsonError},
@@ -116,33 +117,7 @@ async fn media(
     // A media HEAD sends the GET headers without reading the object (observed 2026-10-31).
     let head = request.method() == Method::HEAD;
     if transcode {
-        // Range is ignored while gunzipping: the whole expanded object is sent with 200.
-        if !head
-            && gzip::is_plain(&mut reader, record.size)
-                .await
-                .map_err(|_| {
-                    JsonError::new(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "backendError",
-                        "Cannot read object data",
-                    )
-                })?
-        {
-            return Ok(gzip::plain_body_rejection(headers));
-        }
-        gzip::insert_transcoded_headers(&mut headers);
-        let mut response = if head {
-            boxed(Response::new(Full::new(Bytes::new())))
-        } else {
-            Response::new(gzip::body(
-                reader,
-                record.size,
-                ctx.config.max_object_bytes,
-                ctx.activity,
-            ))
-        };
-        *response.headers_mut() = headers;
-        return Ok(response);
+        return gunzipped(ctx, &record, reader, headers, request.method()).await;
     }
     let negotiable = json::object_media_negotiable(&record);
     if negotiable {
@@ -187,6 +162,44 @@ async fn media(
     if range.is_some() {
         *response.status_mut() = StatusCode::PARTIAL_CONTENT;
     }
+    *response.headers_mut() = headers;
+    Ok(response)
+}
+
+/// A gunzipped media response: Range is ignored and the whole expanded object is sent with
+/// 200, unless the stored bytes are not gzip, which fails before any header is sent.
+async fn gunzipped(
+    ctx: ObjectCtx<'_>,
+    record: &ObjectRecord,
+    mut reader: ObjectReader,
+    mut headers: HeaderMap,
+    method: &Method,
+) -> Result<Response<ResponseBody>, JsonError> {
+    let head = method == Method::HEAD;
+    if !head
+        && gzip::is_plain(&mut reader, record.size)
+            .await
+            .map_err(|_| {
+                JsonError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "backendError",
+                    "Cannot read object data",
+                )
+            })?
+    {
+        return Ok(gzip::plain_body_rejection(headers));
+    }
+    gzip::insert_transcoded_headers(&mut headers);
+    let mut response = if head {
+        boxed(Response::new(Full::new(Bytes::new())))
+    } else {
+        Response::new(gzip::body(
+            reader,
+            record.size,
+            ctx.config.max_object_bytes,
+            ctx.activity,
+        ))
+    };
     *response.headers_mut() = headers;
     Ok(response)
 }
