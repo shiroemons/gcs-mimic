@@ -84,7 +84,7 @@ fn send(
     pieces: Option<usize>,
     trailer: bool,
 ) -> Reply {
-    let mut stream = TcpStream::connect(&server.address).unwrap();
+    let stream = TcpStream::connect(&server.address).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(15)))
         .unwrap();
@@ -96,19 +96,23 @@ fn send(
     } else {
         format!("Content-Length: {}\r\n", body.len())
     };
+    // One-byte HTTP chunks of a 200 KB body are hundreds of thousands of tiny writes; unbuffered,
+    // they stall on Nagle and delayed ACKs past the read timeout on Linux CI runners. Buffering
+    // keeps the same wire framing.
+    let mut writer = std::io::BufWriter::new(&stream);
     write!(
-        stream,
+        writer,
         "PUT {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{framing}{}\r\n",
         signed.path, signed.headers
     )
     .unwrap();
     if let Some(size) = pieces {
         for part in body.chunks(size) {
-            write!(stream, "{:x}\r\n", part.len()).unwrap();
-            stream.write_all(part).unwrap();
-            stream.write_all(b"\r\n").unwrap();
+            write!(writer, "{:x}\r\n", part.len()).unwrap();
+            writer.write_all(part).unwrap();
+            writer.write_all(b"\r\n").unwrap();
         }
-        stream
+        writer
             .write_all(if trailer {
                 b"0\r\nother: unexpected\r\n\r\n"
             } else {
@@ -116,8 +120,10 @@ fn send(
             })
             .unwrap();
     } else {
-        stream.write_all(body).unwrap();
+        writer.write_all(body).unwrap();
     }
+    writer.flush().unwrap();
+    drop(writer);
     read_reply(stream)
 }
 
