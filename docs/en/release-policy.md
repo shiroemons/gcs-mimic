@@ -68,6 +68,11 @@ local Pub/Sub and RAM storage do not by themselves close the 1.0.0 gate.
 
 Unreleased user-visible changes that the next minor release notes must state:
 
+- Creating a bucket notification configuration now checks that the Pub/Sub topic
+  exists when a local Pub/Sub emulator is configured (`GCS_MIMIC_PUBSUB_EMULATOR_HOST`
+  or `PUBSUB_EMULATOR_HOST`). A missing topic returns Cloud Storage's 400; an
+  emulator that cannot be reached returns a retryable 503 and creates nothing.
+  Without an emulator, topics are still accepted unchecked.
 - A new native bucket created without `softDeletePolicy` now gets Cloud Storage's
   seven-day soft delete, so deleted objects and buckets keep their bytes for
   seven days. This includes overwriting an object without versioning: the
