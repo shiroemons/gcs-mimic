@@ -84,9 +84,11 @@ func TestBucketMetadataReplace(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstAttrs = requireBucketReplacement(t, ctx, bucket, firstAttrs, pap)
-	if !firstAttrs.VersioningEnabled || !maps.Equal(firstAttrs.Labels, first.Labels) ||
-		firstAttrs.PublicAccessPrevention != storage.PublicAccessPreventionEnforced {
-		t.Fatalf("PUT must preserve omitted labels/versioning while changing PAP: %+v", firstAttrs)
+	// Cloud Storage replaces the whole resource on PUT: omitted labels, versioning and the default
+	// event-based hold are cleared, while the storage class keeps its value (recorded bkt-patch-put-edges).
+	if firstAttrs.VersioningEnabled || firstAttrs.DefaultEventBasedHold || len(firstAttrs.Labels) != 0 ||
+		firstAttrs.StorageClass != "NEARLINE" || firstAttrs.PublicAccessPrevention != storage.PublicAccessPreventionEnforced {
+		t.Fatalf("PUT must clear omitted labels/versioning/hold, keep the class and set PAP: %+v", firstAttrs)
 	}
 	patch := storage.BucketAttrsToUpdate{}
 	patch.SetLabel("add", "three")
@@ -94,8 +96,8 @@ func TestBucketMetadataReplace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !maps.Equal(merged.Labels, map[string]string{"keep": "one", "remove": "two", "add": "three"}) ||
-		merged.StorageClass != "NEARLINE" || !merged.VersioningEnabled || !merged.DefaultEventBasedHold {
+	if !maps.Equal(merged.Labels, map[string]string{"add": "three"}) ||
+		merged.StorageClass != "NEARLINE" || merged.VersioningEnabled || merged.DefaultEventBasedHold {
 		t.Fatalf("PATCH must preserve omitted metadata: %+v", merged)
 	}
 	requireBucketUpdate(t, ctx, bucket, firstAttrs, merged)
@@ -106,8 +108,8 @@ func TestBucketMetadataReplace(t *testing.T) {
 	}
 	secondAttrs := requireBucketReplacement(t, ctx, bucket, merged, second)
 	if !maps.Equal(secondAttrs.Labels, map[string]string{"only": "replacement"}) || secondAttrs.StorageClass != "NEARLINE" ||
-		!secondAttrs.VersioningEnabled || !secondAttrs.DefaultEventBasedHold {
-		t.Fatalf("PUT must replace labels and preserve omitted settings: %+v", secondAttrs)
+		secondAttrs.VersioningEnabled || secondAttrs.DefaultEventBasedHold {
+		t.Fatalf("PUT must replace labels and keep the class: %+v", secondAttrs)
 	}
 	_, err = api.Buckets.Update(bucket.BucketName(), &raw.Bucket{}).
 		IfMetagenerationMatch(merged.MetaGeneration).Context(ctx).Do()
@@ -121,7 +123,7 @@ func TestBucketMetadataReplace(t *testing.T) {
 	}
 	if unchanged.MetaGeneration != secondAttrs.MetaGeneration || unchanged.Etag != secondAttrs.Etag ||
 		!unchanged.Updated.Equal(secondAttrs.Updated) || !maps.Equal(unchanged.Labels, secondAttrs.Labels) ||
-		unchanged.StorageClass != secondAttrs.StorageClass || !unchanged.VersioningEnabled || !unchanged.DefaultEventBasedHold {
+		unchanged.StorageClass != secondAttrs.StorageClass || unchanged.VersioningEnabled || unchanged.DefaultEventBasedHold {
 		t.Fatalf("failed PUT conditions changed metadata: %+v", unchanged)
 	}
 	last, err := api.Buckets.Update(bucket.BucketName(), &raw.Bucket{}).
@@ -130,8 +132,8 @@ func TestBucketMetadataReplace(t *testing.T) {
 		t.Fatal(err)
 	}
 	lastAttrs := requireBucketReplacement(t, ctx, bucket, secondAttrs, last)
-	if !maps.Equal(lastAttrs.Labels, secondAttrs.Labels) || lastAttrs.StorageClass != "NEARLINE" || !lastAttrs.VersioningEnabled || !lastAttrs.DefaultEventBasedHold {
-		t.Fatalf("empty PUT must preserve modeled settings: %+v", lastAttrs)
+	if len(lastAttrs.Labels) != 0 || lastAttrs.StorageClass != "NEARLINE" || lastAttrs.VersioningEnabled || lastAttrs.DefaultEventBasedHold {
+		t.Fatalf("empty PUT must clear labels and keep the class: %+v", lastAttrs)
 	}
 	requireStrictObjectUnchanged(t, ctx, bucket, object, payload)
 }

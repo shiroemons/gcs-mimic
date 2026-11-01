@@ -31,6 +31,11 @@ func TestPublicAccessPrevention(t *testing.T) {
 	}
 	_, anonymous := newStrictClient(t, "")
 	readObject(t, ctx, anonymous.Bucket(bucket.BucketName()).Object(object.Name), payload, object.Generation)
+	// The policy write above advanced the bucket metageneration (recorded), so read it again.
+	attrs, err = bucket.Attrs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	attrs, err = bucket.If(storage.BucketConditions{MetagenerationMatch: attrs.MetaGeneration}).Update(ctx,
 		storage.BucketAttrsToUpdate{PublicAccessPrevention: storage.PublicAccessPreventionEnforced})
 	if err != nil || attrs.PublicAccessPrevention != storage.PublicAccessPreventionEnforced {
