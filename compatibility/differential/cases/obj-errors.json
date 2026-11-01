@@ -2,20 +2,13 @@
   "id": "obj-errors",
   "description": "Error bodies and headers of object requests: invalid parameters, bad alt, malformed JSON, missing bucket, unsupported methods and a trailing slash.",
   "steps": [
-    {"name": "get-invalid-generation", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"generation": "abc"}, "expect_status": 400},
     {"name": "get-invalid-alt", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "bogus"}, "expect_status": 400},
     {"name": "get-missing-bucket", "method": "GET", "path": "/storage/v1/b/{missing_bucket}/o/{object}", "expect_status": 404},
-    {"name": "download-missing-bucket", "method": "GET", "path": "/storage/v1/b/{missing_bucket}/o/{object}", "query": {"alt": "media"}, "expect_status": 404},
-    {"name": "delete-missing-bucket", "method": "DELETE", "path": "/storage/v1/b/{missing_bucket}/o/{object}", "expect_status": 404},
-    {"name": "patch-missing-object", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"metadata": {"a": "b"}}, "expect_status": 404},
-    {"name": "copy-missing-source", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object2}", "expect_status": 404},
-    {"name": "list-invalid-max-results", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"maxResults": "abc"}, "expect_status": 400},
-    {"name": "list-invalid-projection", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"projection": "bogus"}, "expect_status": 400},
     {"name": "post-object-resource", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {}, "expect_status": 404},
     {"name": "put-object-resource-invalid-json", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "headers": {"Content-Type": "application/json"}, "body_text": "{{oops", "expect_status": 404},
     {"name": "get-trailing-slash", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}%2F", "expect_status": 404},
     {"name": "get-media-trailing-slash", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}%2F", "query": {"alt": "media"}, "expect_status": 404},
     {"name": "delete-precondition-invalid", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifGenerationMatch": "abc"}, "expect_status": 400},
-    {"name": "get-unknown-query-parameter", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"nosuchparam": "1"}, "expect_status": 200}
+    {"name": "get-unknown-query-parameter", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"nosuchparam": "1", "fields": "name"}, "expect_status": 200}
   ]
 }

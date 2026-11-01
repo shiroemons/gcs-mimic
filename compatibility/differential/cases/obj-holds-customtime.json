@@ -26,9 +26,9 @@
     {"name": "put-omits-custom-time", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"metadata": {"c": "3"}}, "expect_status": 400},
     {"name": "put-with-custom-time", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"customTime": "2031-01-01T00:00:00Z"}, "expect_status": 200},
     {"name": "upload-with-custom-time", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "multipart"}, "headers": {"Content-Type": "multipart/related; boundary=gcsmimicdiff"}, "body_text": "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{\"name\":\"{object2}\",\"customTime\":\"2030-06-01T00:00:00Z\",\"temporaryHold\":true}}\r\n--gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nhello\r\n--gcsmimicdiff--", "expect_status": 200},
-    {"name": "release-upload-hold", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object2}", "body": {"temporaryHold": false, "eventBasedHold": false}, "compare": false},
-    {"name": "release-all-final", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"temporaryHold": false, "eventBasedHold": false}, "compare": false},
-    {"name": "cleanup-main", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false},
-    {"name": "cleanup-upload", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object2}", "compare": false}
+    {"name": "release-upload-hold", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object2}", "body": {"temporaryHold": false, "eventBasedHold": false}, "compare": false, "always": true},
+    {"name": "release-all-final", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"temporaryHold": false, "eventBasedHold": false}, "compare": false, "always": true},
+    {"name": "cleanup-main", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true},
+    {"name": "cleanup-upload", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object2}", "compare": false, "always": true}
   ]
 }

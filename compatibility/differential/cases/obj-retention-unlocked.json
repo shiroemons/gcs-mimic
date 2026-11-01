@@ -3,7 +3,7 @@
   "description": "Unlocked object retention in a disposable bucket created with enableObjectRetention: set, delete and shorten blocked, override, invalid mode and time, event-based hold conflict. Retention and holds are cleared before the object is deleted. Locked retention is never requested. Checks SPEC-OBJECT-RETENTION.",
   "bucket": false,
   "steps": [
-    {"name": "create-bucket", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}", "enableObjectRetention": "true"}, "body": {"name": "{new_bucket}", "location": "us-central1", "storageClass": "STANDARD", "softDeletePolicy": {"retentionDurationSeconds": "0"}}, "compare": false, "expect_status": 200},
+    {"name": "create-bucket", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}", "enableObjectRetention": "true"}, "body": {"name": "{new_bucket}", "location": "us-central1", "storageClass": "STANDARD", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"publicAccessPrevention": "enforced"}}, "compare": false, "expect_status": 200},
     {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{new_bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "capture": {"gen": "body:generation"}, "compare": false, "expect_status": 200},
     {"name": "set-retention", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}/o/{object}", "body": {"retention": {"mode": "Unlocked", "retainUntilTime": "2099-01-01T00:00:00Z"}}, "expect_status": 200},
     {"name": "get-retention", "method": "GET", "path": "/storage/v1/b/{new_bucket}/o/{object}", "query": {"fields": "name,retention"}, "expect_status": 200},
@@ -18,8 +18,8 @@
     {"name": "event-hold-with-retention", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}/o/{object}", "body": {"eventBasedHold": true}, "expect_status": 400},
     {"name": "clear-without-override", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}/o/{object}", "body": {"retention": null}, "expect_status": 403},
     {"name": "clear-with-override", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}/o/{object}", "query": {"overrideUnlockedRetention": "true"}, "body": {"retention": null}, "expect_status": 200},
-    {"name": "clear-all-protections", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}/o/{object}", "query": {"overrideUnlockedRetention": "true"}, "body": {"retention": null, "eventBasedHold": false, "temporaryHold": false}, "compare": false},
-    {"name": "delete-object", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}/o/{object}", "query": {"generation": "{gen}"}, "expect_status": 204},
-    {"name": "delete-bucket", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false}
+    {"name": "clear-all-protections", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}/o/{object}", "query": {"overrideUnlockedRetention": "true"}, "body": {"retention": null, "eventBasedHold": false, "temporaryHold": false}, "compare": false, "always": true},
+    {"name": "delete-object", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}/o/{object}", "query": {"generation": "{gen}"}, "expect_status": 204, "always": true},
+    {"name": "delete-bucket", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false, "always": true}
   ]
 }

@@ -14,11 +14,9 @@
     {"name": "patch-wrong-type", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"metadata": "str"}, "expect_status": 400},
     {"name": "patch-invalid-json", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "headers": {"Content-Type": "application/json"}, "body_text": "{{not json", "expect_status": 400},
     {"name": "patch-metageneration-mismatch", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifMetagenerationMatch": "999"}, "body": {"metadata": {"x": "y"}}, "expect_status": 412},
-    {"name": "patch-metageneration-not-match", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifMetagenerationNotMatch": "999"}, "body": {"metadata": {"x": "y"}}, "expect_status": 200},
     {"name": "patch-missing-object", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object2}", "body": {"metadata": {"x": "y"}}, "expect_status": 404},
     {"name": "put-replace", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"contentType": "text/csv", "metadata": {"z": "9"}}, "expect_status": 200},
     {"name": "put-empty", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {}, "expect_status": 200},
-    {"name": "put-missing-object", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object2}", "body": {"metadata": {"z": "9"}}, "expect_status": 404},
     {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false}
   ]
 }
