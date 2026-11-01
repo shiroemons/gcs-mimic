@@ -400,9 +400,15 @@ mod tests {
             write(&stored, stored, UnlockedOverride::Requested),
             Ok(Some(stored))
         );
+        // A clock reading is a `SystemTime`, which Windows holds in 100 ns intervals, so expiry is
+        // checked on multiples of 100 ns; the 1 ns difference above is a `UnixNanos` comparison.
         let clock = |nanos: u32| UNIX_EPOCH + Duration::new(1_900_000_000, nanos);
-        assert!(stored.active(clock(123_456_788)));
-        assert!(!stored.active(clock(123_456_789)));
+        let until_800 = ObjectRetention {
+            retain_until: nanos(1_900_000_000, 123_456_800),
+            ..stored
+        };
+        assert!(until_800.active(clock(123_456_700)));
+        assert!(!until_800.active(clock(123_456_800)));
     }
 
     #[test]

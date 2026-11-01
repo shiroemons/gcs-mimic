@@ -51,14 +51,16 @@ pub(super) fn read(
             "invalid retention mode".into(),
         )
     })?;
-    let remainder = u32::try_from(row.get::<_, i64>(sub_index)?).unwrap_or(0);
-    let retain_until = UnixNanos::from_micros_and_remainder(until, remainder).ok_or_else(|| {
+    let invalid = || {
         rusqlite::Error::FromSqlConversionFailure(
             index + 1,
             Type::Integer,
             "invalid retain-until time".into(),
         )
-    })?;
+    };
+    let remainder = u32::try_from(row.get::<_, i64>(sub_index)?).map_err(|_| invalid())?;
+    let retain_until =
+        UnixNanos::from_micros_and_remainder(until, remainder).ok_or_else(invalid)?;
     Ok(Some(ObjectRetention { mode, retain_until }))
 }
 

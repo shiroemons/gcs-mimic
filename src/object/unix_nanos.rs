@@ -13,9 +13,25 @@ const NANOS_PER_SECOND: u32 = 1_000_000_000;
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
+#[serde(try_from = "RawUnixNanos")]
 pub(crate) struct UnixNanos {
     secs: i64,
     nanos: u32,
+}
+
+/// The serialized form, checked on the way in so a decoded value keeps `nanos < 1e9`.
+#[derive(serde::Deserialize)]
+struct RawUnixNanos {
+    secs: i64,
+    nanos: u32,
+}
+
+impl TryFrom<RawUnixNanos> for UnixNanos {
+    type Error = &'static str;
+
+    fn try_from(raw: RawUnixNanos) -> Result<Self, Self::Error> {
+        Self::new(raw.secs, raw.nanos).ok_or("nanos must be below one second")
+    }
 }
 
 impl UnixNanos {
@@ -74,8 +90,8 @@ impl UnixNanos {
     }
 }
 
-/// Exact: a `SystemTime` never carries more than nanosecond resolution, so nothing is lost
-/// converting it, and clock readings compare with retention times at full precision on every
+/// No precision is lost converting a `SystemTime` (its own resolution depends on the OS, up to
+/// a nanosecond), so clock readings compare with retention times at full precision on every
 /// platform. Only a time beyond the `i64` second range saturates.
 impl From<SystemTime> for UnixNanos {
     fn from(time: SystemTime) -> Self {
@@ -137,10 +153,10 @@ mod tests {
 
     #[test]
     fn converts_a_system_time_without_loss() {
-        let after = UNIX_EPOCH + Duration::new(10, 999_999_999);
+        let after = UNIX_EPOCH + Duration::new(10, 999_999_900);
         assert_eq!(
             UnixNanos::from(after),
-            UnixNanos::new(10, 999_999_999).unwrap()
+            UnixNanos::new(10, 999_999_900).unwrap()
         );
         let before = UNIX_EPOCH - Duration::new(1, 250_000_000);
         assert_eq!(
@@ -151,6 +167,13 @@ mod tests {
             UnixNanos::from(UNIX_EPOCH - Duration::from_secs(3)),
             UnixNanos::new(-3, 0).unwrap()
         );
+    }
+
+    #[test]
+    fn deserializing_rejects_a_fraction_of_a_second_or_more() {
+        let ok: UnixNanos = serde_json::from_str(r#"{"secs":5,"nanos":999999999}"#).unwrap();
+        assert_eq!(ok, UnixNanos::new(5, 999_999_999).unwrap());
+        assert!(serde_json::from_str::<UnixNanos>(r#"{"secs":5,"nanos":1000000000}"#).is_err());
     }
 
     #[test]
