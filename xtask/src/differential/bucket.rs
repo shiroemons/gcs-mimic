@@ -74,17 +74,85 @@ pub(crate) fn create(side: &Side<'_>, norm: &Normalizer, name: &str) -> Result<V
     Ok(numbers)
 }
 
-/// Names of the project's buckets that start with `prefix`.
+/// Adds the harness label to the body of a request that creates `new_bucket`,
+/// so a sweep can tell the bucket is the harness's. The case file stays as it
+/// is (its recording's fingerprints keep matching); the label is hidden again
+/// by [`strip_label`]. Returns whether the label was added. A body that is
+/// not a JSON object, or whose `labels` is not an object or is already full,
+/// is left alone: those steps test exactly that.
+pub(crate) fn add_label(request: &mut Request, new_bucket: &str) -> bool {
+    let path = request.target.split('?').next().unwrap_or_default();
+    if request.method != "POST" || path != "/storage/v1/b" {
+        return false;
+    }
+    let Some(Ok(mut body)) = request.body.as_deref().map(serde_json::from_slice::<Value>) else {
+        return false;
+    };
+    if body["name"].as_str() != Some(new_bucket) {
+        return false;
+    }
+    let Some(object) = body.as_object_mut() else {
+        return false;
+    };
+    let labels = object
+        .entry("labels")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Some(labels) = labels.as_object_mut() else {
+        return false;
+    };
+    // 64 labels is the service's limit; one more would turn the step into an error.
+    if labels.len() >= 64 || labels.contains_key(LABEL) {
+        return false;
+    }
+    labels.insert(LABEL.into(), json!("1"));
+    request.body = Some(body.to_string().into_bytes());
+    true
+}
+
+/// Removes the harness label from every `labels` object of a response (and the
+/// `labels` object itself when that leaves it empty, as the service omits
+/// empty labels), so a bucket labelled by [`add_label`] compares like one
+/// that was not.
+pub(crate) fn strip_label(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            if let Some(Value::Object(labels)) = map.get_mut("labels") {
+                labels.remove(LABEL);
+                if labels.is_empty() {
+                    map.remove("labels");
+                }
+            }
+            map.values_mut().for_each(strip_label);
+        }
+        Value::Array(items) => items.iter_mut().for_each(strip_label),
+        _ => {}
+    }
+}
+
+/// Whether a leftover bucket must carry the harness label to be cleaned up.
+/// A sweep of everything with the shared prefix requires it, so a bucket of
+/// someone else that happens to share the prefix is left alone; the end of a
+/// run lists only its own random run id and does not need it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LabelFilter {
+    Required,
+    Ignored,
+}
+
+/// The project's buckets that start with `prefix`: the names to clean up, and
+/// how many were left alone for lacking the label.
 pub(crate) fn list_prefixed(
     side: &Side<'_>,
     norm: &Normalizer,
     prefix: &str,
-) -> Result<Vec<String>> {
+    filter: LabelFilter,
+) -> Result<(Vec<String>, usize)> {
     let mut names = Vec::new();
+    let mut unlabelled = 0;
     let mut page: Option<String> = None;
     loop {
         let mut target = format!(
-            "/storage/v1/b?project={}&prefix={}&fields=items(name),nextPageToken",
+            "/storage/v1/b?project={}&prefix={}&fields=items(name,labels),nextPageToken",
             percent_encode(side.project),
             percent_encode(prefix)
         );
@@ -96,18 +164,19 @@ pub(crate) fn list_prefixed(
             return Err(format!("list buckets: {}", describe(norm, &response)));
         }
         let listing: Value = serde_json::from_slice(&response.body).map_err(|e| e.to_string())?;
-        names.extend(
-            listing["items"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|item| item["name"].as_str())
-                .filter(|name| name.starts_with(prefix))
-                .map(str::to_owned),
-        );
+        for item in listing["items"].as_array().into_iter().flatten() {
+            let Some(name) = item["name"].as_str().filter(|n| n.starts_with(prefix)) else {
+                continue;
+            };
+            if filter == LabelFilter::Required && item["labels"][LABEL].as_str() != Some("1") {
+                unlabelled += 1;
+            } else {
+                names.push(name.to_owned());
+            }
+        }
         match listing["nextPageToken"].as_str() {
             Some(token) => page = Some(token.to_owned()),
-            None => return Ok(names),
+            None => return Ok((names, unlabelled)),
         }
     }
 }
@@ -406,12 +475,22 @@ pub(crate) fn cleanup(side: &Side<'_>, norm: &Normalizer, name: &str) -> Result<
 
 /// Lists the buckets whose names start with `prefix` and cleans each one up.
 /// Returns one line per bucket (never its name) and whether any failed.
-pub(crate) fn sweep(side: &Side<'_>, norm: &Normalizer, prefix: &str) -> (Vec<String>, bool) {
-    let names = match list_prefixed(side, norm, prefix) {
-        Ok(names) => names,
+pub(crate) fn sweep(
+    side: &Side<'_>,
+    norm: &Normalizer,
+    prefix: &str,
+    filter: LabelFilter,
+) -> (Vec<String>, bool) {
+    let (names, unlabelled) = match list_prefixed(side, norm, prefix, filter) {
+        Ok(found) => found,
         Err(error) => return (vec![format!("sweep: CLEANUP FAILED: {error}")], true),
     };
     let mut lines = vec![format!("sweep: {} leftover bucket(s) found", names.len())];
+    if unlabelled > 0 {
+        lines.push(format!(
+            "sweep: {unlabelled} bucket(s) with the prefix but without the {LABEL} label were left alone"
+        ));
+    }
     let mut failed = false;
     for (index, name) in names.iter().enumerate() {
         match cleanup(side, norm, name) {
@@ -552,12 +631,17 @@ mod tests {
     }
 
     fn side(transport: &FakeBucket) -> Side<'_> {
+        side_of(transport)
+    }
+
+    fn side_of(transport: &dyn Transport) -> Side<'_> {
         Side {
             transport,
             grpc: None,
             project: "proj",
             hosts: Vec::new(),
             server_error_wait: Duration::ZERO,
+            label_new_buckets: false,
         }
     }
 
@@ -581,6 +665,71 @@ mod tests {
             assert!(sent.contains(needle), "missing {needle:?} in\n{sent}");
         }
         assert!(fake.notifications.borrow().is_empty() && fake.folders.borrow().is_empty());
+    }
+
+    fn create_request(body: Value) -> Request {
+        request("POST", "/storage/v1/b?project=p".into(), Some(body))
+    }
+
+    #[test]
+    fn created_buckets_get_the_label_and_the_response_hides_it_again() {
+        let mut req = create_request(json!({"name": "nb", "labels": {"a": "1"}}));
+        assert!(add_label(&mut req, "nb"));
+        let sent: Value = serde_json::from_slice(req.body.as_deref().unwrap()).unwrap();
+        assert_eq!(sent["labels"], json!({"a": "1", (LABEL): "1"}));
+        let mut bare = create_request(json!({"name": "nb"}));
+        assert!(add_label(&mut bare, "nb"));
+        // Not a creation of the case's bucket, already labelled, or not an object: untouched.
+        for mut other in [
+            create_request(json!({"name": "other"})),
+            create_request(json!({"name": "nb", "labels": "x"})),
+            create_request(json!({"name": "nb", "labels": {(LABEL): "2"}})),
+            request("PATCH", "/storage/v1/b".into(), Some(json!({"name": "nb"}))),
+        ] {
+            let before = other.body.clone();
+            assert!(!add_label(&mut other, "nb"));
+            assert_eq!(other.body, before);
+        }
+        let mut response =
+            json!({"labels": {(LABEL): "1", "a": "1"}, "items": [{"labels": {(LABEL): "1"}}]});
+        strip_label(&mut response);
+        assert_eq!(response, json!({"labels": {"a": "1"}, "items": [{}]}));
+    }
+
+    /// Lists two buckets with the prefix, only one of them labelled.
+    struct Listing;
+
+    impl Transport for Listing {
+        fn send(&self, req: &Request) -> Result<Response> {
+            assert!(
+                req.target.contains("fields=items(name,labels)"),
+                "{}",
+                req.target
+            );
+            response(
+                200,
+                &json!({"items": [
+                    {"name": "gcsmimic-diff-a", "labels": {(LABEL): "1"}},
+                    {"name": "gcsmimic-diff-b"},
+                    {"name": "other", "labels": {(LABEL): "1"}},
+                ]})
+                .to_string(),
+            )
+        }
+        fn requests(&self) -> u64 {
+            0
+        }
+    }
+
+    #[test]
+    fn a_sweep_leaves_prefixed_buckets_without_the_label_alone() {
+        let side = side_of(&Listing);
+        let norm = Normalizer::default();
+        let (names, left) =
+            list_prefixed(&side, &norm, NAME_PREFIX, LabelFilter::Required).unwrap();
+        assert_eq!((names, left), (vec!["gcsmimic-diff-a".to_owned()], 1));
+        let (names, left) = list_prefixed(&side, &norm, NAME_PREFIX, LabelFilter::Ignored).unwrap();
+        assert_eq!((names.len(), left), (2, 0));
     }
 
     #[test]
@@ -649,6 +798,7 @@ mod tests {
                 project: "proj",
                 hosts: Vec::new(),
                 server_error_wait: Duration::ZERO,
+                label_new_buckets: false,
             },
             &Normalizer::default(),
             "bk",

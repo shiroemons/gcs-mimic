@@ -278,6 +278,7 @@ fn run_live(
         project,
         hosts: live_hosts(endpoint),
         server_error_wait: Duration::from_secs(30),
+        label_new_buckets: true,
     };
     println!(
         "running {} cases against the live reference service",
@@ -322,6 +323,7 @@ fn run_mimic(
             local.endpoint.trim_start_matches("http://").to_owned(),
         ],
         server_error_wait: Duration::from_secs(3),
+        label_new_buckets: false,
     };
     println!(
         "running {} cases against gcs-mimic at the local endpoint",
@@ -500,11 +502,17 @@ pub fn sweep(args: &[String]) -> Result<bool> {
         project: &project,
         hosts: live_hosts(&endpoint),
         server_error_wait: Duration::from_secs(30),
+        label_new_buckets: false,
     };
     let mut norm = normalize::Normalizer::default();
     norm.add_literal(&project, "<project>");
     norm.add_literal(&token, "<token>");
-    let (lines, failed) = bucket::sweep(&side, &norm, bucket::NAME_PREFIX);
+    let (lines, failed) = bucket::sweep(
+        &side,
+        &norm,
+        bucket::NAME_PREFIX,
+        bucket::LabelFilter::Required,
+    );
     server::remove_dir(&scratch);
     for line in &lines {
         println!("{line}");

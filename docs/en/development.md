@@ -485,12 +485,18 @@ Modes:
   case runs and that each step meets its `expect_status`.
 - **Live** needs both `GCS_MIMIC_DIFF_PROJECT` and `GCS_MIMIC_DIFF_TOKEN`
   (an OAuth access token); one alone is an error. The token goes to `curl` on
-  stdin, never on the command line. Every bucket the harness creates is private
-  and disposable: `us-central1`, STANDARD, soft delete off, public access
-  prevention `enforced`, labelled `gcs-mimic-differential=1`, named
-  `gcsmimic-diff-<run>-...`. A run creates the shared bucket (`-b`), one bucket
-  per case that has `"bucket": "own"` (`-c<n>`) and one `{new_bucket}`
-  (`-n-<n>`) per case that uses it. Own and `{new_bucket}` buckets are deleted
+  stdin, never on the command line. Every bucket is private and disposable,
+  named `gcsmimic-diff-<run>-...`, with public access prevention `enforced` and
+  labelled `gcs-mimic-differential=1`. The shared bucket (`-b`) and the bucket
+  of a case with `"bucket": "own"` (`-c<n>`) are created by the harness in
+  `us-central1`, STANDARD, soft delete off. A `{new_bucket}` (`-n-<n>`, one per
+  case that uses it) is created by the case's own request, so its location,
+  storage class and soft delete setting are whatever that request says (for
+  example NEARLINE with a 7-day soft delete, or the `us` multi-region); the
+  case validator only requires `enforced` public access prevention and an
+  explicit soft delete duration, and the harness adds the label to the request
+  on the wire (and hides it again in the stored response, so the case files and
+  recordings do not carry it). Own and `{new_bucket}` buckets are deleted
   right after their case; the shared bucket at the end. The report states how
   many requests the run sent to the live service and how many HTTP 429
   responses it retried. The sanitized reference responses are saved
@@ -501,13 +507,18 @@ Modes:
   pays (only what is set), deletes notification configs and managed folders,
   deletes every object version (a 403 is answered by releasing the holds and
   the unlocked retention with `overrideUnlockedRetention=true`, then deleting
-  again), deletes the bucket and confirms a 404. All problems are collected and
-  reported at the end. A run ends by listing every bucket with the run's prefix
+  again), deletes the bucket and confirms a 404. A managed folders listing that
+  is refused (412 when uniform bucket-level access is off, 403 without
+  permission) counts as no folders. All problems are collected and reported at
+  the end, together with whether the bucket itself was confirmed deleted. A run ends by listing every bucket with the run's prefix
   and cleaning up whatever is left.
 - **Sweep** (`cargo xtask differential sweep`, same environment variables)
-  lists the buckets whose names start with `gcsmimic-diff-` and cleans each one
-  up the same way. Use it after an interrupted run (Ctrl-C, a crash, a killed
-  process); it reports counts, never bucket names.
+  lists the buckets whose names start with `gcsmimic-diff-` and carry the
+  `gcs-mimic-differential=1` label, and cleans each one up the same way. A
+  bucket with the prefix but without the label is left alone and counted. Use
+  it after an interrupted run (Ctrl-C, a crash, a killed process); it reports
+  counts, never bucket names. (The final listing of a run uses only the run's
+  own random prefix and does not need the label.)
 - **Rate limits.** Cloud Storage documents these limits
   (<https://docs.cloud.google.com/storage/quotas>): bucket creation and
   deletion about one request every two seconds per project, one metadata update

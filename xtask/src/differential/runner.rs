@@ -3,7 +3,7 @@
 
 use super::bucket;
 use super::case::{Body, BucketMode, Case, Protocol, fingerprint};
-use super::normalize::{NormResponse, Normalizer, project_numbers};
+use super::normalize::{NormBody, NormResponse, Normalizer, project_numbers};
 use super::template::{Vars, expand, expand_json, extract, percent_encode};
 use super::transport::{Request, Transport};
 use serde_json::Value;
@@ -37,6 +37,9 @@ pub(crate) struct Side<'a> {
     pub(crate) hosts: Vec<String>,
     /// Longest wait before retrying a 5xx; short in tests.
     pub(crate) server_error_wait: std::time::Duration,
+    /// Live only: label every `{new_bucket}` a case creates (see
+    /// `bucket::add_label`) so a sweep recognises it.
+    pub(crate) label_new_buckets: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -202,7 +205,7 @@ fn run_step(
         retries: 0,
         fingerprint: fingerprint(step),
     };
-    let request = match build_request(step, vars) {
+    let mut request = match build_request(step, vars) {
         Ok(request) => request,
         Err(error) => {
             let error = norm.text(&error);
@@ -210,6 +213,12 @@ fn run_step(
             return (outcome, Some(error));
         }
     };
+    // The label is not part of the request shown in the report or recording.
+    let hide_label = side.label_new_buckets && step.mentions("{new_bucket}");
+    if hide_label && step.protocol == Protocol::Http {
+        let new_bucket = vars.get("new_bucket").cloned().unwrap_or_default();
+        bucket::add_label(&mut request, &new_bucket);
+    }
     outcome.request = if step.protocol == Protocol::Grpc {
         format!("GRPC {}", request.method)
     } else {
@@ -255,7 +264,11 @@ fn run_step(
         .expect_status
         .filter(|expected| *expected != response.status)
         .map(|expected| format!("expected status {expected}, got {}", response.status));
-    outcome.result = Ok(norm.response(&response, request.method == "HEAD"));
+    let mut normalized = norm.response(&response, request.method == "HEAD");
+    if hide_label && let NormBody::Json(value) = &mut normalized.body {
+        bucket::strip_label(value);
+    }
+    outcome.result = Ok(normalized);
     (outcome, capture_error)
 }
 
@@ -414,7 +427,12 @@ pub(crate) fn run_side(side: &Side<'_>, cases: &[Case], names: &Names) -> SideRu
             &mut run,
         );
     }
-    let (lines, failed) = bucket::sweep(side, &base, &format!("{}-", names.run_id));
+    let (lines, failed) = bucket::sweep(
+        side,
+        &base,
+        &format!("{}-", names.run_id),
+        bucket::LabelFilter::Ignored,
+    );
     run.failed_cleanup |= failed;
     run.cleanup.extend(lines);
     run
@@ -484,6 +502,7 @@ mod tests {
             project: "proj-x",
             hosts: Vec::new(),
             server_error_wait: Duration::ZERO,
+            label_new_buckets: false,
         }
     }
 
@@ -498,6 +517,61 @@ mod tests {
             ]
         });
         parse_case(&value, id).expect("test case parses")
+    }
+
+    /// Echoes a bucket creation body back as the response.
+    struct Echo(RefCell<Vec<Vec<u8>>>);
+
+    impl Transport for Echo {
+        fn send(&self, request: &Request) -> Result<Response, String> {
+            let body = request.body.clone().unwrap_or_default();
+            self.0.borrow_mut().push(body.clone());
+            let status = if request.method == "POST" { 200 } else { 404 };
+            Ok(Response {
+                status,
+                headers: vec![("content-type".to_owned(), "application/json".to_owned())],
+                body,
+            })
+        }
+        fn requests(&self) -> u64 {
+            0
+        }
+    }
+
+    #[test]
+    fn live_new_buckets_are_labelled_on_the_wire_but_not_in_the_recorded_response() {
+        let value = json!({"id": "mk", "description": "d", "bucket": false, "steps": [
+            {"name": "create", "method": "POST", "path": "/storage/v1/b",
+             "body": {"name": "{new_bucket}", "iamConfiguration": {"publicAccessPrevention": "enforced"},
+                      "softDeletePolicy": {"retentionDurationSeconds": "0"}}}]});
+        let case = parse_case(&value, "mk").unwrap();
+        let echo = Echo(RefCell::default());
+        let mut live = side_with(&echo);
+        live.label_new_buckets = true;
+        let run = run_side(&live, std::slice::from_ref(&case), &names());
+        let sent = String::from_utf8(echo.0.borrow()[0].clone()).unwrap();
+        assert!(sent.contains(bucket::LABEL), "{sent}");
+        let Ok(response) = &run.cases[0].steps[0].result else {
+            panic!("no response");
+        };
+        let NormBody::Json(body) = &response.body else {
+            panic!("not json");
+        };
+        assert!(body.get("labels").is_none(), "{body}");
+        let echo = Echo(RefCell::default());
+        run_side(&side_with(&echo), &[case], &names());
+        assert!(!String::from_utf8_lossy(&echo.0.borrow()[0]).contains(bucket::LABEL));
+    }
+
+    fn side_with(transport: &dyn Transport) -> Side<'_> {
+        Side {
+            transport,
+            grpc: None,
+            project: "proj-x",
+            hosts: Vec::new(),
+            server_error_wait: Duration::ZERO,
+            label_new_buckets: false,
+        }
     }
 
     #[test]
@@ -579,6 +653,7 @@ mod tests {
             project: "proj-x",
             hosts: Vec::new(),
             server_error_wait: Duration::ZERO,
+            label_new_buckets: false,
         };
         let run = run_side(&side, &[own], &names());
         let error = run.cases[0].error.clone().unwrap_or_default();
