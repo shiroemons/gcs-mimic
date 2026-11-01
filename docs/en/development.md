@@ -526,9 +526,8 @@ Modes:
   example NEARLINE with a 7-day soft delete, or the `us` multi-region); the
   case validator only requires `enforced` public access prevention and an
   explicit soft delete duration, and the harness adds the label to the request
-  on the wire. The label is hidden in every JSON response on both the live and
-  the gcs-mimic side (and in an older recording when it is loaded), so the case
-  files, recordings and comparisons do not carry it. Own and `{new_bucket}` buckets are deleted
+  on the wire (and hides it again in the stored response, so the case files and
+  recordings do not carry it). Own and `{new_bucket}` buckets are deleted
   right after their case; the shared bucket at the end. The report states how
   many requests the run sent to the live service and how many HTTP 429
   responses it retried. The sanitized reference responses are saved

@@ -269,9 +269,7 @@ fn run_step(
         .filter(|expected| *expected != response.status)
         .map(|expected| format!("expected status {expected}, got {}", response.status));
     let mut normalized = norm.response(&response, request.method == "HEAD");
-    // Both sides hide it: a bucket made by the harness (the shared one included) carries the
-    // label on either side, while recorded live responses never show it.
-    if let NormBody::Json(value) = &mut normalized.body {
+    if hide_label && let NormBody::Json(value) = &mut normalized.body {
         bucket::strip_label(value);
     }
     outcome.result = Ok(normalized);
@@ -568,25 +566,6 @@ mod tests {
         let echo = Echo(RefCell::default());
         run_side(&side_with(&echo), &[case], &names());
         assert!(!String::from_utf8_lossy(&echo.0.borrow()[0]).contains(bucket::LABEL));
-    }
-
-    #[test]
-    fn the_harness_label_is_hidden_on_the_mimic_side_too() {
-        let value = json!({"id": "lb", "description": "d", "bucket": false, "steps": [
-            {"name": "create", "method": "POST", "path": "/storage/v1/b",
-             "body": {"name": "{new_bucket}", "labels": {(bucket::LABEL): "1", "a": "1"},
-                      "iamConfiguration": {"publicAccessPrevention": "enforced"},
-                      "softDeletePolicy": {"retentionDurationSeconds": "0"}}}]});
-        let case = parse_case(&value, "lb").unwrap();
-        let echo = Echo(RefCell::default());
-        let run = run_side(&side_with(&echo), &[case], &names());
-        let Ok(response) = &run.cases[0].steps[0].result else {
-            panic!("no response");
-        };
-        let NormBody::Json(body) = &response.body else {
-            panic!("not json");
-        };
-        assert_eq!(body["labels"], json!({"a": "1"}), "{body}");
     }
 
     fn side_with(transport: &dyn Transport) -> Side<'_> {

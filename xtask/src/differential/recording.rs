@@ -130,27 +130,11 @@ fn parse_step(value: &Value) -> Result<StepOutcome> {
     })
 }
 
-/// An older recording shows the harness label on some responses and hides it on others (it was
-/// hidden only for steps naming `{new_bucket}`); a live run now hides it everywhere, so a
-/// replay does the same to what it loads.
-fn hide_harness_label(mut case: CaseOutcome) -> CaseOutcome {
-    for step in &mut case.steps {
-        if let Ok(NormResponse {
-            body: NormBody::Json(body),
-            ..
-        }) = &mut step.result
-        {
-            super::bucket::strip_label(body);
-        }
-    }
-    case
-}
-
 pub(crate) fn from_json(value: &Value) -> Result<Recording> {
     if value["format"].as_u64() != Some(FORMAT) {
         return Err(format!("unsupported recording format (expected {FORMAT})"));
     }
-    let cases: Vec<CaseOutcome> = value["cases"]
+    let cases = value["cases"]
         .as_array()
         .ok_or("recording without cases")?
         .iter()
@@ -168,7 +152,6 @@ pub(crate) fn from_json(value: &Value) -> Result<Recording> {
             })
         })
         .collect::<Result<_>>()?;
-    let cases = cases.into_iter().map(hide_harness_label).collect();
     Ok(Recording {
         generated: value["generated"].as_str().unwrap_or_default().to_owned(),
         requests: value["requests"].as_u64().unwrap_or(0),
@@ -220,37 +203,5 @@ mod tests {
         assert_eq!(parsed.cases, recording.cases);
         assert_eq!(parsed.requests, 7);
         assert!(from_json(&json!({"format": 2})).is_err());
-    }
-
-    #[test]
-    fn loading_hides_the_harness_label_that_an_older_recording_kept() {
-        let labelled = json!({"labels": {(super::super::bucket::LABEL): "1"}, "name": "b"});
-        let recording = Recording {
-            generated: String::new(),
-            requests: 0,
-            tools: String::new(),
-            cases: vec![CaseOutcome {
-                id: "c".into(),
-                error: None,
-                bucket: None,
-                steps: vec![StepOutcome {
-                    name: "get".into(),
-                    request: "GET /x".into(),
-                    result: Ok(NormResponse {
-                        status: 200,
-                        headers: BTreeMap::new(),
-                        body: NormBody::Json(labelled),
-                    }),
-                    expectation: None,
-                    retries: 0,
-                    fingerprint: "00".into(),
-                }],
-            }],
-        };
-        let parsed = from_json(&to_json(&recording)).unwrap();
-        let Ok(response) = &parsed.cases[0].steps[0].result else {
-            panic!("no response");
-        };
-        assert_eq!(response.body, NormBody::Json(json!({"name": "b"})));
     }
 }
