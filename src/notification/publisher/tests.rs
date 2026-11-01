@@ -126,3 +126,49 @@ async fn publish_uses_checked_local_rest_origin_and_requires_one_acknowledgement
         listener = server.await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn topic_lookup_separates_missing_from_unconfirmed() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Endpoint::parse(&listener.local_addr().unwrap().to_string()).unwrap();
+    for (status, expected) in [
+        (200, "found"),
+        (404, "missing"),
+        (500, "unexpected"),
+        (307, "unexpected"),
+    ] {
+        let server = crate::task::spawn_supervised("pubsub-lookup-test", async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0; 8192];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let request = std::str::from_utf8(&buffer[..read]).unwrap();
+            assert!(request.starts_with("GET /v1/projects/p/topics/topic HTTP/1.1\r\n"));
+            assert!(!request.to_ascii_lowercase().contains("authorization:"));
+            socket
+                .write_all(format!("HTTP/1.1 {status} Test\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}").as_bytes())
+                .await
+                .unwrap();
+            listener
+        });
+        let result = endpoint
+            .topic_exists("//pubsub.googleapis.com/projects/p/topics/topic")
+            .await;
+        let actual = match result {
+            Ok(()) => "found",
+            Err(TopicCheckError::NotFound) => "missing",
+            Err(TopicCheckError::Unexpected(_)) => "unexpected",
+            Err(TopicCheckError::Unreachable(error)) => panic!("{error}"),
+        };
+        assert_eq!(actual, expected, "{status}");
+        listener = server.await.unwrap();
+    }
+    // Nothing listening: the connection is refused, which is unconfirmed rather than missing.
+    drop(listener);
+    assert!(matches!(
+        endpoint
+            .topic_exists("//pubsub.googleapis.com/projects/p/topics/topic")
+            .await,
+        Err(TopicCheckError::Unreachable(_))
+    ));
+}

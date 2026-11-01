@@ -329,7 +329,7 @@ pub(crate) fn hmac_key_list(
 
 /// The project number the bucket resource reports for `project`: numeric project identifiers
 /// are their own number; local named projects have no number and report 0.
-fn project_number(project: &str) -> String {
+pub(crate) fn project_number(project: &str) -> String {
     if project.bytes().all(|byte| byte.is_ascii_digit()) {
         project.parse::<u64>().unwrap_or(0).to_string()
     } else {
@@ -342,11 +342,15 @@ fn project_number(project: &str) -> String {
 pub(crate) fn service_account(project: &str) -> Value {
     json!({
         "kind": "storage#serviceAccount",
-        "email_address": format!(
-            "service-{}@gs-project-accounts.iam.gserviceaccount.com",
-            project_number(project)
-        ),
+        "email_address": service_account_email(project),
     })
+}
+
+pub(crate) fn service_account_email(project: &str) -> String {
+    format!(
+        "service-{}@gs-project-accounts.iam.gserviceaccount.com",
+        project_number(project)
+    )
 }
 
 impl From<HmacKeyError> for JsonError {

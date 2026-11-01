@@ -519,6 +519,19 @@ fn accept_local_publish(listener: &std::net::TcpListener) -> (String, Value) {
             length = value.trim().parse().unwrap();
         }
     }
+    if path.starts_with("GET ") {
+        let body = r#"{"name":"projects/local/topics/explicit"}"#;
+        socket
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        return (path, Value::Null);
+    }
     assert!((1..=131072).contains(&length));
     let mut body = vec![0; length];
     reader.read_exact(&mut body).unwrap();
@@ -536,9 +549,18 @@ fn legacy_global_notification_rules_and_json_configs_publish_to_the_explicit_loc
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = listener.local_addr().unwrap().to_string();
     let (sender, receiver) = std::sync::mpsc::sync_channel(2);
+    // Creating the explicit config asks the emulator about its topic before the two publishes.
     let publisher = std::thread::spawn(move || {
-        for _ in 0..2 {
-            sender.send(accept_local_publish(&listener)).unwrap();
+        for _ in 0..3 {
+            let (path, message) = accept_local_publish(&listener);
+            if path.starts_with("POST ") {
+                sender.send((path, message)).unwrap();
+            } else {
+                assert!(
+                    path.starts_with("GET /v1/projects/local/topics/explicit "),
+                    "{path}"
+                );
+            }
         }
     });
     let dir = TestDir::new();
@@ -687,4 +709,147 @@ fn opted_in_pubsub_emulator_receives_the_notification() {
             .status,
         200
     );
+}
+
+/// A stand-in Pub/Sub emulator that answers `count` topic lookups: `present` exists, `broken`
+/// gets a 500, and every other topic is unknown.
+fn serve_topic_lookups(
+    listener: std::net::TcpListener,
+    count: usize,
+) -> std::thread::JoinHandle<Vec<String>> {
+    use std::io::{BufRead, Write};
+    std::thread::spawn(move || {
+        let mut paths = Vec::new();
+        for _ in 0..count {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = std::io::BufReader::new(socket.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            loop {
+                let mut header = String::new();
+                reader.read_line(&mut header).unwrap();
+                assert!(!header.to_ascii_lowercase().starts_with("authorization:"));
+                if header == "\r\n" {
+                    break;
+                }
+            }
+            let path = line.split(' ').nth(1).unwrap().to_owned();
+            assert!(line.starts_with("GET /v1/projects/local/topics/"), "{line}");
+            let (status, body) = match path.rsplit('/').next().unwrap() {
+                "present" => ("200 OK", r#"{"name":"projects/local/topics/present"}"#),
+                "broken" => ("500 Internal Server Error", "{}"),
+                _ => ("404 Not Found", r#"{"error":{"code":404}}"#),
+            };
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+            paths.push(path);
+        }
+        paths
+    })
+}
+
+fn event_server_ids(server: &EventServer) -> Vec<String> {
+    let list = server.request("GET", CONFIGS, b"").json();
+    list["items"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| item["id"].as_str().unwrap().to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn creating_a_config_checks_the_topic_against_the_configured_emulator() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = listener.local_addr().unwrap().to_string();
+    // Lookups: present, missing, missing + bad event type, present + bad event type, broken.
+    let emulator = serve_topic_lookups(listener, 5);
+    let dir = TestDir::new();
+    let mut server = EventServer::start(&dir, &endpoint, &[]);
+    server
+        .request(
+            "POST",
+            "/storage/v1/b?project=local",
+            br#"{"name":"test-bucket"}"#,
+        )
+        .json();
+    let create = |body: &str| server.request("POST", CONFIGS, body.as_bytes());
+
+    let created = create(r#"{"topic":"projects/local/topics/present"}"#).json();
+    assert_eq!(
+        created["topic"],
+        "//pubsub.googleapis.com/projects/local/topics/present"
+    );
+
+    let message = "Cloud Pub/Sub topic '//pubsub.googleapis.com/projects/local/topics/absent' not found, or user 'service-0@gs-project-accounts.iam.gserviceaccount.com' does not have permission to it.";
+    let missing = create(r#"{"topic":"projects/local/topics/absent"}"#);
+    assert_eq!(missing.status, 400);
+    let error = &error_json(&missing)["error"];
+    assert_eq!(error["message"], message);
+    assert_eq!(error["errors"][0]["reason"], "invalid");
+
+    // Field checks that precede the topic lookup never reach the emulator; the event type check
+    // that follows it only runs for a topic that exists.
+    let format = create(r#"{"topic":"projects/local/topics/absent","payload_format":"XML"}"#);
+    assert_eq!(format.status, 400);
+    assert_eq!(
+        error_json(&format)["error"]["message"],
+        "You must specify a payload format in the 'payload_format' field."
+    );
+    let no_topic = create(r#"{"payload_format":"NONE"}"#);
+    assert_eq!(no_topic.status, 400);
+    let absent_event =
+        create(r#"{"topic":"projects/local/topics/absent","event_types":["OBJECT_CHANGE"]}"#);
+    assert_eq!(error_json(&absent_event)["error"]["message"], message);
+    let present_event =
+        create(r#"{"topic":"projects/local/topics/present","event_types":["OBJECT_CHANGE"]}"#);
+    assert_eq!(present_event.status, 400);
+    assert!(
+        error_json(&present_event)["error"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Invalid event type")
+    );
+
+    // A failing emulator leaves the topic unconfirmed: retryable error, nothing created.
+    let broken = create(r#"{"topic":"projects/local/topics/broken"}"#);
+    assert_eq!(broken.status, 503);
+    assert_eq!(
+        error_json(&broken)["error"]["errors"][0]["reason"],
+        "backendError"
+    );
+    assert_eq!(event_server_ids(&server), ["1"]);
+
+    // With the emulator gone, the connection is refused and the answer is the same.
+    assert_eq!(
+        emulator.join().unwrap(),
+        [
+            "/v1/projects/local/topics/present",
+            "/v1/projects/local/topics/absent",
+            "/v1/projects/local/topics/absent",
+            "/v1/projects/local/topics/present",
+            "/v1/projects/local/topics/broken",
+        ]
+    );
+    let refused = create(r#"{"topic":"projects/local/topics/present"}"#);
+    assert_eq!(refused.status, 503);
+    assert_eq!(event_server_ids(&server), ["1"]);
+    server.stop();
+}
+
+fn error_json(reply: &object_effects_support::Reply) -> Value {
+    serde_json::from_slice(&reply.body).unwrap()
 }

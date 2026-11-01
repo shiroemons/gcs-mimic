@@ -24,7 +24,7 @@ impl NotificationMode {
 }
 
 pub(crate) use event::{Event, Message};
-pub(crate) use publisher::Endpoint;
+pub(crate) use publisher::{Endpoint, TopicCheckError};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Runtime {

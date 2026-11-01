@@ -449,6 +449,8 @@ struct Inner {
     change_wake: Notify,
     notification_wake: Arc<Notify>,
     notification_started: AtomicBool,
+    /// The local Pub/Sub emulator, set once when the publisher starts; also answers topic lookups.
+    pubsub_endpoint: OnceLock<crate::notification::Endpoint>,
     /// Retention a new bucket without an explicit softDeletePolicy receives; 0 gives none.
     default_soft_delete_retention: AtomicU64,
     notification_attempts: Arc<Semaphore>,
@@ -1080,6 +1082,7 @@ impl Catalog {
                 change_wake: Notify::new(),
                 notification_wake: Arc::new(Notify::new()),
                 notification_started: AtomicBool::new(false),
+                pubsub_endpoint: OnceLock::new(),
                 default_soft_delete_retention: AtomicU64::new(0),
                 notification_attempts: Arc::new(Semaphore::new(1)),
                 data_dir,

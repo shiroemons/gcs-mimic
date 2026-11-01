@@ -78,27 +78,80 @@ impl Endpoint {
             .map_err(io::Error::other)?
     }
 
-    async fn publish_inner(&self, topic: &str, message: String) -> io::Result<()> {
+    /// Ask the emulator whether `topic` exists, bounded by the same attempt timeout as a publish.
+    /// Only existence is checked: the emulator has no permission model to consult.
+    pub(crate) async fn topic_exists(&self, topic: &str) -> Result<(), TopicCheckError> {
+        let status = tokio::time::timeout(ATTEMPT_TIMEOUT, self.topic_status(topic))
+            .await
+            .map_err(|elapsed| TopicCheckError::Unreachable(io::Error::other(elapsed)))?
+            .map_err(TopicCheckError::Unreachable)?;
+        match status {
+            hyper::StatusCode::OK => Ok(()),
+            hyper::StatusCode::NOT_FOUND => Err(TopicCheckError::NotFound),
+            status => Err(TopicCheckError::Unexpected(status)),
+        }
+    }
+
+    async fn topic_status(&self, topic: &str) -> io::Result<hyper::StatusCode> {
+        let relative = self.topic_path(topic)?;
+        let request = Request::get(format!("/v1/{relative}"))
+            .header("Host", &self.authority)
+            .body(Full::new(Bytes::new()))
+            .map_err(io::Error::other)?;
+        Ok(self.roundtrip(request).await?.0)
+    }
+
+    /// The encoded `projects/P/topics/T` path of a canonical topic name.
+    fn topic_path(&self, topic: &str) -> io::Result<String> {
         if super::normalize_topic(topic).is_err() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "invalid queued Pub/Sub topic",
+                "invalid Pub/Sub topic",
             ));
         }
         let relative = topic
             .strip_prefix("//pubsub.googleapis.com/")
             .ok_or_else(invalid_endpoint)?;
-        let relative = crate::url::encode_object_name(relative);
+        Ok(crate::url::encode_object_name(relative))
+    }
+
+    async fn publish_inner(&self, topic: &str, message: String) -> io::Result<()> {
+        let relative = self.topic_path(topic)?;
+        let request = Request::post(format!("/v1/{relative}:publish"))
+            .header("Host", &self.authority)
+            .header("Content-Type", "application/json")
+            .body(Full::new(Bytes::from(message)))
+            .map_err(io::Error::other)?;
+        let (status, bytes) = self.roundtrip(request).await?;
+        if status != hyper::StatusCode::OK {
+            return Err(io::Error::other(format!(
+                "Pub/Sub publish returned {status}"
+            )));
+        }
+        let response: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+        if response["messageIds"]
+            .as_array()
+            .is_none_or(|ids| ids.len() != 1 || ids[0].as_str().is_none_or(str::is_empty))
+        {
+            return Err(io::Error::other(
+                "Pub/Sub publish did not acknowledge exactly one message",
+            ));
+        }
+        Ok(())
+    }
+
+    /// One request on a fresh connection to the checked address; the caller owns the timeout.
+    /// The response body is bounded so a misbehaving emulator cannot grow memory.
+    async fn roundtrip(
+        &self,
+        request: Request<Full<Bytes>>,
+    ) -> io::Result<(hyper::StatusCode, Bytes)> {
         let stream = TcpStream::connect(self.address().await?).await?;
         let (mut sender, connection) = http1::Builder::new()
             .max_buf_size(16 * 1024)
             .handshake(TokioIo::new(stream))
             .await
-            .map_err(io::Error::other)?;
-        let request = Request::post(format!("/v1/{relative}:publish"))
-            .header("Host", &self.authority)
-            .header("Content-Type", "application/json")
-            .body(Full::new(Bytes::from(message)))
             .map_err(io::Error::other)?;
         // Poll the driver in this future: cancellation/timeout drops the socket immediately.
         let exchange = async {
@@ -106,28 +159,13 @@ impl Endpoint {
                 .send_request(request)
                 .await
                 .map_err(io::Error::other)?;
-            if response.status() != hyper::StatusCode::OK {
-                return Err(io::Error::other(format!(
-                    "Pub/Sub publish returned {}",
-                    response.status()
-                )));
-            }
+            let status = response.status();
             let bytes = Limited::new(response.into_body(), 8192)
                 .collect()
                 .await
                 .map_err(io::Error::other)?
                 .to_bytes();
-            let response: serde_json::Value =
-                serde_json::from_slice(&bytes).map_err(io::Error::other)?;
-            if response["messageIds"]
-                .as_array()
-                .is_none_or(|ids| ids.len() != 1 || ids[0].as_str().is_none_or(str::is_empty))
-            {
-                return Err(io::Error::other(
-                    "Pub/Sub publish did not acknowledge exactly one message",
-                ));
-            }
-            Ok(())
+            Ok((status, bytes))
         };
         tokio::pin!(connection, exchange);
         tokio::select! {
@@ -137,6 +175,38 @@ impl Endpoint {
                 result.map_err(io::Error::other)?;
                 exchange.await
             },
+        }
+    }
+}
+
+/// Why the emulator could not confirm that a topic exists.
+#[derive(Debug)]
+pub(crate) enum TopicCheckError {
+    /// The emulator answered 404 for the topic.
+    NotFound,
+    /// The emulator answered something other than 200 or 404.
+    Unexpected(hyper::StatusCode),
+    /// No usable answer: connection failure, timeout or malformed response.
+    Unreachable(io::Error),
+}
+
+impl std::fmt::Display for TopicCheckError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => formatter.write_str("Pub/Sub emulator reports no such topic"),
+            Self::Unexpected(status) => {
+                write!(formatter, "Pub/Sub emulator topic lookup returned {status}")
+            }
+            Self::Unreachable(_) => formatter.write_str("Pub/Sub emulator topic lookup failed"),
+        }
+    }
+}
+
+impl std::error::Error for TopicCheckError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Unreachable(error) => Some(error),
+            Self::NotFound | Self::Unexpected(_) => None,
         }
     }
 }
