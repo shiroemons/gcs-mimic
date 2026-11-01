@@ -1,6 +1,6 @@
 //! Comparison results, Markdown and JSON rendering, and the redaction guard.
 
-use super::case::{Case, fingerprint};
+use super::case::{Case, Step, fingerprint};
 use super::diff::{Difference, compare};
 use super::runner::{CaseOutcome, StepOutcome};
 use serde_json::{Value, json};
@@ -46,6 +46,22 @@ pub(crate) struct CaseReport {
 fn note_expectation(label: &str, step: &StepOutcome, notes: &mut Vec<String>) {
     if let Some(expectation) = &step.expectation {
         notes.push(format!("{label}: {expectation}"));
+    }
+}
+
+/// The reference's unmet expectation, judged against the case as it stands now: a recording keeps
+/// the expectation the case had when it was made, and correcting a case's `expect_status` must
+/// not need a new recording. A step with no `expect_status`, or
+/// that failed before a response, keeps its recorded note.
+fn note_reference_expectation(spec: &Step, step: &StepOutcome, notes: &mut Vec<String>) {
+    match (&step.result, spec.expect_status) {
+        (Ok(response), Some(expected)) if response.status != expected => notes.push(format!(
+            "reference: expected status {expected}, got {}",
+            response.status
+        )),
+        (Ok(_), Some(_)) => {}
+        // Without an `expect_status` there is nothing to judge again; keep what was recorded.
+        (Ok(_), None) | (Err(_), _) => note_expectation("reference", step, notes),
     }
 }
 
@@ -100,7 +116,7 @@ fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome
             note_expectation("mimic", step, &mut report.notes);
         }
         if let Some(step) = reference_step {
-            note_expectation("reference", step, &mut report.notes);
+            note_reference_expectation(spec, step, &mut report.notes);
         }
         if let (Some(opts), Some(Ok(m)), Some(Ok(r))) = (
             spec.compare.as_ref(),
@@ -610,6 +626,50 @@ mod tests {
             );
             assert_eq!(stale.outcome, Outcome::Error);
         }
+    }
+
+    #[test]
+    fn the_reference_expectation_follows_the_case_not_the_recorded_note() {
+        use super::super::case::parse_case;
+        use super::super::normalize::{NormBody, NormResponse};
+        use std::collections::BTreeMap;
+        let case = parse_case(
+            &json!({"id": "c", "description": "d", "bucket": false,
+                    "steps": [{"name": "s", "method": "GET", "path": "/x", "expect_status": 200}]}),
+            "c",
+        )
+        .unwrap();
+        let outcome = |status: u16, note: Option<&str>| CaseOutcome {
+            id: "c".into(),
+            bucket: Some(case.bucket.label().into()),
+            error: None,
+            steps: vec![StepOutcome {
+                name: "s".into(),
+                request: "GET /x".into(),
+                result: Ok(NormResponse {
+                    status,
+                    headers: BTreeMap::new(),
+                    body: NormBody::Empty,
+                }),
+                expectation: note.map(str::to_owned),
+                retries: 0,
+                fingerprint: fingerprint(&case.steps[0]),
+            }],
+        };
+        // The recording was made when the case still expected 400; the case now expects 200.
+        let stale = outcome(200, Some("expected status 400, got 200"));
+        let report = compare_case(&case, &outcome(200, None), Some(&stale));
+        assert!(
+            report.steps[0].notes.is_empty(),
+            "{:?}",
+            report.steps[0].notes
+        );
+        // A reference that does not meet the case's current expectation is still reported.
+        let wrong = compare_case(&case, &outcome(200, None), Some(&outcome(404, None)));
+        assert_eq!(
+            wrong.steps[0].notes,
+            ["reference: expected status 200, got 404"]
+        );
     }
 
     #[test]
