@@ -222,7 +222,9 @@ func TestV4RSASignedDownload(t *testing.T) {
 	request("HEAD", sign("HEAD", attrs.Name, query, nil), "", "", http.StatusOK, []byte{})
 	request("GET", signed+"&added=1", "", "", http.StatusForbidden, nil)
 	queryNames := sign("GET", attrs.Name, url.Values{"a": {"a b"}, "+": {"+"}, "é": {"日"}}, nil)
-	request("GET", queryNames, "", "", http.StatusBadRequest, nil)
+	// Signed query names the object read does not know are ignored, as on Cloud Storage; the signature still covers them,
+	// so the tampered variant below stays forbidden.
+	request("GET", queryNames, "", "", http.StatusOK, payload)
 	request("GET", queryNames+"&tampered=1", "", "", http.StatusForbidden, nil)
 	request("GET", strings.Replace(signed, "generation="+fmt.Sprint(attrs.Generation), "generation=1", 1), "", "", http.StatusForbidden, nil)
 	request("GET", signed, "wrong.invalid:4443", "", http.StatusForbidden, nil)

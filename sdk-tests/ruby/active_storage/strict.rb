@@ -64,7 +64,9 @@ begin
     anonymous = uri.dup
     anonymous.query = nil
     assert(fetch(anonymous, Net::HTTP::Get.new(anonymous)).code.to_i == 401, "private object allowed anonymous GET")
-    bucket.update { |item| item.public_access_prevention = "enforced" }
+    # The setter outside an update block is a PATCH. A block sends a PUT, which replaces the whole
+    # bucket on Cloud Storage and would clear the CORS rules the direct-upload cases below need.
+    bucket.public_access_prevention = "enforced"
     assert(fetch(uri, Net::HTTP::Get.new(uri)).body == "strict attachment bytes", "PAP blocked an authorized signer")
     blob.purge
     assert(!ActiveStorage::Blob.service.exist?(blob.key), "purge left strict object")

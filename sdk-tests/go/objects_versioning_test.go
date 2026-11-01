@@ -127,7 +127,7 @@ func TestObjectEventBasedHold(t *testing.T) {
 	err := object.Delete(ctx)
 	requireObjectStatus(t, err, http.StatusForbidden)
 	var apiError *googleapi.Error
-	if !errors.As(err, &apiError) || len(apiError.Errors) == 0 || apiError.Errors[0].Reason != "objectUnderActiveHold" {
+	if !errors.As(err, &apiError) || len(apiError.Errors) == 0 || apiError.Errors[0].Reason != "forbidden" {
 		t.Fatalf("held delete reason: %v", err)
 	}
 	readObject(t, ctx, object, []byte("held bytes"), created.Generation)

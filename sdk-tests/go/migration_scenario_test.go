@@ -24,8 +24,9 @@ func TestMigrationAppScenarioBucketList(t *testing.T) {
 	}
 	_, body := migrationHTTP(t, ctx, httpClient, http.MethodGet, endpoint.String()+"/storage/v1/b", "", nil, status)
 	if status == http.StatusBadRequest {
-		if !strings.Contains(string(body), "?project=local-project") {
-			t.Fatalf("missing project repair example: %s", body)
+		// Cloud Storage names only the missing parameter, without a repair example (recorded missing-project).
+		if !strings.Contains(string(body), "Required parameter: project") || !strings.Contains(string(body), "\"location\": \"project\"") {
+			t.Fatalf("missing-project error must name the parameter: %s", body)
 		}
 		return
 	}
