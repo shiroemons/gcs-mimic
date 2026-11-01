@@ -286,11 +286,16 @@ fn multiple_ranges_response(representation: &HeaderMap) -> Response<Full<Bytes>>
         "x-goog-stored-content-encoding",
         "x-goog-stored-content-length",
         "etag",
-        "cache-control",
         "pragma",
     ] {
         response.headers_mut().remove(name);
     }
+    // Recorded: the unsupported-range failure is cacheable by no shared cache, like the other
+    // plain media failures that do not depend on a request validator.
+    response.headers_mut().insert(
+        "cache-control",
+        HeaderValue::from_static(crate::json::MEDIA_ERROR_CACHE_CONTROL),
+    );
     response
 }
 

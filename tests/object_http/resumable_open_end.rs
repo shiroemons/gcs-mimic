@@ -193,9 +193,11 @@ fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
         );
     }
     // A start past the persisted offset would leave a gap.
-    put_chunked(&server, &path, "bytes 1-*/*", b"abc").error(400, "invalidParameter");
+    put_chunked(&server, &path, "bytes 1-*/*", b"abc")
+        .session_error(400, "Upload offset leaves a gap");
     // A declared Content-Length must reach the declared total.
-    put(&server, &path, "bytes 0-*/5", b"abc").error(400, "invalidParameter");
+    put(&server, &path, "bytes 0-*/5", b"abc")
+        .session_error(400, "Content-Length does not match Content-Range");
     // A chunked body that ends before, or runs past, the declared total completes nothing.
     put_chunked(&server, &path, "bytes 0-*/5", b"abc").error(400, "badRequest");
     put_chunked(&server, &path, "bytes 0-*/5", b"abcdefg").error(400, "badRequest");
@@ -209,7 +211,8 @@ fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
     // A total that conflicts with the initiation total is rejected before the body is read,
     // and an unknown-total body must still reach the initiation total.
     let path = session(&server, "conflict", "X-Upload-Content-Length: 5\r\n");
-    put_chunked(&server, &path, "bytes 0-*/6", b"abcdef").error(400, "invalidParameter");
+    put_chunked(&server, &path, "bytes 0-*/6", b"abcdef")
+        .session_error(400, "Inconsistent upload total");
     put_chunked(&server, &path, "bytes 0-*/*", b"abc").error(400, "badRequest");
     assert!(!status(&server, &path).headers.contains_key("range"));
 
@@ -217,7 +220,8 @@ fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
     let object = pattern(CHUNK);
     let path = session(&server, "shrink", "");
     put_prefix(&server, &path, &object);
-    put_chunked(&server, &path, "bytes 0-*/*", &object[..100]).error(400, "invalidParameter");
+    put_chunked(&server, &path, "bytes 0-*/*", &object[..100])
+        .session_error(400, "inconsistent upload offset or total");
     let probe = status(&server, &path);
     assert_eq!(probe.headers["range"], format!("bytes=0-{}", CHUNK - 1));
     // An empty open request at the persisted offset completes the prefix as the object.

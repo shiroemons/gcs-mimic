@@ -6,7 +6,7 @@
 //! handler from re-deriving them and keeps errors, mutations and reads consistent. Media
 //! downloads and the XML API carry their own headers and are left alone.
 
-use super::{NO_STORE_CACHE_CONTROL, http_date};
+use super::{NO_STORE_CACHE_CONTROL, error::MEDIA_ERROR_CACHE_CONTROL, http_date};
 use hyper::{
     Method, Response, StatusCode,
     header::{self, HeaderValue},
@@ -40,9 +40,9 @@ pub(crate) fn etag_header(resource: &Value) -> Option<HeaderValue> {
 pub(crate) enum Call {
     Metadata,
     MediaRead,
-    /// An upload call the upload front end rejects before the JSON API sees it (a session
+    /// An upload call the upload front end handles before the JSON API sees it (a session
     /// continuation, an unknown `uploadType`, a multipart request without a boundary): its
-    /// errors carry no cache fields.
+    /// bare `text/plain` replies carry no cache fields and no `Vary`.
     UploadFrontEnd,
 }
 
@@ -78,10 +78,45 @@ impl Call {
     }
 }
 
+/// Marks a response as one Cloud Storage forbids every cache for: `Cache-Control`, `Expires`
+/// in the past and `Pragma`. Mutations, errors and the resumable initiation reply share it.
+pub(crate) fn forbid_caching(headers: &mut header::HeaderMap) {
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(NO_STORE_CACHE_CONTROL),
+    );
+    headers.insert(header::EXPIRES, HeaderValue::from_static(EXPIRED));
+    headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+}
+
+/// The `Expires` that goes with a media response's `Cache-Control`: Cloud Storage derives it
+/// from the cache policy, so a download that forbids caching expires in the past and a plain
+/// media failure (`private, max-age=0`) expires at the response time (recorded for 200, 206,
+/// 304, 412, 404, 416 and 501 media reads). A public object's own `Cache-Control` has no
+/// recorded `Expires`, so it gets none.
+fn media_expires(headers: &mut header::HeaderMap, now: SystemTime) {
+    if headers.contains_key(header::EXPIRES) {
+        return;
+    }
+    let policy = headers
+        .get(header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok());
+    if policy.is_some_and(|value| value.starts_with(NO_STORE_CACHE_CONTROL)) {
+        headers.insert(header::EXPIRES, HeaderValue::from_static(EXPIRED));
+    } else if policy == Some(MEDIA_ERROR_CACHE_CONTROL)
+        && let Some(expires) = http_date(now)
+            .ok()
+            .and_then(|date| HeaderValue::from_str(&date).ok())
+    {
+        headers.insert(header::EXPIRES, expires);
+    }
+}
+
 /// Adds the shared JSON API fields to a routed response.
 ///
-/// A `MediaRead` belongs to the media response. A response
-/// is a JSON API response when it is JSON, or an empty `204`/`304` for a non-media call.
+/// A `MediaRead` keeps its own headers and gains only the `Expires` its cache policy implies.
+/// A response is a JSON API response when it is JSON (or the JSON error envelope the upload
+/// front end labels `text/html`), or an empty `204`/`304` for a non-media call.
 pub(crate) fn apply<B>(
     method: &Method,
     path: &str,
@@ -89,18 +124,33 @@ pub(crate) fn apply<B>(
     now: SystemTime,
     response: &mut Response<B>,
 ) {
-    if !is_json_api(path) || call == Call::MediaRead {
+    if !is_json_api(path) {
+        return;
+    }
+    if call == Call::MediaRead {
+        media_expires(response.headers_mut(), now);
         return;
     }
     let status = response.status();
-    if call == Call::UploadFrontEnd && status.as_u16() >= 400 {
+    let headers = response.headers_mut();
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok());
+    // The upload front end answers its own protocol failures with a bare `text/plain` page:
+    // none of the JSON API fields apply, and the CORS `Vary` added while routing is not
+    // sent either (recorded for session status, range, unknown-session and `uploadType`
+    // failures).
+    if call == Call::UploadFrontEnd
+        && content_type.is_some_and(|value| value.starts_with("text/plain"))
+    {
+        headers.remove(header::VARY);
         return;
     }
-    let headers = response.headers_mut();
-    let json = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.starts_with("application/json"));
+    // A JSON error the upload front end labelled `text/html` is still a JSON API response.
+    let json = content_type.is_some_and(|value| {
+        value.starts_with("application/json")
+            || (value.starts_with("text/html") && status.is_client_error())
+    });
     let empty = !headers.contains_key(header::CONTENT_TYPE)
         && matches!(status, StatusCode::NO_CONTENT | StatusCode::NOT_MODIFIED);
     if !json && !empty {
@@ -128,12 +178,7 @@ pub(crate) fn apply<B>(
         }
         headers.remove(header::PRAGMA);
     } else {
-        headers.insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static(NO_STORE_CACHE_CONTROL),
-        );
-        headers.insert(header::EXPIRES, HeaderValue::from_static(EXPIRED));
-        headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+        forbid_caching(headers);
     }
     if !headers.contains_key(header::VARY) {
         headers.insert(header::VARY, HeaderValue::from_static(VARY));
@@ -281,26 +326,100 @@ mod tests {
         }
     }
 
+    fn text_response(status: StatusCode, content_type: &'static str) -> Response<()> {
+        let mut response = Response::new(());
+        *response.status_mut() = status;
+        let headers = response.headers_mut();
+        headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+        headers.insert(header::VARY, HeaderValue::from_static(VARY));
+        response
+    }
+
     #[test]
-    fn upload_front_end_errors_carry_no_cache_fields_but_successes_do() {
-        let mut error = json_response(StatusCode::BAD_REQUEST);
-        apply(
-            &Method::PUT,
-            "/upload/storage/v1/b/x/o",
-            Call::UploadFrontEnd,
-            UNIX_EPOCH,
-            &mut error,
+    fn upload_front_end_text_replies_carry_no_cache_fields_or_vary() {
+        for status in [StatusCode::PERMANENT_REDIRECT, StatusCode::BAD_REQUEST] {
+            let mut reply = text_response(status, "text/plain; charset=utf-8");
+            apply(
+                &Method::PUT,
+                "/upload/storage/v1/b/x/o",
+                Call::UploadFrontEnd,
+                UNIX_EPOCH,
+                &mut reply,
+            );
+            for name in ["cache-control", "expires", "pragma", "vary"] {
+                assert_eq!(header(&reply, name), None, "{name} on {status}");
+            }
+        }
+    }
+
+    #[test]
+    fn upload_front_end_json_replies_get_the_json_api_fields() {
+        for status in [StatusCode::OK, StatusCode::BAD_REQUEST] {
+            let mut reply = json_response(status);
+            apply(
+                &Method::PUT,
+                "/upload/storage/v1/b/x/o",
+                Call::UploadFrontEnd,
+                UNIX_EPOCH,
+                &mut reply,
+            );
+            assert_eq!(
+                header(&reply, "cache-control"),
+                Some(NO_STORE_CACHE_CONTROL)
+            );
+            assert_eq!(header(&reply, "expires"), Some(EXPIRED));
+            assert_eq!(header(&reply, "pragma"), Some("no-cache"));
+            assert_eq!(header(&reply, "vary"), Some(VARY));
+        }
+    }
+
+    #[test]
+    fn html_labelled_upload_errors_expire_in_the_past() {
+        let mut reply = text_response(StatusCode::BAD_REQUEST, "text/html; charset=UTF-8");
+        reply.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static(NO_STORE_CACHE_CONTROL),
         );
-        assert_eq!(header(&error, "cache-control"), None);
-        let mut done = json_response(StatusCode::OK);
         apply(
-            &Method::PUT,
+            &Method::POST,
             "/upload/storage/v1/b/x/o",
-            Call::UploadFrontEnd,
+            Call::Metadata,
             UNIX_EPOCH,
-            &mut done,
+            &mut reply,
         );
-        assert_eq!(header(&done, "cache-control"), Some(NO_STORE_CACHE_CONTROL));
+        assert_eq!(header(&reply, "expires"), Some(EXPIRED));
+        assert_eq!(header(&reply, "pragma"), Some("no-cache"));
+    }
+
+    #[test]
+    fn media_expires_follows_the_cache_policy() {
+        let now = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        for (policy, expected) in [
+            (NO_STORE_CACHE_CONTROL, Some(EXPIRED)),
+            (
+                "no-cache, no-store, max-age=0, must-revalidate, no-transform",
+                Some(EXPIRED),
+            ),
+            (
+                MEDIA_ERROR_CACHE_CONTROL,
+                Some("Tue, 14 Nov 2023 22:13:20 GMT"),
+            ),
+            ("public, max-age=3600", None),
+        ] {
+            let mut reply = json_response(StatusCode::OK);
+            reply.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_str(policy).unwrap(),
+            );
+            apply(
+                &Method::GET,
+                "/storage/v1/b/x/o/y",
+                Call::MediaRead,
+                now,
+                &mut reply,
+            );
+            assert_eq!(header(&reply, "expires"), expected, "{policy}");
+        }
     }
 
     #[test]

@@ -86,9 +86,8 @@ pub(super) async fn initiate(
             .parse()
             .map_err(|_| JsonError::invalid_parameter("Invalid session endpoint"))?,
     );
-    response
-        .headers_mut()
-        .insert("cache-control", HeaderValue::from_static("no-store"));
+    // Cloud Storage forbids every cache for the initiation reply, as for other JSON API calls.
+    json::forbid_caching(response.headers_mut());
     Ok(boxed(response))
 }
 
@@ -171,9 +170,7 @@ fn completed(value: &serde_json::Value) -> Response<ResponseBody> {
     if let Some(etag) = crate::json::etag_header(value) {
         response.headers_mut().insert("etag", etag);
     }
-    response
-        .headers_mut()
-        .insert("cache-control", HeaderValue::from_static("no-store"));
+    // The cache fields of a stored-object response come from the JSON API envelope.
     boxed(response)
 }
 
@@ -358,7 +355,20 @@ fn plan_chunk(
     })
 }
 
+/// A session URI request. The upload front end answers a failed continuation with a bare text
+/// page, so protocol errors leave as text (see `JsonError::session_text`).
 pub(super) async fn session_response(
+    request: Request<Incoming>,
+    bucket: &str,
+    id: &str,
+    ctx: ObjectCtx<'_>,
+) -> Result<Response<ResponseBody>, JsonError> {
+    session_exchange(request, bucket, id, ctx)
+        .await
+        .map_err(JsonError::session_text)
+}
+
+async fn session_exchange(
     request: Request<Incoming>,
     bucket: &str,
     id: &str,
@@ -375,7 +385,12 @@ pub(super) async fn session_response(
         name: None,
     };
     Ok(match transfer(request, target, ctx).await? {
-        Transfer::Incomplete(response) => response,
+        // The shared 308 carries `no-store` for the XML adapter; the JSON front end sends the
+        // status reply with no cache field (recorded for an empty status request).
+        Transfer::Incomplete(mut response) => {
+            response.headers_mut().remove("cache-control");
+            response
+        }
         Transfer::Complete(value) => completed(&value),
     })
 }

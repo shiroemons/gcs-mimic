@@ -76,7 +76,16 @@ async fn completed_retries_reject_new_checksums_without_invalidating_completion(
             } else {
                 b""
             };
-            for checksum in ["crc32c=Nks/tw==", "md5=AAAAAAAAAAAAAAAAAAAAAA=="] {
+            let refused = "Status or completed retries cannot introduce new checksum declarations";
+            // Whether an MD5 is refused outright or compared with the declared one first
+            // depends on the session, so either wording is accepted for it.
+            for (checksum, messages) in [
+                ("crc32c=Nks/tw==", [refused, refused]),
+                (
+                    "md5=AAAAAAAAAAAAAAAAAAAAAA==",
+                    [refused, "Conflicting MD5 declarations"],
+                ),
+            ] {
                 h.request(
                     "PUT",
                     &path,
@@ -84,7 +93,7 @@ async fn completed_retries_reject_new_checksums_without_invalidating_completion(
                     body,
                 )
                 .await
-                .error(400, "invalidParameter");
+                .session_error_in(400, &messages);
             }
             let headers = if declared {
                 format!("Content-Range: {range}\r\nX-Goog-Hash: md5=kAFQmDzST7DWlj99KOF/cg==\r\n")
@@ -120,19 +129,15 @@ async fn conflicting_final_hash_preserves_error_and_session_invalidation() {
     stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {size}\r\nContent-Range: bytes 0-{}/{size}\r\nX-Goog-Hash: crc32c=AQIDBA==\r\n\r\n", size - 1).as_bytes()).await.unwrap();
     stream.write_all(&vec![b'a'; size as usize]).await.unwrap();
     let reply = Harness::read_response(stream).await;
-    reply.error(400, "invalidParameter");
-    assert!(
-        reply.json()["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("CRC32C")
-    );
+    assert_eq!(reply.status, 400);
+    assert_eq!(reply.headers["content-type"], "text/plain; charset=utf-8");
+    assert!(String::from_utf8_lossy(&reply.body).contains("CRC32C"));
     h.request("GET", "/storage/v1/b/bucket/o/conflict", "", b"")
         .await
         .error(404, "notFound");
     h.request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
         .await
-        .error(410, "gone");
+        .session_error(410, "Upload session is no longer active");
     h.stop().await;
 }
 
@@ -169,6 +174,30 @@ impl Clock for TestClock {
 impl Reply {
     fn json(&self) -> Value {
         serde_json::from_slice(&self.body).unwrap()
+    }
+    /// A session-continuation failure: a bare `text/plain` page without the JSON API cache
+    /// fields or `Vary`, as the upload front end sends it.
+    fn session_error(&self, status: u16, body: &str) {
+        assert_eq!(
+            self.status,
+            status,
+            "{}",
+            String::from_utf8_lossy(&self.body)
+        );
+        assert_eq!(self.headers["content-type"], "text/plain; charset=utf-8");
+        assert_eq!(String::from_utf8_lossy(&self.body), body);
+        for name in ["cache-control", "expires", "pragma", "vary"] {
+            assert!(
+                !self.headers.contains_key(name),
+                "{name}: {:?}",
+                self.headers
+            );
+        }
+    }
+    fn session_error_in(&self, status: u16, bodies: &[&str]) {
+        let body = String::from_utf8_lossy(&self.body).into_owned();
+        assert!(bodies.contains(&body.as_str()), "{body}");
+        self.session_error(status, &body);
     }
     fn error(&self, status: u16, reason: &str) {
         assert_eq!(
@@ -682,7 +711,12 @@ async fn initiation_returns_opaque_fixed_location_and_status_without_publication
         .await;
     assert_eq!(reply.status, 200);
     assert!(reply.body.is_empty());
-    assert_eq!(reply.headers["cache-control"], "no-store");
+    assert_eq!(
+        reply.headers["cache-control"],
+        "no-cache, no-store, max-age=0, must-revalidate"
+    );
+    assert_eq!(reply.headers["pragma"], "no-cache");
+    assert_eq!(reply.headers["expires"], "Mon, 01 Jan 1990 00:00:00 GMT");
     assert!(
         reply.headers["location"]
             .starts_with("https://configured.invalid/proxy/upload/storage/v1/")
@@ -1962,7 +1996,11 @@ async fn strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadl
     let cancelled = h.request("DELETE", &path, "", b"").await;
     assert_eq!(cancelled.status, 499);
     assert!(cancelled.body.is_empty());
-    assert_eq!(cancelled.headers["cache-control"], "no-store");
+    assert_eq!(
+        cancelled.headers["content-type"],
+        "text/plain; charset=utf-8"
+    );
+    assert!(!cancelled.headers.contains_key("cache-control"));
     assert!(!h.dir.0.join("staging").join(session.blob_id).exists());
     for method in ["PUT", "POST", "DELETE"] {
         assert_eq!(
@@ -2373,10 +2411,8 @@ async fn contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_sessi
             .await
             .unwrap();
         assert_eq!(reply.status, 400);
-        assert_eq!(
-            reply.json()["error"]["errors"][0]["reason"],
-            "invalidParameter"
-        );
+        assert_eq!(reply.headers["content-type"], "text/plain; charset=utf-8");
+        assert!(!reply.body.is_empty());
     }
     assert_eq!(std::fs::metadata(stage).unwrap().len(), 0);
     drop(lease);
