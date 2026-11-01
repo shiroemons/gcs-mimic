@@ -61,9 +61,11 @@ func TestBucketMetadataUpdate(t *testing.T) {
 	requireBucketUpdate(t, ctx, bucket, first, second)
 	_, err = matched.Update(ctx, storage.BucketAttrsToUpdate{StorageClass: "ARCHIVE"})
 	requireObjectStatus(t, err, http.StatusPreconditionFailed)
+	// Observed 2026-10-31: a writing PATCH whose ifMetagenerationNotMatch names the current value
+	// is a bodyless 304, not a 412.
 	_, err = bucket.If(storage.BucketConditions{MetagenerationNotMatch: second.MetaGeneration}).Update(ctx,
 		storage.BucketAttrsToUpdate{StorageClass: "ARCHIVE"})
-	requireObjectStatus(t, err, http.StatusPreconditionFailed)
+	requireObjectStatus(t, err, http.StatusNotModified)
 	afterFailure, err := bucket.Attrs(ctx)
 	if err != nil {
 		t.Fatal(err)

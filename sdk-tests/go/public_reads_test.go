@@ -169,7 +169,12 @@ func TestPublicReadsGrantAndRevoke(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			requireReadBytes(t, reader, payload, attrs, "public, max-age=3600")
+			// Observed 2026-10-31: anonymous-capable JSON media revalidates; XML does not.
+			cacheControl := "public, max-age=3600"
+			if jsonReads {
+				cacheControl += ", must-revalidate"
+			}
+			requireReadBytes(t, reader, payload, attrs, cacheControl)
 			log.last(t, bucket.BucketName(), attrs.Name, http.MethodGet, jsonReads)
 			policy, err = bucket.IAM().Policy(ctx)
 			if err != nil {
@@ -215,7 +220,7 @@ func TestPublicReadsAllAuthenticatedUsers(t *testing.T) {
 						}
 						cacheControl := "private, max-age=0"
 						if jsonReads {
-							cacheControl = "no-cache"
+							cacheControl = "no-cache, no-store, max-age=0, must-revalidate"
 						}
 						requireReadBytes(t, reader, payload, attrs, cacheControl)
 					} else {
