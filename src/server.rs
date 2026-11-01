@@ -706,17 +706,6 @@ impl ConnectionService {
             reads,
         };
         let sent_body = has_body(&request);
-        let method = request.method().clone();
-        let path = request.uri().path().to_owned();
-        let call = if request
-            .uri()
-            .query()
-            .is_some_and(|query| query.split('&').any(|pair| pair == "alt=media"))
-        {
-            json::EnvelopeCall::MediaRead
-        } else {
-            json::EnvelopeCall::Metadata
-        };
         let endpoints = match config
             .runtime_endpoints
             .snapshot(&config, &state.api_base_url)
@@ -762,7 +751,6 @@ impl ConnectionService {
                 hyper::header::HeaderValue::from_static("close"),
             );
         }
-        json::apply_envelope(&method, &path, call, state.clock.now(), &mut response);
         responded.store(true, Ordering::Release);
         Ok(response.map(|body| finished.track(body)))
     }

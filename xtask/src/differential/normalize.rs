@@ -400,9 +400,9 @@ impl Normalizer {
             return Some(encoding.to_ascii_lowercase());
         }
         let Some(length) = response.header("content-length") else {
-            // HTTP forbids a length on `204`/`304`, so a conforming server sends none, while
-            // Cloud Storage sends `content-length: 0`. Both are an empty body with no framing
-            // difference, so an empty reply of that kind is framed as an agreeing length.
+            // hyper never sends a length on `204`/`304`, while Cloud Storage sends
+            // `content-length: 0`. Both are an empty body with no framing difference, so an
+            // empty reply of that kind is framed as an agreeing length.
             return (matches!(response.status, 204 | 304) && response.body.is_empty())
                 .then(|| "content-length:<ok>".into());
         };

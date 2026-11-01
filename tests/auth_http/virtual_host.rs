@@ -1719,3 +1719,28 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
         );
     }
 }
+
+#[test]
+fn virtual_host_xml_requests_keep_their_own_headers_under_json_api_looking_paths() {
+    let (_config, _data, server) = configured_fixture(&["--xml-virtual-host-domains", DOMAIN]);
+    let vhost = format!("{BUCKET}.{DOMAIN}");
+    let put = request(
+        &server,
+        "PUT",
+        &vhost,
+        "/storage/v1/x.json",
+        &format!("{ADMIN}Cache-Control: public, max-age=3600\r\n"),
+        b"{}",
+    );
+    assert!(put.status < 300, "{}", put.status);
+    let get = request(&server, "GET", &vhost, "/storage/v1/x.json", VIEWER, b"");
+    assert_eq!(get.status, 200);
+    assert_eq!(get.headers["cache-control"], "public, max-age=3600");
+    assert!(!get.headers.contains_key("vary"));
+    assert!(!get.headers.contains_key("expires"));
+    let delete = request(&server, "DELETE", &vhost, "/storage/v1/x.json", ADMIN, b"");
+    assert_eq!(delete.status, 204);
+    for name in ["content-type", "pragma", "expires"] {
+        assert!(!delete.headers.contains_key(name), "{name}");
+    }
+}

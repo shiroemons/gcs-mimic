@@ -64,6 +64,8 @@ pub(super) async fn respond(
         ObjectRequest::Insert { .. } | ObjectRequest::Multipart { .. } => JsonCache::NoStore,
         _ => JsonCache::Unrecorded,
     };
+    // Cloud Storage sends no ETag header with a move response, though the body has an etag.
+    let validator_header = !matches!(operation, ObjectRequest::Move(_));
     let written = match operation {
         ObjectRequest::Restore {
             bucket,
@@ -147,7 +149,11 @@ pub(super) async fn respond(
     if acl_full {
         add_acl(ctx, &mut value, written.acl_snapshot).await?;
     }
-    Ok(boxed(json_response_selected(&mut value, &fields, cache)))
+    let mut response = json_response_selected(&mut value, &fields, cache);
+    if !validator_header {
+        response.headers_mut().remove("etag");
+    }
+    Ok(boxed(response))
 }
 
 fn response_fields(uri: &Uri, operation: &ObjectRequest) -> Result<json::Fields, JsonError> {

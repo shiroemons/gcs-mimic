@@ -577,6 +577,15 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
             b"",
         )
         .error(400, "invalidParameter");
+    // A bare value that names no current tag is a failed precondition, not a malformed one.
+    server
+        .request(
+            "GET",
+            &path,
+            &format!("{admin}If-Match: malformed\r\n"),
+            b"",
+        )
+        .error(412, "conditionNotMet");
     for name in ["If-Modified-Since", "If-Unmodified-Since", "If-Range"] {
         server
             .request(

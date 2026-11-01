@@ -40,6 +40,42 @@ pub(crate) fn etag_header(resource: &Value) -> Option<HeaderValue> {
 pub(crate) enum Call {
     Metadata,
     MediaRead,
+    /// An upload call the upload front end rejects before the JSON API sees it (a session
+    /// continuation, an unknown `uploadType`, a multipart request without a boundary): its
+    /// errors carry no cache fields.
+    UploadFrontEnd,
+}
+
+impl Call {
+    pub(crate) fn of_request<B>(request: &hyper::Request<B>) -> Self {
+        let query = request.uri().query().unwrap_or_default();
+        let param = |name: &str| {
+            query
+                .split('&')
+                .find_map(|pair| pair.strip_prefix(name)?.strip_prefix('='))
+        };
+        if request.uri().path().starts_with("/upload/") {
+            let boundary_missing = param("uploadType") == Some("multipart")
+                && !request
+                    .headers()
+                    .get(header::CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .is_some_and(|value| value.contains("boundary="));
+            let unknown_type = param("uploadType")
+                .is_some_and(|kind| !matches!(kind, "media" | "multipart" | "resumable"));
+            if param("upload_id").or_else(|| param("uploadId")).is_some()
+                || boundary_missing
+                || unknown_type
+            {
+                return Self::UploadFrontEnd;
+            }
+        }
+        if param("alt") == Some("media") {
+            Self::MediaRead
+        } else {
+            Self::Metadata
+        }
+    }
 }
 
 /// Adds the shared JSON API fields to a routed response.
@@ -57,6 +93,9 @@ pub(crate) fn apply<B>(
         return;
     }
     let status = response.status();
+    if call == Call::UploadFrontEnd && status.as_u16() >= 400 {
+        return;
+    }
     let headers = response.headers_mut();
     let json = headers
         .get(header::CONTENT_TYPE)
@@ -218,6 +257,50 @@ mod tests {
         );
         assert_eq!(header(&response, "vary"), Some("Origin"));
         assert_eq!(header(&response, "content-type"), Some("application/json"));
+    }
+
+    #[test]
+    fn head_reads_and_not_modified_replies_follow_the_read_rule() {
+        for (method, status) in [
+            (Method::HEAD, StatusCode::OK),
+            (Method::GET, StatusCode::NOT_MODIFIED),
+        ] {
+            let mut response = json_response(status);
+            apply(
+                &method,
+                "/storage/v1/b/x",
+                Call::Metadata,
+                UNIX_EPOCH,
+                &mut response,
+            );
+            assert_eq!(
+                header(&response, "cache-control"),
+                Some(RESOURCE_CACHE_CONTROL)
+            );
+            assert_eq!(header(&response, "pragma"), None);
+        }
+    }
+
+    #[test]
+    fn upload_front_end_errors_carry_no_cache_fields_but_successes_do() {
+        let mut error = json_response(StatusCode::BAD_REQUEST);
+        apply(
+            &Method::PUT,
+            "/upload/storage/v1/b/x/o",
+            Call::UploadFrontEnd,
+            UNIX_EPOCH,
+            &mut error,
+        );
+        assert_eq!(header(&error, "cache-control"), None);
+        let mut done = json_response(StatusCode::OK);
+        apply(
+            &Method::PUT,
+            "/upload/storage/v1/b/x/o",
+            Call::UploadFrontEnd,
+            UNIX_EPOCH,
+            &mut done,
+        );
+        assert_eq!(header(&done, "cache-control"), Some(NO_STORE_CACHE_CONTROL));
     }
 
     #[test]
