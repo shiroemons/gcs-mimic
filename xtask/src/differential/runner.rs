@@ -353,6 +353,7 @@ mod tests {
         let transport = Recorder::default();
         let side = Side {
             transport: &transport,
+            grpc: None,
             project: "proj-x",
             hosts: Vec::new(),
         };
