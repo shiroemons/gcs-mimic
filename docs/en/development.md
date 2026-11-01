@@ -526,8 +526,12 @@ Modes:
 Other options: `--cases DIR` (default `compatibility/differential/cases`),
 `--filter TEXT` (case ids containing the text), `--out DIR` (default a
 temporary directory outside the repository), `--binary PATH` (skip the build),
-`--evidence FILE` (also write the Markdown report there) and `--fail-on-diff`
-(exit nonzero on differences; harness errors and failed cleanups always fail).
+`--evidence FILE` (also write the Markdown report there), `--fail-on-diff`
+(exit nonzero on differences) and `--fail-on-note` (exit nonzero when a step
+missed its `expect_status` on gcs-mimic). Harness errors, failed cleanups,
+redaction leaks and an unmet `expect_status` on the real service always fail.
+A case whose only finding is an unmet `expect_status` on gcs-mimic is reported
+as `note`, so the self-check can gate CI without hiding those gaps.
 
 Every file the harness writes is checked first: it must not contain the
 project, the project number, the token, a bucket name of the run, the local

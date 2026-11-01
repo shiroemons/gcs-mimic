@@ -10,6 +10,9 @@ pub(crate) enum Outcome {
     /// No difference from the reference (or, in self-check mode, all steps ran).
     Match,
     Differs,
+    /// Only steps missed their `expect_status` on the gcs-mimic side: a gap in
+    /// gcs-mimic that the run reports, not a harness failure.
+    Noted,
     Error,
 }
 
@@ -19,6 +22,7 @@ impl Outcome {
             (Self::Match, true) => "match",
             (Self::Match, false) => "ok",
             (Self::Differs, _) => "differs",
+            (Self::Noted, _) => "note",
             (Self::Error, _) => "error",
         }
     }
@@ -100,11 +104,19 @@ fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome
         }
     }
     let has_diffs = steps.iter().any(|s| !s.differences.is_empty());
+    // An unmet expectation on the real service means the case itself is wrong,
+    // which fails the run; on gcs-mimic it is a finding, like a difference.
+    let reference_note = steps
+        .iter()
+        .flat_map(|s| &s.notes)
+        .any(|n| n.starts_with("reference:"));
     let has_notes = steps.iter().any(|s| !s.notes.is_empty());
-    let outcome = if !errors.is_empty() || (has_notes && !has_diffs) {
+    let outcome = if !errors.is_empty() || reference_note {
         Outcome::Error
     } else if has_diffs {
         Outcome::Differs
+    } else if has_notes {
+        Outcome::Noted
     } else {
         Outcome::Match
     };
@@ -478,10 +490,18 @@ pub(crate) fn redact_leaks(text: &str, secrets: &[(String, &str)]) -> String {
     }
 }
 
-pub(crate) fn has_failures(reports: &[CaseReport], fail_on_diff: bool) -> bool {
+/// Which findings fail the run; harness errors always do.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct FailOn {
+    pub(crate) diff: bool,
+    pub(crate) note: bool,
+}
+
+pub(crate) fn has_failures(reports: &[CaseReport], fail_on: FailOn) -> bool {
     reports.iter().any(|r| match r.outcome {
         Outcome::Error => true,
-        Outcome::Differs => fail_on_diff,
+        Outcome::Differs => fail_on.diff,
+        Outcome::Noted => fail_on.note,
         Outcome::Match => false,
     })
 }
@@ -647,6 +667,59 @@ mod tests {
         assert!(md.contains("body `$.a`: reference `\"x\"`, mimic `(absent)`"));
         assert!(md.contains("## Cleanup\n\n```text\n```\n"), "{md}");
         assert!(md.contains("Requests sent to the live reference service (when recorded): 9"));
-        assert!(has_failures(&[report], true));
+        let fail_on_diff = FailOn {
+            diff: true,
+            note: false,
+        };
+        assert!(has_failures(&[report], fail_on_diff));
+    }
+
+    #[test]
+    fn a_mimic_expectation_note_is_not_a_failure_unless_asked_but_a_reference_one_is() {
+        use super::super::case::{fingerprint, parse_case};
+        use super::super::normalize::{NormBody, NormResponse};
+        use std::collections::BTreeMap;
+        let case = parse_case(
+            &json!({"id": "c", "description": "d", "bucket": false,
+                    "steps": [{"name": "s", "method": "GET", "path": "/x"}]}),
+            "c",
+        )
+        .unwrap();
+        let outcome = |note: Option<&str>| CaseOutcome {
+            id: "c".into(),
+            error: None,
+            steps: vec![StepOutcome {
+                name: "s".into(),
+                request: "GET /x".into(),
+                result: Ok(NormResponse {
+                    status: 200,
+                    headers: BTreeMap::new(),
+                    body: NormBody::Empty,
+                }),
+                expectation: note.map(str::to_owned),
+                retries: 0,
+                fingerprint: fingerprint(&case.steps[0]),
+            }],
+        };
+        let noted = compare_case(&case, &outcome(Some("expected 404")), None);
+        assert_eq!(noted.outcome, Outcome::Noted);
+        assert_eq!(noted.outcome.label(false), "note");
+        assert!(!has_failures(
+            std::slice::from_ref(&noted),
+            FailOn::default()
+        ));
+        let strict = FailOn {
+            diff: false,
+            note: true,
+        };
+        assert!(has_failures(&[noted], strict));
+        let wrong_case = compare_case(&case, &outcome(None), Some(&outcome(Some("expected 404"))));
+        assert_eq!(wrong_case.outcome, Outcome::Error);
+        let harness = CaseOutcome {
+            error: Some("boom".into()),
+            ..outcome(None)
+        };
+        let failed = compare_case(&case, &harness, None);
+        assert!(has_failures(&[failed], FailOn::default()));
     }
 }

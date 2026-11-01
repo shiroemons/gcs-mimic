@@ -40,7 +40,7 @@ const LOCAL_PROJECT: &str = "local-project";
 const PROTO_ROOT: &str = "src/grpc/proto";
 const LIVE_GRPC_PORT: &str = "443";
 
-pub const USAGE: &str = "Usage: cargo xtask differential validate [--cases DIR] | differential run [--cases DIR] [--filter TEXT] [--out DIR] [--record FILE] [--reference FILE] [--evidence FILE] [--binary PATH] [--fail-on-diff] | differential sweep";
+pub const USAGE: &str = "Usage: cargo xtask differential validate [--cases DIR] | differential run [--cases DIR] [--filter TEXT] [--out DIR] [--record FILE] [--reference FILE] [--evidence FILE] [--binary PATH] [--fail-on-diff] [--fail-on-note] | differential sweep";
 
 #[derive(Default)]
 struct Options {
@@ -52,6 +52,7 @@ struct Options {
     evidence: Option<PathBuf>,
     binary: Option<PathBuf>,
     fail_on_diff: bool,
+    fail_on_note: bool,
 }
 
 fn parse_options(args: &[String]) -> Result<Options> {
@@ -60,6 +61,10 @@ fn parse_options(args: &[String]) -> Result<Options> {
     while let Some(flag) = iter.next() {
         if flag == "--fail-on-diff" {
             options.fail_on_diff = true;
+            continue;
+        }
+        if flag == "--fail-on-note" {
+            options.fail_on_note = true;
             continue;
         }
         let value = iter.next().ok_or_else(|| format!("{flag} needs a value"))?;
@@ -463,7 +468,11 @@ fn execute(
     println!("{markdown}");
     println!("reports: {}", out.display());
     let failed_cleanup = mimic_run.failed_cleanup || reference_failed_cleanup;
-    Ok(failed_cleanup || report::has_failures(&reports, options.fail_on_diff))
+    let fail_on = report::FailOn {
+        diff: options.fail_on_diff,
+        note: options.fail_on_note,
+    };
+    Ok(failed_cleanup || report::has_failures(&reports, fail_on))
 }
 
 /// Deletes every bucket whose name starts with the harness prefix, for the
