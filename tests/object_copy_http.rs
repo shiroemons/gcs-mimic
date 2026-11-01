@@ -118,11 +118,11 @@ fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
     ] {
         server
             .request("POST", &changed, headers, body)
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
     }
     server
         .request("POST", &path, headers, b"{}")
-        .error(400, "invalidArgument");
+        .error(400, "invalid");
     server
         .request(
             "POST",
@@ -234,7 +234,7 @@ fn copy_token_rechecks_source_destination_and_acl_permissions() {
             "Authorization: Bearer admin\r\nX-Goog-Gcs-Idempotency-Token: scoped-copy\r\n",
             b"",
         )
-        .error(400, "invalidArgument");
+        .error(400, "invalid");
     assert_no_transfer_files(&dir);
 }
 
@@ -286,7 +286,7 @@ fn copy_token_rejects_recreated_source_or_destination_buckets() {
             .json();
         server
             .request("POST", &path, headers, b"")
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
     }
 }
 
@@ -534,8 +534,8 @@ fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
         copy(&server, "source", "held", "", b"").json()["eventBasedHold"],
         true
     );
-    copy(&server, "source", "held", "", b"").error(403, "objectUnderActiveHold");
-    copy(&server, "held", "held", "", b"").error(403, "objectUnderActiveHold");
+    copy(&server, "source", "held", "", b"").hold_error();
+    copy(&server, "held", "held", "", b"").hold_error();
     assert_no_transfer_files(&dir);
     assert!(
         copy(
@@ -584,7 +584,7 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
     ] {
         copy(&server, "source", "target", "", body).error(400, "badRequest");
     }
-    copy(&server, "source", "target", "", b"invalid").error(400, "parseError");
+    copy(&server, "source", "target", "", b"invalid").error(400, "invalid");
     copy(&server, "missing", "target", "", b"").error(404, "notFound");
     server
         .request(

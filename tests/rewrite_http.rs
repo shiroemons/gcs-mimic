@@ -410,9 +410,7 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
     settings(&dir, true, true);
     let first = server.request("POST", BASE, ADMIN, b"").json();
     assert_eq!(first["resource"]["eventBasedHold"], true);
-    server
-        .request("POST", BASE, ADMIN, b"")
-        .error(403, "objectUnderActiveHold");
+    server.request("POST", BASE, ADMIN, b"").hold_error();
     assert_eq!(server.get("destination?alt=media").body, payload);
     for query in [
         "destinationKmsKeyName=key",

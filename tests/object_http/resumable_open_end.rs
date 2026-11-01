@@ -186,7 +186,11 @@ fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
         "bytes 6-*/5",
         "bytes 0-**/*",
     ] {
-        put_chunked(&server, &path, range, b"abc").error(400, "invalidParameter");
+        put_chunked(&server, &path, range, b"abc").plain_error(
+            400,
+            "text/plain; charset=utf-8",
+            "Failed to parse Content-Range header.",
+        );
     }
     // A start past the persisted offset would leave a gap.
     put_chunked(&server, &path, "bytes 1-*/*", b"abc").error(400, "invalidParameter");

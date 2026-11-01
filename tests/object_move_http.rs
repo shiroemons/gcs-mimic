@@ -125,7 +125,7 @@ fn move_rejects_missing_same_name_holds_and_unsupported_inputs() {
     mv(&server, "missing", "target", "").error(403, "forbidden");
     server.put("source", b"source").json();
     server.put("target", b"target").json();
-    mv(&server, "source", "source", "").error(400, "invalidArgument");
+    mv(&server, "source", "source", "").error(400, "invalid");
     for field in ["temporaryHold", "eventBasedHold"] {
         for name in ["source", "target"] {
             server
@@ -136,7 +136,7 @@ fn move_rejects_missing_same_name_holds_and_unsupported_inputs() {
                     json!({field:true}).to_string().as_bytes(),
                 )
                 .json();
-            mv(&server, "source", "target", "").error(403, "objectUnderActiveHold");
+            mv(&server, "source", "target", "").hold_error();
             server
                 .request(
                     "PATCH",

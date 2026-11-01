@@ -206,27 +206,22 @@ impl Reply {
         );
         // A missing media object and an unsatisfiable range are plain HTML-typed messages.
         if self.headers["content-type"] == "text/html; charset=UTF-8" {
-            assert!(
-                matches!(
-                    (status, reason),
-                    (404, "notFound") | (412, "conditionNotMet") | (416, _)
-                ),
-                "{status} {reason}"
-            );
-            if status == 404 {
-                assert!(self.body.starts_with(b"No such object: "));
+            let body = String::from_utf8_lossy(&self.body);
+            match (status, reason) {
+                (404, "notFound") => assert!(body.starts_with("No such object: "), "{body}"),
+                (412, "conditionNotMet") => assert_eq!(body, "Precondition Failed"),
+                (416, "requestedRangeNotSatisfiable") => {
+                    assert_eq!(body, "Request range not satisfiable")
+                }
+                _ => panic!("unexpected plain page {status} {reason}: {body}"),
             }
             return;
         }
-        // A bare text page (unknown session, bad Content-Range) has no envelope to inspect.
-        let Ok(value) = serde_json::from_slice::<Value>(&self.body) else {
-            return;
-        };
+        let value: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
+            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
+        });
         assert_eq!(value["error"]["code"], status);
-        assert!(
-            common::reason_matches(&value["error"]["errors"][0]["reason"], reason),
-            "{value}"
-        );
+        assert_eq!(value["error"]["errors"][0]["reason"], reason, "{value}");
     }
 }
 

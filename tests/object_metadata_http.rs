@@ -105,14 +105,10 @@ impl Reply {
             assert!(self.body.starts_with(b"No such object: "));
             return;
         }
-        // A bare text page (unknown session, bad Content-Range) has no envelope to inspect.
-        let Ok(value) = serde_json::from_slice::<Value>(&self.body) else {
-            return;
-        };
-        assert!(
-            common::reason_matches(&value["error"]["errors"][0]["reason"], reason),
-            "{value}"
-        );
+        let value: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
+            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
+        });
+        assert_eq!(value["error"]["errors"][0]["reason"], reason, "{value}");
     }
 }
 fn request(address: &str, method: &str, path: &str, body: &[u8]) -> Reply {
@@ -673,18 +669,15 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             .error(400, "badRequest");
         server
             .update(method, "", json!({"cacheControl":"private\tmax-age=0"}))
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
         for (body, reason) in [
-            ("{", "parseError"),
+            ("{", "invalid"),
             ("[]", "invalidArgument"),
             ("null", "invalidArgument"),
             (r#"{"contentType":7}"#, "invalidArgument"),
-            (r#"{"customTime":"invalid"}"#, "invalidArgument"),
+            (r#"{"customTime":"invalid"}"#, "invalid"),
             (r#"{"metadata":{"a":false}}"#, "invalidArgument"),
-            (
-                r#"{"contentLanguage":"en\r\nx-bad: true"}"#,
-                "invalidArgument",
-            ),
+            (r#"{"contentLanguage":"en\r\nx-bad: true"}"#, "invalid"),
         ] {
             server
                 .request(
@@ -812,7 +805,7 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
     );
     server
         .update("PATCH", "", json!({"contentLanguage":"a".repeat(101)}))
-        .error(400, "invalidArgument");
+        .error(400, "invalid");
     server
         .update(
             "PATCH",

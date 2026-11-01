@@ -754,6 +754,8 @@ fn resource_acl_policy_failures_roll_back_metadata_and_other_acls() {
             body[field] = json!([{"entity":"allUsers","role":"READER"}]);
             let (status, reason) = if policy.get("publicAccessPrevention").is_some() {
                 (412, "conditionNotMet")
+            } else if path.ends_with("/object") {
+                (400, "invalid")
             } else {
                 (400, "invalidArgument")
             };

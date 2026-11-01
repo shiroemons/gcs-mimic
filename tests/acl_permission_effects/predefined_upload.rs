@@ -251,16 +251,19 @@ fn multipart_and_resumable_uploads_apply_predefined_acl_at_publication() {
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
         )
         .json();
-    for reply in [
-        finish(&server, &pending),
-        server.request(
-            "POST",
-            &format!("{UPLOAD}?uploadType=media&name=late-uniform&predefinedAcl=private"),
-            ADMIN,
-            b"bytes",
+    for (reply, reason) in [
+        (finish(&server, &pending), "invalid"),
+        (
+            server.request(
+                "POST",
+                &format!("{UPLOAD}?uploadType=media&name=late-uniform&predefinedAcl=private"),
+                ADMIN,
+                b"bytes",
+            ),
+            "invalidArgument",
         ),
     ] {
-        reply.error(400, "invalidArgument");
+        reply.error(400, reason);
         assert!(
             serde_json::from_slice::<Value>(&reply.body).unwrap()["error"]["message"]
                 .as_str()

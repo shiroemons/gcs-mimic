@@ -161,6 +161,13 @@ impl Reply {
         serde_json::from_slice(&self.body).unwrap()
     }
 
+    /// A bare text page: the status, content type and the whole body are compared.
+    fn plain_error(&self, status: u16, content_type: &str, body: &str) {
+        assert_eq!(self.status, status);
+        assert_eq!(self.headers["content-type"], content_type);
+        assert_eq!(String::from_utf8_lossy(&self.body), body);
+    }
+
     fn error(&self, status: u16, reason: &str) {
         assert_eq!(
             self.status,
@@ -168,14 +175,10 @@ impl Reply {
             "{}",
             String::from_utf8_lossy(&self.body)
         );
-        // A bare text page (unknown session, bad Content-Range) has no envelope to inspect.
-        let Ok(value) = serde_json::from_slice::<Value>(&self.body) else {
-            return;
-        };
-        assert!(
-            common::reason_matches(&value["error"]["errors"][0]["reason"], reason),
-            "{value}"
-        );
+        let value: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
+            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
+        });
+        assert_eq!(value["error"]["errors"][0]["reason"], reason, "{value}");
     }
 }
 
@@ -795,23 +798,23 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
             &wire(br#"{"storageClass":"REGIONAL"}"#, None, b"new", None),
         )
         .error(400, "badRequest");
-    for value in [
-        json!({"customTime":"invalid"}),
-        json!({"storageClass":"GLACIER"}),
-        json!({"storageClass":"coldline"}),
-        json!({"storageClass":""}),
-        json!({"storageClass":7}),
+    for (value, reason) in [
+        (json!({"customTime":"invalid"}), "invalid"),
+        (json!({"storageClass":"GLACIER"}), "invalid"),
+        (json!({"storageClass":"coldline"}), "invalid"),
+        (json!({"storageClass":""}), "invalid"),
+        (json!({"storageClass":7}), "invalidArgument"),
     ] {
         server
             .upload(
                 "name=existing",
                 &wire(value.to_string().as_bytes(), None, b"new", None),
             )
-            .error(400, "invalidArgument");
+            .error(400, reason);
         assert_eq!(server.get("existing?alt=media").body, b"old");
     }
     for (metadata, reason) in [
-        (b"{".as_slice(), "parseError"),
+        (b"{".as_slice(), "invalid"),
         (b"[]", "invalidArgument"),
         (br#"{"contentType":7}"#, "invalidArgument"),
         (br#"{"bucket":null}"#, "invalidArgument"),
@@ -1029,7 +1032,11 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
                 headers,
                 &valid,
             )
-            .error(400, "invalidParameter");
+            .plain_error(
+                400,
+                "text/plain; charset=utf-8",
+                "Bad content type.  Please use multipart.",
+            );
     }
     let mut oversized = socket(&server.address);
     oversized.write_all(b"POST /upload/storage/v1/b/missing-bucket/o?uploadType=multipart HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 999999\r\n\r\n").unwrap();
@@ -1135,7 +1142,7 @@ fn obj_multipart_http_unconditional_replay_and_python_advisory_mime() {
     );
     server
         .request("POST", path, headers, &changed)
-        .error(400, "invalidArgument");
+        .error(400, "invalid");
     server.stop();
     let server = Server::start(&dir, 1000, 30_000);
     assert_eq!(

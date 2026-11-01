@@ -247,12 +247,8 @@ impl Reply {
             "{}",
             String::from_utf8_lossy(&self.body)
         );
-        // Bare text pages (unknown session, bad Content-Range) carry no envelope, and the
-        // upload front end labelled some JSON envelopes text/html.
+        // The upload front end labelled some JSON envelopes text/html (recorded).
         let content_type = self.headers["content-type"].as_str();
-        if content_type.starts_with("text/plain") {
-            return;
-        }
         assert!(
             matches!(
                 content_type,
@@ -260,18 +256,21 @@ impl Reply {
             ),
             "{content_type}"
         );
-        // A media failure such as a failed If-Match is a bare "Precondition Failed" page.
-        let Ok(body) = serde_json::from_slice::<Value>(&self.body) else {
-            return;
-        };
+        let body: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
+            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
+        });
         let error = &body["error"];
         assert_eq!(error["code"], status);
         assert_eq!(error["errors"][0]["domain"], "global");
-        assert!(
-            common::reason_matches(&error["errors"][0]["reason"], reason),
-            "{error}"
-        );
+        assert_eq!(error["errors"][0]["reason"], reason, "{error}");
         assert_eq!(error["errors"][0]["message"], error["message"]);
+    }
+
+    /// A bare text page: the status, content type and the whole body are compared.
+    fn plain_error(&self, status: u16, content_type: &str, body: &str) {
+        assert_eq!(self.status, status);
+        assert_eq!(self.headers["content-type"], content_type);
+        assert_eq!(String::from_utf8_lossy(&self.body), body);
     }
 }
 
@@ -410,7 +409,11 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
         assert_eq!(reply.status, 200);
         assert_ne!(reply.json()["crc32c"], "AAAAAA==");
     }
-    server.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related\r\nContent-Length: 999\r\n\r\n").error(400, "badRequest");
+    server.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related\r\nContent-Length: 999\r\n\r\n").plain_error(
+        400,
+        "text/plain; charset=utf-8",
+        "Bad content type.  Please use multipart.",
+    );
     server.get("unsupported").error(404, "notFound");
     let existing = server.upload("name=existing", "", b"old");
     assert_eq!(existing.status, 200);
@@ -457,7 +460,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             "If-Match: \"x\"\r\n",
             b"",
         )
-        .error(412, "conditionNotMet");
+        .plain_error(412, "text/html; charset=UTF-8", "Precondition Failed");
     // An incomplete customer-supplied key fails validation before any object lookup or upload;
     // DELETE does not take keys and rejects them as unsupported.
     let key = "X-Goog-Encryption-Key: key\r\n";

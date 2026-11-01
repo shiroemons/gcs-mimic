@@ -133,10 +133,8 @@ fn held_objects_reject_delete_and_replacement() {
     let original = server.put("held", b"original").json();
     server
         .request("DELETE", "/storage/v1/b/test-bucket/o/held", "", b"")
-        .error(403, "objectUnderActiveHold");
-    server
-        .put("held", b"replacement")
-        .error(403, "objectUnderActiveHold");
+        .hold_error();
+    server.put("held", b"replacement").hold_error();
     server
         .request(
             "DELETE",
@@ -147,14 +145,14 @@ fn held_objects_reject_delete_and_replacement() {
             "",
             b"",
         )
-        .error(403, "objectUnderActiveHold");
+        .hold_error();
     assert_eq!(server.get("held").json(), original);
     assert_eq!(server.get("held?alt=media").body, b"original");
     let path = resumable(&server, "race", json!({}));
     server.put("race", b"winner").json();
     server
         .request("PUT", &path, "Content-Range: bytes 0-4/5\r\n", b"loser")
-        .error(403, "objectUnderActiveHold");
+        .hold_error();
     assert_eq!(server.get("race?alt=media").body, b"winner");
     update(&server, "PATCH", "held", json!({"eventBasedHold":false})).json();
     server.put("held", b"new").json();
@@ -178,7 +176,7 @@ fn held_objects_reject_delete_and_replacement() {
             "",
             b"",
         )
-        .error(403, "objectUnderActiveHold");
+        .hold_error();
 }
 
 #[test]

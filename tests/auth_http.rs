@@ -320,10 +320,7 @@ impl Reply {
             self.headers["content-type"],
             "application/json; charset=UTF-8"
         );
-        assert!(common::reason_matches(
-            &self.json()["error"]["errors"][0]["reason"],
-            reason
-        ));
+        assert_eq!(self.json()["error"]["errors"][0]["reason"], reason);
         assert!(!self.headers.contains_key("www-authenticate"));
     }
 

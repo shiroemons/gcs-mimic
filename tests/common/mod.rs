@@ -237,16 +237,3 @@ pub(crate) fn stop_server(child: &mut Child, stdout: &mut impl BufRead) {
     let stopped: serde_json::Value = serde_json::from_str(&line).expect("graceful shutdown event");
     assert_eq!(stopped["event"], "stopped");
 }
-
-/// Whether an error item's `reason` is the expected one. Object validation failures now carry
-/// Cloud Storage's `invalid` where older expectations spelled `invalidArgument`, and an object
-/// held by a hold is refused with `forbidden` rather than a private `objectUnderActiveHold`.
-#[allow(dead_code)]
-pub(crate) fn reason_matches(actual: &serde_json::Value, expected: &str) -> bool {
-    actual == expected
-        || matches!(
-            (actual.as_str(), expected),
-            (Some("invalid"), "invalidArgument" | "parseError")
-                | (Some("forbidden"), "objectUnderActiveHold")
-        )
-}

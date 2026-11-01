@@ -26,6 +26,24 @@ impl Reply {
         assert_eq!(self.status, 200, "{}", String::from_utf8_lossy(&self.body));
         serde_json::from_slice(&self.body).unwrap()
     }
+    /// A bare text page: the status, content type and the whole body are compared.
+    pub(crate) fn plain_error(&self, status: u16, content_type: &str, body: &str) {
+        assert_eq!(self.status, status);
+        assert_eq!(self.headers["content-type"], content_type);
+        assert_eq!(String::from_utf8_lossy(&self.body), body);
+    }
+
+    /// A delete or overwrite refused by a hold: a 403 `forbidden` whose message names the hold.
+    pub(crate) fn hold_error(&self) {
+        self.error(403, "forbidden");
+        let message = String::from_utf8_lossy(&self.body).into_owned();
+        assert!(
+            message.contains("under active Temporary hold")
+                || message.contains("under active Event-Based hold"),
+            "{message}"
+        );
+    }
+
     pub(crate) fn error(&self, status: u16, reason: &str) {
         assert_eq!(
             self.status,
@@ -33,14 +51,10 @@ impl Reply {
             "{}",
             String::from_utf8_lossy(&self.body)
         );
-        // A bare text page (unknown session, bad Content-Range) has no envelope to inspect.
-        let Ok(value) = serde_json::from_slice::<Value>(&self.body) else {
-            return;
-        };
-        assert!(
-            common::reason_matches(&value["error"]["errors"][0]["reason"], reason),
-            "{value}"
-        );
+        let value: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
+            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
+        });
+        assert_eq!(value["error"]["errors"][0]["reason"], reason, "{value}");
     }
 }
 impl Server {
