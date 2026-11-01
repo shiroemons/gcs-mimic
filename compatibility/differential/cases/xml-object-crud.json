@@ -1,0 +1,15 @@
+{
+  "id": "xml-object-crud",
+  "description": "XML API object PUT, GET, HEAD and DELETE with the default response headers, then the not-found errors after the delete.",
+  "steps": [
+    {"name": "put", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "capture": {"gen": "header:x-goog-generation"}, "expect_status": 200},
+    {"name": "get", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "expect_status": 200},
+    {"name": "head", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object}", "expect_status": 200},
+    {"name": "overwrite", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "application/octet-stream"}, "body_text": "hello2", "expect_status": 200},
+    {"name": "get-overwritten", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "expect_status": 200},
+    {"name": "delete", "protocol": "xml", "method": "DELETE", "path": "/{bucket}/{object}", "expect_status": 204},
+    {"name": "get-deleted", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "expect_status": 404},
+    {"name": "head-deleted", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object}", "expect_status": 404},
+    {"name": "delete-deleted", "protocol": "xml", "method": "DELETE", "path": "/{bucket}/{object}", "expect_status": 404}
+  ]
+}

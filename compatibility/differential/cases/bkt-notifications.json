@@ -1,0 +1,16 @@
+{
+  "id": "bkt-notifications",
+  "description": "Notification configurations on a bucket of its own without a Pub/Sub topic: empty list, creation naming a topic that does not exist, invalid payload formats, and get and delete of an id that does not exist. The topic is never created, so no notification is expected to persist.",
+  "bucket": "own",
+  "steps": [
+    {"name": "list-empty", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs", "expect_status": 200},
+    {"name": "insert-missing-topic", "method": "POST", "path": "/storage/v1/b/{bucket}/notificationConfigs", "body": {"topic": "//pubsub.googleapis.com/projects/{project}/topics/gcs-mimic-diff-no-such-topic", "payload_format": "JSON_API_V1"}},
+    {"name": "insert-invalid-topic-name", "method": "POST", "path": "/storage/v1/b/{bucket}/notificationConfigs", "body": {"topic": "not-a-topic", "payload_format": "JSON_API_V1"}, "expect_status": 400},
+    {"name": "insert-missing-topic-field", "method": "POST", "path": "/storage/v1/b/{bucket}/notificationConfigs", "body": {"payload_format": "JSON_API_V1"}, "expect_status": 400},
+    {"name": "insert-invalid-payload-format", "method": "POST", "path": "/storage/v1/b/{bucket}/notificationConfigs", "body": {"topic": "//pubsub.googleapis.com/projects/{project}/topics/gcs-mimic-diff-no-such-topic", "payload_format": "XML"}, "expect_status": 400},
+    {"name": "insert-invalid-event-type", "method": "POST", "path": "/storage/v1/b/{bucket}/notificationConfigs", "body": {"topic": "//pubsub.googleapis.com/projects/{project}/topics/gcs-mimic-diff-no-such-topic", "payload_format": "NONE", "event_types": ["NO_SUCH_EVENT"]}, "expect_status": 400},
+    {"name": "get-missing", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs/999999", "expect_status": 404},
+    {"name": "delete-missing", "method": "DELETE", "path": "/storage/v1/b/{bucket}/notificationConfigs/999999", "expect_status": 404},
+    {"name": "list-still-empty", "method": "GET", "path": "/storage/v1/b/{bucket}/notificationConfigs", "expect_status": 200}
+  ]
+}

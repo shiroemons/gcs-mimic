@@ -1,0 +1,19 @@
+{
+  "id": "grpc-object-list",
+  "description": "gRPC ListObjects with prefix, delimiter, read mask, paging by page_token and versions.",
+  "steps": [
+{"name": "write-a", "protocol": "grpc", "rpc": "google.storage.v2.Storage/WriteObject", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": [{"writeObjectSpec": {"resource": {"bucket": "projects/_/buckets/{bucket}", "name": "{object}/a", "contentType": "text/plain"}, "objectSize": "1"}, "checksummedData": {"content": "YQ=="}, "finishWrite": true}], "expect_status": 0}
+,
+{"name": "write-b-x", "protocol": "grpc", "rpc": "google.storage.v2.Storage/WriteObject", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": [{"writeObjectSpec": {"resource": {"bucket": "projects/_/buckets/{bucket}", "name": "{object}/b/x", "contentType": "text/plain"}, "objectSize": "2"}, "checksummedData": {"content": "Ynk="}, "finishWrite": true}], "expect_status": 0}
+,
+{"name": "write-b-y", "protocol": "grpc", "rpc": "google.storage.v2.Storage/WriteObject", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": [{"writeObjectSpec": {"resource": {"bucket": "projects/_/buckets/{bucket}", "name": "{object}/b/y", "contentType": "text/plain"}, "objectSize": "2"}, "checksummedData": {"content": "Ynk="}, "finishWrite": true}], "expect_status": 0}
+,
+    {"name": "list-prefix", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListObjects", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"parent": "projects/_/buckets/{bucket}", "prefix": "{object}/"}, "expect_status": 0},
+    {"name": "list-delimiter-trailing", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListObjects", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"parent": "projects/_/buckets/{bucket}", "prefix": "{object}/", "delimiter": "/", "includeTrailingDelimiter": true}, "expect_status": 0},
+    {"name": "list-read-mask", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListObjects", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"parent": "projects/_/buckets/{bucket}", "prefix": "{object}/", "readMask": {"paths": ["name", "size"]}}, "expect_status": 0},
+    {"name": "list-page-1", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListObjects", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"parent": "projects/_/buckets/{bucket}", "prefix": "{object}/", "pageSize": 1, "readMask": {"paths": ["name"]}}, "capture": {"token": "body:nextPageToken"}, "expect_status": 0},
+    {"name": "list-page-2", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListObjects", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"parent": "projects/_/buckets/{bucket}", "prefix": "{object}/", "pageSize": 1, "pageToken": "{token}", "readMask": {"paths": ["name"]}}, "expect_status": 0},
+    {"name": "list-versions", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListObjects", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"parent": "projects/_/buckets/{bucket}", "prefix": "{object}/", "versions": true, "readMask": {"paths": ["name", "generation"]}}, "expect_status": 0},
+    {"name": "list-no-match", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListObjects", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"parent": "projects/_/buckets/{bucket}", "prefix": "{object}/zzz"}, "expect_status": 0}
+  ]
+}

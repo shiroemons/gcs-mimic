@@ -1,0 +1,13 @@
+{
+  "id": "xml-errors",
+  "description": "XML error bodies for a missing bucket and object, a PUT into a missing bucket, an unknown query parameter and an unknown x-goog header.",
+  "steps": [
+    {"name": "get-missing-bucket", "protocol": "xml", "method": "GET", "path": "/{missing_bucket}/{object}", "expect_status": 404},
+    {"name": "list-missing-bucket", "protocol": "xml", "method": "GET", "path": "/{missing_bucket}", "expect_status": 404},
+    {"name": "put-missing-bucket", "protocol": "xml", "method": "PUT", "path": "/{missing_bucket}/{object}", "headers": {"Content-Type": "text/plain"}, "body_text": "x", "expect_status": 404},
+    {"name": "get-missing-object", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "expect_status": 404},
+    {"name": "put-for-unknown-inputs", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain"}, "body_text": "x", "expect_status": 200, "compare": false},
+    {"name": "get-unknown-query", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "query": {"bogusParameter": "1"}},
+    {"name": "get-unknown-header", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"x-goog-bogus-header": "1"}}
+  ]
+}

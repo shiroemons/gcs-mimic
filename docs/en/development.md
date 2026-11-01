@@ -478,3 +478,267 @@ Pinned/current-stable Rust CI and native amd64/arm64 container CI are configured
 - [Container checks](evidence/p0-containers.txt)
 - [Freshness check](evidence/p0-dependencies.txt)
 - [Coding-agent rules](../../AGENTS.md)
+
+## Differential harness
+
+`cargo xtask differential` sends the same declarative request sequences to the
+real Cloud Storage service and to a freshly built native-profile `gcs-mimic`,
+normalizes both responses and reports every difference in status, headers and
+JSON body paths. It finds drift in implemented behavior; it does not decide
+which side is right, and it never fixes anything. HTTP goes through the
+external `curl` command and gRPC through the external `grpcurl` command, both
+behind one transport trait.
+
+```sh
+cargo xtask differential validate            # parse and check the case files, no network
+cargo xtask differential run                 # self-check: gcs-mimic only
+cargo xtask differential run --reference <recording.json>
+GCS_MIMIC_DIFF_PROJECT=<project> GCS_MIMIC_DIFF_TOKEN="$(gcloud auth print-access-token)" \
+  cargo xtask differential run --record <recording.json>
+# after an interrupted live run: delete the leftover gcsmimic-diff-* buckets
+GCS_MIMIC_DIFF_PROJECT=<project> GCS_MIMIC_DIFF_TOKEN="$(gcloud auth print-access-token)" \
+  cargo xtask differential sweep
+```
+
+Modes:
+
+- **Self-check** is the default. Nothing contacts Google. It checks that every
+  case runs and that each step meets its `expect_status`.
+- **Live** needs both `GCS_MIMIC_DIFF_PROJECT` and `GCS_MIMIC_DIFF_TOKEN`
+  (an OAuth access token); one alone is an error. The token goes to `curl` on
+  stdin, never on the command line. Every bucket is private and disposable,
+  named `gcsmimic-diff-<run>-...`, with public access prevention `enforced` and
+  labelled `gcs-mimic-differential=1`. The shared bucket (`-b`) and the bucket
+  of a case with `"bucket": "own"` (`-c<n>`) are created by the harness in
+  `us-central1`, STANDARD, soft delete off. A `{new_bucket}` (`-n-<n>`, one per
+  case that uses it) is created by the case's own request, so its location,
+  storage class and soft delete setting are whatever that request says (for
+  example NEARLINE with a 7-day soft delete, or the `us` multi-region); the
+  case validator only requires `enforced` public access prevention and an
+  explicit soft delete duration, and the harness adds the label to the request
+  on the wire (and hides it again in the stored response, so the case files and
+  recordings do not carry it). Own and `{new_bucket}` buckets are deleted
+  right after their case; the shared bucket at the end. The report states how
+  many requests the run sent to the live service and how many HTTP 429
+  responses it retried. The sanitized reference responses are saved
+  (`--record FILE`, default `reference-recording.json` in the output
+  directory), with the storage.proto revision and the grpcurl version.
+- **Cleanup** never stops at the first failure. For each bucket it reads the
+  bucket, clears a retention policy, a default event-based hold and requester
+  pays (only what is set), deletes notification configs and managed folders,
+  deletes every object version (a 403 is answered by releasing the holds and
+  the unlocked retention with `overrideUnlockedRetention=true`, then deleting
+  again), deletes the bucket and confirms a 404. A managed folders listing that
+  is refused (412 when uniform bucket-level access is off, 403 without
+  permission) counts as no folders. All problems are collected and reported at
+  the end, together with whether the bucket itself was confirmed deleted. A run ends by listing every bucket with the run's prefix
+  and cleaning up whatever is left.
+- **Sweep** (`cargo xtask differential sweep`, same environment variables)
+  lists the buckets whose names start with `gcsmimic-diff-` and carry the
+  `gcs-mimic-differential=1` label, and cleans each one up the same way. A
+  bucket with the prefix but without the label is left alone and counted. Use
+  it after an interrupted run (Ctrl-C, a crash, a killed process); it reports
+  counts, never bucket names. (The final listing of a run uses only the run's
+  own random prefix and does not need the label.)
+- **Rate limits.** Cloud Storage documents these limits
+  (<https://docs.cloud.google.com/storage/quotas>): bucket creation and
+  deletion about one request every two seconds per project, one metadata update
+  per second per bucket, one write per second to the same object name. In Live
+  mode the harness waits 2 seconds before a bucket creation or deletion and
+  1 second before any other request that changes state (including cleanup). A
+  429 is waited out with a doubling delay (4 s first) and retried up to 5
+  times; the retries are counted per step and in the report header. Self-check
+  and replay never wait.
+- **Replay** (`--reference FILE`) compares gcs-mimic with a saved recording and
+  never contacts Google, so a fix can be checked offline. Re-record when a case
+  changes; a recording whose steps no longer match the case is reported as
+  an error, and so is one made under another `bucket` mode (shared, own,
+  none) of the case. The mode is stored per case beside the step fingerprints
+  rather than inside them, so a recording made before it was stored still
+  replays; its mode is simply not compared. `--record FILE` in self-check mode records gcs-mimic itself, which
+  gives an offline fixture for testing the replay path.
+
+Other options: `--cases DIR` (default `compatibility/differential/cases`),
+`--filter TEXT` (case ids containing the text), `--out DIR` (default a
+temporary directory outside the repository), `--binary PATH` (skip the build),
+`--evidence FILE` (also write the Markdown report there), `--fail-on-diff`
+(exit nonzero on differences) and `--fail-on-note` (exit nonzero when a step
+missed its `expect_status` on gcs-mimic). Harness errors, failed cleanups,
+redaction leaks and an unmet `expect_status` on the real service always fail.
+A case whose only finding is an unmet `expect_status` on gcs-mimic is reported
+as `note`, so the self-check can gate CI without hiding those gaps.
+
+Every file the harness writes is checked first: it must not contain the
+project, the project number, the token, a bucket name of the run, the local
+endpoint, an email address or a local path. If it does, the requested file is
+left untouched, a fully redacted copy (each local path replaced as a whole) is
+written to `<file>.redacted`, and the run fails naming only the location of the
+leak (case, step, JSON path), never the value.
+Values are replaced by placeholders before they are compared, recorded or
+reported. Placeholders keep the type and shape of the value, because a string
+and a number, or a different width, are different JSON: `<generation:str:16>`,
+`<generation:num:16>` (`<generation:16>` inside ids, URLs and headers),
+`<etag:str>` / `<etag:num>` (`<etag:quoted>`, `<etag:bare>`, `<etag:weak>` for
+XML and header entity tags), `<time:f3>` (fractional-second digits; `f0`, `f6`),
+`<time:num>`, `<time:str>`, `<time:http>`, `<project-number:str>` /
+`<project-number:num>`, `<page-token>`, `<entity-id>`, `<email>`,
+`<upload-id>`, `<owner>` (XML `Owner/ID`), `<secret>` (HMAC secret) and
+`<bucket>`, `<project>`, `<host>` (`<www-host>` for `www.googleapis.com`) and
+captured variables. The infrastructure headers `date`, `server`, `alt-svc`,
+`x-guploader-uploadid` and similar are dropped. `content-length` and
+`transfer-encoding` are compared as one synthetic header,
+`x-harness-body-framing`: `content-length:<ok>` when the declared length equals
+the bytes received (`<mismatch N vs M>` otherwise), or `chunked`. A response
+body that is not UTF-8 text is compared exactly as `<binary base64:...>`.
+
+### Case files
+
+One JSON file per case in `compatibility/differential/cases/`; the `id` equals
+the file name, and unknown fields are rejected. Areas can add files
+independently.
+
+```json
+{
+  "id": "object-preconditions",
+  "description": "What the case checks.",
+  "bucket": true,
+  "compare": {"ignore_headers": ["vary"]},
+  "steps": [
+    {
+      "name": "upload",
+      "method": "POST",
+      "path": "/upload/storage/v1/b/{bucket}/o",
+      "query": {"uploadType": "media", "name": "{object}"},
+      "headers": {"Content-Type": "text/plain"},
+      "body_text": "hello",
+      "capture": {"gen": "body:generation"},
+      "expect_status": 200,
+      "compare": {"ignore_body_paths": ["$.items[*].etag"], "body": "auto"}
+    }
+  ]
+}
+```
+
+- `bucket` is `true` (default: `{bucket}` is the shared bucket), `false` (no
+  `{bucket}`) or `"own"` (the harness creates a bucket for this case alone,
+  named by `{bucket}`, and deletes it right after). A case on the shared bucket
+  must not change bucket-level state (metadata, IAM, ACLs, notifications,
+  managed folders); validation refuses such a step, so a case gives the same
+  result alone (`--filter`) or in a full run. `{missing_bucket}` names a bucket
+  that does not exist.
+- A bucket a case creates itself must be named `{new_bucket}` (or an invalid
+  name the service must reject) and its JSON body must set
+  `iamConfiguration.publicAccessPrevention` to `enforced` and an explicit
+  `softDeletePolicy.retentionDurationSeconds`. Creating a bucket through the
+  XML API (`PUT /<bucket>`) or the gRPC `CreateBucket` is refused.
+- `"always": true` on a step runs it even after an earlier step failed the
+  case (a failed capture, a transport error). Use it for steps that undo state
+  that blocks cleanup: switching versioning off, releasing a hold or an
+  unlocked retention. Steps that did not run are recorded as skipped.
+- `"pap_reset": "<reason>"` marks a bucket `PUT`, or a `PATCH` that nulls
+  `iamConfiguration`, which may reset public access prevention to its default
+  (a `PUT` replaces the resource, so omitting the setting can reset it). Without
+  the reason the validator refuses such a step unless its body sets the setting
+  to `enforced`; `expect_status` is no exemption, because an expected refusal
+  can turn out to be an applied write.
+- Every `PUT .../iam` with literal bindings, whatever `expect_status` it has (an
+  expected refusal can be applied, as an empty `members` list was), must keep
+  `roles/storage.admin` or `roles/storage.legacyBucketOwner` for
+  a `projectOwner:` or `projectEditor:` member. The policy replaces the whole
+  bucket policy; without these bindings the measuring account is locked out and
+  every later step answers 403. Build the body from the policy `iam-get` shows
+  and add only the change under test.
+- `body_base64` sends binary bytes (a gzip stream); it is exclusive with `body`
+  and `body_text`.
+- `{new_bucket}` is the same name for every step of one case and a different
+  name for each case, so cases never reuse a name another case just deleted.
+- Variables: `{project}`, `{bucket}`, `{new_bucket}`, `{missing_bucket}`,
+  `{object}`, `{object2}` (unique per case) and captured values. `{{` and `}}`
+  write literal braces. A variable must be defined before its first use.
+- `body` is JSON; `body_text` is raw text. Query values are percent-encoded by
+  the harness; write paths already encoded.
+- `capture` maps a name to `body:dotted.path` or `header:name` /
+  `header:name?param` (a query parameter of the header value, such as the
+  upload ID in a resumable `Location`).
+- `compare` (case level, merged into each step) accepts `ignore_headers`,
+  `only_headers`, `ignore_body_paths` (`$.a.b[*].c`, covering the subtree) and
+  `body` (`auto`, `json`, `text`, `ignore`). `"compare": false` on a step runs
+  it without comparing it.
+- `protocol` defaults to `http` (the JSON API). The other values are described
+  below.
+
+#### XML API steps
+
+`"protocol": "xml"` sends the step over the same `curl` transport to the
+path-style XML endpoint (`/{bucket}/{object}`, `Authorization: Bearer` on the
+real service), so `method`, `path`, `query`, `headers` and `body_text` work as
+for JSON steps; set `Content-Type` explicitly on a PUT. A response whose
+`content-type` contains `xml` and parses is compared as an ordered tree, not as
+text: every element becomes `{"name", "attrs"?, "text" | "children"}`, the root
+also carries a canonical `declaration`, so element order, nesting and missing or
+extra elements are differences. Paths in `ignore_body_paths` address that tree
+(`$.children[2].text`). Leaf text is normalized by tag (`ETag`, `Generation`,
+`LastModified` and any timestamp) and for bucket names, and
+`x-goog-generation` and `x-goog-copy-source-generation` headers are replaced.
+A document that is not well formed is compared as text. Signed URLs are not
+covered because they need a service-account key.
+
+#### gRPC steps
+
+`"protocol": "grpc"` replaces `method` and `path` with `rpc`, the full name
+such as `google.storage.v2.Storage/GetBucket`. `headers` are gRPC metadata
+(for example `x-goog-request-params`, which the real service needs for routing:
+the key is the variable name of the RPC's `path_template` in `storage.proto`,
+`bucket=projects%2F_%2Fbuckets%2F{bucket}` for most RPCs and
+`project=projects%2F{project}` for `ListBuckets`, with the value
+URL-encoded like the SDKs do), `body` is the request message as proto3
+JSON, and an array of objects sends a client-streaming call. `query`,
+`body_text` and `compare.only_headers` have no meaning here.
+
+Write `FieldMask` paths (`readMask`, `updateMask`) in snake_case
+(`storage_class`, `checksums.md5_hash`): grpcurl sends the strings unchanged,
+and a camelCase path is an unknown path, not the field.
+
+- `grpcurl` is run with the googleapis protos under `src/grpc/proto`, the same
+  pinned files (`SHA256SUMS`) the gcs-mimic build uses; the real service does
+  not offer reflection. gcs-mimic is started with a plaintext gRPC listener on a
+  loopback port; the live side is `storage.googleapis.com:443` over TLS.
+- The bearer token reaches `grpcurl` through an environment variable that its
+  `-expand-headers` option expands, so it never appears on the command line.
+  A case header containing `${` is rejected (it would expand from the
+  environment), and `grpcurl` runs with a cleared environment.
+- The compared `status` is the gRPC status code (0 is OK, 5 NOT_FOUND, 9
+  FAILED_PRECONDITION). A successful body is the response message (an array
+  when a server-streaming call returned several); a failed call's body is
+  `{"code", "message", "details"?}`; when grpcurl cannot render the status
+  (a detail of a type outside the loaded protos) it is `{"code", "raw"}`.
+  `expect_status` takes the gRPC code. `nextPageToken` is compared only as
+  present or absent. grpcurl silently drops request fields that the pinned proto
+  does not define, so a recording names the proto revision and the grpcurl
+  version it was taken with.
+- `projects/<number>` resource names are normalized like `projectNumber`.
+- Without `grpcurl` on `PATH`, every case that has a gRPC step is skipped and
+  listed under "Skipped" in the report; the other cases still run and the run
+  does not fail.
+
+Three things are never sent, and nothing is sent at all when a check fails.
+Validation rejects them in the case file, and the same rules run again on the
+expanded request (path, query and headers percent-decoded, body included)
+right before it leaves, so a captured variable, an encoded path, a header or
+an XML body cannot get around them:
+
+- Locked retention: `lockRetentionPolicy` or `LockBucketRetentionPolicy` (any
+  case or underscores), a path, query or header that names both lock and
+  retention, a value `locked`, `isLocked` other than false, a retention mode
+  that is Locked, a number or a variable, `<Mode>Locked</Mode>`.
+- Public access: `allUsers` or `allAuthenticatedUsers` anywhere (including an
+  XML `AllUsers` scope), a `public*` `predefinedAcl`,
+  `predefinedDefaultObjectAcl` or `x-goog-acl`, and a `publicAccessPrevention`
+  other than `enforced` (the invalid probe value `bogus` is allowed).
+- HMAC keys: `POST .../hmacKeys` naming a service account, whose response would
+  carry a secret. Any `secret` field is replaced by `<secret>` regardless.
+
+Replay refuses a recording taken from a different case definition: each
+recorded step carries a fingerprint of its method or RPC, path template,
+query, headers and body, and a mismatch (also when the recording holds an
+error) is reported as an error to record again.

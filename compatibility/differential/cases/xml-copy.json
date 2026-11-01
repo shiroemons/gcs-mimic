@@ -1,0 +1,15 @@
+{
+  "id": "xml-copy",
+  "description": "XML object copy through x-goog-copy-source: metadata kept and replaced, CopyObjectResult body, and the missing-source and failed-precondition errors.",
+  "steps": [
+    {"name": "put-source", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-meta-origin": "source"}, "body_text": "copy me", "capture": {"gen": "header:x-goog-generation"}, "expect_status": 200, "compare": false},
+    {"name": "copy", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-goog-copy-source": "/{bucket}/{object}"}, "expect_status": 200},
+    {"name": "get-copy", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object2}", "expect_status": 200},
+    {"name": "copy-replace-metadata", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-goog-copy-source": "/{bucket}/{object}", "x-goog-metadata-directive": "REPLACE", "Content-Type": "text/markdown", "x-goog-meta-origin": "replaced"}, "expect_status": 200},
+    {"name": "head-replaced", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object2}", "expect_status": 200},
+    {"name": "copy-source-generation", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-goog-copy-source": "/{bucket}/{object}", "x-goog-copy-source-generation": "{gen}"}, "expect_status": 200},
+    {"name": "copy-missing-source", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-goog-copy-source": "/{bucket}/{object}-absent"}, "expect_status": 404},
+    {"name": "copy-destination-precondition", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-goog-copy-source": "/{bucket}/{object}", "x-goog-if-generation-match": "0"}, "expect_status": 412},
+    {"name": "copy-source-etag-mismatch", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-goog-copy-source": "/{bucket}/{object}", "x-goog-copy-source-if-match": "\"bogus\""}, "expect_status": 412}
+  ]
+}

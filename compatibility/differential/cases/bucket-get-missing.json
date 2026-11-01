@@ -1,0 +1,8 @@
+{
+  "id": "bucket-get-missing",
+  "description": "Get a bucket that does not exist and check the error body shape.",
+  "bucket": false,
+  "steps": [
+    {"name": "get-missing", "method": "GET", "path": "/storage/v1/b/{missing_bucket}", "expect_status": 404}
+  ]
+}

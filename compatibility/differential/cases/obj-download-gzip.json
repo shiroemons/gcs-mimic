@@ -1,0 +1,14 @@
+{
+  "id": "obj-download-gzip",
+  "description": "An object stored with contentEncoding gzip, downloaded with and without Accept-Encoding gzip. The body is a valid gzip stream of the text 'hello hello hello', so the downloads measure real transcoding and range handling as well as headers.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}", "contentEncoding": "gzip"}, "headers": {"Content-Type": "text/plain"}, "body_base64": "H4sIAAAAAAACA8tIzcnJV8hAkACAiPnlEQAAAA==", "expect_status": 200},
+    {"name": "get-metadata", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "expect_status": 200},
+    {"name": "download-accept-gzip", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Accept-Encoding": "gzip"}, "expect_status": 200},
+    {"name": "download-no-accept-encoding", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "expect_status": 200},
+    {"name": "range-accept-gzip", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Accept-Encoding": "gzip", "Range": "bytes=1-2"}, "expect_status": 206},
+    {"name": "patch-no-transform", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"cacheControl": "no-transform"}, "expect_status": 200},
+    {"name": "download-no-transform", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "expect_status": 200},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false}
+  ]
+}

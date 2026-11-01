@@ -1,0 +1,26 @@
+{
+  "id": "obj-copy",
+  "description": "Copy: metadata inheritance for an empty, null and empty-object body, metadata override, storage class change, copy onto itself, source and destination preconditions and missing source. Checks SPEC-DERIVED-METADATA.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "capture": {"gsrc": "body:generation"}, "compare": false, "expect_status": 200},
+    {"name": "patch-source", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"metadata": {"a": "1"}, "cacheControl": "no-cache", "contentLanguage": "en"}, "compare": false, "expect_status": 200},
+    {"name": "copy-no-body", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object2}", "expect_status": 200},
+    {"name": "copy-null-body", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}-null", "headers": {"Content-Type": "application/json"}, "body_text": "null", "expect_status": 200},
+    {"name": "copy-empty-object-body", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}-empty", "body": {}, "expect_status": 200},
+    {"name": "copy-metadata-override", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}-over", "body": {"contentType": "text/csv", "metadata": {"b": "2"}}, "expect_status": 200},
+    {"name": "copy-storage-class", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}-cls", "body": {"storageClass": "STANDARD"}, "expect_status": 200},
+    {"name": "copy-onto-itself", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}", "body": {"metadata": {"c": "3"}}, "expect_status": 200},
+    {"name": "copy-destination-exists", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object2}", "query": {"ifGenerationMatch": "0"}, "expect_status": 412},
+    {"name": "copy-source-generation-mismatch", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}-pre", "query": {"ifSourceGenerationMatch": "1"}, "expect_status": 412},
+    {"name": "copy-source-missing", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-nosuch/copyTo/b/{bucket}/o/{object}-x", "expect_status": 404},
+    {"name": "copy-destination-bucket-missing", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{missing_bucket}/o/{object}-x", "expect_status": 404},
+    {"name": "copy-invalid-json", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}-bad", "headers": {"Content-Type": "application/json"}, "body_text": "{{not json", "expect_status": 400},
+    {"name": "cleanup-main", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false},
+    {"name": "cleanup-copy", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object2}", "compare": false},
+    {"name": "cleanup-null", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-null", "compare": false},
+    {"name": "cleanup-empty", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-empty", "compare": false},
+    {"name": "cleanup-over", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-over", "compare": false},
+    {"name": "cleanup-cls", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-cls", "compare": false},
+    {"name": "cleanup-pre", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-pre", "compare": false}
+  ]
+}

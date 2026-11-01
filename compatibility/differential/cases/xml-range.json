@@ -1,0 +1,15 @@
+{
+  "id": "xml-range",
+  "description": "XML GET and HEAD with satisfiable, suffix, open-ended, multiple and unsatisfiable Range headers.",
+  "steps": [
+    {"name": "put", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain"}, "body_text": "0123456789", "expect_status": 200, "compare": false},
+    {"name": "range-middle", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=2-4"}, "expect_status": 206},
+    {"name": "range-suffix", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=-3"}, "expect_status": 206},
+    {"name": "range-open-ended", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=7-"}, "expect_status": 206},
+    {"name": "range-past-end-clamped", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=8-99"}, "expect_status": 206},
+    {"name": "range-unsatisfiable", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=20-30"}, "expect_status": 416},
+    {"name": "range-multiple", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=0-1,3-4"}},
+    {"name": "range-malformed", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=abc"}},
+    {"name": "head-range", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=2-4"}}
+  ]
+}

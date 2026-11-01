@@ -1,0 +1,7 @@
+{
+  "id": "object-media-upload",
+  "description": "Simple media upload and the resulting resource.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 200}
+  ]
+}

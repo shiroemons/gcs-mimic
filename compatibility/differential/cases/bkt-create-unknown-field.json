@@ -1,0 +1,9 @@
+{
+  "id": "bkt-create-unknown-field",
+  "description": "Bucket creation with a body field that does not exist. The bucket is deleted afterwards because the request may succeed.",
+  "bucket": false,
+  "steps": [
+    {"name":"unknown-body-field","method":"POST","path":"/storage/v1/b","query":{"project":"{project}"},"body":{"name":"{new_bucket}","noSuchField":"x","iamConfiguration":{"publicAccessPrevention":"enforced"},"softDeletePolicy":{"retentionDurationSeconds":"0"}},"expect_status":200},
+    {"name":"cleanup","method":"DELETE","path":"/storage/v1/b/{new_bucket}","compare":false,"always":true}
+  ]
+}

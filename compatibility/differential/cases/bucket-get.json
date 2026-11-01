@@ -1,0 +1,8 @@
+{
+  "id": "bucket-get",
+  "description": "Get a bucket, with and without a fields selector.",
+  "steps": [
+    {"name": "get", "method": "GET", "path": "/storage/v1/b/{bucket}", "expect_status": 200},
+    {"name": "get-fields", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "name,storageClass"}, "expect_status": 200}
+  ]
+}

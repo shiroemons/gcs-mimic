@@ -1,0 +1,10 @@
+{
+  "id": "bucket-patch-labels",
+  "description": "Patch bucket labels, remove one with null, and read the bucket back.",
+  "bucket": "own",
+  "steps": [
+    {"name": "add-label", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "body": {"labels": {"team": "diff", "stage": "test"}}, "capture": {"mgen": "body:metageneration"}, "expect_status": 200},
+    {"name": "remove-label", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"ifMetagenerationMatch": "{mgen}"}, "body": {"labels": {"stage": null}}, "expect_status": 200},
+    {"name": "get", "method": "GET", "path": "/storage/v1/b/{bucket}", "expect_status": 200}
+  ]
+}
