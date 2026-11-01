@@ -130,19 +130,43 @@ Unreleased user-visible changes that the next minor release notes must state:
   `locationType` (the parameter name, or `If-Match` for a failed precondition).
 - Bucket errors use reason `invalid` and Cloud Storage's wording (for example
   `The specified bucket does not exist.`). Bucket PATCH defaults to
-  `projection=full`; PUT clears omitted `labels`, `cors`, `lifecycle`,
-  `versioning`, `retentionPolicy` and `defaultEventBasedHold` (a locked
-  retention policy stays) and answers 400 when the body `name` differs from
-  the path. `predefinedAcl` applies on PATCH and PUT. Unknown query
-  parameters, an array `lifecycle` and a different `location` are accepted,
+  `projection=full`; PUT answers 400 when the body `name` differs from the path.
+  `predefinedAcl` applies on PATCH and PUT. A different `location` is accepted
   and a non-map `labels` clears all labels. `setIamPolicy` advances
   `metageneration` and drops bindings with no members.
+- Three bucket behaviors change in the native profile only; the
+  legacy-emulator profile keeps its earlier behavior. A bucket PUT replaces the
+  resource: it clears omitted `labels`, `cors`, `lifecycle`, `versioning`,
+  `retentionPolicy` and `defaultEventBasedHold` (a locked retention policy
+  stays) but keeps the storage class, the soft delete policy and the access
+  settings it omits, where it used to preserve every omitted setting. A client
+  that sends PUT for an update, such as the Go `Buckets.Update` call or an SDK
+  update helper built on PUT, therefore loses the settings it leaves out. A
+  bucket method ignores an undeclared query parameter (for example the
+  `append=false` that Node.js `addLifecycleRule` sends) instead of answering
+  400, and an array-valued `lifecycle` is accepted. Object methods still
+  answer 400 for an undeclared query parameter in both profiles.
 - JSON media uploads no longer verify `X-Goog-Hash` or `Content-MD5` (as
   recorded from Cloud Storage); multipart metadata, resumable and XML uploads
   still do. A request without `uploadType`, or a non-multipart body, is a media
   upload. Unknown metadata members and mistyped holds are ignored; PUT clears
-  holds it does not name. Downloads ignore `If-Range` and date validators, and
-  a multi-range request answers 501.
+  holds it does not name. A JSON media (`alt=media`) download ignores
+  `If-Range` and the date validators, while a metadata or bucket GET that
+  carries one of them still answers 400 `badRequest` (a local choice). A
+  multi-range request answers 501.
+- Several earlier successes and failures are reversed:
+  a multipart upload whose metadata `contentType` disagrees with the media
+  part's content type answers 400 (the metadata type used to win with 200); a
+  resumable session evaluates the preconditions given at start (such as
+  `ifGenerationMatch`) when the upload completes, not at start; the JSON
+  `fields` parameter accepts empty segments, a trailing comma and an empty
+  value (they used to answer 400); an XML `DELETE` rejects an unknown
+  `x-goog-*` header; an ACL request that names a project-team entity of
+  another project answers 400 `Project "N" was not found.` (any other missing
+  entity answers 404 `The specified key does not exist.`); the object PUT
+  response uses the `noAcl` projection; `retentionPolicy.isLocked` is omitted
+  while the policy is unlocked; and a bucket with uniform bucket-level access
+  hides the `owner` of its resources.
 - XML: list element order and `MaxKeys`, `Vary`/`Expires`, the PUT
   `Content-Type`, 412 wording and copy/DELETE `Details` follow Cloud Storage; a
   `x-goog-copy-source-if-match` mismatch and a multi-range GET answer 400;
