@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 FROM rust:1.99.1-slim-trixie@sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247 AS build
 WORKDIR /build
+# Cargo reads this as its job count. Two keeps `just check-containers`, which builds
+# both architectures at once, within a small Docker host; CI raises it on its own runners.
+ARG CARGO_BUILD_JOBS=2
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY xtask/Cargo.toml ./xtask/Cargo.toml
 COPY xtask/src ./xtask/src
@@ -9,7 +12,7 @@ COPY compatibility/upstream/json-schemas.json ./compatibility/upstream/json-sche
 COPY LICENSE-MIT LICENSE-APACHE ./
 COPY distribution/notices ./distribution/notices
 RUN cargo fetch --locked \
-    && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"' \
+    && cargo build --locked --offline --release --bin gcs-mimic --config 'profile.release.strip="symbols"' \
     && mkdir -p target/release-notices \
     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT \
     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses \
