@@ -1,0 +1,16 @@
+{
+  "id": "xml-list-bucket",
+  "description": "XML ListBucket with prefix, delimiter, max-keys, marker and versions; element order and truncation fields are compared.",
+  "steps": [
+    {"name": "put-a", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}/a", "headers": {"Content-Type": "text/plain"}, "body_text": "a", "expect_status": 200, "compare": false},
+    {"name": "put-b-x", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}/b/x", "headers": {"Content-Type": "text/plain"}, "body_text": "bx", "expect_status": 200, "compare": false},
+    {"name": "put-b-y", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}/b/y", "headers": {"Content-Type": "text/plain"}, "body_text": "by", "expect_status": 200, "compare": false},
+    {"name": "list-prefix", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"prefix": "{object}/"}, "expect_status": 200},
+    {"name": "list-delimiter", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"prefix": "{object}/", "delimiter": "/"}, "expect_status": 200},
+    {"name": "list-max-keys", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"prefix": "{object}/", "max-keys": "1"}, "expect_status": 200},
+    {"name": "list-marker", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"prefix": "{object}/", "marker": "{object}/a", "max-keys": "1"}, "expect_status": 200},
+    {"name": "list-no-match", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"prefix": "{object}/zzz"}, "expect_status": 200},
+    {"name": "list-versions", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"versions": "", "prefix": "{object}/"}},
+    {"name": "list-invalid-max-keys", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"prefix": "{object}/", "max-keys": "-1"}}
+  ]
+}

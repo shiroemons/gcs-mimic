@@ -1,0 +1,14 @@
+{
+  "id": "xml-preconditions",
+  "description": "x-goog-if-generation-match and x-goog-if-metageneration-match on XML PUT and DELETE, with the XML PreconditionFailed error bodies.",
+  "steps": [
+    {"name": "put-if-absent", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-if-generation-match": "0"}, "body_text": "v1", "capture": {"gen": "header:x-goog-generation"}, "expect_status": 200},
+    {"name": "put-if-absent-again", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-if-generation-match": "0"}, "body_text": "v2", "expect_status": 412},
+    {"name": "put-generation-mismatch", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-if-generation-match": "1"}, "body_text": "v2", "expect_status": 412},
+    {"name": "put-metageneration-mismatch", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-if-metageneration-match": "99"}, "body_text": "v2", "expect_status": 412},
+    {"name": "put-generation-match", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-if-generation-match": "{gen}"}, "body_text": "v3", "capture": {"gen2": "header:x-goog-generation"}, "expect_status": 200},
+    {"name": "delete-generation-mismatch", "protocol": "xml", "method": "DELETE", "path": "/{bucket}/{object}", "headers": {"x-goog-if-generation-match": "1"}, "expect_status": 412},
+    {"name": "get-after-failed-delete", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "expect_status": 200},
+    {"name": "delete-generation-match", "protocol": "xml", "method": "DELETE", "path": "/{bucket}/{object}", "headers": {"x-goog-if-generation-match": "{gen2}"}, "expect_status": 204}
+  ]
+}

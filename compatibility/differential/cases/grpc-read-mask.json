@@ -1,0 +1,13 @@
+{
+  "id": "grpc-read-mask",
+  "description": "gRPC read masks that name checksum sub-paths: GetObject, ReadObject metadata and ListObjects with checksums.crc32c, checksums.md5Hash and the whole message.",
+  "steps": [
+{"name": "write", "protocol": "grpc", "rpc": "google.storage.v2.Storage/WriteObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": [{"writeObjectSpec": {"resource": {"bucket": "projects/_/buckets/{bucket}", "name": "{object}", "contentType": "text/plain"}, "objectSize": "5"}, "checksummedData": {"content": "aGVsbG8="}, "finishWrite": true}], "expect_status": 0},
+    {"name": "get-crc32c", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "readMask": {"paths": ["name", "checksums.crc32c"]}}, "expect_status": 0},
+    {"name": "get-md5", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "readMask": {"paths": ["name", "checksums.md5Hash"]}}, "expect_status": 0},
+    {"name": "get-checksums", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "readMask": {"paths": ["checksums"]}}, "expect_status": 0},
+    {"name": "get-unknown-path", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "readMask": {"paths": ["noSuchField"]}}},
+    {"name": "list-md5-only", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListObjects", "headers": {"x-goog-request-params": "parent=projects/_/buckets/{bucket}"}, "body": {"parent": "projects/_/buckets/{bucket}", "prefix": "{object}", "readMask": {"paths": ["name", "checksums.md5Hash"]}}, "expect_status": 0},
+    {"name": "read-metadata-md5", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ReadObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "readMask": {"paths": ["metadata.checksums.md5Hash"]}}}
+  ]
+}

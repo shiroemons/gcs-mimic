@@ -1,0 +1,11 @@
+{
+  "id": "grpc-bucket-list",
+  "description": "gRPC ListBuckets by parent project: prefix filter, page size, read mask, an empty result and a malformed parent.",
+  "steps": [
+    {"name": "list-prefix", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListBuckets", "headers": {"x-goog-request-params": "parent=projects/{project}"}, "body": {"parent": "projects/{project}", "prefix": "{bucket}"}, "expect_status": 0},
+    {"name": "list-read-mask", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListBuckets", "headers": {"x-goog-request-params": "parent=projects/{project}"}, "body": {"parent": "projects/{project}", "prefix": "{bucket}", "pageSize": 1, "readMask": {"paths": ["name", "location"]}}, "expect_status": 0},
+    {"name": "list-no-match", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListBuckets", "headers": {"x-goog-request-params": "parent=projects/{project}"}, "body": {"parent": "projects/{project}", "prefix": "{missing_bucket}"}, "expect_status": 0},
+    {"name": "list-empty-parent", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListBuckets", "headers": {"x-goog-request-params": "parent="}, "body": {"parent": ""}, "expect_status": 3},
+    {"name": "list-malformed-parent", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListBuckets", "headers": {"x-goog-request-params": "parent=buckets/x"}, "body": {"parent": "buckets/x"}, "expect_status": 3}
+  ]
+}

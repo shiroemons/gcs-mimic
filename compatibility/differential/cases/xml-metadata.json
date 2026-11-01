@@ -1,0 +1,12 @@
+{
+  "id": "xml-metadata",
+  "description": "x-goog-meta-* and the standard content headers stored by an XML PUT and returned by GET and HEAD, including a replacing PUT that drops them.",
+  "steps": [
+    {"name": "put", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "x-goog-meta-Alpha": "one", "x-goog-meta-beta": "two words", "Cache-Control": "no-cache", "Content-Disposition": "attachment; filename=a.txt", "Content-Language": "en"}, "body_text": "hi", "expect_status": 200},
+    {"name": "get", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "expect_status": 200},
+    {"name": "head", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object}", "expect_status": 200},
+    {"name": "get-response-overrides", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "query": {"response-content-type": "text/csv", "response-content-disposition": "inline"}},
+    {"name": "replace", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain"}, "body_text": "hi", "expect_status": 200},
+    {"name": "head-replaced", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object}", "expect_status": 200}
+  ]
+}

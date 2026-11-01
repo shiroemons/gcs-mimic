@@ -1,0 +1,16 @@
+{
+  "id": "xml-put-edges",
+  "description": "XML PUT checksum headers (valid and mismatched Content-MD5 and x-goog-hash), an empty body, and percent-encoded object names in paths and listings.",
+  "steps": [
+    {"name": "put-md5-valid", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain", "Content-MD5": "XUFAKrxLKna5cZ2REBfFkg=="}, "body_text": "hello", "expect_status": 200},
+    {"name": "put-md5-mismatch", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-md5", "headers": {"Content-Type": "text/plain", "Content-MD5": "XUFAKrxLKna5cZ2REBfFkg=="}, "body_text": "other", "expect_status": 400},
+    {"name": "get-after-md5-mismatch", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}-md5", "expect_status": 404},
+    {"name": "put-hash-valid", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-hash", "headers": {"Content-Type": "text/plain", "x-goog-hash": "crc32c=mnG7TA==,md5=XUFAKrxLKna5cZ2REBfFkg=="}, "body_text": "hello", "expect_status": 200},
+    {"name": "put-hash-mismatch", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-hash2", "headers": {"Content-Type": "text/plain", "x-goog-hash": "crc32c=AAAAAA=="}, "body_text": "hello", "expect_status": 400},
+    {"name": "put-empty", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-empty", "headers": {"Content-Type": "text/plain"}, "expect_status": 200},
+    {"name": "get-empty", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}-empty", "expect_status": 200},
+    {"name": "put-encoded-name", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-n/sp%20ace/%C3%A9%2B%26.txt", "headers": {"Content-Type": "text/plain"}, "body_text": "x", "expect_status": 200},
+    {"name": "get-encoded-name", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}-n/sp%20ace/%C3%A9%2B%26.txt", "expect_status": 200},
+    {"name": "list-encoded-name", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"prefix": "{object}-n/"}, "expect_status": 200}
+  ]
+}

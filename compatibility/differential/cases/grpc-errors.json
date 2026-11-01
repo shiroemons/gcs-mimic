@@ -1,0 +1,15 @@
+{
+  "id": "grpc-errors",
+  "description": "gRPC statuses and messages for missing buckets and objects and malformed requests across the object RPCs.",
+  "steps": [
+    {"name": "get-missing-bucket", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{missing_bucket}"}, "body": {"bucket": "projects/_/buckets/{missing_bucket}", "object": "{object}"}, "expect_status": 5},
+    {"name": "get-missing-object", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}"}, "expect_status": 5},
+    {"name": "get-empty-object", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": ""}, "expect_status": 3},
+    {"name": "get-bad-bucket-format", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "{bucket}", "object": "{object}"}, "expect_status": 3},
+    {"name": "list-missing-bucket", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListObjects", "headers": {"x-goog-request-params": "parent=projects/_/buckets/{missing_bucket}"}, "body": {"parent": "projects/_/buckets/{missing_bucket}"}, "expect_status": 5},
+    {"name": "delete-missing-object", "protocol": "grpc", "rpc": "google.storage.v2.Storage/DeleteObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}"}, "expect_status": 5},
+    {"name": "update-missing-object", "protocol": "grpc", "rpc": "google.storage.v2.Storage/UpdateObject", "headers": {"x-goog-request-params": "object.bucket=projects/_/buckets/{bucket}"}, "body": {"object": {"bucket": "projects/_/buckets/{bucket}", "name": "{object}", "metadata": {"k": "v"}}, "updateMask": {"paths": ["metadata"]}}, "expect_status": 5},
+    {"name": "write-missing-bucket", "protocol": "grpc", "rpc": "google.storage.v2.Storage/WriteObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{missing_bucket}"}, "body": [{"writeObjectSpec": {"resource": {"bucket": "projects/_/buckets/{missing_bucket}", "name": "{object}"}, "objectSize": "1"}, "checksummedData": {"content": "eA=="}, "finishWrite": true}], "expect_status": 5},
+    {"name": "write-bad-checksum", "protocol": "grpc", "rpc": "google.storage.v2.Storage/WriteObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": [{"writeObjectSpec": {"resource": {"bucket": "projects/_/buckets/{bucket}", "name": "{object}"}, "objectSize": "5"}, "checksummedData": {"content": "aGVsbG8=", "crc32c": 1}, "finishWrite": true}], "expect_status": 3}
+  ]
+}

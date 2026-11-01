@@ -1,0 +1,16 @@
+{
+  "id": "grpc-object-preconditions",
+  "description": "gRPC generation and metageneration preconditions on WriteObject, GetObject, UpdateObject and DeleteObject, and their FAILED_PRECONDITION statuses.",
+  "steps": [
+{"name": "write-if-absent", "protocol": "grpc", "rpc": "google.storage.v2.Storage/WriteObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": [{"writeObjectSpec": {"resource": {"bucket": "projects/_/buckets/{bucket}", "name": "{object}", "contentType": "text/plain"}, "ifGenerationMatch": "0", "objectSize": "2"}, "checksummedData": {"content": "djE="}, "finishWrite": true}], "expect_status": 0}
+,
+{"name": "write-if-absent-again", "protocol": "grpc", "rpc": "google.storage.v2.Storage/WriteObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": [{"writeObjectSpec": {"resource": {"bucket": "projects/_/buckets/{bucket}", "name": "{object}", "contentType": "text/plain"}, "ifGenerationMatch": "0", "objectSize": "2"}, "checksummedData": {"content": "djI="}, "finishWrite": true}], "expect_status": 9}
+,
+    {"name": "get", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "readMask": {"paths": ["name", "generation"]}}, "capture": {"gen": "body:generation"}, "expect_status": 0, "compare": false},
+    {"name": "get-generation-mismatch", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "ifGenerationMatch": "1"}, "expect_status": 9},
+    {"name": "get-generation-not-match-current", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "ifGenerationNotMatch": "{gen}"}},
+    {"name": "update-metageneration-mismatch", "protocol": "grpc", "rpc": "google.storage.v2.Storage/UpdateObject", "headers": {"x-goog-request-params": "object.bucket=projects/_/buckets/{bucket}"}, "body": {"object": {"bucket": "projects/_/buckets/{bucket}", "name": "{object}", "metadata": {"k": "v"}}, "updateMask": {"paths": ["metadata"]}, "ifMetagenerationMatch": "99"}, "expect_status": 9},
+    {"name": "delete-generation-mismatch", "protocol": "grpc", "rpc": "google.storage.v2.Storage/DeleteObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "ifGenerationMatch": "1"}, "expect_status": 9},
+    {"name": "delete-generation-match", "protocol": "grpc", "rpc": "google.storage.v2.Storage/DeleteObject", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}", "ifGenerationMatch": "{gen}"}, "expect_status": 0}
+  ]
+}
