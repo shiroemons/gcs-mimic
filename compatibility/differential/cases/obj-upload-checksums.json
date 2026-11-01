@@ -1,0 +1,25 @@
+{
+  "id": "obj-upload-checksums",
+  "description": "JSON media and multipart uploads with correct and wrong CRC32C and MD5 values (X-Goog-Hash, Content-MD5, metadata fields). Checks SPEC-010 and SPEC-016.",
+  "steps": [
+    {"name": "crc-ok", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-crc"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "crc32c=mnG7TA=="}, "body_text": "hello", "expect_status": 200},
+    {"name": "crc-wrong", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-crcbad"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "crc32c=AAAAAA=="}, "body_text": "hello", "expect_status": 400},
+    {"name": "md5-ok", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-md5"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "md5=XUFAKrxLKna5cZ2REBfFkg=="}, "body_text": "hello", "expect_status": 200},
+    {"name": "md5-wrong", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-md5bad"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "md5=AAAAAAAAAAAAAAAAAAAAAA=="}, "body_text": "hello", "expect_status": 400},
+    {"name": "both-ok", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-both"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "crc32c=mnG7TA==,md5=XUFAKrxLKna5cZ2REBfFkg=="}, "body_text": "hello", "expect_status": 200},
+    {"name": "hash-malformed", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-malformed"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "crc32c=!!"}, "body_text": "hello", "expect_status": 400},
+    {"name": "hash-unknown-algorithm", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-unknown"}, "headers": {"Content-Type": "text/plain", "X-Goog-Hash": "sha1=AAAA"}, "body_text": "hello", "expect_status": 400},
+    {"name": "content-md5-ok", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-cmd5"}, "headers": {"Content-Type": "text/plain", "Content-MD5": "XUFAKrxLKna5cZ2REBfFkg=="}, "body_text": "hello", "expect_status": 200},
+    {"name": "content-md5-wrong", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-cmd5bad"}, "headers": {"Content-Type": "text/plain", "Content-MD5": "AAAAAAAAAAAAAAAAAAAAAA=="}, "body_text": "hello", "expect_status": 400},
+    {"name": "multipart-metadata-wrong-crc", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "multipart"}, "headers": {"Content-Type": "multipart/related; boundary=gcsmimicdiff"}, "body_text": "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{\"name\":\"{object}-mpbad\",\"crc32c\":\"AAAAAA==\"}}\r\n--gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nhello\r\n--gcsmimicdiff--", "expect_status": 400},
+    {"name": "multipart-metadata-wrong-md5", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "multipart"}, "headers": {"Content-Type": "multipart/related; boundary=gcsmimicdiff"}, "body_text": "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{\"name\":\"{object}-mpbadmd5\",\"md5Hash\":\"AAAAAAAAAAAAAAAAAAAAAA==\"}}\r\n--gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nhello\r\n--gcsmimicdiff--", "expect_status": 400},
+    {"name": "multipart-metadata-ok", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "multipart"}, "headers": {"Content-Type": "multipart/related; boundary=gcsmimicdiff"}, "body_text": "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{\"name\":\"{object}-mp\",\"crc32c\":\"mnG7TA==\",\"md5Hash\":\"XUFAKrxLKna5cZ2REBfFkg==\"}}\r\n--gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nhello\r\n--gcsmimicdiff--", "expect_status": 200},
+    {"name": "get-checksums", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-crc", "query": {"fields": "name,size,crc32c,md5Hash"}, "expect_status": 200},
+    {"name": "download-hash-headers", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-both", "query": {"alt": "media"}, "expect_status": 200},
+    {"name": "cleanup-crc", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-crc", "compare": false},
+    {"name": "cleanup-md5", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-md5", "compare": false},
+    {"name": "cleanup-both", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-both", "compare": false},
+    {"name": "cleanup-cmd5", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-cmd5", "compare": false},
+    {"name": "cleanup-mp", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-mp", "compare": false}
+  ]
+}
