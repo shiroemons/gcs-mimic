@@ -620,8 +620,9 @@ independently.
   the reason the validator refuses such a step unless its body sets the setting
   to `enforced`; `expect_status` is no exemption, because an expected refusal
   can turn out to be an applied write.
-- A `PUT .../iam` that the case expects to be applied (no `expect_status`, or
-  200) must keep `roles/storage.admin` or `roles/storage.legacyBucketOwner` for
+- Every `PUT .../iam` with literal bindings, whatever `expect_status` it has (an
+  expected refusal can be applied, as an empty `members` list was), must keep
+  `roles/storage.admin` or `roles/storage.legacyBucketOwner` for
   a `projectOwner:` or `projectEditor:` member. The policy replaces the whole
   bucket policy; without these bindings the measuring account is locked out and
   every later step answers 403. Build the body from the policy `iam-get` shows

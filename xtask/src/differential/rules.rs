@@ -222,10 +222,7 @@ fn check_iam_keeps_admin(step: &Step) -> Result<()> {
                 })
             })
     });
-    // The service rejects a policy it refuses (invalid member or role, stale
-    // etag) before applying it, so such a step cannot lock anyone out.
-    let applied = step.expect_status.is_none_or(|status| status == 200);
-    if keeps_admin || !applied {
+    if keeps_admin {
         return Ok(());
     }
     Err("a setIamPolicy body must keep roles/storage.admin or \
@@ -389,8 +386,8 @@ mod tests {
             json!([{"role": "roles/storage.objectViewer", "members": ["projectViewer:{project}"]}]);
         rejects(json!(false), set(Some(200), viewer.clone()), "must keep");
         rejects(json!(false), set(None, viewer.clone()), "must keep");
-        // A refused policy is never applied, so it cannot lock anyone out.
-        assert!(parse_case(&case_of(json!(false), set(Some(400), viewer)), "x").is_ok());
+        // An expected refusal is no exemption: it can turn out to be applied.
+        rejects(json!(false), set(Some(400), viewer), "must keep");
         let admin = json!([{"role": "roles/storage.admin", "members": ["projectOwner:{project}"]}]);
         assert!(parse_case(&case_of(json!(false), set(Some(200), admin)), "x").is_ok());
         let owner = json!([{"role": "roles/storage.legacyBucketOwner", "members": ["projectEditor:{project}"]}]);
