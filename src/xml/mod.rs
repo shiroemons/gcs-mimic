@@ -731,6 +731,7 @@ pub(crate) fn route(
             !signing_parameter(key)
                 && (!ignores_unknown
                     || SUBRESOURCES.contains(&key.as_str())
+                    || RECOGNIZED_UNSUPPORTED_QUERY.contains(&key.as_str())
                     || key.starts_with("response-"))
         }) {
             return Err(Error::unsupported(key));
@@ -757,6 +758,19 @@ const SUBRESOURCES: &[&str] = &[
     "torrent",
     "uploadId",
     "uploads",
+];
+
+/// Query parameters with defined meaning (billing project, preconditions, soft-delete
+/// selection) that this adapter does not implement on an object read. Ignoring them would answer
+/// as if the billing project, condition or selection were absent, so they are rejected like
+/// the `x-goog-user-project` header.
+const RECOGNIZED_UNSUPPORTED_QUERY: &[&str] = &[
+    "ifGenerationMatch",
+    "ifGenerationNotMatch",
+    "ifMetagenerationMatch",
+    "ifMetagenerationNotMatch",
+    "softDeleted",
+    "userProject",
 ];
 
 fn signing_parameter(key: &str) -> bool {
