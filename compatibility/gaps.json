@@ -1420,14 +1420,14 @@
     },
     {
       "id": "LOCAL-RETENTION-WINDOWS-TICK",
-      "title": "Object retention times keep only whole 100 ns ticks on Windows",
-      "status": "OPEN",
+      "title": "Object retention times kept only whole 100 ns ticks on Windows",
+      "status": "RESOLVED",
       "affected_features": ["OBJECT-TIME-READ-BACK"],
       "source_urls": ["https://doc.rust-lang.org/std/time/struct.SystemTime.html"],
       "observed_at": "2026-11-01",
       "kind": "LOCAL_DEVIATION",
-      "observed_evidence": "The retain-until time is held as a std SystemTime. On Windows its representation is a count of 100 ns intervals, so a finer fraction is floored (subsec_nanos / 100) when a request is parsed. Cloud Storage keeps the nanosecond (observed 2026-10-31). On Windows a shortening by one nanosecond that stays inside the same 100 ns interval is therefore accepted instead of refused with 403, the gRPC retention.retain_until_time reads back floored to 100 ns, and the nanosecond fraction in the retained-delete denial message differs. Linux and macOS keep the nanosecond. The Windows library tests use 100 ns multiples; Windows is built and linted in CI but this behavior is not run against a real client.",
-      "required_resolution": "Replace the SystemTime in the retention model with a seconds-and-nanoseconds pair so every platform keeps the nanosecond, then restore the 1 ns cases in the Windows tests."
+      "observed_evidence": "The retain-until time was held as a std SystemTime, whose Windows representation is a count of 100 ns intervals, so a finer fraction was floored when a request was parsed. Cloud Storage keeps the nanosecond (observed 2026-10-31). On Windows a shortening by one nanosecond inside the same 100 ns interval was accepted instead of refused with 403, gRPC retention.retain_until_time read back floored, and the nanosecond fraction in the retained-delete denial differed. Fixed: ObjectRetention.retain_until is now a UnixNanos value (whole seconds plus nanoseconds, src/object/unix_nanos.rs) on every platform. A clock reading is converted to it exactly (a SystemTime never holds more than nanoseconds), so the comparison, the 100-year cap, the past-time check, the JSON and gRPC rendering and the denial text no longer pass through a SystemTime. The catalog columns (retain_until_time microseconds plus retain_until_sub_micro_nanos) and the resumable session form are unchanged, so 0.7.0 data reads as before. Unit tests use fractions that are not multiples of 100 ns (.123456788 and .123456789) in the type, the JSON parser, the importer, the catalog columns and the session value, with no platform switch; the integration tests retention_roundtrip_http already expected nanoseconds and now apply on Windows too. The Windows CI job is the platform confirmation; no Windows run was possible locally.",
+      "required_resolution": "None; resolved by holding the time as seconds and nanoseconds."
     }
   ],
   "resolved_research_items": [
