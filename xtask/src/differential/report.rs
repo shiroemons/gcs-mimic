@@ -115,13 +115,14 @@ fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome
     }
     let has_diffs = steps.iter().any(|s| !s.differences.is_empty());
     // An unmet expectation on the real service means the case itself is wrong,
-    // which fails the run; on gcs-mimic it is a finding, like a difference.
+    // which fails the run unless differences are reported anyway; on gcs-mimic
+    // it is a finding, like a difference.
     let reference_note = steps
         .iter()
         .flat_map(|s| &s.notes)
         .any(|n| n.starts_with("reference:"));
     let has_notes = steps.iter().any(|s| !s.notes.is_empty());
-    let outcome = if !errors.is_empty() || reference_note {
+    let outcome = if !errors.is_empty() || (reference_note && !has_diffs) {
         Outcome::Error
     } else if has_diffs {
         Outcome::Differs
