@@ -16,6 +16,8 @@ func TestRustFixtureACLAndRetention(t *testing.T) {
 	if os.Getenv("GCS_MIMIC_BINARY") == "" {
 		t.Fatal("integration requires GCS_MIMIC_BINARY")
 	}
+	// The server displays retention times at millisecond precision (observed 2026-10-31), so the
+	// sub-millisecond part of what was sent is not read back.
 	until := time.Date(2090, 1, 1, 0, 0, 0, 123456000, time.UTC)
 	first := Object{ObjectAttrs: ObjectAttrs{BucketName: "fixture-bucket", Name: "first"}, Content: []byte("first")}
 	protected := Object{ObjectAttrs: ObjectAttrs{BucketName: "fixture-bucket", Name: "protected",
@@ -34,7 +36,7 @@ func TestRustFixtureACLAndRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(restored.ACL) != 1 || restored.ACL[0].Entity != storage.AllUsers || restored.ACL[0].Role != storage.RoleReader || restored.Retention == nil || restored.Retention.Mode != "Locked" || !restored.Retention.RetainUntil.Equal(until) || string(restored.Content) != "retained" {
+	if len(restored.ACL) != 1 || restored.ACL[0].Entity != storage.AllUsers || restored.ACL[0].Role != storage.RoleReader || restored.Retention == nil || restored.Retention.Mode != "Locked" || !restored.Retention.RetainUntil.Equal(until.Truncate(time.Millisecond)) || string(restored.Content) != "retained" {
 		t.Fatalf("fixture metadata changed: %+v", restored)
 	}
 	rejected := Object{ObjectAttrs: ObjectAttrs{BucketName: protected.BucketName, Name: protected.Name}, Content: []byte("denied")}
@@ -47,7 +49,7 @@ func TestRustFixtureACLAndRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored, err = server.GetObject(runtime.BucketName, runtime.Name)
-	if err != nil || restored.Retention == nil || restored.Retention.Mode != "Unlocked" || !restored.Retention.RetainUntil.Equal(until) {
+	if err != nil || restored.Retention == nil || restored.Retention.Mode != "Unlocked" || !restored.Retention.RetainUntil.Equal(until.Truncate(time.Millisecond)) {
 		t.Fatalf("runtime retention: %+v %v", restored, err)
 	}
 	for _, rule := range []storage.ACLRule{{Entity: storage.AllUsers, Role: storage.RoleWriter}, {Entity: storage.AllUsers, Role: storage.RoleReader, EntityID: "unpreserved"}} {

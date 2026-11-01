@@ -25,6 +25,7 @@ func TestRustRuntimeFixtureSDKHandlerAndParallelIsolation(t *testing.T) {
 	for _, noListener := range []bool{false, true} {
 		t.Run(map[bool]string{false: "listener", true: "facade"}[noListener], func(t *testing.T) {
 			t.Parallel()
+			// Creation times are displayed at millisecond precision, so the microseconds are not read back.
 			created := time.Date(2020, 1, 2, 3, 4, 5, 123456000, time.UTC)
 			fixture := Object{ObjectAttrs: ObjectAttrs{BucketName: "fixture-bucket", Name: "dir/日本語 +%?.txt", Generation: 420000,
 				Created: created, Updated: created, ContentType: "text/plain", Metadata: map[string]string{"fixture": "initial"}}, Content: []byte("Go fixture bytes")}
@@ -42,7 +43,7 @@ func TestRustRuntimeFixtureSDKHandlerAndParallelIsolation(t *testing.T) {
 				t.Fatal(err)
 			}
 			if string(object.Content) != string(fixture.Content) || object.Generation != fixture.Generation ||
-				!object.Created.Equal(created) || object.Metadata["fixture"] != "initial" || object.Md5Hash == "" || object.Crc32c == "" {
+				!object.Created.Equal(created.Truncate(time.Millisecond)) || object.Metadata["fixture"] != "initial" || object.Md5Hash == "" || object.Crc32c == "" {
 				t.Fatalf("fixture identity mismatch: %+v", object)
 			}
 			fixture.Content = []byte("collision must not replace")
