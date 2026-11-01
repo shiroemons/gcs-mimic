@@ -132,6 +132,11 @@ fn scrub_upload_ids(text: &str) -> String {
         let Some((at, key)) = found else { break };
         let (head, tail) = rest.split_at(at + key.len());
         out.push_str(head);
+        // Already a placeholder (a captured session ID): keep it.
+        if tail.starts_with('<') {
+            rest = tail;
+            continue;
+        }
         let end = tail
             .find(|c: char| matches!(c, '&' | '"' | '\'' | '<' | '>') || c.is_whitespace())
             .unwrap_or(tail.len());
@@ -281,18 +286,21 @@ impl Normalizer {
                 Value::String("projects/<project-number>".into())
             }
             "id" => match item.as_str() {
-                // Object ids end with the generation.
-                Some(id) => {
-                    let text = self.text(id);
-                    match text.rsplit_once('/') {
-                        Some((head, tail))
-                            if tail.len() >= 10 && tail.bytes().all(|b| b.is_ascii_digit()) =>
-                        {
-                            Value::String(format!("{head}/<generation:{}>", tail.len()))
-                        }
-                        _ => Value::String(text),
-                    }
-                }
+                // Object and ACL ids carry the generation as a path segment
+                // (`bucket/name/<generation>` and `.../<generation>/entity`).
+                Some(id) => Value::String(
+                    self.text(id)
+                        .split('/')
+                        .map(|segment| {
+                            if segment.len() >= 10 && segment.bytes().all(|b| b.is_ascii_digit()) {
+                                format!("<generation:{}>", segment.len())
+                            } else {
+                                segment.to_owned()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("/"),
+                ),
                 None => self.json(item),
             },
             _ => self.json(item),
@@ -504,6 +512,9 @@ mod tests {
         });
         let out = normalizer().json(&input);
         assert_eq!(out["id"], "<bucket>/o.txt/<generation:16>");
+        let acl = normalizer()
+            .json(&json!({"id": "gcsmimic-diff-abc-b/o.txt/1730000000000001/project-owners-0"}));
+        assert_eq!(acl["id"], "<bucket>/o.txt/<generation:16>/project-owners-0");
         assert_eq!(out["generation"], "<generation:str:16>");
         assert_eq!(out["metageneration"], "1");
         assert_eq!(out["etag"], "<etag:str>");

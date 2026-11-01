@@ -1,6 +1,7 @@
 //! Protocol transports. HTTP goes through the external `curl` command, like the
 //! dependency checks. A gRPC transport (`grpcurl`) can implement the same trait.
 
+use serde_json::json;
 use std::{
     fs,
     io::Write,
@@ -211,7 +212,12 @@ impl CurlTransport {
         Ok(Response {
             status,
             headers: parse_header_dump(&dump),
-            body: fs::read(body_path).unwrap_or_default(),
+            // `curl --head` writes the header block into the body file too.
+            body: if request.method == "HEAD" {
+                Vec::new()
+            } else {
+                fs::read(body_path).unwrap_or_default()
+            },
         })
     }
 }
@@ -359,10 +365,14 @@ fn grpc_response(exit: Option<i32>, stdout: &str, stderr: &str) -> Result<Respon
         }
     };
     let value = if status != 0 {
-        // With -format-error the status is printed to stderr as JSON.
-        parse_messages(stderr)?
-            .pop()
-            .ok_or("grpcurl reported a failed call without a status")?
+        // With -format-error the status is printed to stderr as JSON. When a
+        // detail names a type outside the loaded protos grpcurl cannot render
+        // it and prints plain text; the case then continues with the code and
+        // the raw text instead of stopping.
+        parse_messages(stderr)
+            .ok()
+            .and_then(|mut parsed| parsed.pop())
+            .unwrap_or_else(|| json!({"code": status, "raw": stderr.trim()}))
     } else {
         match messages.len() {
             0 => serde_json::Value::Null,
@@ -480,7 +490,12 @@ mod tests {
         assert_eq!(failed.body, br#"{"code":5,"message":"Bucket not found"}"#);
         // Exit 1 is a grpcurl or connection failure, not a gRPC status.
         assert!(grpc_response(Some(1), "", "dial failed").is_err());
-        assert!(grpc_response(Some(69), "", "").is_err());
+        let raw = grpc_response(Some(69), "", "ERROR:\n  Code: NotFound\n  Message: x").unwrap();
+        assert_eq!(raw.status, 5);
+        assert_eq!(
+            raw.body,
+            br#"{"code":5,"raw":"ERROR:\n  Code: NotFound\n  Message: x"}"#
+        );
         assert!(grpc_response(Some(0), "not json", "").is_err());
     }
 

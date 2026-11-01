@@ -75,7 +75,12 @@ fn base_normalizer(side: &Side<'_>, names: &Names) -> Normalizer {
     norm.add_literal(&names.missing_bucket, "<missing_bucket>");
     norm.add_literal(side.project, "<project>");
     for host in &side.hosts {
-        norm.add_literal(host, "<host>");
+        let placeholder = if host.contains("www.googleapis.com") {
+            "<www-host>"
+        } else {
+            "<host>"
+        };
+        norm.add_literal(host, placeholder);
     }
     norm
 }
@@ -507,7 +512,7 @@ mod tests {
         for name in [names.new_bucket_for(0), names.new_bucket_for(1)] {
             assert!(
                 sent.iter()
-                    .any(|l| l == &format!("GET /storage/v1/b/{name}?fields=name")),
+                    .any(|l| l.starts_with(&format!("GET /storage/v1/b/{name}?fields=name"))),
                 "no cleanup confirmation for {name}"
             );
         }
@@ -533,7 +538,7 @@ mod tests {
         assert!(sent.iter().any(|l| l == "GET /storage/v1/b/run-c0"));
         assert!(
             sent.iter()
-                .any(|l| l == "GET /storage/v1/b/run-c0?fields=name")
+                .any(|l| l.starts_with("GET /storage/v1/b/run-c0?fields=name"))
         );
         assert!(
             !sent.iter().any(|l| l.contains("run-b")),

@@ -371,6 +371,47 @@ mod tests {
     }
 
     #[test]
+    fn replay_reports_a_case_that_changed_since_the_recording() {
+        use super::super::case::{fingerprint, parse_case};
+        use super::super::normalize::{NormBody, NormResponse};
+        use std::collections::BTreeMap;
+        let case_json = |path: &str| {
+            json!({"id": "c", "description": "d", "bucket": false,
+                   "steps": [{"name": "s", "method": "GET", "path": path}]})
+        };
+        let recorded_case = parse_case(&case_json("/old"), "c").unwrap();
+        let current = parse_case(&case_json("/new"), "c").unwrap();
+        let outcome = |case: &Case, error: Option<&str>| CaseOutcome {
+            id: "c".into(),
+            error: error.map(str::to_owned),
+            steps: vec![StepOutcome {
+                name: "s".into(),
+                request: "GET /x".into(),
+                result: Ok(NormResponse {
+                    status: 200,
+                    headers: BTreeMap::new(),
+                    body: NormBody::Empty,
+                }),
+                expectation: None,
+                retries: 0,
+                fingerprint: fingerprint(&case.steps[0]),
+            }],
+        };
+        let mimic = outcome(&current, None);
+        let clean = compare_case(&current, &mimic, Some(&outcome(&current, None)));
+        assert!(clean.errors.is_empty(), "{:?}", clean.errors);
+        // A recording taken from the old definition is refused, also when it holds an error.
+        for error in [None, Some("transport failed")] {
+            let stale = compare_case(&current, &mimic, Some(&outcome(&recorded_case, error)));
+            assert!(
+                stale.errors.iter().any(|e| e.contains("changed since")),
+                "{:?}",
+                stale.errors
+            );
+            assert_eq!(stale.outcome, Outcome::Error);
+        }
+    }
+    #[test]
     fn renders_differences_with_paths() {
         let report = CaseReport {
             id: "c".into(),

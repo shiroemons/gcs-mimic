@@ -233,29 +233,41 @@ fn delete_version(
 
 /// Removes what blocks or outlives a bucket delete: the retention policy,
 /// requester pays, notifications and managed folders.
+/// The bucket settings that block a delete or cost a retry, from the bucket's
+/// own metadata: only what is set is sent, because a service may refuse a
+/// setting it does not support even when the value only switches it off.
+fn blocking_settings(bucket: &Value) -> Option<Value> {
+    let mut patch = serde_json::Map::new();
+    if !bucket["retentionPolicy"].is_null() {
+        patch.insert("retentionPolicy".into(), Value::Null);
+    }
+    if bucket["defaultEventBasedHold"].as_bool() == Some(true) {
+        patch.insert("defaultEventBasedHold".into(), json!(false));
+    }
+    if bucket["billing"]["requesterPays"].as_bool() == Some(true) {
+        patch.insert("billing".into(), json!({"requesterPays": false}));
+    }
+    (!patch.is_empty()).then_some(Value::Object(patch))
+}
+
 fn clear_bucket_settings(
     side: &Side<'_>,
     norm: &Normalizer,
     name: &str,
+    bucket: &Value,
     problems: &mut Vec<String>,
 ) {
-    let patch = request(
-        "PATCH",
-        format!("/storage/v1/b/{name}"),
-        Some(json!({
-            "retentionPolicy": null,
-            "defaultEventBasedHold": false,
-            "billing": {"requesterPays": false},
-        })),
-    );
-    expect(
-        side,
-        norm,
-        "clear bucket retention and requester pays",
-        &patch,
-        &[200],
-        problems,
-    );
+    if let Some(body) = blocking_settings(bucket) {
+        let patch = request("PATCH", format!("/storage/v1/b/{name}"), Some(body));
+        expect(
+            side,
+            norm,
+            "clear bucket retention, hold and requester pays",
+            &patch,
+            &[200],
+            problems,
+        );
+    }
     let target = format!("/storage/v1/b/{name}/notificationConfigs?");
     for item in list_all(side, norm, &target, "items", problems) {
         if let Some(id) = item["id"].as_str() {
@@ -304,14 +316,20 @@ fn clear_bucket_settings(
 /// already gone is not an error. Every failure is collected; the error holds
 /// all of them.
 pub(crate) fn cleanup(side: &Side<'_>, norm: &Normalizer, name: &str) -> Result<String> {
-    let probe = request("GET", format!("/storage/v1/b/{name}?fields=name"), None);
-    if let Ok(response) = send_retrying(side, &probe)
-        && response.status == 404
-    {
-        return Ok("already absent (404)".into());
+    let probe = request(
+        "GET",
+        format!("/storage/v1/b/{name}?fields=name,retentionPolicy,defaultEventBasedHold,billing"),
+        None,
+    );
+    let mut bucket = Value::Null;
+    if let Ok(response) = send_retrying(side, &probe) {
+        if response.status == 404 {
+            return Ok("already absent (404)".into());
+        }
+        bucket = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
     }
     let mut problems = Vec::new();
-    clear_bucket_settings(side, norm, name, &mut problems);
+    clear_bucket_settings(side, norm, name, &bucket, &mut problems);
     let listing =
         format!("/storage/v1/b/{name}/o?versions=true&fields=items(name,generation),nextPageToken");
     let versions = list_all(side, norm, &listing, "items", &mut problems);
@@ -416,8 +434,18 @@ mod tests {
                 String::from_utf8_lossy(req.body.as_deref().unwrap_or_default()).into_owned();
             match (req.method.as_str(), path) {
                 ("GET", "/storage/v1/b/bk") if *self.bucket_gone.borrow() => response(404, "{}"),
-                ("GET", "/storage/v1/b/bk") => response(200, "{\"name\":\"bk\"}"),
-                ("PATCH", "/storage/v1/b/bk") => response(200, "{}"),
+                ("GET", "/storage/v1/b/bk") => response(
+                    200,
+                    "{\"name\":\"bk\",\"retentionPolicy\":{\"retentionPeriod\":\"5\"},\"billing\":{\"requesterPays\":true}}",
+                ),
+                ("PATCH", "/storage/v1/b/bk") => {
+                    assert!(
+                        body.contains("\"retentionPolicy\":null")
+                            && body.contains("\"requesterPays\":false"),
+                        "{body}"
+                    );
+                    response(200, "{}")
+                }
                 ("GET", "/storage/v1/b/bk/notificationConfigs") => {
                     let items: Vec<String> = self
                         .notifications
