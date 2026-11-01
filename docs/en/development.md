@@ -147,11 +147,17 @@ success: the configured remote lanes must also pass after pushing.
 The Foundation checks workflow restores Cargo dependency builds with
 `Swatinem/rust-cache`, and only runs on `main` save them, so branches and pull
 requests reuse the latest `main` cache. A newer push cancels the previous run
-for the same branch or pull request; `main` keeps every run. CI builds debug
-profiles with `CARGO_PROFILE_DEV_DEBUG=line-tables-only` to shorten linking,
-and Windows tests use `RUNNER_TEMP` as their temporary directory. The release
-workflow's native test runs use the same two settings but no Cargo cache, so
-release archives always build from a clean target directory.
+for the same branch or pull request; `main` keeps every run. Windows tests use
+`RUNNER_TEMP` as their temporary directory. The release workflow's native test
+runs use the same setting but no Cargo cache, so release archives always build
+from a clean target directory.
+
+Debug and test builds keep only line tables (`debug = "line-tables-only"` in
+the workspace `[profile.dev]`), which keeps panic and backtrace locations while
+shortening compiling and linking and shrinking `target/`. Dependencies build
+with `opt-level = 3` (`[profile.dev.package."*"]`) because the tests spend most
+of their CPU time in them; the library tests drop from about 121 s to 79 s, and
+the dependencies compile once and stay cached.
 
 Changes that touch only Markdown files or `docs/` skip Foundation checks and
 run the Documentation checks workflow instead. It runs `scripts/check-docs.sh`,

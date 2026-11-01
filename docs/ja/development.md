@@ -89,10 +89,15 @@ push後はCIの結果も確認してください。
 Foundation checksワークフローは`Swatinem/rust-cache`でCargoの依存ビルドを復元し、
 保存は`main`の実行だけが行います。ブランチとプルリクエストは最新の`main`のキャッシュを再利用します。
 同じブランチやプルリクエストに新しいpushがあると前の実行は取り消されますが、`main`ではすべて実行します。
-CIはリンク時間を短くするため`CARGO_PROFILE_DEV_DEBUG=line-tables-only`でデバッグビルドを行い、
 Windowsのテストは一時ディレクトリに`RUNNER_TEMP`を使います。
-リリースワークフローのネイティブテストも同じ2つの設定を使いますが、Cargoのキャッシュは使わず、
+リリースワークフローのネイティブテストも同じ設定を使いますが、Cargoのキャッシュは使わず、
 配布アーカイブは常にクリーンなtargetディレクトリからビルドします。
+
+デバッグビルドとテストビルドは行番号テーブルだけを残します（ワークスペースの`[profile.dev]`の
+`debug = "line-tables-only"`）。パニックとバックトレースの位置は残したまま、コンパイルとリンクを短くし、
+`target/`を小さくします。テストのCPU時間の大半は依存クレートで使われるため、依存クレートだけを
+`opt-level = 3`（`[profile.dev.package."*"]`）でビルドします。ライブラリのテストは約121秒から79秒に短くなり、
+依存クレートは一度ビルドすればキャッシュされます。
 
 Markdownファイルと`docs/`だけを変えた場合は、Foundation checksを実行せず、Documentation checksワークフローを実行します。
 このワークフローは`scripts/check.sh`と同じ`scripts/check-docs.sh`を使い、機能台帳と生成した機能表、

@@ -23,10 +23,6 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
-env:
-  # Line tables keep panic locations while shrinking debug builds, which
-  # shortens linking (notably MSVC PDBs) and the cached target directories.
-  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 jobs:
   rust:
     runs-on: ubuntu-24.04
