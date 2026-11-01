@@ -1012,17 +1012,28 @@ fn rewrite_completed_cache_evicts_without_rejecting_new_rewrites() {
 fn rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success() {
     let (dir, mut server, payload, _source) = setup(false, 16 * 1048576 + 17);
     server.stop();
-    let mut server = Server::start_with_timeouts(&dir, false, 30000, 1);
+    // The request budget must cover authorization and body parsing on a slow runner; the
+    // catalog wait below outlasts it, so success shows the wait does not spend it.
+    let request_budget = std::time::Duration::from_millis(300);
+    let mut server = Server::start_with_timeouts(
+        &dir,
+        false,
+        30000,
+        u64::try_from(request_budget.as_millis()).unwrap(),
+    );
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection.execute_batch("BEGIN IMMEDIATE;").unwrap();
     let address = server.address.clone();
+    let started = std::time::Instant::now();
     let worker = thread::spawn(move || request(&address, "POST", BASE, ADMIN, b""));
-    let limit = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let limit = started + std::time::Duration::from_secs(2);
     while std::fs::read_dir(dir.0.join("staging")).unwrap().count() < 2 {
         assert!(std::time::Instant::now() < limit);
         thread::sleep(std::time::Duration::from_millis(1));
     }
-    thread::sleep(std::time::Duration::from_millis(20));
+    thread::sleep(
+        (started + 2 * request_budget).saturating_duration_since(std::time::Instant::now()),
+    );
     connection.execute_batch("COMMIT;").unwrap();
     let complete = worker.join().unwrap().json();
     assert_eq!(complete["done"], true);

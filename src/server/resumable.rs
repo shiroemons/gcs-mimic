@@ -570,7 +570,7 @@ async fn await_session_upload<T>(
     deadline: tokio::time::Instant,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Result<T, JsonError> {
-    activity.send_modify(|progress| progress.awaiting_catalog = true);
+    super::begin_catalog_wait(activity).await;
     tokio::pin!(operation);
     let result = loop {
         let waiting = *progress.borrow_and_update();

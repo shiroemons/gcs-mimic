@@ -170,10 +170,7 @@ async fn wait(
     }
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout);
     // The bounded handler deadline replaces connection inactivity while the server observes work.
-    ctx.activity.send_replace(crate::server::ObjectActivity {
-        awaiting_catalog: true,
-        deadline: Some(deadline),
-    });
+    crate::server::begin_catalog_wait_until(ctx.activity, Some(deadline)).await;
     let (reply, receive) = tokio::sync::oneshot::channel();
     registration
         .sender
@@ -260,10 +257,7 @@ async fn observe<T>(
     ctx: RequestCtx<'_>,
     receive: tokio::sync::oneshot::Receiver<T>,
 ) -> Result<T, JsonError> {
-    ctx.activity.send_replace(crate::server::ObjectActivity {
-        awaiting_catalog: true,
-        deadline: None,
-    });
+    crate::server::begin_catalog_wait_until(ctx.activity, None).await;
     let result = tokio::time::timeout(
         std::time::Duration::from_millis(ctx.config.object_request_timeout_ms),
         receive,

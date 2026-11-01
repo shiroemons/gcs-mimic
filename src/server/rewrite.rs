@@ -121,7 +121,7 @@ pub(super) async fn respond(
         )
     };
     let body = body.filter(|value| !value.is_null());
-    activity.send_modify(|progress| progress.awaiting_catalog = true);
+    begin_catalog_wait(activity).await;
     // Once mutation starts, await its durable result instead of timing out a detached commit.
     let job = RewriteJob {
         operation,

@@ -219,8 +219,7 @@ pub(super) async fn compose(
     let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
     let mut body = json::compose::parse_compose(&bytes, &bucket, &name)?;
     body.destination.customer_key_sha256 = key.map(CustomerKey::sha256);
-    ctx.activity
-        .send_modify(|progress| progress.awaiting_catalog = true);
+    crate::server::begin_catalog_wait(ctx.activity).await;
     let record = ctx
         .state
         .catalog

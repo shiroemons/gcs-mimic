@@ -38,9 +38,10 @@ impl<'a> RequestCtx<'a> {
     pub(crate) fn start_object_deadline(self, watch: DeadlineWatch) -> Instant {
         let deadline =
             Instant::now() + Duration::from_millis(self.config.object_request_timeout_ms);
-        self.activity.send_replace(ObjectActivity {
-            awaiting_catalog: false,
-            deadline: (watch == DeadlineWatch::Enforced).then_some(deadline),
+        // An expiry the connection already claimed stays visible to later catalog waits.
+        self.activity.send_modify(|progress| {
+            progress.awaiting_catalog = false;
+            progress.deadline = (watch == DeadlineWatch::Enforced).then_some(deadline);
         });
         deadline
     }

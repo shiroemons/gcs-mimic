@@ -1,4 +1,4 @@
-use super::{ObjectActivity, await_upload_catalog};
+use super::{ObjectActivity, await_upload_catalog, begin_catalog_wait};
 use crate::{
     bucket::BucketAccess,
     config::Config,
@@ -96,7 +96,7 @@ pub(crate) async fn execute(
         replay.bind_source(&source_record);
     }
     // shortcut: admission is phase-local; reserve one slot if later-stage rejection under load must be eliminated.
-    activity.send_modify(|activity| activity.awaiting_catalog = true);
+    begin_catalog_wait(activity).await;
     let transfer = tokio::time::timeout_at(
         deadline,
         catalog.begin_derived_ephemeral(vec![source.whole()], config.max_object_bytes),
@@ -112,7 +112,7 @@ pub(crate) async fn execute(
         #[cfg(test)]
         checkpoint_at(&progress, &mut checkpoint).await?;
         while progress.offset < progress.total {
-            activity.send_modify(|activity| activity.awaiting_catalog = true);
+            begin_catalog_wait(activity).await;
             progress = catalog.advance_derived(&transfer.id, BYTE_BUDGET).await?;
             activity.send_modify(|activity| activity.awaiting_catalog = false);
             #[cfg(test)]
@@ -122,7 +122,7 @@ pub(crate) async fn execute(
     })
     .await
     .map_err(|_| ObjectError::Unavailable("copy request deadline exceeded".into()))??;
-    activity.send_modify(|activity| activity.awaiting_catalog = true);
+    begin_catalog_wait(activity).await;
     // Only catalog admission can time out. Once publication starts, return its durable outcome
     // rather than reporting a timeout while a detached mutation can still commit.
     let result = catalog

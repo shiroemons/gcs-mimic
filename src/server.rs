@@ -318,6 +318,54 @@ impl Drop for RequestFinished {
 pub(crate) struct ObjectActivity {
     awaiting_catalog: bool,
     deadline: Option<tokio::time::Instant>,
+    /// Set by the connection once it has chosen to answer with a timeout. It and
+    /// `awaiting_catalog` change under the same channel lock, so a deadline and the
+    /// start of a catalog wait cannot both win.
+    expired: bool,
+}
+
+/// The connection claims an expiry unless a catalog wait already started.
+fn claim_expiry(activity: &watch::Sender<ObjectActivity>) -> bool {
+    activity.send_if_modified(|progress| {
+        if progress.awaiting_catalog {
+            return false;
+        }
+        progress.expired = true;
+        true
+    })
+}
+
+/// Starts a catalog wait, during which request deadlines are paused.
+pub(crate) async fn begin_catalog_wait(activity: &watch::Sender<ObjectActivity>) {
+    claim_catalog_wait(activity, |_| {}).await;
+}
+
+/// Starts a catalog wait bounded by `deadline` instead of the request deadline.
+pub(crate) async fn begin_catalog_wait_until(
+    activity: &watch::Sender<ObjectActivity>,
+    deadline: Option<tokio::time::Instant>,
+) {
+    claim_catalog_wait(activity, |progress| progress.deadline = deadline).await;
+}
+
+async fn claim_catalog_wait(
+    activity: &watch::Sender<ObjectActivity>,
+    update: impl FnOnce(&mut ObjectActivity),
+) {
+    let claimed = activity.send_if_modified(|progress| {
+        if progress.expired {
+            return false;
+        }
+        progress.awaiting_catalog = true;
+        update(progress);
+        true
+    });
+    if !claimed {
+        // The connection already answers with a timeout. Detached catalog work started
+        // now would commit behind that reply, so wait for the connection to drop this
+        // handler instead.
+        std::future::pending::<()>().await;
+    }
 }
 
 pub async fn serve(
@@ -561,6 +609,8 @@ async fn drain_connections(connections: &mut JoinSet<()>, deadline: Duration) ->
 }
 
 #[cfg(test)]
+mod deadline_claim_tests;
+#[cfg(test)]
 mod drain_tests;
 #[cfg(test)]
 mod upload_frame_tests;
@@ -604,7 +654,7 @@ async fn serve_connection(
     let service = ConnectionService {
         state,
         config,
-        activity,
+        activity: activity.clone(),
         active: active.clone(),
         served: served.clone(),
         responded: responded.clone(),
@@ -620,6 +670,7 @@ async fn serve_connection(
     );
     let watch = ConnectionWatch {
         progress,
+        activity,
         active,
         served,
         reads,
@@ -759,6 +810,8 @@ impl ConnectionService {
 /// The connection half that enforces connection, keep-alive and request deadlines.
 struct ConnectionWatch {
     progress: watch::Receiver<ObjectActivity>,
+    /// Writes the expiry claim under the same lock the handler uses to start a catalog wait.
+    activity: watch::Sender<ObjectActivity>,
     active: Arc<AtomicBool>,
     served: Arc<AtomicBool>,
     reads: Arc<ReadActivity>,
@@ -779,6 +832,7 @@ impl ConnectionWatch {
     ) -> bool {
         let Self {
             mut progress,
+            activity,
             active,
             served,
             reads,
@@ -814,8 +868,10 @@ impl ConnectionWatch {
                     }
                 },
                 _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if requesting && current.deadline.is_some() && !current.awaiting_catalog && !expiring => {
-                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "object_request_timeout", serde_json::json!({"message":"object request deadline exceeded"}));
                     if responded.load(Ordering::Acquire) { break; }
+                    // A catalog wait that started after this branch was chosen pauses the deadline.
+                    if !claim_expiry(&activity) { continue; }
+                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "object_request_timeout", serde_json::json!({"message":"object request deadline exceeded"}));
                     expire.send_replace(true);
                     deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
                     expiring = true;
@@ -837,8 +893,9 @@ impl ConnectionWatch {
                         lingering = !idle || reads.arrived_since_idle();
                         break;
                     }
-                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"connection deadline or object body inactivity timeout exceeded"}));
                     if responded.load(Ordering::Acquire) { break; }
+                    if !claim_expiry(&activity) { continue; }
+                    crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"connection deadline or object body inactivity timeout exceeded"}));
                     expire.send_replace(true);
                     deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
                     expiring = true;
@@ -1054,7 +1111,7 @@ pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(
     request_deadline: tokio::time::Instant,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Result<T, E> {
-    activity.send_modify(|progress| progress.awaiting_catalog = true);
+    begin_catalog_wait(activity).await;
     // A completed body may commit after this wait expires; only an observed commit is success.
     let result = tokio::time::timeout_at(
         request_deadline.min(tokio::time::Instant::now() + timeout),
