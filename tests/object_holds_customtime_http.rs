@@ -330,7 +330,9 @@ fn multipart_and_pending_resumable_preserve_hold_custom_time() {
 
 /// Cloud Storage reports a hold as `false` once it was set, and omits one that never was
 /// (recorded in the differential comparison). The state must survive a restart, and only a
-/// true hold may block a delete.
+/// true hold may block a delete. The recording covers a mistyped value ignored on PATCH while
+/// the hold is `true` and `null` ignored on PUT while it is never set (`put-null-hold`); the
+/// other combinations exercised here are inferred from those two.
 #[test]
 fn a_released_hold_reads_back_as_false_and_a_never_set_hold_is_omitted() {
     let dir = TestDir::new();
@@ -345,7 +347,9 @@ fn a_released_hold_reads_back_as_false_and_a_never_set_hold_is_omitted() {
     let released = update(&server, "PATCH", json!({"temporaryHold":false})).json();
     assert_eq!(released["temporaryHold"], false);
     assert!(released.get("eventBasedHold").is_none());
-    // A value of the wrong type or null changes nothing, whatever state the hold is in.
+    // Inferred, not recorded: a mistyped value or null on PATCH changes nothing in any state.
+    // The recording only has a mistyped value on PATCH while the hold is true and null on PUT
+    // while it is never set.
     for body in [
         json!({"temporaryHold":"yes"}),
         json!({"temporaryHold":null}),
