@@ -897,8 +897,8 @@ impl Catalog {
                     component_count: destination.component_count,
                     content_encoding: None, content_disposition: None, content_language: None,
                     cache_control: None, metadata: Default::default(), time_created: time, updated: time,
-                    time_deleted: None, soft_delete_time: None, hard_delete_time: None, event_based_hold: default_hold,
-                    temporary_hold: false, custom_time: None, retention_expiration_time: None, retention: None, customer_key_sha256: None,
+                    time_deleted: None, soft_delete_time: None, hard_delete_time: None, event_based_hold: default_hold.then_some(true),
+                    temporary_hold: None, custom_time: None, retention_expiration_time: None, retention: None, customer_key_sha256: None,
                 };
                 destination.metadata.apply(&mut record)?;
                 transaction.prepare_cached("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1").and_then(|mut statement| statement.execute([&query])).map_err(object_unavailable)?;

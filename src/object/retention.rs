@@ -155,7 +155,7 @@ pub(crate) fn validate_stored(
     if bucket == BucketRetention::Disabled {
         return Err(invalid("Bucket does not have object retention enabled."));
     }
-    if record.event_based_hold {
+    if record.event_based_hold == Some(true) {
         return Err(invalid(
             "Retention and event based holds cannot be configured together.",
         ));

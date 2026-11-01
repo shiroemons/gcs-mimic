@@ -553,7 +553,7 @@ async fn versioned_schema_migrations_preserve_objects() {
                 .unwrap();
             assert_eq!(record, expected.0);
             assert_eq!(record.generation.to_string(), original["generation"]);
-            assert!(!record.event_based_hold);
+            assert_eq!(record.event_based_hold, None);
             assert!(record.time_deleted.is_none());
             let bucket = catalog
                 .admin(Origin::Seed)

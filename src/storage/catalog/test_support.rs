@@ -90,6 +90,24 @@ pub(crate) fn downgrade_observation_schema(connection: &rusqlite::Connection) {
         .unwrap();
 }
 
+/// Drops the schema 48 hold-state columns when present; their CHECKs name the hold columns.
+pub(crate) fn drop_hold_state_columns(connection: &rusqlite::Connection) {
+    for column in ["temporary_hold_released", "event_based_hold_released"] {
+        let present: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('objects') WHERE name = ?1)",
+                [column],
+                |row| row.get(0),
+            )
+            .unwrap();
+        if present {
+            connection
+                .execute_batch(&format!("ALTER TABLE objects DROP COLUMN {column};"))
+                .unwrap();
+        }
+    }
+}
+
 /// Drops the schema 47 sub-microsecond column when present; it must go before the retention
 /// columns that its `CHECK` names.
 pub(crate) fn drop_sub_micro_column(connection: &rusqlite::Connection) {
@@ -110,6 +128,7 @@ pub(crate) fn drop_sub_micro_column(connection: &rusqlite::Connection) {
 /// Restores the schema 44 layout, which predates bucket generations and soft-deleted buckets.
 /// It also drops the schema 47 column, so every older layout can be rebuilt from the latest one.
 pub(crate) fn downgrade_bucket_generation_schema(connection: &rusqlite::Connection) {
+    drop_hold_state_columns(connection);
     drop_sub_micro_column(connection);
     connection
         .execute_batch(
@@ -213,6 +232,7 @@ pub(crate) fn downgrade_soft_delete_schema(connection: &rusqlite::Connection) {
 /// Restores the schema 28 layout; each column dropped here is named by the CHECK of the next, so
 /// the sub-microsecond column goes first, then retain_until_time, then retention_mode.
 pub(crate) fn downgrade_object_retention_schema(connection: &rusqlite::Connection) {
+    drop_hold_state_columns(connection);
     drop_sub_micro_column(connection);
     downgrade_customer_key_schema(connection);
     connection

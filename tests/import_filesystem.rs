@@ -157,7 +157,7 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
             record.metadata.get("source").map(String::as_str),
             Some("fixture")
         );
-        assert!(!record.event_based_hold);
+        assert_eq!(record.event_based_hold, None);
         assert_eq!(reader.next_chunk().await.unwrap().unwrap(), &b"hello"[..]);
         assert!(reader.next_chunk().await.unwrap().is_none());
         let later = admin
@@ -177,7 +177,7 @@ fn filesystem_import_preserves_source_identity_and_skips_later_seed() {
             .await
             .unwrap();
         assert!(later.generation > GENERATION);
-        assert!(later.event_based_hold);
+        assert_eq!(later.event_based_hold, Some(true));
         // Seed replays on imported catalogs too: fixtures without a matching file leave every
         // imported object and its source generation untouched.
         let mut config = common::http_config();

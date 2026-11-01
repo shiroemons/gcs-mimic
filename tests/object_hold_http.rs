@@ -64,10 +64,9 @@ fn default_hold_applies_to_all_upload_modes() {
         multipart(&server, "multipart", None)["eventBasedHold"],
         true
     );
-    assert!(
-        multipart(&server, "override", Some(false))
-            .get("eventBasedHold")
-            .is_none()
+    assert_eq!(
+        multipart(&server, "override", Some(false))["eventBasedHold"],
+        false
     );
     let path = resumable(&server, "resumable", json!({}));
     assert_eq!(
@@ -214,7 +213,7 @@ fn event_hold_metadata_release_and_restart() {
         json!({"eventBasedHold":false}),
     )
     .json();
-    assert!(released.get("eventBasedHold").is_none());
+    assert_eq!(released["eventBasedHold"], false);
     assert_eq!(released["metageneration"], "4");
     for field in ["generation", "size", "md5Hash", "crc32c", "timeCreated"] {
         assert_eq!(released[field], original[field]);

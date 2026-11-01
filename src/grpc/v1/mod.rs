@@ -197,8 +197,10 @@ fn metadata(
     if let Some(hold) = object.event_based_hold {
         body["eventBasedHold"] = json!(hold);
     }
-    if replace || object.temporary_hold {
-        body["temporaryHold"] = json!(object.temporary_hold);
+    // `temporary_hold` is a plain bool, so false cannot be told from omitted; a replace
+    // already releases a hold it does not name, and only true is a statement worth keeping.
+    if object.temporary_hold {
+        body["temporaryHold"] = json!(true);
     }
     object.name.clear();
     object.bucket.clear();
