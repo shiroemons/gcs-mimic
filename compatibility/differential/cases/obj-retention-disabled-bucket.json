@@ -1,0 +1,10 @@
+{
+  "id": "obj-retention-disabled-bucket",
+  "description": "Setting object retention on a bucket that has not enabled object retention. Checks SPEC-OBJECT-RETENTION.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "patch-retention", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"retention": {"mode": "Unlocked", "retainUntilTime": "2099-01-01T00:00:00Z"}}, "expect_status": 400},
+    {"name": "get-retention-field", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,retention"}, "expect_status": 200},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false}
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "obj-move",
+  "description": "Move (moveTo): the source disappears and the destination keeps content and metadata; missing source, move onto itself and generation preconditions.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "upload-other", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-other"}, "headers": {"Content-Type": "text/plain"}, "body_text": "other", "compare": false, "expect_status": 200},
+    {"name": "patch-source", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"metadata": {"a": "1"}}, "compare": false, "expect_status": 200},
+    {"name": "move-source-generation-mismatch", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/moveTo/o/{object2}", "query": {"ifSourceGenerationMatch": "1"}, "expect_status": 412},
+    {"name": "move-destination-exists", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/moveTo/o/{object}-other", "query": {"ifGenerationMatch": "0"}, "expect_status": 412},
+    {"name": "move", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/moveTo/o/{object2}", "expect_status": 200},
+    {"name": "get-source-after-move", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "expect_status": 404},
+    {"name": "get-destination", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object2}", "expect_status": 200},
+    {"name": "download-destination", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object2}", "query": {"alt": "media"}, "expect_status": 200},
+    {"name": "move-missing-source", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/moveTo/o/{object}-x", "expect_status": 404},
+    {"name": "move-onto-itself", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object2}/moveTo/o/{object2}", "expect_status": 400},
+    {"name": "move-overwrite-existing", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object2}/moveTo/o/{object}-other", "expect_status": 200},
+    {"name": "cleanup-other", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-other", "compare": false},
+    {"name": "cleanup-destination", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object2}", "compare": false}
+  ]
+}
