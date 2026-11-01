@@ -1,0 +1,1486 @@
+{
+  "cases": [
+    {
+      "error": null,
+      "id": "bucket-create-invalid",
+      "steps": [
+        {
+          "name": "create-invalid-name",
+          "request": "POST /storage/v1/b?project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Invalid bucket name: 'Invalid_Name'",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Invalid bucket name: 'Invalid_Name'"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 400
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "bucket-get-missing",
+      "steps": [
+        {
+          "name": "get-missing",
+          "request": "GET /storage/v1/b/<missing_bucket>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "The specified bucket does not exist.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "The specified bucket does not exist."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 404
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "bucket-get",
+      "steps": [
+        {
+          "name": "get",
+          "request": "GET /storage/v1/b/<bucket>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": false
+                  },
+                  "publicAccessPrevention": "inherited",
+                  "uniformBucketLevelAccess": {
+                    "enabled": false
+                  }
+                },
+                "id": "<bucket>",
+                "kind": "storage#bucket",
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "metageneration": "1",
+                "name": "<bucket>",
+                "projectNumber": "<project-number>",
+                "satisfiesPZI": true,
+                "selfLink": "<host>/storage/v1/b/<bucket>",
+                "softDeletePolicy": {
+                  "retentionDurationSeconds": "0"
+                },
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "get-fields",
+          "request": "GET /storage/v1/b/<bucket>?fields=name%2CstorageClass",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "<bucket>",
+                "storageClass": "STANDARD"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "bucket-lifecycle",
+      "steps": [
+        {
+          "name": "create",
+          "request": "POST /storage/v1/b?project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": false
+                  },
+                  "publicAccessPrevention": "inherited",
+                  "uniformBucketLevelAccess": {
+                    "enabled": false
+                  }
+                },
+                "id": "<new_bucket>",
+                "kind": "storage#bucket",
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "metageneration": "1",
+                "name": "<new_bucket>",
+                "projectNumber": "<project-number>",
+                "satisfiesPZI": true,
+                "selfLink": "<host>/storage/v1/b/<new_bucket>",
+                "softDeletePolicy": {
+                  "retentionDurationSeconds": "0"
+                },
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "create-again",
+          "request": "POST /storage/v1/b?project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 409,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Your previous request to create the named bucket succeeded and you already own it.",
+                      "reason": "conflict"
+                    }
+                  ],
+                  "message": "Your previous request to create the named bucket succeeded and you already own it."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 409
+          }
+        },
+        {
+          "name": "get",
+          "request": "GET /storage/v1/b/<new_bucket>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": false
+                  },
+                  "publicAccessPrevention": "inherited",
+                  "uniformBucketLevelAccess": {
+                    "enabled": false
+                  }
+                },
+                "id": "<new_bucket>",
+                "kind": "storage#bucket",
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "metageneration": "1",
+                "name": "<new_bucket>",
+                "projectNumber": "<project-number>",
+                "satisfiesPZI": true,
+                "selfLink": "<host>/storage/v1/b/<new_bucket>",
+                "softDeletePolicy": {
+                  "retentionDurationSeconds": "0"
+                },
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "delete",
+          "request": "DELETE /storage/v1/b/<new_bucket>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 204
+          }
+        },
+        {
+          "name": "delete-again",
+          "request": "DELETE /storage/v1/b/<new_bucket>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "The specified bucket does not exist.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "The specified bucket does not exist."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 404
+          }
+        },
+        {
+          "name": "get-after-delete",
+          "request": "GET /storage/v1/b/<new_bucket>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "The specified bucket does not exist.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "The specified bucket does not exist."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 404
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "bucket-list",
+      "steps": [
+        {
+          "name": "list",
+          "request": "GET /storage/v1/b?prefix=<bucket>&project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "etag": "<etag>",
+                    "generation": "<generation>",
+                    "iamConfiguration": {
+                      "bucketPolicyOnly": {
+                        "enabled": false
+                      },
+                      "publicAccessPrevention": "inherited",
+                      "uniformBucketLevelAccess": {
+                        "enabled": false
+                      }
+                    },
+                    "id": "<bucket>",
+                    "kind": "storage#bucket",
+                    "location": "US-CENTRAL1",
+                    "locationType": "region",
+                    "metageneration": "1",
+                    "name": "<bucket>",
+                    "projectNumber": "<project-number>",
+                    "satisfiesPZI": true,
+                    "selfLink": "<host>/storage/v1/b/<bucket>",
+                    "softDeletePolicy": {
+                      "retentionDurationSeconds": "0"
+                    },
+                    "storageClass": "STANDARD",
+                    "timeCreated": "<time>",
+                    "updated": "<time>"
+                  }
+                ],
+                "kind": "storage#buckets"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "bucket-patch-labels",
+      "steps": [
+        {
+          "name": "add-label",
+          "request": "PATCH /storage/v1/b/<bucket>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-owners-<project-number>",
+                    "etag": "<etag>",
+                    "id": "<bucket>/project-owners-<project-number>",
+                    "kind": "storage#bucketAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<host>/storage/v1/b/<bucket>/acl/project-owners-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-editors-<project-number>",
+                    "etag": "<etag>",
+                    "id": "<bucket>/project-editors-<project-number>",
+                    "kind": "storage#bucketAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<host>/storage/v1/b/<bucket>/acl/project-editors-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-viewers-<project-number>",
+                    "etag": "<etag>",
+                    "id": "<bucket>/project-viewers-<project-number>",
+                    "kind": "storage#bucketAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "viewers"
+                    },
+                    "role": "READER",
+                    "selfLink": "<host>/storage/v1/b/<bucket>/acl/project-viewers-<project-number>"
+                  }
+                ],
+                "defaultObjectAcl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "etag": "<etag>",
+                    "kind": "storage#objectAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "etag": "<etag>",
+                    "kind": "storage#objectAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "etag": "<etag>",
+                    "kind": "storage#objectAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  }
+                ],
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": false
+                  },
+                  "publicAccessPrevention": "inherited",
+                  "uniformBucketLevelAccess": {
+                    "enabled": false
+                  }
+                },
+                "id": "<bucket>",
+                "kind": "storage#bucket",
+                "labels": {
+                  "stage": "test",
+                  "team": "diff"
+                },
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "metageneration": "2",
+                "name": "<bucket>",
+                "owner": {
+                  "entity": "project-owners-<project-number>"
+                },
+                "projectNumber": "<project-number>",
+                "satisfiesPZI": true,
+                "selfLink": "<host>/storage/v1/b/<bucket>",
+                "softDeletePolicy": {
+                  "retentionDurationSeconds": "0"
+                },
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "remove-label",
+          "request": "PATCH /storage/v1/b/<bucket>?ifMetagenerationMatch=2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-owners-<project-number>",
+                    "etag": "<etag>",
+                    "id": "<bucket>/project-owners-<project-number>",
+                    "kind": "storage#bucketAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<host>/storage/v1/b/<bucket>/acl/project-owners-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-editors-<project-number>",
+                    "etag": "<etag>",
+                    "id": "<bucket>/project-editors-<project-number>",
+                    "kind": "storage#bucketAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<host>/storage/v1/b/<bucket>/acl/project-editors-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-viewers-<project-number>",
+                    "etag": "<etag>",
+                    "id": "<bucket>/project-viewers-<project-number>",
+                    "kind": "storage#bucketAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "viewers"
+                    },
+                    "role": "READER",
+                    "selfLink": "<host>/storage/v1/b/<bucket>/acl/project-viewers-<project-number>"
+                  }
+                ],
+                "defaultObjectAcl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "etag": "<etag>",
+                    "kind": "storage#objectAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "etag": "<etag>",
+                    "kind": "storage#objectAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "etag": "<etag>",
+                    "kind": "storage#objectAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  }
+                ],
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": false
+                  },
+                  "publicAccessPrevention": "inherited",
+                  "uniformBucketLevelAccess": {
+                    "enabled": false
+                  }
+                },
+                "id": "<bucket>",
+                "kind": "storage#bucket",
+                "labels": {
+                  "team": "diff"
+                },
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "metageneration": "3",
+                "name": "<bucket>",
+                "owner": {
+                  "entity": "project-owners-<project-number>"
+                },
+                "projectNumber": "<project-number>",
+                "satisfiesPZI": true,
+                "selfLink": "<host>/storage/v1/b/<bucket>",
+                "softDeletePolicy": {
+                  "retentionDurationSeconds": "0"
+                },
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "get",
+          "request": "GET /storage/v1/b/<bucket>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": false
+                  },
+                  "publicAccessPrevention": "inherited",
+                  "uniformBucketLevelAccess": {
+                    "enabled": false
+                  }
+                },
+                "id": "<bucket>",
+                "kind": "storage#bucket",
+                "labels": {
+                  "team": "diff"
+                },
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "metageneration": "3",
+                "name": "<bucket>",
+                "projectNumber": "<project-number>",
+                "satisfiesPZI": true,
+                "selfLink": "<host>/storage/v1/b/<bucket>",
+                "softDeletePolicy": {
+                  "retentionDurationSeconds": "0"
+                },
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "bucket-preconditions",
+      "steps": [
+        {
+          "name": "get",
+          "request": "GET /storage/v1/b/<bucket>?fields=name%2Cmetageneration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metageneration": "3",
+                "name": "<bucket>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "patch-match-mismatch",
+          "request": "PATCH /storage/v1/b/<bucket>?ifMetagenerationMatch=999",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 412,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "location": "If-Match",
+                      "locationType": "header",
+                      "message": "At least one of the pre-conditions you specified did not hold.",
+                      "reason": "conditionNotMet"
+                    }
+                  ],
+                  "message": "At least one of the pre-conditions you specified did not hold."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 412
+          }
+        },
+        {
+          "name": "patch-not-match-current",
+          "request": "PATCH /storage/v1/b/<bucket>?ifMetagenerationNotMatch=3",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 304
+          }
+        },
+        {
+          "name": "get-not-match-current",
+          "request": "GET /storage/v1/b/<bucket>?ifMetagenerationNotMatch=3",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 304
+          }
+        },
+        {
+          "name": "get-match-current",
+          "request": "GET /storage/v1/b/<bucket>?fields=name&ifMetagenerationMatch=3",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "<bucket>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "object-delete",
+      "steps": [
+        {
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=object-delete-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "id": "<bucket>/object-delete-1/<generation>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/object-delete-1?generation=<generation>&alt=media",
+                "metageneration": "1",
+                "name": "object-delete-1",
+                "selfLink": "<host>/storage/v1/b/<bucket>/o/object-delete-1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "timeFinalized": "<time>",
+                "timeStorageClassUpdated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "delete",
+          "request": "DELETE /storage/v1/b/<bucket>/o/object-delete-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 204
+          }
+        },
+        {
+          "name": "get-after-delete",
+          "request": "GET /storage/v1/b/<bucket>/o/object-delete-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/object-delete-1",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/object-delete-1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 404
+          }
+        },
+        {
+          "name": "delete-again",
+          "request": "DELETE /storage/v1/b/<bucket>/o/object-delete-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/object-delete-1",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/object-delete-1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 404
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "object-get-download",
+      "steps": [
+        {
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=object-get-download-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "id": "<bucket>/object-get-download-1/<generation>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/object-get-download-1?generation=<generation>&alt=media",
+                "metageneration": "1",
+                "name": "object-get-download-1",
+                "selfLink": "<host>/storage/v1/b/<bucket>/o/object-get-download-1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "timeFinalized": "<time>",
+                "timeStorageClassUpdated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "get-metadata",
+          "request": "GET /storage/v1/b/<bucket>/o/object-get-download-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "id": "<bucket>/object-get-download-1/<generation>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/object-get-download-1?generation=<generation>&alt=media",
+                "metageneration": "1",
+                "name": "object-get-download-1",
+                "selfLink": "<host>/storage/v1/b/<bucket>/o/object-get-download-1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "timeFinalized": "<time>",
+                "timeStorageClassUpdated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "get-fields",
+          "request": "GET /storage/v1/b/<bucket>/o/object-get-download-1?fields=name%2Csize%2CcontentType",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "contentType": "text/plain",
+                "name": "object-get-download-1",
+                "size": "5"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "download",
+          "request": "GET /storage/v1/b/<bucket>/o/object-get-download-1?alt=media",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "hello"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-disposition": "attachment",
+              "content-type": "text/plain",
+              "etag": "<etag>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "last-modified": "<time>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-goog-generation": "<generation>",
+              "x-goog-hash": "crc32c=mnG7TA==,md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5"
+            },
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "object-media-upload",
+      "steps": [
+        {
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=object-media-upload-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "id": "<bucket>/object-media-upload-1/<generation>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/object-media-upload-1?generation=<generation>&alt=media",
+                "metageneration": "1",
+                "name": "object-media-upload-1",
+                "selfLink": "<host>/storage/v1/b/<bucket>/o/object-media-upload-1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "timeFinalized": "<time>",
+                "timeStorageClassUpdated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "object-missing",
+      "steps": [
+        {
+          "name": "get-metadata",
+          "request": "GET /storage/v1/b/<bucket>/o/object-missing-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/object-missing-1",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/object-missing-1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 404
+          }
+        },
+        {
+          "name": "download",
+          "request": "GET /storage/v1/b/<bucket>/o/object-missing-1?alt=media",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "No such object: <bucket>/object-missing-1"
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 404
+          }
+        },
+        {
+          "name": "delete",
+          "request": "DELETE /storage/v1/b/<bucket>/o/object-missing-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/object-missing-1",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/object-missing-1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 404
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "object-patch",
+      "steps": [
+        {
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=object-patch-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "id": "<bucket>/object-patch-1/<generation>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/object-patch-1?generation=<generation>&alt=media",
+                "metageneration": "1",
+                "name": "object-patch-1",
+                "selfLink": "<host>/storage/v1/b/<bucket>/o/object-patch-1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "timeFinalized": "<time>",
+                "timeStorageClassUpdated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "patch",
+          "request": "PATCH /storage/v1/b/<bucket>/o/object-patch-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/csv",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "id": "<bucket>/object-patch-1/<generation>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/object-patch-1?generation=<generation>&alt=media",
+                "metadata": {
+                  "k": "v"
+                },
+                "metageneration": "2",
+                "name": "object-patch-1",
+                "selfLink": "<host>/storage/v1/b/<bucket>/o/object-patch-1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "timeFinalized": "<time>",
+                "timeStorageClassUpdated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "get",
+          "request": "GET /storage/v1/b/<bucket>/o/object-patch-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/csv",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "id": "<bucket>/object-patch-1/<generation>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/object-patch-1?generation=<generation>&alt=media",
+                "metadata": {
+                  "k": "v"
+                },
+                "metageneration": "2",
+                "name": "object-patch-1",
+                "selfLink": "<host>/storage/v1/b/<bucket>/o/object-patch-1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "timeFinalized": "<time>",
+                "timeStorageClassUpdated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "error": null,
+      "id": "object-preconditions",
+      "steps": [
+        {
+          "name": "upload-if-absent",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?ifGenerationMatch=0&name=object-preconditions-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag>",
+                "generation": "<generation>",
+                "id": "<bucket>/object-preconditions-1/<gen>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/object-preconditions-1?generation=<gen>&alt=media",
+                "metageneration": "1",
+                "name": "object-preconditions-1",
+                "selfLink": "<host>/storage/v1/b/<bucket>/o/object-preconditions-1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time>",
+                "timeFinalized": "<time>",
+                "timeStorageClassUpdated": "<time>",
+                "updated": "<time>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 200
+          }
+        },
+        {
+          "name": "upload-if-absent-again",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?ifGenerationMatch=0&name=object-preconditions-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 412,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "location": "If-Match",
+                      "locationType": "header",
+                      "message": "At least one of the pre-conditions you specified did not hold.",
+                      "reason": "conditionNotMet"
+                    }
+                  ],
+                  "message": "At least one of the pre-conditions you specified did not hold."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 412
+          }
+        },
+        {
+          "name": "get-match-mismatch",
+          "request": "GET /storage/v1/b/<bucket>/o/object-preconditions-1?ifGenerationMatch=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 412,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "location": "If-Match",
+                      "locationType": "header",
+                      "message": "At least one of the pre-conditions you specified did not hold.",
+                      "reason": "conditionNotMet"
+                    }
+                  ],
+                  "message": "At least one of the pre-conditions you specified did not hold."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 412
+          }
+        },
+        {
+          "name": "get-not-match-current",
+          "request": "GET /storage/v1/b/<bucket>/o/object-preconditions-1?ifGenerationNotMatch=<gen>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json",
+              "expires": "<time>",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 304
+          }
+        },
+        {
+          "name": "delete-match-mismatch",
+          "request": "DELETE /storage/v1/b/<bucket>/o/object-preconditions-1?ifGenerationMatch=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 412,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "location": "If-Match",
+                      "locationType": "header",
+                      "message": "At least one of the pre-conditions you specified did not hold.",
+                      "reason": "conditionNotMet"
+                    }
+                  ],
+                  "message": "At least one of the pre-conditions you specified did not hold."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin"
+            },
+            "status": 412
+          }
+        }
+      ]
+    }
+  ],
+  "format": 1,
+  "generated": "2026-11-01",
+  "requests": 48
+}
