@@ -176,7 +176,7 @@ mod tests {
                 .retain_until
         };
         // The sub-millisecond part is kept, so times one SystemTime tick apart still compare as
-        // different. A tick is 1 ns on Unix but 100 ns on Windows, which rounds a finer fraction.
+        // different. A tick is 1 ns on Unix but 100 ns on Windows, which floors a finer fraction.
         let (lower, higher) = if cfg!(windows) {
             (
                 "2030-01-01T00:00:00.123456700Z",

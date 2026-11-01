@@ -173,7 +173,7 @@ mod tests {
     }
 
     /// The sub-microsecond nanoseconds a test time carries. Windows holds a SystemTime in 100 ns
-    /// ticks and rounds a finer value, so there the remainder is a multiple of 100.
+    /// ticks and floors a finer value, so there the remainder is a multiple of 100.
     const REMAINDER: u32 = if cfg!(windows) { 700 } else { 789 };
 
     #[test]
