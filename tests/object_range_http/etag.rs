@@ -23,12 +23,8 @@ fn not_modified(server: &Server, path: &str, headers: &str, etag: &str, cache: &
     assert_eq!(reply.headers["etag"], etag);
     assert_eq!(reply.headers["cache-control"], cache);
     assert!(reply.headers.contains_key("date"));
-    for name in [
-        "content-type",
-        "content-length",
-        "content-range",
-        "content-encoding",
-    ] {
+    // Cloud Storage keeps `Content-Type: application/json` on a JSON API 304.
+    for name in ["content-length", "content-range", "content-encoding"] {
         assert!(!reply.headers.contains_key(name), "{name}");
     }
     let mut bytes = Vec::new();
@@ -545,7 +541,7 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
     assert_eq!(initial.status, 200);
     let policy: Value = serde_json::from_slice(&initial.body).unwrap();
     let etag = &initial.headers["etag"];
-    assert_eq!(*etag, format!("\"{}\"", policy["etag"].as_str().unwrap()));
+    assert_eq!(etag, policy["etag"].as_str().unwrap());
     let selected = format!("{path}?fields=version");
     let reply = server.request(
         "GET",
@@ -563,7 +559,7 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
         &selected,
         &format!("{admin}If-None-Match: W/{etag}\r\n"),
         etag,
-        "no-cache",
+        "private, max-age=0, must-revalidate, no-transform",
     );
     server
         .request(
@@ -577,10 +573,19 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
         .request(
             "GET",
             &path,
-            &format!("{admin}If-Match: malformed\r\n"),
+            &format!("{admin}If-Match: \"unterminated\r\n"),
             b"",
         )
         .error(400, "invalidParameter");
+    // A bare value that names no current tag is a failed precondition, not a malformed one.
+    server
+        .request(
+            "GET",
+            &path,
+            &format!("{admin}If-Match: malformed\r\n"),
+            b"",
+        )
+        .error(412, "conditionNotMet");
     for name in ["If-Modified-Since", "If-Unmodified-Since", "If-Range"] {
         server
             .request(
@@ -596,7 +601,7 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
         &path,
         &format!("{admin}If-None-Match: {etag}\r\nIf-Modified-Since: ignored\r\n"),
         etag,
-        "no-cache",
+        "private, max-age=0, must-revalidate, no-transform",
     );
     assert_eq!(
         server

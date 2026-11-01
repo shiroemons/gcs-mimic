@@ -8,7 +8,7 @@ mod upload;
 use super::RequestBody as Incoming;
 use super::{
     BUCKET_BODY_LIMIT, JsonCache, ObjectCtx, ResponseBody, acl, boxed, empty_response,
-    json_response_cached, resumable, retention_access, validate_bodyless_post,
+    json_response_selected, resumable, retention_access, validate_bodyless_post,
 };
 use crate::{
     auth,
@@ -64,6 +64,8 @@ pub(super) async fn respond(
         ObjectRequest::Insert { .. } | ObjectRequest::Multipart { .. } => JsonCache::NoStore,
         _ => JsonCache::Unrecorded,
     };
+    // Cloud Storage sends no ETag header with a move response, though the body has an etag.
+    let validator_header = !matches!(operation, ObjectRequest::Move(_));
     let written = match operation {
         ObjectRequest::Restore {
             bucket,
@@ -147,8 +149,11 @@ pub(super) async fn respond(
     if acl_full {
         add_acl(ctx, &mut value, written.acl_snapshot).await?;
     }
-    fields.apply(&mut value);
-    Ok(boxed(json_response_cached(&value, cache)))
+    let mut response = json_response_selected(&mut value, &fields, cache);
+    if !validator_header {
+        response.headers_mut().remove("etag");
+    }
+    Ok(boxed(response))
 }
 
 fn response_fields(uri: &Uri, operation: &ObjectRequest) -> Result<json::Fields, JsonError> {

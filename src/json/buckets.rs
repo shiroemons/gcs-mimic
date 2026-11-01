@@ -678,9 +678,9 @@ pub(crate) fn reject_predefined_acl(
                 (
                     UniformAccess::Disabled,
                     PredefinedAclTarget::Object | PredefinedAclTarget::ObjectUpload,
-                ) => JsonError::unsupported_object(key),
+                ) => JsonError::unsupported_object(key).at_parameter(key),
                 (UniformAccess::Disabled, PredefinedAclTarget::Bucket) => {
-                    JsonError::unsupported(key)
+                    JsonError::unsupported(key).at_parameter(key)
                 }
             });
         }

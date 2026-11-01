@@ -71,11 +71,13 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         None => 1000,
         Some(value) => {
             if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(JsonError::invalid_parameter("maxResults must be a uint32"));
+                return Err(JsonError::invalid_parameter("maxResults must be a uint32")
+                    .at_parameter("maxResults"));
             }
-            let value = value
-                .parse::<u32>()
-                .map_err(|_| JsonError::invalid_parameter("maxResults must be a uint32"))?;
+            let value = value.parse::<u32>().map_err(|_| {
+                JsonError::invalid_parameter("maxResults must be a uint32")
+                    .at_parameter("maxResults")
+            })?;
             if value == 0 {
                 1000
             } else {

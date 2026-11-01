@@ -890,9 +890,15 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
     ] {
         let error = JsonError::from(error);
         assert_eq!(error.status.as_u16(), status);
+        // Cloud Storage names the `If-Match` header for every failed precondition.
+        let mut item = json!({"message":message,"domain":"global","reason":reason});
+        if status == 412 && reason == "conditionNotMet" {
+            item["locationType"] = "header".into();
+            item["location"] = "If-Match".into();
+        }
         assert_eq!(
             error.value(),
-            json!({"error":{"code":status,"message":message,"errors":[{"message":message,"domain":"global","reason":reason}]}})
+            json!({"error":{"code":status,"message":message,"errors":[item]}})
         );
         let response = error.into_response();
         assert_eq!(response.status().as_u16(), status);

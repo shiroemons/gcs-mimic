@@ -145,7 +145,7 @@ impl Fields {
 }
 
 fn invalid(message: impl Into<String>) -> JsonError {
-    JsonError::invalid_parameter(message)
+    JsonError::invalid_parameter(message).at_parameter("fields")
 }
 
 fn unsupported(name: &str) -> JsonError {

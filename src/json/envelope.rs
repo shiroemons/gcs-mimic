@@ -1,0 +1,314 @@
+//! Response headers shared by every JSON API metadata response.
+//!
+//! Cloud Storage sends the same caching, `Expires`, `Pragma` and `Vary` fields with every JSON
+//! API response, chosen only by the request method and whether the call succeeded (observed
+//! 2026-10-31 against the recorded reference). Applying them once after routing keeps each
+//! handler from re-deriving them and keeps errors, mutations and reads consistent. Media
+//! downloads and the XML API carry their own headers and are left alone.
+
+use super::{NO_STORE_CACHE_CONTROL, http_date};
+use hyper::{
+    Method, Response, StatusCode,
+    header::{self, HeaderValue},
+};
+use serde_json::Value;
+use std::time::SystemTime;
+
+/// The `Cache-Control` of a successful JSON API read.
+pub(crate) const RESOURCE_CACHE_CONTROL: &str = "private, max-age=0, must-revalidate, no-transform";
+
+/// An `Expires` in the past, sent with every response that must not be cached.
+const EXPIRED: &str = "Mon, 01 Jan 1990 00:00:00 GMT";
+
+const VARY: &str = "Origin, X-Origin";
+
+/// Whether a request path belongs to the JSON API (metadata, uploads and resumable sessions).
+fn is_json_api(path: &str) -> bool {
+    path.starts_with("/storage/v1/") || path.starts_with("/upload/storage/v1/")
+}
+
+/// The `ETag` header of a resource response: the resource's own `etag`, unquoted as the body has it.
+pub(crate) fn etag_header(resource: &Value) -> Option<HeaderValue> {
+    resource
+        .get("etag")
+        .and_then(Value::as_str)
+        .and_then(|etag| HeaderValue::from_str(etag).ok())
+}
+
+/// What a JSON API path call asks for: an object download keeps its own media headers.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Call {
+    Metadata,
+    MediaRead,
+    /// An upload call the upload front end rejects before the JSON API sees it (a session
+    /// continuation, an unknown `uploadType`, a multipart request without a boundary): its
+    /// errors carry no cache fields.
+    UploadFrontEnd,
+}
+
+impl Call {
+    pub(crate) fn of_request<B>(request: &hyper::Request<B>) -> Self {
+        let query = request.uri().query().unwrap_or_default();
+        let param = |name: &str| {
+            query
+                .split('&')
+                .find_map(|pair| pair.strip_prefix(name)?.strip_prefix('='))
+        };
+        if request.uri().path().starts_with("/upload/") {
+            let boundary_missing = param("uploadType") == Some("multipart")
+                && !request
+                    .headers()
+                    .get(header::CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .is_some_and(|value| value.contains("boundary="));
+            let unknown_type = param("uploadType")
+                .is_some_and(|kind| !matches!(kind, "media" | "multipart" | "resumable"));
+            if param("upload_id").or_else(|| param("uploadId")).is_some()
+                || boundary_missing
+                || unknown_type
+            {
+                return Self::UploadFrontEnd;
+            }
+        }
+        if param("alt") == Some("media") {
+            Self::MediaRead
+        } else {
+            Self::Metadata
+        }
+    }
+}
+
+/// Adds the shared JSON API fields to a routed response.
+///
+/// A `MediaRead` belongs to the media response. A response
+/// is a JSON API response when it is JSON, or an empty `204`/`304` for a non-media call.
+pub(crate) fn apply<B>(
+    method: &Method,
+    path: &str,
+    call: Call,
+    now: SystemTime,
+    response: &mut Response<B>,
+) {
+    if !is_json_api(path) || call == Call::MediaRead {
+        return;
+    }
+    let status = response.status();
+    if call == Call::UploadFrontEnd && status.as_u16() >= 400 {
+        return;
+    }
+    let headers = response.headers_mut();
+    let json = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("application/json"));
+    let empty = !headers.contains_key(header::CONTENT_TYPE)
+        && matches!(status, StatusCode::NO_CONTENT | StatusCode::NOT_MODIFIED);
+    if !json && !empty {
+        return;
+    }
+    if empty {
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+    }
+    let read = matches!(*method, Method::GET | Method::HEAD) && status.is_success()
+        || status == StatusCode::NOT_MODIFIED && matches!(*method, Method::GET | Method::HEAD);
+    if read {
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static(RESOURCE_CACHE_CONTROL),
+        );
+        // `Expires` is the response time, as a cache that revalidates every use sees it.
+        if let Some(expires) = http_date(now)
+            .ok()
+            .and_then(|date| HeaderValue::from_str(&date).ok())
+        {
+            headers.insert(header::EXPIRES, expires);
+        }
+        headers.remove(header::PRAGMA);
+    } else {
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static(NO_STORE_CACHE_CONTROL),
+        );
+        headers.insert(header::EXPIRES, HeaderValue::from_static(EXPIRED));
+        headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    }
+    if !headers.contains_key(header::VARY) {
+        headers.insert(header::VARY, HeaderValue::from_static(VARY));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    fn json_response(status: StatusCode) -> Response<()> {
+        let mut response = Response::new(());
+        *response.status_mut() = status;
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json; charset=UTF-8"),
+        );
+        response
+    }
+
+    fn header<'a>(response: &'a Response<()>, name: &str) -> Option<&'a str> {
+        response.headers().get(name).and_then(|v| v.to_str().ok())
+    }
+
+    #[test]
+    fn reads_are_revalidated_and_expire_now() {
+        let mut response = json_response(StatusCode::OK);
+        let now = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        apply(
+            &Method::GET,
+            "/storage/v1/b/x",
+            Call::Metadata,
+            now,
+            &mut response,
+        );
+        assert_eq!(
+            header(&response, "cache-control"),
+            Some(RESOURCE_CACHE_CONTROL)
+        );
+        assert_eq!(
+            header(&response, "expires"),
+            Some("Tue, 14 Nov 2023 22:13:20 GMT")
+        );
+        assert_eq!(header(&response, "pragma"), None);
+        assert_eq!(header(&response, "vary"), Some(VARY));
+    }
+
+    #[test]
+    fn mutations_and_errors_forbid_caching() {
+        for (method, status) in [
+            (Method::POST, StatusCode::OK),
+            (Method::DELETE, StatusCode::NO_CONTENT),
+            (Method::GET, StatusCode::NOT_FOUND),
+        ] {
+            let mut response = json_response(status);
+            apply(
+                &method,
+                "/storage/v1/b/x",
+                Call::Metadata,
+                UNIX_EPOCH,
+                &mut response,
+            );
+            assert_eq!(
+                header(&response, "cache-control"),
+                Some(NO_STORE_CACHE_CONTROL)
+            );
+            assert_eq!(header(&response, "expires"), Some(EXPIRED));
+            assert_eq!(header(&response, "pragma"), Some("no-cache"));
+        }
+    }
+
+    #[test]
+    fn media_xml_and_non_json_responses_are_untouched() {
+        let mut media = json_response(StatusCode::OK);
+        apply(
+            &Method::GET,
+            "/storage/v1/b/x/o/y",
+            Call::MediaRead,
+            UNIX_EPOCH,
+            &mut media,
+        );
+        assert_eq!(header(&media, "cache-control"), None);
+        let mut xml = json_response(StatusCode::OK);
+        apply(
+            &Method::GET,
+            "/bucket/object",
+            Call::Metadata,
+            UNIX_EPOCH,
+            &mut xml,
+        );
+        assert_eq!(header(&xml, "vary"), None);
+        let mut text = Response::new(());
+        text.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=UTF-8"),
+        );
+        apply(
+            &Method::GET,
+            "/storage/v1/b/x",
+            Call::Metadata,
+            UNIX_EPOCH,
+            &mut text,
+        );
+        assert_eq!(header(&text, "cache-control"), None);
+    }
+
+    #[test]
+    fn an_existing_vary_is_kept_and_empty_replies_become_json() {
+        let mut response = Response::new(());
+        *response.status_mut() = StatusCode::NO_CONTENT;
+        response
+            .headers_mut()
+            .insert(header::VARY, HeaderValue::from_static("Origin"));
+        apply(
+            &Method::DELETE,
+            "/storage/v1/b/x",
+            Call::Metadata,
+            UNIX_EPOCH,
+            &mut response,
+        );
+        assert_eq!(header(&response, "vary"), Some("Origin"));
+        assert_eq!(header(&response, "content-type"), Some("application/json"));
+    }
+
+    #[test]
+    fn head_reads_and_not_modified_replies_follow_the_read_rule() {
+        for (method, status) in [
+            (Method::HEAD, StatusCode::OK),
+            (Method::GET, StatusCode::NOT_MODIFIED),
+        ] {
+            let mut response = json_response(status);
+            apply(
+                &method,
+                "/storage/v1/b/x",
+                Call::Metadata,
+                UNIX_EPOCH,
+                &mut response,
+            );
+            assert_eq!(
+                header(&response, "cache-control"),
+                Some(RESOURCE_CACHE_CONTROL)
+            );
+            assert_eq!(header(&response, "pragma"), None);
+        }
+    }
+
+    #[test]
+    fn upload_front_end_errors_carry_no_cache_fields_but_successes_do() {
+        let mut error = json_response(StatusCode::BAD_REQUEST);
+        apply(
+            &Method::PUT,
+            "/upload/storage/v1/b/x/o",
+            Call::UploadFrontEnd,
+            UNIX_EPOCH,
+            &mut error,
+        );
+        assert_eq!(header(&error, "cache-control"), None);
+        let mut done = json_response(StatusCode::OK);
+        apply(
+            &Method::PUT,
+            "/upload/storage/v1/b/x/o",
+            Call::UploadFrontEnd,
+            UNIX_EPOCH,
+            &mut done,
+        );
+        assert_eq!(header(&done, "cache-control"), Some(NO_STORE_CACHE_CONTROL));
+    }
+
+    #[test]
+    fn the_etag_header_is_the_resource_etag() {
+        assert_eq!(
+            etag_header(&serde_json::json!({"etag": "CAE="})),
+            Some(HeaderValue::from_static("CAE="))
+        );
+        assert_eq!(etag_header(&serde_json::json!({"items": []})), None);
+    }
+}

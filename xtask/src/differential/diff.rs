@@ -89,6 +89,18 @@ fn render(path: &[Seg]) -> String {
     out
 }
 
+/// The recorded reference names the public API host `<www-host>`, while the
+/// emulator answers with its own address, which is the correct self reference
+/// for a local server. Both are the same place for a comparison.
+fn same_after_host_alias(a: Option<&Value>, b: Option<&Value>) -> bool {
+    match (a, b) {
+        (Some(Value::String(a)), Some(Value::String(b))) => {
+            a.contains("<www-host>") && a.replace("<www-host>", "<host>") == *b
+        }
+        _ => false,
+    }
+}
+
 fn walk(
     reference: Option<&Value>,
     mimic: Option<&Value>,
@@ -118,7 +130,7 @@ fn walk(
                 path.pop();
             }
         }
-        (a, b) if a == b => {}
+        (a, b) if a == b || same_after_host_alias(a, b) => {}
         (a, b) => out.push(Difference::Body {
             path: render(path),
             reference: a.cloned(),
@@ -256,6 +268,27 @@ mod tests {
             ..CompareOpts::default()
         };
         assert_eq!(compare(&r, &m, &opts).len(), 1);
+    }
+
+    #[test]
+    fn the_recorded_api_host_equals_the_emulator_host() {
+        let r = response(
+            200,
+            &[],
+            NormBody::Json(json!({"selfLink": "<www-host>/storage/v1/b/x"})),
+        );
+        let m = response(
+            200,
+            &[],
+            NormBody::Json(json!({"selfLink": "<host>/storage/v1/b/x"})),
+        );
+        assert!(compare(&r, &m, &CompareOpts::default()).is_empty());
+        let other = response(
+            200,
+            &[],
+            NormBody::Json(json!({"selfLink": "<host>/storage/v1/b/y"})),
+        );
+        assert_eq!(compare(&r, &other, &CompareOpts::default()).len(), 1);
     }
 
     #[test]

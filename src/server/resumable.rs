@@ -144,6 +144,9 @@ fn completed(value: &serde_json::Value) -> Response<ResponseBody> {
         "content-type",
         HeaderValue::from_static("application/json; charset=UTF-8"),
     );
+    if let Some(etag) = crate::json::etag_header(value) {
+        response.headers_mut().insert("etag", etag);
+    }
     response
         .headers_mut()
         .insert("cache-control", HeaderValue::from_static("no-store"));

@@ -4,7 +4,7 @@
 use super::RequestBody as Incoming;
 use super::{
     BUCKET_BODY_LIMIT, JSON_RESOURCE_CACHE_CONTROL, JsonCache, QueryPrecondition, State, acl,
-    authorize_bucket, authorize_project, empty_response, json_response_cached,
+    authorize_bucket, authorize_project, empty_response, json_response_selected,
     read_metadata_response, validate_bodyless_post,
 };
 use crate::{
@@ -115,8 +115,7 @@ pub(super) async fn respond<'a>(
     if acl_full {
         acl::add_full_projection(state, caller, &mut value, base_url).await?;
     }
-    fields.apply(&mut value);
-    Ok(json_response_cached(&value, cache))
+    Ok(json_response_selected(&mut value, &fields, cache))
 }
 
 async fn authorize(
@@ -412,7 +411,7 @@ async fn get_iam(
     })?;
     read_metadata_response(
         request.headers(),
-        &format!("\"{etag}\""),
+        etag,
         json::policy_resource(&policy, bucket),
         fields,
         QueryPrecondition::Unmatched,
@@ -437,7 +436,7 @@ async fn set_iam(
                     .etag
                     .as_deref()
                     .ok_or_else(|| unavailable("stored IAM policy has no etag"))?;
-                // The same quoted tag that getIamPolicy returns in its ETag header.
+                // A quoted form of the bare tag getIamPolicy returns in its ETag header and body.
                 crate::http_conditions::require_etag_match(&if_match, &format!("\"{etag}\""))
                     .map_err(|error| match error {
                         EtagError::Invalid => {
@@ -446,7 +445,13 @@ async fn set_iam(
                         EtagError::PreconditionFailed => CatalogError::PreconditionFailed,
                     })
             })
-            .await?;
+            .await
+            // Cloud Storage names the `If-Match` header for a stale policy etag.
+            .map_err(|error| {
+                let stale = matches!(error, CatalogError::PreconditionFailed);
+                let error = JsonError::from(error);
+                if stale { error.at_if_match() } else { error }
+            })?;
     Ok(json::policy_resource(&policy, bucket))
 }
 

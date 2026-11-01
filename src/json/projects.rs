@@ -142,7 +142,7 @@ fn parse(
                     StatusCode::BAD_REQUEST,
                     "required",
                     "Missing required serviceAccountEmail; add ?serviceAccountEmail=SERVICE_ACCOUNT@PROJECT.iam.gserviceaccount.com",
-                )
+                ).at_parameter("serviceAccountEmail")
             })?;
             validate_service_account_email(&email)?;
             ProjectRequest::CreateHmacKey {
@@ -160,7 +160,8 @@ fn parse(
                 None => HMAC_KEY_PAGE_CAP,
                 Some(value) => {
                     if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-                        return Err(JsonError::invalid_parameter("maxResults must be a uint32"));
+                        return Err(JsonError::invalid_parameter("maxResults must be a uint32")
+                            .at_parameter("maxResults"));
                     }
                     match value.parse::<u32>() {
                         Ok(0) => HMAC_KEY_PAGE_CAP,
@@ -168,7 +169,8 @@ fn parse(
                         Err(_) => {
                             return Err(JsonError::invalid_parameter(
                                 "maxResults must be a uint32",
-                            ));
+                            )
+                            .at_parameter("maxResults"));
                         }
                     }
                 }

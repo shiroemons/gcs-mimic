@@ -1171,6 +1171,22 @@ fn json_response_cached(value: &serde_json::Value, cache: JsonCache) -> Response
     response
 }
 
+/// A resource response narrowed by `fields`. The `ETag` header still names the whole resource,
+/// as Cloud Storage sends it with a field-selected body.
+fn json_response_selected(
+    value: &mut serde_json::Value,
+    fields: &json::Fields,
+    cache: JsonCache,
+) -> Response<Full<Bytes>> {
+    let etag = json::etag_header(value);
+    fields.apply(value);
+    let mut response = json_response_cached(value, cache);
+    if let Some(etag) = etag {
+        response.headers_mut().insert("etag", etag);
+    }
+    response
+}
+
 fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
     let mut response = Response::new(Full::new(Bytes::new()));
     *response.status_mut() = status;
@@ -1184,6 +1200,9 @@ fn json_response(value: &serde_json::Value) -> Response<Full<Bytes>> {
         "content-type",
         hyper::header::HeaderValue::from_static("application/json; charset=UTF-8"),
     );
+    if let Some(etag) = json::etag_header(value) {
+        response.headers_mut().insert("etag", etag);
+    }
     response
 }
 

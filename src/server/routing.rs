@@ -19,10 +19,36 @@ use crate::{
 use http_body_util::{BodyExt, Full};
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, body::Bytes, header::HeaderValue};
 
-/// Wraps CORS headers around the routed response. CORS never authorizes a request.
+/// Which API family claimed a request, known only once the router has chosen.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Family {
+    Undecided,
+    Json,
+    Xml,
+}
+
+/// The JSON API fields apply only to requests the JSON router claimed: a virtual-host or
+/// path-style XML request can share the `/storage/v1/` path prefix with an object name.
 pub(super) async fn respond(
+    request: Request<Incoming>,
+    ctx: RequestCtx<'_>,
+) -> Response<ResponseBody> {
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    let call = json::EnvelopeCall::of_request(&request);
+    let mut family = Family::Undecided;
+    let mut response = route(request, ctx, &mut family).await;
+    if family == Family::Json {
+        json::apply_envelope(&method, &path, call, ctx.state.clock.now(), &mut response);
+    }
+    response
+}
+
+/// Wraps CORS headers around the routed response. CORS never authorizes a request.
+async fn route(
     mut request: Request<Incoming>,
     ctx: RequestCtx<'_>,
+    family: &mut Family,
 ) -> Response<ResponseBody> {
     let selected = match xml::select_object_with_endpoints(
         request.uri(),
@@ -50,6 +76,11 @@ pub(super) async fn respond(
         return super::batch::respond(request, ctx).await;
     }
     let xml_bucket = xml::buckets::matches(request.method(), request.uri(), selected.as_ref());
+    *family = if selected.is_none() && !xml_bucket {
+        Family::Json
+    } else {
+        Family::Xml
+    };
     if (selected.is_some() || xml_bucket)
         && request.headers().contains_key("x-http-method-override")
     {
