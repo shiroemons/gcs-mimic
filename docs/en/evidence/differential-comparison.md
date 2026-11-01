@@ -2,9 +2,9 @@
 
 # Differential comparison report
 
-- Mode: live comparison against the real service
-- Generated: 2026-11-01
-- Requests sent to the live reference service (when recorded): 745
+- Mode: replay of a recorded reference
+- Generated: 2026-11-01 (recording of 2026-11-01)
+- Requests sent to the live reference service (when recorded): 781
 - HTTP 429 responses retried by the live run: 0
 
 ## Summary
@@ -18,7 +18,7 @@
 | bkt-create-predefined-acl-ubla | differs | 4 |
 | bkt-create-unknown-field | differs | 8 |
 | bkt-create-unknown-query | differs | 20 |
-| bkt-iam-pap-ubla | error | 211 |
+| bkt-iam-pap-ubla | differs | 141 |
 | bkt-notifications | differs | 35 |
 | bkt-patch-errors | differs | 141 |
 | bkt-patch-put-edges | differs | 514 |
@@ -531,7 +531,6 @@ Bucket creation with an undeclared query parameter. The bucket is deleted afterw
 
 Bucket IAM policy read, set and testPermissions (project principals only, never allUsers or allAuthenticatedUsers), then uniform bucket-level access and public access prevention toggles with their invalid inputs and aliases. Public access prevention stays enforced throughout (the harness refuses any relaxation), so only the enforce toggle and invalid values are measured.
 
-- error: reference: step "ubla-disable": capture body:metageneration: no scalar at that path
 - step `create` (`POST /storage/v1/b?project=<project>`)
   - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `(absent)`
   - header `etag`: reference `<etag:bare>`, mimic `(absent)`
@@ -548,7 +547,7 @@ Bucket IAM policy read, set and testPermissions (project principals only, never 
   - header `etag`: reference `<etag:bare>`, mimic `<etag:quoted>`
   - header `expires`: reference `<time:http>`, mimic `(absent)`
 - step `iam-get-version-invalid` (`GET /storage/v1/b/<new_bucket>/iam?optionsRequestedPolicyVersion=-1`)
-  - reference: expected status 400, got 200
+  - mimic: expected status 200, got 400
   - status: reference `200`, mimic `400`
   - header `cache-control`: reference `private, max-age=0, must-revalidate, no-transform`, mimic `no-cache, no-store, max-age=0, must-revalidate`
   - header `etag`: reference `<etag:bare>`, mimic `(absent)`
@@ -608,181 +607,106 @@ Bucket IAM policy read, set and testPermissions (project principals only, never 
   - body `$.error.errors[0].message`: reference `"Role roles/storage.noSuchRole is not supported for this resource."`, mimic `"Unknown policy role"`
   - body `$.error.message`: reference `"Role roles/storage.noSuchRole is not supported for this resource."`, mimic `"Unknown policy role"`
 - step `iam-set-empty-members` (`PUT /storage/v1/b/<new_bucket>/iam`)
-  - reference: expected status 400, got 200
+  - mimic: expected status 200, got 400
   - status: reference `200`, mimic `400`
   - header `etag`: reference `<etag:bare>`, mimic `(absent)`
   - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
+  - body `$.bindings`: reference `[{"members":["projectEditor:<project>","projectOwner:<project>"],"role":"roles/storage.admin"},{"members":["projectEditor:<project>","projectOwner:<project>"...`, mimic `(absent)`
   - body `$.error`: reference `(absent)`, mimic `{"code":400,"errors":[{"domain":"global","message":"binding members must be a nonempty array","reason":"invalid"}],"message":"binding members must be a nonem...`
   - body `$.etag`: reference `"<etag:str>"`, mimic `(absent)`
   - body `$.kind`: reference `"storage#policy"`, mimic `(absent)`
   - body `$.resourceId`: reference `"projects/_/buckets/<new_bucket>"`, mimic `(absent)`
   - body `$.version`: reference `1`, mimic `(absent)`
 - step `ubla-get-default` (`GET /storage/v1/b/<new_bucket>?fields=iamConfiguration`)
-  - reference: expected status 200, got 403
-  - status: reference `403`, mimic `200`
-  - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `private, max-age=0, must-revalidate, no-transform`
-  - header `etag`: reference `(absent)`, mimic `<etag:bare>`
-  - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
-  - header `pragma`: reference `no-cache`, mimic `(absent)`
-  - body `$.error`: reference `{"code":403,"errors":[{"domain":"global","message":"<email> does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage....`, mimic `(absent)`
-  - body `$.iamConfiguration`: reference `(absent)`, mimic `{"bucketPolicyOnly":{"enabled":false},"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":false}}`
+  - header `expires`: reference `<time:http>`, mimic `(absent)`
 - step `ubla-enable` (`PATCH /storage/v1/b/<new_bucket>`)
-  - reference: expected status 200, got 403
-  - status: reference `403`, mimic `200`
   - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `(absent)`
+  - header `etag`: reference `<etag:bare>`, mimic `(absent)`
   - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
   - header `pragma`: reference `no-cache`, mimic `(absent)`
-  - body `$.error`: reference `{"code":403,"errors":[{"domain":"global","message":"<email> does not have storage.buckets.update access to the Google Cloud Storage bucket. Permission 'stora...`, mimic `(absent)`
-  - body `$.etag`: reference `(absent)`, mimic `"<etag:str>"`
-  - body `$.generation`: reference `(absent)`, mimic `"<generation:str:19>"`
-  - body `$.iamConfiguration`: reference `(absent)`, mimic `{"bucketPolicyOnly":{"enabled":true,"lockedTime":"<time:f3>"},"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true,"lockedTime":"<t...`
-  - body `$.id`: reference `(absent)`, mimic `"<new_bucket>"`
-  - body `$.kind`: reference `(absent)`, mimic `"storage#bucket"`
-  - body `$.location`: reference `(absent)`, mimic `"US-CENTRAL1"`
-  - body `$.locationType`: reference `(absent)`, mimic `"region"`
-  - body `$.metageneration`: reference `(absent)`, mimic `"2"`
-  - body `$.name`: reference `(absent)`, mimic `"<new_bucket>"`
-  - body `$.projectNumber`: reference `(absent)`, mimic `"<project-number:str>"`
-  - body `$.satisfiesPZI`: reference `(absent)`, mimic `true`
-  - body `$.selfLink`: reference `(absent)`, mimic `"<host>/storage/v1/b/<new_bucket>"`
-  - body `$.softDeletePolicy`: reference `(absent)`, mimic `{"effectiveTime":"<time:f3>","retentionDurationSeconds":"0"}`
-  - body `$.storageClass`: reference `(absent)`, mimic `"STANDARD"`
-  - body `$.timeCreated`: reference `(absent)`, mimic `"<time:f3>"`
-  - body `$.updated`: reference `(absent)`, mimic `"<time:f3>"`
+  - body `$.metageneration`: reference `"4"`, mimic `"2"`
+  - body `$.selfLink`: reference `"<www-host>/storage/v1/b/<new_bucket>"`, mimic `"<host>/storage/v1/b/<new_bucket>"`
+  - body `$.softDeletePolicy.effectiveTime`: reference `(absent)`, mimic `"<time:f3>"`
 - step `ubla-get-enabled` (`GET /storage/v1/b/<new_bucket>?fields=iamConfiguration`)
-  - reference: expected status 200, got 403
-  - status: reference `403`, mimic `200`
-  - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `private, max-age=0, must-revalidate, no-transform`
-  - header `etag`: reference `(absent)`, mimic `<etag:bare>`
-  - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
-  - header `pragma`: reference `no-cache`, mimic `(absent)`
-  - body `$.error`: reference `{"code":403,"errors":[{"domain":"global","message":"<email> does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage....`, mimic `(absent)`
-  - body `$.iamConfiguration`: reference `(absent)`, mimic `{"bucketPolicyOnly":{"enabled":true,"lockedTime":"<time:f3>"},"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true,"lockedTime":"<t...`
+  - header `expires`: reference `<time:http>`, mimic `(absent)`
 - step `ubla-acl-list-rejected` (`GET /storage/v1/b/<new_bucket>/acl`)
-  - reference: expected status 400, got 403
-  - status: reference `403`, mimic `400`
   - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
-  - body `$.error.code`: reference `403`, mimic `400`
-  - body `$.error.errors[0].message`: reference `"<email> does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource '//<host>/projects/...`, mimic `"Cannot use legacy ACLs on bucket <new_bucket> because uniform bucket-level access is enabled; manage access with bucket IAM policies (for example, PUT /stor...`
-  - body `$.error.errors[0].reason`: reference `"forbidden"`, mimic `"invalid"`
-  - body `$.error.message`: reference `"<email> does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource '//<host>/projects/...`, mimic `"Cannot use legacy ACLs on bucket <new_bucket> because uniform bucket-level access is enabled; manage access with bucket IAM policies (for example, PUT /stor...`
+  - body `$.error.errors[0].message`: reference `"Cannot get legacy ACL for a bucket that has uniform bucket-level access. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"`, mimic `"Cannot use legacy ACLs on bucket <new_bucket> because uniform bucket-level access is enabled; manage access with bucket IAM policies (for example, PUT /stor...`
+  - body `$.error.message`: reference `"Cannot get legacy ACL for a bucket that has uniform bucket-level access. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"`, mimic `"Cannot use legacy ACLs on bucket <new_bucket> because uniform bucket-level access is enabled; manage access with bucket IAM policies (for example, PUT /stor...`
 - step `ubla-default-acl-list-rejected` (`GET /storage/v1/b/<new_bucket>/defaultObjectAcl`)
-  - reference: expected status 400, got 403
-  - status: reference `403`, mimic `400`
   - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
-  - body `$.error.code`: reference `403`, mimic `400`
-  - body `$.error.errors[0].message`: reference `"<email> does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource '//<host>/projects/...`, mimic `"Cannot use legacy ACLs on bucket <new_bucket> because uniform bucket-level access is enabled; manage access with bucket IAM policies (for example, PUT /stor...`
-  - body `$.error.errors[0].reason`: reference `"forbidden"`, mimic `"invalid"`
-  - body `$.error.message`: reference `"<email> does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource '//<host>/projects/...`, mimic `"Cannot use legacy ACLs on bucket <new_bucket> because uniform bucket-level access is enabled; manage access with bucket IAM policies (for example, PUT /stor...`
+  - body `$.error.errors[0].message`: reference `"Cannot get legacy ACL for a bucket that has uniform bucket-level access. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"`, mimic `"Cannot use legacy ACLs on bucket <new_bucket> because uniform bucket-level access is enabled; manage access with bucket IAM policies (for example, PUT /stor...`
+  - body `$.error.message`: reference `"Cannot get legacy ACL for a bucket that has uniform bucket-level access. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"`, mimic `"Cannot use legacy ACLs on bucket <new_bucket> because uniform bucket-level access is enabled; manage access with bucket IAM policies (for example, PUT /stor...`
 - step `ubla-predefined-acl-rejected` (`PATCH /storage/v1/b/<new_bucket>?predefinedAcl=private`)
-  - reference: expected status 400, got 403
-  - status: reference `403`, mimic `400`
   - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
-  - body `$.error.code`: reference `403`, mimic `400`
-  - body `$.error.errors[0].message`: reference `"<email> does not have storage.buckets.update access to the Google Cloud Storage bucket. Permission 'storage.buckets.update' denied on resource '//<host>/pro...`, mimic `"predefinedAcl cannot be used with uniform bucket-level access; remove predefinedAcl (for example, omit predefinedAcl=publicRead) and use bucket IAM permissi...`
-  - body `$.error.errors[0].reason`: reference `"forbidden"`, mimic `"invalidArgument"`
-  - body `$.error.message`: reference `"<email> does not have storage.buckets.update access to the Google Cloud Storage bucket. Permission 'storage.buckets.update' denied on resource '//<host>/pro...`, mimic `"predefinedAcl cannot be used with uniform bucket-level access; remove predefinedAcl (for example, omit predefinedAcl=publicRead) and use bucket IAM permissi...`
+  - body `$.error.errors[0].message`: reference `"Cannot use ACL API to update bucket policy when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-le...`, mimic `"predefinedAcl cannot be used with uniform bucket-level access; remove predefinedAcl (for example, omit predefinedAcl=publicRead) and use bucket IAM permissi...`
+  - body `$.error.errors[0].reason`: reference `"invalid"`, mimic `"invalidArgument"`
+  - body `$.error.message`: reference `"Cannot use ACL API to update bucket policy when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-le...`, mimic `"predefinedAcl cannot be used with uniform bucket-level access; remove predefinedAcl (for example, omit predefinedAcl=publicRead) and use bucket IAM permissi...`
 - step `ubla-alias-bucket-policy-only` (`PATCH /storage/v1/b/<new_bucket>`)
-  - reference: expected status 200, got 403
-  - status: reference `403`, mimic `200`
   - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `(absent)`
+  - header `etag`: reference `<etag:bare>`, mimic `(absent)`
   - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
   - header `pragma`: reference `no-cache`, mimic `(absent)`
-  - body `$.error`: reference `{"code":403,"errors":[{"domain":"global","message":"<email> does not have storage.buckets.update access to the Google Cloud Storage bucket. Permission 'stora...`, mimic `(absent)`
-  - body `$.etag`: reference `(absent)`, mimic `"<etag:str>"`
-  - body `$.generation`: reference `(absent)`, mimic `"<generation:str:19>"`
-  - body `$.iamConfiguration`: reference `(absent)`, mimic `{"bucketPolicyOnly":{"enabled":true,"lockedTime":"<time:f3>"},"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true,"lockedTime":"<t...`
-  - body `$.id`: reference `(absent)`, mimic `"<new_bucket>"`
-  - body `$.kind`: reference `(absent)`, mimic `"storage#bucket"`
-  - body `$.location`: reference `(absent)`, mimic `"US-CENTRAL1"`
-  - body `$.locationType`: reference `(absent)`, mimic `"region"`
-  - body `$.metageneration`: reference `(absent)`, mimic `"3"`
-  - body `$.name`: reference `(absent)`, mimic `"<new_bucket>"`
-  - body `$.projectNumber`: reference `(absent)`, mimic `"<project-number:str>"`
-  - body `$.satisfiesPZI`: reference `(absent)`, mimic `true`
-  - body `$.selfLink`: reference `(absent)`, mimic `"<host>/storage/v1/b/<new_bucket>"`
-  - body `$.softDeletePolicy`: reference `(absent)`, mimic `{"effectiveTime":"<time:f3>","retentionDurationSeconds":"0"}`
-  - body `$.storageClass`: reference `(absent)`, mimic `"STANDARD"`
-  - body `$.timeCreated`: reference `(absent)`, mimic `"<time:f3>"`
-  - body `$.updated`: reference `(absent)`, mimic `"<time:f3>"`
+  - body `$.metageneration`: reference `"5"`, mimic `"3"`
+  - body `$.selfLink`: reference `"<www-host>/storage/v1/b/<new_bucket>"`, mimic `"<host>/storage/v1/b/<new_bucket>"`
+  - body `$.softDeletePolicy.effectiveTime`: reference `(absent)`, mimic `"<time:f3>"`
 - step `ubla-read-only-locked-time-ignored` (`PATCH /storage/v1/b/<new_bucket>`)
-  - reference: expected status 200, got 403
-  - status: reference `403`, mimic `200`
   - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `(absent)`
+  - header `etag`: reference `<etag:bare>`, mimic `(absent)`
   - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
   - header `pragma`: reference `no-cache`, mimic `(absent)`
-  - body `$.error`: reference `{"code":403,"errors":[{"domain":"global","message":"<email> does not have storage.buckets.update access to the Google Cloud Storage bucket. Permission 'stora...`, mimic `(absent)`
-  - body `$.etag`: reference `(absent)`, mimic `"<etag:str>"`
-  - body `$.generation`: reference `(absent)`, mimic `"<generation:str:19>"`
-  - body `$.iamConfiguration`: reference `(absent)`, mimic `{"bucketPolicyOnly":{"enabled":true,"lockedTime":"<time:f3>"},"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true,"lockedTime":"<t...`
-  - body `$.id`: reference `(absent)`, mimic `"<new_bucket>"`
-  - body `$.kind`: reference `(absent)`, mimic `"storage#bucket"`
-  - body `$.location`: reference `(absent)`, mimic `"US-CENTRAL1"`
-  - body `$.locationType`: reference `(absent)`, mimic `"region"`
-  - body `$.metageneration`: reference `(absent)`, mimic `"4"`
-  - body `$.name`: reference `(absent)`, mimic `"<new_bucket>"`
-  - body `$.projectNumber`: reference `(absent)`, mimic `"<project-number:str>"`
-  - body `$.satisfiesPZI`: reference `(absent)`, mimic `true`
-  - body `$.selfLink`: reference `(absent)`, mimic `"<host>/storage/v1/b/<new_bucket>"`
-  - body `$.softDeletePolicy`: reference `(absent)`, mimic `{"effectiveTime":"<time:f3>","retentionDurationSeconds":"0"}`
-  - body `$.storageClass`: reference `(absent)`, mimic `"STANDARD"`
-  - body `$.timeCreated`: reference `(absent)`, mimic `"<time:f3>"`
-  - body `$.updated`: reference `(absent)`, mimic `"<time:f3>"`
+  - body `$.metageneration`: reference `"6"`, mimic `"4"`
+  - body `$.selfLink`: reference `"<www-host>/storage/v1/b/<new_bucket>"`, mimic `"<host>/storage/v1/b/<new_bucket>"`
+  - body `$.softDeletePolicy.effectiveTime`: reference `(absent)`, mimic `"<time:f3>"`
 - step `ubla-null` (`PATCH /storage/v1/b/<new_bucket>`)
-  - reference: expected status 200, got 403
-  - status: reference `403`, mimic `200`
   - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `(absent)`
+  - header `etag`: reference `<etag:bare>`, mimic `(absent)`
   - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
   - header `pragma`: reference `no-cache`, mimic `(absent)`
-  - body `$.error`: reference `{"code":403,"errors":[{"domain":"global","message":"<email> does not have storage.buckets.update access to the Google Cloud Storage bucket. Permission 'stora...`, mimic `(absent)`
-  - body `$.etag`: reference `(absent)`, mimic `"<etag:str>"`
-  - body `$.generation`: reference `(absent)`, mimic `"<generation:str:19>"`
-  - body `$.iamConfiguration`: reference `(absent)`, mimic `{"bucketPolicyOnly":{"enabled":true,"lockedTime":"<time:f3>"},"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true,"lockedTime":"<t...`
-  - body `$.id`: reference `(absent)`, mimic `"<new_bucket>"`
-  - body `$.kind`: reference `(absent)`, mimic `"storage#bucket"`
-  - body `$.location`: reference `(absent)`, mimic `"US-CENTRAL1"`
-  - body `$.locationType`: reference `(absent)`, mimic `"region"`
-  - body `$.metageneration`: reference `(absent)`, mimic `"4"`
-  - body `$.name`: reference `(absent)`, mimic `"<new_bucket>"`
-  - body `$.projectNumber`: reference `(absent)`, mimic `"<project-number:str>"`
-  - body `$.satisfiesPZI`: reference `(absent)`, mimic `true`
-  - body `$.selfLink`: reference `(absent)`, mimic `"<host>/storage/v1/b/<new_bucket>"`
-  - body `$.softDeletePolicy`: reference `(absent)`, mimic `{"effectiveTime":"<time:f3>","retentionDurationSeconds":"0"}`
-  - body `$.storageClass`: reference `(absent)`, mimic `"STANDARD"`
-  - body `$.timeCreated`: reference `(absent)`, mimic `"<time:f3>"`
-  - body `$.updated`: reference `(absent)`, mimic `"<time:f3>"`
+  - body `$.metageneration`: reference `"7"`, mimic `"4"`
+  - body `$.selfLink`: reference `"<www-host>/storage/v1/b/<new_bucket>"`, mimic `"<host>/storage/v1/b/<new_bucket>"`
+  - body `$.softDeletePolicy.effectiveTime`: reference `(absent)`, mimic `"<time:f3>"`
 - step `ubla-get-after-null` (`GET /storage/v1/b/<new_bucket>?fields=iamConfiguration`)
-  - reference: expected status 200, got 403
-  - status: reference `403`, mimic `200`
-  - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `private, max-age=0, must-revalidate, no-transform`
-  - header `etag`: reference `(absent)`, mimic `<etag:bare>`
-  - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
-  - header `pragma`: reference `no-cache`, mimic `(absent)`
-  - body `$.error`: reference `{"code":403,"errors":[{"domain":"global","message":"<email> does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage....`, mimic `(absent)`
-  - body `$.iamConfiguration`: reference `(absent)`, mimic `{"bucketPolicyOnly":{"enabled":true,"lockedTime":"<time:f3>"},"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":true,"lockedTime":"<t...`
+  - header `expires`: reference `<time:http>`, mimic `(absent)`
 - step `ubla-disable` (`PATCH /storage/v1/b/<new_bucket>`)
-  - reference: expected status 200, got 403
-  - status: reference `403`, mimic `200`
   - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `(absent)`
+  - header `etag`: reference `<etag:bare>`, mimic `(absent)`
   - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
   - header `pragma`: reference `no-cache`, mimic `(absent)`
-  - body `$.error`: reference `{"code":403,"errors":[{"domain":"global","message":"<email> does not have storage.buckets.update access to the Google Cloud Storage bucket. Permission 'stora...`, mimic `(absent)`
-  - body `$.etag`: reference `(absent)`, mimic `"<etag:str>"`
-  - body `$.generation`: reference `(absent)`, mimic `"<generation:str:19>"`
-  - body `$.iamConfiguration`: reference `(absent)`, mimic `{"bucketPolicyOnly":{"enabled":false},"publicAccessPrevention":"enforced","uniformBucketLevelAccess":{"enabled":false}}`
-  - body `$.id`: reference `(absent)`, mimic `"<new_bucket>"`
-  - body `$.kind`: reference `(absent)`, mimic `"storage#bucket"`
-  - body `$.location`: reference `(absent)`, mimic `"US-CENTRAL1"`
-  - body `$.locationType`: reference `(absent)`, mimic `"region"`
-  - body `$.metageneration`: reference `(absent)`, mimic `"5"`
-  - body `$.name`: reference `(absent)`, mimic `"<new_bucket>"`
-  - body `$.projectNumber`: reference `(absent)`, mimic `"<project-number:str>"`
-  - body `$.satisfiesPZI`: reference `(absent)`, mimic `true`
-  - body `$.selfLink`: reference `(absent)`, mimic `"<host>/storage/v1/b/<new_bucket>"`
-  - body `$.softDeletePolicy`: reference `(absent)`, mimic `{"effectiveTime":"<time:f3>","retentionDurationSeconds":"0"}`
-  - body `$.storageClass`: reference `(absent)`, mimic `"STANDARD"`
-  - body `$.timeCreated`: reference `(absent)`, mimic `"<time:f3>"`
-  - body `$.updated`: reference `(absent)`, mimic `"<time:f3>"`
+  - body `$.metageneration`: reference `"8"`, mimic `"5"`
+  - body `$.selfLink`: reference `"<www-host>/storage/v1/b/<new_bucket>"`, mimic `"<host>/storage/v1/b/<new_bucket>"`
+  - body `$.softDeletePolicy.effectiveTime`: reference `(absent)`, mimic `"<time:f3>"`
+- step `pap-enforce` (`PATCH /storage/v1/b/<new_bucket>`)
+  - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `(absent)`
+  - header `etag`: reference `<etag:bare>`, mimic `(absent)`
+  - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
+  - header `pragma`: reference `no-cache`, mimic `(absent)`
+  - body `$.acl`: reference `[{"bucket":"<new_bucket>","entity":"project-editors-<project-number>","etag":"<etag:str>","id":"<new_bucket>/project-editors-<project-number>","kind":"storag...`, mimic `(absent)`
+  - body `$.defaultObjectAcl`: reference `[{"entity":"project-owners-<project-number>","etag":"<etag:str>","kind":"storage#objectAccessControl","projectTeam":{"projectNumber":"<project-number:str>","...`, mimic `(absent)`
+  - body `$.metageneration`: reference `"9"`, mimic `"6"`
+  - body `$.owner`: reference `{"entity":"project-owners-<project-number>"}`, mimic `(absent)`
+  - body `$.selfLink`: reference `"<www-host>/storage/v1/b/<new_bucket>"`, mimic `"<host>/storage/v1/b/<new_bucket>"`
+  - body `$.softDeletePolicy.effectiveTime`: reference `(absent)`, mimic `"<time:f3>"`
+- step `pap-get-enforced` (`GET /storage/v1/b/<new_bucket>?fields=iamConfiguration`)
+  - header `expires`: reference `<time:http>`, mimic `(absent)`
+- step `pap-invalid-value` (`PATCH /storage/v1/b/<new_bucket>`)
+  - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
+  - body `$.error.errors[0].message`: reference `"Invalid value for: bogus is not a valid value"`, mimic `"publicAccessPrevention must be inherited or enforced"`
+  - body `$.error.errors[0].reason`: reference `"invalid"`, mimic `"invalidArgument"`
+  - body `$.error.message`: reference `"Invalid value for: bogus is not a valid value"`, mimic `"publicAccessPrevention must be inherited or enforced"`
+- step `pap-get-final` (`GET /storage/v1/b/<new_bucket>?fields=iamConfiguration`)
+  - header `expires`: reference `<time:http>`, mimic `(absent)`
+- step `pap-put-omitted-preserves` (`PUT /storage/v1/b/<new_bucket>?fields=iamConfiguration`)
+  - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `(absent)`
+  - header `etag`: reference `<etag:bare>`, mimic `(absent)`
+  - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
+  - header `pragma`: reference `no-cache`, mimic `(absent)`
+- step `delete` (`DELETE /storage/v1/b/<new_bucket>`)
+  - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `(absent)`
+  - header `content-type`: reference `application/json`, mimic `(absent)`
+  - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
+  - header `pragma`: reference `no-cache`, mimic `(absent)`
+  - header `x-harness-body-framing`: reference `content-length:<ok>`, mimic `(absent)`
 
 ### bkt-notifications
 
@@ -4071,76 +3995,4 @@ XML GET and HEAD with satisfiable, suffix, open-ended, multiple and unsatisfiabl
 - mimic bucket of obj-versioning: emptied (1 object versions), deleted, GET confirmed 404
 - mimic shared bucket: emptied (22 object versions), deleted, GET confirmed 404
 - mimic sweep: 0 leftover bucket(s) found
-- reference new bucket of bkt-acl-crud: already absent (404)
-- reference new bucket of bkt-create-errors: already absent (404)
-- reference new bucket of bkt-create-full: already absent (404)
-- reference new bucket of bkt-create-lifecycle-array: already absent (404)
-- reference new bucket of bkt-create-predefined-acl-ubla: already absent (404)
-- reference new bucket of bkt-create-unknown-field: already absent (404)
-- reference new bucket of bkt-create-unknown-query: already absent (404)
-- reference new bucket of bkt-iam-pap-ubla: CLEANUP FAILED: list items: HTTP 403: {
-  "error": {
-    "code": 403,
-    "message": "<email> does not have storage.buckets.get access to the Google Cloud Storage bucket. Permission 'storage.buckets.get' denied on resource '//<host>/projects/_/buckets/<new_bucket>' (or it may not exist).",
-    "errors": [
-      {
-        "message": "<em; list items: HTTP 403: {
-  "error": {
-    "code": 403,
-    "message": "<email> does not have storage.managedFolders.list access to the Google Cloud Storage bucket. Permission 'storage.managedFolders.list' denied on resource '//<host>/projects/_/buckets/<new_bucket>' (or it may not exist).",
-    "errors": [
-      {
-       ; list items: HTTP 403: {
-  "error": {
-    "code": 403,
-    "message": "<email> does not have storage.objects.list access to the Google Cloud Storage bucket. Permission 'storage.objects.list' denied on resource '//<host>/projects/_/buckets/<new_bucket>' (or it may not exist).",
-    "errors": [
-      {
-        "message": "<
-- reference bucket of bkt-notifications: CLEANUP FAILED: list items: HTTP 412: {
-  "error": {
-    "code": 412,
-    "message": "Uniform bucket-level access is required to be enabled on the bucket in order to perform this operation. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
-    "errors": [
-      {
-        "message": "Uniform bucket-level ac
-- reference bucket of bkt-patch-errors: CLEANUP FAILED: list items: HTTP 412: {
-  "error": {
-    "code": 412,
-    "message": "Uniform bucket-level access is required to be enabled on the bucket in order to perform this operation. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
-    "errors": [
-      {
-        "message": "Uniform bucket-level ac
-- reference new bucket of bkt-patch-put-edges: already absent (404)
-- reference new bucket of bucket-lifecycle: already absent (404)
-- reference bucket of bucket-patch-labels: CLEANUP FAILED: list items: HTTP 412: {
-  "error": {
-    "code": 412,
-    "message": "Uniform bucket-level access is required to be enabled on the bucket in order to perform this operation. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
-    "errors": [
-      {
-        "message": "Uniform bucket-level ac
-- reference bucket of bucket-preconditions: CLEANUP FAILED: list items: HTTP 412: {
-  "error": {
-    "code": 412,
-    "message": "Uniform bucket-level access is required to be enabled on the bucket in order to perform this operation. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
-    "errors": [
-      {
-        "message": "Uniform bucket-level ac
-- reference new bucket of obj-retention-unlocked: already absent (404)
-- reference bucket of obj-versioning: CLEANUP FAILED: list items: HTTP 412: {
-  "error": {
-    "code": 412,
-    "message": "Uniform bucket-level access is required to be enabled on the bucket in order to perform this operation. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
-    "errors": [
-      {
-        "message": "Uniform bucket-level ac
-- reference shared bucket: CLEANUP FAILED: list items: HTTP 412: {
-  "error": {
-    "code": 412,
-    "message": "Uniform bucket-level access is required to be enabled on the bucket in order to perform this operation. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
-    "errors": [
-      {
-        "message": "Uniform bucket-level ac
-- reference sweep: 0 leftover bucket(s) found
 ```
