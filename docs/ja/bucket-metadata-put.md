@@ -5,6 +5,12 @@ Ruby google-cloud-storage 1.62.1の`bucket.update`ブロックは、変更した
 PAPだけを変更しても、既存のversioningとlabelsが残るようにしました。
 属性への直接代入は引き続きPATCHを使います。新しい設定は不要です。
 
+2026-11-01の更新です。記録した実際のCloud Storageは、PUTでリソース全体を置き換えていました。
+そのためネイティブのプロファイルでは、省略したlabels、CORS、lifecycle、versioning、retentionPolicy、defaultEventBasedHoldを消します。
+ロック済みのretentionPolicyは残します。storageClass、softDeletePolicy、アクセス設定は保ちます。
+`predefinedAcl`を適用し、本文の`name`がパスと違うときは400を返します。
+以下の「省略した設定を保つ」説明が当てはまるのは、レガシー互換のプロファイルだけです。こちらはローカルの互換上の選択のままです。
+
 省略した項目は現在の設定を保ちます。
 labels、storageClass、versioning、defaultEventBasedHold、CORSが対象です。
 PAP・UBLA、lifecycle、retentionPolicy、softDeletePolicyも同じ扱いです。

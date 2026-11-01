@@ -3307,7 +3307,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one BucketAccessControl (stored or projectPrivate) and 404 for an unknown entity; requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one BucketAccessControl (stored or projectPrivate) and 404 for an unknown entity; requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Permission effects are tracked separately in DESIGN-017; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a get of a missing bucket, default object or object ACL entry answers 400 with the recorded wording; the remaining ACL differences are listed in the replay report.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -4424,7 +4424,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Get persisted metadata; conditions apply to the exact selected record; failed not-match is empty 304 and failed match is 412. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
+      "notes": "Get persisted metadata; conditions apply to the exact selected record; failed not-match is empty 304 and failed match is 412. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): bucket errors use reason invalid and Cloud Storage's wording (a missing bucket is 404 The specified bucket does not exist.), the response carries the common JSON headers and a bare ETag header, and a bucket with a retention policy shows isLocked only once locked. SPEC-BUCKET-PUT and the replay report keep the remaining differences.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -4435,7 +4435,7 @@
         {"id":"BUCKET-PROVIDER-WIRE","description":"Recorded provider wire (docs/en/evidence/response-wire-provider-observations.md): bucket get and list bodies are 2-space pretty JSON in the recorded order kind, selfLink, id, name, projectNumber, generation (native profile only), metageneration, location, storageClass, etag, timeCreated, updated, softDeletePolicy (604800 by default for new native buckets), iamConfiguration (bucketPolicyOnly, uniformBucketLevelAccess, publicAccessPrevention), locationType, satisfiesPZI (native profile only; true); generation is the catalog's stored 19-digit nanosecond-scale bucket version. Fields absent from the recording follow locationType in an unverified order, and the bucket list layout was not recorded.","result":"PASS","test_ids":["wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order","wire_parity_http::legacy_profile_keeps_compact_bodies"]},
         {"id":"BUCKET-GENERATION-NANOSECOND","description":"Native bucket generations are 19-digit nanosecond-scale values drawn from a bucket-only allocator, max(current nanoseconds, previous + 1), unique and increasing under a frozen clock; object generations keep their microsecond allocator. Schema 46 multiplies stored live and soft-deleted bucket generations by 1000, re-keys the retained objects of soft-deleted versions to match and seeds the allocator, so restore by generation and listing keep working. The creation-time seed is capped at 9e18 nanoseconds (2255-03-14T16:00:00Z): a bucket created with a clock past that no longer gets a generation tracking its creation time, and allocation continues as previous + 1 (unique and increasing for about 2e17 buckets, then \"generation exhausted\"), where an uncapped time past 2262 would saturate at i64::MAX and fail every later bucket (docs/en/slices/bucket-soft-delete-restore.md, BUCKET-GENERATION). Known limitation, not fixed: the clock supplies microseconds, so the last three digits of every bucket generation are 000 (Cloud Storage's are not); this follows the clock precision. The legacy profile still omits generation.","result":"PASS","test_ids":["storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range","storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic","storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds","storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order"]},
         {"id":"BUCKET-SOFT-DELETE-DEFAULT","description":"A native bucket created without softDeletePolicy receives retentionDurationSeconds 604800 with effectiveTime equal to timeCreated, as the recorded Cloud Storage bucket did, and deleting it is soft; an explicit policy (zero included) wins; the server setting default_soft_delete_retention_seconds (CLI, GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS, JSON config; 0 or 604800..7776000; default 604800) changes it and 0 restores the earlier no-policy behavior; existing buckets are unchanged; invalid values and a positive value under the legacy profile fail startup. The suite's servers start with the default off except the tests above and the unconfigured-server tests, which remove the pinned variable to exercise the real default on both profiles. The buckets file accepts softDeletePolicy.retentionDurationSeconds (validated like the JSON API) so an entry can opt out; seed and buckets-file buckets receive the default. Contract: docs/en/slices/sdk-soft-delete-restore.md.","result":"PASS","test_ids":["bucket_soft_delete_http::unconfigured_native_server_gives_new_buckets_the_seven_day_default","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted","bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently","bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged","bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup"]},
-        {"id":"BUCKET-SATISFIES-PZI","description":"Native bucket resources carry satisfiesPZI true after locationType, as the recorded asia-northeast1 and us-central1 buckets did. The legacy profile omits it. Observed on Cloud Storage (2026-10-31, asia-northeast1): insert, PATCH and PUT bodies carrying satisfiesPZI or satisfiesPZS, true or false, return 200, ignore the member, keep reporting satisfiesPZI true and never emit satisfiesPZS; gcs-mimic does the same in both profiles. The v2 proto has no satisfies_pzi and its satisfies_pzs is never read. A PATCH with no writable setting (including autoclass:{}) left the metageneration and updated time unchanged and a PUT advanced them; autoclass enabled:false advanced it. Preconditions of such a PATCH are evaluated first: ifMetagenerationMatch mismatch is 412 conditionNotMet (location If-Match), ifMetagenerationNotMatch naming the current value is an empty 304. gcs-mimic matches. Observed 2026-10-31 (us-central1): a PATCH with a writable setting also answers an empty 304 for ifMetagenerationNotMatch naming the current value, and a PUT or a labels PATCH with a failed ifMetagenerationMatch is 412 conditionNotMet (location If-Match); gcs-mimic matches. Evidence: docs/en/evidence/response-wire-provider-observations.md, sections satisfiesPZI and satisfiesPZS in write bodies and Bucket retention policy, bucket preconditions and gRPC retention.","result":"PASS","test_ids":["json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value","bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value","bucket_http::satisfies_pzi_is_true_in_every_location","bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions","wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order","wire_parity_http::legacy_profile_keeps_compact_bodies"]},
+        {"id":"BUCKET-SATISFIES-PZI","description":"Native bucket resources carry satisfiesPZI true after locationType, as the recorded asia-northeast1 and us-central1 buckets did. The legacy profile omits it. Observed on Cloud Storage (2026-10-31, asia-northeast1): insert, PATCH and PUT bodies carrying satisfiesPZI or satisfiesPZS, true or false, return 200, ignore the member, keep reporting satisfiesPZI true and never emit satisfiesPZS; gcs-mimic does the same in both profiles. The v2 proto has no satisfies_pzi and its satisfies_pzs is never read. A PATCH with no writable setting (including autoclass:{}) left the metageneration and updated time unchanged and a PUT advanced them; autoclass enabled:false advanced it. Preconditions of such a PATCH are evaluated first: ifMetagenerationMatch mismatch is 412 conditionNotMet (location If-Match), ifMetagenerationNotMatch naming the current value is an empty 304. gcs-mimic matches. Observed 2026-10-31 (us-central1): a PATCH with a writable setting also answers an empty 304 for ifMetagenerationNotMatch naming the current value, and a PUT or a labels PATCH with a failed ifMetagenerationMatch is 412 conditionNotMet (location If-Match); gcs-mimic matches. Evidence: docs/en/evidence/response-wire-provider-observations.md, sections satisfiesPZI and satisfiesPZS in write bodies and Bucket retention policy, bucket preconditions and gRPC retention.","result":"PASS","test_ids":["json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value","bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value","bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others","bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions","wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order","wire_parity_http::legacy_profile_keeps_compact_bodies"]},
         {"id":"BUCKET-SOFT-DELETE-MEMORY-DEFAULT","description":"With --backend memory the default soft delete retention is 0 unless default_soft_delete_retention_seconds is given, because retained deleted data would fill the fixed RAM budget; an explicit value, 604800 included, applies. A capacity 503 names soft delete retention and how to lower it.","result":"PASS","test_ids":["config::storage::tests::memory_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause"]},
         {"id":"OBJECT-TIME-READ-BACK","description":"retention.retainUntilTime is kept to the nanosecond and displayed truncated to the millisecond, as Cloud Storage did for Unlocked retention (observed 2026-10-31 in us-central1: .123456789 and .123999999 both read back as .123; a time one nanosecond earlier, or the displayed .123, was refused with 403 forbidden as a shortening; the same or a later time was accepted). gcs-mimic compares at the same precision, also after a restart; the catalog stores a sub-microsecond remainder as negated nanoseconds in the existing column, so 0.7.0 microsecond rows read unchanged. Observed second session: Unlocked shortening, removal and locking without the override answer 403 forbidden with the Unlocked wording (gRPC PERMISSION_DENIED); a Locked retention refuses shortening, removal, a mode change and the displayed millisecond value with 403 forbidden and its own wording whatever the override; the same time again is 200 and a time one nanosecond later is 200. A retained delete is 403 retentionPolicyNotMet naming the object and the retain-until time in US Pacific time to the nanosecond, and objects.delete ignores overrideUnlockedRetention. gRPC keeps nanoseconds in retention.retain_until_time and returns retention_expire_time at millisecond precision; JSON fields=retentionExpireTime is 400 invalidParameter. Observed 2026-10-31 (us-central1): the denial time uses the winter offset -08:00, keeps the nanosecond fraction with trailing zeros trimmed and omits a zero fraction; a bucket retention policy denies delete and overwrite with the same 403 retentionPolicyNotMet and message, naming the creation time plus the period to the microsecond, and retentionPolicy null lifts it; Unlocked removal and shortening without the override share one 403 forbidden text; gRPC UpdateObject and DeleteObject answer PERMISSION_DENIED with the JSON text, and retention_expire_time under a bucket policy is cut to milliseconds. gcs-mimic matches. The catalog keeps the remainder in the schema 47 column retain_until_sub_micro_nanos (0 for rows written earlier), so 0.7.0 data reads unchanged. Windows: retention times are held as seconds and nanoseconds instead of a SystemTime (which Windows floors to 100 ns); confirmation by the Windows CI job is pending (gap LOCAL-RETENTION-WINDOWS-TICK). Evidence: docs/en/evidence/response-wire-provider-observations.md, section Object retention time precision. customTime is stored as sent and its read-back is accepted. Bucket policy effectiveTime, soft delete effectiveTime and lockedTime are server-set and not accepted from clients.","result":"PASS","test_ids":["retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond","retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording","retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override","grpc::v2::update_copy::tests::grpc_update_object_retention","grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds","storage::catalog::objects::retention::tests::column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range"]},
         {"id":"BUCKET-PROVIDER-WIRE-DEVIATIONS","description":"SPEC-RESPONSE-WIRE-REMAINING: the positions of bucket fields absent from the recording stay unverified and satisfiesPZI was observed for one location only. Bucket generation, millisecond timestamps, the default softDeletePolicy and satisfiesPZI now match the recording.","result":"PENDING","test_ids":[]},
@@ -4527,7 +4527,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -4768,7 +4768,7 @@
           ]
         }
       ],
-      "test_ids": [ "wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order", "wire_parity_http::legacy_profile_keeps_compact_bodies", "json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value", "bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value", "bucket_http::satisfies_pzi_is_true_in_every_location", "bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions", "bucket_soft_delete_http::new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted", "bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently", "bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged", "bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup", "storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic", "storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds", "storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond", "retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording", "retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override", "grpc::v2::update_copy::tests::grpc_update_object_retention", "grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds", "storage::catalog::objects::retention::tests::column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause","config::storage::tests::memory_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::unconfigured_native_server_gives_new_buckets_the_seven_day_default","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range",
+      "test_ids": [ "wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order", "wire_parity_http::legacy_profile_keeps_compact_bodies", "json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value", "bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value", "bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others", "bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions", "bucket_soft_delete_http::new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted", "bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently", "bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged", "bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup", "storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic", "storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds", "storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond", "retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording", "retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override", "grpc::v2::update_copy::tests::grpc_update_object_retention", "grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds", "storage::catalog::objects::retention::tests::column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause","config::storage::tests::memory_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::unconfigured_native_server_gives_new_buckets_the_seven_day_default","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range",
         "bucket_soft_delete_get_list_and_restore_round_trip",
         "strict_soft_deleted_bucket_access_uses_project_permissions",
         "bucket_query_booleans_keep_supported_and_unsupported_semantics",
@@ -4866,7 +4866,7 @@
         "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
         "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
-      "verification": [ {"command":"cargo test --locked --test bucket_http --test retention_roundtrip_http --test basic_contract_http --test acl_http; cargo test --locked --lib grpc::v2::update_copy","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["bucket_http::satisfies_pzi_is_true_in_every_location","bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions","retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording","retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override","grpc::v2::update_copy::tests::grpc_update_object_retention","grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds"]},
+      "verification": [ {"command":"cargo test --locked --test bucket_http --test retention_roundtrip_http --test basic_contract_http --test acl_http; cargo test --locked --lib grpc::v2::update_copy","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others","bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions","retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording","retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override","grpc::v2::update_copy::tests::grpc_update_object_retention","grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds"]},
         {"command":"cargo test --locked -- --test-threads=4","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order","wire_parity_http::legacy_profile_keeps_compact_bodies","json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value","bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value","bucket_soft_delete_http::new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted","bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently","bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged","bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup","storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic","storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds","storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond","storage::catalog::objects::retention::tests::column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause","config::storage::tests::memory_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::unconfigured_native_server_gives_new_buckets_the_seven_day_default","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range"]},
         {"command":"cargo test --locked --lib -- object::retention object::unix_nanos storage::catalog::objects::retention import::codec","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform"]},
         {"command":"cargo test --locked --offline --test bucket_soft_delete_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/bucket-soft-delete-restore.md","test_ids":["bucket_soft_delete_get_list_and_restore_round_trip","strict_soft_deleted_bucket_access_uses_project_permissions"]},
@@ -5486,7 +5486,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -5899,7 +5899,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity. iamConfiguration accepts uniformBucketLevelAccess/bucketPolicyOnly enabled booleans, null/empty child defaults and combined enforced PAP; persisted aliases/deadline, 400 predefined ACL rejection and remaining ACL/default-grant/initializer limits are described in docs/en/slices/sdk-ubla-predefined-acl.md (SPEC-UBLA-EDGES).",
+      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity. iamConfiguration accepts uniformBucketLevelAccess/bucketPolicyOnly enabled booleans, null/empty child defaults and combined enforced PAP; persisted aliases/deadline, 400 predefined ACL rejection and remaining ACL/default-grant/initializer limits are described in docs/en/slices/sdk-ubla-predefined-acl.md (SPEC-UBLA-EDGES). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile accepts undeclared query parameters (SPEC-JSON-UNKNOWN-QUERY, resolved) and a lifecycle given as an array (SPEC-LIFECYCLE-ARRAY, resolved), uses reason invalid with Cloud Storage's wording, omits retentionPolicy.isLocked while unlocked, gives an inactive softDeletePolicy no effectiveTime and hides the owner under uniform bucket-level access. The legacy-emulator profile keeps the 400 for an undeclared query parameter and for an array lifecycle.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -5947,7 +5947,7 @@
         },
         {
           "id": "BUCKET-UNKNOWN-LOCATION-REJECTED",
-          "description": "unknown-location-rejected: unknown and zonal names fail with 400 invalidArgument and valid examples; exact provider detail remains SPEC-REGIONAL-LOCATIONS.",
+          "description": "unknown-location-rejected: unknown and zonal names fail with 400 invalid (the recorded reason) and valid examples; exact provider detail remains SPEC-REGIONAL-LOCATIONS.",
           "result": "PASS",
           "test_ids": ["bkt_ins_003_location_and_storage_class_subset", "bucket_regional_locations_round_trip_and_rejections_preserve_state"]
         },
@@ -6066,7 +6066,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -6170,6 +6170,8 @@
         }
       ],
       "test_ids": [
+        "bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others",
+        "bucket_http::sdk_append_query_and_array_lifecycle_follow_the_profile",
         "retention_insert_patch_put_defaults_and_empty_policy_lock",
         "bucket_lifecycle_rules_round_trip_replace_clear_and_validation",
         "lifecycle_insert_defaults_and_unknown_resource_fields",
@@ -6240,6 +6242,7 @@
         "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection"
       ],
       "verification": [
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["bucket_http::sdk_append_query_and_array_lifecycle_follow_the_profile","bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others"]},
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"command":"cargo test --test bucket_http --locked --offline lifecycle; cargo test --lib --locked --offline lifecycle_insert_defaults_and_unknown_resource_fields","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-lifecycle-config.md","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation", "lifecycle_insert_defaults_and_unknown_resource_fields"]},
         {
@@ -6692,7 +6695,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -7190,7 +7193,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Implemented subset: labels merge/key removal/map clearing, supported class/versioning/default holds, atomic conditions, strict storage.buckets.update and persistence in both profiles. Contract/evidence: docs/en/slices/bucket-metadata-patch.md and docs/en/evidence/bucket-metadata-patch.md; native/Docker guide checks pass. Fields/read ETags: docs/en/evidence/basic-json-fields-etag.md. CORS/XML policy: docs/en/evidence/cors.md. PAP/local-parent enforcement and public IAM/signed access: docs/en/evidence/public-access-prevention.md. Atomic resource ACL/query booleans and final clean-source five-SDK comparison now pass (Go 57/57, other four 51/51), recorded in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled writable/billing/projection/provider semantics and broader profile limitations. If-Match/If-None-Match are accepted and deliberately not evaluated, matching observed Cloud Storage behavior (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md).",
+      "notes": "Implemented subset: labels merge/key removal/map clearing, supported class/versioning/default holds, atomic conditions, strict storage.buckets.update and persistence in both profiles. Contract/evidence: docs/en/slices/bucket-metadata-patch.md and docs/en/evidence/bucket-metadata-patch.md; native/Docker guide checks pass. Fields/read ETags: docs/en/evidence/basic-json-fields-etag.md. CORS/XML policy: docs/en/evidence/cors.md. PAP/local-parent enforcement and public IAM/signed access: docs/en/evidence/public-access-prevention.md. Atomic resource ACL/query booleans and final clean-source five-SDK comparison now pass (Go 57/57, other four 51/51), recorded in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled writable/billing/projection/provider semantics and broader profile limitations. If-Match/If-None-Match are accepted and deliberately not evaluated, matching observed Cloud Storage behavior (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile defaults PATCH to projection full, applies predefinedAcl and predefinedDefaultObjectAcl, accepts undeclared query parameters, an array lifecycle (rules unchanged) and a different location, and clears every label when labels is a string instead of a map. Where the recording cannot distinguish alternatives (a nonempty array lifecycle, labels of other non-map types) the behavior is an extrapolation from the recorded case. The legacy-emulator profile keeps the earlier 400s.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -7285,8 +7288,8 @@
           "result": "PASS",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract",
-            "bucket_get_rejects_patch_only_acl_query_parameters",
-            "bucket_patch_rejects_get_only_generation_query_parameter"
+            "bucket_get_ignores_or_rejects_patch_only_acl_query_parameters",
+            "bucket_patch_get_only_generation_query_parameter_follows_profile"
           ]
         },
         {
@@ -7352,7 +7355,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -7460,6 +7463,8 @@
         }
       ],
       "test_ids": [
+        "bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others",
+        "bucket_http::sdk_append_query_and_array_lifecycle_follow_the_profile",
         "bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage",
         "retention_configuration_lock_permissions_and_restart",
         "retention_insert_patch_put_defaults_and_empty_policy_lock",
@@ -7482,7 +7487,7 @@
         "bucket_cors_malformed_input_preserves_entire_resource",
         "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
         "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
-        "bucket_get_rejects_patch_only_acl_query_parameters",
+        "bucket_get_ignores_or_rejects_patch_only_acl_query_parameters",
         "bucket_patch_accepts_only_empty_lifecycle_rules",
         "bucket_patch_conditioned_race_has_one_winner",
         "bucket_patch_conditions_and_query_contract",
@@ -7494,7 +7499,7 @@
         "bucket_patch_merges_labels_class_and_preserves_resources",
         "bucket_patch_missing_bucket_validates_body_before_lookup",
         "bucket_patch_null_settings_follow_profile_defaults",
-        "bucket_patch_rejects_get_only_generation_query_parameter",
+        "bucket_patch_get_only_generation_query_parameter_follows_profile",
         "bucket_patch_settings_control_future_object_effects",
         "bucket_patch_strict_permissions_and_policy_preservation",
         "bucket_patch_unsupported_and_output_inputs_preserve_state",
@@ -7542,6 +7547,7 @@
         "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["bucket_http::sdk_append_query_and_array_lifecycle_follow_the_profile","bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others","bucket_get_ignores_or_rejects_patch_only_acl_query_parameters","bucket_patch_get_only_generation_query_parameter_follows_profile"]},
         {"command":"cargo test --locked --test bucket_if_match_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-bucket-write-etags.md","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"command":"cargo test --test bucket_http --locked --offline lifecycle","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-lifecycle-config.md","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation", "bucket_patch_lifecycle_invalid_input_preserves_state"]},
@@ -7572,8 +7578,8 @@
             "bucket_patch_unsupported_and_output_inputs_preserve_state",
             "bucket_patch_accepts_only_empty_lifecycle_rules",
             "bucket_patch_missing_bucket_validates_body_before_lookup",
-            "bucket_get_rejects_patch_only_acl_query_parameters",
-            "bucket_patch_rejects_get_only_generation_query_parameter",
+            "bucket_get_ignores_or_rejects_patch_only_acl_query_parameters",
+            "bucket_patch_get_only_generation_query_parameter_follows_profile",
             "bucket_patch_full_resource_round_trip_preserves_unchanged_fields",
             "bucket_patch_location_comparison_is_case_insensitive"
           ]
@@ -7769,7 +7775,7 @@
             "bucket_cors_malformed_input_preserves_entire_resource",
             "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
             "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
-            "bucket_get_rejects_patch_only_acl_query_parameters",
+            "bucket_get_ignores_or_rejects_patch_only_acl_query_parameters",
             "bucket_patch_accepts_only_empty_lifecycle_rules",
             "bucket_patch_conditioned_race_has_one_winner",
             "bucket_patch_conditions_and_query_contract",
@@ -7781,7 +7787,7 @@
             "bucket_patch_merges_labels_class_and_preserves_resources",
             "bucket_patch_missing_bucket_validates_body_before_lookup",
             "bucket_patch_null_settings_follow_profile_defaults",
-            "bucket_patch_rejects_get_only_generation_query_parameter",
+            "bucket_patch_get_only_generation_query_parameter_follows_profile",
             "bucket_patch_settings_control_future_object_effects",
             "bucket_patch_strict_permissions_and_policy_preservation",
             "bucket_patch_unsupported_and_output_inputs_preserve_state",
@@ -8135,7 +8141,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. PUT replaces bindings; unconditional versions omitted/0/1/3, explicit [] clearing, 1500 occurrences, 64 KiB body and decoded-byte etag CAS are verified. Full positive policy/billing/ACL semantics, cloud normalization/error parity and a missing-allocator startup fixture remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. If-Match is compared with the current policy etag inside the write transaction, alongside the body etag, as observed on Cloud Storage (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md).",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. PUT replaces bindings; unconditional versions omitted/0/1/3, explicit [] clearing, 1500 occurrences, 64 KiB body and decoded-byte etag CAS are verified. Full positive policy/billing/ACL semantics, cloud normalization/error parity and a missing-allocator startup fixture remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. If-Match is compared with the current policy etag inside the write transaction, alongside the body etag, as observed on Cloud Storage (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): setIamPolicy advances the bucket metageneration and drops a binding whose members are empty; the IAM ETag header is unquoted and If-Match accepts the bare value.",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008",
@@ -8260,7 +8266,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -8751,7 +8757,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "PUT preserves omitted modeled labels, class, versioning/default holds, CORS, PAP/UBLA, lifecycle, retention and soft-delete settings. Supplied labels replace the map; null/empty values retain field-specific contracts. Ruby update blocks and generated Go PUT verify this local choice, not provider parity (SPEC-BUCKET-PUT). Current contract: docs/en/slices/bucket-metadata-put.md; historical evidence in docs/en/evidence/bucket-metadata-put.md predates omission preservation. Atomic conditions, authorization, persistence, fields, CORS/PAP and scoped resource ACL/query booleans remain supported. Final clean-source five-SDK comparison passes in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled fields, billing/full-projection/provider semantics and broader profiles. If-Match/If-None-Match are accepted and deliberately not evaluated, matching observed Cloud Storage behavior (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md).",
+      "notes": "In the legacy-emulator profile PUT preserves omitted modeled labels, class, versioning/default holds, CORS, PAP/UBLA, lifecycle, retention and soft-delete settings; the native profile replaces the resource as recorded (see the 2026-11-01 update below). Supplied labels replace the map; null/empty values retain field-specific contracts. Ruby update blocks and generated Go PUT verify this local choice, not provider parity (SPEC-BUCKET-PUT). Current contract: docs/en/slices/bucket-metadata-put.md; historical evidence in docs/en/evidence/bucket-metadata-put.md predates omission preservation. Atomic conditions, authorization, persistence, fields, CORS/PAP and scoped resource ACL/query booleans remain supported. Final clean-source five-SDK comparison passes in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled fields, billing/full-projection/provider semantics and broader profiles. If-Match/If-None-Match are accepted and deliberately not evaluated, matching observed Cloud Storage behavior (docs/en/slices/json-bucket-write-etags.md, docs/en/evidence/bucket-write-preconditions.md). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile replaces the resource on PUT: it clears the omitted labels, cors, lifecycle, versioning, retention policy (a locked one stays) and defaultEventBasedHold, keeps the storage class, soft delete policy and access settings, applies predefinedAcl and answers 400 when the body name differs from the path. The legacy-emulator profile still preserves every omitted setting as a local choice (SPEC-BUCKET-PUT).",
       "dependencies": [
         "JSON-BUCKETS-008"
       ],
@@ -8759,12 +8765,12 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id":"PUT-ETAG-HEADERS-IGNORED","description":"The .NET UpdateBucketAsync If-Match (gzip full-resource PUT) and a stale If-Match on PUT return 200 and apply the replacement, as observed on Cloud Storage on 2026-10-31; query metageneration conditions remain atomic. Accepted-but-ignored by observed provider behavior, not an evaluated precondition.","result":"PASS","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
-        {"id":"PUT-RUBY-UPDATE-BLOCK","description":"Ruby Storage 1.62.1 update block changes only PAP while omitted versioning and labels survive reload; equivalent raw Go PUT and all modeled omitted settings preserve state. Local choice without real-GCS verification: SPEC-BUCKET-PUT.","result":"PASS","test_ids":["bucket_put_ruby_update_block_preserves_unrelated_settings","bucket_put_omitted_settings_survive_partial_iam_updates","TestBucketMetadataReplace"]},
+        {"id":"PUT-RUBY-UPDATE-BLOCK","description":"Ruby Storage 1.62.1 update block changes only PAP; the native profile clears the omitted versioning, labels and default hold like a recorded Cloud Storage PUT (2026-10-31) and keeps the storage class, soft delete policy and access settings, while the legacy-emulator profile preserves every omitted setting as a local choice (SPEC-BUCKET-PUT).","result":"PASS","test_ids":["bucket_put_ruby_update_block_preserves_unrelated_settings","bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits","TestBucketMetadataReplace"]},
         {"id":"RETENTION-CONFIG-CONTRIBUTION","description":"PUT sets/changes explicit retention and preserves omitted policy; explicit null clears unlocked policy and locked removal/shortening fails. Scope: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"id":"LIFECYCLE-UPDATE-REPLACE","description":"PUT replaces supplied lifecycle rules and preserves omitted configuration; explicit null/empty clears. Actions are not executed; docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
         {
           "id": "PUT-REPLACEMENT",
-          "description": "Replace a supplied labels map; null/empty labels clear, while omitted labels, class and all modeled settings survive under the local PUT contract.",
+          "description": "Replace a supplied labels map; null/empty labels clear. A native PUT also clears omitted labels, cors, lifecycle, versioning, retention policy (unless locked) and defaultEventBasedHold as recorded on Cloud Storage; the legacy-emulator profile preserves omitted settings.",
           "test_ids": [
             "bucket_put_replaces_omitted_fields_and_preserves_resources",
             "bucket_put_empty_null_and_invalid_inputs"
@@ -8782,7 +8788,7 @@
         },
         {
           "id": "PUT-CLASS",
-          "description": "Share the supported class set; omission preserves class; null/empty/invalid and unsupported classes fail without mutation.",
+          "description": "Share the supported class set; omission keeps the class (also recorded on Cloud Storage); null/empty/invalid and unsupported classes fail without mutation.",
           "test_ids": [
             "bucket_put_label_boundaries_and_classes",
             "bucket_put_replaces_omitted_fields_and_preserves_resources"
@@ -8791,7 +8797,7 @@
         },
         {
           "id": "PUT-SETTINGS",
-          "description": "Explicit versioning/default holds change future effects; omissions preserve settings, versioning:{} disables, native null booleans fail and legacy nulls reset; existing holds/history survive.",
+          "description": "Explicit versioning/default holds change future effects; a native PUT clears the ones it omits (recorded) while keeping the soft delete policy and access settings, versioning:{} disables, native null booleans fail and legacy nulls reset; existing holds/history survive.",
           "test_ids": [
             "bucket_put_settings_control_future_object_effects",
             "bucket_put_null_settings_follow_profile_defaults"
@@ -8841,7 +8847,7 @@
           "description": "full/noAcl expose the same subset; invalid projection and GET-only generation return 400 invalidParameter, unsupported predefined ACL/billing queries return 400 badRequest.",
           "test_ids": [
             "bucket_put_conditions_and_query_contract",
-            "bucket_put_rejects_get_only_generation_query_parameter"
+            "bucket_put_get_only_generation_query_parameter_follows_profile"
           ],
           "result": "PASS"
         },
@@ -8915,7 +8921,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -9053,9 +9059,9 @@
         "bucket_put_location_comparison_is_case_insensitive",
         "bucket_put_missing_bucket_validates_body_before_lookup",
         "bucket_put_null_settings_follow_profile_defaults",
-        "bucket_put_omitted_settings_survive_partial_iam_updates",
+        "bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits",
         "bucket_put_ruby_update_block_preserves_unrelated_settings",
-        "bucket_put_rejects_get_only_generation_query_parameter",
+        "bucket_put_get_only_generation_query_parameter_follows_profile",
         "bucket_put_replaces_omitted_fields_and_preserves_resources",
         "bucket_put_settings_control_future_object_effects",
         "bucket_put_strict_permissions_and_policy_preservation",
@@ -9102,8 +9108,9 @@
         "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits","bucket_put_get_only_generation_query_parameter_follows_profile"]},
         {"command":"cargo test --locked --test bucket_if_match_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-bucket-write-etags.md","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
-        {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["bucket_put_omitted_settings_survive_partial_iam_updates","bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_empty_null_and_invalid_inputs","bucket_put_full_resource_round_trip_preserves_unchanged_fields","bucket_put_settings_control_future_object_effects","bucket_put_null_settings_follow_profile_defaults","bucket_put_uses_clock_and_rolls_back_invalid_replacement","retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","auth::tests::pap_mutations_require_update_and_set_iam_permissions"]},
+        {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits","bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_empty_null_and_invalid_inputs","bucket_put_full_resource_round_trip_preserves_unchanged_fields","bucket_put_settings_control_future_object_effects","bucket_put_null_settings_follow_profile_defaults","bucket_put_uses_clock_and_rolls_back_invalid_replacement","retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","auth::tests::pap_mutations_require_update_and_set_iam_permissions"]},
         {"command":"Getting-started native PUT block extracted with awk and executed once with bash -eu against an isolated HTTP/permissive debug binary","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["guide-bucket-put-native"]},
         {"command":"just check-sdk","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["TestBucketMetadataReplace","TestStrictAuthBucketMetadataReplace","bucket_put_ruby_update_block_preserves_unrelated_settings"]},
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
@@ -9127,7 +9134,7 @@
             "bucket_put_legacy_rendering_and_restart",
             "bucket_put_unsupported_and_output_inputs_preserve_state",
             "bucket_put_missing_bucket_validates_body_before_lookup",
-            "bucket_put_rejects_get_only_generation_query_parameter",
+            "bucket_put_get_only_generation_query_parameter_follows_profile",
             "bucket_put_full_resource_round_trip_preserves_unchanged_fields",
             "bucket_put_location_comparison_is_case_insensitive"
           ]
@@ -9334,7 +9341,7 @@
             "bucket_put_location_comparison_is_case_insensitive",
             "bucket_put_missing_bucket_validates_body_before_lookup",
             "bucket_put_null_settings_follow_profile_defaults",
-            "bucket_put_rejects_get_only_generation_query_parameter",
+            "bucket_put_get_only_generation_query_parameter_follows_profile",
             "bucket_put_replaces_omitted_fields_and_preserves_resources",
             "bucket_put_settings_control_future_object_effects",
             "bucket_put_strict_permissions_and_policy_preservation",
@@ -9613,7 +9620,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one ObjectAccessControl without id/selfLink/bucket (stored or projectPrivate) and 404 for an unknown entity. Requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one ObjectAccessControl without id/selfLink/bucket (stored or projectPrivate) and 404 for an unknown entity. Requires storage.buckets.getIamPolicy in strict mode and fails with 400 under uniform access. Inherited read grants and remaining default ACL effects are tracked in DESIGN-017/018; userProject keeps the shared unsupported response. Path parameters: bucket, entity. Query parameters: userProject. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a get of a missing bucket, default object or object ACL entry answers 400 with the recorded wording; the remaining ACL differences are listed in the replay report.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -11223,7 +11230,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract and evidence: docs/en/slices/bucket-notifications.md, docs/en/evidence/bucket-notifications.md. POST validates and stores canonical topic, JSON_API_V1/NONE, four event types, bounded custom attributes and name prefix; ignores output-only fields and enforces 100-per-bucket/10-per-event-type limits atomically. IDs do not repeat; strict requires storage.buckets.update. Source builds select immutable events into the bounded outbox, with local delivery under EXT-BEH-032/033. Topic existence and Google publisher/service-agent permissions are not checked; missing local topics retain visible delivery failures.",
+      "notes": "Contract and evidence: docs/en/slices/bucket-notifications.md, docs/en/evidence/bucket-notifications.md. POST validates and stores canonical topic, JSON_API_V1/NONE, four event types, bounded custom attributes and name prefix; ignores output-only fields and enforces 100-per-bucket/10-per-event-type limits atomically. IDs do not repeat; strict requires storage.buckets.update. Source builds select immutable events into the bounded outbox, with local delivery under EXT-BEH-032/033. Topic existence and Google publisher/service-agent permissions are not checked; missing local topics retain visible delivery failures. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): notification errors use Cloud Storage's reasons and wording where the recording distinguishes them; the recorded missing Pub/Sub topic error (400 naming the topic) is still not reproduced and is listed in the replay report.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -11755,7 +11762,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one ObjectAccessControl of the live or selected generation and 404 for an unknown entity, object or generation. Requires storage.objects.getIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject keeps the shared unsupported response. Path parameters: bucket, entity, object. Query parameters: generation, userProject.",
+      "notes": "Contract: docs/en/slices/json-acl.md; evidence: docs/en/evidence/json-acl.md. GET returns one ObjectAccessControl of the live or selected generation and 404 for an unknown entity, object or generation. Requires storage.objects.getIamPolicy in strict mode and fails with 400 under uniform access. Stored READER/OWNER entries now grant selected-generation reads under DESIGN-017; complete owner authority remains pending. userProject keeps the shared unsupported response. Path parameters: bucket, entity, object. Query parameters: generation, userProject. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a get of a missing bucket, default object or object ACL entry answers 400 with the recorded wording; the remaining ACL differences are listed in the replay report.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -13708,7 +13715,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "JSON metadata/whole-media/range GET support generation selection and conditions; selfLink selects the current object and mediaLink pins a generation. Historical range/IAM/version/ETag evidence: docs/en/slices/json-object-range.md, docs/en/evidence/bucket-iam.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. JSON GET gzip expansion uses bounded 64 KiB input/output steps, ignores Range with full 200, removes encoding/length/range headers and retains stored hash/ETag/encoding/length headers. Accepted gzip/no-transform returns raw bytes; corruption/truncation/expansion beyond max_object_bytes aborts. Metadata and media HEAD work; media HEAD sends the GET headers without a body; XML GET/HEAD expand gzip as well. Final Rust 1262/0/0 and five-SDK complete comparison pass: docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. If-Range, double-compression detection, exact provider transcoding/fallback/header/full-ACL parity and broader profiles keep this row PARTIAL. Transfer ceilings remain independent of inactivity; upload advisory/post-EOF waits retain separate bounds.",
+      "notes": "JSON metadata/whole-media/range GET support generation selection and conditions; selfLink selects the current object and mediaLink pins a generation. Historical range/IAM/version/ETag evidence: docs/en/slices/json-object-range.md, docs/en/evidence/bucket-iam.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. JSON GET gzip expansion uses bounded 64 KiB input/output steps, ignores Range with full 200, removes encoding/length/range headers and retains stored hash/ETag/encoding/length headers. Accepted gzip/no-transform returns raw bytes; corruption/truncation/expansion beyond max_object_bytes aborts. Metadata and media HEAD work; media HEAD sends the GET headers without a body; XML GET/HEAD expand gzip as well. Final Rust 1262/0/0 and five-SDK complete comparison pass: docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. If-Range, double-compression detection, exact provider transcoding/fallback/header/full-ACL parity and broader profiles keep this row PARTIAL. Transfer ceilings remain independent of inactivity; upload advisory/post-EOF waits retain separate bounds. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): JSON media and metadata GET ignore If-Range (the Range applies whatever the validator) and the date validators If-Modified-Since and If-Unmodified-Since, evaluate If-None-Match before the other conditions, and answer a multi-range request with 501 Multiple Ranges are not supported; a 412 media response carries cache-control no-store and the plain text page. If-Range without Range is also ignored. SPEC-RANGE-VALIDATORS is resolved for the recorded forms; SPEC-RANGE-FALLBACK keeps its other questions.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -13820,7 +13827,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -14108,6 +14115,10 @@
         }
       ],
       "test_ids": [
+        "storage::resumable_http_tests::cloud_storage_parity::failed_conditional_media_read_of_a_public_object_is_never_cacheable",
+        "storage::resumable_http_tests::cloud_storage_parity::media_conditionals_keep_the_representation_headers",
+        "json_etag_read_if_match_overrides_if_unmodified_since",
+        "json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior",
         "json_media_head_sends_get_headers_without_a_body",
         "wire_parity_http::json_bodies_are_pretty_printed_in_recorded_field_order",
         "wire_parity_http::legacy_profile_keeps_compact_bodies",
@@ -14212,6 +14223,7 @@
         "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["obj_range_http_single_ranges_and_representation_headers","obj_range_http_unsatisfiable_empty_and_ignored_ranges","json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior","json_etag_read_if_match_overrides_if_unmodified_since","storage::resumable_http_tests::cloud_storage_parity::media_conditionals_keep_the_representation_headers","storage::resumable_http_tests::cloud_storage_parity::failed_conditional_media_read_of_a_public_object_is_never_cacheable"]},
         {"command":"cargo test --locked --test sdk_object_wire_http json_media_head","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/media-read-provider-observations.md","test_ids":["json_media_head_sends_get_headers_without_a_body"]},
         {"command":"cargo test --locked -- --test-threads=4","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["wire_parity_http::json_bodies_are_pretty_printed_in_recorded_field_order","wire_parity_http::legacy_profile_keeps_compact_bodies","wire_parity_http::batch_parts_choose_their_own_format","json::format::tests::prettyprint_false_selects_compact_output_and_everything_else_pretty","json::format::tests::rendering_follows_the_scoped_format_and_keeps_field_order","wire_parity_http::cache_headers_follow_each_recorded_response_kind","wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache","json::object_tests::obj_render_002_media_headers_match_selected_generation_and_hashes"]},
         {
@@ -14770,11 +14782,12 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Media, multipart and resumable initiation/chunk/status/cancel/expiry/finalization subsets pass with MD5/CRC32C, metadata, atomic conditions, persistent resources and bounded disk-backed sessions. Strict grants, capability delegation and transaction-time revocation are verified. Contracts: docs/en/slices/json-object-media.md, docs/en/slices/json-object-multipart.md and docs/en/slices/resumable-upload.md; historical evidence: docs/en/evidence/resumable-upload.md. Retained versions/holds: docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md; fields/read ETags: docs/en/evidence/basic-json-fields-etag.md. Local Ruby no-op defaults remain under docs/en/slices/sdk-ruby-defaults.md and SPEC-RUBY-DEFAULTS. Media/multipart response replay, advisory MIME, chunk checksums and scoped ACL/query defaults pass final Rust 1262/0/0 and five-SDK comparison in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled fields/common parameters, broader policy/encryption/Discovery alias and token replay beyond the declared subset.",
+      "notes": "Media, multipart and resumable initiation/chunk/status/cancel/expiry/finalization subsets pass with MD5/CRC32C, metadata, atomic conditions, persistent resources and bounded disk-backed sessions. Strict grants, capability delegation and transaction-time revocation are verified. Contracts: docs/en/slices/json-object-media.md, docs/en/slices/json-object-multipart.md and docs/en/slices/resumable-upload.md; historical evidence: docs/en/evidence/resumable-upload.md. Retained versions/holds: docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md; fields/read ETags: docs/en/evidence/basic-json-fields-etag.md. Local Ruby no-op defaults remain under docs/en/slices/sdk-ruby-defaults.md and SPEC-RUBY-DEFAULTS. Media/multipart response replay, advisory MIME, chunk checksums and scoped ACL/query defaults pass final Rust 1262/0/0 and five-SDK comparison in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for unmodeled fields/common parameters, broader policy/encryption/Discovery alias and token replay beyond the declared subset. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a JSON media upload does not verify a declared X-Goog-Hash or Content-MD5 and stores the computed hashes; multipart metadata hashes, resumable and XML uploads still verify (a multipart metadata mismatch names both digests). A request without uploadType, or whose body is not multipart, is a media upload; multipart content types must agree. Unknown metadata members and a mistyped hold are ignored. A resumable initiation precondition is evaluated when the upload completes. A retain-until time in the past is refused only when the request names it. Error wording and JSON syntax errors (the quoted input with a caret) follow the recording.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"UPLOAD-RECORDED-CLOUD-STORAGE","description":"A JSON media upload ignores declared hashes and stores the computed ones, a multipart metadata hash mismatch names both digests, content types must agree and a plain body is media, and unknown metadata members are ignored (recorded on Cloud Storage 2026-10-31). A mistyped hold value is ignored like an unknown member.","result":"PASS","test_ids":["storage::resumable_http_tests::cloud_storage_parity::media_upload_ignores_declared_hashes_and_stores_the_computed_ones","storage::resumable_http_tests::cloud_storage_parity::multipart_metadata_hash_mismatch_names_both_digests","storage::resumable_http_tests::cloud_storage_parity::multipart_upload_content_types_must_agree_and_plain_bodies_are_media","storage::resumable_http_tests::cloud_storage_parity::metadata_writes_ignore_unknown_members_and_release_holds_on_put"]},
         {
           "id": "RUBY-DEFAULT-CREATE-FILE-CONTENT-TYPE",
           "description": "Ruby extensionless StringIO create_file without content_type treats an empty upload MIME header as absent and retains 400 for nonempty invalid MIME; docs/en/slices/sdk-ruby-defaults.md.",
@@ -15041,7 +15054,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -15341,6 +15354,11 @@
         }
       ],
       "test_ids": [
+        "media_upload_stores_computed_hashes_whatever_the_declared_md5",
+        "storage::resumable_http_tests::cloud_storage_parity::metadata_writes_ignore_unknown_members_and_release_holds_on_put",
+        "storage::resumable_http_tests::cloud_storage_parity::multipart_upload_content_types_must_agree_and_plain_bodies_are_media",
+        "storage::resumable_http_tests::cloud_storage_parity::multipart_metadata_hash_mismatch_names_both_digests",
+        "storage::resumable_http_tests::cloud_storage_parity::media_upload_ignores_declared_hashes_and_stores_the_computed_ones",
         "json_media_upload_content_encoding_query_sets_stored_encoding",
         "multipart_content_encoding_query_matches_resumable_declaration_rules",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
@@ -15471,6 +15489,7 @@
         "xml::uniform_access_metadata_and_predefined_acl_rejections"
       ],
       "verification": [
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["storage::resumable_http_tests::cloud_storage_parity::media_upload_ignores_declared_hashes_and_stores_the_computed_ones","storage::resumable_http_tests::cloud_storage_parity::multipart_metadata_hash_mismatch_names_both_digests","storage::resumable_http_tests::cloud_storage_parity::multipart_upload_content_types_must_agree_and_plain_bodies_are_media","storage::resumable_http_tests::cloud_storage_parity::metadata_writes_ignore_unknown_members_and_release_holds_on_put","media_upload_stores_computed_hashes_whatever_the_declared_md5"]},
         {"command":"cargo test --locked --test acl_permission_effects predefined_upload && cargo test --locked --lib acl::tests && cargo test --locked --test auth_http uniform_access","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/upload-predefined-acl.md","test_ids":["acl_permission_effects::predefined_upload::media_upload_predefined_acls_replace_the_default_object_acl","acl_permission_effects::predefined_upload::multipart_and_resumable_uploads_apply_predefined_acl_at_publication","acl_permission_effects::predefined_upload::predefined_acl_uploads_need_only_create_and_respect_access_settings","acl::tests::predefined_object_acls_round_trip_and_exclude_bucket_only_values","xml::uniform_access_metadata_and_predefined_acl_rejections"]},
         {"command":"cargo test --test http_resumable_gzip --test http_ingress --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/http-ingress.md","test_ids":["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_retains_strict_authentication_and_upload_permissions"]},
         {"command":"cargo test --locked --test sdk_object_wire_http --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/media-read-provider-observations.md","test_ids":["json_media_upload_content_encoding_query_sets_stored_encoding","multipart_content_encoding_query_matches_resumable_declaration_rules"]},
@@ -16175,7 +16194,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -16714,7 +16733,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PATCH merges the five supported fixed fields and custom keys; null deletes, final custom metadata stays within 8 KiB, conditions are atomic and persisted metadata reaches resource/media headers. Contract/evidence: docs/en/slices/json-object-metadata.md, docs/en/evidence/object-metadata.md and docs/en/evidence/object-list-metadata.md. Unconditional project-plus-bucket grants/revocation, retained versions/holds and scoped fields/read ETags remain verified in docs/en/evidence/bucket-iam.md, docs/en/slices/bucket-versioning-holds.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. Atomic resource ACL/query defaults and the final clean-source five-SDK comparison pass in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method remains PARTIAL for broader policy, metadata/input/provider parity and profiles.",
+      "notes": "PATCH merges the five supported fixed fields and custom keys; null deletes, final custom metadata stays within 8 KiB, conditions are atomic and persisted metadata reaches resource/media headers. Contract/evidence: docs/en/slices/json-object-metadata.md, docs/en/evidence/object-metadata.md and docs/en/evidence/object-list-metadata.md. Unconditional project-plus-bucket grants/revocation, retained versions/holds and scoped fields/read ETags remain verified in docs/en/evidence/bucket-iam.md, docs/en/slices/bucket-versioning-holds.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. Atomic resource ACL/query defaults and the final clean-source five-SDK comparison pass in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method remains PARTIAL for broader policy, metadata/input/provider parity and profiles. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): unknown metadata members and a mistyped hold in a PATCH body are ignored.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -16791,7 +16810,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -17899,7 +17918,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PUT replaces the five supported fixed fields/custom map, clears omissions, atomically accepts identical GET output fields, preserves generation/blob/checksums and increments metageneration. Contract/evidence: docs/en/slices/json-object-metadata.md, docs/en/evidence/object-metadata.md and docs/en/evidence/object-list-metadata.md. Unconditional bucket grants/revocation, retained versions/holds and scoped fields/read ETags remain verified in docs/en/evidence/bucket-iam.md, docs/en/slices/bucket-versioning-holds.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. Atomic resource ACL/query defaults and final clean-source five-SDK comparison pass in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for broader policy, metadata/input/provider parity and profiles.",
+      "notes": "PUT replaces the five supported fixed fields/custom map, clears omissions, atomically accepts identical GET output fields, preserves generation/blob/checksums and increments metageneration. Contract/evidence: docs/en/slices/json-object-metadata.md, docs/en/evidence/object-metadata.md and docs/en/evidence/object-list-metadata.md. Unconditional bucket grants/revocation, retained versions/holds and scoped fields/read ETags remain verified in docs/en/evidence/bucket-iam.md, docs/en/slices/bucket-versioning-holds.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. Atomic resource ACL/query defaults and final clean-source five-SDK comparison pass in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for broader policy, metadata/input/provider parity and profiles. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): unknown metadata members and a mistyped hold in a PUT body are ignored; a PUT releases a hold it does not name and answers with projection noAcl.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -17976,7 +17995,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -19914,7 +19933,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Bucket read contract: docs/en/slices/grpc-v2-buckets.md. Existing/missing buckets, metageneration conditions, supported masks and shared strict authorization are scoped acceptance cases.",
+      "notes": "Bucket read contract: docs/en/slices/grpc-v2-buckets.md. Existing/missing buckets, metageneration conditions, supported masks and shared strict authorization are scoped acceptance cases. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): bucket versioning is omitted when disabled and bucket errors use the recorded messages. Covered by the differential replay, not by a dedicated Rust test.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -20039,7 +20058,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Bucket creation contract: docs/en/slices/grpc-v2-buckets.md. Shared JSON metadata validation, duplicate protection, strict project authorization and explicit unsupported values are scoped acceptance cases.",
+      "notes": "Bucket creation contract: docs/en/slices/grpc-v2-buckets.md. Shared JSON metadata validation, duplicate protection, strict project authorization and explicit unsupported values are scoped acceptance cases. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): bucket versioning is omitted when disabled and bucket errors use the recorded messages. Covered by the differential replay, not by a dedicated Rust test.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -21305,7 +21324,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested object masks, encryption/transcoding and exhaustive provider error precedence remain unsupported or unverified.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested object masks, encryption/transcoding and exhaustive provider error precedence remain unsupported or unverified. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): ReadObject no longer ends with an empty trailing message. Covered by the differential replay, not by a dedicated Rust test.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -21456,7 +21475,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner. Covered by the differential replay, not by a dedicated Rust test.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -21592,7 +21611,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unsupported write resource fields/encryption/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unsupported write resource fields/encryption/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner. Covered by the differential replay, not by a dedicated Rust test.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -22720,7 +22739,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Documented Storage partial-response scope: comma lists, slash paths, parenthesized sub-selection and invalid-selection HTTP 400 over every supported bucket/object/list/IAM JSON metadata response, including multipart/resumable completion. Scope and evidence: docs/en/slices/json-response-fields.md and docs/en/evidence/basic-json-fields-etag.md. Undocumented wildcard/empty-parent/error/cap semantics and excluded selector edges remain on affected method rows and SPEC-FIELDS-EDGES; no provider wire-edge claim.",
+      "notes": "Documented Storage partial-response scope: comma lists, slash paths, parenthesized sub-selection and invalid-selection HTTP 400 over every supported bucket/object/list/IAM JSON metadata response, including multipart/resumable completion. Scope and evidence: docs/en/slices/json-response-fields.md and docs/en/evidence/basic-json-fields-etag.md. Undocumented wildcard/empty-parent/error/cap semantics and excluded selector edges remain on affected method rows and SPEC-FIELDS-EDGES; no provider wire-edge claim. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): an empty segment (name,,size) and an empty fields value are accepted as recorded, and a trailing comma is accepted as an inference from the empty segment, so the earlier rejection of trailing commas and empty values no longer applies; unbalanced parentheses and unknown names still fail with 400.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -22735,7 +22754,7 @@
         },
         {
           "id": "FIELDS-003",
-          "description": "Unknown names, wrong collection roots, scalar children, unbalanced parentheses, trailing commas and empty segments fail with 400 `invalidParameter`",
+          "description": "Unknown names, wrong collection roots, scalar children and unbalanced parentheses fail with 400 `invalidParameter`; an empty segment (name,,size) is accepted and an empty fields value on an object selects nothing (both recorded on Cloud Storage 2026-10-31); a trailing comma is accepted like an empty segment, which the recording does not distinguish",
           "test_ids": [
             "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
             "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate"
@@ -23233,11 +23252,12 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Basic JSON v1 application errors use an error object containing numeric code, message and errors entries with domain, reason and message, preserving documented status/reason pairs for isolated notFound, conditionNotMet and requestedRangeNotSatisfiable failures. Successful native DELETE has an empty response body; single read NotMatch failure returns a bodyless 304. Scope and assertion filters: docs/en/slices/basic-json-contract.md. Final evidence: docs/en/evidence/basic-json-contract.md. Every excluded original case, test, verification, SDK record and deviation is retained on the broad method destinations named in the contract; no full-method completion is claimed.",
+      "notes": "Basic JSON v1 application errors use an error object containing numeric code, message and errors entries with domain, reason and message, preserving documented status/reason pairs for isolated notFound, conditionNotMet and requestedRangeNotSatisfiable failures. Successful native DELETE has an empty response body; single read NotMatch failure returns a bodyless 304. Scope and assertion filters: docs/en/slices/basic-json-contract.md. Final evidence: docs/en/evidence/basic-json-contract.md. Every excluded original case, test, verification, SDK record and deviation is retained on the broad method destinations named in the contract; no full-method completion is claimed. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): every JSON response carries cache-control, expires and vary: Origin, X-Origin; mutations and errors add pragma: no-cache; 204 and 304 carry content-type: application/json; resource responses carry a bare ETag header equal to the body etag (not Move; the IAM header is unquoted and If-Match accepts the bare value). Upload-path errors and XML virtual-host responses do not get the common headers. Error items add location and locationType (the parameter name, or If-Match for a failed precondition). Only the recorded request shapes are claimed; the remaining differences are listed in the replay report.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
+        {"id":"ERROR-ENVELOPE-RECORDED","description":"Every JSON response carries the recorded common headers (cache-control, expires, vary, pragma on mutations and errors, content-type on 204 and 304, bare ETag header except on Move); error items name the rejected parameter or header in location and locationType; upload-path errors and XML virtual-host responses keep their own headers.","result":"PASS","test_ids":["wire_parity_http::json_api_responses_carry_the_recorded_cache_envelope","wire_parity_http::error_items_name_the_rejected_parameter_or_header","virtual_host_xml_requests_keep_their_own_headers_under_json_api_looking_paths"]},
         {"id":"ERROR-MISSING-OBJECT-PROVIDER-WIRE","description":"Recorded provider errors (docs/en/evidence/response-wire-provider-observations.md): JSON get, patch and delete of a missing object return 'No such object: <bucket>/<object>' as code, message and errors[{message, domain, reason}] with the no-store headers; the media 404 and 416 are text/html with 'private, max-age=0', and the media 404 HTML-escapes the client-controlled name (& < > \" ') without nosniff or CSP headers; the XML 404 is NoSuchKey 'The specified key does not exist.' with a Details element naming the object, escaped as XML character data (& < > only). Copy, compose and rewrite sources keep the generic 'Object not found'. Bucket-not-found and other error texts remain unrecorded (SPEC-RESPONSE-WIRE-REMAINING).","result":"PASS","test_ids":["wire_parity_http::missing_object_errors_name_the_object_like_cloud_storage","wire_parity_http::missing_object_names_are_escaped_for_the_document_they_appear_in","wire_parity_http::unsatisfiable_media_ranges_answer_with_html_text"]},
         {"id":"BASIC-ERROR-PROVIDER-CACHE","description":"Recorded provider errors (docs/en/evidence/response-wire-provider-observations.md): every JSON API error body sends 'Cache-Control: no-cache, no-store, max-age=0, must-revalidate' and 'Pragma: no-cache'; XML error documents send 'Cache-Control: private, max-age=0'; a 304 stays bodyless without either. Media 404 and 416 are the documented exceptions in JSON-OBJECTS-005-PROVIDER-CACHE.","result":"PASS","test_ids":["wire_parity_http::cache_headers_follow_each_recorded_response_kind","wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache"]},
         {
@@ -23278,7 +23298,10 @@
           ]
         }
       ],
-      "test_ids": [ "wire_parity_http::cache_headers_follow_each_recorded_response_kind", "wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache", "wire_parity_http::missing_object_errors_name_the_object_like_cloud_storage", "wire_parity_http::missing_object_names_are_escaped_for_the_document_they_appear_in", "wire_parity_http::unsatisfiable_media_ranges_answer_with_html_text",
+      "test_ids": [ "virtual_host_xml_requests_keep_their_own_headers_under_json_api_looking_paths",
+        "wire_parity_http::error_items_name_the_rejected_parameter_or_header",
+        "wire_parity_http::json_api_responses_carry_the_recorded_cache_envelope",
+        "wire_parity_http::cache_headers_follow_each_recorded_response_kind", "wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache", "wire_parity_http::missing_object_errors_name_the_object_like_cloud_storage", "wire_parity_http::missing_object_names_are_escaped_for_the_document_they_appear_in", "wire_parity_http::unsatisfiable_media_ranges_answer_with_html_text",
         "basic_contract_json_errors_keep_complete_envelopes_with_fields_selection",
         "basic_contract_strict_denials_keep_complete_json_envelopes_with_fields_selection",
         "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate",
@@ -23292,6 +23315,7 @@
         "json::tests::bkt_err_001_envelope_content_type_and_catalog_mappings"
       ],
       "verification": [
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["wire_parity_http::json_api_responses_carry_the_recorded_cache_envelope","wire_parity_http::error_items_name_the_rejected_parameter_or_header","virtual_host_xml_requests_keep_their_own_headers_under_json_api_looking_paths"]},
         {"command":"cargo test --locked -- --test-threads=4","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["wire_parity_http::cache_headers_follow_each_recorded_response_kind","wire_parity_http::object_inserts_and_json_write_errors_forbid_every_cache","wire_parity_http::missing_object_errors_name_the_object_like_cloud_storage","wire_parity_http::missing_object_names_are_escaped_for_the_document_they_appear_in","wire_parity_http::unsatisfiable_media_ranges_answer_with_html_text"]},
         {
           "command": "just check",
@@ -23691,7 +23715,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Documented JSON If-Match/If-None-Match GET scope for supported etag-bearing resources: objects.get metadata/media/range, buckets.get and buckets.getIamPolicy, with combined query conditions, permissions, one selected snapshot and fields interactions. Collection responses have no etag and ACL routes do not exist; list/write validators, JSON date conditions, XML/gRPC/HEAD and If-Range are outside this row. Exact provider opaque encoding/header/error and mixed-extension ordering questions remain on PARTIAL method rows and SPEC-JSON-ETAG-WIRE; target EXACT is unchanged. See docs/en/slices/json-read-etag-validators.md and docs/en/evidence/basic-json-fields-etag.md.",
+      "notes": "Documented JSON If-Match/If-None-Match GET scope for supported etag-bearing resources: objects.get metadata/media/range, buckets.get and buckets.getIamPolicy, with combined query conditions, permissions, one selected snapshot and fields interactions. Collection responses have no etag and ACL routes do not exist; list/write validators, JSON date conditions, XML/gRPC/HEAD and If-Range are outside this row. Exact provider opaque encoding/header/error and mixed-extension ordering questions remain on PARTIAL method rows and SPEC-JSON-ETAG-WIRE; target EXACT is unchanged. See docs/en/slices/json-read-etag-validators.md and docs/en/evidence/basic-json-fields-etag.md. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): JSON GETs ignore If-Range and the date validators, so the date precedence and If-Range lines in the acceptance cases describe ignored headers; If-None-Match is evaluated before the other conditions.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -26455,7 +26479,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "For ordinary finalized objects uploaded through basic JSON media/multipart, compute full stored-byte MD5/CRC32C and documented resource encodings. For JSON resumable, claim CRC32C and MD5 only when all data is sent in one request; with multiple data requests, claim CRC32C only. Reject a validly encoded supplied checksum mismatch in the documented containers with HTTP 400 without replacing the old object. Scope and assertion filters: docs/en/slices/basic-json-contract.md. Final evidence: docs/en/evidence/basic-json-contract.md. Every excluded original case, test, verification, SDK record and deviation is retained on the broad method destinations named in the contract; no full-method completion is claimed.",
+      "notes": "For ordinary finalized objects uploaded through basic JSON media/multipart, compute full stored-byte MD5/CRC32C and documented resource encodings. For JSON resumable, claim CRC32C and MD5 only when all data is sent in one request; with multiple data requests, claim CRC32C only. Reject a validly encoded supplied checksum mismatch in multipart metadata, resumable and XML containers with HTTP 400 without replacing the old object (a JSON media upload does not verify declared hashes, as recorded). Scope and assertion filters: docs/en/slices/basic-json-contract.md. Final evidence: docs/en/evidence/basic-json-contract.md. Every excluded original case, test, verification, SDK record and deviation is retained on the broad method destinations named in the contract; no full-method completion is claimed. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a JSON media upload does not verify a declared X-Goog-Hash or Content-MD5 (the computed hashes are stored); the 400 on a validly encoded mismatch remains for multipart metadata, resumable and XML uploads. Scope narrowed to the recorded behavior; the status stays IMPLEMENTED for the narrowed scope.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -26471,10 +26495,10 @@
         },
         {
           "id": "BASIC-HASH-MEDIA",
-          "description": "Explicit Content-Type isolates correct MD5-only, CRC32C-only and both X-Goog-Hash success; each validly encoded wrong checksum returns 400 without a new object or overwrite. Count checksum/status/preservation only; parser/reason/conflict/precedence choices remain on JSON-OBJECTS-007.",
+          "description": "Explicit Content-Type isolates correct MD5-only, CRC32C-only and both X-Goog-Hash success; a JSON media upload does not verify a declared hash, so a wrong one is accepted and the computed hashes are stored (recorded on Cloud Storage 2026-10-31). Count checksum/status only; parser/reason/conflict/precedence choices remain on JSON-OBJECTS-007.",
           "result": "PASS",
           "test_ids": [
-            "basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites"
+            "basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones"
           ]
         },
         {
@@ -26521,7 +26545,7 @@
       "test_ids": [
         "empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes",
         "obj_http_media_and_multipart_independent_checksum_vectors_across_chunks",
-        "basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites",
+        "basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones",
         "basic_contract_multipart_metadata_only_checksums_validate_stored_bytes",
         "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
         "basic_contract_single_request_resumable_checksums_validate_stored_bytes",
@@ -26536,6 +26560,7 @@
         "TestObjectResumableChecksumFailurePreservesObject"
       ],
       "verification": [
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones"]},
         {
           "command": "just check",
           "result": "PASS",
@@ -26544,7 +26569,7 @@
           "test_ids": [
             "empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes",
             "obj_http_media_and_multipart_independent_checksum_vectors_across_chunks",
-            "basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites",
+            "basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones",
             "basic_contract_multipart_metadata_only_checksums_validate_stored_bytes",
             "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
             "basic_contract_single_request_resumable_checksums_validate_stored_bytes",
@@ -27051,7 +27076,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Simple JSON media upload uses bounded channels, explicit unsupported semantics and atomic publication. Contract/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md; multipart history remains in docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md. Transfer ceilings are independent of inactivity; advisory/post-EOF waits have a separate bound. Scoped response replay and advisory MIME now pass final Rust 1262/0/0 and all five SDKs, recorded in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole-row PARTIAL status and broader provider/profile limitations remain.",
+      "notes": "Simple JSON media upload uses bounded channels, explicit unsupported semantics and atomic publication. Contract/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md; multipart history remains in docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md. Transfer ceilings are independent of inactivity; advisory/post-EOF waits have a separate bound. Scoped response replay and advisory MIME now pass final Rust 1262/0/0 and all five SDKs, recorded in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole-row PARTIAL status and broader provider/profile limitations remain. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): media uploads ignore declared hashes and an upload without uploadType is a media upload.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -27249,7 +27274,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Bounded multipart metadata/media supports the optional final checksum part, exact bytes, early validation, atomic conditions, deadline cleanup, restart and pinned Go Writer. Contract and historical evidence: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md. Scoped replay, advisory MIME and resource ACL integration pass final Rust 1262/0/0 and all five SDKs in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Production edge fidelity, replay beyond the declared subset, broader policy/ACL interactions and provider/profile limitations keep this row PARTIAL.",
+      "notes": "Bounded multipart metadata/media supports the optional final checksum part, exact bytes, early validation, atomic conditions, deadline cleanup, restart and pinned Go Writer. Contract and historical evidence: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md. Scoped replay, advisory MIME and resource ACL integration pass final Rust 1262/0/0 and all five SDKs in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Production edge fidelity, replay beyond the declared subset, broader policy/ACL interactions and provider/profile limitations keep this row PARTIAL. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): multipart metadata hash mismatches name both digests, content types must agree and a body that is not multipart is a media upload.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -28535,7 +28560,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Documented single-range untranscoded JSON reads only: inclusive/open/suffix ranges, clamping, 206 Content-Range/Content-Length, 416, generation pinning, preconditions, strict authorization and bounded seek-based streaming. Scope: docs/en/slices/json-object-range.md. Fallback, empty-suffix and exhaustive header parity remain open on JSON-OBJECTS-005, SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS and SPEC-012.",
+      "notes": "Documented single-range untranscoded JSON reads only: inclusive/open/suffix ranges, clamping, 206 Content-Range/Content-Length, 416, generation pinning, preconditions, strict authorization and bounded seek-based streaming. Scope: docs/en/slices/json-object-range.md. Fallback, empty-suffix and exhaustive header parity remain open on JSON-OBJECTS-005, SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS and SPEC-012. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a multi-range request is answered 501 instead of the earlier complete 200 fallback, and If-Range is ignored so the Range applies (SPEC-RANGE-VALIDATORS resolved; SPEC-RANGE-FALLBACK keeps the other fallback questions). The single-range scope above is unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -28737,9 +28762,9 @@
         },
         {
           "id": "MEDIA-UPLOAD-GZIP-HASH",
-          "description": "A media upload validates X-Goog-Hash MD5 against the stored bytes: a plain upload against its body, a Content-Encoding: gzip upload against the decoded body. Cloud Storage accepted a transport-gzip upload whose MD5 described either the plain text or the gzip bytes (observed 2026-10-31); whether it skips validation for transport gzip is unexplained. gcs-mimic rejects the gzip-bytes MD5 with 400 and keeps validating; validation is not weakened to match.",
+          "description": "A JSON media upload does not verify a declared X-Goog-Hash or Content-MD5: Cloud Storage stored the upload and its computed hashes whatever the declared MD5 was (plain bytes, or Content-Encoding: gzip with an MD5 of either the decoded text or the gzip bytes; observed 2026-10-31). gcs-mimic does the same and returns the computed hashes. Multipart metadata hashes, resumable and XML uploads keep their validation.",
           "result": "PASS",
-          "test_ids": ["media_upload_hash_is_checked_against_the_stored_bytes"]
+          "test_ids": ["media_upload_stores_computed_hashes_whatever_the_declared_md5"]
         },
         {
           "id": "XML-RANGE-416",
@@ -28773,7 +28798,7 @@
         "gunzipping_a_plain_body_fails_400_before_the_headers_are_sent",
         "head_with_range_answers_206_and_content_range_on_json_and_xml",
         "media_responses_carry_the_provider_object_headers",
-        "media_upload_hash_is_checked_against_the_stored_bytes",
+        "media_upload_stores_computed_hashes_whatever_the_declared_md5",
         "anonymous_json_media_read_of_a_public_object_carries_the_public_header_set",
         "xml_unsatisfiable_range_carries_object_headers_and_echoes_the_range"
       ],
@@ -28795,7 +28820,7 @@
           "artifact": "docs/en/evidence/media-read-provider-observations.md",
           "test_ids": [
             "media_transport_gzip_stores_the_decoded_body",
-            "media_upload_hash_is_checked_against_the_stored_bytes"
+            "media_upload_stores_computed_hashes_whatever_the_declared_md5"
           ]
         },
         {
@@ -30892,7 +30917,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "Temporary and event-based holds persist on upload and PATCH/PUT, protect deletion and upload/copy/rewrite/compose replacement, and release independently; retention and complete provider wire parity remain pending.",
+      "notes": "Temporary and event-based holds persist on upload and PATCH/PUT, protect deletion and upload/copy/rewrite/compose replacement, and release independently; retention and complete provider wire parity remain pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a metadata PUT releases the hold it does not name, and an unknown member or mistyped hold value is ignored instead of rejected (SPEC-OBJECT-HOLDS-CUSTOMTIME keeps the customTime wire questions).",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -30934,6 +30959,7 @@
         }
       ],
       "test_ids": [
+        "storage::resumable_http_tests::cloud_storage_parity::metadata_writes_ignore_unknown_members_and_release_holds_on_put",
         "default_hold_applies_to_all_upload_modes",
         "held_objects_reject_delete_and_replacement",
         "event_hold_metadata_release_and_restart",
@@ -30948,6 +30974,7 @@
         "ruby-object-holds-custom-time"
       ],
       "verification": [
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["storage::resumable_http_tests::cloud_storage_parity::metadata_writes_ignore_unknown_members_and_release_holds_on_put"]},
         {"command": "cargo test --locked --offline --test object_holds_customtime_http", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["temporary_hold_set_release_and_restart", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog", "temporary_hold_protects_delete_and_all_replacements", "custom_time_monotonic_updates_are_atomic"]},
         {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time"]},
         {
@@ -32443,7 +32470,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a read_mask that names an unknown path is INVALID_ARGUMENT. This is covered by the differential replay (grpc-read-mask), not by a dedicated Rust test.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -32693,11 +32720,12 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Opt-in h2c Storage v2 foundation: unsupported RPCs, unsupported fields and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive connection_timeout_ms idle expiry, but 60 seconds without request/response frames triggers GOAWAY with bounded grace. PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive detects dead peers; SIGTERM grace retains its existing cap. Operation success statuses and business logic now come from the per-operation rows (RPC-STORAGE-* and RPC-LEGACY-*); explicit deadline and client-cancellation cases remain pending. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED.",
+      "notes": "Opt-in h2c Storage v2 foundation: unsupported RPCs, unsupported fields and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive connection_timeout_ms idle expiry, but 60 seconds without request/response frames triggers GOAWAY with bounded grace. PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive detects dead peers; SIGTERM grace retains its existing cap. Operation success statuses and business logic now come from the per-operation rows (RPC-STORAGE-* and RPC-LEGACY-*); explicit deadline and client-cancellation cases remain pending. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): gRPC errors carry the recorded messages and details (ErrorInfo for malformed resource names, BadRequest for an empty object name); the JSON-to-gRPC 412 rewrite applies to failed preconditions only, and a not-modified read carries the recorded message. The cases beyond the two status unit tests are covered by the differential replay (grpc-errors matches), not by dedicated Rust tests.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"GRPC-ERROR-DETAILS-RECORDED","description":"Malformed resource names answer INVALID_ARGUMENT with an ErrorInfo detail, an empty object name with a BadRequest field violation, and only a failed precondition is reworded to the gRPC wording.","result":"PASS","test_ids":["grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc::v2::status::tests::resource_name_errors_carry_their_details"]},
         {"id":"grpc_listener_disabled_by_default","description":"No grpc_listen means no gRPC listener; HTTP/HTTPS behavior is preserved.","result":"PASS","test_ids":["grpc_listener_disabled_by_default_and_bound_after_initialization"]},
         {"id":"grpc_listener_starts_when_configured","description":"Config/environment enable separate h2c; invalid and occupied addresses have actionable startup failures.","result":"PASS","test_ids":["grpc_listener_configuration_precedence_and_diagnostics","grpc_listener_disabled_by_default_and_bound_after_initialization","TestGRPCFoundationWireStatus"]},
         {"id":"grpc_listener_follows_startup_and_shutdown_order","description":"Serve only after ready; idle gRPC releases shared admission. Real SIGTERM drains an incomplete handshake, closes HTTP and gRPC, reports stopped and releases the catalog for immediate reopen.","result":"PASS","test_ids":["grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_idle_admission_and_sigterm_drain","TestGRPCFoundationWireStatus"]},
@@ -32714,8 +32742,9 @@
         {"id":"grpc_active_stream_survives_past_bound","description":"Request or response frames at intervals shorter than the silence bound keep streams alive beyond that bound in total elapsed time.","result":"PASS","test_ids":["grpc_active_stream_survives_past_bound"]},
         {"id":"grpc_success_status_deadlines_cancellation","description":"Operation-specific success statuses and streaming are verified by the per-operation rows; explicit deadline-expiry and client-cancellation behavior across operations remains unverified.","result":"PENDING","test_ids":[]}
       ],
-      "test_ids": ["grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound","TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"],
+      "test_ids": ["grpc::v2::status::tests::resource_name_errors_carry_their_details","grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound","TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"],
       "verification": [
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["grpc::v2::status::tests::precondition_failures_use_the_grpc_wording","grpc::v2::status::tests::resource_name_errors_carry_their_details"]},
         {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["grpc_listener_disabled_by_default_and_bound_after_initialization","grpc_listener_configuration_precedence_and_diagnostics","grpc_idle_admission_and_sigterm_drain","grpc_resource_name_parsing","grpc_record_conversion","grpc_auth_metadata_handoff","grpc_idle_connection_closes_with_goaway","grpc_idle_never_cuts_in_flight_streams","grpc_dead_peer_is_detected_by_keepalive","grpc_goaway_has_bounded_grace","grpc_response_drop_releases_stream_count","grpc_sigterm_default_deadlines_close_incomplete_handshake","grpc_silent_open_stream_is_bounded","grpc_active_stream_survives_past_bound"]},
         {"command":"just check-sdk","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"]},
         {"command":"cargo test --locked --offline --test grpc_foundation","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["grpc_idle_admission_and_sigterm_drain","grpc_sigterm_default_deadlines_close_incomplete_handshake"]},
@@ -32814,7 +32843,7 @@
       ],
       "source_checked_at": "2026-10-30",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Path/virtual-host v1/v2 listing uses shared indexed pages and strict list permissions, generation markers, opaque continuation, versions, delimiter groups and URL encoding. Scope and six LIST wire cases: docs/en/slices/xml-object-list.md. Final native Arrow listing and once-decoded bucket regressions pass; owner/full provider error parity remain pending.",
+      "notes": "Path/virtual-host v1/v2 listing uses shared indexed pages and strict list permissions, generation markers, opaque continuation, versions, delimiter groups and URL encoding. Scope and six LIST wire cases: docs/en/slices/xml-object-list.md. Final native Arrow listing and once-decoded bucket regressions pass; owner/full provider error parity remain pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): list element order and MaxKeys follow the recorded document.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -33038,7 +33067,7 @@
       ],
       "source_checked_at": "2026-10-31",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract and official-source digests: docs/en/slices/xml-bucket-operations.md. Shared selected-generation deletion atomically checks current permissions and generation/metageneration match conditions, preserves holds/retention/versioning/soft-delete, and uses XML errors. V4 signed DELETE and the local signing helper/CLI bind the unchanged method, Host, raw path and generation query. Broad ACL/authentication/billing and provider integration remain pending.",
+      "notes": "Contract and official-source digests: docs/en/slices/xml-bucket-operations.md. Shared selected-generation deletion atomically checks current permissions and generation/metageneration match conditions, preserves holds/retention/versioning/soft-delete, and uses XML errors. V4 signed DELETE and the local signing helper/CLI bind the unchanged method, Host, raw path and generation query. Broad ACL/authentication/billing and provider integration remain pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): DELETE errors carry the recorded Details element; an unknown x-goog-* header is rejected on DELETE.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -33118,7 +33147,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): object GET ignores unknown query parameters and x-goog-* headers (a recognized but unsupported query such as userProject is still rejected), a multi-range request answers 400, a checksum mismatch reports the side that differs (a CRC32C mismatch names the declared and computed values in Details), and the Range and gzip rejections of a public object are private (cache-control private, max-age=0). SPEC-XML-INPUTS keeps the local choices that the recording does not cover.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -33249,6 +33278,10 @@
         }
       ],
       "test_ids": [
+        "wire_parity_http::xml_listing_matches_the_recorded_document",
+        "wire_parity_http::xml_delete_rejects_an_unknown_x_goog_header",
+        "wire_parity_http::xml_range_errors_of_a_public_object_are_private",
+        "wire_parity_http::xml_object_errors_and_headers_match_the_recorded_responses",
         "TestV4RSASignedDownload",
         "TestV4RSASignedDownload/ResponseOverrides",
         "TestV4RSASignedDownload/SignedUpload",
@@ -33284,6 +33317,7 @@
         "xml_path_style_decodes_bucket_once_and_preserves_object_names"
       ],
       "verification": [
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["wire_parity_http::xml_object_errors_and_headers_match_the_recorded_responses","wire_parity_http::xml_range_errors_of_a_public_object_are_private","wire_parity_http::xml_delete_rejects_an_unknown_x_goog_header","wire_parity_http::xml_listing_matches_the_recorded_document"]},
         {"command":"cargo test --locked --offline --test xml_storage_http -- --test-threads=2","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/migration-integration.md","test_ids":["xml_path_style_decodes_bucket_once_and_preserves_object_names"]},
         {
           "command": "just check",
@@ -33611,7 +33645,7 @@
         "CSEK/encryption, requester user project, HTTP If-* validators, other signing formats, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
         "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
-        "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 416 with Content-Range bytes */size.",
+        "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unsupported x-goog 501 (unknown queries and x-goog-* headers on object GET and HEAD are ignored, as recorded 2026-11-01) and range fallback rules remain local choices; unsatisfiable HEAD is 416 with Content-Range bytes */size.",
         "Decompressive transcoding and dedicated XML large/slow/cancellation resource measurements remain pending; inherited bounded streaming tests and the 8 MiB selected-reader case are not an XML resource benchmark.",
         "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
@@ -33764,7 +33798,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): HEAD ignores unknown query parameters and x-goog-* headers like GET; recognized but unsupported queries such as userProject are still rejected.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -34133,7 +34167,7 @@
         "CSEK/encryption, requester user project, HTTP If-* validators, other signing formats, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
         "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
-        "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 416 with Content-Range bytes */size.",
+        "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unsupported x-goog 501 (unknown queries and x-goog-* headers on object GET and HEAD are ignored, as recorded 2026-11-01) and range fallback rules remain local choices; unsatisfiable HEAD is 416 with Content-Range bytes */size.",
         "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
       "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
@@ -34332,7 +34366,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/xml-put-object.md; source digests and final native evidence: docs/en/evidence/xml-put-object.md. Path-style bounded PUT supports Content-Length/chunked bodies, content/custom metadata, Content-MD5 and x-goog-hash MD5/CRC32C, atomic generation/metageneration matching, strict create/delete permissions, empty 200 with XML ETag/generation/hash/stored headers, bucket CORS, versioning/default event holds and restart recovery through the shared JSON upload engine. Unknown/recognized unsupported inputs fail explicitly before body reads. Full official method remains PARTIAL; 501 rejection is not implementation of its advanced inputs. Ordinary Go Writer uses JSON Objects.Insert; official SignedURL PUT now verifies XML writes through the pinned Go/Ruby signers. Complete post-EOF commits can outlive response timeout/disconnect/shutdown; only pre-EOF interruption guarantees no publication. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. V4 RSA signed PUT and declared SHA256 are implemented; full advanced XML PUT remains PARTIAL. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md.",
+      "notes": "Contract: docs/en/slices/xml-put-object.md; source digests and final native evidence: docs/en/evidence/xml-put-object.md. Path-style bounded PUT supports Content-Length/chunked bodies, content/custom metadata, Content-MD5 and x-goog-hash MD5/CRC32C, atomic generation/metageneration matching, strict create/delete permissions, empty 200 with XML ETag/generation/hash/stored headers, bucket CORS, versioning/default event holds and restart recovery through the shared JSON upload engine. Unknown/recognized unsupported inputs fail explicitly before body reads. Full official method remains PARTIAL; 501 rejection is not implementation of its advanced inputs. Ordinary Go Writer uses JSON Objects.Insert; official SignedURL PUT now verifies XML writes through the pinned Go/Ruby signers. Complete post-EOF commits can outlive response timeout/disconnect/shutdown; only pre-EOF interruption guarantees no publication. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. V4 RSA signed PUT and declared SHA256 are implemented; full advanced XML PUT remains PARTIAL. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the PUT response carries the recorded Content-Type, Vary and Expires headers and splits x-goog-hash into one header per digest; the 412 body uses the recorded wording and a checksum mismatch names the side that differs.",
       "dependencies": [
         "DESIGN-014",
         "DESIGN-052"
@@ -34636,6 +34670,10 @@
         }
       ],
       "test_ids": [
+        "wire_parity_http::xml_listing_matches_the_recorded_document",
+        "wire_parity_http::xml_delete_rejects_an_unknown_x_goog_header",
+        "wire_parity_http::xml_range_errors_of_a_public_object_are_private",
+        "wire_parity_http::xml_object_errors_and_headers_match_the_recorded_responses",
         "TestV4RSASignedDownload/SignedUpload",
         "TestV4RSAVirtualHostedURLs",
         "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
@@ -34671,6 +34709,7 @@
         "xml::put::streaming::tests::signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resource_and_restart"
       ],
       "verification": [
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["wire_parity_http::xml_object_errors_and_headers_match_the_recorded_responses","wire_parity_http::xml_range_errors_of_a_public_object_are_private","wire_parity_http::xml_delete_rejects_an_unknown_x_goog_header","wire_parity_http::xml_listing_matches_the_recorded_document"]},
         {"command":"CARGO_INCREMENTAL=0 cargo test --locked --offline --test xml_v4_hmac_http xml_v4_streaming:: -- --test-threads=1","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/xml-signed-chunked-upload.md","test_ids":["xml_v4_streaming::signed_chunks_transfer_binary_and_empty_objects_over_content_length_and_transfer_encoding","xml_v4_streaming::signed_chunk_tampering_lengths_terminal_eof_and_trailers_preserve_the_complete_old_resource","xml_v4_streaming::signed_chunks_validate_decoded_md5_and_remove_only_the_aws_encoding_token","xml_v4_streaming::signed_chunks_enforce_decoded_object_limit_and_reject_malformed_header_and_chunk_resources","xml_v4_streaming::signed_chunks_use_current_keys_and_principal_permissions_with_creator_overwrite_and_pap_ubla"]},
         {"command":"CARGO_INCREMENTAL=0 cargo test --locked --lib -- auth::signature::streaming:: xml::put::streaming:: --test-threads=1","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/xml-signed-chunked-upload.md","test_ids":["xml::put::streaming::tests::signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resource_and_restart"]},
         {"command":"cargo test --locked --offline --test xml_storage_http -- --test-threads=2","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/migration-integration.md","test_ids":["xml_path_style_decodes_bucket_once_and_preserves_object_names"]},
@@ -34943,7 +34982,7 @@
       ],
       "source_checked_at": "2026-10-30",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "XML x-goog-copy-source uses shared pinned-source, bounded derived transfer and atomic publication. Supports scoped generation/metageneration/ETag conditions, COPY/REPLACE metadata, customer keys and checksums. Seven COPY wire cases, four-way create-only race, strict permission changes and restart: docs/en/slices/xml-object-copy.md.",
+      "notes": "XML x-goog-copy-source uses shared pinned-source, bounded derived transfer and atomic publication. Supports scoped generation/metageneration/ETag conditions, COPY/REPLACE metadata, customer keys and checksums. Seven COPY wire cases, four-way create-only race, strict permission changes and restart: docs/en/slices/xml-object-copy.md. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a copy-source ETag mismatch (x-goog-copy-source-if-match) answers 400 instead of 412, and copy errors carry the recorded Details element.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",

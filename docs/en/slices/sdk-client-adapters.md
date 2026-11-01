@@ -107,8 +107,8 @@ The existing Node/PHP suites exercise these adapters, and PHP's self-check
 captures the official SDK request with a mock transport to verify the exact
 object form without a server. Google's
 [lifecycle configuration](https://docs.cloud.google.com/storage/docs/lifecycle-configurations)
-uses an object with `rule`; SPEC-JSON-UNKNOWN-QUERY and SPEC-LIFECYCLE-ARRAY stay
-open. These adapters do not broaden unknown-query or wrong-type acceptance.
+uses an object with `rule`; SPEC-JSON-UNKNOWN-QUERY and SPEC-LIFECYCLE-ARRAY are
+resolved by a recorded insert, so the native profile accepts both. The adapters themselves keep sending the documented form.
 
 ## Exact dependency snapshot
 

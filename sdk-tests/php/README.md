@@ -162,11 +162,12 @@ signer; signing never requests a token, and no bearer header is attached.
 - `Bucket::object()` documents a `softDeleted` option but 2.6.1 drops it; the
   suite passes `softDeleted` to `StorageObject::info()` instead.
 - `Lifecycle::clearRules()` leaves an empty PHP array that the SDK sends as
-  `"lifecycle": []`, which gcs-mimic rejects with guidance to use
-  `{"rule": []}`. The suite clears rules with the documented array form
-  `['lifecycle' => ['rule' => []]]`. Official sources do not say how Cloud
-  Storage itself treats `"lifecycle": []`; the question is recorded as
-  `SPEC-LIFECYCLE-ARRAY` in `compatibility/gaps.json`.
+  `"lifecycle": []`. The native profile accepts it and leaves the rules
+  unchanged (a recorded Cloud Storage insert accepted the array); the
+  legacy-emulator profile rejects it with guidance to use `{"rule": []}`. The
+  suite clears rules with the documented array form
+  `['lifecycle' => ['rule' => []]]`; the question was recorded as
+  `SPEC-LIFECYCLE-ARRAY` in `compatibility/gaps.json` and is resolved.
 - Notification options use the SDK's snake_case names (`event_types`,
   `object_name_prefix`, `custom_attributes`, `payload_format`); camelCase
   names are silently dropped by the SDK request builder.

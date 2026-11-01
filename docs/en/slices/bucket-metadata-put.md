@@ -10,6 +10,14 @@ soft-delete policies. Explicit values retain their existing validation and effec
 This local compatibility choice supports Ruby Storage 1.62.1 update blocks;
 it has not been verified against real GCS (SPEC-BUCKET-PUT).
 
+**Update 2026-11-01.** A recorded Cloud Storage session showed PUT replacing the
+resource, so the native profile now clears the omitted labels, CORS, lifecycle,
+versioning, retention policy (a locked one stays) and default event-based hold,
+keeps the storage class, soft-delete policy and access settings, applies
+`predefinedAcl`, and answers 400 when the body `name` differs from the path.
+The preservation described above now applies only to the legacy-emulator
+profile, which stays a local compatibility choice.
+
 ## Sources and reconciliation
 
 - [UPDATE](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/update),
