@@ -56,15 +56,16 @@ delete, with checks in the mutation transaction.
 New media, multipart and resumable-finalization objects inherit the current
 bucket `defaultEventBasedHold`, unless object metadata explicitly supplies
 `eventBasedHold`. Both boolean values are writable on insert, PATCH and PUT.
-PATCH omission preserves the hold. PUT omission clears the hold in the native profile (as
-recorded from Cloud Storage) and preserves it in the legacy-emulator profile, a local
+PATCH omission preserves the hold. PUT omission returns the hold to never set in the native profile (as recorded
+from Cloud Storage) and preserves it in the legacy-emulator profile, a local
 conservative rule pending independent evidence; explicit false releases it.
-Invalid scalar/null input is rejected with 400 `invalidArgument`. Held live
+A value of the wrong type or null names nothing and changes no state. Held live
 objects reject overwrite and delete; a held noncurrent generation rejects explicit
 deletion. Metadata changes, including hold release on a selected noncurrent
 generation, remain permitted. Hold changes increment metageneration without
-changing generation, bytes or checksums. Rendering includes true holds; false
-representation is a local wire choice documented below.
+changing generation, bytes or checksums. Rendering reports a hold that was set
+and then released as `false` and omits one that was never set (recorded 2026-11-01); copy, rewrite and compose
+destinations start never set.
 
 The live/noncurrent change, preconditions, hold check, authorization and deletion
 journal insertion share one short SQL transaction. All generations stay in the
@@ -152,9 +153,10 @@ performance benchmark is claimed.
   unsupported, including false; this is an emulator 501 rather than Google's error.
 - Configuration propagation is immediate locally; Google's versioning guide
   advises allowing at least 30 seconds for configuration changes to propagate.
-- Exact hold error message text, false-field omission versus explicit false,
-  null and omitted PUT hold handling, combined failure precedence and timestamp
-  changes on archival have not been verified against a real Google bucket.
+- The hold error message text, the false representation and PUT omission match the
+  2026-11-01 recording. Null and wrong-type hold values outside the recorded
+  states, combined failure precedence and timestamp changes on archival have not
+  been verified against a real Google bucket.
   Error status/reason are sourced above; local choices must not be called exact
   provider wire parity. No real-cloud test or irreversible retention action runs.
 - Existing precondition/authorization ordering, unknown/output-only input rules,
