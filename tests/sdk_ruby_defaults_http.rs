@@ -50,7 +50,7 @@ fn ruby_default_create_bucket() {
                     .to_string()
                     .as_bytes(),
             )
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/unsupported-autoclass", "", b"")

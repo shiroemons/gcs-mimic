@@ -352,7 +352,9 @@ impl From<JsonError> for Error {
                 "ObjectUnderActiveHold"
             }
             StatusCode::FORBIDDEN => "AccessDenied",
-            StatusCode::NOT_FOUND if error.message == "Bucket not found" => "NoSuchBucket",
+            StatusCode::NOT_FOUND if error.message == crate::json::BUCKET_NOT_FOUND => {
+                "NoSuchBucket"
+            }
             StatusCode::NOT_FOUND => "NoSuchKey",
             StatusCode::PRECONDITION_FAILED => "PreconditionFailed",
             StatusCode::RANGE_NOT_SATISFIABLE => "InvalidRange",

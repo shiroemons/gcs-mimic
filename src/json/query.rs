@@ -277,11 +277,13 @@ fn parse_iam(
     super::Fields::take(&mut query, "Policy")?;
     common(&mut query)?;
     if *method == Method::GET {
+        // Cloud Storage answered an out-of-range version such as -1 with its version 1 policy
+        // (recorded 2026-10-31), so only a value that is not an integer is a bad parameter.
         if let Some(version) = query.remove("optionsRequestedPolicyVersion")
-            && !matches!(version.as_str(), "1" | "3")
+            && version.parse::<i32>().is_err()
         {
             return Err(JsonError::invalid_parameter(
-                "optionsRequestedPolicyVersion must be 1 or 3",
+                "optionsRequestedPolicyVersion must be an integer",
             ));
         }
         finish(&query)?;
@@ -412,65 +414,14 @@ fn parse(
             let projection = projection(&mut query)?;
             query.remove("predefinedAcl");
             query.remove("predefinedDefaultObjectAcl");
-            finish(&query)?;
+            finish_bucket(&query, profile)?;
             Ok(BucketRequest::Insert(InsertParams {
                 project,
                 projection,
                 enable_object_retention,
             }))
         }
-        (&Method::GET, None) => {
-            let soft_deleted = boolean(&mut query, "softDeleted")?;
-            false_only(&mut query, "returnPartialSuccess")?;
-            if profile == CompatProfile::LegacyEmulator {
-                query
-                    .entry("project".into())
-                    .or_insert_with(|| seed_project.into());
-            }
-            let project = project(&mut query)?;
-            let projection = projection(&mut query)?;
-            let page_cap = if projection == Projection::Full {
-                200
-            } else {
-                1000
-            };
-            let max_results = match query.remove("maxResults") {
-                None => page_cap,
-                Some(value) => {
-                    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-                        return Err(JsonError::invalid_parameter("maxResults must be a uint32"));
-                    }
-                    let size = value
-                        .parse::<u32>()
-                        .map_err(|_| JsonError::invalid_parameter("maxResults must be a uint32"))?;
-                    if size == 0 {
-                        page_cap
-                    } else {
-                        size.min(page_cap)
-                    }
-                }
-            };
-            let prefix = query.remove("prefix").unwrap_or_default();
-            if prefix.len() > 222 {
-                return Err(JsonError::invalid_parameter("prefix exceeds 222 bytes"));
-            }
-            if soft_deleted {
-                return soft_deleted_list(&mut query, project, projection, max_results, prefix);
-            }
-            let start_after = query
-                .remove("pageToken")
-                .filter(|token| !token.is_empty())
-                .map(|token| decode_page_token(&token, &project, &prefix))
-                .transpose()?;
-            finish(&query)?;
-            Ok(BucketRequest::List(ListParams {
-                project,
-                projection,
-                max_results,
-                prefix,
-                start_after,
-            }))
-        }
+        (&Method::GET, None) => parse_bucket_list(&mut query, profile, seed_project),
         (&Method::GET | &Method::PATCH | &Method::PUT, Some(bucket)) => {
             if *method == Method::GET {
                 if let Some(request) = soft_deleted_get(&mut query, &bucket)? {
@@ -481,11 +432,15 @@ fn parse(
                 query.remove("predefinedDefaultObjectAcl");
             }
             let conditions = conditions(&mut query)?;
-            if *method == Method::PUT && !query.contains_key("projection") {
+            // The legacy profile answers a PUT with the full projection by default.
+            if *method == Method::PUT
+                && profile == CompatProfile::LegacyEmulator
+                && !query.contains_key("projection")
+            {
                 query.insert("projection".into(), "full".into());
             }
             let projection = projection(&mut query)?;
-            finish(&query)?;
+            finish_bucket(&query, profile)?;
             let params = GetParams {
                 conditions,
                 projection,
@@ -500,11 +455,69 @@ fn parse(
         }
         (&Method::DELETE, Some(bucket)) => {
             let conditions = conditions(&mut query)?;
-            finish(&query)?;
+            finish_bucket(&query, profile)?;
             Ok(BucketRequest::Delete { bucket, conditions })
         }
         _ => unreachable!("route validates supported methods"),
     }
+}
+
+/// `GET /storage/v1/b`: the project's buckets, or its soft-deleted ones.
+fn parse_bucket_list(
+    query: &mut BTreeMap<String, String>,
+    profile: CompatProfile,
+    seed_project: &str,
+) -> Result<BucketRequest, JsonError> {
+    let soft_deleted = boolean(query, "softDeleted")?;
+    false_only(query, "returnPartialSuccess")?;
+    if profile == CompatProfile::LegacyEmulator {
+        query
+            .entry("project".into())
+            .or_insert_with(|| seed_project.into());
+    }
+    let project = project(query)?;
+    let projection = projection(query)?;
+    let page_cap = if projection == Projection::Full {
+        200
+    } else {
+        1000
+    };
+    let max_results = match query.remove("maxResults") {
+        None => page_cap,
+        Some(value) => {
+            if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(JsonError::invalid_parameter("maxResults must be a uint32"));
+            }
+            let size = value
+                .parse::<u32>()
+                .map_err(|_| JsonError::invalid_parameter("maxResults must be a uint32"))?;
+            if size == 0 {
+                page_cap
+            } else {
+                size.min(page_cap)
+            }
+        }
+    };
+    let prefix = query.remove("prefix").unwrap_or_default();
+    if prefix.len() > 222 {
+        return Err(JsonError::invalid_parameter("prefix exceeds 222 bytes"));
+    }
+    if soft_deleted {
+        return soft_deleted_list(query, project, projection, max_results, prefix);
+    }
+    let start_after = query
+        .remove("pageToken")
+        .filter(|token| !token.is_empty())
+        .map(|token| decode_page_token(&token, &project, &prefix))
+        .transpose()?;
+    finish_bucket(query, profile)?;
+    Ok(BucketRequest::List(ListParams {
+        project,
+        projection,
+        max_results,
+        prefix,
+        start_after,
+    }))
 }
 
 pub(crate) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonError> {
@@ -570,7 +583,7 @@ fn project(query: &mut BTreeMap<String, String>) -> Result<String, JsonError> {
         JsonError::new(
             StatusCode::BAD_REQUEST,
             "required",
-            "Missing required project; add ?project=local-project to the bucket collection URL",
+            "Required parameter: project",
         )
     })?;
     validate_project(&project)?;
@@ -595,9 +608,9 @@ pub(super) fn projection(query: &mut BTreeMap<String, String>) -> Result<Project
     match query.remove("projection").as_deref() {
         None | Some("noAcl") => Ok(Projection::NoAcl),
         Some("full") => Ok(Projection::Full),
-        Some(_) => Err(JsonError::invalid_parameter(
-            "projection must be noAcl or full",
-        )),
+        Some(other) => Err(JsonError::invalid_parameter(format!(
+            "Invalid string value: '{other}'. Allowed values: [full, noacl]"
+        ))),
     }
 }
 
@@ -639,6 +652,19 @@ fn conditions(query: &mut BTreeMap<String, String>) -> Result<Conditions, JsonEr
         if_metageneration_match: integer("ifMetagenerationMatch")?,
         if_metageneration_not_match: integer("ifMetagenerationNotMatch")?,
     })
+}
+
+/// Bucket reads and writes ignore a query parameter they do not define, as Cloud Storage does for
+/// `append=false` on insert and PATCH (recorded 2026-10-31). The legacy profile rejects it.
+fn finish_bucket(
+    query: &BTreeMap<String, String>,
+    profile: CompatProfile,
+) -> Result<(), JsonError> {
+    if profile == CompatProfile::Native {
+        Ok(())
+    } else {
+        finish(query)
+    }
 }
 
 pub(super) fn finish(query: &BTreeMap<String, String>) -> Result<(), JsonError> {

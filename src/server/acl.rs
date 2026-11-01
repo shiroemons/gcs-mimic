@@ -31,45 +31,51 @@ fn permission(kind: AclKind, access: AclAccess) -> &'static str {
     }
 }
 
-fn acl_error(error: AclError, target: &AclTarget) -> JsonError {
+fn acl_error(error: AclError, access: AclAccess) -> JsonError {
     match error {
         AclError::Bucket(error) => error.into(),
         AclError::Object(error) => error.into(),
-        // Exact service reason and message are unverified; `invalid` matches other 400s for
-        // operations that uniform bucket-level access disables.
-        AclError::UniformAccess => JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "invalid",
-            format!(
-                "Cannot use legacy ACLs on bucket {} because uniform bucket-level access is enabled; manage access with bucket IAM policies (for example, PUT /storage/v1/b/{}/iam)",
-                target.bucket(),
-                target.bucket()
-            ),
-        ),
-        AclError::EntityNotFound(entity) => JsonError::new(
-            StatusCode::NOT_FOUND,
-            "notFound",
-            format!(
-                "No ACL entry exists for entity {entity}; list the ACL to see current entities"
-            ),
-        ),
+        // Cloud Storage words the refusal of a read; the write wording was not recorded, so a
+        // write reuses the bucket update refusal.
+        AclError::UniformAccess => JsonError::invalid(match access {
+            AclAccess::Read => UNIFORM_ACCESS_GET_ACL,
+            AclAccess::Write => UNIFORM_ACCESS_UPDATE_ACL,
+        }),
+        AclError::EntityNotFound {
+            entity,
+            project_number,
+        } => entity_not_found(&entity, &project_number),
         AclError::RoleRequired => JsonError::new(
             StatusCode::BAD_REQUEST,
             "required",
-            "Required field role is missing for an entity without an ACL entry; for example, send {\"role\":\"READER\"}",
+            "Access control must contain a role",
         ),
-        AclError::TooManyEntries => JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "invalid",
-            format!(
-                "An ACL can hold at most {} entries; delete an entry before adding another",
-                crate::acl::MAX_ENTRIES
-            ),
-        ),
+        AclError::TooManyEntries => JsonError::invalid(format!(
+            "An ACL can hold at most {} entries; delete an entry before adding another",
+            crate::acl::MAX_ENTRIES
+        )),
         AclError::NotModified => {
             JsonError::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
         }
     }
+}
+
+const UNIFORM_ACCESS_GET_ACL: &str = "Cannot get legacy ACL for a bucket that has uniform bucket-level access. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access";
+const UNIFORM_ACCESS_UPDATE_ACL: &str = "Cannot use ACL API to update bucket policy when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access";
+
+/// A missing entity. A project-team entity that names another project is a bad request about
+/// that project, and any other missing entity is a missing key (recorded 2026-10-31).
+fn entity_not_found(entity: &str, project_number: &str) -> JsonError {
+    if let Ok(crate::acl::Entity::ProjectTeam { project, .. }) = crate::acl::Entity::parse(entity)
+        && project != project_number
+    {
+        return JsonError::invalid(format!("Project \"{project}\" was not found."));
+    }
+    JsonError::new(
+        StatusCode::NOT_FOUND,
+        "notFound",
+        "The specified key does not exist.",
+    )
 }
 
 fn owner<'a>(target: &'a AclTarget, state: &'a AclState) -> AclOwner<'a> {
@@ -135,7 +141,7 @@ pub(super) async fn respond(
                     &access,
                 )
                 .await
-                .map_err(|error| acl_error(error, &target))?;
+                .map_err(|error| naming_object(acl_error(error, acl_access), &target))?;
             match &operation {
                 AclOperation::Get(entity) => {
                     let entry = acl
@@ -143,7 +149,13 @@ pub(super) async fn respond(
                         .iter()
                         .find(|entry| &entry.entity == entity)
                         .ok_or_else(|| {
-                            acl_error(AclError::EntityNotFound(entity.clone()), &target)
+                            acl_error(
+                                AclError::EntityNotFound {
+                                    entity: entity.clone(),
+                                    project_number: acl.project_number.clone(),
+                                },
+                                acl_access,
+                            )
                         })?;
                     json::acl::acl_entry_resource(base, owner(&target, &acl), entry)
                 }
@@ -161,7 +173,7 @@ pub(super) async fn respond(
                     &access,
                 )
                 .await
-                .map_err(|error| acl_error(error, &target))?;
+                .map_err(|error| naming_object(acl_error(error, acl_access), &target))?;
             return Ok(empty_response(StatusCode::NO_CONTENT));
         }
         AclOperation::Insert | AclOperation::Patch(_) | AclOperation::Update(_) => {
@@ -178,7 +190,7 @@ pub(super) async fn respond(
                     &access,
                 )
                 .await
-                .map_err(|error| acl_error(error, &target))?;
+                .map_err(|error| naming_object(acl_error(error, acl_access), &target))?;
             // The catalog returns the entry that every upsert writes.
             let entry = entry.ok_or_else(|| {
                 JsonError::new(
@@ -194,14 +206,44 @@ pub(super) async fn respond(
     Ok(json_response(&value))
 }
 
-/// Whether a bucket or object request renders `projection=full`; PUT defaults to full.
+/// Whether a bucket request renders `projection=full` before the body is read. Recorded on
+/// 2026-10-31: a PATCH without `projection` returned `acl`, `defaultObjectAcl` and `owner`, while a
+/// PUT did so only when it carried a predefined ACL parameter; insert and get default to noAcl.
+pub(super) fn bucket_full_projection(
+    method: &Method,
+    query: Option<&str>,
+    profile: crate::config::CompatProfile,
+) -> bool {
+    // The legacy profile keeps the earlier rule: only PUT defaults to full.
+    if profile == crate::config::CompatProfile::LegacyEmulator {
+        return full_projection(method, query);
+    }
+    let predefined = json::parse_query(query.unwrap_or_default()).is_ok_and(|query| {
+        query.contains_key("predefinedAcl") || query.contains_key("predefinedDefaultObjectAcl")
+    });
+    full_projection_or(
+        method,
+        query,
+        if predefined {
+            &[Method::PUT, Method::PATCH]
+        } else {
+            &[Method::PATCH]
+        },
+    )
+}
+
+/// Whether an object request renders `projection=full`; PUT defaults to full.
 pub(super) fn full_projection(method: &Method, query: Option<&str>) -> bool {
+    full_projection_or(method, query, &[Method::PUT])
+}
+
+fn full_projection_or(method: &Method, query: Option<&str>, default_full: &[Method]) -> bool {
     let projection = json::parse_query(query.unwrap_or_default())
         .ok()
         .and_then(|mut query| query.remove("projection"));
     match projection.as_deref() {
         Some(projection) => projection == "full",
-        None => method == Method::PUT,
+        None => default_full.contains(method),
     }
 }
 
@@ -293,10 +335,8 @@ async fn add_bucket(
         .and_then(|value| value.parse().ok())
         .unwrap_or(acl.bucket_metageneration);
     if acl.uniform_access {
-        // ACLs stay stored for a later UBLA disable, but they are not part of the resource.
-        value["owner"] = serde_json::json!({
-            "entity": format!("project-owners-{}", crate::acl::project_number(&acl.project))
-        });
+        // ACLs stay stored for a later UBLA disable, but they are not part of the resource, and
+        // Cloud Storage reports no `owner` either (recorded 2026-10-31).
         return Ok(());
     }
     json::acl::add_bucket_acl_fields(
@@ -372,4 +412,12 @@ async fn add_objects(
         }
     }
     Ok(())
+}
+
+/// Cloud Storage names the requested object in its not-found message.
+fn naming_object(error: JsonError, target: &AclTarget) -> JsonError {
+    match target {
+        AclTarget::Object { bucket, name, .. } => error.naming_object(bucket, name),
+        _ => error,
+    }
 }

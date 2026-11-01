@@ -1069,20 +1069,20 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
                 br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":false}}}"#,
             )
             .error(412, "conditionNotMet");
-        server.request(method, path, ADMIN, br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":[]},"bucketPolicyOnly":{"enabled":false}}}"#).error(400, "invalidArgument");
+        server.request(method, path, ADMIN, br#"{"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":[]},"bucketPolicyOnly":{"enabled":false}}}"#).error(400, "invalid");
         for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
             let reply = server.request(method, &format!("{path}?{key}=publicRead"), ADMIN, b"{}");
-            reply.error(400, "invalidArgument");
+            reply.error(400, "invalid");
             assert!(
                 reply.json()["error"]["message"]
                     .as_str()
                     .unwrap()
-                    .contains(&format!("remove {key}"))
+                    .contains("uniform bucket-level access")
             );
         }
     }
     for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
-        server.request("POST", &format!("/storage/v1/b?project=project-a&{key}=private"), ADMIN, br#"{"name":"rejected-create","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#).error(400, "invalidArgument");
+        server.request("POST", &format!("/storage/v1/b?project=project-a&{key}=private"), ADMIN, br#"{"name":"rejected-create","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#).error(400, "invalid");
         server
             .get(ADMIN, "/storage/v1/b/rejected-create")
             .error(404, "notFound");

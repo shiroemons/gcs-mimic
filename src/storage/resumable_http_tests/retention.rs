@@ -38,10 +38,11 @@ async fn retention_configuration_lock_permissions_and_restart() {
             json!({"retentionPolicy":{"retentionPeriod":period}}),
         )
         .await
-        .error(400, "invalidArgument");
+        .error(400, "invalid");
     }
     let bucket = policy(&h, json!({"retentionPeriod":"3600", "isLocked":true})).await;
-    assert_eq!(bucket["retentionPolicy"]["isLocked"], false);
+    // A policy is reported unlocked by leaving `isLocked` out (recorded 2026-10-31).
+    assert!(bucket["retentionPolicy"].get("isLocked").is_none());
     assert!(bucket["retentionPolicy"]["effectiveTime"].is_string());
     let fetched = h
         .request("GET", "/storage/v1/b/bucket", ADMIN, b"")
@@ -105,7 +106,17 @@ async fn retention_configuration_lock_permissions_and_restart() {
         .await;
     assert_eq!(locked.status, 200, "{}", locked.json());
     assert_eq!(locked.json()["retentionPolicy"]["isLocked"], true);
-    for value in [Value::Null, json!({}), json!({"retentionPeriod":"3599"})] {
+    // An empty policy member restates nothing (recorded 2026-10-31); the locked policy stays.
+    let unchanged = call(
+        &h,
+        "PATCH",
+        "/storage/v1/b/bucket",
+        json!({"retentionPolicy":{}}),
+    )
+    .await;
+    assert_eq!(unchanged.status, 200, "{}", unchanged.json());
+    assert_eq!(unchanged.json()["retentionPolicy"]["isLocked"], true);
+    for value in [Value::Null, json!({"retentionPeriod":"3599"})] {
         let error = call(
             &h,
             "PATCH",
@@ -203,12 +214,11 @@ async fn retention_insert_patch_put_defaults_and_empty_policy_lock() {
         replaced.json()["retentionPolicy"]["retentionPeriod"],
         "7200"
     );
+    // A native PUT replaces the resource, so an omitted retention policy is cleared (recorded
+    // 2026-10-31).
     let preserved = call(&h, "PUT", "/storage/v1/b/bucket", json!({})).await;
     assert_eq!(preserved.status, 200);
-    assert_eq!(
-        preserved.json()["retentionPolicy"],
-        replaced.json()["retentionPolicy"]
-    );
+    assert!(preserved.json().get("retentionPolicy").is_none());
     let cleared = call(
         &h,
         "PUT",

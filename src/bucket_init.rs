@@ -2267,7 +2267,6 @@ mod tests {
         );
         for field in [
             "versioning",
-            "iamConfiguration",
             "labels",
             "name",
             "location",
@@ -2282,6 +2281,11 @@ mod tests {
                 assert!(parsed(&document).is_err(), "{field}");
             }
         }
+        // Cloud Storage reads a null iamConfiguration as "no setting" (recorded 2026-10-31).
+        let document =
+            json!({"version":1,"buckets":[{"name":"example-bucket","iamConfiguration":null}]})
+                .to_string();
+        assert!(parsed(&document).is_ok());
     }
 
     #[test]

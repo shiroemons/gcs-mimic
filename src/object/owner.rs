@@ -29,10 +29,16 @@ impl ObjectOwner {
         if let Some(entry) = entries.iter_mut().find(|entry| entry.entity == entity) {
             entry.role = "OWNER".into();
         } else {
-            entries.push(AclEntry {
+            let grant = AclEntry {
                 entity,
                 role: "OWNER".into(),
-            });
+            };
+            // Cloud Storage lists the project owners team first on an object, ahead of the
+            // other project teams (recorded 2026-10-31); any other owner follows them.
+            match self {
+                Self::ProjectOwners { .. } => entries.insert(0, grant),
+                Self::Principal { .. } => entries.push(grant),
+            }
         }
     }
 

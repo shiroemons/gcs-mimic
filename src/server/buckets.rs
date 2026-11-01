@@ -50,11 +50,14 @@ pub(super) async fn respond<'a>(
     validate_request(&request, &operation)?;
     let fields = response_fields(&request, &operation)?;
     // ACL entries of a soft-deleted version are kept for restore but not rendered.
-    let acl_full = acl::full_projection(request.method(), request.uri().query())
+    let acl_full = acl::bucket_full_projection(request.method(), request.uri().query(), profile)
         && !matches!(
             operation,
             BucketRequest::GetSoftDeleted { .. } | BucketRequest::ListSoftDeleted(_)
         );
+    // A write that turns uniform bucket-level access off answers without ACL fields, as one that
+    // turns it on does (recorded 2026-10-31), so the state before the write matters too.
+    let acl_full = acl_full && !leaves_uniform_access(state, &access, &operation).await?;
     // Only the recorded bucket list carries a cache header; other bucket operations keep none.
     let cache = if matches!(operation, BucketRequest::List(_)) {
         JsonCache::Resource
@@ -117,6 +120,23 @@ pub(super) async fn respond<'a>(
     }
     fields.apply(&mut value);
     Ok(json_response_cached(&value, cache))
+}
+
+/// Whether a PATCH or PUT starts on a bucket whose uniform bucket-level access is enabled.
+async fn leaves_uniform_access(
+    state: &State,
+    access: &BucketAccess,
+    operation: &BucketRequest,
+) -> Result<bool, JsonError> {
+    let (BucketRequest::Patch { bucket, .. } | BucketRequest::Update { bucket, .. }) = operation
+    else {
+        return Ok(false);
+    };
+    Ok(state
+        .catalog
+        .get_bucket_authorized(bucket, access)
+        .await?
+        .is_some_and(|record| record.uniform_bucket_level_access_locked_time.is_some()))
 }
 
 async fn authorize(
@@ -312,7 +332,8 @@ async fn write(
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
     let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-    let update = match mode {
+    json::require_matching_bucket_name(&bytes, bucket)?;
+    let mut update = match mode {
         WriteMode::Replace => json::parse_bucket_replacement(&bytes, profile)?,
         WriteMode::Patch => json::parse_bucket_patch(&bytes, profile)?,
     };
@@ -321,14 +342,21 @@ async fn write(
         .get_bucket_authorized(bucket, access)
         .await?
         .ok_or(CatalogError::NotFound)?;
-    json::reject_predefined_acl(
+    let predefined = json::bucket_predefined_acls(
         acl_query.as_deref(),
         json::UniformAccess::of(
             record.uniform_bucket_level_access_locked_time,
             update.uniform_bucket_level_access_enabled,
         ),
-        json::PredefinedAclTarget::Bucket,
+        json::BucketAclWrite::Update,
+        profile,
     )?;
+    if let Some(acl) = predefined.acl {
+        update.acl = Some(acl.entries(&record.project));
+    }
+    if let Some(acl) = predefined.default_object_acl {
+        update.default_object_acl = Some(acl.entries(&record.project));
+    }
     let conditions = params.conditions;
     let match_failed = conditions
         .if_metageneration_match
@@ -384,7 +412,6 @@ async fn write(
             // whose ifMetagenerationMatch failed. The wording is reused for a failed
             // ifMetagenerationNotMatch (unobserved), but `If-Match` is named only when
             // ifMetagenerationMatch failed.
-            error.message = "At least one of the pre-conditions you specified did not hold.".into();
             if match_failed {
                 error.location = Some(&crate::json::IF_MATCH_HEADER);
             }
@@ -482,16 +509,17 @@ async fn insert(
         &state.default_location,
     )?;
     if record.object_retention_enabled && !params.enable_object_retention {
-        return Err(JsonError::invalid_argument(
+        return Err(JsonError::invalid(
             "objectRetention is output-only; add the enableObjectRetention=true query parameter to enable object retention",
         ));
     }
     record.object_retention_enabled = params.enable_object_retention;
     let name = record.name.clone();
-    json::reject_predefined_acl(
+    json::bucket_predefined_acls(
         acl_query.as_deref(),
         json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
-        json::PredefinedAclTarget::Bucket,
+        json::BucketAclWrite::Insert,
+        profile,
     )?;
     let record = state
         .catalog
@@ -652,6 +680,13 @@ fn bucket_catalog_error(
         match error {
             CatalogError::NotFound => {
                 return JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found");
+            }
+            CatalogError::PreconditionFailed => {
+                return JsonError::new(
+                    StatusCode::PRECONDITION_FAILED,
+                    "conditionNotMet",
+                    "Precondition failed",
+                );
             }
             CatalogError::NotEmpty => {
                 return JsonError::new(
