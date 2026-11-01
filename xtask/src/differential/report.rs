@@ -148,6 +148,8 @@ pub(crate) struct Header<'a> {
     pub(crate) reference_requests: Option<u64>,
     pub(crate) cleanup: &'a [String],
     pub(crate) reference_cleanup: &'a [String],
+    /// Cases not run (for example gRPC cases without `grpcurl`), one line each.
+    pub(crate) skipped: &'a [String],
 }
 
 fn show(value: &Option<Value>) -> String {
@@ -250,6 +252,12 @@ pub(crate) fn markdown(header: &Header<'_>, reports: &[CaseReport]) -> String {
             }
         }
     }
+    if !header.skipped.is_empty() {
+        out.push_str("\n## Skipped\n\n");
+        for line in header.skipped {
+            out.push_str(&format!("- {line}\n"));
+        }
+    }
     out.push_str("\n## Cleanup\n\n");
     for (label, lines) in [
         ("mimic", header.cleanup),
@@ -292,6 +300,7 @@ pub(crate) fn json_report(header: &Header<'_>, reports: &[CaseReport]) -> Value 
         "reference_requests": header.reference_requests,
         "cleanup": header.cleanup,
         "reference_cleanup": header.reference_cleanup,
+        "skipped": header.skipped,
         "cases": reports.iter().map(|r| json!({
             "id": r.id,
             "result": r.outcome.label(reference),
@@ -376,6 +385,7 @@ mod tests {
             reference_requests: Some(9),
             cleanup: &[],
             reference_cleanup: &[],
+            skipped: &[],
         };
         let md = markdown(&header, std::slice::from_ref(&report));
         assert!(md.contains("status: reference `404`, mimic `400`"));

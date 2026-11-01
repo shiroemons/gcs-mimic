@@ -40,10 +40,25 @@ pub(crate) enum Body {
     Text(String),
 }
 
+/// How a step reaches the service. `Http` is the JSON API; `Xml` is the same
+/// HTTP transport against the path-style XML API (`/{bucket}/{object}`), whose
+/// XML bodies are compared as ordered trees; `Grpc` goes through `grpcurl`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Protocol {
+    #[default]
+    Http,
+    Xml,
+    Grpc,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Step {
     pub(crate) name: String,
+    pub(crate) protocol: Protocol,
+    /// The HTTP verb, or the full RPC name (`google.storage.v2.Storage/GetBucket`)
+    /// for a gRPC step.
     pub(crate) method: String,
+    /// Empty for a gRPC step.
     pub(crate) path: String,
     pub(crate) query: Vec<(String, String)>,
     pub(crate) headers: Vec<(String, String)>,
@@ -64,6 +79,10 @@ pub(crate) struct Case {
 }
 
 impl Case {
+    pub(crate) fn uses_grpc(&self) -> bool {
+        self.steps.iter().any(|s| s.protocol == Protocol::Grpc)
+    }
+
     pub(crate) fn uses_variable(&self, name: &str) -> bool {
         self.steps.iter().any(|step| {
             step_variables(step)
@@ -160,6 +179,70 @@ fn parse_compare(value: &Value, base: &CompareOpts, context: &str) -> Result<Com
     Ok(opts)
 }
 
+/// Resolves `protocol` with its target: `method` and `path` for HTTP and XML,
+/// `rpc` for gRPC.
+fn parse_target(map: &Map<String, Value>, context: &str) -> Result<(Protocol, String, String)> {
+    let protocol = match map.get("protocol").map(Value::as_str) {
+        None | Some(Some("http")) => Protocol::Http,
+        Some(Some("xml")) => Protocol::Xml,
+        Some(Some("grpc")) => Protocol::Grpc,
+        Some(_) => {
+            return Err(format!(
+                "{context}.protocol: expected \"http\", \"xml\" or \"grpc\""
+            ));
+        }
+    };
+    let text = |key: &str| -> Result<String> {
+        map.get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| format!("{context}.{key}: expected a nonempty string"))
+    };
+    if protocol == Protocol::Grpc {
+        if let Some(field) = ["method", "path", "query"]
+            .into_iter()
+            .find(|f| map.contains_key(*f))
+        {
+            return Err(format!("{context}.{field}: not valid for a gRPC step"));
+        }
+        let rpc = text("rpc")?;
+        let well_formed = rpc.split_once('/').is_some_and(|(service, method)| {
+            !service.is_empty() && !method.is_empty() && !method.contains('/')
+        });
+        if !well_formed {
+            return Err(format!("{context}.rpc: expected package.Service/Method"));
+        }
+        return Ok((protocol, rpc, String::new()));
+    }
+    if map.contains_key("rpc") {
+        return Err(format!("{context}.rpc: only valid for a gRPC step"));
+    }
+    let method = text("method")?;
+    if !["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].contains(&method.as_str()) {
+        return Err(format!("{context}.method: unsupported method {method}"));
+    }
+    let path = text("path")?;
+    if !path.starts_with('/') {
+        return Err(format!("{context}.path: must start with /"));
+    }
+    Ok((protocol, method, path))
+}
+
+/// A gRPC request is one JSON message, or an array of messages for a
+/// client-streaming call; there is no text body.
+fn check_grpc_step(body: &Body, context: &str) -> Result<()> {
+    match body {
+        Body::None => Ok(()),
+        Body::Json(Value::Object(_)) => Ok(()),
+        Body::Json(Value::Array(items)) if items.iter().all(Value::is_object) => Ok(()),
+        Body::Json(_) => Err(format!(
+            "{context}.body: expected a message object or an array of message objects"
+        )),
+        Body::Text(_) => Err(format!("{context}.body_text: not valid for a gRPC step")),
+    }
+}
+
 fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<Step> {
     let map = value
         .as_object()
@@ -169,6 +252,7 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
         &[
             "name",
             "protocol",
+            "rpc",
             "method",
             "path",
             "query",
@@ -188,19 +272,7 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
             .map(str::to_owned)
             .ok_or_else(|| format!("{context}.{key}: expected a nonempty string"))
     };
-    if let Some(protocol) = map.get("protocol")
-        && protocol != "http"
-    {
-        return Err(format!("{context}.protocol: only \"http\" is supported"));
-    }
-    let method = text("method")?;
-    if !["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].contains(&method.as_str()) {
-        return Err(format!("{context}.method: unsupported method {method}"));
-    }
-    let path = text("path")?;
-    if !path.starts_with('/') {
-        return Err(format!("{context}.path: must start with /"));
-    }
+    let (protocol, method, path) = parse_target(map, context)?;
     let body = match (map.get("body"), map.get("body_text")) {
         (Some(_), Some(_)) => return Err(format!("{context}: body and body_text are exclusive")),
         (Some(json), None) => Body::Json(json.clone()),
@@ -208,6 +280,9 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
         (None, Some(_)) => return Err(format!("{context}.body_text: expected a string")),
         (None, None) => Body::None,
     };
+    if protocol == Protocol::Grpc {
+        check_grpc_step(&body, context)?;
+    }
     let expect_status = match map.get("expect_status") {
         None => None,
         Some(status) => Some(
@@ -229,6 +304,7 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
     };
     Ok(Step {
         name: text("name")?,
+        protocol,
         method,
         path,
         query: map
@@ -346,8 +422,10 @@ fn validate(case: &Case) -> Result<()> {
     }
 }
 
+/// Also matches the gRPC spellings (`LockBucketRetentionPolicy`, `lock_retention_policy`).
 fn mentions_lock(text: &str) -> bool {
-    text.to_ascii_lowercase().contains("lockretentionpolicy")
+    let flat = text.to_ascii_lowercase().replace('_', "");
+    flat.contains("lockretentionpolicy") || flat.contains("lockbucketretentionpolicy")
 }
 
 fn json_locks(value: &Value) -> Option<String> {
@@ -358,7 +436,7 @@ fn json_locks(value: &Value) -> Option<String> {
                     || item
                         .as_str()
                         .is_some_and(|s| s.eq_ignore_ascii_case("true"));
-                if key.eq_ignore_ascii_case("isLocked") && truthy {
+                if key.replace('_', "").eq_ignore_ascii_case("isLocked") && truthy {
                     return Some("isLocked set to true".into());
                 }
                 if key.eq_ignore_ascii_case("mode")
@@ -389,6 +467,7 @@ fn json_locks(value: &Value) -> Option<String> {
 pub(crate) fn locked_violation(case: &Case) -> Option<String> {
     for step in &case.steps {
         let reason = if mentions_lock(&step.path)
+            || mentions_lock(&step.method)
             || step
                 .query
                 .iter()
@@ -502,6 +581,46 @@ mod tests {
         assert_eq!(opts.ignore_headers, ["vary", "etag"]);
         assert_eq!(opts.body, BodyMode::Text);
         assert!(case.steps[1].compare.is_none());
+    }
+
+    #[test]
+    fn parses_xml_and_grpc_steps_and_rejects_mixed_fields() {
+        let xml =
+            json!({"name": "s", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}"});
+        let case = parse_case(&case_with(xml), "x").unwrap();
+        assert_eq!(case.steps[0].protocol, Protocol::Xml);
+        assert!(!case.uses_grpc());
+        let grpc = json!({"name": "s", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket",
+            "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"},
+            "body": {"name": "projects/_/buckets/{bucket}"}});
+        let case = parse_case(&case_with(grpc), "x").unwrap();
+        assert!(case.uses_grpc());
+        assert!(case.uses_variable("bucket"));
+        let rejected = [
+            json!({"name": "s", "protocol": "grpc", "rpc": "NoSlash"}),
+            json!({"name": "s", "protocol": "grpc", "rpc": "a.B/C", "path": "/p"}),
+            json!({"name": "s", "protocol": "grpc", "rpc": "a.B/C", "body_text": "x"}),
+            json!({"name": "s", "protocol": "grpc", "rpc": "a.B/C", "body": [1]}),
+            json!({"name": "s", "protocol": "grpc", "method": "GET", "path": "/p"}),
+            json!({"name": "s", "protocol": "xml", "rpc": "a.B/C", "method": "GET", "path": "/p"}),
+            json!({"name": "s", "protocol": "ftp", "method": "GET", "path": "/p"}),
+        ];
+        for step in rejected {
+            assert!(parse_case(&case_with(step.clone()), "x").is_err(), "{step}");
+        }
+    }
+
+    #[test]
+    fn rejects_locked_retention_in_grpc_spellings() {
+        let forbidden = [
+            json!({"name": "s", "protocol": "grpc", "rpc": "google.storage.v2.Storage/LockBucketRetentionPolicy"}),
+            json!({"name": "s", "protocol": "grpc", "rpc": "a.B/C",
+                   "body": {"bucket": {"retention_policy": {"is_locked": true}}}}),
+        ];
+        for step in forbidden {
+            let err = parse_case(&case_with(step.clone()), "x").unwrap_err();
+            assert!(err.contains("forbidden locked retention"), "{step}: {err}");
+        }
     }
 
     #[test]

@@ -15,6 +15,7 @@ mod runner;
 mod server;
 mod template;
 mod transport;
+mod xml;
 
 use runner::{CaseOutcome, Names, Side, run_side};
 use std::{
@@ -22,13 +23,16 @@ use std::{
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use transport::{CurlTransport, Transport};
+use transport::{CurlTransport, GrpcTransport, Transport};
 
 type Result<T> = std::result::Result<T, String>;
 
 const DEFAULT_CASES: &str = "compatibility/differential/cases";
 const DEFAULT_ENDPOINT: &str = "https://storage.googleapis.com";
 const LOCAL_PROJECT: &str = "local-project";
+/// The pinned googleapis protos the gcs-mimic build also uses (see `src/grpc/proto/SHA256SUMS`).
+const PROTO_ROOT: &str = "src/grpc/proto";
+const LIVE_GRPC_PORT: &str = "443";
 
 pub const USAGE: &str = "Usage: cargo xtask differential validate [--cases DIR] | differential run [--cases DIR] [--filter TEXT] [--out DIR] [--record FILE] [--reference FILE] [--evidence FILE] [--binary PATH] [--fail-on-diff]";
 
@@ -191,6 +195,8 @@ fn execute(
     work: &Path,
     scratch: &Path,
 ) -> Result<bool> {
+    let (runnable, skipped) = split_unrunnable(cases, transport::grpcurl_available());
+    let cases = runnable.as_slice();
     let binary = match &options.binary {
         Some(path) => path.clone(),
         None => server::build(root)?,
@@ -208,8 +214,14 @@ fn execute(
     };
     let mimic_transport = CurlTransport::new(&local.endpoint, None, true, scratch);
     let host = local.endpoint.trim_start_matches("http://").to_owned();
+    let proto_root = root.join(PROTO_ROOT);
+    let mimic_grpc = local
+        .grpc
+        .as_deref()
+        .map(|address| GrpcTransport::new(address, true, None, &proto_root));
     let mimic_side = Side {
         transport: &mimic_transport,
+        grpc: mimic_grpc.as_ref().map(|t| t as &dyn Transport),
         project,
         hosts: vec![local.endpoint.clone(), host],
     };
@@ -251,8 +263,18 @@ fn execute(
                 "https://www.googleapis.com".into(),
                 "www.googleapis.com".into(),
             ];
+            let live_grpc = GrpcTransport::new(
+                &format!(
+                    "{}:{LIVE_GRPC_PORT}",
+                    endpoint.trim_start_matches("https://")
+                ),
+                false,
+                Some(token.clone()),
+                &proto_root,
+            );
             let side = Side {
                 transport: &transport,
+                grpc: Some(&live_grpc),
                 project,
                 hosts,
             };
@@ -261,12 +283,13 @@ fn execute(
                 cases.len()
             );
             let run = run_side(&side, cases, &names);
-            reference_requests = Some(transport.requests());
+            let sent = transport.requests() + live_grpc.requests();
+            reference_requests = Some(sent);
             reference_cleanup = run.cleanup;
             reference_failed_cleanup = run.failed_cleanup;
             let recording = recording::Recording {
                 generated: today(),
-                requests: transport.requests(),
+                requests: sent,
                 cases: run.cases.clone(),
             };
             let path = options
@@ -309,6 +332,7 @@ fn execute(
         reference_requests,
         cleanup: &mimic_run.cleanup,
         reference_cleanup: &reference_cleanup,
+        skipped: &skipped,
     };
     let markdown = report::markdown(&header, &reports);
     let json_text = report::json_report(&header, &reports).to_string() + "\n";
@@ -326,4 +350,46 @@ fn execute(
 
 fn out_dir(options: &Options, work: &Path) -> PathBuf {
     options.out.clone().unwrap_or_else(|| work.join("out"))
+}
+
+/// Drops the gRPC cases when `grpcurl` is not installed, so the rest of the
+/// run still counts. The report lists each dropped case as skipped.
+fn split_unrunnable(cases: &[case::Case], grpcurl: bool) -> (Vec<case::Case>, Vec<String>) {
+    let mut runnable = Vec::new();
+    let mut skipped = Vec::new();
+    for case in cases {
+        if case.uses_grpc() && !grpcurl {
+            skipped.push(format!("{}: grpcurl is not installed", case.id));
+        } else {
+            runnable.push(case.clone());
+        }
+    }
+    (runnable, skipped)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn case_from(id: &str, protocol: &str) -> case::Case {
+        let step = if protocol == "grpc" {
+            serde_json::json!({"name": "s", "protocol": "grpc", "rpc": "a.B/C"})
+        } else {
+            serde_json::json!({"name": "s", "method": "GET", "path": "/p"})
+        };
+        let value = serde_json::json!({"id": id, "description": "d", "steps": [step]});
+        case::parse_case(&value, id).unwrap()
+    }
+
+    #[test]
+    fn missing_grpcurl_skips_only_the_grpc_cases() {
+        let cases = [case_from("a", "http"), case_from("b", "grpc")];
+        let (runnable, skipped) = split_unrunnable(&cases, false);
+        assert_eq!(runnable.len(), 1);
+        assert_eq!(runnable[0].id, "a");
+        assert_eq!(skipped, ["b: grpcurl is not installed"]);
+        let (runnable, skipped) = split_unrunnable(&cases, true);
+        assert_eq!(runnable.len(), 2);
+        assert!(skipped.is_empty());
+    }
 }

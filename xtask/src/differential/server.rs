@@ -37,17 +37,21 @@ pub(crate) fn build(root: &Path) -> Result<PathBuf> {
 pub(crate) struct LocalServer {
     child: Child,
     pub(crate) endpoint: String,
+    /// The plaintext gRPC `host:port`.
+    pub(crate) grpc: Option<String>,
 }
 
 impl LocalServer {
-    /// Starts the native profile on a loopback port chosen by the OS, with the
-    /// default soft-delete retention off, and waits for its ready event.
+    /// Starts the native profile on loopback ports chosen by the OS (HTTP and
+    /// plaintext gRPC), with the default soft-delete retention off, and waits
+    /// for its ready event.
     pub(crate) fn start(binary: &Path, work: &Path) -> Result<Self> {
         let log = work.join("server.log");
         let child = Command::new(binary)
             .env_clear()
             .env("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS", "0")
             .args(["serve", "--scheme", "http", "--listen", "127.0.0.1:0"])
+            .args(["--grpc-listen", "127.0.0.1:0"])
             .args(["--compat-profile", "native", "--data-dir"])
             .arg(work.join("data"))
             .stdout(File::create(&log).map_err(|e| format!("server log: {e}"))?)
@@ -57,6 +61,7 @@ impl LocalServer {
         let mut server = Self {
             child,
             endpoint: String::new(),
+            grpc: None,
         };
         let deadline = Instant::now() + Duration::from_secs(30);
         while Instant::now() < deadline {
@@ -72,6 +77,13 @@ impl LocalServer {
                     && let Some(listen) = event["listen"].as_str()
                 {
                     server.endpoint = format!("http://{listen}");
+                    server.grpc = event["listeners"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .find(|l| l["scheme"] == "h2c")
+                        .and_then(|l| l["listen"].as_str())
+                        .map(str::to_owned);
                     return Ok(server);
                 }
             }

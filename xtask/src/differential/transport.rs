@@ -211,9 +211,229 @@ impl CurlTransport {
     }
 }
 
+/// The proto file `grpcurl` compiles; reflection is not offered by the real
+/// service, so the schema comes from the repository's pinned googleapis copy.
+const STORAGE_PROTO: &str = "google/storage/v2/storage.proto";
+/// The environment variable that carries the bearer token to `grpcurl`. The
+/// header on its command line names the variable (`-expand-headers`), so the
+/// token never appears in the process arguments.
+const TOKEN_ENV: &str = "GCS_MIMIC_DIFF_GRPC_BEARER";
+/// `grpcurl` exits with this offset plus the gRPC status code on a failed call.
+const STATUS_EXIT_OFFSET: i32 = 64;
+
+/// Whether the `grpcurl` command can be run.
+pub(crate) fn grpcurl_available() -> bool {
+    Command::new("grpcurl")
+        .arg("-version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Unary and streaming Storage v2 calls through the external `grpcurl` command.
+/// A request's `method` is the RPC name and its body the JSON message(s).
+///
+/// The response is normalized into the HTTP-shaped [`Response`] the rest of
+/// the harness compares: `status` is the gRPC status code (0 for OK), and the
+/// body is the response message, an array when the call returned several, or
+/// `{"code", "message", "details"}` for a failed call.
+pub(crate) struct GrpcTransport {
+    address: String,
+    plaintext: bool,
+    bearer: Option<String>,
+    proto_root: PathBuf,
+    counter: AtomicU64,
+}
+
+impl GrpcTransport {
+    pub(crate) fn new(
+        address: &str,
+        plaintext: bool,
+        bearer: Option<String>,
+        proto_root: &Path,
+    ) -> Self {
+        Self {
+            address: address.to_owned(),
+            plaintext,
+            bearer,
+            proto_root: proto_root.to_owned(),
+            counter: AtomicU64::new(0),
+        }
+    }
+
+    fn args(&self, rpc: &str, headers: &[(String, String)]) -> Vec<String> {
+        let mut args = vec!["-import-path".to_owned()];
+        args.push(self.proto_root.display().to_string());
+        args.extend([
+            "-proto".into(),
+            STORAGE_PROTO.into(),
+            "-format-error".into(),
+        ]);
+        args.extend(["-connect-timeout".into(), "15".into()]);
+        args.extend(["-max-time".into(), "60".into()]);
+        if self.plaintext {
+            args.push("-plaintext".into());
+        }
+        if self.bearer.is_some() {
+            args.push("-expand-headers".into());
+            args.extend([
+                "-H".into(),
+                format!("authorization: Bearer ${{{TOKEN_ENV}}}"),
+            ]);
+        }
+        for (name, value) in headers {
+            args.extend(["-H".into(), format!("{name}: {value}")]);
+        }
+        args.extend([
+            "-d".into(),
+            "@".into(),
+            self.address.clone(),
+            rpc.to_owned(),
+        ]);
+        args
+    }
+}
+
+/// Reads the concatenated JSON values `grpcurl` prints, one per message.
+fn parse_messages(stdout: &str) -> Result<Vec<serde_json::Value>> {
+    serde_json::Deserializer::from_str(stdout)
+        .into_iter::<serde_json::Value>()
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|e| format!("grpcurl printed output that is not JSON: {e}"))
+}
+
+/// Turns a finished `grpcurl` run into a response.
+fn grpc_response(exit: Option<i32>, stdout: &str, stderr: &str) -> Result<Response> {
+    let mut messages = parse_messages(stdout)?;
+    let status = match exit {
+        Some(0) => 0,
+        Some(code) if (STATUS_EXIT_OFFSET + 1..=STATUS_EXIT_OFFSET + 16).contains(&code) => {
+            u16::try_from(code - STATUS_EXIT_OFFSET).unwrap_or(2)
+        }
+        other => {
+            return Err(format!(
+                "grpcurl failed ({}): {}",
+                other.map_or_else(|| "no exit code".to_owned(), |c| c.to_string()),
+                stderr.trim()
+            ));
+        }
+    };
+    let value = if status != 0 {
+        // With -format-error the status is the last value printed.
+        messages
+            .pop()
+            .ok_or("grpcurl reported a failed call without a status")?
+    } else {
+        match messages.len() {
+            0 => serde_json::Value::Null,
+            1 => messages.remove(0),
+            _ => serde_json::Value::Array(messages),
+        }
+    };
+    let body = if value.is_null() {
+        Vec::new()
+    } else {
+        value.to_string().into_bytes()
+    };
+    Ok(Response {
+        status,
+        headers: vec![("content-type".into(), "application/grpc+json".into())],
+        body,
+    })
+}
+
+impl Transport for GrpcTransport {
+    fn requests(&self) -> u64 {
+        self.counter.load(Ordering::Relaxed)
+    }
+
+    fn send(&self, request: &Request) -> Result<Response> {
+        self.counter.fetch_add(1, Ordering::Relaxed);
+        let mut command = Command::new("grpcurl");
+        command.args(self.args(&request.method, &request.headers));
+        if let Some(token) = &self.bearer {
+            command.env(TOKEN_ENV, token);
+        }
+        if self.plaintext {
+            for name in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
+                command.env_remove(name);
+            }
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("grpcurl: {e}"))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            let message = request.body.as_deref().unwrap_or(b"{}");
+            stdin
+                .write_all(message)
+                .map_err(|e| format!("grpcurl: {e}"))?;
+        }
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("grpcurl: {e}"))?;
+        grpc_response(
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stdout),
+            &String::from_utf8_lossy(&output.stderr),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grpc_arguments_keep_the_token_out_of_the_command_line() {
+        let transport = GrpcTransport::new(
+            "storage.googleapis.com:443",
+            false,
+            Some("s3cret-token".into()),
+            Path::new("protos"),
+        );
+        let args = transport.args(
+            "google.storage.v2.Storage/GetBucket",
+            &[("x-goog-request-params".into(), "bucket=b".into())],
+        );
+        assert!(args.iter().all(|a| !a.contains("s3cret-token")));
+        assert!(args.contains(&"-expand-headers".to_owned()));
+        assert!(args.contains(&format!("authorization: Bearer ${{{TOKEN_ENV}}}")));
+        assert!(args.contains(&"x-goog-request-params: bucket=b".to_owned()));
+        assert!(!args.contains(&"-plaintext".to_owned()));
+        assert_eq!(args[args.len() - 1], "google.storage.v2.Storage/GetBucket");
+        let local = GrpcTransport::new("127.0.0.1:1", true, None, Path::new("protos"));
+        let args = local.args("a.B/C", &[]);
+        assert!(args.contains(&"-plaintext".to_owned()));
+        assert!(!args.contains(&"-expand-headers".to_owned()));
+    }
+
+    #[test]
+    fn grpc_output_becomes_status_and_body() {
+        let ok = grpc_response(Some(0), "{\"a\":1}\n{\"a\":2}", "").unwrap();
+        assert_eq!(ok.status, 0);
+        assert_eq!(ok.body, br#"[{"a":1},{"a":2}]"#);
+        let one = grpc_response(Some(0), "{\"a\":1}", "").unwrap();
+        assert_eq!(one.body, br#"{"a":1}"#);
+        let empty = grpc_response(Some(0), "", "").unwrap();
+        assert!(empty.body.is_empty());
+        let failed = grpc_response(
+            Some(69),
+            "{\"code\":5,\"message\":\"Bucket not found\"}",
+            "",
+        )
+        .unwrap();
+        assert_eq!(failed.status, 5);
+        assert_eq!(failed.body, br#"{"code":5,"message":"Bucket not found"}"#);
+        // Exit 1 is a grpcurl or connection failure, not a gRPC status.
+        assert!(grpc_response(Some(1), "", "dial failed").is_err());
+        assert!(grpc_response(Some(69), "", "").is_err());
+        assert!(grpc_response(Some(0), "not json", "").is_err());
+    }
 
     #[test]
     fn keeps_only_the_final_header_block() {

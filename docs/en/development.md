@@ -465,8 +465,8 @@ real Cloud Storage service and to a freshly built native-profile `gcs-mimic`,
 normalizes both responses and reports every difference in status, headers and
 JSON body paths. It finds drift in implemented behavior; it does not decide
 which side is right, and it never fixes anything. HTTP goes through the
-external `curl` command; the transport is a trait so a `grpcurl` transport can
-be added later.
+external `curl` command and gRPC through the external `grpcurl` command, both
+behind one transport trait.
 
 ```sh
 cargo xtask differential validate            # parse and check the case files, no network
@@ -553,7 +553,48 @@ independently.
   `only_headers`, `ignore_body_paths` (`$.a.b[*].c`, covering the subtree) and
   `body` (`auto`, `json`, `text`, `ignore`). `"compare": false` on a step runs
   it without comparing it.
-- `protocol` defaults to `http`; no other value is accepted yet.
+- `protocol` defaults to `http` (the JSON API). The other values are described
+  below.
+
+#### XML API steps
+
+`"protocol": "xml"` sends the step over the same `curl` transport to the
+path-style XML endpoint (`/{bucket}/{object}`, `Authorization: Bearer` on the
+real service), so `method`, `path`, `query`, `headers` and `body_text` work as
+for JSON steps; set `Content-Type` explicitly on a PUT. A response whose
+`content-type` contains `xml` and parses is compared as an ordered tree, not as
+text: every element becomes `{"name", "attrs"?, "text" | "children"}`, the root
+also carries a canonical `declaration`, so element order, nesting and missing or
+extra elements are differences. Paths in `ignore_body_paths` address that tree
+(`$.children[2].text`). Leaf text is normalized by tag (`ETag`, `Generation`,
+`LastModified` and any timestamp) and for bucket names, and
+`x-goog-generation` and `x-goog-copy-source-generation` headers are replaced.
+A document that is not well formed is compared as text. Signed URLs are not
+covered because they need a service-account key.
+
+#### gRPC steps
+
+`"protocol": "grpc"` replaces `method` and `path` with `rpc`, the full name
+such as `google.storage.v2.Storage/GetBucket`. `headers` are gRPC metadata
+(for example `x-goog-request-params`, which the real service needs for routing:
+`bucket=projects/_/buckets/{bucket}`), `body` is the request message as proto3
+JSON, and an array of objects sends a client-streaming call. `query`,
+`body_text` and `compare.only_headers` have no meaning here.
+
+- `grpcurl` is run with the googleapis protos under `src/grpc/proto`, the same
+  pinned files (`SHA256SUMS`) the gcs-mimic build uses; the real service does
+  not offer reflection. gcs-mimic is started with a plaintext gRPC listener on a
+  loopback port; the live side is `storage.googleapis.com:443` over TLS.
+- The bearer token reaches `grpcurl` through an environment variable that its
+  `-expand-headers` option expands, so it never appears on the command line.
+- The compared `status` is the gRPC status code (0 is OK, 5 NOT_FOUND, 9
+  FAILED_PRECONDITION). A successful body is the response message (an array
+  when a server-streaming call returned several); a failed call's body is
+  `{"code", "message", "details"?}`. `expect_status` takes the gRPC code.
+- `projects/<number>` resource names are normalized like `projectNumber`.
+- Without `grpcurl` on `PATH`, every case that has a gRPC step is skipped and
+  listed under "Skipped" in the report; the other cases still run and the run
+  does not fail.
 
 Cases may never request locked retention. Before any request is sent,
 validation rejects `lockRetentionPolicy` in a path, query or body,

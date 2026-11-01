@@ -4,6 +4,7 @@
 
 use super::case::BodyMode;
 use super::transport::Response;
+use super::xml;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
@@ -127,6 +128,10 @@ impl Normalizer {
             "etag" if scalar => Value::String("<etag>".into()),
             "generation" if scalar => Value::String("<generation>".into()),
             "projectNumber" if scalar => Value::String("<project-number>".into()),
+            // gRPC buckets name their project as `projects/<number>`.
+            "project" if item.as_str().and_then(project_resource_number).is_some() => {
+                Value::String("projects/<project-number>".into())
+            }
             "id" => match item.as_str() {
                 // Object ids end with the generation.
                 Some(id) => {
@@ -146,10 +151,43 @@ impl Normalizer {
         }
     }
 
+    /// Normalizes an XML tree from `xml::parse`: leaf text is replaced by tag
+    /// (`ETag`, `Generation`, timestamps) and otherwise like any other string.
+    fn xml(&self, node: &Value) -> Value {
+        let Value::Object(map) = node else {
+            return node.clone();
+        };
+        let tag = map.get("name").and_then(Value::as_str).unwrap_or_default();
+        let mut out = Map::new();
+        for (key, item) in map {
+            let value = match (key.as_str(), item) {
+                ("text", Value::String(text)) => Value::String(match tag {
+                    "ETag" if !text.is_empty() => "<etag>".into(),
+                    "Generation" if !text.is_empty() => "<generation>".into(),
+                    "LastModified" | "Created" | "Updated" if !text.is_empty() => "<time>".into(),
+                    _ if is_time(text) => "<time>".into(),
+                    _ => self.text(text),
+                }),
+                ("children", Value::Array(items)) => {
+                    Value::Array(items.iter().map(|child| self.xml(child)).collect())
+                }
+                ("attrs", Value::Object(attrs)) => Value::Object(
+                    attrs
+                        .iter()
+                        .map(|(k, v)| (k.clone(), self.json(v)))
+                        .collect(),
+                ),
+                _ => item.clone(),
+            };
+            out.insert(key.clone(), value);
+        }
+        Value::Object(out)
+    }
+
     fn header_value(&self, name: &str, value: &str) -> String {
         match name {
             "etag" => "<etag>".into(),
-            "x-goog-generation" => "<generation>".into(),
+            "x-goog-generation" | "x-goog-copy-source-generation" => "<generation>".into(),
             "last-modified" => "<time>".into(),
             // Only the fixed 1990 value is part of the contract; a current date varies.
             "expires" if value.ends_with(" GMT") && !value.contains("1990") => "<time>".into(),
@@ -176,10 +214,20 @@ impl Normalizer {
         let is_json = headers
             .get("content-type")
             .is_some_and(|t| t.contains("json"));
+        let is_xml = headers
+            .get("content-type")
+            .is_some_and(|t| t.contains("xml"));
+        let xml_tree = if is_xml {
+            xml::parse(&String::from_utf8_lossy(&response.body)).ok()
+        } else {
+            None
+        };
         let body = if response.body.is_empty() {
             NormBody::Empty
         } else if let (true, Ok(value)) = (is_json, serde_json::from_slice(&response.body)) {
             NormBody::Json(self.json(&value))
+        } else if let Some(tree) = xml_tree {
+            NormBody::Json(self.xml(&tree))
         } else {
             NormBody::Text(self.text(&String::from_utf8_lossy(&response.body)))
         };
@@ -191,12 +239,21 @@ impl Normalizer {
     }
 }
 
+/// The number in a `projects/<digits>` resource name.
+fn project_resource_number(text: &str) -> Option<&str> {
+    text.strip_prefix("projects/")
+        .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// Finds every `projectNumber` value so it can be replaced on later responses.
 pub(crate) fn project_numbers(value: &Value, found: &mut Vec<String>) {
     match value {
         Value::Object(map) => {
             for (key, item) in map {
                 match (key.as_str(), item) {
+                    ("project", Value::String(p)) if project_resource_number(p).is_some() => {
+                        found.extend(project_resource_number(p).map(str::to_owned));
+                    }
                     ("projectNumber", Value::String(n)) => found.push(n.clone()),
                     ("projectNumber", Value::Number(n)) => found.push(n.to_string()),
                     _ => project_numbers(item, found),
@@ -300,6 +357,52 @@ mod tests {
             scrub_generation("generation=1730000000000001"),
             "generation=<generation>"
         );
+    }
+
+    #[test]
+    fn xml_bodies_become_normalized_ordered_trees() {
+        let xml = "<?xml version='1.0' encoding='UTF-8'?><ListBucketResult>\
+            <Name>gcsmimic-diff-abc-b</Name><Contents><Key>k</Key>\
+            <Generation>1730000000000001</Generation>\
+            <LastModified>2026-11-01T00:00:00.000Z</LastModified>\
+            <ETag>\"abc\"</ETag><Size>5</Size></Contents></ListBucketResult>";
+        let response = Response {
+            status: 200,
+            headers: vec![(
+                "Content-Type".into(),
+                "application/xml; charset=UTF-8".into(),
+            )],
+            body: xml.as_bytes().to_vec(),
+        };
+        let NormBody::Json(tree) = normalizer().response(&response).body else {
+            panic!("xml body should become a tree");
+        };
+        assert_eq!(tree["children"][0]["text"], "<bucket>");
+        let contents = &tree["children"][1]["children"];
+        assert_eq!(contents[0]["text"], "k");
+        assert_eq!(contents[1]["text"], "<generation>");
+        assert_eq!(contents[2]["text"], "<time>");
+        assert_eq!(contents[3]["text"], "<etag>");
+        assert_eq!(contents[4]["text"], "5");
+        // A document that is not well formed stays plain text.
+        let broken = Response {
+            body: b"<a><b></a>".to_vec(),
+            ..response
+        };
+        assert!(matches!(
+            normalizer().response(&broken).body,
+            NormBody::Text(_)
+        ));
+    }
+
+    #[test]
+    fn grpc_project_resource_names_are_normalized() {
+        let value = json!({"name": "projects/_/buckets/b", "project": "projects/123456789"});
+        let out = normalizer().json(&value);
+        assert_eq!(out["project"], "projects/<project-number>");
+        let mut found = Vec::new();
+        project_numbers(&value, &mut found);
+        assert_eq!(found, ["123456789"]);
     }
 
     #[test]
