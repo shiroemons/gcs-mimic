@@ -104,7 +104,7 @@ fn invalid(message: impl Into<String>) -> JsonError {
 
 pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
     let value: Value =
-        serde_json::from_slice(bytes).map_err(|error| JsonError::json_parse_error(&error))?;
+        serde_json::from_slice(bytes).map_err(|error| JsonError::parse_error(bytes, &error))?;
     let body = value
         .as_object()
         .ok_or_else(|| invalid("Policy must be an object"))?;

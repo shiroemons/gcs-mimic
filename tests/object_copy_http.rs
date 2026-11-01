@@ -118,11 +118,11 @@ fn copy_token_replays_original_response_after_changes_deletion_and_restart() {
     ] {
         server
             .request("POST", &changed, headers, body)
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
     }
     server
         .request("POST", &path, headers, b"{}")
-        .error(400, "invalidArgument");
+        .error(400, "invalid");
     server
         .request(
             "POST",
@@ -234,7 +234,7 @@ fn copy_token_rechecks_source_destination_and_acl_permissions() {
             "Authorization: Bearer admin\r\nX-Goog-Gcs-Idempotency-Token: scoped-copy\r\n",
             b"",
         )
-        .error(400, "invalidArgument");
+        .error(400, "invalid");
     assert_no_transfer_files(&dir);
 }
 
@@ -286,7 +286,7 @@ fn copy_token_rejects_recreated_source_or_destination_buckets() {
             .json();
         server
             .request("POST", &path, headers, b"")
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
     }
 }
 
@@ -341,8 +341,9 @@ fn copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it() {
         assert!(replaced.get(field).is_none(), "{field}");
     }
     let empty = copy(&server, "dir%2F%E7%8C%AB%252F", "empty-metadata", "", b"{}").json();
-    assert!(empty.get("metadata").is_none());
-    assert!(empty.get("contentType").is_none());
+    // An empty resource keeps the source metadata like an absent one (recorded for `{}`).
+    assert_eq!(empty["metadata"], copied["metadata"]);
+    assert_eq!(empty["contentType"], copied["contentType"]);
     assert_eq!(
         server.get("dir%2F%E7%8C%AB%252F").json()["eventBasedHold"],
         true
@@ -533,8 +534,8 @@ fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
         copy(&server, "source", "held", "", b"").json()["eventBasedHold"],
         true
     );
-    copy(&server, "source", "held", "", b"").error(403, "objectUnderActiveHold");
-    copy(&server, "held", "held", "", b"").error(403, "objectUnderActiveHold");
+    copy(&server, "source", "held", "", b"").hold_error();
+    copy(&server, "held", "held", "", b"").hold_error();
     assert_no_transfer_files(&dir);
     assert!(
         copy(
@@ -579,12 +580,11 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
         br#"{"temporaryHold":true}"#,
         br#"{"customTime":"2026-10-20T01:02:03Z"}"#,
         br#"{"retention":{}}"#,
-        br#"{"unknown":true}"#,
         br#"{"generation":"1"}"#,
     ] {
         copy(&server, "source", "target", "", body).error(400, "badRequest");
     }
-    copy(&server, "source", "target", "", b"invalid").error(400, "parseError");
+    copy(&server, "source", "target", "", b"invalid").error(400, "invalid");
     copy(&server, "missing", "target", "", b"").error(404, "notFound");
     server
         .request(
@@ -725,7 +725,14 @@ fn copy_preserves_composite_identity_and_inherited_class_until_class_or_location
     assert_eq!(inherited["storageClass"], "NEARLINE");
     assert_eq!(inherited["componentCount"], 2);
     assert!(inherited.get("md5Hash").is_none());
-    let replaced = copy(&server, "source", "different-class", "", b"{}").json();
+    let replaced = copy(
+        &server,
+        "source",
+        "different-class",
+        "",
+        br#"{"storageClass":"STANDARD"}"#,
+    )
+    .json();
     assert_eq!(replaced["storageClass"], "STANDARD");
     assert_eq!(replaced["componentCount"], 1);
     assert!(replaced.get("md5Hash").is_none());

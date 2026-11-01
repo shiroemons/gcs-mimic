@@ -130,20 +130,25 @@ pub(crate) fn route(
         ] {
             if let Some(value) = remaining.remove(key) {
                 if value.is_empty() || value.starts_with('+') {
-                    return Err(
-                        JsonError::invalid_parameter(format!("{key} must be an int64"))
-                            .at_parameter(key),
-                    );
+                    return Err(JsonError::invalid_long(&value).at_parameter(key));
                 }
-                let number = value.parse::<i64>().map_err(|_| {
-                    JsonError::invalid_parameter(format!("{key} must be an int64"))
-                        .at_parameter(key)
-                })?;
-                if (key == "sourceGeneration" && number <= 0)
-                    || (key == "maxBytesRewrittenPerCall"
-                        && (number < 1048576 || number % 1048576 != 0))
-                {
+                let number = value
+                    .parse::<i64>()
+                    .map_err(|_| JsonError::invalid_long(&value).at_parameter(key))?;
+                if key == "sourceGeneration" && number <= 0 {
                     return Err(JsonError::invalid_parameter(format!("Invalid {key}")));
+                }
+                if key == "maxBytesRewrittenPerCall" {
+                    if number <= 0 {
+                        return Err(JsonError::invalid(
+                            "maxBytesRewrittenPerCall must be a positive value",
+                        ));
+                    }
+                    if number % 1_048_576 != 0 {
+                        return Err(JsonError::invalid(
+                            "maxBytesRewrittenPerCall must be an integral multiple of 1 MiB (1048576)",
+                        ));
+                    }
                 }
                 parameters.insert(key.into(), number.to_string());
             }

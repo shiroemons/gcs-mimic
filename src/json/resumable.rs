@@ -41,7 +41,8 @@ pub(crate) fn session_route(
         if query.remove("uploadType").is_some_and(|v| v != "resumable") {
             return Err(JsonError::invalid_parameter("Invalid uploadType"));
         }
-        super::query::finish(&query)?;
+        // The session URI repeats the initiation query (`name`, preconditions), which Cloud
+        // Storage accepts and ignores on later requests.
         Ok((bucket, id))
     })())
 }
@@ -100,7 +101,8 @@ pub(crate) fn headers(
         mime.parse()
             .map_err(|_| JsonError::invalid_parameter("Invalid upload content type"))?,
     );
-    let (mime, hashes) = parse_object_upload_headers(
+    let hashes = super::objects::declared_hashes(&clean)?;
+    let (mime, _) = parse_object_upload_headers(
         &clean,
         crate::object::ObjectConditions {
             if_generation_match: Some(0),
@@ -141,13 +143,8 @@ pub(crate) fn options(
         bytes
     };
     validate_duplicate_fields(bytes)?;
-    let mut value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "parseError",
-            "Invalid metadata JSON",
-        )
-    })?;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
     if let Some(object) = value.as_object_mut()
         && object.get("bucket").is_some_and(serde_json::Value::is_null)
     {
@@ -181,13 +178,8 @@ pub(crate) fn options(
 
 fn validate_duplicate_fields(bytes: &[u8]) -> Result<(), JsonError> {
     // JSON parsing validates syntax; this bounded scan preserves duplicate-key information.
-    let _: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "parseError",
-            "Invalid metadata JSON",
-        )
-    })?;
+    let _: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
     let mut stack: Vec<Option<std::collections::BTreeSet<String>>> = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
@@ -335,7 +327,19 @@ pub(crate) enum Range {
     },
 }
 
+/// A `Content-Range` Cloud Storage refused: every malformed or inconsistent one got the same
+/// bare text page.
+pub(crate) fn unusable_content_range() -> JsonError {
+    let mut error = JsonError::invalid_parameter("Failed to parse Content-Range header.");
+    error.plain = Some(&super::error::CONTENT_RANGE_TEXT);
+    error
+}
+
 pub(crate) fn range(headers: &HeaderMap) -> Result<Option<Range>, JsonError> {
+    parse_range(headers).map_err(|_| unusable_content_range())
+}
+
+fn parse_range(headers: &HeaderMap) -> Result<Option<Range>, JsonError> {
     single(headers, "content-range")?
         .map(|value| {
             let value = value

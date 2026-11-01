@@ -330,9 +330,9 @@ fn xml_response_overrides_from_cli_reach_the_server() {
             }
         );
     }
-    assert_eq!(
-        server.get(ADMIN, METADATA).ok().json()["contentType"],
-        "application/octet-stream"
+    assert!(
+        server.get(ADMIN, METADATA).ok().json()["contentType"].is_null(),
+        "an upload without a Content-Type stores none"
     );
 }
 

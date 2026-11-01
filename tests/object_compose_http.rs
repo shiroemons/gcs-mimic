@@ -230,7 +230,7 @@ fn compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination() 
         )
         .json();
     let body = json!({"sourceObjects":[{"name":"a"},{"name":"a"},{"name":"b"},{"name":"destination"}],"deleteSourceObjects":true});
-    compose(&server, "destination", body.clone()).error(403, "objectUnderActiveHold");
+    compose(&server, "destination", body.clone()).hold_error();
     assert_eq!(server.get("destination").json(), destination);
     assert_eq!(server.get("a").json(), a);
     assert_eq!(server.get("b").json(), held);
@@ -478,7 +478,7 @@ fn compose_storage_class_defaults_and_event_holds() {
         .json();
     let held = compose(&server, "held", sources(&["standard"])).json();
     assert_eq!(held["eventBasedHold"], true);
-    compose(&server, "held", sources(&["standard"])).error(403, "objectUnderActiveHold");
+    compose(&server, "held", sources(&["standard"])).hold_error();
     let released = compose(
         &server,
         "released",
@@ -507,7 +507,7 @@ fn compose_method_body_and_selector_boundaries() {
             AUTH,
             b"{",
         )
-        .error(400, "parseError");
+        .error(400, "invalid");
     let oversized = vec![b' '; 65537];
     assert_eq!(
         server
@@ -520,7 +520,7 @@ fn compose_method_body_and_selector_boundaries() {
             .status,
         413
     );
-    for query in ["projection=full", "projection=noAcl", "undeclared=value"] {
+    for query in ["projection=full", "projection=noAcl"] {
         server
             .request(
                 "POST",
@@ -639,7 +639,7 @@ fn compose_hold_added_after_streaming_preserves_destination_and_sources() {
         "destination",
         json!({"sourceObjects":[{"name":"a"}],"deleteSourceObjects":true}),
     )
-    .error(403, "objectUnderActiveHold");
+    .hold_error();
     connection
         .execute_batch("DROP TRIGGER hold_compose_source;")
         .unwrap();
@@ -821,7 +821,7 @@ fn compose_same_name_noncurrent_source_hold_is_rechecked_before_publication() {
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     // A held noncurrent self-source bypasses the ordinary live-destination hold check.
     connection.execute_batch(&format!("CREATE TRIGGER hold_compose_self_source AFTER UPDATE OF offset ON derived_transfers BEGIN UPDATE objects SET event_based_hold = 1 WHERE name = 'destination' AND generation = {generation}; END;")).unwrap();
-    compose(&server,"destination",json!({"sourceObjects":[{"name":"destination","generation":generation.to_string()}],"deleteSourceObjects":true})).error(403,"objectUnderActiveHold");
+    compose(&server,"destination",json!({"sourceObjects":[{"name":"destination","generation":generation.to_string()}],"deleteSourceObjects":true})).hold_error();
     connection
         .execute_batch("DROP TRIGGER hold_compose_self_source;")
         .unwrap();

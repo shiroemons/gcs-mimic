@@ -102,7 +102,11 @@ pub fn parse_insert(
 }
 
 /// The legacy profile keeps fake-gcs-server's wording; Cloud Storage reports a parser position.
-fn bucket_parse_error(error: &serde_json::Error, profile: CompatProfile) -> JsonError {
+fn bucket_parse_error(
+    bytes: &[u8],
+    error: &serde_json::Error,
+    profile: CompatProfile,
+) -> JsonError {
     if profile == CompatProfile::LegacyEmulator {
         return JsonError::new(
             StatusCode::BAD_REQUEST,
@@ -110,7 +114,7 @@ fn bucket_parse_error(error: &serde_json::Error, profile: CompatProfile) -> Json
             "Invalid JSON bucket resource",
         );
     }
-    JsonError::json_parse_error(error)
+    JsonError::parse_error(bytes, error)
 }
 
 /// fake-gcs-server reads only the first JSON value of an insert body and ignores the rest.
@@ -123,7 +127,7 @@ fn parse_insert_json(bytes: &[u8], profile: CompatProfile) -> Result<Value, Json
     } else {
         serde_json::from_slice(bytes)
     };
-    parsed.map_err(|error| bucket_parse_error(&error, profile))
+    parsed.map_err(|error| bucket_parse_error(bytes, &error, profile))
 }
 
 fn reject_unsupported_insert_fields(
@@ -451,8 +455,8 @@ fn parse_bucket_update(
     mode: WriteMode,
 ) -> Result<BucketMetadataUpdate, JsonError> {
     let replace = mode == WriteMode::Replace;
-    let value: Value =
-        serde_json::from_slice(bytes).map_err(|error| bucket_parse_error(&error, profile))?;
+    let value: Value = serde_json::from_slice(bytes)
+        .map_err(|error| bucket_parse_error(bytes, &error, profile))?;
     let body = value
         .as_object()
         .ok_or_else(|| JsonError::invalid("Bucket resource must be a JSON object"))?;

@@ -161,6 +161,13 @@ impl Reply {
         serde_json::from_slice(&self.body).unwrap()
     }
 
+    /// A bare text page: the status, content type and the whole body are compared.
+    fn plain_error(&self, status: u16, content_type: &str, body: &str) {
+        assert_eq!(self.status, status);
+        assert_eq!(self.headers["content-type"], content_type);
+        assert_eq!(String::from_utf8_lossy(&self.body), body);
+    }
+
     fn error(&self, status: u16, reason: &str) {
         assert_eq!(
             self.status,
@@ -168,8 +175,10 @@ impl Reply {
             "{}",
             String::from_utf8_lossy(&self.body)
         );
-        let value: Value = serde_json::from_slice(&self.body).unwrap();
-        assert_eq!(value["error"]["errors"][0]["reason"], reason);
+        let value: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
+            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
+        });
+        assert_eq!(value["error"]["errors"][0]["reason"], reason, "{value}");
     }
 }
 
@@ -291,7 +300,7 @@ fn obj_http_malformed_conditions_reject_every_object_method_without_mutation() {
             let message = if value.contains('&') {
                 format!("Duplicate query parameter: {key}")
             } else {
-                format!("{key} must be an int64")
+                format!("Invalid long value: '{}'.", value.replace("%2B", "+"))
             };
             for upload in ["media", "multipart", "resumable"] {
                 let body = match upload {
@@ -484,17 +493,8 @@ fn obj_http_failed_media_and_multipart_overwrites_preserve_full_resource_without
         .json();
     for upload in ["media", "multipart"] {
         let path = format!("/upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=existing");
-        for hash in ["md5=AAAAAAAAAAAAAAAAAAAAAA==", "crc32c=AAAAAA=="] {
-            let body = if upload == "media" {
-                b"new".to_vec()
-            } else {
-                wire(br#"{"metadata":{"key":"new"}}"#, None, b"new", None)
-            };
-            server.request("POST", &path, &format!("Content-Type: multipart/related; boundary=boundary\r\nX-Goog-Hash: {hash}\r\n"), &body).error(400, "invalid");
-            assert_eq!(server.get("existing").json(), original);
-            assert_eq!(server.get("existing?alt=media").body, b"old");
-            no_leaks(&dir, 1);
-        }
+        // A declared X-Goog-Hash is not examined on JSON uploads (recorded), so there is no
+        // header-driven rejection to test here.
         let body = if upload == "media" {
             vec![b'x'; 33]
         } else {
@@ -546,7 +546,7 @@ fn obj_multipart_http_round_trip_metadata_hashes_and_restart() {
             "name=dir%2Ffile&projection=full",
             &wire(
                 metadata.to_string().as_bytes(),
-                Some("text/plain"),
+                Some("text/custom"),
                 b"hello",
                 None,
             ),
@@ -612,7 +612,8 @@ fn obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary() {
     }
     stream.write_all(b"0\r\n\r\n").unwrap();
     let object = Reply::read(stream).json();
-    assert_eq!(object["contentType"], "application/octet-stream");
+    // A media part without a type stores none (recorded); downloads default to octet-stream.
+    assert!(object.get("contentType").is_none());
     assert_eq!(server.get("binary?alt=media").body, payload);
     no_leaks(&dir, 2);
 }
@@ -626,13 +627,14 @@ fn obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part() {
         let metadata = json!({"contentType":value});
         for part_type in [None, Some("text/plain")] {
             let expected = part_type.unwrap_or("application/octet-stream");
+            let stored = part_type;
             let object = server
                 .upload(
                     "name=fallback",
                     &wire(metadata.to_string().as_bytes(), part_type, b"hello", None),
                 )
                 .json();
-            assert_eq!(object["contentType"], expected);
+            assert_eq!(object.get("contentType").and_then(Value::as_str), stored);
             let media = server.get("fallback?alt=media");
             assert_eq!(media.headers["content-type"], expected);
             assert_eq!(media.body, b"hello");
@@ -773,7 +775,6 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
         "contexts",
         "kmsKeyName",
         "customerEncryption",
-        "unknown",
         "generation",
         "metageneration",
         "size",
@@ -797,30 +798,23 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
             &wire(br#"{"storageClass":"REGIONAL"}"#, None, b"new", None),
         )
         .error(400, "badRequest");
-    for value in [
-        json!({"temporaryHold":"true"}),
-        json!({"customTime":"invalid"}),
-        json!({"storageClass":"GLACIER"}),
-        json!({"storageClass":"coldline"}),
-        json!({"storageClass":""}),
-        json!({"storageClass":7}),
+    for (value, reason) in [
+        (json!({"customTime":"invalid"}), "invalid"),
+        (json!({"storageClass":"GLACIER"}), "invalid"),
+        (json!({"storageClass":"coldline"}), "invalid"),
+        (json!({"storageClass":""}), "invalid"),
+        (json!({"storageClass":7}), "invalidArgument"),
     ] {
         server
             .upload(
                 "name=existing",
                 &wire(value.to_string().as_bytes(), None, b"new", None),
             )
-            .error(400, "invalidArgument");
+            .error(400, reason);
         assert_eq!(server.get("existing?alt=media").body, b"old");
     }
-    server
-        .upload(
-            "name=existing",
-            &wire(br#"{"eventBasedHold":null}"#, None, b"new", None),
-        )
-        .error(400, "invalidArgument");
     for (metadata, reason) in [
-        (b"{".as_slice(), "parseError"),
+        (b"{".as_slice(), "invalid"),
         (b"[]", "invalidArgument"),
         (br#"{"contentType":7}"#, "invalidArgument"),
         (br#"{"bucket":null}"#, "invalidArgument"),
@@ -912,8 +906,9 @@ fn obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_public
     }
     for (hash, status, reason) in [
         ("md5=XUFAKrxLKna5cZ2REBfFkg==", 200, ""),
-        ("md5=AAAAAAAAAAAAAAAAAAAAAA==", 400, "invalidParameter"),
-        ("crc32c=AAAAAA==", 400, "invalidParameter"),
+        // The header is not examined on a JSON upload (recorded).
+        ("md5=AAAAAAAAAAAAAAAAAAAAAA==", 200, ""),
+        ("crc32c=AAAAAA==", 200, ""),
     ] {
         let original = server.get("hash").json();
         let body = wire(good.to_string().as_bytes(), None, b"hello", None);
@@ -1013,15 +1008,19 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
         missing_close,
         four_parts,
     ] {
-        server
-            .upload("name=bad", &body)
-            .error(400, "invalidParameter");
+        let reply = server.upload("name=bad", &body);
+        // A request with only the metadata part is counted as one payload (recorded).
+        if body.starts_with(b"--boundary\r\nContent-Type: application/json\r\n\r\n{}\r\n") {
+            reply.error(400, "invalidPayloadSize");
+        } else {
+            reply.error(400, "invalidParameter");
+        }
         server.get("bad").error(404, "notFound");
         no_leaks(&dir, 0);
     }
+    // A body that is not declared multipart is stored as a media upload (recorded), so only
+    // multipart types with a broken boundary are refused here.
     for headers in [
-        "",
-        "Content-Type: application/json\r\n",
         "Content-Type: multipart/related\r\n",
         "Content-Type: multipart/related; boundary=\"\"\r\n",
         "Content-Type: multipart/related; boundary=\"bad \"\r\n",
@@ -1033,7 +1032,11 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
                 headers,
                 &valid,
             )
-            .error(400, "invalidParameter");
+            .plain_error(
+                400,
+                "text/plain; charset=utf-8",
+                "Bad content type.  Please use multipart.",
+            );
     }
     let mut oversized = socket(&server.address);
     oversized.write_all(b"POST /upload/storage/v1/b/missing-bucket/o?uploadType=multipart HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 999999\r\n\r\n").unwrap();
@@ -1100,7 +1103,7 @@ fn obj_multipart_http_unconditional_replay_and_python_advisory_mime() {
     let headers = "Content-Type: multipart/related; boundary=boundary\r\nX-Goog-Gcs-Idempotency-Token: unconditioned\r\nX-Upload-Content-Type: text/advisory\r\n";
     let body = wire(
         br#"{"name":"python","contentType":"text/metadata"}"#,
-        Some("text/media"),
+        Some("text/metadata"),
         b"original",
         None,
     );
@@ -1133,13 +1136,13 @@ fn obj_multipart_http_unconditional_replay_and_python_advisory_mime() {
     );
     let changed = wire(
         br#"{"name":"python","contentType":"text/metadata"}"#,
-        Some("text/media"),
+        Some("text/metadata"),
         b"different",
         None,
     );
     server
         .request("POST", path, headers, &changed)
-        .error(400, "invalidArgument");
+        .error(400, "invalid");
     server.stop();
     let server = Server::start(&dir, 1000, 30_000);
     assert_eq!(

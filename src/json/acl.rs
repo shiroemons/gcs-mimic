@@ -196,7 +196,7 @@ pub(crate) fn parse_acl_body(
     operation: &AclOperation,
 ) -> Result<AclBody, JsonError> {
     let value: Value =
-        serde_json::from_slice(bytes).map_err(|error| JsonError::json_parse_error(&error))?;
+        serde_json::from_slice(bytes).map_err(|error| JsonError::parse_error(bytes, &error))?;
     let body = value
         .as_object()
         .ok_or_else(|| JsonError::invalid("Access control must be a JSON object"))?;

@@ -138,6 +138,18 @@ pub(super) async fn multipart(
         params,
         content_encoding,
     } = target;
+    // Cloud Storage stored an `uploadType=multipart` request whose body is not multipart as a
+    // media upload (recorded 200 for `text/plain`).
+    if !json::is_multipart_content_type(request.headers()) {
+        let name = name.ok_or_else(JsonError::missing_object_name)?;
+        let target = UploadRequest {
+            bucket,
+            name,
+            params,
+            content_encoding,
+        };
+        return insert(request, ctx, access, target).await;
+    }
     let max_bytes = ctx.config.max_object_bytes;
     let catalog = &ctx.state.catalog;
     let (_, expected) = json::parse_object_upload_headers(request.headers(), params.conditions)?;
@@ -197,10 +209,12 @@ pub(super) async fn multipart(
         ))
         .await?;
     }
-    let content_type = multipart
-        .headers(json::PartKind::Media)
-        .await?
-        .unwrap_or_else(|| "application/octet-stream".into());
+    let part_type = multipart.headers(json::PartKind::Media).await?;
+    if let (Some(Some(declared)), Some(part)) = (&metadata.content_type, &part_type) {
+        json::check_declared_content_type(declared, part)?;
+    }
+    // A part without a type stores none unless the metadata names one.
+    let content_type = part_type.unwrap_or_default();
     let (sender, body) = mpsc::channel(2);
     let acl_snapshot = permit.replay_acl_snapshot();
     let upload = catalog.put_object_prechecked(

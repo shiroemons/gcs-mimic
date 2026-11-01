@@ -10,6 +10,9 @@ pub(crate) struct ObjectListParams {
     pub query: ObjectListQuery,
     pub projection: Projection,
     pub max_results: usize,
+    /// The JSON API answered `maxResults=0` with an empty page; other protocols treat a zero
+    /// page size as the default.
+    pub empty_page: bool,
 }
 
 impl ObjectListParams {
@@ -67,17 +70,17 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         }
     }
     let projection = projection(&mut params)?;
+    let mut empty_page = false;
     let max_results = match params.remove("maxResults") {
         None => 1000,
         Some(value) => {
             if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(JsonError::invalid_parameter("maxResults must be a uint32")
-                    .at_parameter("maxResults"));
+                return Err(JsonError::invalid_unsigned(&value).at_parameter("maxResults"));
             }
-            let value = value.parse::<u32>().map_err(|_| {
-                JsonError::invalid_parameter("maxResults must be a uint32")
-                    .at_parameter("maxResults")
-            })?;
+            let value = value
+                .parse::<u32>()
+                .map_err(|_| JsonError::invalid_unsigned(&value).at_parameter("maxResults"))?;
+            empty_page = value == 0;
             if value == 0 {
                 1000
             } else {
@@ -92,9 +95,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         match_glob: params
             .remove("matchGlob")
             .filter(|pattern| !pattern.is_empty())
-            .map(|pattern| {
-                crate::match_glob::Glob::parse(&pattern).map_err(JsonError::invalid_parameter)
-            })
+            .map(|pattern| crate::match_glob::Glob::parse(&pattern).map_err(JsonError::from))
             .transpose()?,
         start_offset: params.remove("startOffset").unwrap_or_default(),
         end_offset: params.remove("endOffset").unwrap_or_default(),
@@ -123,6 +124,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         query,
         projection,
         max_results,
+        empty_page,
     })
 }
 

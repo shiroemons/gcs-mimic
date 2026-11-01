@@ -94,6 +94,17 @@ impl Reply {
     fn json(&self) -> Value {
         serde_json::from_str(&self.body).unwrap()
     }
+    /// A delete or overwrite refused by a hold: a 403 `forbidden` whose message names the hold.
+    fn hold_error(&self) {
+        self.error(403, "forbidden");
+        assert!(
+            self.body.contains("under active Temporary hold")
+                || self.body.contains("under active Event-Based hold"),
+            "{}",
+            self.body
+        );
+    }
+
     fn error(&self, status: u16, reason: &str) {
         assert_eq!(self.status, status, "{}", self.body);
         assert!(self.headers.contains("content-type: application/json"));
@@ -2135,12 +2146,8 @@ fn bucket_metadata_settings(method: &str) {
                 .status,
             200
         );
-        server
-            .request("POST", upload, "blocked")
-            .error(403, "objectUnderActiveHold");
-        server
-            .request("DELETE", object, "")
-            .error(403, "objectUnderActiveHold");
+        server.request("POST", upload, "blocked").hold_error();
+        server.request("DELETE", object, "").hold_error();
         assert_eq!(
             server
                 .request("PATCH", object, r#"{"eventBasedHold":false}"#)
@@ -2432,12 +2439,8 @@ fn bucket_api_settings_drive_versioning_and_hold_effects() {
         let first = server.request("POST", upload, "first").json();
         assert_eq!(first["eventBasedHold"], true);
         let generation = first["generation"].as_str().unwrap();
-        server
-            .request("POST", upload, "blocked")
-            .error(403, "objectUnderActiveHold");
-        server
-            .request("DELETE", object, "")
-            .error(403, "objectUnderActiveHold");
+        server.request("POST", upload, "blocked").hold_error();
+        server.request("DELETE", object, "").hold_error();
         assert_eq!(
             server
                 .request("GET", &format!("{object}?alt=media"), "")

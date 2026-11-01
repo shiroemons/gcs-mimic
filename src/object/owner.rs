@@ -43,6 +43,11 @@ impl ObjectOwner {
     }
 
     pub(crate) fn remove_implicit_grant(&self, entries: &mut Vec<AclEntry>) {
+        // The project owners' grant keeps its place in the default ACL; Cloud Storage lists it
+        // first, before the editors and viewers, while a grant re-added on read comes last.
+        if matches!(self, Self::ProjectOwners { .. }) {
+            return;
+        }
         if let Some(entity) = self.entity() {
             entries.retain(|entry| entry.entity != entity);
         }

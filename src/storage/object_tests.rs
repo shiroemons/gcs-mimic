@@ -435,20 +435,22 @@ async fn limits_bad_hashes_and_body_errors_leave_no_generation_or_blob() {
             ObjectError::ChecksumMismatch,
         ),
     ] {
-        assert_eq!(
-            catalog
-                .put_object(
-                    "bucket",
-                    "bad",
-                    "text/plain".into(),
-                    expected,
-                    ObjectConditions::default(),
-                    max,
-                    body(vec![Bytes::from_static(b"abc")])
-                )
-                .await,
-            Err(error)
-        );
+        let result = catalog
+            .put_object(
+                "bucket",
+                "bad",
+                "text/plain".into(),
+                expected,
+                ObjectConditions::default(),
+                max,
+                body(vec![Bytes::from_static(b"abc")]),
+            )
+            .await;
+        // A hash mismatch also names both digests.
+        match (&result, &error) {
+            (Err(ObjectError::HashMismatch(_)), ObjectError::ChecksumMismatch) => {}
+            _ => assert_eq!(result, Err(error)),
+        }
         assert_eq!(
             catalog
                 .get_object("bucket", "bad", None, ObjectConditions::default())
@@ -493,22 +495,23 @@ async fn limits_bad_hashes_and_body_errors_leave_no_generation_or_blob() {
     )
     .await
     .unwrap();
-    assert_eq!(
-        catalog
-            .put_object(
-                "bucket",
-                "preserved",
-                "text/plain".into(),
-                ExpectedHashes {
-                    md5: Some([0; 16]),
-                    crc32c: None
-                },
-                ObjectConditions::default(),
-                100,
-                body(vec![Bytes::from_static(b"replacement")])
-            )
-            .await,
-        Err(ObjectError::ChecksumMismatch)
+    let rejected = catalog
+        .put_object(
+            "bucket",
+            "preserved",
+            "text/plain".into(),
+            ExpectedHashes {
+                md5: Some([0; 16]),
+                crc32c: None,
+            },
+            ObjectConditions::default(),
+            100,
+            body(vec![Bytes::from_static(b"replacement")]),
+        )
+        .await;
+    assert!(
+        matches!(rejected, Err(ObjectError::HashMismatch(_))),
+        "{rejected:?}"
     );
     assert_eq!(
         catalog

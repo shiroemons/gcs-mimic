@@ -57,7 +57,7 @@ fn derived_custom_time_format_validation_precedes_unsupported_semantics() {
     ] {
         server
             .request("POST", path, "", body.to_string().as_bytes())
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
         assert_eq!(server.get("held").json(), before);
         assert_eq!(server.get("held?alt=media").body, b"preserved bytes");
     }
@@ -77,14 +77,16 @@ fn temporary_hold_set_release_and_restart() {
     server.stop();
     server = Server::start(&dir, false);
     assert_eq!(server.get("held").json(), created);
-    assert_eq!(
+    // A PUT replaces the resource, so a hold it names as null is released (recorded).
+    assert!(
         update(
             &server,
             "PUT",
             json!({"temporaryHold":null,"customTime":created["customTime"]})
         )
-        .json()["temporaryHold"],
-        true
+        .json()
+        .get("temporaryHold")
+        .is_none()
     );
     assert!(
         update(&server, "PATCH", json!({"temporaryHold":false}))
@@ -164,14 +166,14 @@ fn temporary_hold_protects_delete_and_all_replacements() {
             if release {
                 reply.json();
             } else {
-                reply.error(403, "objectUnderActiveHold");
+                reply.hold_error();
             }
         }
         let reply = server.request("DELETE", "/storage/v1/b/test-bucket/o/held", "", b"");
         if release {
             assert_eq!(reply.status, 204);
         } else {
-            reply.error(403, "objectUnderActiveHold");
+            reply.hold_error();
             assert_eq!(server.get("held?alt=media").body, b"abc");
             let xml = server.request("PUT", "/test-bucket/held", "", b"replacement");
             assert_eq!(xml.status, 403);
@@ -198,19 +200,19 @@ fn custom_time_monotonic_updates_are_atomic() {
     )
     .json();
     for method in ["PATCH", "PUT"] {
-        for value in [
-            json!(null),
-            json!("2026-10-20T01:02:03.123456788Z"),
-            json!("bad"),
-            json!("2026-02-30T01:02:03Z"),
-            json!(42),
+        // `null` is not here: Cloud Storage kept the custom time for it (recorded 200).
+        for (value, reason) in [
+            (json!("2026-10-20T01:02:03.123456788Z"), "invalid"),
+            (json!("bad"), "invalid"),
+            (json!("2026-02-30T01:02:03Z"), "invalid"),
+            (json!(42), "invalidArgument"),
         ] {
             update(
                 &server,
                 method,
                 json!({"customTime":value,"temporaryHold":true}),
             )
-            .error(400, "invalidArgument");
+            .error(400, reason);
             assert_eq!(server.get("held").json(), first);
         }
     }
@@ -231,8 +233,11 @@ fn custom_time_monotonic_updates_are_atomic() {
         .json(),
     );
     assert_eq!(same["generation"], first["generation"]);
-    update(&server, "PUT", json!({})).error(400, "invalidArgument");
-    assert_eq!(server.get("held").json(), same);
+    // A PUT that omits customTime keeps it (recorded 200), unlike an attempt to remove it.
+    assert_eq!(
+        update(&server, "PUT", json!({})).json()["customTime"],
+        same["customTime"]
+    );
     assert_eq!(
         update(&server, "PATCH", json!({})).json()["customTime"],
         same["customTime"]
@@ -318,5 +323,5 @@ fn multipart_and_pending_resumable_preserve_hold_custom_time() {
     assert_eq!(published["customTime"], created["customTime"]);
     server
         .request("DELETE", "/storage/v1/b/test-bucket/o/pending", "", b"")
-        .error(403, "objectUnderActiveHold");
+        .hold_error();
 }

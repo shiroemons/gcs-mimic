@@ -135,7 +135,7 @@ impl From<notification::NotificationError> for JsonError {
 /// follow the bucket insert ignored-input rule.
 pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, JsonError> {
     let value: Value =
-        serde_json::from_slice(bytes).map_err(|error| JsonError::json_parse_error(&error))?;
+        serde_json::from_slice(bytes).map_err(|error| JsonError::parse_error(bytes, &error))?;
     let body = value
         .as_object()
         .ok_or_else(|| invalid("Notification resource must be a JSON object"))?;

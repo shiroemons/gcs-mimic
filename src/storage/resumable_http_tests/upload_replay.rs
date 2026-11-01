@@ -39,7 +39,7 @@ async fn copy_replay_binds_both_encryption_keys_and_keeps_retained_entries_at_ca
     ] {
         h.request("POST", path, &changed, b"")
             .await
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
     }
     let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
     connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM entries WHERE n < 4095) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created, deadline, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
@@ -94,7 +94,7 @@ async fn copy_replay_oversized_completion_rolls_back_destination_and_generation(
         b"",
     )
     .await
-    .error(400, "invalidArgument");
+    .error(400, "invalid");
     assert_eq!(
         connection
             .query_row("SELECT last_generation FROM object_generation", [], |r| r
@@ -222,7 +222,7 @@ async fn upload_replay_capacity_expiry_and_current_permissions() {
         b"original",
     )
     .await
-    .error(400, "invalidArgument");
+    .error(400, "invalid");
     let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
     connection.execute_batch("WITH RECURSIVE entries(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM entries WHERE n < 1023) INSERT INTO upload_replays SELECT CAST(printf('%032d', n) AS BLOB), request, incarnation, created, deadline, fingerprint, completion FROM entries CROSS JOIN (SELECT * FROM upload_replays LIMIT 1)").unwrap();
     drop(connection);

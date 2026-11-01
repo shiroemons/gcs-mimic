@@ -45,7 +45,17 @@ impl Fields {
     }
 
     pub(crate) fn parse(value: &str, schema: &str) -> Result<Self, JsonError> {
-        let fields = Self::parse_syntax(value)?;
+        // An empty object selection selects nothing, unlike an absent `fields` parameter
+        // (recorded for object reads). Other resources were not recorded and stay strict.
+        if value.is_empty() && schema == "Object" {
+            return Ok(Self::default());
+        }
+        let empty_segments = if schema == "Object" {
+            EmptySegments::Skip
+        } else {
+            EmptySegments::Reject
+        };
+        let fields = Self::parse_with(value, empty_segments)?;
         fields
             .validate(&SCHEMAS["schemas"][schema])
             .map_err(|mut error| {
@@ -58,13 +68,20 @@ impl Fields {
     }
 
     pub(crate) fn parse_syntax(value: &str) -> Result<Self, JsonError> {
-        Self::syntax(value).map_err(|mut error| {
-            error.message = format!("{}: {value}", error.message);
+        Self::parse_with(value, EmptySegments::Reject)
+    }
+
+    fn parse_with(value: &str, empty_segments: EmptySegments) -> Result<Self, JsonError> {
+        Self::syntax(value, empty_segments).map_err(|mut error| {
+            // The FieldMask wording already quotes the whole expression.
+            if !error.message.starts_with("Invalid FieldMask") {
+                error.message = format!("{}: {value}", error.message);
+            }
             error
         })
     }
 
-    fn syntax(value: &str) -> Result<Self, JsonError> {
+    fn syntax(value: &str, empty_segments: EmptySegments) -> Result<Self, JsonError> {
         if value.len() > MAX_LENGTH {
             return Err(invalid("fields exceeds 4096 bytes"));
         }
@@ -72,6 +89,8 @@ impl Fields {
             return Err(unsupported("empty or whitespace-containing fields"));
         }
         let mut parser = Parser {
+            empty_segments,
+            source: value,
             rest: value,
             count: 0,
         };
@@ -133,7 +152,9 @@ impl Fields {
                         (_, Some(wildcard)) if wildcard.whole => true,
                         (Some(child), _) => {
                             child.apply(value);
-                            true
+                            // A selection that matches nothing inside an object drops the
+                            // object itself rather than leaving `{}`.
+                            child.whole || value.as_object().is_none_or(|object| !object.is_empty())
                         }
                         _ => false,
                     }
@@ -158,7 +179,18 @@ fn unsupported(name: &str) -> JsonError {
     )
 }
 
+/// Whether an empty segment such as the middle of `name,,size` is ignored (as Cloud Storage did
+/// for object resources) or rejected.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EmptySegments {
+    Skip,
+    Reject,
+}
+
 struct Parser<'a> {
+    empty_segments: EmptySegments,
+    /// The whole expression, which Cloud Storage quotes when a parenthesis is unmatched.
+    source: &'a str,
     rest: &'a str,
     count: usize,
 }
@@ -167,7 +199,11 @@ impl Parser<'_> {
     fn list(&mut self, depth: usize) -> Result<Fields, JsonError> {
         let mut fields = Fields::default();
         loop {
-            fields.merge(self.path(depth)?);
+            // Cloud Storage ignores an empty segment such as the middle of `name,,size`.
+            let empty = self.rest.starts_with(',') || (depth == 0 && self.rest.is_empty());
+            if !(empty && self.empty_segments == EmptySegments::Skip) {
+                fields.merge(self.path(depth)?);
+            }
             if !self.rest.starts_with(',') {
                 break;
             }
@@ -197,7 +233,10 @@ impl Parser<'_> {
             self.rest = &self.rest[1..];
             let child = self.list(depth + 1)?;
             if !self.rest.starts_with(')') {
-                return Err(invalid("Unbalanced fields parentheses"));
+                return Err(invalid(format!(
+                    "Invalid FieldMask '{}'. Cannot find matching ')' for all '('.",
+                    self.source
+                )));
             }
             self.rest = &self.rest[1..];
             child
@@ -263,9 +302,6 @@ mod tests {
     #[test]
     fn fields_reject_malformed_unknown_and_scalar_children() {
         for selector in [
-            ",name",
-            "name,",
-            "name,,size",
             "metadata/",
             "/name",
             "metadata//key",
@@ -295,7 +331,6 @@ mod tests {
             );
         }
         for selector in [
-            "",
             " name",
             "name, size",
             "metadata( key)",
@@ -318,13 +353,37 @@ mod tests {
     }
 
     #[test]
+    fn empty_selections_and_empty_segments_follow_cloud_storage() {
+        let original = json!({"name":"o","size":"5","metadata":{"a":"1"}});
+        let mut value = original.clone();
+        Fields::parse("", "Object").unwrap().apply(&mut value);
+        assert_eq!(value, json!({}));
+        let mut value = original.clone();
+        Fields::parse("name,,size", "Object")
+            .unwrap()
+            .apply(&mut value);
+        assert_eq!(value, json!({"name":"o","size":"5"}));
+        // A selection that matches nothing inside metadata drops the key instead of `{}`.
+        let mut value = original;
+        Fields::parse("name,metadata/zzz", "Object")
+            .unwrap()
+            .apply(&mut value);
+        assert_eq!(value, json!({"name":"o"}));
+        let error = Fields::parse("metadata(a", "Object").unwrap_err();
+        assert_eq!(
+            error.message,
+            "Invalid FieldMask 'metadata(a'. Cannot find matching ')' for all '('."
+        );
+    }
+
+    #[test]
     fn fields_persisted_selection_does_not_depend_on_current_schema() {
         let selector = "retiredProperty";
         assert!(Fields::parse(selector, "Object").is_err());
         let mut value = json!({"retiredProperty":"completed","name":"hidden"});
         Fields::parse_syntax(selector).unwrap().apply(&mut value);
         assert_eq!(value, json!({"retiredProperty":"completed"}));
-        assert!(Fields::parse_syntax("name,").is_err());
+        assert!(Fields::parse_syntax("name(").is_err());
     }
 
     #[test]
@@ -448,6 +507,8 @@ mod tests {
             };
             assert!(
                 Parser {
+                    empty_segments: EmptySegments::Reject,
+                    source: &value,
                     rest: &value,
                     count: 0
                 }
@@ -457,6 +518,8 @@ mod tests {
             let deeper = format!("a/{value}");
             assert!(
                 Parser {
+                    empty_segments: EmptySegments::Reject,
+                    source: &deeper,
                     rest: &deeper,
                     count: 0
                 }

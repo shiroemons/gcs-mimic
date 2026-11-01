@@ -14,6 +14,17 @@ pub(crate) fn etag_not_modified(headers: &HeaderMap, etag: &str) -> Result<bool,
     Ok(matches_field(headers, "if-none-match", etag, Comparison::Weak)? == Some(true))
 }
 
+/// As [`etag_not_modified`], but a matching `If-None-Match` wins over a failing `If-Match`.
+/// Cloud Storage answered a JSON media read carrying both with 304 where RFC 9110 orders the
+/// failing `If-Match` first.
+pub(crate) fn etag_not_modified_first(headers: &HeaderMap, etag: &str) -> Result<bool, EtagError> {
+    if matches_field(headers, "if-none-match", etag, Comparison::Weak)? == Some(true) {
+        return Ok(true);
+    }
+    require_etag_match(headers, etag)?;
+    Ok(false)
+}
+
 /// Call inside the mutation transaction when a write uses the selected representation.
 pub(crate) fn require_etag_match(headers: &HeaderMap, etag: &str) -> Result<(), EtagError> {
     if matches_field(headers, "if-match", etag, Comparison::Strong)? == Some(false) {

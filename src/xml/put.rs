@@ -219,22 +219,27 @@ pub(super) fn content_type_and_hashes(
         selected.insert("content-type", content_type.clone());
     }
     let (content_type, _) = json::parse_object_upload_headers(&selected, conditions)?;
+    // The JSON parser stores no type for an upload without one; XML objects default it.
+    let content_type = if content_type.is_empty() {
+        "application/octet-stream".to_owned()
+    } else {
+        content_type
+    };
     selected.clear();
     for value in headers.get_all("x-goog-hash") {
         selected.append("x-goog-hash", value.clone());
     }
     // Checksum failures omit the algorithm; CRC32C codes await provider parity (SPEC-XML-PUT-EDGES).
-    let (_, mut expected) =
-        json::parse_object_upload_headers(&selected, conditions).map_err(|error| {
-            if error.reason == "badRequest" {
-                return Error::from(error);
-            }
-            Error::new(
-                StatusCode::BAD_REQUEST,
-                "InvalidDigest",
-                "Invalid x-goog-hash digest.",
-            )
-        })?;
+    let mut expected = json::declared_hashes(&selected).map_err(|error| {
+        if error.reason == "badRequest" {
+            return Error::from(error);
+        }
+        Error::new(
+            StatusCode::BAD_REQUEST,
+            "InvalidDigest",
+            "Invalid x-goog-hash digest.",
+        )
+    })?;
     if let Some(md5) = single(headers, "content-md5")? {
         let content_md5 = json::decode_hash::<16>(md5).map_err(|_| {
             Error::new(
@@ -310,7 +315,7 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
 
 pub(super) fn storage_error(error: ObjectError, caller: Option<Caller<'_>>) -> Error {
     match error {
-        ObjectError::ChecksumMismatch => Error::new(
+        ObjectError::ChecksumMismatch | ObjectError::HashMismatch(_) => Error::new(
             StatusCode::BAD_REQUEST,
             "BadDigest",
             "The supplied checksum does not match the uploaded object.",

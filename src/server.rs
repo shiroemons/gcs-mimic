@@ -1071,7 +1071,12 @@ pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(
 fn read_etag_not_modified(headers: &hyper::HeaderMap, etag: &str) -> Result<bool, JsonError> {
     etag_not_modified(headers, etag).map_err(|error| match error {
         EtagError::Invalid => JsonError::invalid_parameter("Invalid ETag precondition header"),
-        EtagError::PreconditionFailed => ObjectError::PreconditionFailed.into(),
+        // The header form of the failure carries a shorter message than the query form.
+        EtagError::PreconditionFailed => JsonError::new(
+            StatusCode::PRECONDITION_FAILED,
+            "conditionNotMet",
+            "Precondition Failed",
+        ),
     })
 }
 

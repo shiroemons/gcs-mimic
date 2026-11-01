@@ -10,7 +10,7 @@ use crate::{
     server::{
         ALLOWED_RESOURCES_VARY, JSON_RESOURCE_CACHE_CONTROL, ObjectCtx, QueryPrecondition,
         ResponseBody, acl, boxed, gzip, insert_content_range, insert_unsatisfied_content_range,
-        not_modified_response, object_body, read_etag_not_modified, read_metadata_response,
+        not_modified_response, object_body, read_metadata_response,
     },
 };
 use http_body_util::{BodyExt, Full};
@@ -78,12 +78,8 @@ async fn media(
             key,
         )
         .await?;
-    json::validate_read_condition_headers(request.headers(), json::EtagConditions::Supported)?;
-    json::validate_keyed_object_headers(
-        request.headers(),
-        json::ObjectRead::Media,
-        &[crate::csek::DESTINATION_PREFIX],
-    )?;
+    json::validate_read_condition_headers(request.headers(), json::EtagConditions::MediaRead)?;
+    json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     let mut headers = json::object_media_headers(&record)?;
     insert_provider_headers(&record, &mut headers)?;
     json::insert_response_headers(&record, &mut headers);
@@ -111,14 +107,32 @@ async fn media(
         );
     }
     let transcode = json::object_media_transcoding(request.headers(), &record)?;
-    if read_etag_not_modified(request.headers(), &json::object_etag(&record))?
+    let etag_outcome = crate::http_conditions::etag_not_modified_first(
+        request.headers(),
+        &json::object_etag(&record),
+    );
+    let conditional = match etag_outcome {
+        Err(crate::http_conditions::EtagError::PreconditionFailed) => {
+            return Ok(boxed(precondition_failed(&headers)));
+        }
+        Err(crate::http_conditions::EtagError::Invalid) => {
+            return Err(JsonError::invalid_parameter(
+                "Invalid ETag precondition header",
+            ));
+        }
+        Ok(not_modified) => not_modified,
+    };
+    if conditional
         || params.conditions.if_generation_not_match == Some(record.generation)
         || params.conditions.if_metageneration_not_match == Some(record.metageneration)
     {
-        return Ok(boxed(not_modified_response(
-            &headers["etag"],
-            &headers["cache-control"],
-        )));
+        let mut response = not_modified_response(&headers["etag"], &headers["cache-control"]);
+        copy_representation_headers(&headers, response.headers_mut());
+        return Ok(boxed(response));
+    }
+    // Cloud Storage refused a ranged read of several ranges instead of ignoring the header.
+    if multiple_ranges(request.headers()) {
+        return Ok(boxed(multiple_ranges_response(&headers)));
     }
     // A media HEAD sends the GET headers without reading the object (observed 2026-10-31).
     let head = request.method() == Method::HEAD;
@@ -202,6 +216,95 @@ async fn gunzipped(
     };
     *response.headers_mut() = headers;
     Ok(response)
+}
+
+/// The headers a conditional media response (304 or 412) keeps: the representation's type,
+/// modification date and `x-goog-*` description, but neither its hashes nor its disposition.
+fn copy_representation_headers(from: &HeaderMap, to: &mut HeaderMap) {
+    for name in [
+        "content-type",
+        "last-modified",
+        "x-goog-generation",
+        "x-goog-metageneration",
+        "x-goog-storage-class",
+        "x-goog-stored-content-encoding",
+        "x-goog-stored-content-length",
+        "pragma",
+    ] {
+        if let Some(value) = from.get(name) {
+            to.insert(name, value.clone());
+        }
+    }
+}
+
+/// A plain-text media failure that keeps the object's `x-goog-*` description.
+fn plain_media_failure(
+    status: StatusCode,
+    body: &'static str,
+    representation: &HeaderMap,
+) -> Response<Full<Bytes>> {
+    let mut response = Response::new(Full::new(Bytes::from_static(body.as_bytes())));
+    *response.status_mut() = status;
+    let headers = response.headers_mut();
+    copy_representation_headers(representation, headers);
+    headers.insert(
+        "content-type",
+        HeaderValue::from_static("text/html; charset=UTF-8"),
+    );
+    if let Some(etag) = representation.get("etag") {
+        headers.insert("etag", etag.clone());
+    }
+    // A failure that depends on a request header must never be stored by a shared cache, even
+    // for a public object whose 200 is cacheable (recorded: no-store, no-cache).
+    headers.insert(
+        "cache-control",
+        HeaderValue::from_static(crate::json::NO_STORE_CACHE_CONTROL),
+    );
+    headers.insert("pragma", HeaderValue::from_static("no-cache"));
+    response
+}
+
+fn precondition_failed(representation: &HeaderMap) -> Response<Full<Bytes>> {
+    plain_media_failure(
+        StatusCode::PRECONDITION_FAILED,
+        "Precondition Failed",
+        representation,
+    )
+}
+
+fn multiple_ranges_response(representation: &HeaderMap) -> Response<Full<Bytes>> {
+    let mut response = plain_media_failure(
+        StatusCode::NOT_IMPLEMENTED,
+        "Multiple Ranges are not supported",
+        representation,
+    );
+    for name in [
+        "last-modified",
+        "x-goog-generation",
+        "x-goog-metageneration",
+        "x-goog-storage-class",
+        "x-goog-stored-content-encoding",
+        "x-goog-stored-content-length",
+        "etag",
+        "cache-control",
+        "pragma",
+    ] {
+        response.headers_mut().remove(name);
+    }
+    response
+}
+
+/// Whether the request asks for several byte ranges at once.
+fn multiple_ranges(headers: &HeaderMap) -> bool {
+    let mut values = headers.get_all("range").iter();
+    match (values.next(), values.next()) {
+        (Some(value), None) => value.to_str().ok().is_some_and(|value| {
+            value.trim().split_once('=').is_some_and(|(unit, ranges)| {
+                unit.eq_ignore_ascii_case("bytes") && ranges.contains(',')
+            })
+        }),
+        _ => false,
+    }
 }
 
 /// Fields the JSON API sends on every media response beyond the representation headers
@@ -299,11 +402,7 @@ async fn metadata(
             .await?
     };
     json::validate_read_condition_headers(request.headers(), json::EtagConditions::Supported)?;
-    json::validate_keyed_object_headers(
-        request.headers(),
-        json::ObjectRead::Metadata,
-        &[crate::csek::DESTINATION_PREFIX],
-    )?;
+    json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     // Metadata needs no key; a supplied key must match and then reveals hashes.
     crate::csek::check_metadata(record.customer_key_sha256, key)
         .map_err(ObjectError::CustomerEncryption)?;

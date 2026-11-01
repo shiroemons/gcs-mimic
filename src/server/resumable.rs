@@ -49,9 +49,9 @@ pub(super) async fn initiate(
         ));
     }
     let base = &ctx.endpoints.api_base_url;
-    let location_prefix =
-        format!("{base}/upload/storage/v1/b/{bucket}/o?uploadType=resumable&upload_id=");
-    location_prefix
+    let location_base = format!("{base}/upload/storage/v1/b/{bucket}/o");
+    let query = request.uri().query().unwrap_or_default().to_owned();
+    location_base
         .parse::<hyper::header::HeaderValue>()
         .map_err(|_| JsonError::invalid_parameter("Invalid session endpoint"))?;
     let bytes = json::read_body(request.into_body(), 64 * 1024).await?;
@@ -74,8 +74,12 @@ pub(super) async fn initiate(
     // The session binds the key fingerprint; later chunks cannot change it.
     options.metadata.customer_key_sha256 = key.map(crate::csek::CustomerKey::sha256);
     let id = create_session(ctx, bucket, &name, options, total).await?;
-    let location = format!("{location_prefix}{id}");
+    let location = session_location(&location_base, &query, &id);
     let mut response = empty_response(StatusCode::OK);
+    response.headers_mut().insert(
+        "content-type",
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
     response.headers_mut().insert(
         "location",
         location
@@ -86,6 +90,22 @@ pub(super) async fn initiate(
         .headers_mut()
         .insert("cache-control", HeaderValue::from_static("no-store"));
     Ok(boxed(response))
+}
+
+/// The session URI Cloud Storage returned: the initiation's own query parameters plus the
+/// `upload_id`, sorted by name (recorded for `name`, `ifGenerationMatch` and `uploadType`).
+fn session_location(base: &str, query: &str, id: &str) -> String {
+    let mut pairs: Vec<String> = query
+        .split('&')
+        .filter(|pair| !pair.is_empty() && !pair.starts_with("upload_id="))
+        .map(str::to_owned)
+        .collect();
+    pairs.push(format!("upload_id={id}"));
+    pairs.sort_by(|a, b| {
+        let key = |pair: &str| pair.split('=').next().unwrap_or_default().to_owned();
+        key(a).cmp(&key(b))
+    });
+    format!("{base}?{}", pairs.join("&"))
 }
 
 /// Opens a session for an authorized initiation and returns its opaque ID. Each protocol
@@ -120,6 +140,10 @@ pub(super) fn incomplete(
     } else {
         StatusCode::PERMANENT_REDIRECT
     });
+    response.headers_mut().insert(
+        "content-type",
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
     // A decimal byte range is always a valid header value.
     if offset > 0
         && let Ok(range) = HeaderValue::try_from(format!("bytes=0-{}", offset - 1))

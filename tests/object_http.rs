@@ -247,15 +247,30 @@ impl Reply {
             "{}",
             String::from_utf8_lossy(&self.body)
         );
-        assert_eq!(
-            self.headers["content-type"],
-            "application/json; charset=UTF-8"
+        // The upload front end labelled some JSON envelopes text/html (recorded).
+        let content_type = self.headers["content-type"].as_str();
+        assert!(
+            matches!(
+                content_type,
+                "application/json; charset=UTF-8" | "text/html; charset=UTF-8"
+            ),
+            "{content_type}"
         );
-        let error = &self.json()["error"];
+        let body: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
+            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
+        });
+        let error = &body["error"];
         assert_eq!(error["code"], status);
         assert_eq!(error["errors"][0]["domain"], "global");
-        assert_eq!(error["errors"][0]["reason"], reason);
+        assert_eq!(error["errors"][0]["reason"], reason, "{error}");
         assert_eq!(error["errors"][0]["message"], error["message"]);
+    }
+
+    /// A bare text page: the status, content type and the whole body are compared.
+    fn plain_error(&self, status: u16, content_type: &str, body: &str) {
+        assert_eq!(self.status, status);
+        assert_eq!(self.headers["content-type"], content_type);
+        assert_eq!(String::from_utf8_lossy(&self.body), body);
     }
 }
 
@@ -352,7 +367,8 @@ fn obj_http_zero_multichunk_binary_and_size_limits() {
     server.bucket();
     let empty = server.upload("name=empty", "", b"");
     assert_eq!(empty.status, 200);
-    assert_eq!(empty.json()["contentType"], "application/octet-stream");
+    // An upload without a Content-Type stores none (recorded).
+    assert!(empty.json().get("contentType").is_none());
     assert_eq!(empty.json()["size"], "0");
     assert!(server.get("empty?alt=media").body.is_empty());
     let payload: Vec<u8> = (0..150_000).map(|n| (n % 256) as u8).collect();
@@ -380,13 +396,24 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 5000);
     server.bucket();
-    for hash in ["md5=AAAAAAAAAAAAAAAAAAAAAA==", "crc32c=AAAAAA=="] {
-        server
-            .upload("name=bad", &format!("X-Goog-Hash: {hash}\r\n"), b"payload")
-            .error(400, "invalid");
-        server.get("bad").error(404, "notFound");
+    // A JSON media upload does not examine X-Goog-Hash (recorded): the computed hashes win.
+    for (index, hash) in ["md5=AAAAAAAAAAAAAAAAAAAAAA==", "crc32c=AAAAAA=="]
+        .into_iter()
+        .enumerate()
+    {
+        let reply = server.upload(
+            &format!("name=ignored-{index}"),
+            &format!("X-Goog-Hash: {hash}\r\n"),
+            b"payload",
+        );
+        assert_eq!(reply.status, 200);
+        assert_ne!(reply.json()["crc32c"], "AAAAAA==");
     }
-    server.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Length: 999\r\n\r\n").error(400, "invalidParameter");
+    server.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related\r\nContent-Length: 999\r\n\r\n").plain_error(
+        400,
+        "text/plain; charset=utf-8",
+        "Bad content type.  Please use multipart.",
+    );
     server.get("unsupported").error(404, "notFound");
     let existing = server.upload("name=existing", "", b"old");
     assert_eq!(existing.status, 200);
@@ -433,7 +460,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             "If-Match: \"x\"\r\n",
             b"",
         )
-        .error(412, "conditionNotMet");
+        .plain_error(412, "text/html; charset=UTF-8", "Precondition Failed");
     // An incomplete customer-supplied key fails validation before any object lookup or upload;
     // DELETE does not take keys and rejects them as unsupported.
     let key = "X-Goog-Encryption-Key: key\r\n";
@@ -462,14 +489,17 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     );
     assert_eq!(partial.status, 206);
     assert_eq!(partial.body, b"ol");
-    server
-        .request(
-            "GET",
-            "/storage/v1/b/test-bucket/o/existing?alt=media",
-            "If-Range: opaque\r\n",
-            b"",
-        )
-        .error(400, "badRequest");
+    // If-Range is not evaluated (recorded): without a Range the whole object is sent.
+    let if_range = server.request(
+        "GET",
+        "/storage/v1/b/test-bucket/o/existing?alt=media",
+        "If-Range: opaque\r\n",
+        b"",
+    );
+    assert_eq!(
+        (if_range.status, if_range.body.as_slice()),
+        (200, &b"old"[..])
+    );
     server
         .request(
             "GET",
@@ -1279,7 +1309,8 @@ fn obj_http_early_rejections_survive_body_larger_than_socket_buffers() {
     server.bucket();
     for (query, status, reason) in [
         ("uploadType=media&name=large", 413, "uploadTooLarge"),
-        ("uploadType=multipart&name=large", 400, "invalidParameter"),
+        // Without a multipart Content-Type the body is a media upload and hits the size limit.
+        ("uploadType=multipart&name=large", 413, "uploadTooLarge"),
         ("uploadType=media", 400, "required"),
     ] {
         let mut stream = server.stream();

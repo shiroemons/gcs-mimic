@@ -133,10 +133,8 @@ fn held_objects_reject_delete_and_replacement() {
     let original = server.put("held", b"original").json();
     server
         .request("DELETE", "/storage/v1/b/test-bucket/o/held", "", b"")
-        .error(403, "objectUnderActiveHold");
-    server
-        .put("held", b"replacement")
-        .error(403, "objectUnderActiveHold");
+        .hold_error();
+    server.put("held", b"replacement").hold_error();
     server
         .request(
             "DELETE",
@@ -147,14 +145,14 @@ fn held_objects_reject_delete_and_replacement() {
             "",
             b"",
         )
-        .error(403, "objectUnderActiveHold");
+        .hold_error();
     assert_eq!(server.get("held").json(), original);
     assert_eq!(server.get("held?alt=media").body, b"original");
     let path = resumable(&server, "race", json!({}));
     server.put("race", b"winner").json();
     server
         .request("PUT", &path, "Content-Range: bytes 0-4/5\r\n", b"loser")
-        .error(403, "objectUnderActiveHold");
+        .hold_error();
     assert_eq!(server.get("race?alt=media").body, b"winner");
     update(&server, "PATCH", "held", json!({"eventBasedHold":false})).json();
     server.put("held", b"new").json();
@@ -178,7 +176,7 @@ fn held_objects_reject_delete_and_replacement() {
             "",
             b"",
         )
-        .error(403, "objectUnderActiveHold");
+        .hold_error();
 }
 
 #[test]
@@ -193,7 +191,14 @@ fn event_hold_metadata_release_and_restart() {
     )
     .json();
     assert_eq!(unchanged["eventBasedHold"], true);
-    let unchanged = update(&server, "PUT", "held", json!({"contentType":"text/plain"})).json();
+    // A PUT replaces the resource, so it keeps a hold only when it names it (recorded).
+    let unchanged = update(
+        &server,
+        "PUT",
+        "held",
+        json!({"contentType":"text/plain","eventBasedHold":true}),
+    )
+    .json();
     assert_eq!(unchanged["eventBasedHold"], true);
     update(
         &server,
@@ -254,14 +259,8 @@ fn event_hold_metadata_release_and_restart() {
 fn event_hold_permissions_and_invalid_input() {
     let (_dir, server) = setup(true);
     let original = server.put("held", b"bytes").json();
-    for hold in [Value::Null, json!(1), json!("false"), json!({})] {
-        update(&server, "PATCH", "held", json!({"eventBasedHold":hold}))
-            .error(400, "invalidArgument");
-    }
-    for hold in [json!(1), json!("false"), json!({})] {
-        update(&server, "PATCH", "held", json!({"temporaryHold":hold}))
-            .error(400, "invalidArgument");
-    }
+    // A hold of another type is not an error: Cloud Storage left the hold as it was (see the
+    // parity tests), so only authorization is refused here.
     for token in ["viewer", "creator"] {
         server
             .request(

@@ -29,11 +29,11 @@ enum Token {
 }
 
 impl Glob {
-    pub(crate) fn parse(pattern: &str) -> Result<Self, &'static str> {
+    pub(crate) fn parse(pattern: &str) -> Result<Self, GlobError> {
         if pattern.len() > 1024 {
-            return Err(
+            return Err(GlobError::Static(
                 "matchGlob must be at most 1024 UTF-8 bytes; use a shorter pattern such as **/*.txt",
-            );
+            ));
         }
         let chars: Vec<_> = pattern.chars().collect();
         let tokens = sequence(&chars, &mut 0, Scope::Pattern)?;
@@ -137,6 +137,32 @@ impl Glob {
     }
 }
 
+/// Why a `matchGlob` pattern was refused.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum GlobError {
+    Static(&'static str),
+    /// A `[` at this character index that no `]` closes; Cloud Storage names the index.
+    UnclosedClass(usize),
+}
+
+impl From<&'static str> for GlobError {
+    fn from(message: &'static str) -> Self {
+        Self::Static(message)
+    }
+}
+
+impl std::fmt::Display for GlobError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Static(message) => formatter.write_str(message),
+            Self::UnclosedClass(index) => write!(
+                formatter,
+                "Glob pattern character class has no closing ']' for opening '[' at index {index}. Either add a closing ']' or use '\\[' to match a literal '['."
+            ),
+        }
+    }
+}
+
 const INVALID: &str = "Invalid matchGlob syntax; close brackets/braces, use ascending ranges and keep / and ** outside braces (example: **/*.{txt,csv})";
 
 /// Whether a token sequence is the whole pattern or one alternative inside `{...}`, where
@@ -147,11 +173,7 @@ enum Scope {
     Brace,
 }
 
-fn sequence(
-    chars: &[char],
-    position: &mut usize,
-    scope: Scope,
-) -> Result<Vec<Token>, &'static str> {
+fn sequence(chars: &[char], position: &mut usize, scope: Scope) -> Result<Vec<Token>, GlobError> {
     let brace = scope == Scope::Brace;
     let mut tokens = Vec::new();
     while let Some(&character) = chars.get(*position) {
@@ -164,7 +186,7 @@ fn sequence(
             '\\' => {
                 let value = *chars.get(*position).ok_or(INVALID)?;
                 if brace && value == '/' {
-                    return Err(INVALID);
+                    return Err(INVALID.into());
                 }
                 *position += 1;
                 Token::Character(Character::Literal(value))
@@ -174,7 +196,7 @@ fn sequence(
                 let double = chars.get(*position) == Some(&'*');
                 if double {
                     if brace {
-                        return Err(INVALID);
+                        return Err(INVALID.into());
                     }
                     *position += 1;
                 }
@@ -186,6 +208,7 @@ fn sequence(
                 }
             }
             '[' => {
+                let opening = *position - 1;
                 let negated = matches!(chars.get(*position), Some('!' | '^'));
                 if negated {
                     *position += 1;
@@ -197,7 +220,7 @@ fn sequence(
                     }
                     let start = class_character(chars, position)?;
                     if brace && start == '/' {
-                        return Err(INVALID);
+                        return Err(INVALID.into());
                     }
                     let end = if chars.get(*position) == Some(&'-')
                         && chars.get(*position + 1).is_some_and(|c| *c != ']')
@@ -208,12 +231,15 @@ fn sequence(
                         start
                     };
                     if end < start || (brace && end == '/') {
-                        return Err(INVALID);
+                        return Err(INVALID.into());
                     }
                     ranges.push((start, end));
                 }
+                if chars.get(*position).is_none() {
+                    return Err(GlobError::UnclosedClass(opening));
+                }
                 if ranges.is_empty() || chars.get(*position) != Some(&']') {
-                    return Err(INVALID);
+                    return Err(INVALID.into());
                 }
                 *position += 1;
                 Token::Character(Character::Class(negated, ranges))
@@ -228,13 +254,13 @@ fn sequence(
                             *position += 1;
                             break;
                         }
-                        _ => return Err(INVALID),
+                        _ => return Err(INVALID.into()),
                     }
                 }
                 Token::Alternatives(branches)
             }
-            ']' | '}' => return Err(INVALID),
-            '/' if brace => return Err(INVALID),
+            ']' | '}' => return Err(INVALID.into()),
+            '/' if brace => return Err(INVALID.into()),
             value => Token::Character(Character::Literal(value)),
         };
         tokens.push(token);
@@ -242,7 +268,7 @@ fn sequence(
     Ok(tokens)
 }
 
-fn class_character(chars: &[char], position: &mut usize) -> Result<char, &'static str> {
+fn class_character(chars: &[char], position: &mut usize) -> Result<char, GlobError> {
     let mut value = *chars.get(*position).ok_or(INVALID)?;
     *position += 1;
     if value == '\\' {

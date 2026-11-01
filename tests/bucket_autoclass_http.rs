@@ -338,8 +338,7 @@ fn object_storage_class_on_write_json_xml_and_autoclass() {
     )
     .json();
     assert_eq!(resumed["storageClass"], "ARCHIVE");
-    resumable(&server, "plain", "bad", json!({"storageClass":"GLACIER"}))
-        .error(400, "invalidArgument");
+    resumable(&server, "plain", "bad", json!({"storageClass":"GLACIER"})).error(400, "invalid");
 
     // Autoclass stores new objects as STANDARD even when another class is requested.
     let auto = multipart(&server, "auto", "cold", json!({"storageClass":"COLDLINE"})).json();
@@ -352,8 +351,7 @@ fn object_storage_class_on_write_json_xml_and_autoclass() {
     )
     .json();
     assert_eq!(auto_resumed["storageClass"], "STANDARD");
-    multipart(&server, "auto", "bad", json!({"storageClass":"GLACIER"}))
-        .error(400, "invalidArgument");
+    multipart(&server, "auto", "bad", json!({"storageClass":"GLACIER"})).error(400, "invalid");
 
     // Rewrite keeps its class change outside Autoclass and ignores it inside.
     let rewritten = server

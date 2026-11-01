@@ -187,7 +187,7 @@ fn versioned_listing_pages_and_query_boundaries() {
                 "",
                 b"",
             )
-            .error(400, "invalidParameter");
+            .error(400, "invalid");
         token = next.into();
     }
     assert_eq!(actual, expected);
@@ -202,7 +202,7 @@ fn versioned_listing_pages_and_query_boundaries() {
             "",
             b"",
         )
-        .error(400, "invalidParameter");
+        .error(400, "invalid");
     let mut token = String::new();
     let mut items = Vec::new();
     let mut prefixes = Vec::new();

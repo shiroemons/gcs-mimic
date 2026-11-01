@@ -74,7 +74,14 @@ pub(crate) fn route(
             if_metageneration_match: condition("ifMetagenerationMatch")?,
             ..Default::default()
         };
-        crate::json::query::finish(&query)?;
+        // `projection` is a defined parameter this route does not implement.
+        if query.contains_key("projection") {
+            return Err(JsonError::invalid_parameter(
+                "Unknown query parameter for this method: projection",
+            ));
+        }
+        // Cloud Storage ignored a query parameter it does not define, such as the gRPC-only
+        // `deleteSourceObjects`: the sources survived a recorded compose that carried it.
         Ok(crate::json::ObjectRequest::Compose {
             bucket,
             name,
@@ -91,13 +98,8 @@ pub struct ComposeRequest {
 }
 
 pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRequest, JsonError> {
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "parseError",
-            "Invalid compose JSON",
-        )
-    })?;
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
     let body = object(&value, "Compose request")?;
     known_fields(
         body,
@@ -124,6 +126,16 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
         })
         .transpose()?
         .unwrap_or(false);
+    if body
+        .get("sourceObjects")
+        .is_none_or(|sources| sources.as_array().is_some_and(Vec::is_empty))
+    {
+        return Err(JsonError::new(
+            StatusCode::BAD_REQUEST,
+            "required",
+            "You must provide at least one source component.",
+        ));
+    }
     let sources = body
         .get("sourceObjects")
         .and_then(Value::as_array)

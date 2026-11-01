@@ -55,7 +55,7 @@ fn fields_invalid_selection_precedes_read_etag_evaluation() {
             format!("If-None-Match: {etag}\r\n"),
         ] {
             server
-                .request("GET", &format!("{path}?fields=name,"), &headers, b"")
+                .request("GET", &format!("{path}?fields=name("), &headers, b"")
                 .error(400, "invalidParameter");
         }
     }
@@ -213,7 +213,7 @@ fn fields_invalid_selectors_and_errors_never_filter_or_mutate() {
     server.put("empty", b"").json();
     let original = server.get("empty").json();
     for selector in [
-        "name,",
+        "name(",
         "metadata(",
         "metadata//key",
         "unknown",
@@ -230,7 +230,19 @@ fn fields_invalid_selectors_and_errors_never_filter_or_mutate() {
             )
             .error(400, "invalidParameter");
     }
-    for selector in ["", "%20name", "name,%20size"] {
+    // An empty object selection selects nothing (recorded), unlike a selector with spaces.
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o/empty?fields=",
+                ADMIN,
+                b""
+            )
+            .json(),
+        json!({})
+    );
+    for selector in ["%20name", "name,%20size"] {
         server
             .request(
                 "GET",
@@ -406,7 +418,8 @@ fn fields_invalid_selectors_leave_all_routes_unchanged() {
                 b""
             )
             .json(),
-        json!({"metadata":{}})
+        // A selection that matches nothing inside metadata drops the key (recorded).
+        json!({})
     );
     server.stop();
 }

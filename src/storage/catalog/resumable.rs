@@ -311,8 +311,16 @@ impl Catalog {
         options: ResumableOptions,
         total: Option<u64>,
     ) -> Result<ResumableSession, ResumableError> {
-        self.check_upload(bucket, name, options.conditions, &options.access)
-            .await?;
+        // Cloud Storage opened the session without evaluating the preconditions (recorded 200
+        // for `ifGenerationMatch=0` over a live object); they are checked when the upload
+        // finalizes, from the copy the session keeps.
+        self.check_upload(
+            bucket,
+            name,
+            crate::object::ObjectConditions::default(),
+            &options.access,
+        )
+        .await?;
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let catalog = self.clone();
@@ -320,7 +328,7 @@ impl Catalog {
             let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
             let (_,delete_permission)=super::objects::authorized_bucket(&transaction,&bucket,&options.access)?;
             let previous=super::objects::lookup(&transaction,&bucket,&name)?;
-            super::objects::check_publication(previous.as_ref(),options.conditions,delete_permission,catalog.0.clock.now())?;
+            super::objects::check_publication(previous.as_ref(),crate::object::ObjectConditions::default(),delete_permission,catalog.0.clock.now())?;
             let _trimmed = admit_session(&transaction, &catalog)?;
             let incarnation: String = transaction.prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1").and_then(|mut statement| statement.query_row([&bucket], |r| r.get(0))).optional().map_err(unavailable)?.ok_or(ObjectError::BucketNotFound)?;
             let id = random_id::<32>()?;

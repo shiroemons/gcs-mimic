@@ -20,6 +20,52 @@ pub(crate) const PRECONDITION_NOT_HELD: &str =
 /// The prefix of Cloud Storage's missing-object message, followed by `<bucket>/<object>`.
 const NO_SUCH_OBJECT: &str = "No such object: ";
 
+/// Where Cloud Storage's parser expected the `:` after the first key and what it said.
+/// The first key may be bare, as in the recorded `{not json` and `oops` inputs.
+fn missing_colon(text: &str) -> Option<(String, String, usize)> {
+    let chars: Vec<char> = text.chars().collect();
+    let skip_space = |mut index: usize| {
+        while chars.get(index).is_some_and(|c| c.is_whitespace()) {
+            index += 1;
+        }
+        index
+    };
+    let mut index = skip_space(0);
+    if chars.get(index) == Some(&'{') {
+        index = skip_space(index + 1);
+    }
+    let key_start = index;
+    if chars.get(index) == Some(&'"') {
+        index += 1;
+        while chars.get(index).is_some_and(|c| *c != '"') {
+            index += 1;
+        }
+        index += 1;
+    } else {
+        while chars
+            .get(index)
+            .is_some_and(|c| !c.is_whitespace() && *c != ':')
+        {
+            index += 1;
+        }
+    }
+    let index = skip_space(index);
+    match chars.get(index) {
+        Some(':') => None,
+        Some(_) => Some((
+            "Expected : between key:value pair.".to_owned(),
+            text.to_owned(),
+            index,
+        )),
+        // At the end of the input the quoted context starts at the key (recorded for `{oops`).
+        None => Some((
+            "Unexpected end of string. Expected : between key:value pair.".to_owned(),
+            chars[key_start..].iter().collect(),
+            chars.len() - key_start,
+        )),
+    }
+}
+
 /// Escapes text for an HTML document. The object name in a media 404 is client-controlled and
 /// the response is `text/html`, so every markup-significant character must be neutralized.
 fn escape_html(text: &str) -> String {
@@ -46,7 +92,63 @@ pub struct JsonError {
     /// The `locationType`/`location` pair of the error item, if any. A reference keeps the error
     /// small, which `Result` returns throughout the crate depend on.
     pub location: Option<&'static ErrorLocation>,
+    /// Whether the XML API reports this as `ObjectUnderActiveHold`.
+    pub(crate) xml_active_hold: bool,
+    /// Cloud Storage answered some failures with a bare text page instead of a JSON envelope.
+    pub(crate) plain: Option<&'static PlainText>,
+    /// Cloud Storage's upload front end sent some JSON error envelopes as `text/html`.
+    pub(crate) html_typed: bool,
 }
+
+/// A bare text error page: the front end's answer to a request no JSON handler claims.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PlainText {
+    pub(crate) content_type: &'static str,
+    pub(crate) body: &'static str,
+    /// Whether the page carries the JSON API's no-store cache headers.
+    pub(crate) cache: PlainCache,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum PlainCache {
+    NoStore,
+    Unspecified,
+}
+
+/// `POST` to an object resource, which has no such method.
+pub(crate) const NOT_FOUND_HTML: PlainText = PlainText {
+    content_type: "text/html; charset=UTF-8",
+    body: "Not Found",
+    cache: PlainCache::NoStore,
+};
+
+/// An upload request that names no session the server knows.
+pub(crate) const NOT_FOUND_TEXT: PlainText = PlainText {
+    content_type: "text/plain; charset=utf-8",
+    body: "Not Found",
+    cache: PlainCache::Unspecified,
+};
+
+/// A multipart upload whose `Content-Type` carries no boundary.
+pub(crate) const BAD_CONTENT_TYPE_TEXT: PlainText = PlainText {
+    content_type: "text/plain; charset=utf-8",
+    body: "Bad content type.  Please use multipart.",
+    cache: PlainCache::Unspecified,
+};
+
+/// A resumable chunk whose `Content-Range` Cloud Storage could not use.
+pub(crate) const CONTENT_RANGE_TEXT: PlainText = PlainText {
+    content_type: "text/plain; charset=utf-8",
+    body: "Failed to parse Content-Range header.",
+    cache: PlainCache::Unspecified,
+};
+
+/// An upload request whose `uploadType` is not one of the three.
+pub(crate) const BAD_REQUEST_TEXT: PlainText = PlainText {
+    content_type: "text/plain; charset=utf-8",
+    body: "Bad Request",
+    cache: PlainCache::Unspecified,
+};
 
 /// Where a rejected value was sent: `locationType` and `location` of an error item.
 #[derive(Debug, PartialEq, Eq)]
@@ -181,6 +283,9 @@ impl JsonError {
             message: message.into(),
             allow: None,
             location: None,
+            xml_active_hold: false,
+            plain: None,
+            html_typed: false,
         }
     }
 
@@ -202,22 +307,69 @@ impl JsonError {
         Self::new(StatusCode::BAD_REQUEST, "invalidParameter", message)
     }
 
+    /// A numeric query parameter Cloud Storage could not parse as a signed 64-bit integer.
+    pub(crate) fn invalid_long(value: &str) -> Self {
+        Self::invalid_parameter(format!("Invalid long value: '{value}'."))
+    }
+
+    /// A numeric query parameter Cloud Storage could not parse as an unsigned integer.
+    pub(crate) fn invalid_unsigned(value: &str) -> Self {
+        Self::invalid_parameter(format!("Invalid unsigned integer value: '{value}'."))
+    }
+
+    /// A request body that is not JSON. Cloud Storage quotes the offending input with a caret
+    /// under the position where its lenient parser stopped, which the recorded object-resource
+    /// failures show for a missing `:` after the first key.
+    pub(crate) fn parse_error(input: &[u8], cause: &serde_json::Error) -> Self {
+        let text = String::from_utf8_lossy(input);
+        let (reason, shown, column) = missing_colon(&text).unwrap_or_else(|| {
+            // A body that ends inside a value is reported with an empty context line (recorded
+            // 2026-10-31 for bucket bodies truncated after a key).
+            if cause.is_eof() {
+                return (
+                    "Unexpected end of string. Expected a value.".to_owned(),
+                    String::new(),
+                    0,
+                );
+            }
+            (
+                cause
+                    .to_string()
+                    .split(" at line ")
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned(),
+                text.to_string(),
+                cause.column().saturating_sub(1),
+            )
+        });
+        Self::invalid(format!(
+            "Parse Error: {reason}\n{shown}\n{}^",
+            " ".repeat(column)
+        ))
+    }
+
+    /// The same JSON envelope, labelled `text/html` as the upload front end did for request
+    /// problems it found before reaching the storage handler.
+    pub(crate) fn html_typed(mut self) -> Self {
+        self.html_typed = true;
+        self
+    }
+
+    /// An upload that names no object.
+    pub(crate) fn missing_object_name() -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "required",
+            "You must specify an object name.",
+        )
+        .html_typed()
+    }
+
     /// A rejected value in the request body or a bucket setting. Cloud Storage reports these as
     /// `invalid` (recorded 2026-10-31), where `invalidArgument` is a gRPC-style name.
     pub(crate) fn invalid(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalid", message)
-    }
-
-    /// A request body that is not valid JSON. Cloud Storage reports the parser's position with a
-    /// `Parse Error:` prefix and the `invalid` reason (recorded 2026-10-31); only the truncated-body
-    /// wording was recorded, so other syntax errors carry a generic description.
-    pub(crate) fn json_parse_error(error: &serde_json::Error) -> Self {
-        let detail = if error.is_eof() {
-            "Unexpected end of string. Expected a value."
-        } else {
-            "Unexpected token. Expected a value."
-        };
-        Self::invalid(format!("Parse Error: {detail}\n\n^"))
     }
 
     pub(crate) fn invalid_argument(message: impl Into<String>) -> Self {
@@ -257,6 +409,13 @@ impl JsonError {
         json!({"error": {"code": self.status.as_u16(), "message": self.message, "errors": [item]}})
     }
 
+    /// Whether this is a missing-bucket error, in either the bucket or the object wording.
+    pub(crate) fn is_missing_bucket(&self) -> bool {
+        self.status == StatusCode::NOT_FOUND
+            && self.reason == "notFound"
+            && (self.message == BUCKET_NOT_FOUND || self.message == "Bucket not found")
+    }
+
     /// Whether this is the catalog's missing-object error, before or after it names the object.
     pub(crate) fn is_missing_object(&self) -> bool {
         self.status == StatusCode::NOT_FOUND
@@ -267,7 +426,8 @@ impl JsonError {
     /// Cloud Storage names the requested object in its not-found message, which the catalog
     /// error cannot do because it does not know which request selected the object.
     pub(crate) fn naming_object(mut self, bucket: &str, name: &str) -> Self {
-        if self.is_missing_object() {
+        // An error that already names its object, such as a copy source, keeps that name.
+        if self.message == OBJECT_NOT_FOUND && self.status == StatusCode::NOT_FOUND {
             self.message = format!("{NO_SUCH_OBJECT}{bucket}/{name}");
         }
         self
@@ -280,7 +440,13 @@ impl JsonError {
         if !self.is_missing_object() && self.status != StatusCode::RANGE_NOT_SATISFIABLE {
             return self.into_response();
         }
-        let mut response = Response::new(Full::new(Bytes::from(escape_html(&self.message))));
+        // The range refusal has its own short wording, unlike the JSON form.
+        let text = if self.status == StatusCode::RANGE_NOT_SATISFIABLE {
+            "Request range not satisfiable".to_owned()
+        } else {
+            escape_html(&self.message)
+        };
+        let mut response = Response::new(Full::new(Bytes::from(text)));
         *response.status_mut() = self.status;
         let headers = response.headers_mut();
         headers.insert(
@@ -300,13 +466,41 @@ impl JsonError {
             *response.status_mut() = self.status;
             return response;
         }
+        if let Some(plain) = self.plain {
+            let mut response = Response::new(Full::new(Bytes::from_static(plain.body.as_bytes())));
+            *response.status_mut() = self.status;
+            let headers = response.headers_mut();
+            headers.insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static(plain.content_type),
+            );
+            if plain.cache == PlainCache::NoStore {
+                headers.insert(
+                    header::CACHE_CONTROL,
+                    header::HeaderValue::from_static(NO_STORE_CACHE_CONTROL),
+                );
+                headers.insert(header::PRAGMA, header::HeaderValue::from_static("no-cache"));
+            }
+            return response;
+        }
         let mut response = Response::new(Full::new(Bytes::from(super::render_body(&self.value()))));
         *response.status_mut() = self.status;
         let headers = response.headers_mut();
         headers.insert(
             header::CONTENT_TYPE,
-            header::HeaderValue::from_static("application/json; charset=UTF-8"),
+            header::HeaderValue::from_static(if self.html_typed {
+                "text/html; charset=UTF-8"
+            } else {
+                "application/json; charset=UTF-8"
+            }),
         );
+        // A text/html body that quotes request input must not be sniffed into script.
+        if self.html_typed {
+            headers.insert(
+                "x-content-type-options",
+                header::HeaderValue::from_static("nosniff"),
+            );
+        }
         // Recorded Cloud Storage JSON errors forbid every cache, HTTP/1.0 ones included.
         headers.insert(
             header::CACHE_CONTROL,
@@ -319,6 +513,13 @@ impl JsonError {
                 .insert(header::ALLOW, header::HeaderValue::from_static(allow));
         }
         response
+    }
+}
+
+/// A refused `matchGlob` pattern is a malformed request; the pattern defect is the message.
+impl From<crate::match_glob::GlobError> for JsonError {
+    fn from(error: crate::match_glob::GlobError) -> Self {
+        Self::invalid(error.to_string())
     }
 }
 
@@ -415,11 +616,15 @@ impl From<crate::storage::ResumableError> for JsonError {
     fn from(error: crate::storage::ResumableError) -> Self {
         use crate::storage::ResumableError;
         match error {
-            ResumableError::NotFound => Self::new(
-                StatusCode::NOT_FOUND,
-                "notFound",
-                "Upload session not found",
-            ),
+            ResumableError::NotFound => {
+                let mut error = Self::new(
+                    StatusCode::NOT_FOUND,
+                    "notFound",
+                    "Upload session not found",
+                );
+                error.plain = Some(&NOT_FOUND_TEXT);
+                error
+            }
             ResumableError::Gone => Self::new(
                 StatusCode::GONE,
                 "gone",
@@ -431,12 +636,39 @@ impl From<crate::storage::ResumableError> for JsonError {
     }
 }
 
+/// A compose component's failure, in the wording Cloud Storage used for it.
+impl From<Box<crate::object::ComponentFailure>> for JsonError {
+    fn from(failure: Box<crate::object::ComponentFailure>) -> Self {
+        use crate::object::ComponentFailureKind;
+        match failure.kind {
+            ComponentFailureKind::NotFound => Self::new(
+                StatusCode::NOT_FOUND,
+                "notFound",
+                format!("{NO_SUCH_OBJECT}{}/{}", failure.bucket, failure.name),
+            ),
+            ComponentFailureKind::GenerationMismatch { required, actual } => Self::new(
+                StatusCode::PRECONDITION_FAILED,
+                "conditionNotMet",
+                format!(
+                    "Generation {required} required for component object ({}/{}), but actual generation is {actual}.",
+                    failure.bucket, failure.name
+                ),
+            ),
+        }
+    }
+}
+
 impl From<ObjectError> for JsonError {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "a single dispatch match over every object error"
+    )]
     fn from(error: ObjectError) -> Self {
         match error {
             ObjectError::BucketNotFound => {
                 Self::new(StatusCode::NOT_FOUND, "notFound", BUCKET_NOT_FOUND)
             }
+            ObjectError::Component(failure) => failure.into(),
             ObjectError::InvalidMetadata => Self::invalid_argument("Custom metadata exceeds 8 KiB"),
             ObjectError::InvalidDerivedArgument(reason) => Self::invalid_argument(reason),
             ObjectError::DerivedTransferIncomplete => {
@@ -471,7 +703,7 @@ impl From<ObjectError> for JsonError {
             ObjectError::PreconditionFailed => Self::new(
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",
-                "Precondition failed",
+                PRECONDITION_NOT_HELD,
             )
             .at_if_match(),
             ObjectError::OverwriteForbidden | ObjectError::Forbidden => Self::forbidden(),
@@ -485,11 +717,22 @@ impl From<ObjectError> for JsonError {
                 "forbidden",
                 crate::object::LOCKED_RETENTION_MESSAGE,
             ),
-            ObjectError::ActiveHold => Self::new(
-                StatusCode::FORBIDDEN,
-                "objectUnderActiveHold",
-                "Object replacement or deletion is not allowed due to an active hold on the object.",
-            ),
+            ObjectError::ActiveHold(held) => {
+                let kind = match held.kind {
+                    crate::object::HoldKind::Temporary => "Temporary",
+                    crate::object::HoldKind::EventBased => "Event-Based",
+                };
+                let mut error = Self::new(
+                    StatusCode::FORBIDDEN,
+                    "forbidden",
+                    format!(
+                        "Object '{}/{}' is under active {kind} hold and cannot be deleted, overwritten or archived until hold is removed.",
+                        held.bucket, held.name
+                    ),
+                );
+                error.xml_active_hold = true;
+                error
+            }
             // Bucket retention policies and object retention share the reason and wording
             // (observed 2026-10-31, including the refused overwrite).
             ObjectError::ObjectRetentionNotMet(retained) => Self::new(
@@ -502,6 +745,17 @@ impl From<ObjectError> for JsonError {
                     crate::object::retention::pacific_rfc3339(retained.until)
                 ),
             ),
+            ObjectError::HashMismatch(mismatch) => {
+                let (label, noun) = match mismatch.algorithm {
+                    crate::object::HashAlgorithm::Crc32c => ("CRC32C", "CRC32C"),
+                    crate::object::HashAlgorithm::Md5 => ("MD5 hash", "MD5 hash"),
+                };
+                Self::invalid(format!(
+                    "Provided {label} \"{}\" doesn't match calculated {noun} \"{}\".",
+                    super::base64(&mismatch.provided),
+                    super::base64(&mismatch.calculated)
+                ))
+            }
             ObjectError::ChecksumMismatch => Self::new(
                 StatusCode::BAD_REQUEST,
                 "invalid",
@@ -517,7 +771,7 @@ impl From<ObjectError> for JsonError {
                 "badRequest",
                 "The upload request body did not complete",
             ),
-            ObjectError::InvalidFixedMetadata(reason) => Self::invalid_argument(reason),
+            ObjectError::InvalidFixedMetadata(reason) => Self::invalid(reason),
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
             ObjectError::Unavailable(cause) => Self::backend(cause.message()),
             ObjectError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
@@ -585,6 +839,63 @@ impl std::error::Error for JsonError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_parse_errors_quote_the_input_with_a_caret_like_cloud_storage() {
+        let parse = |input: &str| {
+            let cause = serde_json::from_slice::<Value>(input.as_bytes()).unwrap_err();
+            JsonError::parse_error(input.as_bytes(), &cause)
+        };
+        let error = parse("{not json");
+        assert_eq!((error.status.as_u16(), error.reason), (400, "invalid"));
+        assert_eq!(
+            error.message,
+            "Parse Error: Expected : between key:value pair.\n{not json\n     ^"
+        );
+        assert_eq!(
+            parse("{oops").message,
+            "Parse Error: Unexpected end of string. Expected : between key:value pair.\noops\n    ^"
+        );
+    }
+
+    #[test]
+    fn holds_and_compose_components_are_named_in_their_errors() {
+        use crate::object::{ComponentFailure, ComponentFailureKind, HeldObject, HoldKind};
+        let held = |kind| {
+            JsonError::from(ObjectError::ActiveHold(Box::new(HeldObject {
+                bucket: "b".into(),
+                name: "o".into(),
+                kind,
+            })))
+        };
+        let error = held(HoldKind::EventBased);
+        assert_eq!((error.status.as_u16(), error.reason), (403, "forbidden"));
+        assert_eq!(
+            error.message,
+            "Object 'b/o' is under active Event-Based hold and cannot be deleted, overwritten or archived until hold is removed."
+        );
+        assert!(error.xml_active_hold);
+        let component = |kind| {
+            JsonError::from(ObjectError::Component(Box::new(ComponentFailure {
+                bucket: "b".into(),
+                name: "a".into(),
+                kind,
+            })))
+        };
+        assert_eq!(
+            component(ComponentFailureKind::NotFound).message,
+            "No such object: b/a"
+        );
+        let mismatch = component(ComponentFailureKind::GenerationMismatch {
+            required: 1,
+            actual: 7,
+        });
+        assert_eq!(mismatch.status.as_u16(), 412);
+        assert_eq!(
+            mismatch.message,
+            "Generation 1 required for component object (b/a), but actual generation is 7."
+        );
+    }
 
     #[test]
     fn backend_causes_are_actionable_and_private_details_stay_private() {

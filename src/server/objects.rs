@@ -137,7 +137,7 @@ pub(super) async fn respond(
             generation,
             conditions,
         } => {
-            json::validate_object_get_headers(request.headers(), json::ObjectRead::Metadata)?;
+            json::validate_object_get_headers(request.headers())?;
             ctx.state
                 .catalog
                 .delete_object_authorized(&bucket, &name, generation, conditions, &access)
@@ -312,7 +312,7 @@ async fn restore(
     query: &BTreeMap<String, String>,
     target: RestoreTarget,
 ) -> Result<Value, JsonError> {
-    json::validate_object_get_headers(request.headers(), json::ObjectRead::Metadata)?;
+    json::validate_object_get_headers(request.headers())?;
     validate_bodyless_post(request, query).await?;
     let create_access = ctx.authorize(auth::OBJECTS_CREATE, &target.bucket).await?;
     let record = ctx
@@ -340,7 +340,7 @@ async fn move_object(
     access: &BucketAccess,
     params: json::ObjectMoveParams,
 ) -> Result<Value, JsonError> {
-    json::validate_object_get_headers(request.headers(), json::ObjectRead::Metadata)?;
+    json::validate_object_get_headers(request.headers())?;
     let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
     // The Node SDK serializes empty options as {}, without move semantics.
     if !bytes.is_empty()
@@ -367,7 +367,22 @@ async fn move_object(
                 destination_create: access,
             },
         )
-        .await?;
+        .await
+        .map_err(|error| match error {
+            // Cloud Storage cannot tell a missing source from a denied one for a move.
+            ObjectError::ObjectNotFound => {
+                let host = ctx.endpoints.api_base_url.split("://").last().unwrap_or_default();
+                JsonError::new(
+                    StatusCode::FORBIDDEN,
+                    "forbidden",
+                    format!(
+                        "Caller does not have storage.objects.move access to the Google Cloud Storage object. Permission 'storage.objects.move' denied on resource '//{}/projects/_/buckets/{}/objects/{}' (or it may not exist).",
+                        host.trim_end_matches('/'), params.bucket, params.source
+                    ),
+                )
+            }
+            error => error.into(),
+        })?;
     json::object_resource(&record, &ctx.endpoints.api_base_url, params.projection)
 }
 
@@ -377,7 +392,7 @@ async fn list(
     access: &BucketAccess,
     params: &json::ObjectListParams,
 ) -> Result<Value, JsonError> {
-    json::validate_object_get_headers(headers, json::ObjectRead::Metadata)?;
+    json::validate_object_get_headers(headers)?;
     let page = ctx
         .state
         .catalog
@@ -387,6 +402,10 @@ async fn list(
         && params.empty_soft_deleted_message(&page, None).is_some()
     {
         log_empty_soft_deleted_listing(ctx, access, params, &page).await;
+    }
+    if params.empty_page {
+        // The recorded `maxResults=0` listing held only its kind: no items, prefixes or token.
+        return Ok(serde_json::json!({"kind": "storage#objects"}));
     }
     json::object_list(&page, params, &ctx.endpoints.api_base_url)
 }
@@ -446,11 +465,7 @@ async fn update(
         mode,
         retention_override,
     } = target;
-    json::validate_keyed_object_headers(
-        request.headers(),
-        json::ObjectRead::Metadata,
-        &[crate::csek::DESTINATION_PREFIX],
-    )?;
+    json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     let key = json::request_key(request.headers())?;
     let etags = request.headers().clone();
     // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.

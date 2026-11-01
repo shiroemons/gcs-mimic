@@ -623,7 +623,7 @@ async fn soft_delete_filters_paging_expiry_holds_and_bucket_delete() {
         b"",
     )
     .await
-    .error(400, "invalidParameter");
+    .error(400, "invalid");
     let grouped = h
         .request(
             "GET",
@@ -654,7 +654,7 @@ async fn soft_delete_filters_paging_expiry_holds_and_bucket_delete() {
     .await;
     h.request("DELETE", "/storage/v1/b/bucket/o/held", ADMIN, b"")
         .await
-        .error(403, "objectUnderActiveHold");
+        .error(403, "forbidden");
     resource(
         &h,
         "PATCH",

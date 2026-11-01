@@ -165,14 +165,16 @@ fn obj_route_002_namespace_and_method_boundaries() {
             "{path}"
         );
     }
+    let error = request(Method::POST, "/storage/v1/b/abc/o/file").unwrap_err();
+    assert_eq!(error.status, StatusCode::NOT_FOUND);
+    let response = error.into_response();
+    assert_eq!(
+        response.headers()["content-type"],
+        "text/html; charset=UTF-8"
+    );
     for (path, method, allow) in [
         ("/upload/storage/v1/b/abc/o", Method::GET, "POST"),
         ("/storage/v1/b/abc/o", Method::DELETE, "GET"),
-        (
-            "/storage/v1/b/abc/o/file",
-            Method::POST,
-            "GET, HEAD, DELETE, PATCH, PUT",
-        ),
         (
             "/download/storage/v1/b/abc/o/file",
             Method::DELETE,
@@ -289,8 +291,12 @@ fn obj_name_001_exactly_once_decoding_and_utf8_boundaries() {
 
 #[test]
 fn obj_query_001_required_upload_and_unsupported_types() {
+    // An upload that names no type is a media upload (recorded 200).
+    assert!(matches!(
+        request(Method::POST, "/upload/storage/v1/b/abc/o?name=file"),
+        Ok(ObjectRequest::Insert(_))
+    ));
     for (query, status, reason) in [
-        ("name=file", StatusCode::BAD_REQUEST, "required"),
         ("uploadType=media", StatusCode::BAD_REQUEST, "required"),
         (
             "uploadType=media&name=",
@@ -318,8 +324,9 @@ fn obj_query_001_required_upload_and_unsupported_types() {
             request(Method::POST, &format!("/upload/storage/v1/b/abc/o?{query}")).unwrap_err();
         assert_eq!((error.status, error.reason), (status, reason), "{query}");
     }
+    // An empty `fields` selects nothing, as Cloud Storage did.
+    assert!(request(Method::GET, "/storage/v1/b/abc/o/file?fields=").is_ok());
     for key in [
-        "fields",
         "key",
         "oauth_token",
         "quotaUser",
@@ -469,12 +476,8 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
     }
     let mut headers = HeaderMap::new();
     headers.insert("if-range", HeaderValue::from_static("opaque"));
-    assert_eq!(
-        validate_object_get_headers(&headers, ObjectRead::Media)
-            .unwrap_err()
-            .status,
-        StatusCode::BAD_REQUEST
-    );
+    // Cloud Storage ignored an If-Range validator and applied the Range anyway.
+    assert!(validate_object_get_headers(&headers).is_ok());
     let mut headers = HeaderMap::new();
     headers.insert("x-goog-meta-example", HeaderValue::from_static("value"));
     assert_eq!(
@@ -548,13 +551,11 @@ fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditio
                 (StatusCode::BAD_REQUEST, "invalidParameter")
             );
         }
-        for media in [ObjectRead::Metadata, ObjectRead::Media] {
-            let error = validate_object_get_headers(&headers, media).unwrap_err();
-            assert_eq!(
-                (error.status, error.reason),
-                (StatusCode::BAD_REQUEST, "invalidParameter")
-            );
-        }
+        let error = validate_object_get_headers(&headers).unwrap_err();
+        assert_eq!(
+            (error.status, error.reason),
+            (StatusCode::BAD_REQUEST, "invalidParameter")
+        );
     }
 }
 
@@ -562,10 +563,8 @@ fn obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditio
 fn obj_headers_001_upload_defaults_hashes_and_multiple_headers() {
     assert_eq!(
         parse_object_upload_headers(&HeaderMap::new(), Default::default()).unwrap(),
-        (
-            "application/octet-stream".to_owned(),
-            ExpectedHashes::default()
-        )
+        // No Content-Type stores none.
+        (String::new(), ExpectedHashes::default())
     );
     for combined in [true, false] {
         let mut headers = HeaderMap::new();
@@ -585,15 +584,20 @@ fn obj_headers_001_upload_defaults_hashes_and_multiple_headers() {
                 HeaderValue::from_static("md5=AAAAAAAAAAAAAAAAAAAAAA=="),
             );
         }
+        // Media uploads do not examine the header; resumable initiation still reads it.
         assert_eq!(
             parse_object_upload_headers(&headers, Default::default()).unwrap(),
             (
                 "text/plain; charset=utf-8".to_owned(),
-                ExpectedHashes {
-                    md5: Some([0; 16]),
-                    crc32c: Some(0x01020304)
-                }
+                ExpectedHashes::default()
             )
+        );
+        assert_eq!(
+            declared_hashes(&headers).unwrap(),
+            ExpectedHashes {
+                md5: Some([0; 16]),
+                crc32c: Some(0x01020304)
+            }
         );
     }
     let mut headers = HeaderMap::new();
@@ -602,11 +606,7 @@ fn obj_headers_001_upload_defaults_hashes_and_multiple_headers() {
         HeaderValue::from_static("md5=1B2M2Y8AsgTpgAmY7PhCfg=="),
     );
     assert_eq!(
-        parse_object_upload_headers(&headers, Default::default())
-            .unwrap()
-            .1
-            .md5
-            .unwrap(),
+        declared_hashes(&headers).unwrap().md5.unwrap(),
         [
             0xd4, 0x1d, 0x8c, 0xd9, 0x8f, 0x00, 0xb2, 0x04, 0xe9, 0x80, 0x09, 0x98, 0xec, 0xf8,
             0x42, 0x7e
@@ -633,12 +633,12 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         let mut headers = HeaderMap::new();
         headers.insert("x-goog-hash", HeaderValue::from_str(value).unwrap());
         assert_eq!(
-            parse_object_upload_headers(&headers, Default::default())
-                .unwrap_err()
-                .status,
+            declared_hashes(&headers).unwrap_err().status,
             StatusCode::BAD_REQUEST,
             "{value}"
         );
+        // The media-upload parser never looks at the header.
+        assert!(parse_object_upload_headers(&headers, Default::default()).is_ok());
     }
     // Upload routes parse customer-supplied keys themselves; incomplete keys are rejected there.
     for (name, value, reason) in [
@@ -685,11 +685,9 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
     }
     for (name, value) in [
         ("content-encoding", "gzip"),
-        ("content-md5", "x"),
         ("content-range", "bytes 0-1/2"),
         ("x-goog-user-project", "p"),
         ("x-http-method-override", "PATCH"),
-        ("x-goog-hash", "sha256=hash"),
     ] {
         let mut headers = HeaderMap::new();
         headers.insert(name, HeaderValue::from_static(value));
@@ -723,7 +721,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
     let mut headers = HeaderMap::new();
     headers.append("x-goog-hash", HeaderValue::from_static("crc32c=AQIDBA=="));
     headers.append("x-goog-hash", HeaderValue::from_static("crc32c=AQIDBA=="));
-    assert!(parse_object_upload_headers(&headers, Default::default()).is_err());
+    assert!(declared_hashes(&headers).is_err());
 }
 
 #[test]
@@ -731,14 +729,12 @@ fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected()
     for value in ["bytes=0-1", "", "invalid"] {
         let mut headers = HeaderMap::new();
         headers.insert("range", HeaderValue::from_str(value).unwrap());
-        assert!(validate_object_get_headers(&headers, ObjectRead::Media).is_ok());
-        assert!(validate_object_get_headers(&headers, ObjectRead::Metadata).is_ok());
+        assert!(validate_object_get_headers(&headers).is_ok());
     }
     for key in ["if-match", "if-none-match"] {
         let mut headers = HeaderMap::new();
         headers.insert(key, HeaderValue::from_static("\"value\""));
-        assert!(validate_object_get_headers(&headers, ObjectRead::Metadata).is_ok());
-        assert!(validate_object_get_headers(&headers, ObjectRead::Media).is_ok());
+        assert!(validate_object_get_headers(&headers).is_ok());
         assert_eq!(
             parse_object_upload_headers(&headers, Default::default())
                 .unwrap_err()
@@ -752,9 +748,7 @@ fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected()
         HeaderValue::from_static("value"),
     );
     assert_eq!(
-        validate_object_get_headers(&headers, ObjectRead::Metadata)
-            .unwrap_err()
-            .status,
+        validate_object_get_headers(&headers).unwrap_err().status,
         StatusCode::BAD_REQUEST
     );
 }
@@ -849,7 +843,7 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
             ObjectError::PreconditionFailed,
             412,
             "conditionNotMet",
-            "Precondition failed",
+            "At least one of the pre-conditions you specified did not hold.",
         ),
         (
             ObjectError::ChecksumMismatch,

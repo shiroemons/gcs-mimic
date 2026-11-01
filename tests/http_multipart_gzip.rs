@@ -376,7 +376,7 @@ fn multipart_gzip_disconnect_and_absolute_deadline_cancel_unvalidated_streams() 
 /// this pins what gcs-mimic does without weakening validation: a plain upload is checked
 /// against its bytes, a transport-gzip upload against the decoded bytes it stores.
 #[test]
-fn media_upload_hash_is_checked_against_the_stored_bytes() {
+fn media_upload_stores_computed_hashes_whatever_the_declared_md5() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     bucket(&server, "");
@@ -403,11 +403,16 @@ fn media_upload_hash_is_checked_against_the_stored_bytes() {
             body,
         )
     };
-    // A plain upload is validated: its own MD5 passes and any other fails.
+    // Cloud Storage did not examine the declared MD5 of a JSON media upload, so a wrong one is
+    // stored with the computed hash instead of being refused.
     upload("a", "", &plain_md5, plain).status(200);
-    upload("b", "", &gzip_md5, plain).status(400);
-    // Transport gzip is validated against the decoded bytes that are stored.
+    let ignored = upload("b", "", &gzip_md5, plain);
+    ignored.status(200);
+    assert_eq!(ignored.json()["md5Hash"], plain_md5.as_str());
+    // Transport gzip stores the decoded bytes; their hash is the computed one.
     let gzip_header = "Content-Encoding: gzip\r\n";
     upload("c", gzip_header, &plain_md5, &compressed).status(200);
-    upload("d", gzip_header, &gzip_md5, &compressed).status(400);
+    let ignored = upload("d", gzip_header, &gzip_md5, &compressed);
+    ignored.status(200);
+    assert_eq!(ignored.json()["md5Hash"], plain_md5.as_str());
 }

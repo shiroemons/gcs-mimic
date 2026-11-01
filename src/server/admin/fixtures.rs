@@ -196,6 +196,7 @@ fn parse(bytes: &[u8], now: SystemTime, max_bytes: u64) -> Result<Fixture, JsonE
         .map(|acl| fixture_acl(&acl))
         .transpose()?
         .flatten();
+    check_fixture_members(fields)?;
     let bytes = serde_json::to_vec(&value)
         .map_err(|_| JsonError::invalid_argument("Invalid fixture metadata"))?;
     let (name, mut metadata, expected) =
@@ -223,6 +224,56 @@ fn parse(bytes: &[u8], now: SystemTime, max_bytes: u64) -> Result<Fixture, JsonE
             mode: PublishMode::Replace,
         },
     })
+}
+
+/// The JSON API ignores members it does not know and non-boolean holds; this emulator-only
+/// route stays strict so a mistyped fixture field is reported instead of dropped.
+fn check_fixture_members(fields: &serde_json::Map<String, Value>) -> Result<(), JsonError> {
+    const KNOWN: &[&str] = &[
+        "kind",
+        "id",
+        "selfLink",
+        "mediaLink",
+        "name",
+        "bucket",
+        "generation",
+        "metageneration",
+        "md5Hash",
+        "crc32c",
+        "storageClass",
+        "timeStorageClassUpdated",
+        "componentCount",
+        "owner",
+        "softDeleteTime",
+        "hardDeleteTime",
+        "retentionExpirationTime",
+        "restoreToken",
+        "customerEncryption",
+        "contentType",
+        "acl",
+        "contentEncoding",
+        "contentDisposition",
+        "contentLanguage",
+        "cacheControl",
+        "metadata",
+        "eventBasedHold",
+        "temporaryHold",
+        "customTime",
+        "retention",
+        "notificationMode",
+        "timeFinalized",
+    ];
+    if let Some(unknown) = fields.keys().find(|key| !KNOWN.contains(&key.as_str())) {
+        return Err(JsonError::unsupported_object(unknown));
+    }
+    for hold in ["temporaryHold", "eventBasedHold"] {
+        if fields.get(hold).is_some_and(|value| !value.is_boolean()) {
+            return Err(JsonError::invalid_argument(format!(
+                "{hold} must be a boolean"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn fixture_acl(acl: &Value) -> Result<Option<Vec<crate::acl::AclEntry>>, JsonError> {

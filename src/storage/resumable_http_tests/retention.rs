@@ -351,7 +351,7 @@ async fn retention_and_both_holds_are_independent() {
         call(&h, "PATCH", &path, json!({field:true})).await;
         h.request("DELETE", &path, ADMIN, b"")
             .await
-            .error(403, "objectUnderActiveHold");
+            .error(403, "forbidden");
         call(&h, "PATCH", &path, json!({field:false})).await;
         h.request("DELETE", &path, ADMIN, b"")
             .await
@@ -360,7 +360,7 @@ async fn retention_and_both_holds_are_independent() {
         *h.clock.0.lock().unwrap() = UNIX_EPOCH + Duration::from_secs(1010);
         h.request("DELETE", &path, ADMIN, b"")
             .await
-            .error(403, "objectUnderActiveHold");
+            .error(403, "forbidden");
         if field == "temporaryHold" {
             call(&h, "PATCH", &path, json!({field:false})).await;
             assert_eq!(h.request("DELETE", &path, ADMIN, b"").await.status, 204);

@@ -221,10 +221,8 @@ fn match_glob_filters_items_prefixes_and_page_tokens() {
         let (status, error) = server.request("GET", &path, "");
         assert_eq!(status, 400, "{pattern}: {error}");
         assert!(
-            error["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("matchGlob")
+            error["error"]["message"].as_str().unwrap().contains("lob"),
+            "{error}"
         );
     }
     assert_eq!(
@@ -437,10 +435,14 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         let (status, value) =
             server.request("GET", &format!("/storage/v1/b/test-bucket/o?{query}"), "");
         assert_eq!(status, 400, "{query}: {value}");
-        assert_eq!(
-            value["error"]["errors"][0]["reason"], "invalidParameter",
-            "{query}"
-        );
+        // A bad page token is `invalid` with the token quoted (recorded); the rest are
+        // invalid parameters.
+        let expected = if query.starts_with("pageToken=") {
+            "invalid"
+        } else {
+            "invalidParameter"
+        };
+        assert_eq!(value["error"]["errors"][0]["reason"], expected, "{query}");
     }
     for query in [
         "filter=context-filter",
@@ -647,12 +649,7 @@ fn object_list_default_and_upper_page_limit_are_1000_for_both_projections() {
     for index in 0..1001 {
         server.put(&format!("object-{index:04}"));
     }
-    for query in [
-        "",
-        "projection=full",
-        "maxResults=0",
-        "maxResults=4294967295",
-    ] {
+    for query in ["", "projection=full", "maxResults=4294967295"] {
         let page = server.list(query);
         assert_eq!(names(&page).len(), 1000);
         let token = page["nextPageToken"].as_str().unwrap();
@@ -660,4 +657,9 @@ fn object_list_default_and_upper_page_limit_are_1000_for_both_projections() {
         assert_eq!(names(&page), ["object-1000"]);
         assert!(page.get("nextPageToken").is_none());
     }
+    // maxResults=0 is an empty page, not the default size (recorded).
+    assert_eq!(
+        server.list("maxResults=0"),
+        json!({"kind":"storage#objects"})
+    );
 }
