@@ -1,6 +1,6 @@
 use std::{env, path::Path, process::ExitCode};
 
-const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check [--scope all|release] | differential validate|run [options] | lint [--target TRIPLE] | release prepare TARGET BINARY OUTPUT_DIR | release notices OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
+const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check [--scope all|release] | differential validate|run|sweep [options] | lint [--target TRIPLE] | release prepare TARGET BINARY OUTPUT_DIR | release notices OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
 
 fn main() -> ExitCode {
     let args: Vec<_> = env::args().skip(1).collect();
@@ -51,6 +51,7 @@ fn main() -> ExitCode {
         let result = match args.get(1).map(String::as_str) {
             Some("validate") => xtask::differential::validate(root, &args[2..]).map(|()| false),
             Some("run") => xtask::differential::run(root, &args[2..]),
+            Some("sweep") => xtask::differential::sweep(&args[2..]),
             _ => {
                 eprintln!("{}", xtask::differential::USAGE);
                 return ExitCode::FAILURE;

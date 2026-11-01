@@ -5,23 +5,29 @@
 //! The harness never contacts Google unless `GCS_MIMIC_DIFF_PROJECT` and
 //! `GCS_MIMIC_DIFF_TOKEN` are both set. See `docs/en/development.md`.
 
+mod base64;
 mod bucket;
 mod case;
 mod diff;
+mod guard;
 mod normalize;
+mod pace;
 mod recording;
 mod report;
+mod rules;
 mod runner;
 mod server;
 mod template;
 mod transport;
 mod xml;
 
+use guard::Guarded;
+use pace::Paced;
 use runner::{CaseOutcome, Names, Side, run_side};
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use transport::{CurlTransport, GrpcTransport, Transport};
 
@@ -34,7 +40,7 @@ const LOCAL_PROJECT: &str = "local-project";
 const PROTO_ROOT: &str = "src/grpc/proto";
 const LIVE_GRPC_PORT: &str = "443";
 
-pub const USAGE: &str = "Usage: cargo xtask differential validate [--cases DIR] | differential run [--cases DIR] [--filter TEXT] [--out DIR] [--record FILE] [--reference FILE] [--evidence FILE] [--binary PATH] [--fail-on-diff]";
+pub const USAGE: &str = "Usage: cargo xtask differential validate [--cases DIR] | differential run [--cases DIR] [--filter TEXT] [--out DIR] [--record FILE] [--reference FILE] [--evidence FILE] [--binary PATH] [--fail-on-diff] | differential sweep";
 
 #[derive(Default)]
 struct Options {
@@ -186,6 +192,136 @@ pub fn run(root: &Path, args: &[String]) -> Result<bool> {
     outcome
 }
 
+/// What the live reference run produced.
+struct LiveRun {
+    run: runner::SideRun,
+    requests: u64,
+}
+
+fn run_names() -> Names {
+    let run_id = format!("{}{}", bucket::NAME_PREFIX, random_hex());
+    Names {
+        bucket: format!("{run_id}-b"),
+        new_bucket: format!("{run_id}-n"),
+        missing_bucket: format!("{run_id}-m"),
+        own_bucket: format!("{run_id}-c"),
+        run_id,
+    }
+}
+
+/// The bucket names and endpoint the report must never contain.
+fn base_secrets(names: &Names, endpoint: &str, case_count: usize) -> Vec<(String, &'static str)> {
+    let mut secrets: Vec<(String, &str)> = vec![
+        (names.bucket.clone(), "bucket name"),
+        (names.missing_bucket.clone(), "bucket name"),
+        (endpoint.to_owned(), "local endpoint"),
+    ];
+    secrets.extend((0..case_count).map(|index| (names.new_bucket_for(index), "bucket name")));
+    secrets.extend(
+        (0..case_count).map(|index| (format!("{}{index}", names.own_bucket), "bucket name")),
+    );
+    secrets
+}
+
+/// Runs the cases against the live service. Every request passes the guard
+/// first and the pacing second, so a refused request costs no wait.
+fn run_live(
+    cases: &[case::Case],
+    names: &Names,
+    live: (&str, &str, &str),
+    scratch: &Path,
+    proto_root: &Path,
+) -> LiveRun {
+    let (project, token, endpoint) = live;
+    let curl = CurlTransport::new(endpoint, Some(token.to_owned()), false, scratch);
+    let paced = Paced::new(&curl);
+    let guarded = Guarded { inner: &paced };
+    let grpc = GrpcTransport::new(
+        &format!(
+            "{}:{LIVE_GRPC_PORT}",
+            endpoint.trim_start_matches("https://")
+        ),
+        false,
+        Some(token.to_owned()),
+        proto_root,
+    );
+    let grpc_paced = Paced::new(&grpc);
+    let grpc_guarded = Guarded { inner: &grpc_paced };
+    let side = Side {
+        transport: &guarded,
+        grpc: Some(&grpc_guarded),
+        project,
+        hosts: live_hosts(endpoint),
+        server_error_wait: Duration::from_secs(30),
+    };
+    println!(
+        "running {} cases against the live reference service",
+        cases.len()
+    );
+    let run = run_side(&side, cases, names);
+    LiveRun {
+        run,
+        requests: curl.requests() + grpc.requests(),
+    }
+}
+
+fn live_hosts(endpoint: &str) -> Vec<String> {
+    vec![
+        endpoint.to_owned(),
+        endpoint.trim_start_matches("https://").to_owned(),
+        "https://www.googleapis.com".into(),
+        "www.googleapis.com".into(),
+    ]
+}
+
+fn run_mimic(
+    local: &server::LocalServer,
+    cases: &[case::Case],
+    names: &Names,
+    scratch: &Path,
+    proto_root: &Path,
+) -> runner::SideRun {
+    let curl = CurlTransport::new(&local.endpoint, None, true, scratch);
+    let guarded = Guarded { inner: &curl };
+    let grpc = local
+        .grpc
+        .as_deref()
+        .map(|address| GrpcTransport::new(address, true, None, proto_root));
+    let grpc_guarded = grpc.as_ref().map(|t| Guarded { inner: t });
+    let side = Side {
+        transport: &guarded,
+        grpc: grpc_guarded.as_ref().map(|t| t as &dyn Transport),
+        project: LOCAL_PROJECT,
+        hosts: vec![
+            local.endpoint.clone(),
+            local.endpoint.trim_start_matches("http://").to_owned(),
+        ],
+        server_error_wait: Duration::from_secs(3),
+    };
+    println!(
+        "running {} cases against gcs-mimic at the local endpoint",
+        cases.len()
+    );
+    run_side(&side, cases, names)
+}
+
+/// The pinned storage.proto revision (`docs/en/sources.md`).
+const PROTO_REVISION: &str = "d73dfb3c3be52245625b951b9c0bcf65163c549f";
+
+/// What a recording must say about how its gRPC bodies were produced: the
+/// proto, and grpcurl, which silently drops request fields the pinned proto
+/// does not define and renders responses by its own rules.
+fn tools_note() -> String {
+    format!(
+        "storage.proto {PROTO_REVISION}; {}; grpcurl silently drops request fields that are not in the pinned proto",
+        transport::grpcurl_version()
+    )
+}
+
+fn count_retries(cases: &[runner::CaseOutcome]) -> u32 {
+    cases.iter().flat_map(|c| &c.steps).map(|s| s.retries).sum()
+}
+
 fn execute(
     root: &Path,
     options: &Options,
@@ -202,42 +338,13 @@ fn execute(
         None => server::build(root)?,
     };
     let local = server::LocalServer::start(&binary, work)?;
-    let run_id = format!("gcsmimic-diff-{}", random_hex());
-    let names = Names {
-        bucket: format!("{run_id}-b"),
-        new_bucket: format!("{run_id}-n"),
-        missing_bucket: format!("{run_id}-m"),
-    };
-    let project = match mode {
-        Mode::Live { project, .. } => project.as_str(),
-        _ => LOCAL_PROJECT,
-    };
-    let mimic_transport = CurlTransport::new(&local.endpoint, None, true, scratch);
-    let host = local.endpoint.trim_start_matches("http://").to_owned();
+    let names = run_names();
     let proto_root = root.join(PROTO_ROOT);
-    let mimic_grpc = local
-        .grpc
-        .as_deref()
-        .map(|address| GrpcTransport::new(address, true, None, &proto_root));
-    let mimic_side = Side {
-        transport: &mimic_transport,
-        grpc: mimic_grpc.as_ref().map(|t| t as &dyn Transport),
-        project,
-        hosts: vec![local.endpoint.clone(), host],
-    };
-    println!(
-        "running {} cases against gcs-mimic at the local endpoint",
-        cases.len()
-    );
-    let mimic_run = run_side(&mimic_side, cases, &names);
-    let mut secrets: Vec<(String, &str)> = vec![
-        (names.bucket.clone(), "bucket name"),
-        (names.missing_bucket.clone(), "bucket name"),
-        (local.endpoint.clone(), "local endpoint"),
-    ];
-    secrets.extend((0..cases.len()).map(|index| (names.new_bucket_for(index), "bucket name")));
+    let mimic_run = run_mimic(&local, cases, &names, scratch, &proto_root);
+    let mut secrets = base_secrets(&names, &local.endpoint, cases.len());
 
     let mut reference_requests = None;
+    let mut reference_retries = 0;
     let mut reference_cleanup = Vec::new();
     let mut reference_failed_cleanup = false;
     let mut generated = today();
@@ -247,6 +354,7 @@ fn execute(
             let recorded = replayed.ok_or("recording was not loaded")?;
             generated = format!("{generated} (recording of {})", recorded.generated);
             reference_requests = Some(recorded.requests);
+            reference_retries = count_retries(&recorded.cases);
             Some(recorded.cases)
         }
         Mode::Live {
@@ -256,41 +364,29 @@ fn execute(
         } => {
             secrets.push((project.clone(), "project"));
             secrets.push((token.clone(), "access token"));
-            let transport = CurlTransport::new(endpoint, Some(token.clone()), false, scratch);
-            let hosts = vec![
-                endpoint.clone(),
-                endpoint.trim_start_matches("https://").to_owned(),
-                "https://www.googleapis.com".into(),
-                "www.googleapis.com".into(),
-            ];
-            let live_grpc = GrpcTransport::new(
-                &format!(
-                    "{}:{LIVE_GRPC_PORT}",
-                    endpoint.trim_start_matches("https://")
-                ),
-                false,
-                Some(token.clone()),
+            let live = run_live(
+                cases,
+                &names,
+                (project, token, endpoint),
+                scratch,
                 &proto_root,
             );
-            let side = Side {
-                transport: &transport,
-                grpc: Some(&live_grpc),
-                project,
-                hosts,
-            };
-            println!(
-                "running {} cases against the live reference service",
-                cases.len()
+            // The project number identifies the project like its name does.
+            secrets.extend(
+                live.run
+                    .project_numbers
+                    .iter()
+                    .map(|number| (number.clone(), "project number")),
             );
-            let run = run_side(&side, cases, &names);
-            let sent = transport.requests() + live_grpc.requests();
-            reference_requests = Some(sent);
-            reference_cleanup = run.cleanup;
-            reference_failed_cleanup = run.failed_cleanup;
+            reference_requests = Some(live.requests);
+            reference_retries = count_retries(&live.run.cases);
+            reference_cleanup = live.run.cleanup;
+            reference_failed_cleanup = live.run.failed_cleanup;
             let recording = recording::Recording {
                 generated: today(),
-                requests: sent,
-                cases: run.cases.clone(),
+                requests: live.requests,
+                tools: tools_note(),
+                cases: live.run.cases.clone(),
             };
             let path = options
                 .record
@@ -302,7 +398,7 @@ fn execute(
                 &secrets,
             )?;
             println!("wrote sanitized reference recording: {}", path.display());
-            Some(run.cases)
+            Some(live.run.cases)
         }
     };
 
@@ -311,6 +407,7 @@ fn execute(
         let recording = recording::Recording {
             generated: today(),
             requests: 0,
+            tools: tools_note(),
             cases: mimic_run.cases.clone(),
         };
         write_checked(
@@ -330,6 +427,7 @@ fn execute(
         mode: mode_label,
         generated: &generated,
         reference_requests,
+        reference_retries,
         cleanup: &mimic_run.cleanup,
         reference_cleanup: &reference_cleanup,
         skipped: &skipped,
@@ -346,6 +444,44 @@ fn execute(
     println!("reports: {}", out.display());
     let failed_cleanup = mimic_run.failed_cleanup || reference_failed_cleanup;
     Ok(failed_cleanup || report::has_failures(&reports, options.fail_on_diff))
+}
+
+/// Deletes every bucket whose name starts with the harness prefix, for the
+/// leftovers of a run that was interrupted. Needs the live environment.
+pub fn sweep(args: &[String]) -> Result<bool> {
+    if !args.is_empty() {
+        return Err("differential sweep takes no options".into());
+    }
+    let Mode::Live {
+        project,
+        token,
+        endpoint,
+    } = select_mode(&Options::default())?
+    else {
+        return Err("sweep needs GCS_MIMIC_DIFF_PROJECT and GCS_MIMIC_DIFF_TOKEN".into());
+    };
+    let scratch = env::temp_dir().join(format!("gcsmimic-sweep-{}", random_hex()));
+    fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
+    let curl = CurlTransport::new(&endpoint, Some(token.clone()), false, &scratch);
+    let paced = Paced::new(&curl);
+    let guarded = Guarded { inner: &paced };
+    let side = Side {
+        transport: &guarded,
+        grpc: None,
+        project: &project,
+        hosts: live_hosts(&endpoint),
+        server_error_wait: Duration::from_secs(30),
+    };
+    let mut norm = normalize::Normalizer::default();
+    norm.add_literal(&project, "<project>");
+    norm.add_literal(&token, "<token>");
+    let (lines, failed) = bucket::sweep(&side, &norm, bucket::NAME_PREFIX);
+    server::remove_dir(&scratch);
+    for line in &lines {
+        println!("{line}");
+    }
+    println!("{} requests sent to the live service", curl.requests());
+    Ok(failed)
 }
 
 fn out_dir(options: &Options, work: &Path) -> PathBuf {

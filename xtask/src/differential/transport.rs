@@ -41,6 +41,11 @@ pub(crate) trait Transport {
     fn send(&self, request: &Request) -> Result<Response>;
     /// Requests sent so far, so a run can report what it cost a live service.
     fn requests(&self) -> u64;
+    /// 429 retries made by the last `send`, then reset; zero for a transport
+    /// that does not retry.
+    fn take_retries(&self) -> u32 {
+        0
+    }
 }
 
 pub(crate) struct CurlTransport {
@@ -232,6 +237,24 @@ pub(crate) fn grpcurl_available() -> bool {
         .stderr(Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
+}
+
+/// The `grpcurl -version` text (for example `grpcurl 1.9.4`), recorded with the
+/// reference because its rendering rules shape every gRPC body.
+pub(crate) fn grpcurl_version() -> String {
+    Command::new("grpcurl")
+        .arg("-version")
+        .stdin(Stdio::null())
+        .output()
+        .map(|out| {
+            let text = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            text.trim().to_owned()
+        })
+        .unwrap_or_else(|_| "grpcurl (not installed)".into())
 }
 
 /// Unary and streaming Storage v2 calls through the external `grpcurl` command.

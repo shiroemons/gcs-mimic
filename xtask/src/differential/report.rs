@@ -1,6 +1,6 @@
 //! Comparison results, Markdown and JSON rendering, and the redaction guard.
 
-use super::case::Case;
+use super::case::{Case, fingerprint};
 use super::diff::{Difference, compare};
 use super::runner::{CaseOutcome, StepOutcome};
 use serde_json::{Value, json};
@@ -56,17 +56,22 @@ fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome
         if let Some(error) = &reference.error {
             errors.push(format!("reference: {error}"));
         }
-        let names = |outcome: &CaseOutcome| {
-            outcome
-                .steps
-                .iter()
-                .map(|s| s.name.clone())
-                .collect::<Vec<_>>()
-        };
         let expected: Vec<_> = case.steps.iter().map(|s| s.name.clone()).collect();
-        let complete = reference.error.is_some() || names(reference) == expected;
-        if !complete {
+        let recorded: Vec<_> = reference.steps.iter().map(|s| s.name.clone()).collect();
+        if recorded != expected {
             errors.push("reference recording does not match the case's steps; record again".into());
+        } else if let Some(step) = case
+            .steps
+            .iter()
+            .zip(&reference.steps)
+            .find(|(spec, recorded)| fingerprint(spec) != recorded.fingerprint)
+            .map(|(spec, _)| &spec.name)
+        {
+            // Checked even when the recording holds an error: a changed
+            // request means the reference answered a different question.
+            errors.push(format!(
+                "step {step:?} changed since the reference was recorded; record again"
+            ));
         }
     }
     let mut steps = Vec::new();
@@ -146,6 +151,8 @@ pub(crate) struct Header<'a> {
     pub(crate) mode: &'a str,
     pub(crate) generated: &'a str,
     pub(crate) reference_requests: Option<u64>,
+    /// 429 responses the live run waited out and retried, over all steps.
+    pub(crate) reference_retries: u32,
     pub(crate) cleanup: &'a [String],
     pub(crate) reference_cleanup: &'a [String],
     /// Cases not run (for example gRPC cases without `grpcurl`), one line each.
@@ -205,7 +212,7 @@ pub(crate) fn markdown(header: &Header<'_>, reports: &[CaseReport]) -> String {
     ));
     if let Some(requests) = header.reference_requests {
         out.push_str(&format!(
-            "- Requests sent to the live reference service (when recorded): {requests}\n"
+            "- Requests sent to the live reference service (when recorded): {requests}\n- HTTP 429 responses retried by the live run: {}\n", header.reference_retries
         ));
     }
     out.push_str("\n## Summary\n\n| Case | Result | Differing fields |\n| --- | --- | --- |\n");
@@ -298,6 +305,7 @@ pub(crate) fn json_report(header: &Header<'_>, reports: &[CaseReport]) -> Value 
         "mode": header.mode,
         "generated": header.generated,
         "reference_requests": header.reference_requests,
+        "reference_retries": header.reference_retries,
         "cleanup": header.cleanup,
         "reference_cleanup": header.reference_cleanup,
         "skipped": header.skipped,
@@ -322,6 +330,9 @@ pub(crate) fn ensure_clean(text: &str, secrets: &[(String, &str)]) -> Result<()>
         if value.len() >= 3 && text.contains(value.as_str()) {
             return Err(format!("output still contains the {label}"));
         }
+    }
+    if super::normalize::contains_email(text) {
+        return Err("output still contains an email address".into());
     }
     for path in ["/Users/", "/private/", "/var/folders", "/tmp/", "/home/"] {
         if text.contains(path) {
@@ -352,6 +363,10 @@ mod tests {
             "output still contains the project"
         );
         assert!(ensure_clean("see /Users/a/b", &secrets).is_err());
+        assert_eq!(
+            ensure_clean("mail someone@example.com", &secrets).unwrap_err(),
+            "output still contains an email address"
+        );
         assert!(ensure_clean("see /var/folders/x", &secrets).is_err());
     }
 
@@ -383,6 +398,7 @@ mod tests {
             mode: "live",
             generated: "2026-11-01",
             reference_requests: Some(9),
+            reference_retries: 0,
             cleanup: &[],
             reference_cleanup: &[],
             skipped: &[],

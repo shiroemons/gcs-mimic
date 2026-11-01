@@ -133,6 +133,31 @@ pub(crate) fn percent_encode(text: &str) -> String {
     out
 }
 
+/// Decodes `%XX` escapes; an invalid escape stays as written. Used to inspect
+/// the request that will actually be sent, not the spelling a case chose.
+pub(crate) fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        let decoded = (bytes[at] == b'%' && at + 2 < bytes.len())
+            .then(|| text.get(at + 1..at + 3))
+            .flatten()
+            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+        match decoded {
+            Some(byte) => {
+                out.push(byte);
+                at += 3;
+            }
+            None => {
+                out.push(bytes[at]);
+                at += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn json_scalar(value: &Value) -> Option<String> {
     match value {
         Value::String(text) => Some(text.clone()),

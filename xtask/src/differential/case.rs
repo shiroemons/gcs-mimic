@@ -38,6 +38,8 @@ pub(crate) enum Body {
     None,
     Json(Value),
     Text(String),
+    /// Raw bytes from `body_base64`, for binary uploads such as gzip.
+    Bytes(Vec<u8>),
 }
 
 /// How a step reaches the service. `Http` is the JSON API; `Xml` is the same
@@ -64,18 +66,72 @@ pub(crate) struct Step {
     pub(crate) headers: Vec<(String, String)>,
     pub(crate) body: Body,
     pub(crate) expect_status: Option<u16>,
+    /// Runs even after an earlier step failed the case (restoring versioning,
+    /// releasing a hold), so the bucket can still be deleted.
+    pub(crate) always: bool,
     pub(crate) capture: Vec<(String, String)>,
     /// `None` runs the step without comparing it (setup or probe steps).
     pub(crate) compare: Option<CompareOpts>,
+}
+
+/// Which bucket `{bucket}` names. `Shared` is the one bucket every such case
+/// uses, so a case there must leave no bucket-level state behind; `Own` gives
+/// the case a bucket of its own (created before and deleted after it) for
+/// anything that changes bucket metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum BucketMode {
+    #[default]
+    Shared,
+    None,
+    Own,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct Case {
     pub(crate) id: String,
     pub(crate) description: String,
-    /// Whether the harness creates `{bucket}` before the first step.
-    pub(crate) bucket: bool,
+
+    pub(crate) bucket: BucketMode,
     pub(crate) steps: Vec<Step>,
+}
+
+impl Step {
+    /// The request as the case file wrote it (variables unexpanded): method or
+    /// RPC, path template, query, headers, body and ordering flags.
+    pub(crate) fn mentions(&self, needle: &str) -> bool {
+        self.fingerprint_text().contains(needle)
+    }
+
+    fn fingerprint_text(&self) -> String {
+        let body = match &self.body {
+            Body::None => String::new(),
+            Body::Json(value) => format!("json:{value}"),
+            Body::Text(text) => format!("text:{text}"),
+            Body::Bytes(bytes) => format!("bytes:{}", super::base64::encode(bytes)),
+        };
+        format!(
+            "{:?}|{}|{}|{:?}|{:?}|{body}|{}|{:?}",
+            self.protocol,
+            self.method,
+            self.path,
+            self.query,
+            self.headers,
+            self.always,
+            self.capture
+        )
+    }
+}
+
+/// FNV-1a over the step's request definition, as 16 hex digits. A recording
+/// stores one per step, so replay can tell that the case changed since the
+/// reference was taken.
+pub(crate) fn fingerprint(step: &Step) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in step.fingerprint_text().bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{hash:016x}")
 }
 
 impl Case {
@@ -92,7 +148,7 @@ impl Case {
     }
 }
 
-fn step_variables(step: &Step) -> Result<Vec<String>> {
+pub(crate) fn step_variables(step: &Step) -> Result<Vec<String>> {
     let mut all = variables(&step.path)?;
     for (name, value) in step.query.iter().chain(&step.headers) {
         all.extend(variables(name)?);
@@ -102,6 +158,7 @@ fn step_variables(step: &Step) -> Result<Vec<String>> {
         Body::None => {}
         Body::Json(value) => all.extend(json_variables(value)?),
         Body::Text(text) => all.extend(variables(text)?),
+        Body::Bytes(_) => {}
     }
     Ok(all)
 }
@@ -239,7 +296,9 @@ fn check_grpc_step(body: &Body, context: &str) -> Result<()> {
         Body::Json(_) => Err(format!(
             "{context}.body: expected a message object or an array of message objects"
         )),
-        Body::Text(_) => Err(format!("{context}.body_text: not valid for a gRPC step")),
+        Body::Text(_) | Body::Bytes(_) => Err(format!(
+            "{context}: a text or binary body is not valid for a gRPC step"
+        )),
     }
 }
 
@@ -259,6 +318,8 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
             "headers",
             "body",
             "body_text",
+            "body_base64",
+            "always",
             "expect_status",
             "capture",
             "compare",
@@ -273,12 +334,24 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
             .ok_or_else(|| format!("{context}.{key}: expected a nonempty string"))
     };
     let (protocol, method, path) = parse_target(map, context)?;
-    let body = match (map.get("body"), map.get("body_text")) {
-        (Some(_), Some(_)) => return Err(format!("{context}: body and body_text are exclusive")),
-        (Some(json), None) => Body::Json(json.clone()),
-        (None, Some(Value::String(text))) => Body::Text(text.clone()),
-        (None, Some(_)) => return Err(format!("{context}.body_text: expected a string")),
-        (None, None) => Body::None,
+    let body = match (
+        map.get("body"),
+        map.get("body_text"),
+        map.get("body_base64"),
+    ) {
+        (Some(json), None, None) => Body::Json(json.clone()),
+        (None, Some(Value::String(text)), None) => Body::Text(text.clone()),
+        (None, Some(_), None) => return Err(format!("{context}.body_text: expected a string")),
+        (None, None, Some(Value::String(encoded))) => Body::Bytes(
+            super::base64::decode(encoded).map_err(|e| format!("{context}.body_base64: {e}"))?,
+        ),
+        (None, None, Some(_)) => return Err(format!("{context}.body_base64: expected a string")),
+        (None, None, None) => Body::None,
+        _ => {
+            return Err(format!(
+                "{context}: body, body_text and body_base64 are exclusive"
+            ));
+        }
     };
     if protocol == Protocol::Grpc {
         check_grpc_step(&body, context)?;
@@ -328,6 +401,11 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
             .unwrap_or_default(),
         body,
         expect_status,
+        always: match map.get("always") {
+            None => false,
+            Some(Value::Bool(flag)) => *flag,
+            Some(_) => return Err(format!("{context}.always: expected a boolean")),
+        },
         capture: map
             .get("capture")
             .map(|v| string_pairs(v, &format!("{context}.capture")))
@@ -368,9 +446,10 @@ pub(crate) fn parse_case(value: &Value, file_stem: &str) -> Result<Case> {
         .filter(|s| !s.is_empty())
         .ok_or("case.description: expected a nonempty string")?;
     let bucket = match map.get("bucket") {
-        None => true,
-        Some(Value::Bool(flag)) => *flag,
-        Some(_) => return Err("case.bucket: expected a boolean".into()),
+        None | Some(Value::Bool(true)) => BucketMode::Shared,
+        Some(Value::Bool(false)) => BucketMode::None,
+        Some(Value::String(mode)) if mode == "own" => BucketMode::Own,
+        Some(_) => return Err("case.bucket: expected true, false or \"own\"".into()),
     };
     let defaults = match map.get("compare") {
         None => CompareOpts::default(),
@@ -399,12 +478,10 @@ pub(crate) fn parse_case(value: &Value, file_stem: &str) -> Result<Case> {
 /// request is sent.
 fn validate(case: &Case) -> Result<()> {
     // First, so a lock hidden behind an undefined variable is still named as a lock.
-    if let Some(reason) = locked_violation(case) {
-        return Err(format!("forbidden locked retention: {reason}"));
-    }
+    super::rules::check(case)?;
     let mut names = BTreeSet::new();
     let mut known: BTreeSet<String> = BUILTIN_VARS.iter().map(|v| (*v).to_owned()).collect();
-    if !case.bucket {
+    if case.bucket == BucketMode::None {
         known.remove("bucket");
     }
     for step in &case.steps {
@@ -430,81 +507,6 @@ fn validate(case: &Case) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// Also matches the gRPC spellings (`LockBucketRetentionPolicy`, `lock_retention_policy`).
-fn mentions_lock(text: &str) -> bool {
-    let flat = text.to_ascii_lowercase().replace('_', "");
-    flat.contains("lockretentionpolicy") || flat.contains("lockbucketretentionpolicy")
-}
-
-fn json_locks(value: &Value) -> Option<String> {
-    match value {
-        Value::Object(map) => {
-            for (key, item) in map {
-                // Only a literal false is known to be unlocked; a variable or a
-                // number could resolve to a lock at run time.
-                let unlocked = matches!(item, Value::Bool(false))
-                    || item
-                        .as_str()
-                        .is_some_and(|s| s.eq_ignore_ascii_case("false"));
-                if key.replace('_', "").eq_ignore_ascii_case("isLocked") && !unlocked {
-                    return Some("isLocked is not literally false".into());
-                }
-                // gRPC JSON also accepts the enum number (LOCKED is 2), so a
-                // mode must be a plain string other than LOCKED, with no variable.
-                if key.eq_ignore_ascii_case("mode")
-                    && !item
-                        .as_str()
-                        .is_some_and(|s| !s.eq_ignore_ascii_case("locked") && !s.contains('{'))
-                {
-                    return Some("retention mode is Locked or not a plain string".into());
-                }
-                if mentions_lock(key) {
-                    return Some("lockRetentionPolicy".into());
-                }
-                if let Some(reason) = json_locks(item) {
-                    return Some(reason);
-                }
-            }
-            None
-        }
-        Value::Array(items) => items.iter().find_map(json_locks),
-        Value::String(text) if mentions_lock(text) => Some("lockRetentionPolicy".into()),
-        _ => None,
-    }
-}
-
-/// Locked retention is irreversible, so a case may never request it, whether
-/// through the `lockRetentionPolicy` call, `isLocked`, or the Locked object
-/// retention mode. Checked before anything runs.
-pub(crate) fn locked_violation(case: &Case) -> Option<String> {
-    for step in &case.steps {
-        let reason = if mentions_lock(&step.path)
-            || mentions_lock(&step.method)
-            || step
-                .query
-                .iter()
-                .any(|(k, v)| mentions_lock(k) || mentions_lock(v))
-        {
-            Some("lockRetentionPolicy".to_owned())
-        } else {
-            match &step.body {
-                Body::None => None,
-                Body::Json(value) => json_locks(value),
-                Body::Text(text) => {
-                    serde_json::from_str::<Value>(&text.replace("{{", "{").replace("}}", "}"))
-                        .ok()
-                        .and_then(|value| json_locks(&value))
-                        .or_else(|| mentions_lock(text).then(|| "lockRetentionPolicy".to_owned()))
-                }
-            }
-        };
-        if let Some(reason) = reason {
-            return Some(format!("step {:?}: {reason}", step.name));
-        }
-    }
-    None
 }
 
 pub(crate) fn load_cases(dir: &Path) -> Result<Vec<Case>> {
@@ -549,7 +551,7 @@ mod tests {
     #[test]
     fn parses_a_minimal_case_with_defaults() {
         let case = parse_case(&case_with(get("/storage/v1/b/{bucket}")), "x").unwrap();
-        assert!(case.bucket);
+        assert_eq!(case.bucket, BucketMode::Shared);
         assert!(case.steps[0].compare.is_some());
         assert!(case.uses_variable("bucket"));
         assert!(!case.uses_variable("new_bucket"));

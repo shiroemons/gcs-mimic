@@ -6,11 +6,13 @@ use super::runner::{CaseOutcome, StepOutcome};
 use serde_json::{Map, Value, json};
 
 type Result<T> = std::result::Result<T, String>;
-const FORMAT: u64 = 1;
+const FORMAT: u64 = 2;
 
 pub(crate) struct Recording {
     pub(crate) generated: String,
     pub(crate) requests: u64,
+    /// Tool versions behind the gRPC bodies; see `differential::tools_note`.
+    pub(crate) tools: String,
     pub(crate) cases: Vec<CaseOutcome>,
 }
 
@@ -26,6 +28,10 @@ fn step_json(step: &StepOutcome) -> Value {
     let mut map = Map::new();
     map.insert("name".into(), json!(step.name));
     map.insert("request".into(), json!(step.request));
+    map.insert("fingerprint".into(), json!(step.fingerprint));
+    if step.retries > 0 {
+        map.insert("retries".into(), json!(step.retries));
+    }
     if let Some(expectation) = &step.expectation {
         map.insert("expectation".into(), json!(expectation));
     }
@@ -63,6 +69,7 @@ pub(crate) fn to_json(recording: &Recording) -> Value {
         "format": FORMAT,
         "generated": recording.generated,
         "requests": recording.requests,
+        "tools": recording.tools,
         "cases": cases,
     })
 }
@@ -114,6 +121,11 @@ fn parse_step(value: &Value) -> Result<StepOutcome> {
         request: text("request")?,
         result,
         expectation: value["expectation"].as_str().map(str::to_owned),
+        retries: value["retries"]
+            .as_u64()
+            .and_then(|n| u32::try_from(n).ok())
+            .unwrap_or(0),
+        fingerprint: text("fingerprint")?,
     })
 }
 
@@ -141,6 +153,7 @@ pub(crate) fn from_json(value: &Value) -> Result<Recording> {
     Ok(Recording {
         generated: value["generated"].as_str().unwrap_or_default().to_owned(),
         requests: value["requests"].as_u64().unwrap_or(0),
+        tools: value["tools"].as_str().unwrap_or_default().to_owned(),
         cases,
     })
 }
@@ -155,6 +168,7 @@ mod tests {
         let recording = Recording {
             generated: "2026-11-01".into(),
             requests: 7,
+            tools: "grpcurl 1.9.4".into(),
             cases: vec![CaseOutcome {
                 id: "c".into(),
                 error: Some("boom".into()),
@@ -168,12 +182,16 @@ mod tests {
                             body: NormBody::Json(json!({"error": {"code": 404}})),
                         }),
                         expectation: Some("expected status 200, got 404".into()),
+                        retries: 2,
+                        fingerprint: "00ff".into(),
                     },
                     StepOutcome {
                         name: "b".into(),
                         request: "GET /y".into(),
                         result: Err("curl failed".into()),
                         expectation: None,
+                        retries: 0,
+                        fingerprint: "11aa".into(),
                     },
                 ],
             }],
