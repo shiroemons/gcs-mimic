@@ -1417,6 +1417,17 @@
       "kind": "SOURCE_QUESTION",
       "observed_evidence": "The official Java SDK lists objects with a read_mask that names checksums.md5_hash. By protobuf field-mask semantics a sub-path keeps only that child, so gcs-mimic accepts checksums.crc32c and checksums.md5_hash (also under the ReadObject metadata. prefix) and returns checksums with only the named digest. A composed object has no MD5, so a mask naming only checksums.md5_hash returns an empty checksums message. No real-service request was made, so whether Cloud Storage returns an empty message, omits checksums, or rejects the path is unobserved.",
       "required_resolution": "Observe Cloud Storage for a read_mask of only checksums.md5_hash on a composed object (and for the ReadObject metadata. form), then match the result."
+    },
+    {
+      "id": "LOCAL-RETENTION-WINDOWS-TICK",
+      "title": "Object retention times keep only whole 100 ns ticks on Windows",
+      "status": "OPEN",
+      "affected_features": ["OBJECT-TIME-READ-BACK"],
+      "source_urls": ["https://doc.rust-lang.org/std/time/struct.SystemTime.html"],
+      "observed_at": "2026-11-01",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The retain-until time is held as a std SystemTime. On Windows its representation is a count of 100 ns intervals, so a finer fraction is floored (subsec_nanos / 100) when a request is parsed. Cloud Storage keeps the nanosecond (observed 2026-10-31). On Windows a shortening by one nanosecond that stays inside the same 100 ns interval is therefore accepted instead of refused with 403, the gRPC retention.retain_until_time reads back floored to 100 ns, and the nanosecond fraction in the retained-delete denial message differs. Linux and macOS keep the nanosecond. The Windows library tests use 100 ns multiples; Windows is built and linted in CI but this behavior is not run against a real client.",
+      "required_resolution": "Replace the SystemTime in the retention model with a seconds-and-nanoseconds pair so every platform keeps the nanosecond, then restore the 1 ns cases in the Windows tests."
     }
   ],
   "resolved_research_items": [
