@@ -26500,7 +26500,7 @@
         },
         {
           "id": "BASIC-HASH-MEDIA",
-          "description": "Explicit Content-Type isolates correct MD5-only, CRC32C-only and both X-Goog-Hash success; a JSON media upload does not verify a declared hash, so a wrong one is accepted and the computed hashes are stored (recorded on Cloud Storage 2026-10-31). Count checksum/status only; parser/reason/conflict/precedence choices remain on JSON-OBJECTS-007. The 2026-10-23 verification ran an earlier version of this test (basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites) that asserted validation; it is kept only so that entry stays unchanged, and only the current test is counted here.",
+          "description": "A JSON media upload does not verify a declared hash, so whatever MD5-only, CRC32C-only or both X-Goog-Hash values it declares, correct or wrong, are ignored and the computed MD5 and CRC32C of the stored bytes are stored (recorded on Cloud Storage 2026-10-31). Count only that ignore-and-store behavior with an explicit Content-Type, not hash validation; a success status alone proves nothing here because any value succeeds. Count checksum/status only; parser/reason/conflict/precedence choices remain on JSON-OBJECTS-007. The 2026-10-23 verification ran an earlier version of this test (basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites) that asserted validation; it is kept only so that entry stays unchanged, and only the current test is counted here.",
           "result": "PASS",
           "test_ids": [
             "basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones",
