@@ -120,8 +120,11 @@ as a test defect in either place. These settings use the `GCSM_TEST_` prefix
 because the server reads every `GCS_MIMIC_` and `FAKE_GCS_` variable as its own
 setting and rejects unknown names.
 
-`bash scripts/sdk-go.sh` remains Go-only for the existing CI job; the SDK recipe
-explicitly passes `--with-ruby --with-node --with-python --with-php`. Each flag
+`bash scripts/sdk-go.sh` alone runs only the Go suite. CI's `sdk-go` job passes
+`--with-clients` (Go plus the Java, .NET and Rust clients), and a separate
+`testcontainers` job builds the image once and runs the Java, .NET and Node.js
+Testcontainers adapters against it. The SDK recipe explicitly passes
+`--with-ruby --with-node --with-python --with-php --with-java --with-dotnet --with-rust`. Each flag
 runs that language's official SDK suite against the same permissive and strict
 servers. Every suite runs its origin guard self-check, a migration scenario,
 the permissive journeys, and the strict journeys with authorization denials and
@@ -253,11 +256,11 @@ hooks and the Unix pre-exec test. Do not allow unsafe for an entire crate or tes
 module. Cross-target checks must include Windows: native Unix checks do not
 compile its `cfg(windows)` branches.
 
-`src/fsutil.rs` does not exist yet. The `shared-publication-io` slice creates it,
-moves the relevant platform calls there and removes their former exceptions.
-That slice must add narrow exceptions next to each unsafe operation, document
-pointer/handle ownership and platform preconditions, and verify all affected
-platforms. Do not add a placeholder module or an exception before it is needed.
+`src/fsutil.rs` holds descriptor-based filesystem operations. Keep new
+OS-specific unsafe calls there, each with a narrow
+`#[expect(unsafe_code, reason = "...")]` and a `// SAFETY:` comment that
+documents pointer/handle ownership and platform preconditions, and verify all
+affected platforms. Do not add an exception before it is needed.
 
 Every new input-parsing module must start with this inner attribute:
 
@@ -471,13 +474,13 @@ bash scripts/sdk-go.sh
 
 The xtask alias uses locked offline resolution. Fetch all locked packages first. Explicit `+1.99.1` overrides a conflicting `RUSTUP_TOOLCHAIN` environment variable.
 
-Latest verified direct releases: Tokio 1.54.0, Hyper 1.12.0, hyper-util 0.1.21, http-body-util 0.1.5, serde_json 1.0.154 and rusqlite 0.40.2. Versions, licenses, sizes and sources are in the [dependency snapshot](../../compatibility/dependency-status.json). Cargo.lock records the full graph. Docker inputs, including the test-only peer curl image, use actual multiarch digests. The snapshot checks both Dockerfile and smoke-script pins.
+Latest verified direct releases: Tokio 1.54.1, Hyper 1.12.0, hyper-util 0.1.21, http-body-util 0.1.5, serde_json 1.0.154 and rusqlite 0.41.1. Versions, licenses, sizes and sources are in the [dependency snapshot](../../compatibility/dependency-status.json). Cargo.lock records the full graph. Docker inputs, including the test-only peer curl image, use actual multiarch digests. The snapshot checks both Dockerfile and smoke-script pins.
 
 The object media slice additionally uses bytes 1.12.1, md-5 0.11.0, crc32c 0.6.8 and
 getrandom 0.4.3, with the selection reasons and package sizes in the
 [dependency policy](dependency-policy.md#dependency-status-evidence).
 
-The Go harness requires Go and jq; it pins Go 1.27.3, storage v1.70.0 and API v0.308.0 with committed go.mod/go.sum. Its high-level HTTP JSON bucket and object listing/Update/Attrs/NewReader/Delete workflows run against an isolated native server; the getting-started guide verifies the same suite against Compose. Raw media upload uses the harness HTTP client; SDK Writer with `ChunkSize=0` exercises multipart metadata, hashes and conditioned publication. Resumable Writer remains rejected and tested. Media/multipart upload tokens require generation-match; GET/DELETE/metadata-update tokens retain their existing acceptance without deduplication (SPEC-013/SPEC-015). `scripts/sdk-go.sh` also starts a second isolated native server with `--auth-mode strict --identity-file config/identities.json`, checks that its ready event reports strict mode, and runs the `TestStrictAuth*` suite against it through `GCS_MIMIC_STRICT_ENDPOINT`. Those clients use an explicit endpoint and an `oauth2.StaticTokenSource` with the public fixture tokens, so no Application Default Credentials or metadata-server lookup occurs; the suite skips only when that variable is unset. Rust `auth_http` and `url_cli` tests cover strict authentication, role enforcement, startup validation and the URL helper offline. See the [strict authentication evidence](evidence/strict-auth.md). Tests make no Google/metadata-server requests. Rust integration tests use isolated temporary catalog directories, including startup failure, generations, condition races, restart and selected SIGKILL publication boundaries. On unix, unit tests also take power-loss snapshots of single-request uploads, resumable finalization and compose/copy/rewrite publication that keep only the file lengths and directory entries the seamed sync points made durable (model and limits in `src/storage/catalog/fault.rs`), so dropping the blob or shard fsync fails them. Renames, unlinks and new-file entries outside the seam, such as recovery's restore-to-staging renames, are not modeled. Every other fsync/deletion instruction window, real power loss and memory/CPU/latency measurements remain unverified. See the [multipart integration evidence](evidence/multipart.md) and [guide transcript](evidence/multipart-guide.txt).
+The Go harness requires Go and jq; it pins Go 1.27.3, storage v1.70.0 and API v0.310.0 with committed go.mod/go.sum. Its high-level HTTP JSON bucket and object listing/Update/Attrs/NewReader/Delete workflows run against an isolated native server; the getting-started guide verifies the same suite against Compose. Raw media upload uses the harness HTTP client; SDK Writer with `ChunkSize=0` exercises multipart metadata, hashes and conditioned publication. The default resumable Writer runs through the JSON resumable session engine (`objects_resumable_test.go`). Media/multipart upload tokens require generation-match; GET/DELETE/metadata-update tokens retain their existing acceptance without deduplication (SPEC-013/SPEC-015). `scripts/sdk-go.sh` also starts a second isolated native server with `--auth-mode strict --identity-file config/identities.json`, checks that its ready event reports strict mode, and runs the `TestStrictAuth*` suite against it through `GCS_MIMIC_STRICT_ENDPOINT`. Those clients use an explicit endpoint and an `oauth2.StaticTokenSource` with the public fixture tokens, so no Application Default Credentials or metadata-server lookup occurs; the suite skips only when that variable is unset. Rust `auth_http` and `url_cli` tests cover strict authentication, role enforcement, startup validation and the URL helper offline. See the [strict authentication evidence](evidence/strict-auth.md). Tests make no Google/metadata-server requests. Rust integration tests use isolated temporary catalog directories, including startup failure, generations, condition races, restart and selected SIGKILL publication boundaries. On unix, unit tests also take power-loss snapshots of single-request uploads, resumable finalization and compose/copy/rewrite publication that keep only the file lengths and directory entries the seamed sync points made durable (model and limits in `src/storage/catalog/fault.rs`), so dropping the blob or shard fsync fails them. Renames, unlinks and new-file entries outside the seam, such as recovery's restore-to-staging renames, are not modeled. Every other fsync/deletion instruction window, real power loss and memory/CPU/latency measurements remain unverified. See the [multipart integration evidence](evidence/multipart.md) and [guide transcript](evidence/multipart-guide.txt).
 
 `dependencies check` contacts official Rust, Cargo, GitHub, Debian, Docker Hub and
 public GCR metadata. Other Rust tests are offline and use only loopback. All direct
@@ -489,7 +492,7 @@ that build or ship release artifacts, as the release workflow does; see the
 and review exceptions weekly. No manifests are modified and nothing is published
 automatically.
 
-Pinned/current-stable Rust CI and native amd64/arm64 container CI are configured. Daily freshness runs at 03:17 UTC every calendar day without cooldown after reaching the default branch. Remote CI/schedule execution remains unverified. Latest-dependency candidate builds and upgrade submission are not implemented. Local arm64 runs natively; local amd64 uses emulation.
+Pinned/current-stable Rust CI, cross-target checks and native amd64/arm64 container CI are configured. Daily freshness runs at 03:17 UTC every calendar day without cooldown after reaching the default branch; scheduled runs have been observed since 2026-10-30, and a run that finds an update fails until the update is adopted. Latest-dependency candidate builds and upgrade submission are not implemented. Local arm64 runs natively; local amd64 uses emulation.
 
 `compatibility/features.json` is the only implementation-status authority. English and Japanese views are generated together under `docs/en` and `docs/ja`. Japanese user documentation starts at [docs/ja](../ja/README.md); historical planning material remains under [planning/](../../planning/README.md). Ledger tooling validates evidence structure and links, not the truth of submitted logs. No GCS behavior is claimed by internal probes.
 

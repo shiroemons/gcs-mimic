@@ -14,14 +14,18 @@ API. The row stays PARTIAL for the pending cases listed below.
   other value returns 400 invalidArgument without changing state.
 - OBJRET-CONFIG: multipart and resumable uploads and PATCH/PUT set
   `retention {mode, retainUntilTime}`; get, list and the upload response read it
-  back. `mode` is exactly `Unlocked` or `Locked`; `retainUntilTime` is RFC 3339
-  and stored with microsecond precision. `null`, `{}` and all-null fields remove
+  back. `mode` is exactly `Unlocked` or `Locked`; `retainUntilTime` is RFC 3339,
+  compared to the nanosecond and displayed truncated to the millisecond (schema
+  47 keeps the sub-microsecond remainder). `null`, `{}` and all-null fields remove
   the configuration (Go sends `null`, Ruby sends `{}`). PUT without `retention`
   keeps it.
 - OBJRET-TRANSITIONS: an Unlocked configuration can be extended freely; locking,
-  shortening or removing it needs `overrideUnlockedRetention=true`. A Locked
-  configuration only accepts an equal or later `retainUntilTime` in Locked mode,
-  even with the override and after it expires.
+  shortening or removing it needs `overrideUnlockedRetention=true`, and without
+  it returns 403 `forbidden` (gRPC `PERMISSION_DENIED`). Writing back the
+  displayed millisecond value is a shortening. A Locked configuration only
+  accepts an equal or later `retainUntilTime` in Locked mode, even with the
+  override and after it expires; shortening, removal and a mode change return
+  403 `forbidden`.
 - OBJRET-PROTECT: until `retainUntilTime`, deleting the object (with or without
   `generation`), soft deleting it and replacing it by upload return
   403 `retentionPolicyNotMet`. Metadata edits remain allowed. In a versioned
@@ -50,9 +54,12 @@ API. The row stays PARTIAL for the pending cases listed below.
 - OBJRET-SDK: the pinned Go `SetObjectRetention`/`Writer.Retention` and Ruby
   `create_bucket(enable_object_retention: true)`/`File#retention=` journeys in
   the SDK scorecard store retention and get 403 on delete.
-- PENDING: gRPC input (CreateBucket `enable_object_retention`, WriteObject and
-  UpdateObject `retention`) stays an explicit unsupported error; gRPC output
-  reports `Bucket.object_retention` and `Object.retention`. Copy/rewrite/compose
+- OBJRET-GRPC: CreateBucket `enable_object_retention` and the UpdateObject
+  `retention` mask with `override_unlocked_retention` share the JSON rules
+  ([gRPC SDK parity](grpc-v2-sdk-parity.md)); gRPC output reports
+  `Bucket.object_retention` and `Object.retention`.
+- PENDING: WriteObject `retention` stays an explicit unsupported error.
+  Copy/rewrite/compose
   destination retention, XML headers and modes (EXT-XML-016/027), lifecycle
   interaction, initialization-file buckets, the project lien and provider-exact
   error reasons and messages remain pending.
@@ -72,11 +79,15 @@ permission, the 100-year cap, the event-based-hold conflict, that a retained
 live version can still become noncurrent, that both object and bucket retention
 apply, and that copies do not inherit retention.
 
-The sources do not specify the status or reason for invalid transitions, a
-bucket without the feature or the event-hold conflict; locally they return
-400 invalidArgument with corrective guidance. Retained deletes reuse the
-documented 403 `retentionPolicyNotMet` reason with an object-retention message.
-A `retainUntilTime` in the past is accepted. The override permission is checked
+Invalid transitions return 403 `forbidden` with the messages recorded from
+Cloud Storage. The sources do not specify the status or reason for a bucket
+without the feature or the event-hold conflict; locally they return 400
+invalidArgument with corrective guidance. Retained deletes return 403
+`retentionPolicyNotMet` naming the object and the retain-until time in US
+Pacific time. A `retainUntilTime` that the request sets in the past returns
+400 (`Retain until time cannot be in the past.`); an expired retention on a
+stored object stays valid, so the object can still be restored or moved. The
+override permission is checked
 whenever the flag accompanies a retention change, before the catalog knows
 whether the change needs it. SPEC-OBJECT-RETENTION records these choices.
 

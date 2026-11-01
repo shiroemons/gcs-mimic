@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-This source-checkout slice covers DESIGN-031 and DESIGN-039 and extends the existing RSA query adapter. DESIGN-035 retains its unresolved provider duplicate/ambiguous-query question under SPEC-SIGNING-EDGES. Operation support, infrastructure simulation and the parent authentication rows remain separately tracked by the central feature ledger.
+Since 0.8.0, this slice covers DESIGN-031 and DESIGN-039 and extends the existing RSA query adapter. DESIGN-035 retains its unresolved provider duplicate/ambiguous-query question under SPEC-SIGNING-EDGES. Operation support, infrastructure simulation and the parent authentication rows remain separately tracked by the central feature ledger.
 
 ## Pinned contract
 

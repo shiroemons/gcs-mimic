@@ -6,7 +6,8 @@
 
 Reviewed on **2026-10-22**. This is a source investigation and engineering
 assessment. No candidate benchmark, backend implementation or data migration was
-executed. Current implementation statuses and recovery evidence are unchanged.
+executed for it; the RAM backend described below was implemented afterwards.
+Implementation status remains in the [feature ledger](../../compatibility/features.json).
 
 Use a transactional metadata catalog and opaque immutable object files as the
 durable default. Keep SQLite for the catalog: indexed listing, atomic metadata
@@ -31,9 +32,10 @@ deletion and unfinished recovery/control cases kept explicit. The
 [filesystem investigation](fake-gcs-server-storage.md) records source behavior,
 executed macOS edit/reseed cases and the required follow-up.
 
-The source checkout's [RAM backend](slices/memory-backend.md) uses process-local
-SQLite and leased bounded chunks. It never touches `data_dir`, loses state at
-exit and shares ordinary authorization/conditions/checksums with disk. Its
+The [RAM backend](slices/memory-backend.md) (`--backend memory`, since 0.8.0)
+uses process-local SQLite and leased bounded chunks. It never touches
+`data_dir`, loses state at exit and shares ordinary
+authorization/conditions/checksums with disk. Its
 default 64 MiB body budget and separate main/TEMP 16 MiB page limits are storage
 admission limits, not a process RSS ceiling. Disk remains the default and the
 only directory-sync/import destination; no comparative performance is claimed.
@@ -73,16 +75,17 @@ same-host filesystem constraints.
 
 A blob rename and SQL commit are separate operations. The deletion journal and
 startup reconciliation bridge that boundary. Database atomicity alone does not
-make both stores one atomic transaction. Selected process-crash cases pass;
-every fsync window, host power loss and all-platform behavior remain unverified.
+make both stores one atomic transaction. Selected process-crash cases pass, and
+seamed publish, rename and fsync steps are tested with simulated power-loss
+snapshots (`src/storage/catalog/fault.rs`); real host power loss and all-platform
+behavior remain unverified.
 Existing results remain in `docs/en/evidence/object-media.md`.
 
 #### Resumable session storage contract
 
-The [frozen resumable contract](slices/resumable-upload.md) extends this model
+The implemented [resumable contract](slices/resumable-upload.md) extends this model
 with an indexed persistent session table and opaque staging files on the same
-data volume as immutable blobs. This is a required design, not executed backend
-or migration evidence. The table must retain capability identity, bucket
+data volume as immutable blobs. The table must retain capability identity, bucket
 incarnation and initiating authorization context, bounded metadata/conditions,
 optional total, committed offset, fixed seven-day deadline, terminal state and
 a bounded completion resource. Sessions are not ordinary listable objects.
@@ -97,7 +100,7 @@ acknowledged prefixes before readiness. A blanket staging purge would destroy
 resumable progress and must be replaced with reference-aware bounded recovery.
 See the [session engine design](design.md#resumable-session-engine-contract).
 
-The planned 128 retained-session limit and existing object-size cap bound staging
+The 128 active-session limit and existing object-size cap bound staging
 growth, with in-progress API tails bounded by `max_connections` (default 32)
 rather than a separate upload cap; they do not reserve free disk space.
 Disk-full/write/sync failures must surface. Deadline-indexed maintenance must

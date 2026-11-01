@@ -248,7 +248,9 @@ retrying a committed conditioned upload fails 412 instead of writing again.
 as the merge contrast. No modules or checksums change.
 
 The PUT journey replaces supplied labels, sets class/versioning/default holds,
-then verifies that PAP-only and empty PUT preserve omitted labels and settings.
+then verifies that a PAP-only PUT and an empty PUT clear omitted labels,
+versioning and default holds while keeping the storage class, as Cloud Storage's
+native PUT replacement does.
 Both metageneration conditions have success and 412 cases;
 failed requests preserve metadata. PUT responses agree with high-level Attrs,
 advance one metageneration, change the etag and preserve identity and existing
@@ -274,10 +276,9 @@ in `docs/en/evidence/bucket-metadata-put*.md`.
 
 ## Resumable Writer journeys
 
-`objects_resumable_test.go` defines the next upload acceptance journeys using the
-pinned official Writer. These tests have passed compilation and opt-in skip
-checks only; execution against the resumable server implementation is pending.
-The previous local 501 expectation has been replaced by these contract tests.
+`objects_resumable_test.go` defines the upload acceptance journeys using the
+pinned official Writer and runs them against the resumable implementation; see
+the [resumable upload evidence](../../docs/en/evidence/resumable-upload.md).
 
 The permissive suite covers the untouched default `ChunkSize` with more than
 16 MiB of data, explicit 256 KiB chunks, an empty final chunk, an empty object,

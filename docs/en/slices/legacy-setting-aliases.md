@@ -24,9 +24,9 @@ over a variable, and an empty variable counts as unset.
 | `cors-headers` | `cors_fallback` = `allow-all` |
 | `location` | `default_location` |
 | `log-level` | `log_level`; logrus `warning`, `trace`, `fatal` and `panic` become `warn`, `debug`, `error` and `error` |
-| `backend` `filesystem` or `memory` | Source builds select native `disk` or `memory`; RAM state is volatile and its storage limits are explicit. Published 0.7.0 retained persistent storage for both aliases. |
+| `backend` `filesystem` or `memory` | Since 0.8.0, selects native `disk` or `memory`; RAM state is volatile and its storage limits are explicit. 0.7.0 kept persistent storage for both aliases. |
 | `filesystem-root` | No setting; warns to mount the volume at `data_dir` and to convert old data with `gcs-mimic import fake-gcs-server` |
-| `event.*` | Source builds map the global rule to local Pub/Sub delivery with an explicit emulator endpoint. Published 0.7.0 rejects delivery settings. |
+| `event.*` | Since 0.8.0, maps the global rule to local Pub/Sub delivery with an explicit emulator endpoint. 0.7.0 rejected delivery settings. |
 | Any other `backend` value | Error: startup stops |
 
 A translated value is validated as the native setting, so an invalid value
@@ -35,7 +35,7 @@ advice only where existing diagnostics already allow it.
 
 ## Design choices
 
-- **Incomplete events fail.** Source builds require project/topic and an explicit
+- **Incomplete events fail.** Event delivery requires project/topic and an explicit
   local Pub/Sub emulator; they never silently fall back to Google or discard events.
 - **`filesystem-root` is not a data directory.** A reused fake-gcs-server
   volume is owned by root, while the image runs as UID 10001. Writing there

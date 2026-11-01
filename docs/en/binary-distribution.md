@@ -13,7 +13,7 @@ Each target builds and runs its Rust tests on the corresponding CPU, including
 the Linux musl tests. Cross-compilation alone is insufficient for publication.
 
 0.1.0 and 0.1.1 shipped only the four Linux targets, 0.1.2 added both macOS
-targets, and 0.1.3 adds both Windows targets once their native suites passed.
+targets, and 0.1.3 added both Windows targets once their native suites passed.
 Directory synchronization remains unsupported on Windows; `sync_dir` is
 rejected there with a diagnostic.
 
@@ -143,10 +143,11 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    the reviewed version, lockfile and notes, then push through the agreed process.
 4. Run **Release binaries** using GitHub Actions' manual dispatch on that commit.
    It runs the release-input freshness check
-   (`cargo xtask dependencies check --scope release`), the reusable Foundation checks and every release
-   matrix target's native suite, uploads verification archives as workflow
-   artifacts and runs the publish job up to the asset list. Manual dispatch
-   never creates a public release. Inspect the results and archives. Do not tag
+   (`cargo xtask dependencies check --scope release`), the reusable Foundation
+   checks and every release matrix target's native suite, uploads verification
+   archives as workflow artifacts and runs the publish job up to the asset list.
+   Manual dispatch never creates a public release. Inspect the results and
+   archives. Do not tag
    until this dry run passes on the exact commit to tag, including its publish
    job; any change to the release matrix, workflows or release scripts after it
    needs a new dry run.

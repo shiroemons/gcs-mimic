@@ -12,6 +12,7 @@ The following counts describe separately tracked operation/transport units, not 
 | --- | ---: |
 | Core JSON API v1 | 87 |
 | gRPC Storage v2 | 24 |
+| gRPC Storage v1 legacy | 12 |
 | FeatureConfigs v2 REST | 5 |
 | XML API | 52 |
 | Storage Control v2 | 39 |
@@ -25,7 +26,7 @@ The following counts describe separately tracked operation/transport units, not 
 | Shared location RPC | 4 |
 | Storage Control v2 REST binding | 7 |
 | Storage Control REST | 1 |
-| Total tracked operation rows | 298 |
+| Total tracked operation rows | 310 |
 
 The live JSON snapshot has 38 schema definitions. Per-property and per-parameter status inventories are separate files. Method presence is not evidence of full field, permission or error compatibility.
 
@@ -36,7 +37,7 @@ renderer/schema regression test in `src/json/fields.rs`. Resumable uploads
 validate against it at initiation; later chunks use the persisted selector
 without schema revalidation.
 
-Storage Control has 39 direct RPCs in the current Google-owned proto and generated Go reference, which is broader than the shorter HTML RPC page. Insights has 14 and Batch Operations7 direct RPCs. The source manifest preserves digests and service registration information.
+Storage Control has 39 direct RPCs in the current Google-owned proto and generated Go reference, which is broader than the shorter HTML RPC page. Insights has 14 and Batch Operations 7 direct RPCs. The source manifest preserves digests and service registration information.
 
 Open specification questions are retained in `compatibility/gaps.json`. Full-context v1/v2 routes are distinct advertised API versions, not a source contradiction; each remains pending implementation and verification.
 
@@ -46,8 +47,10 @@ Bucket IAM get/set use the [scoped bucket policy contract](slices/bucket-iam.md)
 checked against the same live Discovery revision on 2026-10-22. The supported
 subset includes persistent unconditional predefined storage roles, local user
 and service-account members, convenience values, effective project/bucket grants
-and atomic etag updates. `testIamPermissions`, public principals, conditions,
-custom/basic roles and ACLs remain outside that scope. Get/set require
+and atomic etag updates. `testIamPermissions` uses the same evaluator
+([contract](slices/sdk-test-permissions.md)), and strict mode enforces
+`allUsers`/`allAuthenticatedUsers` read grants. Conditions, custom/basic roles
+and ACLs remain outside that scope. Get/set require
 `storage.buckets.getIamPolicy` / `storage.buckets.setIamPolicy`; bucket-level
 grants never authorize project-scoped bucket insert/list.
 
@@ -169,6 +172,27 @@ grants never authorize project-scoped bucket insert/list.
 | RPC-STORAGE-022 | google.storage.v2.Storage/StartResumableWrite | See the typed RPC inventory and HTTP annotations where present. |
 | RPC-STORAGE-023 | google.storage.v2.Storage/QueryWriteStatus | See the typed RPC inventory and HTTP annotations where present. |
 | RPC-STORAGE-024 | google.storage.v2.Storage/MoveObject | See the typed RPC inventory and HTTP annotations where present. |
+
+## gRPC Storage v1 legacy
+
+The twelve legacy Storage v1 RPCs served by the pinned fake-gcs-server
+reference are tracked for migration; see the
+[legacy contract](slices/grpc-v1-legacy.md).
+
+| Feature ID | Method / interface | Route or detail |
+| --- | --- | --- |
+| RPC-LEGACY-001 | google.storage.v1.Storage/GetBucket | Legacy migration RPC. |
+| RPC-LEGACY-002 | google.storage.v1.Storage/DeleteBucket | Legacy migration RPC. |
+| RPC-LEGACY-003 | google.storage.v1.Storage/InsertBucket | Legacy migration RPC. |
+| RPC-LEGACY-004 | google.storage.v1.Storage/UpdateBucket | Legacy migration RPC. |
+| RPC-LEGACY-005 | google.storage.v1.Storage/ListBuckets | Legacy migration RPC. |
+| RPC-LEGACY-006 | google.storage.v1.Storage/InsertObject | Legacy migration RPC. |
+| RPC-LEGACY-007 | google.storage.v1.Storage/GetObject | Legacy migration RPC. |
+| RPC-LEGACY-008 | google.storage.v1.Storage/DeleteObject | Legacy migration RPC. |
+| RPC-LEGACY-009 | google.storage.v1.Storage/UpdateObject | Legacy migration RPC. |
+| RPC-LEGACY-010 | google.storage.v1.Storage/PatchObject | Legacy migration RPC. |
+| RPC-LEGACY-011 | google.storage.v1.Storage/ComposeObject | Legacy migration RPC. |
+| RPC-LEGACY-012 | google.storage.v1.Storage/ListObjects | Legacy migration RPC. |
 
 ## FeatureConfigs v2 REST
 
@@ -428,7 +452,7 @@ grants never authorize project-scoped bucket insert/list.
 - `compatibility/upstream/json-schemas.json`: factual field/type/enum/ref nesting for all 38 schemas and global query parameters.
 - `compatibility/schema-field-coverage.json`: 357 property locations; selected Bucket PATCH fields have scoped acceptance cases, with broader method coverage pending.
 - `compatibility/parameter-coverage.json`: 401 global/per-method path/query parameter locations; buckets.patch parameters have scoped cases and explicit unsupported semantics.
-- `compatibility/upstream/storage-rpc-methods.json`:24 Storage v2 signatures and streaming flags.
-- `compatibility/upstream/auxiliary-rpc-methods.json`:60 direct Control/Insights/Batch signatures, typed LRO metadata, HTTP bindings and shared service registrations.
+- `compatibility/upstream/storage-rpc-methods.json`: 24 Storage v2 signatures and streaming flags.
+- `compatibility/upstream/auxiliary-rpc-methods.json`: 60 direct Control/Insights/Batch signatures, typed LRO metadata, HTTP bindings and shared service registrations.
 
 XML headers/elements, protobuf fields, IAM permissions, launch-stage restrictions, error variants and feature cross-products must be expanded into acceptance cases for each selected slice. The present schema inventory is complete for the fetched JSON schema definitions, not a field-by-field inventory of every service in this broader plan.

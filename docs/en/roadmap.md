@@ -4,19 +4,19 @@
 
 [日本語](../ja/roadmap.md)
 
-Updated **2026-10-31** for the current source checkout. Published installation
-examples use `0.7.0`; unreleased additions require a source build and their
-scoped SDK, browser and distribution results are recorded in the
-[combined verification](evidence/migration-integration.md). Those source results
-do not change the published image or complete the broader feature rows.
+Updated **2026-11-01** for the 0.8.0 release. Published installation examples
+use `0.8.0`. The scoped SDK, browser and distribution results of the 0.8.0
+migration additions are recorded in the
+[combined verification](evidence/migration-integration.md); they do not
+complete the broader feature rows.
 Continue closing the gaps in existing fake-gcs-server workflows through useful
 `0.x` increments; reserve **1.0.0** for verified reference compatibility plus
 the named extensions. The order below selects work, not release dates.
 
 ## Available today
 
-The [0.7.0 release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.7.0)
-provides native archives and Linux AMD64/ARM64 images on GHCR and Docker Hub.
+The [0.8.0 release](releases/0.8.0.md) provides native archives and Linux
+AMD64/ARM64 images on GHCR and Docker Hub.
 The HTTP quick start, HTTPS default, simultaneous HTTP/HTTPS listeners,
 public-host routing, default bucket location and log-level controls are available.
 The [configuration mapping](fake-gcs-server-configuration.md) documents native
@@ -29,15 +29,17 @@ JSON ACL resources, notification configurations, HMAC key management and
 Autoclass settings also exist, with the effect limitations below. Bucket and
 object PATCH/PUT replace ACLs atomically with other metadata.
 Media, multipart and copy invocation tokens replay the original response
-within bounded local retention, and JSON media GET and XML GET expand gzip-encoded objects.
+within bounded local retention, and JSON media GET and XML GET expand
+gzip-encoded objects.
 Storage v2 gRPC includes resumable and appendable writes and ranged reads;
 legacy Storage v1 serves the twelve inventoried reference RPCs with field limits.
-See the [0.5.0 release notes](releases/0.5.0.md) and the
+See the [0.8.0 release notes](releases/0.8.0.md), the
+[0.5.0 release notes](releases/0.5.0.md) and the
 [0.4.0 feature scope and limits](releases/0.4.0.md).
 
 Bucket initialization creates missing buckets and preserves API changes.
-Seed files replay on every startup with extension-derived MIME types. The
-source checkout prepares the complete tree and publishes it atomically; a
+Seed files replay on every startup with extension-derived MIME types. Since
+0.8.0 the replay prepares the complete tree and publishes it atomically; a
 changed protected fixture fails the replay instead of skipping that file.
 Identical objects keep their generation. A sync directory mirrors API changes
 and ingests external creates/edits; continuous observation, revision-bound
@@ -48,12 +50,13 @@ See [container usage](container-usage.md) and the
 [migration guide](fake-gcs-server-migration.md).
 
 SDK and browser evidence covers declared subsets. The
-[five-SDK scorecard](../../sdk-scorecard/README.md) passes every Go, Ruby,
-Node.js, PHP and Python case in its permissive HTTPS profile; scope and
+[eight-SDK scorecard](../../sdk-scorecard/README.md) passes every Go, Ruby,
+Node.js, PHP, Python, Java, .NET and Rust case in its latest
+[run](../../sdk-scorecard/results/2026-10-31-2/summary.md); scope and
 remaining profiles are tracked in [SDK integration](slices/sdk-scorecard-integration.md).
 Rails Active Storage has a [working storage.yml recipe](rails-active-storage.md)
-with a non-Google universe. The source checkout additionally verifies registered
-local JWTs and supplies final-origin signing adapters; default Google-universe
+with a non-Google universe. Since 0.8.0 it also verifies registered local
+JWTs and supplies final-origin signing adapters; default Google-universe
 OAuth still requires Google and is not a local credential recipe.
 These are not whole-API compatibility claims. See the
 [comparison](feature-comparison.md) and [feature matrix](feature-matrix.md).
@@ -71,10 +74,10 @@ blocks another track; a higher-priority row does not make every later row wait.
 | Every release | Reconcile evidence and pass distribution gates | Platform, dependency and artifact verification | All implementation tracks |
 | Final gate | Release the verified superset as 1.0.0 | Complete baseline and named extensions | Combine verified scopes |
 
-Current work closes remaining acceptance cases in small source increments.
+Current work closes remaining acceptance cases in small increments.
 The recorded migration checkpoint does not validate subsequent XML, ACL or
 authentication changes; final combined verification remains an integration gate.
-Continuous observation and guarded deletion are scoped source
+Continuous observation and guarded deletion are scoped
 implementations, not merely future proposals. Findings/status paging, bounded
 waits have native scoped checks; conflict/recovery controls, supported strict
 startup and the combined final runs still require their own acceptance.
@@ -93,9 +96,9 @@ cutover/rollback and platform boundaries. Seed `.metadata` files are literal
 objects; durable import sidecars remain a separate explicitly selected format.
 See the [import contract](slices/import-filesystem.md).
 
-The source checkout now has scoped HTTP batch/method override, XML
+Since 0.8.0 there are scoped HTTP batch/method override, XML
 list/copy/multipart, helper/reset/reseed routes, local event delivery, a Go
-subprocess facade and bounded RAM storage. Scoped checks passed for the source
+subprocess facade and bounded RAM storage. Scoped checks passed for the
 checkpoint recorded in the combined evidence. Remaining work includes declared
 JSON/XML fields,
 the full exported Go API,
@@ -148,7 +151,7 @@ does not delete a bucket. Its [version-1 schema and local administrative authori
 are implemented; IAM policy bootstrap remains outside that schema.
 
 Directory sync must handle API/file conflicts, unusual names, partial writes,
-missed events and recovery. The source includes bounded conflict retention,
+missed events and recovery. 0.8.0 includes bounded conflict retention,
 revision-bound resolution and guarded deletion. Both authentication profiles
 support startup; strict controls require explicit project administrator grants
 covering current buckets and retained original owners. Background filesystem
@@ -173,7 +176,7 @@ the specified extensions. Full Google API coverage is separate. See the
 
 ## First useful release
 
-The first useful `0.x` release has shipped; published examples now use `0.7.0`.
+The first useful `0.x` release has shipped; published examples now use `0.8.0`.
 The original gate covered scoped JSON, public/private access and URL
 workflows, persistent storage, fixtures, Go/Ruby, CORS and local HTTPS.
 Rails, lifecycle, gRPC and full parity were not prerequisites for that first release.

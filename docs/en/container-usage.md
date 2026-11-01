@@ -2,9 +2,9 @@
 
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
-The image `ghcr.io/shiroemons/gcs-mimic:0.7.0` is published for `linux/amd64`
+The image `ghcr.io/shiroemons/gcs-mimic:0.8.0` is published for `linux/amd64`
 and `linux/arm64`; pulling it needs no registry login. Docker Hub serves the same
-image digest as `shiroemons/gcs-mimic:0.7.0`, so either name works in the
+image digest as `shiroemons/gcs-mimic:0.8.0`, so either name works in the
 commands below. Pin this exact version in CI. To test unreleased source instead,
 build a local image from a checkout and use its tag in the commands below:
 
@@ -19,7 +19,7 @@ empty buckets. It covers UX-012, DESIGN-061 and UX-001.
 The [README quick start](../../README.md#quick-start) is the shortest start: one
 `docker run` serves HTTPS with a built-in development certificate, and
 `-e GCS_MIMIC_SCHEME=http` selects plain HTTP. List every option with
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.7.0 --help`.
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.8.0 --help`.
 
 ## Docker run
 
@@ -28,7 +28,7 @@ docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
-  ghcr.io/shiroemons/gcs-mimic:0.7.0
+  ghcr.io/shiroemons/gcs-mimic:0.8.0
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -102,7 +102,7 @@ Mount it read-only at `/data`:
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
   -e GCS_MIMIC_SCHEME=http \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.7.0
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.8.0
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -136,16 +136,20 @@ Each file below a bucket directory is an object named by its relative path:
 | --- | --- |
 | Absent | Created |
 | Exactly what seeding would write: same bytes and seed Content-Type, with no Content-Encoding, Content-Disposition, Content-Language, Cache-Control, custom time or custom metadata | Left unchanged, keeping its generation; counted as `unchanged` |
-| Any other difference, including metadata edited through the API | Replaced as a new live generation with seed default metadata; a versioned bucket keeps the previous one as noncurrent |
-| Different, but under an object hold or retention | Left unchanged and counted as `blocked`, with a warning |
+| Any other difference, including metadata edited through the API | Replaced as a new live generation with seed default metadata; a versioned bucket keeps the previous one as noncurrent, and a soft delete policy keeps it soft-deleted |
+| Different, but under an object hold or retention | The whole replay is rejected: no seeded change is applied and the server does not become ready |
 
 Holds and storage class are not compared, so an identical held object counts as
-`unchanged`.
+`unchanged`. Since 0.8.0 seed replay is atomic; 0.7.0 and earlier skipped a
+protected object and counted it as `blocked`. Release the hold or retention, or
+align the fixture, before restarting.
 
 Objects without a seed file are untouched, and removing a seed file never
 deletes an object. An object deleted through the API is recreated on the next
-restart, and edits to seed files apply on the next restart. There is no file
-watcher and no reseed endpoint; restart the container instead.
+restart, and edits to seed files apply on the next restart. Seed input is not
+watched. Restart the container, or enable local administration
+(`GCS_MIMIC_ADMIN_ENABLED=true`, on an isolated listener) and use the opt-in
+[reseed endpoint](slices/atomic-seed-reseed.md).
 
 Content-Type comes from the filename extension through a pinned table, for
 example `.png` becomes `image/png`. Set `GCS_MIMIC_SEED_CONTENT_TYPE=octet-stream`
@@ -162,9 +166,10 @@ directory it is `{"outcome":"disabled"}`.
 ### Differences from fake-gcs-server
 
 Like fake-gcs-server, a restart replaces seeded objects that differ, including
-API metadata edits. The only intended differences: fake-gcs-server writes a new
+API metadata edits. The intended differences: fake-gcs-server writes a new
 generation even for an exactly identical object, which gcs-mimic keeps, and
-gcs-mimic has no `/_internal/reseed` route. Seeding does not import fake-gcs-server's
+gcs-mimic's `/_internal/reseed` route is off until local administration is
+enabled. Seeding does not import fake-gcs-server's
 runtime xattrs/sidecars or preserve their metadata. The seed directory stays
 read-only input: API writes do not appear under `/data`. To browse API-written
 objects as files, use a separate [sync directory](#mirror-objects-to-a-host-directory).
@@ -205,21 +210,25 @@ shortly after each response; poll rather than expecting the file at response tim
 The SQLite catalog and internal blobs remain the stored state, so the directory
 is a mirror. Data persistence still requires the `/var/lib/gcs-mimic` volume.
 
-The following describes the published 0.7.0 mirror. Source builds additionally
-support [continuous observation](slices/continuous-directory-observation.md),
-revision-bound deletion approval and live status/findings/wait controls; use
-the current [synchronization contract](slices/directory-synchronization.md) for
-its exact supported platform/auth/recovery subset. Ready precedes initial
-reconciliation and is not a synchronization-complete signal.
+Since 0.8.0 the server also watches the directory
+([continuous observation](slices/continuous-directory-observation.md)), applies
+file deletions behind a guard, and offers live status, findings, wait and
+approval controls through `gcs-mimic sync`; 0.7.0 imported files only at
+startup and never deleted objects. Use the
+[synchronization contract](slices/directory-synchronization.md) for the exact
+supported platform/auth/recovery subset. Ready precedes initial reconciliation
+and is not a synchronization-complete signal; `gcs-mimic sync wait` waits for it.
 
 Files created or edited outside the server are imported as new object
-generations, with hashes, when the server starts; there is no file watcher, so
-restart to pick up edits. Imported files appear through the API about a second
-after readiness. Deleting a file does not delete its object, and deleting a
-bucket through the API keeps its directory. When both the API and a file changed
-the same object, neither overwrites the other and the file stays as it is; at
-startup, the `sync_ingested` and `sync_reconciled` log events count such files
-as `conflicting`. Object names containing `\` or `:`, such as
+generations, with hashes, shortly after the change; no restart is needed.
+Deleting a file deletes its live object, subject to holds and retention. When at
+least 100 objects would go and they are more than half of the tree, the deletion
+guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until the exact
+set is approved with `gcs-mimic sync approve`. Deleting a bucket directory
+keeps the bucket, and deleting a bucket through the API keeps its directory.
+When both the API and a file changed the same object, neither overwrites the
+other; the conflict is retained and listed by `gcs-mimic sync conflicts` for
+explicit resolution. Object names containing `\` or `:`, such as
 `logs/2026-10-28T12:00:00.log`, and other names that cannot be mapped to host
 file names are skipped without stopping the mirror; they stay available through
 the API.
@@ -229,8 +238,10 @@ it to one data directory; add both to `.gitignore`. After
 `docker compose down --volumes` or another new data volume, startup rejects the
 old directory with a `ForeignMarker` diagnostic. Move it aside and create a fresh
 empty directory instead. The directory must not overlap the data or seed
-directory. Sync requires permissive authentication (strict mode rejects it) and
-runs on Linux and macOS; Windows rejects it.
+directory. In strict mode, sync controls require project-owner authority through
+the local identity registry. Sync runs on Linux and macOS; on other platforms the
+directory cannot be watched, so the server reports the failure and does not
+become ready.
 
 Exported files and directories are private to the server user (modes `0600` and
 `0700`). Docker Desktop maps ownership on bind mounts, so the files are readable
@@ -245,7 +256,7 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
   -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
   -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/data \
   -e GCS_MIMIC_SYNC_DIR=/sync \
-  ghcr.io/shiroemons/gcs-mimic:0.7.0
+  ghcr.io/shiroemons/gcs-mimic:0.8.0
 ```
 
 See the [synchronization contract](slices/directory-synchronization.md) for the

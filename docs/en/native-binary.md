@@ -44,7 +44,7 @@ jq -e '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE"
 curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
   --data '{"labels":{"stage":null}}' "$native_endpoint/storage/v1/b/native-bucket" > "$native_dir/removed.json"
 jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' "$native_dir/removed.json"
-curl --disable --noproxy '*' --fail "$native_endpoint/storage/v1/b/native-bucket" > "$native_dir/after.json"
+curl --disable --noproxy '*' --fail "$native_endpoint/storage/v1/b/native-bucket?projection=full" > "$native_dir/after.json"
 cmp "$native_dir/removed.json" "$native_dir/after.json"
 kill -TERM "$native_pid"
 wait "$native_pid"
@@ -76,8 +76,10 @@ The resulting binary needs no Rust, Python, curl or Go installation. CLI overrid
 readiness. The current configuration is JSON; future TOML settings are unavailable.
 Independent configuration, TLS and identity errors are collected into stderr
 JSON diagnostic batches before catalog access; warnings precede errors. Known
-legacy inputs fail with native migration advice, unknown `FAKE_GCS_*` names
-warn, and native values preserve their existing precedence. See
+fake-gcs-server inputs are translated with a warning naming their `GCS_MIMIC_*`
+replacement, inputs without an equivalent fail with native migration advice,
+unknown `FAKE_GCS_*` names warn, and native values preserve their existing
+precedence. See
 [migration diagnostics](fake-gcs-server-configuration.md#migration-diagnostics)
 for the bounded input, redaction and `/data` inspection rules.
 
@@ -89,7 +91,8 @@ transport failures/timeouts and deferred cleanup, and error includes lock-releas
 failure. Validation diagnostics, including input warnings, remain visible at
 every level. Stdout `ready` and `stopped` are always emitted for automation.
 Empty/unknown levels fail before catalog access. Legacy `FAKE_GCS_LOG_LEVEL`
-and `-log-level` remain errors with native migration advice.
+and `-log-level` are translated with a warning: `warning` becomes `warn`, `trace`
+becomes `debug`, and `fatal` or `panic` become `error`.
 
 | CLI option | Environment | Default | Range |
 | --- | --- | --- | --- |
@@ -102,6 +105,7 @@ and `-log-level` remain errors with native migration advice.
 | `--tls-key` | `GCS_MIMIC_TLS_KEY` | built-in development key | Optional matching unencrypted PEM private key, at most 1 MiB; requires certificate |
 | `--tls-handshake-timeout-ms` | `GCS_MIMIC_TLS_HANDSHAKE_TIMEOUT_MS` | 5000 | 1–60000; HTTPS only, within connection admission |
 | `--data-dir` | `GCS_MIMIC_DATA_DIR` | `data` relative to cwd | Nonempty path; exclusive catalog ownership |
+| `--backend` | `GCS_MIMIC_BACKEND` | `disk` | `disk` or `memory`; memory never opens the data directory and loses all data at exit; see the [RAM backend](slices/memory-backend.md) |
 | `--seed-dir` | `GCS_MIMIC_SEED_DIR` | none | JSON key `seed_dir`; stable read-only bucket-directory input applied before readiness on every startup. Wins over `default_seed_dir` |
 | `--default-seed-dir` | `GCS_MIMIC_DEFAULT_SEED_DIR` | none; the image sets `/data` | JSON key `default_seed_dir`. Used only when `seed_dir` is unset, the directory exists and it does not overlap the data or sync directory; otherwise silently ignored |
 | `--seed-content-type` | `GCS_MIMIC_SEED_CONTENT_TYPE` | `extension` | JSON key `seed_content_type`; `extension` uses the pinned filename-extension table, `octet-stream` stores `application/octet-stream`. Also applies to files ingested from `--sync-dir` |
@@ -121,6 +125,13 @@ and `-log-level` remain errors with native migration advice.
 | `--compat-profile` | `GCS_MIMIC_COMPAT_PROFILE` | `native` | `native` or `legacy-emulator`; JSON key `compat_profile`; independent of authentication. The source bucket profile supplies `seed_project` when creation omits `project`; see the [contract](slices/bucket-core-parity.md). |
 | `--cors-fallback` | `GCS_MIMIC_CORS_FALLBACK` | `none` | `none` or `allow-all`; JSON key `cors_fallback`. XML/public CORS for buckets without stored rules; `allow-all` allows any origin; see [CORS fallback](slices/cors-fallback.md) |
 | `--identity-file` | `GCS_MIMIC_IDENTITY_FILE` | none | JSON identity registry, at most 64 KiB; only with `strict` |
+| `--default-soft-delete-retention-seconds` | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` | 604800 (7 days); 0 with `--backend memory` | 0 or 604800–7776000; applies to new native buckets created without `softDeletePolicy`. Deleted and replaced objects keep their bytes for this long; 0 deletes permanently |
+| `--local-creator-email` | `GCS_MIMIC_LOCAL_CREATOR_EMAIL` | `local-user@gcs-mimic.invalid` | Native permissive profile only: new objects record `user-EMAIL` as `owner` and an OWNER ACL entry. Empty keeps `project-owners-N` alone. It labels the writer and grants nothing |
+| `--admin-enabled` | `GCS_MIMIC_ADMIN_ENABLED` | `false` | Enables the local `/_internal` administration routes, such as reset and reseed; isolate the listener when enabled |
+
+The table lists the common options. Run `gcs-mimic serve --help` for every option,
+including the sync, Pub/Sub event, Unix socket, public URL and XML virtual-host
+settings.
 
 To accept HTTP and HTTPS together, run:
 
@@ -186,10 +197,9 @@ cancelled uploads remain tracked until their cleanup finishes. Upload prechecks
 and resumable session creation/read/checkpoint calls wait for catalog admission
 within the catalog wait deadline; other catalog calls still reject saturation.
 
-Schema-v1 bucket catalogs contain no objects and migrate transactionally through v3,
-v4 and v5 to v6. Existing v3 objects gain default metadata columns; v5 adds the durable
-seed initialization marker, and v6 adds default bucket IAM policies and an etag
-counter. Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs
+Older catalogs migrate automatically, one way and in order, to the current schema 48;
+the log names the versions. 0.7.0 used schema 35, so a data directory opened by 0.8.0
+cannot go back to 0.7.0. Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs
 are rejected without changing their data; automatic recovery of deleted v2 generations is
 unavailable. Recovery ignores `.DS_Store` and `._*` OS metadata; other invalid storage
 entries stop startup with a path diagnostic. Object `selfLink` addresses the current
@@ -260,7 +270,8 @@ rm -r "$seed_demo"
 
 Expect 206, `Content-Range: bytes 0-4/11`, `Content-Length: 5` and `hello`.
 Closed/open/suffix ranges use stored bytes; pin `generation` when assembling
-multiple requests. Unsatisfiable ranges return 416 and If-Range returns 501. A
+multiple requests. Unsatisfiable ranges return 416, a JSON media download ignores
+If-Range as Cloud Storage does, and a multi-range request returns 501. A
 gzip object that must be gunzipped ignores Range and returns the whole expanded
 object with 200. See the [range contract](slices/json-object-range.md)
 for local malformed/multiple-range fallback rules and header-parity limits.
@@ -283,16 +294,16 @@ bytes and seed Content-Type, with no Content-Encoding, Content-Disposition,
 Content-Language, Cache-Control, custom time or custom metadata) keeps its
 generation. Any other difference, including API metadata edits, is replaced as
 a new live generation with seed default metadata (versioned buckets keep the
-previous one as noncurrent). In the source checkout, a changed protected fixture
+previous one as noncurrent). Since 0.8.0, a changed protected fixture
 fails the complete prepared-tree replay, preserving the preceding namespace and
 emitting no ready event. An identical protected fixture is unchanged. Holds and
 storage class are not part of same-body comparison. Objects without a seed file
 are untouched, and removing a seed file never deletes an object. Seed input is
-not watched. Source builds add an opt-in [reseed endpoint](slices/atomic-seed-reseed.md)
-with disk merge and RAM replacement. The ready event's `seed` field reports `buckets` and
+not watched. Since 0.8.0, an opt-in [reseed endpoint](slices/atomic-seed-reseed.md)
+(with `--admin-enabled`) offers disk merge and RAM replacement. The ready event's `seed` field reports `buckets` and
 `objects` (newly created), `replaced`, `unchanged`, `blocked` and
-`skipped_os_metadata`; successful atomic replay has `blocked=0`. Published 0.7.0
-had per-file blocked counting. 0.2.1 and earlier imported seed files once into a fresh
+`skipped_os_metadata`; successful atomic replay has `blocked=0`. 0.7.0 and earlier
+skipped a changed protected fixture and counted it as `blocked`. 0.2.1 and earlier imported seed files once into a fresh
 catalog with an `octet-stream` default; see the
 [0.3.0 release notes](releases/0.3.0.md). Import is administrative in both profiles; strict API reads
 still need a permitted local bearer token. See the [seed contract](slices/seed.md).

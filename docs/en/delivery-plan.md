@@ -147,8 +147,10 @@ remain in the named evidence files.
 | Initial seed import | Import before readiness without replay; Linux invalid-byte rejection and read-only Compose persistence/reset | Manifest metadata, legacy defaults and source mutation protection remain outside the native contract | [Seed verification](evidence/seed-platform.md) |
 
 `BEHAVIOR-OBJECT-016` remains IMPLEMENTED for its declared single-range subset;
-`JSON-OBJECTS-005` remains PARTIAL. `UX-002` and `UX-009` are now IMPLEMENTED:
-the missing Linux/Compose cases pass with recorded evidence. ARM64 uses native
+`JSON-OBJECTS-005` remains PARTIAL. `UX-002` and `UX-009` became IMPLEMENTED
+when the missing Linux/Compose cases passed with recorded evidence; they are
+temporarily PARTIAL again until the atomic seed replay contract's final
+image/SDK/platform reruns pass. ARM64 uses native
 execution and AMD64 uses emulation. Broader fixture/volume requirements retain
 their explicit remaining scope. Range and seeding are existing work, not the
 next features to reimplement. The integrated [native guide](evidence/seed-range-guide.txt)
@@ -163,7 +165,7 @@ a workflow. Whole-feature status remains in the ledger.
 
 | Order | Deliverable | Completion boundary | Visible user outcome |
 | ---: | --- | --- | --- |
-| 1 | Seed platform verification | Linux filename and seeded Compose persistence/reset cases passed on 2026-10-22 | Missing platform evidence recorded; UX-002 and UX-009 IMPLEMENTED |
+| 1 | Seed platform verification | Linux filename and seeded Compose persistence/reset cases passed on 2026-10-22 | Missing platform evidence recorded; UX-002 and UX-009 IMPLEMENTED for that scope (now PARTIAL pending atomic seed replay reruns) |
 | 2 | Bucket IAM policies | Declared unconditional policy scope passed final Rust, Go, both Linux container architectures and full guide verification on 2026-10-22 | Delivered: policy operations affect access; DESIGN-014 and DESIGN-027 IMPLEMENTED, policy methods and hierarchy PARTIAL |
 | 3 | Public object reads | Declared path-style XML GET/HEAD, allUsers versus registered-only grants and final Rust/SDK/container/guide checks passed on 2026-10-22 | Delivered: DESIGN-012, DESIGN-013, DESIGN-047 and UX-005 IMPLEMENTED; DESIGN-004 and broad XML methods PARTIAL; [final verification](evidence/public-object-reads.md) |
 | 4 | Resumable upload | Declared initiation/chunk/status/retry/finalization/cancel/expiry/Location cases, normal pinned Go Writer, native buffering measurements and selected process-kill recovery passed on 2026-10-22 | Delivered: BEHAVIOR-OBJECT-010 through BEHAVIOR-OBJECT-014 and DESIGN-057 IMPLEMENTED; JSON-OBJECTS-007 and DESIGN-082 remain PARTIAL; [final verification](evidence/resumable-upload.md) |
@@ -204,10 +206,11 @@ Order 9 **Object copy** has its [declared local implementation](slices/object-co
 and [final evidence](evidence/object-copy.md). Its behavior row is IMPLEMENTED/EXACT;
 the method remains PARTIAL for full ACL/owner projection.
 Provider metadata/error/placement questions remain outside declared local acceptance.
-Order 11 compose also passes the shared final gate. **Ruby/Rails workflows**
-remain pending, extending the pinned Ruby SDK evidence to actual Active Storage
-public/private delivery and direct browser uploads. Their dependencies are
-already delivered; the new onboarding priority does not prevent parallel work.
+Order 11 compose also passes the shared final gate. **Ruby/Rails Active
+Storage workflows** are PARTIAL (DESIGN-084): a
+[working storage.yml recipe](rails-active-storage.md) and strict local JWT
+adapters exist, while the remaining browser and Google-universe OAuth cases
+stay explicit in the ledger.
 Order 18's signed-browser scope is delivered in the
 [final browser evidence](evidence/signed-browser.md): 61 signed-browser and 88
 existing CORS checks pass, with nine hermetic signed CORS tests, HTTPS Go/Ruby,
@@ -241,11 +244,10 @@ reference, container and native/Docker guide checks with restart equality.
 The [current PUT contract](slices/bucket-metadata-put.md) replaces omitted
 settings in the native profile, as recorded from Cloud Storage, and preserves
 them in the legacy-emulator profile as a local SDK compatibility choice; it
-records Rust and native PUT guide checks, while the Go and Ruby SDK checks await
-an update for the native behavior. Reference, container and Docker checks were
-not rerun for that policy.
-Separate maintenance adopted API client v0.308.0 with Storage v1.70.0 unchanged;
-the full SDK suite passes and all 31 dependency inputs report CURRENT.
+records Rust and native PUT guide checks, and the Go and Ruby PUT replacement
+suites passed on 2026-11-01. Reference, container and Docker checks were
+not rerun for that policy. The Go harness currently pins API client v0.310.0
+with Storage v1.70.0; see the [dependency policy](dependency-policy.md).
 The complete buckets.update row stays PARTIAL for advanced fields,
 ACL/billing/full projection and provider defaults/error parity.
 Order 6 is closed by [final PATCH evidence](evidence/bucket-metadata-patch.md),
@@ -301,8 +303,8 @@ wrong hostname, expiry, invalid key/configuration and stalled handshake cases
 must fail safely. Keep listener and advertised endpoints distinct and verify
 HTTPS resumable Locations. Do not disable client certificate verification or
 claim HTTPS merely because generated URLs use that scheme. Public certificate
-issuance, system trust-store changes, mTLS, hot reload and dual listeners remain
-separate work.
+issuance, system trust-store changes, mTLS and hot reload remain separate work;
+simultaneous HTTP/HTTPS listeners were delivered separately.
 
 JSON CORS uses the documented default response rules regardless of bucket CORS
 configuration. XML CORS follows stored bucket origin/method/header/max-age rules.
@@ -327,13 +329,12 @@ copy stub is insufficient. PATCH and PUT require distinct merge/replacement
 tests, including omitted/null/default and immutable-field handling reconciled
 against current sources before implementation.
 
-If-Range is excluded from this milestone. The Google JSON contract remains
-unestablished in `SPEC-RANGE-VALIDATORS` in the
-[gap ledger](../../compatibility/gaps.json); retain the current explicit 501
-rejection until authoritative sources establish it. Contract research and any
-resulting implementation are separate later work and do not block basic JSON
-completion, copy/rewrite/compose or signed URLs. The broad `objects.get` row
-retains its pending cases and `PARTIAL` status.
+If-Range was excluded from this milestone. `SPEC-RANGE-VALIDATORS` in the
+[gap ledger](../../compatibility/gaps.json) is now resolved from a recorded
+Cloud Storage session: a JSON media (`alt=media`) GET ignores `If-Range` and
+the date validators, a metadata or bucket GET that carries one answers 400, and
+a multi-range request answers 501. The broad `objects.get` row retains its
+pending cases and `PARTIAL` status.
 
 Close the milestone only after linked HTTP evidence covers all six bucket and
 nine object methods and pinned Go/Ruby workflows exercise the applicable calls.
@@ -396,8 +397,11 @@ its milestones live in `delivery_plan.migration`. They add no implementation sta
 The migration track also requires bidirectional synchronization with an
 inspectable bucket/object directory. Seed import and one-time conversion do not
 satisfy it. The [filesystem investigation](fake-gcs-server-storage.md) records
-the accepted requirement and open conflict/name-mapping decisions; implementation
-remains pending under `delivery_plan.migration.filesystem_sync_contract`.
+the accepted requirement. A scoped implementation exports API changes and
+ingests external creates/edits with revision-bound deletion; conflict/recovery
+controls and platform guarantees remain open (DESIGN-062, DESIGN-072 and
+DESIGN-074 stay PARTIAL). See the
+[sync contract](slices/directory-synchronization.md).
 
 Before each capability slice, reconcile only its affected contracts and profile
 conflicts. The complete source inventory is a full-replacement verification
@@ -518,13 +522,13 @@ queue above takes precedence over their historical numeric ordering.
 
 | Group | Remaining coverage |
 | --- | --- |
-| P0 Foundation | Maintenance extensions, dual listeners and outstanding native distribution/publication evidence |
+| P0 Foundation | Maintenance extensions and outstanding native distribution/publication evidence |
 | P1 Core data path | Advanced fields, transcoding and broader resource guarantees beyond the delivered basic updates/conditions |
 | P2 Access and URLs | ACL/default ACL, UBLA transitions, PAP provider edges, conditional policies, HMAC/V2 and proxy endpoint breadth |
-| P3 Transfer and HTTP breadth | HTTP batch, remaining XML/multipart, provider-exact edge behavior and extended SDKs beyond delivered rewrite continuations |
+| P3 Transfer and HTTP breadth | Remaining HTTP batch breadth, remaining XML/multipart, provider-exact edge behavior and extended SDKs beyond delivered rewrite continuations |
 | P4 Protection and lifecycle | Versioning/hold provider interactions, soft delete/restore, retention, lifecycle and Autoclass |
 | P5 Hierarchy and control | HNS/managed folders, inherited access, storage layout and shared LROs |
-| P6 gRPC and Rapid | Storage v2 RPCs and appendable-object state machines |
+| P6 gRPC and Rapid | Remaining Storage v2 RPCs/fields and full Rapid bucket semantics beyond the delivered appendable objects |
 | P7 Extended capabilities | Caches, analytics/jobs/events, contexts, infrastructure adapters and extended clients |
 
 ## First useful release
@@ -534,7 +538,8 @@ and URL target: documented JSON workflows, the supported range/seed subsets,
 strict local identity, effective scoped bucket IAM and public XML reads.
 The basic milestone above, including Go/Ruby evidence, CORS and trusted local
 HTTPS browser journeys, is a release verification prerequisite.
-Rails remains a later capability; signed-browser behavior now has its
+Rails Active Storage was not a prerequisite and remains PARTIAL (DESIGN-084);
+signed-browser behavior now has its
 [executed gate and explicit provider/device boundaries](evidence/signed-browser.md).
 The scoped JSON resumable workflow has
 separate evidence. State supported profiles and resource, recovery and protocol
@@ -555,7 +560,8 @@ in `compatibility/gaps.json` until explicitly authorized evidence resolves them.
 
 Keep SQLite plus opaque immutable files as the recommended durable default.
 The storage comparison in `docs/en/storage-backends.md` evaluates BLOB,
-key/value, filesystem and memory alternatives. Foreign-data migration is a
-planned capability, separate from replacing the internal engine. Implement no
-backend or importer in this documentation change. Reconsider the default after
-a measured requirement justifies its recovery and compatibility cost.
+key/value, filesystem and memory alternatives. Foreign-data
+[import](slices/import-filesystem.md) and the bounded
+[memory backend](slices/memory-backend.md) are separate from replacing the
+default engine. Reconsider the default after a measured requirement justifies
+its recovery and compatibility cost.

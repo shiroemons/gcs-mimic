@@ -74,10 +74,10 @@ the help text. Event-list validation occurs only when notifications are enabled.
 
 Use native names by role. When the server starts, gcs-mimic translates the
 known `FAKE_GCS_*` variables and flags that have a native equivalent, and warns
-with the native name for each one. Source builds support disk/memory selection
-and event aliases with an explicit local Pub/Sub emulator. Unknown backends and
-incomplete publisher settings fail. Published 0.7.0 has the earlier limitations;
-see [legacy setting aliases](slices/legacy-setting-aliases.md).
+with the native name for each one. Since 0.8.0, disk/memory selection and
+event aliases with an explicit local Pub/Sub emulator are supported. Unknown
+backends and incomplete publisher settings fail. 0.7.0 has the earlier
+limitations; see [legacy setting aliases](slices/legacy-setting-aliases.md).
 Unknown `FAKE_GCS_*` names warn without stopping startup.
 Unknown `GCS_MIMIC_*` names fail validation, and an empty native value does not
 generally mean “use the default.” See the
@@ -89,7 +89,7 @@ generally mean “use the default.” See the
 | Bind host and port | `GCS_MIMIC_LISTEN` | One `IP:port` value |
 | Second HTTP listener | `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; defaults to primary IP:8000 |
 | Advertised API endpoint | `GCS_MIMIC_API_BASE_URL` | API origin, separate from public URL construction |
-| Seed input | `GCS_MIMIC_SEED_DIR`, `GCS_MIMIC_DEFAULT_SEED_DIR` (image: `/data`), `GCS_MIMIC_SEED_PROJECT`, `GCS_MIMIC_SEED_CONTENT_TYPE` | Replays on every startup; differing objects get new generations and identical objects keep theirs. Source builds add atomic whole-tree replay and opt-in POST/PUT reseed, with disk merge and RAM replacement. `.metadata` files remain literal objects, not imported sidecars. |
+| Seed input | `GCS_MIMIC_SEED_DIR`, `GCS_MIMIC_DEFAULT_SEED_DIR` (image: `/data`), `GCS_MIMIC_SEED_PROJECT`, `GCS_MIMIC_SEED_CONTENT_TYPE` | Replays on every startup; differing objects get new generations and identical objects keep theirs. Since 0.8.0, seeding adds atomic whole-tree replay and opt-in POST/PUT reseed, with disk merge and RAM replacement. `.metadata` files remain literal objects, not imported sidecars. |
 | Persistent destination | `GCS_MIMIC_DATA_DIR` | SQLite plus opaque files; cannot mount legacy `/storage` directly |
 | Supplied certificate/key | `GCS_MIMIC_TLS_CERT`, `GCS_MIMIC_TLS_KEY` | Supply a matching pair |
 | Public-host behavior | `GCS_MIMIC_PUBLIC_BASE_URL` | Origin with DNS-domain routing; legacy Host matching is opt-in. Normalized default ports, IP virtual disabling and authority conflicts retain documented local boundaries. |
@@ -98,8 +98,8 @@ generally mean “use the default.” See the
 | Default soft delete retention | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`, `--default-soft-delete-retention-seconds`, JSON `default_soft_delete_retention_seconds` | Retention given to a new bucket whose creation request names no `softDeletePolicy`. `604800` (seven days, Cloud Storage's default) unless set, except that `--backend memory` defaults to `0` because retained deleted data would fill the fixed RAM budget (an explicit value, `604800` included, still applies); `0` or `604800`–`7776000` are accepted. `0` stores no policy, so deleting an object or bucket frees its bytes at once (fake-gcs-server behavior) and saves disk. Existing buckets, `import` and directory-sync buckets keep what they have; an explicit request policy, zero included, wins. See the [soft-delete contract](slices/sdk-soft-delete-restore.md). |
 | Local creator | `GCS_MIMIC_LOCAL_CREATOR_EMAIL`, `--local-creator-email`, JSON `local_creator_email` | Native permissive mode only. The email recorded as `owner` and as the `user-` OWNER ACL entry of objects written without authentication, as Cloud Storage records the calling user. Default `local-user@gcs-mimic.invalid` (reserved domain); empty disables it and restores `project-owners-N`. It labels the creator and never grants access. A changed value renames the creator on existing objects at the next start. Strict mode records the registered caller, and the legacy profile records none, so both reject an explicit non-empty value. |
 | Log level | `GCS_MIMIC_LOG_LEVEL`, `--log-level`, JSON `log_level` | Structured stderr minimum severity; debug/info/warn/error, warning aliases warn; validation diagnostics and stdout ready/stopped are unfiltered |
-| Memory backend | `GCS_MIMIC_BACKEND=memory`, `--backend memory`, JSON `backend` in source builds | Volatile chunks and in-memory SQLite; configurable 64 MiB body/16 MiB database-page defaults, separate from RSS. Existing disk data is untouched. See the [RAM contract](slices/memory-backend.md). |
-| Event publisher | `GCS_MIMIC_PUBSUB_EMULATOR_HOST` / `PUBSUB_EMULATOR_HOST` plus native/legacy event settings in source builds | Explicit local HTTP emulator, provisioned topics and bounded durable at-least-once outbox. Creating a notification configuration also checks that its topic exists on the emulator. Missing local endpoint fails rather than contacting Google. See the [notification contract](slices/pubsub-notification-delivery.md). |
+| Memory backend | `GCS_MIMIC_BACKEND=memory`, `--backend memory`, JSON `backend` since 0.8.0 | Volatile chunks and in-memory SQLite; configurable 64 MiB body/16 MiB database-page defaults, separate from RSS. Existing disk data is untouched. See the [RAM contract](slices/memory-backend.md). |
+| Event publisher | `GCS_MIMIC_PUBSUB_EMULATOR_HOST` / `PUBSUB_EMULATOR_HOST` plus native/legacy event settings since 0.8.0 | Explicit local HTTP emulator, provisioned topics and bounded durable at-least-once outbox. Creating a notification configuration also checks that its topic exists on the emulator. Missing local endpoint fails rather than contacting Google. See the [notification contract](slices/pubsub-notification-delivery.md). |
 
 The legacy profile never applies a default soft delete policy and rejects a
 positive `default_soft_delete_retention_seconds`; it accepts `0`.

@@ -3,7 +3,7 @@
 <!-- Exact vectors and reproducible identifiers stay on table rows. -->
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
-This source-checkout slice implements the AWS4 HMAC chunk chain explicitly
+Since 0.8.0, this slice implements the AWS4 HMAC chunk chain explicitly
 linked by Google's XML Content-Encoding contract. It extends DESIGN-039 and
 the upload/payload behavior in DESIGN-037 and EXT-XML-022. Ordinary XML object
 PUT is the implemented operation; other upload operations and provider questions

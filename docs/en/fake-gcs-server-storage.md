@@ -109,7 +109,9 @@ replaces an object that differs from its seed file in bytes or metadata,
 including API metadata edits, with a new live generation. Unlike
 fake-gcs-server, an object exactly matching what seeding would write keeps its
 generation. Objects without a seed file are retained, and removing a seed
-file deletes nothing. There is no reseed route or watcher. 0.2.1 and earlier
+file deletes nothing. Since 0.8.0 an opt-in atomic reseed runs through the
+local administration route ([contract](slices/atomic-seed-reseed.md)); there is
+no seed watcher. 0.2.1 and earlier
 imported seed files once into a fresh catalog; see the
 [0.3.0 release notes](releases/0.3.0.md).
 
@@ -142,19 +144,21 @@ Source: [global middleware and routes](https://github.com/fsouza/fake-gcs-server
 
 The agreed usability requirement is **bidirectional synchronization**: users can
 inspect and edit a configured bucket/object directory, and API changes appear
-in that same directory. Current gcs-mimic storage does not provide this.
-Seed import and a one-time migration converter do not satisfy it.
+in that same directory. gcs-mimic's `--sync-dir` provides bounded
+bidirectional synchronization; complete conflict, recovery and platform
+acceptance remains pending. See the
+[sync contract](slices/directory-synchronization.md). Seed import and a
+one-time migration converter do not satisfy it.
 The planning requirement is recorded in
 `compatibility/features.json` under `delivery_plan.migration.filesystem_sync_contract`.
 
-Keeping SQLite is compatible with this requirement. A possible design keeps
+Keeping SQLite is compatible with this requirement. The implementation keeps
 SQLite as the metadata/index catalog and treats the visible directory as a
 synchronized working tree. External changes enter the existing streaming,
 hashing, generation and publication path; committed internal blobs stay immutable.
 Updating only a SQLite size or pathname would leave inconsistent object state.
-This is a design candidate, not an implemented watcher or finalized layout.
 
-Before implementation, settle and verify:
+The sync contract settles and verifies, within its recorded scope:
 
 - API/external create, overwrite, delete and rename behavior in both directions.
 - Editor temporary files, incomplete writes and atomic replacement.
@@ -167,6 +171,7 @@ Before implementation, settle and verify:
   bucket rules and permissions.
 - Consistent restart/recovery across visible files, immutable blobs and SQLite.
 
-The conflict policy, synchronization delay and unusual-name representation remain
-open. Safe external-edit reconciliation goes beyond what the inspected
-fake-gcs-server filesystem path guarantees. No new runtime option is available yet.
+The conflict policy, synchronization delay and unusual-name representation are
+explicit in the sync contract, with its remaining boundaries. Safe external-edit
+reconciliation goes beyond what the inspected fake-gcs-server filesystem path
+guarantees.

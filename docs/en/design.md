@@ -6,7 +6,7 @@
 
 Build a resource-efficient Cloud Storage emulator for local development and CI. Ship a Rust binary and Docker image with familiar fixture loading and endpoint configuration. Expand compatibility incrementally while keeping a precise, evidence-backed progress ledger.
 
-P0 implements the bounded HTTP/1 runtime, configuration, Clock, Docker/Compose and ledger/freshness tooling. P1 adds persistent JSON bucket/object operations with checksums and atomic conditions. P2 implements explicit permissive/strict profiles, registered local principals, additive project/bucket roles, bucket IAM policies and public/signed URL helpers. Path-style and opt-in virtual-host XML GET/HEAD/PUT supports bearer and V4 RSA query authentication, bounded uploads, declared integrity checks and atomic conditions; GET/HEAD supports two response overrides. PAP preserves public bindings while suppressing their authorization, without blocking explicit signer grants. Its parent policy fixture remains LOCAL_SIMULATION. The [combined evidence](evidence/signed-urls.md) records integrated behavior, SDK adaptations and native/container journeys. JSON ACL storage, inheritance and UBLA transitions have scoped contracts; ACL permission effects remain pending. Signing formats and provider edges remain scoped separately. Provider duplicate-query, override validation, signature error and optional payload parity keep DESIGN-035/037/044 and broad XML/auth rows PARTIAL under their named gaps. The JSON resumable engine retains its [evidence and limits](evidence/resumable-upload.md). No comparative performance result is claimed. `compatibility/features.json` is authoritative. The project, CLI and repository name is **gcs-mimic**: **A lightweight Google Cloud Storage emulator in Rust.**
+P0 implements the bounded HTTP/1 runtime, configuration, Clock, Docker/Compose and ledger/freshness tooling. P1 adds persistent JSON bucket/object operations with checksums and atomic conditions. P2 implements explicit permissive/strict profiles, registered local principals, additive project/bucket roles, bucket IAM policies and public/signed URL helpers. Path-style and opt-in virtual-host XML GET/HEAD/PUT supports bearer and V4 RSA query authentication, bounded uploads, declared integrity checks and atomic conditions; GET/HEAD supports two response overrides. PAP preserves public bindings while suppressing their authorization, without blocking explicit signer grants. Its parent policy fixture remains LOCAL_SIMULATION. The [combined evidence](evidence/signed-urls.md) records integrated behavior, SDK adaptations and native/container journeys. JSON ACL storage, inheritance and UBLA transitions have scoped contracts; object READER/OWNER ACL entries grant selected-generation reads ([ACL permission effects](slices/acl-permission-effects.md)), and other ACL permission effects remain pending. Signing formats and provider edges remain scoped separately. Provider duplicate-query, override validation, signature error and optional payload parity keep DESIGN-035/037/044 and broad XML/auth rows PARTIAL under their named gaps. The JSON resumable engine retains its [evidence and limits](evidence/resumable-upload.md). No comparative performance result is claimed. `compatibility/features.json` is authoritative. The project, CLI and repository name is **gcs-mimic**: **A lightweight Google Cloud Storage emulator in Rust.**
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
@@ -28,7 +28,7 @@ unfinished-recovery limits remain explicit in the
 [filesystem investigation](fake-gcs-server-storage.md) records the original
 requirement, rather than a second implementation-status source.
 
-The unreleased migration additions use the same authorization, conditions,
+The 0.8.0 migration additions use the same authorization, conditions,
 generation allocation, bounded workers and durable publication paths. RAM uses
 connection-local SQLite and a leased chunk budget, not temporary disk storage;
 its body and database-page limits are separate from process RSS. Local Pub/Sub
@@ -36,7 +36,7 @@ uses a bounded transactional outbox and an explicit local emulator endpoint.
 The Go facade starts a Rust process; `NoListener` uses a private Unix HTTP
 socket. These boundaries and the full acceptance map are recorded in
 [migration integration](evidence/migration-integration.md). They do not establish
-full replacement or availability in the published 0.7.0 image.
+full replacement; 0.7.0 and earlier images do not include them.
 
 P0-P7 group coverage; the ordered capabilities and prerequisites in
 `delivery_plan` determine execution. Complete a bounded useful scope before
@@ -68,8 +68,9 @@ The bucket/object catalog is concrete; no generic persistence trait is frozen fo
 
 The server caps connections (default 32), headers (64 and 16 KiB), shutdown drain
 (5 seconds), async workers (2) and blocking workers (8). Connection admission stops
-when full; the requested kernel backlog is 128. Every response closes its connection.
-Bucket insert and IAM PUT JSON are capped at 64 KiB; probe and other bucket methods reject bodies.
+when full; the requested kernel backlog is 128. Connections stay open between requests
+for `keep_alive_timeout_ms` (see below). Bucket insert, PATCH, PUT and IAM PUT JSON bodies
+are capped at 64 KiB (`BUCKET_BODY_LIMIT`); probes and bodiless bucket methods reject bodies.
 Object media has a configurable `max_object_bytes` cap: 1 GiB by default, validated
 from 1 byte through 5 TiB via CLI/environment/JSON configuration. Known Content-Length
 overflow is rejected before reading; producer and storage also bound unknown-length streams.
@@ -176,8 +177,9 @@ so committed frames remain visible. Immutable preflight does not consider a hot 
 `-journal`: gcs-mimic never creates one in WAL mode, but a foreign DELETE-mode catalog could.
 The preflight closes before a single operational
 connection owns `catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
-file-backed temporary storage and a 256-page auto-checkpoint. Schema version 7
-stores buckets, live objects, unique opaque blob references, pending blob deletions,
+file-backed temporary storage and a 256-page auto-checkpoint. The current catalog
+schema is version 48; later migrations are described in their slice contracts.
+Schema version 7 stored buckets, live objects, unique opaque blob references, pending blob deletions,
 seed initialization, bucket IAM policies and persistent object/policy revision
 high-water marks. It retains the bucket `(project, name)`
 index; object keys use `(bucket, name)` with indexed blob lookup. Valid v1 catalogs
@@ -282,7 +284,7 @@ defines fields, errors, limits, acceptance functions and verification.
 | Blob store | Streaming temporary and immutable blob files with bounded buffers |
 | Optional adapters | Local Pub/Sub, inventory exports, caches, analytics/ML fixtures and MCP |
 
-Start with one application crate and clear modules. Split crates only where actual boundaries make it useful. Proposed libraries are Tokio, Axum/Hyper, Serde, Rustls and SQLite; add tonic/prost for gRPC. Verify and adopt the latest stable Rust and latest non-yanked stable releases of chosen dependencies at bootstrap. Track updates daily, including intentional major-version migrations, and record exact toolchain/lockfile/image inputs for reproducibility. Follow the [dependency policy](dependency-policy.md). These library choices are design proposals, not benchmark conclusions.
+Start with one application crate and clear modules. Split crates only where actual boundaries make it useful. The implementation uses Tokio, Hyper, Serde, Rustls (tokio-rustls), SQLite (rusqlite) and tonic/prost for gRPC. Verify and adopt the latest stable Rust and latest non-yanked stable releases of chosen dependencies at bootstrap. Track updates daily, including intentional major-version migrations, and record exact toolchain/lockfile/image inputs for reproducibility. Follow the [dependency policy](dependency-policy.md). These library choices are not benchmark conclusions.
 
 Store object data on disk by default. Keep a bounded in-memory backend only for small tests, with an explicit byte limit. Catalog entries should be indexed by bucket/name/generation, with keyset pagination instead of loading and sorting every object. Use bounded caches and queues so catalog growth does not imply unbounded resident memory.
 
@@ -502,9 +504,10 @@ transfers and publication, while preserving stored policy bindings/etag and
 explicit bearer/signer grants. Disabling effective enforcement reactivates those
 bindings. Parent policy is LOCAL_SIMULATION. The [ACL contract](slices/json-acl.md)
 separately covers stored entries, default inheritance, UBLA hiding/restoration
-and PAP rejection of public entries. Those entries grant no access; ACL grant
-effects, organization APIs and propagation/cache effects remain outside this
-scope (SPEC-PAP-EDGES).
+and PAP rejection of public entries. Object READER/OWNER entries grant
+selected-generation reads ([ACL permission effects](slices/acl-permission-effects.md));
+other ACL grant effects, organization APIs and propagation/cache effects remain
+outside this scope (SPEC-PAP-EDGES).
 
 The [virtual-host contract](slices/xml-virtual-host.md) defaults off and requires
 configured DNS suffixes, client DNS and a supplied matching SAN certificate for
@@ -526,7 +529,7 @@ remain pending; they are not completed by these integrations.
 | Fine-grained ACLs | Evaluate bucket/object/default ACL behavior and predefined ACL options |
 | Uniform bucket-level access | Disable ACL paths and enforce transition/locking rules |
 | Public access prevention | Override public grants while preserving otherwise valid signed access |
-| Signed URLs | Validate V4 RSA/HMAC, expiration, method, raw canonical resource, query and signed headers; add legacy V2 later |
+| Signed URLs | Validate V4 RSA/HMAC, expiration, method, raw canonical resource, query and signed headers; legacy V2 RSA/HMAC supports a scoped subset (DESIGN-040) |
 | POST policies | Validate policy conditions, length range, form fields and signature separately from signed URLs |
 | Resumable session URI | Treat as a bearer capability with its own state and expiry; do not log it in full |
 
@@ -566,7 +569,7 @@ clear error messages.
 Provide migration examples for fake-gcs-server's data-directory and endpoint
 patterns, using native options where their role matches. Identical option names
 and suffixes are not required. Keep server-wide options separate from per-bucket
-API settings. The planned bucket initialization file creates missing buckets
+API settings. The bucket initialization file creates missing buckets
 only; restart preserves existing settings and later API changes. See the
 [option mapping and configuration contract](fake-gcs-server-migration.md#startup-options-and-current-equivalents).
 Seed input, durable storage and Compose host-port publication remain distinct.
@@ -581,7 +584,7 @@ The implementation prompts and conversation with the project owner are Japanese.
 
 Build a contract corpus at the wire level, not only unit tests of the internal service. Test correct operations and errors, omitted vs null vs empty fields, string-encoded 64-bit JSON values, path encoding, checksums, partial responses, cross-feature restrictions and retry behavior. Keep tests aligned with referenced contracts rather than with whatever the implementation currently does.
 
-Prioritize Go and Ruby/Rails Active Storage. Verify Ruby SDK usage and browser direct uploads, public and private delivery, signed upload/download, and object deletion; include Node.js, Python and official Rust next. Add Java, C++, .NET, PHP, gcloud and FUSE according to the scope and transport. Record exact versions and endpoint settings. Do not assume one `STORAGE_EMULATOR_HOST` value configures all SDKs or their URL signers.
+Prioritize Go and Ruby/Rails Active Storage. Verify Ruby SDK usage and browser direct uploads, public and private delivery, signed upload/download, and object deletion; include Node.js, Python and official Rust next. Java, .NET and PHP suites also run; add C++, gcloud and FUSE according to the scope and transport. Record exact versions and endpoint settings. Do not assume one `STORAGE_EMULATOR_HOST` value configures all SDKs or their URL signers.
 
 Use differential tests against an explicitly authorized disposable GCS environment for unresolved behavior. Offline CI remains the default and blocks unintended outbound network access. fake-gcs-server and storage-testbench help find differences, but neither replaces Google documentation or real-service evidence, especially for IAM/ACLs.
 

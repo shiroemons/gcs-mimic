@@ -1016,7 +1016,7 @@
       },
       "filesystem_sync_contract": {
         "requirement": "Provide a configured, inspectable bucket/object directory with bidirectional synchronization: external additions, edits and deletions reach the API, and API mutations appear in the same directory. A one-time seed import or migration converter does not satisfy this requirement.",
-        "current_boundary": "The current implementation has one-time read-only seeding and opaque immutable internal blobs, without directory watching or write-back. docs/en/slices/directory-synchronization.md freezes the local contract and settings; every new runtime case remains PENDING and DESIGN-062, DESIGN-072 and DESIGN-074 remain PARTIAL. DESIGN-076 is unchanged.",
+        "current_boundary": "--sync-dir exports API changes to an inspectable directory, observes it with bounded scans, ingests external creates and edits, and applies external deletions only after a fixed-revision approval; the gcs-mimic sync CLI drives the live controls. docs/en/slices/directory-synchronization.md owns the contract; complete conflict, recovery and platform acceptance remains open, so DESIGN-062, DESIGN-072 and DESIGN-074 remain PARTIAL. DESIGN-076 is unchanged.",
         "catalog_boundary": "SQLite may remain the metadata/index catalog. External changes must use shared bounded ingestion, checksum, generation and atomic-publication logic; do not mutate committed internal blobs in place or update only catalog size/path fields.",
         "acceptance_targets": [
           "Verify API/external create, overwrite, delete and rename in both directions, including multiple buckets and persistence of independent bucket settings.",

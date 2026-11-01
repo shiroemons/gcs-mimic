@@ -2,9 +2,9 @@
 
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
-Publication infrastructure is configured for
-`ghcr.io/shiroemons/gcs-mimic` on Linux amd64 and arm64. Public image publication
-is pending. The [Docker usage guide](container-usage.md) supplies the consumer
+Tagged releases publish `ghcr.io/shiroemons/gcs-mimic` for Linux amd64 and
+arm64 and mirror it to Docker Hub. The [Docker usage guide](container-usage.md)
+supplies the consumer
 workflow; [local preparation evidence](evidence/container-onboarding.md) records
 both image builds, container smoke checks and the README walkthrough.
 The first release retains the [roadmap requirements](roadmap.md#first-useful-release).
@@ -36,7 +36,7 @@ write access and never change an already published exact version manually.
    [native release procedure](binary-distribution.md#verification-and-release-flow).
 2. Manual **Release binaries** execution verifies the existing Foundation checks
    and eight native binary targets without writing to GHCR. The GHCR publication
-   workflow runs only for the future `vX.Y.Z` tag path.
+   workflow runs only for a `vX.Y.Z` tag push.
 3. A matching version tag repeats those gates and creates the binary GitHub
    Release. That successful job directly calls the reusable GHCR workflow. It
    does not rely on a `release: published` event: a Release created with
@@ -81,8 +81,8 @@ first publication. The first authorized run can upload its untagged platform
 indexes and then stop before assigning stable tags. The owner must open the
 package's **Package settings**, change visibility to **Public**, confirm the
 repository association and Actions access, then rerun the failed manifest job.
-This is a one-time registry setup step, not a step performed by the current slice.
-Do not publish a premature release just to initialize the package.
+This is a one-time registry setup step for a new package name. Do not publish a
+premature release just to initialize a package.
 
 The workflow uses its short-lived `GITHUB_TOKEN`, with `packages: write` confined
 to publication jobs; it does not require a personal access token. The manifest

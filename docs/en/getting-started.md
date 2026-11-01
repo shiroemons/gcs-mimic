@@ -31,8 +31,9 @@ bucket `allUsers` / `allAuthenticatedUsers` grants support public and private re
 V4 RSA query signatures, bounded XML PUT, opt-in virtual hosts, response overrides
 and public access prevention are implemented in the
 [signed private transfer journey](signed-urls.md).
-If-Range, transcoding outside JSON media GET and XML GET/HEAD, object IAM, testIamPermissions,
-conditional policies, ACL enforcement, XML listing and UBLA transitions remain unavailable.
+Transcoding outside JSON media GET and XML GET/HEAD, object IAM, `objects.testIamPermissions`
+and conditional policies remain unavailable; bucket `testIamPermissions`, ACLs, XML listing
+and uniform bucket-level access are partial (see the [feature matrix](feature-matrix.md)).
 JSON defaults and bucket-configured XML-read
 CORS are available; see the browser journey below. HTTPS is the default listener mode;
 HTTP examples explicitly select HTTP. TLS 1.2/1.3 uses built-in or supplied PEM files and
@@ -48,9 +49,8 @@ The [bucket contract](slices/json-bucket-crud.md) and
 [bucket IAM](slices/bucket-iam.md), [bucket PATCH](slices/bucket-metadata-patch.md),
 [bucket PUT](slices/bucket-metadata-put.md) and
 [public object reads](slices/public-object-reads.md) contracts list supported fields and deviations.
-The resumable journeys below specify the [frozen upload contract](slices/resumable-upload.md)
-and its expected outputs; they await final-source execution and are not verification
-evidence or a released-image claim. Implementation status remains in the
+The resumable journeys below follow the [upload contract](slices/resumable-upload.md)
+and its expected outputs. Implementation status remains in the
 [feature ledger](../../compatibility/features.json).
 
 ## Build and start with Compose
@@ -119,9 +119,11 @@ curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b?project=local-projec
 Create/get/list return 200 with JSON. Duplicate names return 409 across all local
 projects. `metageneration` is the string `"1"`; timestamps and labels survive restart.
 List is sorted and project/prefix scoped, with opaque continuation tokens. Limits
-are 1000 for `noAcl` and 200 for `full`; `full` currently omits ACL/owner fields.
-Only US/EU/ASIA locations and the documented storage classes are accepted.
-Recognized unsupported settings return 501; invalid names/queries return 400.
+are 1000 for `noAcl` and 200 for `full`; `full` adds `acl`, `defaultObjectAcl` and
+`owner` unless uniform bucket-level access is enabled. Locations from the pinned
+official region, dual-region and multi-region list and the documented storage
+classes are accepted. Recognized unsupported settings, such as `billing`, and invalid
+names/queries return 400.
 Insert bodies are capped at 64 KiB; get/list/delete require no body.
 
 Peer-container curl uses a digest-pinned, test-only official curl image:
@@ -166,22 +168,24 @@ patch_status=$(curl --disable --noproxy '*' --silent --show-error -o "$patch_dir
   "$endpoint/storage/v1/b/demo-bucket?ifMetagenerationMatch=$patch_revision")
 test "$patch_status" = 412
 jq -e '.error.errors[0].reason == "conditionNotMet"' "$patch_dir/stale.json"
-curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket" > "$patch_dir/after.json"
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket?projection=full" > "$patch_dir/after.json"
 cmp "$patch_dir/removed.json" "$patch_dir/after.json"
 rm -r "$patch_dir"
 ```
 
-Each successful PATCH increments metageneration once and changes its ETag.
-`updated` uses millisecond clock precision and can equal the preceding value.
+Each successful PATCH that carries a writable setting increments metageneration once
+and changes its ETag; an empty PATCH such as `{}` changes nothing. `updated` uses millisecond clock precision and can equal the preceding value.
 `ifMetagenerationMatch` and `ifMetagenerationNotMatch` are checked atomically;
 failed conditions leave state unchanged. Strict mode requires
 `storage.buckets.update`. PATCH also accepts boolean `versioning.enabled` and
 `defaultEventBasedHold`; changes affect future uploads while prior holds and
 retained versions survive. Native null settings are rejected; legacy null
 settings reset to false. See the [contract](slices/bucket-metadata-patch.md)
-for profile, input and provider-parity limits. ACLs, nonempty lifecycle rules,
-CORS, retention, predefined ACL queries and `userProject` return 501;
-`projection=full` and `noAcl` return the same modeled subset without ACL/owner.
+for profile, input and provider-parity limits. CORS, lifecycle rules, retention,
+`acl` and `predefinedAcl` are applied; `billing`, `userProject` and other
+unsupported settings return 400. PATCH answers with `projection=full` by default,
+including `acl`, `defaultObjectAcl` and `owner` unless uniform bucket-level access
+is enabled, so the block compares it with a `projection=full` GET.
 
 ## Replace bucket labels and default storage class
 
@@ -228,8 +232,10 @@ conditions leave the resource unchanged. Strict mode requires
 `storage.buckets.update`. A supplied labels map replaces all keys, and per-key
 null is invalid. Null/empty class is invalid in both profiles; native null
 boolean settings are invalid, while legacy null settings become false.
-Unsupported settings and ACL/billing queries return 400 badRequest; projections expose
-the modeled subset without ACL/owner. See the [contract](slices/bucket-metadata-put.md)
+Unsupported settings such as `billing` and the `userProject` query return 400
+badRequest; `predefinedAcl` applies. PUT answers with `noAcl` unless it carries a
+predefined ACL or `projection=full`. A body `name` that differs from the path
+returns 400. See the [contract](slices/bucket-metadata-put.md)
 for accepted full-resource round trips and remaining provider questions.
 
 The [final PUT verification](evidence/bucket-metadata-put.md) records execution
@@ -262,7 +268,7 @@ code=$(curl --disable --noproxy '*' --silent --show-error -X DELETE \
   -o "$history_dir/held-error.json" -w '%{http_code}' \
   "$endpoint/storage/v1/b/history-bucket/o/example")
 test "$code" = 403
-jq -e '.error.errors[0].reason == "objectUnderActiveHold"' "$history_dir/held-error.json"
+jq -e '.error.errors[0].reason == "forbidden"' "$history_dir/held-error.json"
 curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
   --data '{"eventBasedHold":false}' "$endpoint/storage/v1/b/history-bucket/o/example"
 curl --disable --noproxy '*' --fail --data-binary 'second version' \
@@ -291,15 +297,16 @@ that bucket. Generation-specific precondition wire parity remains an open
 
 ## Upload, inspect, download and conditionally create an object
 
-This exact payload includes its final newline; the supplied base64 MD5 covers all 22 bytes.
-The server also calculates CRC32C. An incorrect declared checksum returns 400 and publishes
-no replacement. Encode a slash in the object path as `%2F`; `%252F` denotes a literal `%2F`.
+This exact payload includes its final newline, 22 bytes in all. The server calculates
+MD5 and CRC32C. A JSON media upload does not verify `X-Goog-Hash` or `Content-MD5`, as
+recorded from Cloud Storage; declare checksums with a multipart, resumable or XML upload,
+where an incorrect one returns 400 and publishes no replacement. Encode a slash in the
+object path as `%2F`; `%252F` denotes a literal `%2F`.
 
 ```sh
 work_dir=$(mktemp -d)
 printf 'Hello from gcs-mimic.\n' > "$work_dir/upload.txt"
 curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' \
-  -H 'x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA==' \
   --data-binary @"$work_dir/upload.txt" \
   "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0" \
   > "$work_dir/object.json"
@@ -464,14 +471,16 @@ local 410. Changed unqualified sources fail 412; explicitly selected retained
 generations can continue. The [contract](slices/object-rewrite.md) records these
 local choices and provider questions. Strict calls require source read,
 destination create and delete for overwrite; each call rechecks grants.
-KMS/CSEK, ACL/owner, requester billing and context/retention remain unsupported.
+KMS/CSEK, requester billing and context/retention remain unsupported. The response
+names the destination's creator as `owner`, as Cloud Storage does.
 
 ## Select response fields and validate cached reads
 
 Select from supported JSON response fields with comma lists, slash paths or
 parentheses. Selection changes the response, preserving the complete stored
-resource and its HTTP validator. Empty/whitespace selectors, wildcard children
-and `fields` with `alt=media` return 501; unknown fields return 400. The
+resource and its HTTP validator. Object selectors accept an empty value, empty
+segments and a trailing comma; selectors containing whitespace, unknown fields and
+`fields` with `alt=media` return 400. The
 [fields contract](slices/json-response-fields.md) records the local limits.
 
 ```sh
@@ -520,8 +529,9 @@ See the [read validator contract](slices/json-read-etag-validators.md).
 ## Upload metadata and media in one multipart request
 
 Write a `multipart/related` body with CRLF delimiters, JSON metadata first and media
-second. Metadata contentType takes precedence over the media part header locally;
-null or empty contentType falls back to that header, then `application/octet-stream`.
+second. A metadata contentType must match the media part's Content-Type, ignoring
+parameters such as `charset`; a mismatch returns 400 and publishes nothing, as Cloud
+Storage does. An omitted, null or empty contentType uses the media part's type.
 Custom metadata is limited to 8192 UTF-8 key/value bytes. The media cap excludes
 framing, and each JSON part is limited to 65536 bytes.
 
@@ -531,7 +541,7 @@ printf '%s\r\n' \
   '--guide-boundary' \
   'Content-Type: application/json; charset=UTF-8' '' \
   '{"name":"multipart/hello.txt","contentType":"text/plain; charset=utf-8","metadata":{"team":"local","source":"multipart"}}' \
-  '--guide-boundary' 'Content-Type: application/octet-stream' '' \
+  '--guide-boundary' 'Content-Type: text/plain; charset=utf-8' '' \
   > "$work_dir/upload.multipart"
 tee -a "$work_dir/upload.multipart" < "$work_dir/multipart-media.txt" > /dev/null
 printf '\r\n--guide-boundary--\r\n' >> "$work_dir/upload.multipart"
@@ -562,8 +572,7 @@ session protocol as described next.
 
 ## Resume and finalize an upload from the host
 
-These are acceptance commands for the frozen contract, pending execution against
-the final implementation. Continue in the same Bash session with `demo-bucket`,
+Continue in the same Bash session with `demo-bucket`,
 `$work_dir` and the host-advertised `$endpoint` from above. Nonfinal chunks must
 be multiples of 256 KiB; the last chunk may be smaller. This example sends
 262144 zero bytes and a five-byte `done` line, for a total of 262149 bytes.
@@ -592,7 +601,7 @@ status=$(curl --disable --noproxy '*' --silent --show-error \
   "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fhello.bin&ifGenerationMatch=0")
 test "$status" = 200
 test ! -s "$work_dir/resumable-init.body"
-tr -d '\r' < "$work_dir/resumable-init.headers" | grep -qi '^cache-control: no-store$'
+tr -d '\r' < "$work_dir/resumable-init.headers" | grep -qi '^cache-control: .*no-store'
 session_uri=$(awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }' \
   "$work_dir/resumable-init.headers")
 [[ "$session_uri" == "$endpoint/"* ]]
@@ -860,7 +869,7 @@ jq . "$work_dir/stale.json"
 metageneration=$(jq -r .metageneration "$work_dir/patched.json")
 curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' \
   --data '{"contentType":"text/plain","metadata":{"only":"replacement"}}' \
-  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=$metageneration" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=$metageneration&projection=noAcl" \
   > "$work_dir/object.json"
 jq . "$work_dir/object.json"
 curl --disable --noproxy '*' --fail \
@@ -876,7 +885,8 @@ PATCH preserves omitted fields and merges custom keys; null removes a key or fie
 PUT replaces the supported writable fields, clearing omitted cache/language/encoding/
 disposition values and custom keys. Both increment metageneration while preserving
 generation, checksums and bytes; a stale precondition returns 412 without mutation.
-Custom metadata is bounded to 8 KiB. Supplied `acl` arrays replace the stored ACL as
+An object PUT answers with the full projection (`acl` and `owner`) by default; the
+example asks for `noAcl` so its response matches the list and GET. Custom metadata is bounded to 8 KiB. Supplied `acl` arrays replace the stored ACL as
 described in the [ACL contract](slices/json-acl.md); IAM, advanced fields and partial
 response masks remain unsupported. JSON media and XML downloads expand gzip-encoded objects for
 clients that do not accept gzip, and upload tokens replay as described in the [SDK integration](slices/sdk-scorecard-integration.md)
@@ -1009,7 +1019,12 @@ test "$status" = 404
 
 Stop/start and ordinary down/up preserve the named volume, exact object bytes and metadata.
 Object and empty-bucket delete return 204 with
-an empty body; the subsequent get returns 404. No reset/admin route exists.
+an empty body; the subsequent get returns 404. New native buckets keep deleted and
+replaced objects soft-deleted for seven days; set
+`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0` to delete permanently. Soft-deleted
+objects do not keep a bucket from being deleted. Local administration routes such as
+`/_internal/reset` are disabled unless `GCS_MIMIC_ADMIN_ENABLED=true`; this journey
+resets by removing the volume instead.
 To demonstrate a deliberate reset, first create a disposable bucket:
 
 ```sh
@@ -1046,7 +1061,7 @@ endpoint from the repository root:
 ```
 
 The harness pins `cloud.google.com/go/storage` v1.70.0 and `google.golang.org/api`
-v0.308.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
+v0.310.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
 and redirects, and confines requests to the explicit emulator. It exercises
 bucket CRUD/paging and BucketHandle.Update with SetLabel/DeleteLabel, default
 class/settings, metageneration conditions and strict update denial, plus object
@@ -1167,7 +1182,9 @@ test "$status" = 404
 
 The object creator can create new objects but cannot overwrite a live object,
 because an overwrite also needs `storage.objects.delete`. A failing precondition
-is evaluated first and returns 412. The original object stays unchanged:
+is evaluated first and returns 412. The creator is recorded as the new object's
+`owner` with an OWNER ACL entry, so it can read that object but not the admin's
+object. The original object stays unchanged:
 
 ```sh
 curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-creator-token' \
@@ -1188,6 +1205,10 @@ test "$status" = 412
 status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
   -H 'Authorization: Bearer local-creator-token' \
   "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fcreated.txt")
+test "$status" = 200
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-creator-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt")
 test "$status" = 403
 curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
   "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
@@ -1476,8 +1497,8 @@ cached, and an already-open read may finish. XML GET supports one stored-byte
 range (206/416); HEAD answers the same 206/416 with Content-Range and no body.
 Unsupported XML inputs/operations return 501. V4 RSA query signatures support
 private GET/HEAD and bounded PUT in the standalone [signed-URL journey](signed-urls.md),
-which also covers opt-in virtual hosts and PAP. ACLs and UBLA transitions remain
-outside the supported scope.
+which also covers opt-in virtual hosts and PAP. ACLs and uniform bucket-level access
+are partial; see the [ACL contract](slices/json-acl.md).
 
 ### Strict SDK tests and cleanup
 
@@ -1524,8 +1545,10 @@ Strict mode combines project grants with unconditional bucket IAM bindings from
 the pinned predefined `roles/storage.*` snapshot on JSON bucket/object and XML read routes.
 User and service-account members match registry IDs exactly. Conditions,
 custom/basic roles and group/domain/federated/deleted principals are
-unsupported (501); malformed members or unknown roles return 400. Object IAM,
-`testIamPermissions`, ACLs, HMAC signatures, XML listing and UBLA transitions are unavailable.
+unsupported (501); malformed members or unknown roles return 400. Object IAM and
+`objects.testIamPermissions` are unavailable; bucket `testIamPermissions`, ACLs, HMAC
+signatures, XML listing and uniform bucket-level access are partial (see
+[signed URLs](signed-urls.md#legacy-v2-hmac-and-header-signatures)).
 JSON HMAC key management checks `storage.hmacKeys.*` in the path project
 (`roles/storage.hmacKeyAdmin`; `roles/storage.admin` does not include it); see the
 [HMAC key contract](slices/project-hmac-keys.md).
@@ -1553,6 +1576,7 @@ unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
 cargo +1.99.1 test --workspace --locked
 cargo +1.99.1 fmt --all --check
 cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings
+cargo +1.99.1 xtask lint
 cargo +1.99.1 xtask compatibility check
 bash scripts/smoke-containers.sh
 ```
@@ -1560,13 +1584,15 @@ bash scripts/smoke-containers.sh
 The smoke script builds arm64/amd64 images, checks isolated probes, host and peer
 curl CRUD, stop/start and down/up persistence, deliberate reset, resource settings
 and both shutdown signals. It removes only its own test volumes and containers.
-On Apple Silicon, arm64 is native and amd64 uses emulation. Native amd64, remote
-CI, real-cloud conformance and performance measurements remain unverified.
+On Apple Silicon, arm64 is native and amd64 uses emulation. The image release
+workflow runs it on native amd64 and arm64 runners; real-cloud conformance and
+performance measurements remain unverified.
 
 For connection errors, inspect `docker compose ps`, `docker compose logs gcs`,
 port mapping and the caller's network. For startup errors, check catalog path
 ownership, disk space, another owner process and config overrides. Unknown routes return
-404; recognized unsupported object/bucket semantics return 501 rather than false success.
+404; recognized unsupported object/bucket semantics return an explicit 400 or 501
+error rather than false success.
 If initiation succeeds but the returned Location is unreachable, check
 `GCS_MIMIC_API_BASE_URL` / `--api-base-url` / JSON `api_base_url` and recreate the
 service with an origin reachable by the client following that URI. Host clients

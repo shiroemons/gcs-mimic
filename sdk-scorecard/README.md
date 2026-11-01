@@ -90,8 +90,8 @@ differing shared case IDs across SDKs. The SDKs with unsupported cases are
 | --- | --- |
 | Go SDK | `cloud.google.com/go/storage` v1.70.0 (`go/go.mod`, same graph as `sdk-tests/go`) |
 | Ruby SDK | `google-cloud-storage` 1.62.1 (`ruby/Gemfile.lock`, same graph as `sdk-tests/ruby`) |
-| Node.js SDK | `@google-cloud/storage` 8.4.0 (`node/package-lock.json`); measured on Node.js 26.13.0, requires Node.js 24+ |
-| PHP SDK | `google/cloud-storage` 2.6.1 (`php/composer.lock`); official Composer 2.11.0 / PHP 8.5.12 image, digest pinned in `run.sh` |
+| Node.js SDK | `@google-cloud/storage` 8.4.0 (`node/package-lock.json`); measured on Node.js 24.22.1, requires Node.js 24+ |
+| PHP SDK | `google/cloud-storage` 2.6.1 (`php/composer.lock`); official Composer 2.11.1 / PHP 8.5.12 image, digest pinned in `run.sh` |
 | Python SDK | `google-cloud-storage` 3.17.1, `cryptography` 50.0.2 for offline RSA signing (`python/uv.lock`); Python 3.15.2 |
 | Java SDK | `com.google.cloud:google-cloud-storage` 2.76.0 and `google-auth-library-oauth2-http` 1.55.0 for offline signing (`java/pom.xml`, graph in `java/dependencies.lock`); JDK and Maven pinned in `java/.java-version` and `java/.maven-version` |
 | .NET SDK | `Google.Cloud.Storage.V1` 5.0.0 (`dotnet/Probe.csproj`, hashes in `dotnet/packages.lock.json`); exact .NET SDK in `dotnet/global.json` |
@@ -286,11 +286,11 @@ ordinary compatibility failures remain recorded `pass: false` cases.
 
 - Shared case IDs currently cover different checks in some SDKs. Go's
   `object.update_metadata` verifies merging and clearing the whole map;
-  Ruby and the three added SDKs verify individual-key deletion. Go's resumable
+  the other seven SDKs verify individual-key deletion. Go's resumable
   case explicitly compares returned CRC32C as well as size and bytes; the other
   probes do not make that same explicit assertion.
 - Historical Go/Ruby checksum probes accepted any upload error followed by an
-  absent object. Current probes in all five SDKs require a checksum-specific 400
+  absent object. Current probes in all eight SDKs require a checksum-specific 400
   and no object. Python still uses a larger resumable input for its public
   supplied-checksum API; byte-for-byte cross-SDK equivalence is unverified.
 - In the historical HTTP run, Go changed HTTPS to HTTP after V2 signing while

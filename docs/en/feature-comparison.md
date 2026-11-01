@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Comparison baseline: **2026-10-23** (filesystem follow-up: **2026-10-24**; sync directory follow-up: **2026-10-28**): gcs-mimic, with its column updated for `0.5.0`,
+Comparison baseline: **2026-10-23** (filesystem follow-up: **2026-10-24**; sync directory follow-up: **2026-10-28**): gcs-mimic, with its column updated for `0.8.0` (**2026-11-01**),
 compared with fake-gcs-server `v1.56.1` and gcp-storage-emulator `v2026.07.19`.
 Planned features are not counted.
 
@@ -51,7 +51,7 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | List live buckets with prefix and pagination (`buckets.list`) | ✅ Project/prefix filters and keyset paging | ✅ Prefix and paging | 🚧 All buckets; no prefix/paging |
 | Bucket delete (`buckets.delete`) | ✅ Empty-bucket deletion; source response via compatibility profile | ✅ Empty-bucket deletion | ✅ Empty-bucket deletion |
 | Bucket labels/default `storageClass` PATCH (merge/remove; `buckets.patch`) | ✅ Merge/key-null removal, whole-map null clearing (local interpretation), empty-map preservation and supported default class | ❌ Executed: labels/class ignored; other PATCH settings exist | 🚧 Source review: assigns fields; no label-key merge/null removal |
-| Bucket labels/default `storageClass` PUT (`buckets.update`) | ✅ HTTP/Go/Ruby preserve omitted settings; supplied labels replace the map, null clears (local SDK choice; SPEC-BUCKET-PUT). Historical native/Docker runs used omission resets | ❌ Executed: all 32 PUT cases return JSON 404 on each pinned backend; metadata/bytes preserved | ❌ No bucket PUT route in pinned `server.py`; source review only |
+| Bucket labels/default `storageClass` PUT (`buckets.update`) | ✅ Native PUT replaces the resource (clears omitted labels/versioning/CORS/lifecycle/retention/default hold; keeps class, soft delete and access settings); legacy-emulator preserves omitted settings (SPEC-BUCKET-PUT) | ❌ Executed: all 32 PUT cases return JSON 404 on each pinned backend; metadata/bytes preserved | ❌ No bucket PUT route in pinned `server.py`; source review only |
 | Single-request raw media upload | ✅ Bounded streamed bytes | ✅ | ✅ |
 | Single-request JSON multipart metadata + media upload | ✅ Bounded metadata/media; optional checksum part also supported | ✅ | ✅ |
 | JSON resumable initiation, chunks, status and finalization | ✅ Also scoped cancellation, seven-day expiry and restart recovery | ✅ Sessions and chunk uploads | ✅ Initiation, chunks, status and finalization |
@@ -68,10 +68,10 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | Multi-call rewrite with continuation tokens | ✅ | ❌ Immediate completion only | ❌ Immediate completion only |
 | Object compose (`objects.compose`) | ✅ Scoped ordered 1..32 pinned sources, nested component/CRC32C metadata without MD5, atomic conditions and source hard deletion | ✅ | ✅ |
 | Retained object version history | ✅ Persistent generations, selected reads/deletes and version paging | 🚧 Memory backend only | ❌ Versioning metadata is not history |
-| Object soft delete / restore (excludes bucket and bulk restore) | ✅ Policy retention, immutable `hardDeleteTime` and persistent generations; [scope](slices/sdk-soft-delete-restore.md); [SDK scorecard](../../sdk-scorecard/results/2026-10-29-5/summary.md) passes in all five SDKs | ❌ [SDK scorecard](../../sdk-scorecard/results/2026-10-29-5/summary.md) fails in all five SDKs | ✅ [SDK scorecard](../../sdk-scorecard/results/2026-10-29-5/summary.md) passes in all five SDKs; policy retention and `hardDeleteTime` in [storage](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/storage.py), source review |
+| Object soft delete / restore (excludes bucket and bulk restore) | ✅ Policy retention, immutable `hardDeleteTime` and persistent generations; [scope](slices/sdk-soft-delete-restore.md); [SDK scorecard](../../sdk-scorecard/results/2026-10-31-2/summary.md) passes in all eight SDKs | ❌ [SDK scorecard](../../sdk-scorecard/results/2026-10-31-2/summary.md) fails in all eight SDKs | ✅ [SDK scorecard](../../sdk-scorecard/results/2026-10-31-2/summary.md) passes in seven of eight SDKs (Rust fails: its bucket setup needs gRPC); policy retention and `hardDeleteTime` in [storage](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/storage.py), source review |
 | Single generation/metageneration mutation Match conditions, including failed-resource preservation | ✅ Object media/multipart/PATCH/PUT/delete and bucket PATCH/PUT/delete; zero create-if-absent and live-object rejection | 🚧 Upload generation conditions only; [upload](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go), [object](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/object.go) and [bucket](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/bucket.go), source review only | ❌ Conditions unused in [object](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py) and [bucket](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/buckets.py) handlers, source review only |
 | MD5/CRC32C calculation (media/multipart; resumable CRC32C and single-data-request MD5) | ✅ Exact full-byte resource encodings in the declared subset | Source review only: MD5/CRC32C calculation in [upload handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go); exact scoped behavior not executed | Source review only: MD5/CRC32C calculation in [object handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py); exact scoped behavior not executed |
-| Supplied MD5/CRC32C rejection with failed-overwrite preservation in documented JSON containers | ✅ Media X-Goog-Hash, multipart metadata/final CRC32C, resumable CRC32C and single-data-request MD5; no Content-MD5 claim | 🚧 Metadata checks before publication; media/final X-Goog-Hash absent in [upload handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go), source review only | 🚧 Metadata checks precede create but mismatch raises 409 Conflict; media/final X-Goog-Hash absent in [object handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py), source review only |
+| Supplied MD5/CRC32C rejection with failed-overwrite preservation in documented JSON containers | ✅ Multipart metadata/final CRC32C, resumable CRC32C and single-data-request MD5; JSON media uploads ignore X-Goog-Hash/Content-MD5 as recorded from Cloud Storage | 🚧 Metadata checks before publication; media/final X-Goog-Hash absent in [upload handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go), source review only | 🚧 Metadata checks precede create but mismatch raises 409 Conflict; media/final X-Goog-Hash absent in [object handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py), source review only |
 | JSON error envelopes, isolated 404/412/416 reasons and empty DELETE/304 bodies | ✅ Numeric code, message and errors entries; fields preserves errors; exact text/headers and local DELETE status excluded | 🚧 Envelope exists, but the [shared reason mapper](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/json_response.go) has no requestedRangeNotSatisfiable case, source review only | 🚧 Some full error objects; other [object failures](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py) return only error.message, source review only |
 
 The [basic JSON evidence](evidence/basic-json-contract.md) records the
@@ -113,10 +113,12 @@ consistency. Bucket PATCH uses the [frozen contract](slices/bucket-metadata-patc
 [integration evidence](evidence/bucket-metadata-patch.md). Whole-map null
 clearing interprets the general PATCH deletion rule; scalar null/default,
 unknown/output-only input and no-effect revision behavior remain unverified
-against Google. The broader method rows remain `PARTIAL`. Bucket PUT uses its independently
-[omission-preserving local contract](slices/bucket-metadata-put.md) and
-[historical integration evidence](evidence/bucket-metadata-put.md).
-Omitted-field preservation, null settings and
+against Google. The broader method rows remain `PARTIAL`. Bucket PUT follows the
+recorded Cloud Storage replacement in the native profile and the
+omission-preserving local contract in the legacy-emulator profile
+([contract](slices/bucket-metadata-put.md),
+[historical integration evidence](evidence/bucket-metadata-put.md)).
+Legacy omission preservation, null settings and
 revision/error choices remain explicit local policy under SPEC-BUCKET-PUT.
 
 The scoped checkmarks above use recorded execution evidence:
@@ -164,9 +166,9 @@ Their implementations were inspected; full upstream test suites were not execute
 | Default CORS for JSON API requests | ✅ | ✅ Global middleware | ❌ |
 | Enforce bucket-configured XML GET/HEAD/PUT CORS | ✅ | ❌ | ❌ |
 | ACL operations | 🚧 Bucket, default object and object ACL CRUD, atomic replacement through bucket/object PATCH and PUT, default ACL inheritance and UBLA rejection; no enforcement; [contract](slices/json-acl.md) | 🚧 Metadata operations; no enforcement | 🚧 Metadata/list operations; no enforcement |
-| Project HMAC keys and service agent | 🚧 Persistent key lifecycle with one-time secrets; keys do not sign requests; [contract](slices/project-hmac-keys.md) | ❌ SDK scorecard | ❌ SDK scorecard |
-| Bucket notification configurations | 🚧 Stored and listed; nothing is published to Pub/Sub; [contract](slices/bucket-notifications.md) | ✅ SDK scorecard round trip | ❌ SDK scorecard |
-| Signed V4 POST policy form uploads | ✅ RSA signature, conditions and expiry; [scope](signed-urls.md#signed-post-policy-form-uploads) | ◐ SDK scorecard: Ruby passes, Go fails | ❌ SDK scorecard |
+| Project HMAC keys and service agent | 🚧 Persistent key lifecycle with one-time secrets; ACTIVE keys verify V4 (and scoped V2) HMAC signatures; [contract](slices/project-hmac-keys.md) | ❌ SDK scorecard | ❌ SDK scorecard |
+| Bucket notification configurations | 🚧 Stored and listed; with an explicit local Pub/Sub emulator, events are delivered at least once through a durable outbox and insert checks the topic (LOCAL_SIMULATION); [contract](slices/bucket-notifications.md), [delivery](slices/pubsub-notification-delivery.md) | ✅ SDK scorecard round trip | ❌ SDK scorecard |
+| Signed V4 POST policy form uploads | ✅ RSA signature, conditions and expiry; [scope](signed-urls.md#signed-post-policy-form-uploads) | ◐ SDK scorecard: passes in Ruby, Node.js, PHP, Python and Java; fails in Go, .NET and Rust | ❌ SDK scorecard |
 | Object retention and customer-supplied keys | 🚧 Retention modes enforced on delete/overwrite; CSEK keys required to read data, which stays unencrypted on disk; [retention](slices/sdk-object-retention.md), [CSEK](slices/customer-supplied-keys.md) | ❌ SDK scorecard | ❌ SDK scorecard |
 | Store/retrieve unconditional bucket IAM bindings | ✅ | ❌ | ✅ Stored only |
 | Enforce predefined-role bucket IAM grants | ✅ Strict local identities | ❌ | ❌ |
@@ -174,13 +176,13 @@ Their implementations were inspected; full upstream test suites were not execute
 | Enforce anonymous `allUsers` versus registered-only `allAuthenticatedUsers` reads | ✅ Strict local bucket IAM | ❌ | ❌ |
 | Public URL helper (encoded object address) | ✅ CLI builds encoded path-style or virtual-host URLs served by GET/HEAD; grants remain separate | ❌ `PublicURL()` returns a base origin only | ❌ |
 | Upload/download bytes with V4 RSA signed GET/PUT URLs | ✅ | ✅ No signature validation | ✅ No signature validation |
-| Signed-URL signature / expiry validation | ✅ V4 RSA signature, final host/path/query/method/headers and injected-clock expiry/skew; exact provider errors remain PARTIAL; [scope and evidence](evidence/signed-urls.md) | ❌ [Handlers](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/object.go) do not verify signing credentials; source review only | ❌ [Dispatch/handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/server.py) do not verify signing credentials; source review only |
+| Signed-URL signature / expiry validation | ✅ V4 RSA and HMAC signatures (V2 RSA/HMAC subsets PARTIAL), final host/path/query/method/headers and injected-clock expiry/skew; exact provider errors remain PARTIAL; [scope and evidence](evidence/signed-urls.md) | ❌ [Handlers](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/object.go) do not verify signing credentials; source review only | ❌ [Dispatch/handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/server.py) do not verify signing credentials; source review only |
 | XML response Content-Type / Content-Disposition overrides | ✅ Authorized GET/HEAD, ranges and V4 query binding without metadata mutation; [scope](slices/xml-response-overrides.md) | ✅ Both response headers in [download handler](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/object.go#L1162-L1174); source review only | 🚧 Content-Disposition only in [download handler](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py#L687-L740); source review only |
 | Virtual-hosted-style object endpoints | ✅ Explicit DNS suffix opt-in, GET/HEAD/PUT and strict signing; supplied matching SAN required for HTTPS; [scope](slices/xml-virtual-host.md) | ✅ Bucket-host GET/HEAD and upload routes in [router](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go#L306-L343); source review only | ❌ Path-only [public routes](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/server.py#L133-L143); source review only |
 | Public access prevention with preserved grants and valid signed access | ✅ Bucket enforcement and stored-grant reactivation; parent policy is LOCAL_SIMULATION; [scope](slices/public-access-prevention.md) | ❌ [Object handlers](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/object.go) do not enforce public grants/PAP; source review only | ❌ [Download handler](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py#L687-L740) does not enforce public grants/PAP; source review only |
 
 Rows marked "SDK scorecard" cite the
-[second 2026-10-29 run](../../sdk-scorecard/results/2026-10-29-2/summary.md);
+[final 2026-10-31 eight-SDK run](../../sdk-scorecard/results/2026-10-31-2/summary.md);
 a passing scorecard case shows an SDK round trip, not full API compatibility.
 
 The optional plaintext `grpc_listen` serves the scoped Storage v2 subset in the
@@ -242,9 +244,9 @@ not imply complete XML semantics or authenticated-only public access.
 | Runtime / embedded use | Rust binary | Go binary or Go test library | Python CLI or Python test server |
 | Preserve API-created bytes across normal restart | ✅ SQLite catalog and opaque files | ✅ Filesystem backend | ✅ Files and JSON metadata |
 | API-created objects appear as bucket/object files | ✅ `--sync-dir` mirror beside opaque storage | ✅ Filesystem backend | ✅ Disk backend |
-| Reconcile external edits with hashes and generation metadata | 🚧 Create/edit at startup; no deletion or watcher | ❌ Direct reads can expose stale metadata | ❌ No reconciliation contract |
-| Optional in-memory backend | ❌ | ✅ | ✅ |
-| Import a bucket/object seed directory | ✅ Every startup; an exactly identical object keeps its generation | ✅ Startup and explicit reseed | ❌ Default bucket creation is separate |
+| Reconcile external edits with hashes and generation metadata | 🚧 Bounded live observation, create/edit ingestion and approved external deletion; complete conflict/recovery/platform acceptance pending | ❌ Direct reads can expose stale metadata | ❌ No reconciliation contract |
+| Optional in-memory backend | 🚧 `--backend memory` with explicit storage budgets; [contract](slices/memory-backend.md) | ✅ | ✅ |
+| Import a bucket/object seed directory | ✅ Every startup and opt-in atomic reseed; an exactly identical object keeps its generation | ✅ Startup and explicit reseed | ❌ Default bucket creation is separate |
 | Published native binaries | ✅ macOS, Windows and Linux amd64+arm64 | ✅ macOS/Linux amd64+arm64; Windows amd64 | ❌ Python runtime required |
 | Published Docker image | ✅ GHCR and Docker Hub linux/amd64+arm64 | ✅ Docker Hub | ✅ Docker Hub |
 | Project license | MIT OR Apache-2.0 | BSD-2-Clause | BSD-3-Clause |
@@ -255,14 +257,17 @@ fake-gcs-server, an object that differs from its seed file in bytes or metadata,
 including API metadata edits, becomes a new live generation. Only an object
 exactly matching what seeding would write keeps its generation, where
 fake-gcs-server writes a new one; fake-gcs-server also offers
-`/_internal/reseed`, while gcs-mimic has no reseed endpoint or watcher, so
-restart to apply edits. Neither product deletes
+`/_internal/reseed`, while gcs-mimic offers an opt-in atomic reseed through its
+local administration route ([contract](slices/atomic-seed-reseed.md)); neither
+has a seed watcher. Neither product deletes
 objects whose seed file was removed.
 
 gcs-mimic's sync directory is a mirror beside its catalog, not a second storage
 backend: API writes appear shortly after each response, and external creates and
-edits become new generations with recomputed hashes at the next startup.
-External deletion, a file watcher and conflict resolution are not implemented.
+edits become new generations with recomputed hashes. Bounded live observation,
+approved external deletion and the live `sync` CLI are available; complete
+conflict, recovery and platform acceptance remains pending
+([sync contract](slices/directory-synchronization.md)).
 The follow-up ran the container smoke's sync stage on `linux/arm64` and
 `linux/amd64`; see [sync directory evidence](evidence/sync-dir-containers.txt)
 and [Docker usage](container-usage.md#mirror-objects-to-a-host-directory).
@@ -279,7 +284,9 @@ a requirement-based decision, with no comparative benchmark claim.
 The product target is a complete behavioral superset of the pinned fake-gcs-server
 baseline, with documented native configuration mappings and explicit data conversion.
 Matching flag names or environment-variable suffixes is not required.
-Legacy keys will not be aliases or fallback inputs. The migration contract in
+Since 0.7.0, legacy flags and `FAKE_GCS_*` variables with a native equivalent
+are translated with a warning, and since 0.8.0 the event settings map too; new
+configuration should use native names. The migration contract in
 `fake-gcs-server-migration.md` includes flags, TLS, endpoints, Go
 embedding, Storage v1 gRPC, helper/event behavior and both source backends.
 Lossless import and the remaining configuration roles are still planned. The existing

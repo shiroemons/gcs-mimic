@@ -5,6 +5,8 @@ create/delete/get/list/update) and JSON-PROJECTS-SERVICEACCOUNT-001
 (`projects.serviceAccount.get`). All six rows remain PARTIAL: the scoped
 acceptance cases below pass, but provider error details, service account
 existence, requester billing and HMAC signature use are outside this slice.
+ACTIVE keys verify signatures under the [V4](xml-v4-signatures.md) and
+[V2 HMAC](xml-v2-hmac-signatures.md) contracts.
 
 ## Acceptance contract
 

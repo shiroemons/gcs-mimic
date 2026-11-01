@@ -91,6 +91,8 @@ Known unimplemented Google JSON method/path combinations use the same JSON
 error instead of an ambiguous 404. Messages identify the setting or route and
 suggest a supported call or removal of an option. This deliberate emulator
 deviation avoids SDK retries of 501 and applies to both compatibility profiles.
+One exception follows Cloud Storage: a JSON multi-range media request answers
+501 (an XML multi-range GET answers 400).
 Implemented operations on missing resources still return 404 `notFound`, and
 unknown paths keep their existing handling. See the pinned route inventory,
 acceptance and evidence in [unsupported SDK calls](slices/sdk-unsupported-fail-fast.md)
@@ -119,6 +121,6 @@ Each acceptance case has a row-local unique `id`, `description`, `result` (`PEND
 
 This repository-specific validator is not a general JSON Schema engine or proof that submitted logs are truthful. Reviewers verify outputs, coverage and SDK scope. It never runs commands from evidence records. Each JSON input is capped at 8 MiB. Validate/check are read-only and offline; render writes only the two tables. Edit the ledger explicitly. `implemented_in` may stay null until a real commit exists.
 
-Each record includes `acceptance_cases`, `test_ids`, `verification`, `sdk_evidence`, `known_deviations`, `implemented_in`, and `last_verified`. They are intentionally empty now. Do not populate these with invented future results. Include output capture or CI links when they exist.
+Each record includes `acceptance_cases`, `test_ids`, `verification`, `sdk_evidence`, `known_deviations`, `implemented_in`, and `last_verified`. Rows without completed work keep them empty. Do not populate these with invented future results. Include output capture or CI links when they exist.
 
 Cloud-dependent tests are opt-in. Local fixtures are not proof of real Google token verification, billing, KMS execution, BigQuery query behavior, Pub/Sub delivery guarantees or geographical durability. Record those boundaries honestly even when local state transitions are useful and complete.

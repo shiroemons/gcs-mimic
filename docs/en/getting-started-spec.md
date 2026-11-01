@@ -2,14 +2,13 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-**Status: broader end-to-end design specification.** The current JSON, strict IAM, XML and RSA signing implementation has a separate [runnable guide](getting-started.md). The registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), with bounded inline RSA public keys; the server never needs a signer private key. The [signed access journey](signed-urls.md#signed-private-downloads-and-uploads) covers signing, private transfers, negative conditions, restart and peer endpoints. Its [integrated evidence](evidence/signed-urls.md) records the verified scope and UX-006 status. TOML, proxy-derived origins and broader acceptance targets below do not define current commands/settings. Published examples select 0.7.0; new source-only scopes are identified in their slice contracts. The project/CLI/image name is `gcs-mimic`.
+**Status: broader end-to-end design specification.** The current JSON, strict IAM, XML and RSA signing implementation has a separate [runnable guide](getting-started.md). The registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), with bounded inline RSA public keys; the server never needs a signer private key. The [signed access journey](signed-urls.md#signed-private-downloads-and-uploads) covers signing, private transfers, negative conditions, restart and peer endpoints. Its [integrated evidence](evidence/signed-urls.md) records the verified scope and UX-006 status. TOML, proxy-derived origins and broader acceptance targets below do not define current commands/settings. Published examples select 0.8.0; each scope's limits are identified in its slice contract. The project/CLI/image name is `gcs-mimic`.
 
 This English document is canonical. Japanese user guides live in `docs/ja` and retain the same feature status and supported scope. Historical Japanese planning notes are separate. Implementation prompts are Japanese; source code, identifiers, commits and canonical documentation remain English.
 
-Source-checkout additions and their unexecuted final-source gates are mapped in
+The 0.8.0 migration additions and their verification gates are mapped in
 [migration integration](evidence/migration-integration.md). Published examples
-use 0.7.0; unreleased commands/settings below require a source build. This
-specification's historical milestone text does not override the feature ledger
+use 0.8.0. This specification's historical milestone text does not override the feature ledger
 or the current seed, synchronization, storage and authentication slice contracts.
 
 The current object walkthrough selects `name,size` from metadata and
@@ -68,8 +67,10 @@ The implemented compatibility option is `--compat-profile`, environment
 `GCS_MIMIC_COMPAT_PROFILE` or JSON `compat_profile`, default `native`, with
 CLI > environment > file > default precedence. It never changes strict permissions.
 
-The broader public and signing sequences in section 8 remain future acceptance
-targets beyond the [implemented read subset](slices/public-object-reads.md).
+Section 8's public, signed and PAP steps are implemented with the JSON identity
+registry (see the [signing guide](signed-urls.md#signed-private-downloads-and-uploads)
+and the [public read subset](slices/public-object-reads.md)); its TOML fixture
+layout remains a future target.
 
 The implemented bucket PATCH journey must merge a new label while preserving
 an existing key, remove the new key with a null value, and change the supported
@@ -101,7 +102,7 @@ checks; the [historical PUT evidence](evidence/bucket-metadata-put.md) records
 native/Docker blocks, restart equality and pinned Go SDK verification from before
 omission preservation.
 
-The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart and bounded JSON resumable uploads, versioning/default holds, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, seed directories, SDK tests, stopping and isolated smoke checks. Ruby and Rails have separately documented [tested scopes](rails-active-storage.md); strict local JWT/signing additions require the current source checkout. Use those guides for working commands; broader sequences below remain future acceptance targets.
+The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart and bounded JSON resumable uploads, versioning/default holds, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, seed directories, SDK tests, stopping and isolated smoke checks. Ruby and Rails have separately documented [tested scopes](rails-active-storage.md); strict local JWT/signing additions are available since 0.8.0. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
 The delivered [local TLS journey](local-https.md#local-https-with-an-explicit-development-ca)
 uses HTTPS by default with a built-in development certificate/key and exported
@@ -109,8 +110,9 @@ client CA trust. A supplied PEM chain/key pair overrides the built-in identity.
 Native, non-root container, pinned Go/Ruby and isolated browser checks cover
 TLS 1.2/1.3, SAN/CA/expiry failures, bounded handshakes and HTTPS Locations.
 HTTP examples in the runnable guide select `--scheme http` explicitly.
-Automatic certificate issuance, dual listeners, system trust changes, HTTP/2,
-HTTP/3 and gRPC remain outside that scope.
+Automatic certificate issuance, system trust changes and HTTP/3 remain outside
+that scope; simultaneous HTTP/HTTPS listeners and the h2c gRPC listener were
+delivered separately.
 
 ## 1. Prerequisites and source build
 
@@ -126,7 +128,8 @@ corruption rejection, expiry and admission. The
 
 Support Linux amd64, Linux arm64 and Docker Desktop on Apple Silicon macOS. The container workflow requires Git, Docker Engine/Desktop, Docker Compose v2 supporting both `up --wait` and `start --wait`, and curl. A native Rust toolchain is optional for Docker users; document the exact latest-stable Rust baseline separately for contributors according to [the dependency policy](dependency-policy.md). OpenSSL is required only for the strict signing walkthrough.
 
-The first supported installation route is a source build:
+Published images and native archives are the primary installation route (see
+the [README](../../README.md)); a source build remains available:
 
 ```bash
 git clone REPOSITORY_URL gcs-mimic
@@ -134,7 +137,7 @@ cd gcs-mimic
 docker compose build
 ```
 
-The repository supplies `compose.yaml`, `config/development.json`, fixture samples and the Dockerfile. The current server reads flat JSON; the structured TOML example below is a future design target, not an accepted file format. Image references in source-build documentation use the locally built `gcs-mimic:dev`. Planned registry examples remain explicitly marked unavailable until publication; verify their exact tag before treating them as installation instructions.
+The repository supplies `compose.yaml`, `config/development.json`, fixture samples and the Dockerfile. The current server reads flat JSON; the structured TOML example below is a future design target, not an accepted file format. Image references in source-build documentation use the locally built `gcs-mimic:dev`; registry examples use an exact published version such as `ghcr.io/shiroemons/gcs-mimic:0.8.0`.
 
 ## 2. Stable proposed CLI and configuration contract
 
@@ -310,7 +313,7 @@ _, err = io.Copy(os.Stdout, reader)
 return err
 ```
 
-For a compose application set the variable to `gcs:4443`. The repository must provide the complete compiling program and its go.mod. This P1 example explicitly selects JSON reads because the currently checked Go SDK defaults to XML; add default/XML read coverage in P2. Test the actually supported single-request/JSON multipart upload subset and listing first, then add resumable tests in P3. Do not claim large-upload SDK compatibility before that path exists. Record any deliberate single-request writer configuration in the example. Do not assume STORAGE_EMULATOR_HOST also determines the host used by signing helpers.
+For a compose application set the variable to `gcs:4443`. The repository must provide the complete compiling program and its go.mod. This P1 example explicitly selects JSON reads because the currently checked Go SDK defaults to XML; the pinned Go suite also covers default/XML reads and resumable uploads. Record any deliberate single-request writer configuration in the example. Do not assume STORAGE_EMULATOR_HOST also determines the host used by signing helpers.
 
 Official reference: [Go Storage SDK](https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/storage/latest).
 
@@ -335,7 +338,7 @@ puts downloaded.read
 
 Set GCS_ENDPOINT to `http://gcs:4443` for a compose application. Anonymous writes are intended here only because the local profile is permissive; they are not a production recommendation.
 
-Ship a pinned Gemfile and execute the sample against the emulator. Add a dedicated Rails Active Storage example with a real minimal app, verified endpoint/signing configuration, direct browser upload, private download, public serving and delete. Do not invent Rails service configuration keys or claim a Ruby gem test proves Active Storage browser compatibility. Provide a tested strict-mode credential adapter separately.
+Ship a pinned Gemfile and execute the sample against the emulator. The [Rails Active Storage recipe](rails-active-storage.md) covers the tested Rails scope; complete it with a real minimal app, verified endpoint/signing configuration, direct browser upload, private download, public serving and delete. Do not invent Rails service configuration keys or claim a Ruby gem test proves Active Storage browser compatibility. Provide a tested strict-mode credential adapter separately.
 
 References:
 
@@ -353,7 +356,7 @@ The current registry is JSON with inline RSA public keys. These are clearly
 labelled emulator fixtures, not real Google credentials.
 
 The following TOML fixture schema and file-key layout are proposed future
-targets, not configuration accepted by 0.1.0:
+targets, not configuration accepted by the current release:
 
 ```toml
 [[identities]]
@@ -494,7 +497,9 @@ and the existing XML reads. Bucket rules support custom serialized origins such
 as `capacitor://localhost` and `ionic://localhost`, independently of HTTP/HTTPS
 listener settings. Native app deep links, opaque origins, WebView networking and
 real Google acceptance are distinguished in the [mobile research](slices/cors-mobile-origins.md).
-Signed XML transfers and iOS device execution remain later work.
+Signed XML browser transfers are covered by the
+[signed-browser evidence](evidence/signed-browser.md); iOS device execution
+remains later work.
 
 Provide a tested browser demo on `http://localhost:3000`. Its origin is different from the storage endpoint. Set the XML bucket CORS policy to that origin and the required methods/headers. Verify preflight and a real browser upload/download. A curl request can inspect headers, but cannot prove browser enforcement.
 
@@ -514,7 +519,7 @@ docker compose -f compose.yaml -f compose.strict.yaml up -d --wait
 The new object and metadata survive unless the same name is present in the seed
 tree: seed replays on every startup and replaces differing seeded objects,
 subject to protection checks. Identical seeded objects keep their generation.
-The source-checkout [atomic seed/reseed contract](slices/atomic-seed-reseed.md)
+Since 0.8.0 the [atomic seed/reseed contract](slices/atomic-seed-reseed.md)
 publishes the prepared tree together or rolls it back on failure. Seed files
 ending in `.metadata` remain ordinary object bodies; foreign import sidecars
 belong to a different input format. Also verify interrupted-upload recovery.

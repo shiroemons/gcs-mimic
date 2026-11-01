@@ -12,8 +12,8 @@
 A local Google Cloud Storage emulator for development and CI, written in Rust.
 Use the official Cloud Storage SDKs against it without a Google Cloud account.
 
-- **Works with your SDK**: Go, Ruby, Node.js, Python and PHP pass every case in
-  the [SDK scorecard](#sdk-scorecard).
+- **Works with your SDK**: Go, Ruby, Node.js, PHP, Python, Java, .NET and Rust pass
+  every case in the [SDK scorecard](#sdk-scorecard).
 - **Maps common fake-gcs-server settings**: most old flags and
   `FAKE_GCS_*` variables keep working; data conversion and client adapters
   have explicit limits (see
@@ -24,7 +24,7 @@ Use the official Cloud Storage SDKs against it without a Google Cloud account.
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.7.0
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.8.0
 curl --retry 5 --retry-all-errors -H 'Content-Type: application/json' \
   -d '{"name":"demo-bucket"}' 'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --data-binary 'hello' \
@@ -38,7 +38,7 @@ The last command prints `hello`. Next, [connect your SDK](#connect-your-sdk).
   unauthenticated requests by default.
 - Add `-v gcs-mimic-data:/var/lib/gcs-mimic` to keep data after the container
   is removed.
-- Docker Hub has the same image: `shiroemons/gcs-mimic:0.7.0`.
+- Docker Hub has the same image: `shiroemons/gcs-mimic:0.8.0`.
 - Without `GCS_MIMIC_SCHEME=http`, the emulator serves HTTPS with a built-in
   development certificate; see [local HTTPS](docs/en/local-https.md).
 
@@ -47,7 +47,7 @@ The last command prints `hello`. Next, [connect your SDK](#connect-your-sdk).
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.8.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -170,7 +170,7 @@ mount keep working. This is not a blanket drop-in replacement claim:
 ```diff
  gcs:
 -  image: fsouza/fake-gcs-server:1.56.1
-+  image: ghcr.io/shiroemons/gcs-mimic:0.7.0
++  image: ghcr.io/shiroemons/gcs-mimic:0.8.0
    command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
    volumes:
      - ./data:/data
@@ -179,13 +179,14 @@ mount keep working. This is not a blanket drop-in replacement claim:
 ```
 
 Each old setting is logged as a warning with its `GCS_MIMIC_*` name; rename
-them when convenient. The published **0.7.0** example has these differences:
+them when convenient. The **0.8.0** example has these differences:
 
 | fake-gcs-server | gcs-mimic |
 | --- | --- |
 | Data in `/storage` | Kept in `/var/lib/gcs-mimic` instead; `-filesystem-root` is ignored. Convert old data with [`gcs-mimic import fake-gcs-server`](docs/en/slices/import-filesystem.md). |
-| `-backend memory` | Not available: data survives restarts. Remove the container for a clean state. |
-| `-event.*` (Pub/Sub notifications) | Not available. Startup fails, so tests that wait for notifications do not hang. |
+| `-backend memory` | Selects the bounded RAM backend (`--backend memory`): data is lost at exit and the data directory is never opened. |
+| `-event.*` (Pub/Sub notifications) | Delivered to a local Pub/Sub emulator named by `PUBSUB_EMULATOR_HOST`. Without one, startup fails, so tests that wait for notifications do not hang. |
+| Deleting or overwriting objects | New buckets keep deleted and replaced objects soft-deleted for seven days, as Cloud Storage does. Set `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS=0` to delete permanently. |
 | `-public-host` | Accepted; matching the Host header as before also needs `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. |
 | `GET /storage/v1/b` without `?project=` | Returns 400, as in Google Cloud Storage. SDKs send the project already. |
 | Cancelling a resumable upload | Returns 499, which Google documents for a successful cancel; it is not an error. |
@@ -193,12 +194,11 @@ them when convenient. The published **0.7.0** example has these differences:
 See the [migration guide](docs/en/fake-gcs-server-migration.md) and the
 [setting mapping](docs/en/fake-gcs-server-configuration.md).
 
-The **unreleased source checkout** adds scoped RAM storage, local Pub/Sub
-delivery, HTTP batch/method override, XML list/copy/multipart, opt-in fixture
-administration/reset/reseed, strict local JWTs and client adapters. Directory
-observation, deletion controls and recovery are being integrated with live
-`sync` commands. These additions require a source build; the image above does
-not contain them. See the [scope and verification map](docs/en/evidence/migration-integration.md).
+Since 0.8.0, gcs-mimic also has scoped RAM storage, local Pub/Sub delivery,
+HTTP batch/method override, XML list/copy/multipart, opt-in fixture
+administration/reset/reseed, strict local JWTs, client adapters and a watched
+sync directory with `gcs-mimic sync` controls; 0.7.0 and earlier lack them. See
+the [scope and verification map](docs/en/evidence/migration-integration.md).
 Broader rows stay partial until all their acceptance cases pass.
 
 Go embedding uses a Rust subprocess facade, with Unix HTTP for `NoListener`.
@@ -217,7 +217,7 @@ adapter; changing their image alone is insufficient. The migration guide maps
 | `GCS_MIMIC_AUTH_MODE` | `strict` checks local bearer tokens; see [strict authentication](docs/en/getting-started.md#strict-local-authentication) |
 | `GCS_MIMIC_LOG_LEVEL` | `debug`, `info` (default), `warn` or `error` |
 
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.7.0 --help` lists every option.
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.8.0 --help` lists every option.
 
 ## Features at a glance
 
@@ -234,7 +234,7 @@ full Google API compatibility.
 | Retain object version history | ✅ | ◐ Memory backend | ❌ |
 | Keep API-created bytes across restart | ✅ | ✅ Filesystem | ✅ Disk |
 | API writes visible as bucket/object files | ✅ Mirror | ✅ Filesystem | ✅ Disk |
-| Load bucket/object seed bytes | ✅ Every startup | ✅ Startup or reseed | ❌ |
+| Load bucket/object seed bytes | ✅ Startup or opt-in reseed | ✅ Startup or reseed | ❌ |
 | Default CORS for JSON API requests | ✅ | ✅ | ❌ |
 | Enforce bucket-specific XML CORS rules | ✅ | ❌ | ❌ |
 | Upload/download with signed URLs | ✅ | ✅ | ✅ |
@@ -283,7 +283,7 @@ case the SDK has no public API for; it is excluded from that SDK's denominator.
 - [Storage design](docs/en/storage-backends.md), [architecture](docs/en/design.md)
   and [roadmap](docs/en/roadmap.md)
 - [Development](docs/en/development.md) and [release policy](docs/en/release-policy.md)
-- [0.7.0 release notes](docs/en/releases/0.7.0.md) and
+- [0.8.0 release notes](docs/en/releases/0.8.0.md) and
   [all releases](https://github.com/shiroemons/gcs-mimic/releases)
 
 ## License

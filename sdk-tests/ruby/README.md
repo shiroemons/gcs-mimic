@@ -107,8 +107,9 @@ An extensionless `StringIO` upload uses `create_file` without `content_type` and
 verifies application/octet-stream and exact bytes. The migration scenario also
 omits `content_type` for its named text file.
 `Bucket#update` blocks use PUT with only changed attributes; direct bucket
-setters use PATCH. The PUT regression changes only PAP and verifies that
-versioning and labels survive reload. Generated bucket/object PUT calls also
+setters use PATCH. The PUT regression changes only PAP and verifies that the
+omitted versioning and labels are cleared, as the native profile's PUT
+replacement does; direct setters (PATCH) then keep them. Generated bucket/object PUT calls also
 exercise `Google::Apis::StorageV1`. `StorageService#copy_object`
 also exercises the actual copy API, since high-level `File#copy` delegates to
 rewrite. `File#rewrite` and `Bucket#compose` exercise their named operations;
@@ -119,8 +120,9 @@ local normalization choices and their provider-verification limits.
 The remaining methods use the high-level SDK. Every generated and high-level
 call shares the same guarded connection and optional static fixture token.
 
-The repository-root `just check-sdk` now runs both pinned Go and Ruby suites
-against isolated permissive/strict servers. Install the pinned Ruby/Bundler/gems
+The repository-root `just check-sdk` runs all eight pinned SDK suites (Go,
+Ruby, Node.js, Python, PHP, Java, .NET and Rust) against isolated
+permissive/strict servers. Install the pinned Ruby/Bundler/gems
 above first; the command does not substitute the host Ruby or install dependencies
 silently. `GCS_MIMIC_SDK_SCHEME=https just check-sdk` uses the exported built-in CA
 with verification enabled. A targeted `GCS_MIMIC_GO_TEST_RUN` retains Go-only

@@ -6,9 +6,9 @@
 
 [日本語](../ja/fake-gcs-server-migration.md)
 
-Published container examples below use **0.7.0**. The current source checkout
-adds separately scoped migration adapters and protocols; these require a source
-build. The [integration acceptance map](evidence/migration-integration.md)
+Published container examples below use **0.8.0**. Since 0.8.0 the release
+includes separately scoped migration adapters and protocols; 0.7.0 and earlier
+lack them. The [integration acceptance map](evidence/migration-integration.md)
 distinguishes native wire proof, prepared client harnesses and unexecuted final
 SDK/container/browser gates. Full replacement remains an unmet product gate.
 
@@ -70,19 +70,19 @@ required.
 
 | Storage v2 gRPC object call | gcs-mimic behavior |
 | --- | --- |
-| Go `storage.NewGRPCClient(ctx)` Writer, NewReader, NewRangeReader, Attrs, Delete and Objects | Set `STORAGE_EMULATOR_HOST_GRPC` to the separately configured h2c listener, for example `127.0.0.1:4444`. Default Writer chunk size works for small and multi-MiB objects, and JSON/gRPC share data, generations, permissions, holds and retention. Prefix/delimiter/page tokens and resumable upload offsets/checksums are supported. `Writer.Append`, `NewWriterFromAppendableObject` and `FinalizeOnClose` work with documented limits; see the [Rapid append contract](slices/grpc-v2-rapid-append.md). Cancellation, non-final non-resumable flush/state lookup and unsupported fields return UNIMPLEMENTED; see the [object I/O contract](slices/grpc-v2-object-io.md). This is Storage v2, not the reference emulator's legacy v1 service. |
+| Go `storage.NewGRPCClient(ctx)` Writer, NewReader, NewRangeReader, Attrs, Delete and Objects | Set `STORAGE_EMULATOR_HOST_GRPC` to the separately configured h2c listener, for example `127.0.0.1:4444`. Default Writer chunk size works for small and multi-MiB objects, and JSON/gRPC share data, generations, permissions, holds and retention. Prefix/delimiter/page tokens and resumable upload offsets/checksums are supported, and CancelResumableWrite discards a session. `Writer.Append`, `NewWriterFromAppendableObject` and `FinalizeOnClose` work with documented limits; see the [Rapid append contract](slices/grpc-v2-rapid-append.md). Non-final non-resumable flush/state lookup and unsupported fields return UNIMPLEMENTED; see the [object I/O contract](slices/grpc-v2-object-io.md). This is Storage v2, not the reference emulator's legacy v1 service. |
 
 | Object metadata call | gcs-mimic behavior |
 | --- | --- |
-| Go Writer/Update TemporaryHold; Ruby set_temporary_hold! / release_temporary_hold! | The flag persists across restart and blocks deletion and upload/copy/rewrite/compose replacement with 403 objectUnderActiveHold until released. Metadata remains editable. |
-| Go Writer/Update CustomTime; Ruby create_file(custom_time:) / custom_time= | RFC 3339 timestamps persist; equal/later updates succeed. Clearing, backdating or omitting customTime from PUT after setting returns 400 invalidArgument; supply the current/later timestamp, or omit it from PATCH to preserve it. |
+| Go Writer/Update TemporaryHold; Ruby set_temporary_hold! / release_temporary_hold! | The flag persists across restart and blocks deletion and upload/copy/rewrite/compose replacement with 403 `forbidden` (XML `ObjectUnderActiveHold`) until released. A released hold reads `false`; a hold that was never set is omitted. Metadata remains editable. |
+| Go Writer/Update CustomTime; Ruby create_file(custom_time:) / custom_time= | RFC 3339 timestamps persist; equal/later updates succeed. Null or omission (PATCH or PUT) keeps the current value; an earlier time returns 400 `invalid` ("Custom time cannot be decreased…"). |
 
 The [object holds/custom time contract](slices/sdk-object-holds-customtime.md)
 records null defaults and local error details.
 
 | Bucket metadata call | gcs-mimic behavior |
 | --- | --- |
-| Ruby `bucket.update { \|b\| b.public_access_prevention = "enforced" }` / JSON bucket PUT | Only supplied settings change; omitted labels, versioning and other modeled settings survive. Supplied labels replace the map; labels:null clears and versioning:{} disables. This is a local SDK compatibility choice, without real-GCS verification; see the [PUT contract](slices/bucket-metadata-put.md). |
+| Ruby `bucket.update { \|b\| b.public_access_prevention = "enforced" }` / JSON bucket PUT | In the native profile PUT replaces the resource, as recorded from Cloud Storage: omitted labels, CORS, lifecycle, versioning, retention policy (a locked one stays) and defaultEventBasedHold are cleared; the storage class, soft delete policy and access settings are kept. Ruby update blocks send PUT, so they lose omitted settings; use direct setters (PATCH) instead. `--compat-profile legacy-emulator` keeps the earlier omission-preserving behavior. See the [PUT contract](slices/bucket-metadata-put.md). |
 
 | Soft-delete call | gcs-mimic behavior |
 | --- | --- |
@@ -136,7 +136,7 @@ existing app, edit the service in your own Compose file instead.
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.8.0
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
@@ -257,7 +257,7 @@ refresh the token at Google. The entry works only with the permissive profile.
 | Symptom | Cause | Repair |
 | --- | --- | --- |
 | Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | 0.6.0 and earlier do not translate source names | Upgrade to 0.7.0 or later, or remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
-| Startup rejects `-event.pubsub-topic` or another `FAKE_GCS_EVENT_*` | Published 0.7.0 lacks delivery; source builds require complete local publisher configuration | For a source build, supply project/topic and an explicit local Pub/Sub emulator endpoint; provision its topic/subscriptions separately. See the [notification contract](slices/pubsub-notification-delivery.md). |
+| Startup rejects `-event.pubsub-topic` or another `FAKE_GCS_EVENT_*` | 0.7.0 and earlier lack delivery; since 0.8.0 event flags map to native settings and require complete local publisher configuration | Upgrade to 0.8.0 or later and supply project/topic and an explicit local Pub/Sub emulator endpoint; provision its topic/subscriptions separately. See the [notification contract](slices/pubsub-notification-delivery.md). |
 | SDK initiation succeeds but its next request cannot connect | Location contains loopback or a host-only address | Set `GCS_MIMIC_API_BASE_URL: http://gcs:4443` for container clients and recreate the service. |
 | Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when translating unsigned URLs. |
 | A newly added empty directory creates no bucket | 0.2.1 and earlier imported seed files once; see the [0.3.0 release notes](releases/0.3.0.md) | Upgrade to 0.3.0, which replays seed on every startup and creates the bucket after a restart, or add `{"name":"exports"}` to the version-1 buckets file and restart; do not erase the data volume. |
@@ -281,10 +281,10 @@ The existing `legacy-emulator` profile covers a limited bucket contract; it does
 not implement the complete migration profile described here.
 
 gcs-mimic serves path-style and opt-in virtual-host XML GET/HEAD/PUT, strict
-V4 RSA signed transfers, path-style V2 RSA GET/PUT and scoped public access
+V4 RSA/HMAC signed transfers, V2 RSA/HMAC GET/PUT and scoped public access
 prevention, with
 [recorded evidence](evidence/signed-urls.md). URL construction and authorization
-remain separate. The source checkout adds XML listing, copying and multipart
+remain separate. Since 0.8.0, XML listing, copying and multipart are served
 with explicit field/resource bounds. Broader XML fields, ACL/UBLA interactions,
 provider error parity and complete endpoint/configuration equivalence remain
 gaps; see the [acceptance map](evidence/migration-integration.md).
@@ -349,7 +349,7 @@ with no skipped profile. The reference is release `v1.56.1`, commit
 | Basic resource | Create/GET match in every target; profile emits both booleans and source US-CENTRAL1/project/ETag defaults; list items match profile GET; restart/migration and strict permissions pass | Millisecond timestamps, local parser messages, native list scoping/paging, 666-byte profile name cap and unsupported trailing collection slash |
 | Empty deletion | Profile returns exact 200 JSON null/newline and nonempty 412; native returns 204/409. Repeat/missing, recreate, protected histories and preserved object bytes pass | Atomic/history-aware delete and enforced holds intentionally exceed source live-only/no-hold behavior |
 | Bucket permission test | Go `IAM().TestPermissions` and Ruby `bucket.test_permissions` use the default calls; strict returns effective project/bucket grants and permissive returns all supported requested permissions | No permission is needed to call it. Project-only create/list names return 400; other unsupported permissions and billing return 400 badRequest. Provider error parity and expanded ACL/UBLA/PAP controls remain pending; [contract and evidence](slices/sdk-test-permissions.md) |
-| Uniform bucket-level access / predefined ACL | Go/Ruby default UBLA creation, inspection and disabling work; aliases and the 90-day lock persist, including creation with enforced PAP | Under UBLA, remove predefinedAcl/predefinedDefaultObjectAcl/destinationPredefinedAcl parameters: they return 400. Without UBLA, upload predefinedAcl applies its canned object ACL ([evidence](evidence/upload-predefined-acl.md)); the other parameters remain explicitly unsupported. ACL CRUD/effects and initialization-file UBLA remain pending; [contract and evidence](slices/sdk-ubla-predefined-acl.md) |
+| Uniform bucket-level access / predefined ACL | Go/Ruby default UBLA creation, inspection and disabling work; aliases and the 90-day lock persist, including creation with enforced PAP | Under UBLA, remove predefinedAcl/predefinedDefaultObjectAcl/destinationPredefinedAcl parameters: they return 400. Without UBLA, upload predefinedAcl applies its canned object ACL ([evidence](evidence/upload-predefined-acl.md)); in the native profile bucket PATCH/PUT apply predefinedAcl/predefinedDefaultObjectAcl and rewrite applies destinationPredefinedAcl, while bucket insert still rejects them. ACL enforcement and initialization-file UBLA remain pending; [contract and evidence](slices/sdk-ubla-predefined-acl.md) |
 | Versioning/default holds | HTTP API creation enables retained versions and inherited holds in both profiles; selected history read/list/delete and hold release pass, with pinned Go workflows | Propagation/provider edge parity, retention and soft delete remain pending; temporary holds and custom time are covered by the object SDK slice |
 | Atomic object move | Default Go `ObjectHandle.Move` and Ruby `bucket.move_file` rename live objects within one flat-namespace bucket; bytes/metadata persist, all eight conditions and holds are enforced, and source deletion plus destination publication use one catalog transaction without copying the blob | HNS/folders/cross-bucket moves, full projection, move-only authorization and provider eligibility/history/error parity remain pending. Source live generation is removed even with versioning; replaced destination history is retained. See [contract and evidence](slices/sdk-object-move.md) |
 
@@ -400,7 +400,7 @@ executable contract; these examples are not the entire inventory.
 | Lifecycle configuration | The pinned source ignores lifecycle settings at bucket creation and does not execute lifecycle rules | JSON insert/get/list/PATCH/PUT validate and persist the scoped rules, including ordinary Go/Ruby lifecycle calls. gcs-mimic stores configuration but never executes actions; XML lifecycle and initialization-file lifecycle remain unsupported. See the [lifecycle contract](slices/sdk-lifecycle-config.md). |
 | Endpoints | Public/virtual-host and API routes, external upload URLs and mutable internal configuration | Preserve client-visible host/path/query behavior; map advertised addresses explicitly |
 | HTTP semantics | JSON/XML, uploads, ranges, conditions, metadata, ACLs, batching and error shapes | Run the same client scenarios and negative cases against both implementations |
-| Permissive signed URLs | Signature/expiry are not validated; callers can rewrite hosts | Permissive V2/V4 ignores signatures and expiry; V2 credential structure and numeric Expires are validated. Strict path-style V2 GET/PUT verifies registered RSA-SHA256 keys, expiry and signed headers with shared IAM permissions; URLs are used unchanged. V2 does not bind Host or response overrides. HMAC, V2 HEAD/generation selection, virtual hosts, POST and resumable signing remain unsupported. See the [V2 contract](slices/sdk-active-storage-v2-signing.md). |
+| Permissive signed URLs | Signature/expiry are not validated; callers can rewrite hosts | Permissive V2/V4 ignores signatures and expiry; V2 credential structure and numeric Expires are validated. Strict path-style V2 GET/PUT verifies registered RSA-SHA256 keys, expiry and signed headers with shared IAM permissions; URLs are used unchanged. V2 does not bind Host or response overrides. V2 HMAC query/header signatures and virtual-object subsets are accepted ([V2 HMAC contract](slices/xml-v2-hmac-signatures.md)); V2 HEAD/generation selection, virtual bucket queries, broad POST acceptance and resumable signing remain pending. See the [V2 contract](slices/sdk-active-storage-v2-signing.md). |
 | Fixture preload | Docker mounts `/data`; the entrypoint passes `-data /data` | Import the seed format and reproduce the selected seed/reseed lifecycle |
 | Durable data | Filesystem root with object files and xattr/sidecar metadata | Read-only, verified conversion into a separate destination |
 | Memory backend | In-process bytes and active/archived versions | Optional ephemeral behavior and export before the source process stops |
@@ -457,13 +457,13 @@ and native `GCS_MIMIC_*` environment variables.
 | `-port-http` | `--listen-http IP:PORT`, `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; default primary IP:8000 |
 | `-external-url` | `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Fixed origin for API-generated links; not a public-host allowlist |
 | `-public-host` | `--public-base-url`, `GCS_MIMIC_PUBLIC_BASE_URL` | HTTP(S) origin; adds a DNS virtual domain. Legacy Host matching requires `--compat-profile legacy-emulator`; native path-style accepts any Host. |
-| `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` | Applied before readiness on every startup. Exactly identical objects keep their generation. Source builds publish the complete tree atomically, fail the entire replay on a differing protected object, and add opt-in reseed; live synchronization uses a separate `--sync-dir`. The published 0.7.0 image lacks those additions. |
+| `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR`; the image defaults to `/data` through `GCS_MIMIC_DEFAULT_SEED_DIR` | Applied before readiness on every startup. Exactly identical objects keep their generation. Since 0.8.0, seeding publishes the complete tree atomically, fails the entire replay on a differing protected object, and adds opt-in reseed; live synchronization uses a separate `--sync-dir`. 0.7.0 and earlier lack those additions. |
 | `-filesystem-root` | `--data-dir`, `GCS_MIMIC_DATA_DIR` | Persistent destination with a different format; cannot reuse the source root directly |
 | `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
 | `-log-level` | `--log-level`, `GCS_MIMIC_LOG_LEVEL`, JSON `log_level` | Minimum runtime stderr severity; default info; debug/info/warn/error and warning alias; diagnostics and stdout lifecycle are unfiltered |
 | `-cors-headers` | Remove it. Only for browser reads of XML/public URLs: bucket `cors`, or `--cors-fallback allow-all` / `GCS_MIMIC_CORS_FALLBACK=allow-all` | The source extends one global request-header allowlist. JSON already allows every valid requested header. The `allow-all` fallback allows every valid header on XML/public routes of buckets without stored rules; stored bucket rules stay exact. See [CORS fallback](slices/cors-fallback.md) |
 | `-location` | `--default-location`, `GCS_MIMIC_DEFAULT_LOCATION`, JSON `default_location` | Native accepts official regional/predefined dual-region and `US`, `EU`, `ASIA` names, case-insensitively; API/initializer nonempty location wins. Legacy profile retains fixed `US-CENTRAL1` and rejects the global default. No physical placement or configurable dual-region simulation; see [location contract](slices/sdk-regional-locations.md). |
-| `-backend memory` | `--backend memory`, `GCS_MIMIC_BACKEND=memory` in source builds | Process-local SQLite and leased chunks, with explicit aggregate storage budgets and empty restart; see the [RAM contract](slices/memory-backend.md). Disk remains default. |
+| `-backend memory` | `--backend memory`, `GCS_MIMIC_BACKEND=memory` since 0.8.0 | Process-local SQLite and leased chunks, with explicit aggregate storage budgets and empty restart; see the [RAM contract](slices/memory-backend.md). Disk remains default. |
 
 The source's `-public-host` controls public URL construction and Host matching
 on relevant public routes; it does not select the listener. A configured port
@@ -541,9 +541,9 @@ The existing `auth_mode=permissive` is not already a complete legacy profile.
 - Native seeding replays on every startup: an object
   that differs from its seed file in bytes or metadata is replaced as a new
   generation, so seed files win over API edits at restart; only an exactly
-  identical object keeps its generation. Source builds add opt-in atomic reseed
-  (disk merge, RAM replacement); a changed protected fixture rejects the complete
-  replay. Durable migration must never silently replay fixtures over
+  identical object keeps its generation. Since 0.8.0, opt-in atomic reseed is
+  available (disk merge, RAM replacement); a changed protected fixture rejects
+  the complete replay. Durable migration must never silently replay fixtures over
   imported changes; do not mount seed files that overlap imported objects unless
   the seed file should win.
 - Resource limits and unsupported settings remain visible. A recognized setting
@@ -558,7 +558,7 @@ required conflict blocks the full compatibility claim.
 
 Replacement also requires a visible bucket/object directory with bidirectional
 synchronization: external additions, changes and deletions reach the API, and API
-mutations appear in that directory. The source checkout provides bounded
+mutations appear in that directory. Since 0.8.0, gcs-mimic provides bounded
 observation, shared create/edit ingestion, API write-back and revision-bound
 deletion controls. Complete conflict/recovery/strict/platform acceptance is
 still being integrated. Seed/import alone does not satisfy this requirement.

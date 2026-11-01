@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-This source-checkout CLI extends the control subset of DESIGN-072 and
+Since 0.8.0, this CLI extends the control subset of DESIGN-072 and
 DESIGN-074. It connects to the running server and never opens `data_dir`, reads
 server configuration, repairs a stopped catalog or grants administrative power.
 The server's [current control contract](external-deletion-controls.md) owns

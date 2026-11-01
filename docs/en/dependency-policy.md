@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Status: project policy. The project has compiler pins, Cargo.lock, a bounded HTTP/TLS runtime, digest-pinned Docker inputs, a dated [dependency snapshot](../../compatibility/dependency-status.json), and Rust/Go/Ruby/Node.js/PHP/Python daily detection tooling. The official Go JSON bucket SDK harness has its own pinned module graph and CI lane; Ruby HTTPS verification has a pinned gem graph. The official Node.js, Python and PHP SDK suites under `sdk-tests/` have their own exact pins and lockfiles; `just check-sdk` runs them with Node.js 24 or newer, with uv and the pinned `.python-version`, and with PHP inside the digest-pinned Composer image, so Docker is the only PHP prerequisite. Scheduled/remote CI execution is not verified; per-requirement progress is recorded only in the feature ledger.
+Status: project policy. The project has compiler pins, Cargo.lock, a bounded HTTP/TLS runtime, digest-pinned Docker inputs, a dated [dependency snapshot](../../compatibility/dependency-status.json), and Rust/Go/Ruby/Node.js/PHP/Python daily detection tooling. The official Go JSON bucket SDK harness has its own pinned module graph and CI lane; Ruby HTTPS verification has a pinned gem graph. The official Node.js, Python and PHP SDK suites under `sdk-tests/` have their own exact pins and lockfiles; `just check-sdk` runs them with Node.js 24 or newer, with uv and the pinned `.python-version`, and with PHP inside the digest-pinned Composer image, so Docker is the only PHP prerequisite. Scheduled freshness runs have been observed since 2026-10-30; a run that finds an update fails until it is adopted. Per-requirement progress is recorded only in the feature ledger.
 
 ## User requirement
 
@@ -156,10 +156,10 @@ Official sources checked on 2026-10-23:
 
 ## Daily update detection and bounded upgrade work
 
-The source checkout adds the separate `go/go.mod` facade and
+Since 0.8.0 the repository adds the separate `go/go.mod` facade and
 `go/sourceexport/go.mod` capture modules, standalone Rust SDK Cargo graph,
 Java Maven dependencies/plugins and Temurin/Maven pins, .NET NuGet/global.json,
-and Node Testcontainers manifest. All fifteen SDK manifest snapshots are read
+and Node Testcontainers manifest. All eighteen SDK manifest snapshots are read
 by the same daily detector; an omitted declared manifest fails. Locks are checked
 against actual direct pins, and standalone Cargo metadata remains locked and
 offline after `cargo fetch --locked --manifest-path sdk-tests/rust/Cargo.toml`.
@@ -200,7 +200,7 @@ by version and by a `snapshot.debian.org` timestamp in
 the same values, and the checker verifies the script matches, that both
 scorecard scripts call it, and that Debian trixie still carries that version. The comparison covers trixie only, so a fix published only to trixie-security is not detected.
 
-Current command: `cargo xtask dependencies check`. Fetch all locked packages first (`cargo fetch --locked`), including foreign-target packages used by offline Cargo metadata. The Rust checker invokes curl for HTTPS with user curl configuration disabled, a 30-second timeout and an 8 MiB response cap; no Python or extra HTTP client dependency is required. It contacts official Rust, Cargo, Go, module proxy, Ruby, RubyGems, Python, PyPI, npm, Packagist, GitHub, Debian and Docker metadata. It also verifies that OS packages pinned in install scripts (`docker.apt_packages`, currently socat) match the script and the snapshot record, that the callers use the script, and compares the pinned version with the Debian suite; the Debian snapshot timestamp advances together with the Rust image digest. These are development-only inputs, skipped under `--scope release`. It discovers actual direct registry dependencies through offline Cargo metadata and compares all non-yanked stable releases, including new majors. It checks the declared Go, Ruby, npm, PyPI and Composer SDK scopes, Action pins (including setup-go), Docker index/platform digests, replacement tags, the Rust image's floating stable tag and Debian's current stable codename. Debian stable/trixie aliases have different APT suite contents/digests, so codename freshness is checked separately from selected-tag digest freshness. Network/parse failures exit 2; updates exit 1. Logs are actionable drift records; nothing is published automatically. `.github/workflows/dependency-check.yaml` schedules checks every calendar day at `03:17 UTC` without cooldown, fetching the locked Cargo graph before running the same detector. This includes the TLS and Ruby inputs automatically; scheduled remote execution has not been observed.
+Current command: `cargo xtask dependencies check`. Fetch all locked packages first (`cargo fetch --locked`), including foreign-target packages used by offline Cargo metadata. The Rust checker invokes curl for HTTPS with user curl configuration disabled, a 30-second timeout and an 8 MiB response cap; no Python or extra HTTP client dependency is required. It contacts official Rust, Cargo, Go, module proxy, Ruby, RubyGems, Python, PyPI, npm, Packagist, GitHub, Debian and Docker metadata. It also verifies that OS packages pinned in install scripts (`docker.apt_packages`, currently socat) match the script and the snapshot record, that the callers use the script, and compares the pinned version with the Debian suite; the Debian snapshot timestamp advances together with the Rust image digest. These are development-only inputs, skipped under `--scope release`. It discovers actual direct registry dependencies through offline Cargo metadata and compares all non-yanked stable releases, including new majors. It checks the declared Go, Ruby, npm, PyPI and Composer SDK scopes, Action pins (including setup-go), Docker index/platform digests, replacement tags, the Rust image's floating stable tag and Debian's current stable codename. Debian stable/trixie aliases have different APT suite contents/digests, so codename freshness is checked separately from selected-tag digest freshness. Network/parse failures exit 2; updates exit 1. Logs are actionable drift records; nothing is published automatically. `.github/workflows/dependency-check.yaml` schedules checks every calendar day at `03:17 UTC` without cooldown, fetching the locked Cargo graph before running the same detector. This includes the TLS and Ruby inputs automatically. Scheduled runs have been observed since 2026-10-30; they fail while an update is pending, so a run's status is not by itself a freshness result.
 
 Cargo version selection follows workspace members' resolved direct dependency
 edges. An older same-named transitive package remains part of the upstream graph;
@@ -251,9 +251,9 @@ requests send no Docker Hub token. Unsupported registries fail explicitly.
 Distroless tag/index/platform digests and Debian stable codename are checked
 independently, preserving detection when a new Debian generation becomes stable.
 
-The current workflow reports tag/digest drift; upgrade submission and latest-dependency candidate testing remain future work. Rebuild runtime images when accepted base-image updates change them; editing a Dockerfile does not update a published image. No image has been published yet.
+The current workflow reports tag/digest drift; upgrade submission and latest-dependency candidate testing remain future work. Rebuild runtime images when accepted base-image updates change them; editing a Dockerfile does not update a published image. Released images are published to GHCR and Docker Hub; see the [container distribution procedure](container-distribution.md).
 
-Use immutable release version tags and publish the resolved image digest in release metadata. A convenience latest tag may exist after releases are actually published, but installation and reproduction examples should also show an explicit release/digest. Before the first release, use a locally built lowercase gcs-mimic:dev image.
+Use immutable release version tags and publish the resolved image digest in release metadata. A convenience latest tag exists for published releases, but installation and reproduction examples should also show an explicit release/digest. Source builds use a locally built lowercase gcs-mimic:dev image.
 
 Source: <https://docs.docker.com/build/building/best-practices/>
 
@@ -263,7 +263,10 @@ Source: <https://docs.docker.com/build/building/best-practices/>
 | --- | --- | --- |
 | Required PR/release | Exact pinned stable, committed lockfiles and digests | Reproduce the release inputs and validate supported targets. |
 | Current stable compatibility | Freshly updated stable toolchain, committed lockfile | Detect compiler drift immediately; passing alone does not update the committed baseline. |
-| Official Go JSON SDK | Go toolchain from go.mod, committed Go graph, pinned Rust | Build an isolated emulator and run bucket lifecycle/pagination via scripts/sdk-go.sh. |
+| Cross-target type-check | Pinned and current stable, committed lockfile | `scripts/check-cross.sh` in the separate `cross` job; the `rust` job skips it with `GCSM_CHECK_CROSS=0`. |
+| Native portability | Pinned stable on macOS, Windows and Linux musl runners | Run the workspace tests natively on one target per OS family on every push. |
+| Official SDK clients | Go toolchain from go.mod, pinned Java/.NET/Rust, committed graphs, pinned Rust server | Build an isolated emulator and run the Go suite plus the Java, .NET and Rust clients via `scripts/sdk-go.sh --with-clients`. |
+| Testcontainers | Image built once from the Dockerfile with `CARGO_BUILD_JOBS=4` | Run the Java, .NET and Node.js Testcontainers adapters against that image. |
 | Latest-dependency candidate | Verified current stable, proposed manifests/lockfiles | Exercise dependency upgrades, including deliberate major migrations. |
 | Optional experimental | Explicit beta/nightly | Early warning only; never substitutes for passing stable checks. |
 
@@ -292,7 +295,9 @@ are recorded in the [migration evidence](evidence/rusqlite-update.md).
 Its [historical freshness check](evidence/rusqlite-dependencies.txt) exited 1
 for a distroless digest update adopted later. The 2026-10-27 refresh retains
 rusqlite 0.41.0 and advances the binding to 0.39.1, bundling SQLite 3.54.1;
-see the current [refresh evidence](evidence/dependency-refresh.md).
+see the [refresh evidence](evidence/dependency-refresh.md). The current pin is
+rusqlite 0.41.1; the [dependency snapshot](../../compatibility/dependency-status.json)
+records it.
 On 2026-10-29 rusqlite also enables its `cache` feature so request paths reuse
 prepared statements through `prepare_cached`; the connection cache holds at most
 64 statements. Cargo.lock adds hashlink 0.12.2 (MIT OR Apache-2.0, 33,361
@@ -367,9 +372,10 @@ publisher, feature and compiler references are in the
 [snapshot](../../compatibility/dependency-status.json). Tokio enables `fs`/`io-util` for
 short asynchronous file jobs; http-body-util enables its existing `channel` feature for
 bounded download bodies. No new runtime framework or general codec dependency is added.
-The Rust builder index is updated to
-`sha256:e6cd1d294a300601eaaa4a294b337e5f0826f427fb2d481e9f76e69e7981e244`;
-its amd64/arm64 platform manifests are unchanged. The final online
+That slice updated the Rust builder index to
+`sha256:e6cd1d294a300601eaaa4a294b337e5f0826f427fb2d481e9f76e69e7981e244`
+with unchanged amd64/arm64 platform manifests; the current digest is in the
+Dockerfile and the snapshot. The final online
 [freshness check](evidence/object-media-dependencies.txt) exits 0 with every input CURRENT.
 
 Maintain a machine-readable dependency status record containing checked_at_utc, toolchain channel/exact version, edition, declared rust-version, package current/latest version, source URL, resolution constraints, Docker digest per platform and any exception reference. Store actual command/test evidence with the change.
