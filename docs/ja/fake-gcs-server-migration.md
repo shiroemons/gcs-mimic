@@ -235,7 +235,7 @@ googleauth 1.17.6は、既定のuniverseのサービスアカウントではGoog
 | ブラウザーが`gcs`を名前解決できない | コンテナDNSはホストでは使えない | この例では`http://localhost:14443`を使い、署名なしセッションのpath/queryを保って変換する。 |
 | 後から足した空ディレクトリがバケットにならない | 0.2.1以前は初期ファイルを一度だけ読み込んでいた。[0.3.0のリリースノート（英語）](../en/releases/0.3.0.md)を参照 | 0.3.0へ更新すると起動のたびにseedを反映するため、再起動でバケットが作られる。またはバケットファイルへ`{"name":"exports"}`を追加して再起動する。データボリュームは消さない。 |
 | HTTPで接続できない・probeがunhealthy | スキームや待受設定の不一致 | `GCS_MIMIC_SCHEME: http`と`GCS_MIMIC_LISTEN: 0.0.0.0:4443`を使い、probeにも継承させる。 |
-| 一覧でprojectの例つき400が返る | nativeではprojectが必須 | `/storage/v1/b?project=local-project`を使う。既存のlegacyプロファイルは省略時にseed_projectを使う。 |
+| 一覧で400 required（Required parameter: project）が返る | nativeではprojectが必須 | `/storage/v1/b?project=local-project`を使う。既存のlegacyプロファイルは省略時にseed_projectを使う。 |
 | ホスト側ポートが使用中 | 別の作業ツリーと重複 | `GCS_MIMIC_PORT=24443`と別プロジェクト名を指定し、ブラウザーのURLも変更する。内部URLは変えない。 |
 | 取り消しの`curl --fail`が499で失敗する | JSON resumableの取り消し成功は499 | 上の例のように`%{http_code}`で検査し、取り消しに限って499を成功とする。 |
 

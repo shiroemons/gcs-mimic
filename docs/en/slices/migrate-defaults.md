@@ -25,7 +25,8 @@ These image environment defaults take precedence over JSON file values.
 
 The omitted-project decision is settled here: `legacy-emulator` uses
 `seed_project` for bucket listing as it does for creation; native still requires
-project and explains `?project=local-project`. Explicit invalid projects remain
+project and answers 400 `required` ("Required parameter: project"), as recorded
+from Cloud Storage. Explicit invalid projects remain
 invalid, and project filtering and authorization remain in force.
 
 ## Acceptance cases
@@ -36,7 +37,7 @@ invalid, and project filtering and authorization remain in force.
 | healthcheck-container-defaults | Rust process tests cover HTTP, HTTPS, both and changed ports; the final image becomes healthy in default HTTPS and HTTP without probe overrides |
 | healthcheck-failure-diagnostic | Configuration and connection failures identify the derived URL and a matching repair example; HTTPS includes an issuing CA example |
 | buckets-list-without-project-legacy | Omitted project lists only seed_project, with a Go migration scenario and Rust wire test |
-| buckets-list-without-project-native | Native returns 400 and an example query; explicit invalid project is rejected |
+| buckets-list-without-project-native | Native returns 400 `required` with "Required parameter: project"; explicit invalid project is rejected |
 
 ## Guide mapping
 

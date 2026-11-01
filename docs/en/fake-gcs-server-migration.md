@@ -262,7 +262,7 @@ refresh the token at Google. The entry works only with the permissive profile.
 | Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when translating unsigned URLs. |
 | A newly added empty directory creates no bucket | 0.2.1 and earlier imported seed files once; see the [0.3.0 release notes](releases/0.3.0.md) | Upgrade to 0.3.0, which replays seed on every startup and creates the bucket after a restart, or add `{"name":"exports"}` to the version-1 buckets file and restart; do not erase the data volume. |
 | HTTP connection fails or an inherited probe is unhealthy | Scheme/listener differs from the client or probe environment | Use `GCS_MIMIC_SCHEME: http` and `GCS_MIMIC_LISTEN: 0.0.0.0:4443`; let the image's probe inherit them. |
-| Bucket listing returns 400 with a project example | Native requires an explicit project | Request `/storage/v1/b?project=local-project`. The existing legacy profile defaults omitted project to seed_project. |
+| Bucket listing returns 400 `required` ("Required parameter: project") | Native requires an explicit project | Request `/storage/v1/b?project=local-project`. The existing legacy profile defaults omitted project to seed_project. |
 | Docker reports the host port is in use | Another worktree publishes the same port | Set `GCS_MIMIC_PORT=24443` and a different Compose project; update browser URLs, leaving `http://gcs:4443` unchanged. |
 | `curl --fail` reports 499 on session DELETE | Successful JSON resumable cancellation uses 499 | Inspect `%{http_code}` as above and accept 499 for cancellation only. |
 

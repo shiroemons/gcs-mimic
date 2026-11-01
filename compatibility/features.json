@@ -6623,7 +6623,7 @@
         },
         {
           "id": "buckets-list-without-project-native",
-          "description": "Native omitted-project listing returns 400 required with ?project=local-project; explicit projects remain validated and scoped.",
+          "description": "Native omitted-project listing returns 400 required with the message \"Required parameter: project\", as recorded from Cloud Storage; explicit projects remain validated and scoped.",
           "result": "PASS",
           "test_ids": ["bucket_list_omitted_project_obeys_profile_and_seed_project", "TestMigrationAppScenarioBucketList"]
         },
