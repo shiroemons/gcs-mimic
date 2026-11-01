@@ -605,7 +605,7 @@ fn bucket_put_empty_null_and_invalid_inputs() {
                     + 1
             );
         }
-        // The native profile clears the labels for a labels member that is not a map and takes a
+        // The native profile replaces the labels for a labels member that is not a map and takes a
         // null storageClass as no change; the legacy profile rejects them.
         let tolerated = [
             r#"{"labels":[]}"#,
@@ -1370,9 +1370,9 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
         }
         let value = without_acl(server.request("PATCH", path, r#"{"labels":null}"#).json());
         assert!(value.get("labels").is_none());
-        // Cloud Storage cleared the labels for a labels member that is not a map and accepted a
-        // null storageClass without changing it (recorded 2026-10-31); the legacy profile
-        // rejects all three.
+        // The native profile leaves the labels and the class alone for a labels member that is not a
+        // map and for a null storageClass (the recording cannot tell "left alone" from "cleared", so
+        // this is the choice that keeps data); the legacy profile rejects all three.
         for body in [
             r#"{"labels":[]}"#,
             r#"{"labels":""}"#,
@@ -1385,11 +1385,7 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
                 let reply = server.request("PATCH", path, body);
                 assert_eq!(reply.status, 200, "{body}: {}", reply.body);
                 assert_eq!(reply.json()["storageClass"], first["storageClass"]);
-                assert_eq!(
-                    reply.json().get("labels").is_none(),
-                    body.starts_with(r#"{"labels""#),
-                    "{body}"
-                );
+                assert_eq!(reply.json()["labels"], json!({"again":"yes"}), "{body}");
             } else {
                 assert_eq!(server.request("PATCH", path, body).status, 400, "{body}");
             }

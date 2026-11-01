@@ -397,10 +397,14 @@ fn update_labels(
     mode: WriteMode,
     profile: CompatProfile,
 ) -> Result<Option<BTreeMap<String, Option<String>>>, JsonError> {
-    // Cloud Storage cleared the labels for a labels member that is not a map, such as a string
-    // (recorded 2026-10-31).
-    if value.is_null() || (profile == CompatProfile::Native && !value.is_object()) {
+    // A labels member that is not a map (a string or an array) changes nothing here. The recording
+    // sent a string to a bucket that had no labels, so it cannot tell "cleared" from "left alone";
+    // keeping the labels is the choice that cannot destroy data.
+    if value.is_null() {
         return Ok(None);
+    }
+    if profile == CompatProfile::Native && !value.is_object() {
+        return Ok(Some(BTreeMap::new()));
     }
     let replace = mode == WriteMode::Replace;
     let labels = value
@@ -477,11 +481,14 @@ fn parse_bucket_update(
             .transpose()
     };
     let native = profile == CompatProfile::Native;
-    // Cloud Storage accepted a null storageClass and left the class alone (recorded 2026-10-31).
+    // A null storageClass leaves the class alone. The recording sent it to a bucket already in the
+    // default class, so this is an unverified choice, not an observation.
     let storage_class = update_storage_class(body, profile)?;
-    // A PUT replaces the whole resource, so what it omits is cleared; Cloud Storage kept only the
-    // storage class, the access settings and the ACLs (recorded 2026-10-31). The legacy profile
-    // keeps merging.
+    // A PUT replaces the whole resource, so what it omits is cleared. Verified against the
+    // recording: labels, cors, lifecycle, versioning and the retention policy are cleared, while the
+    // storage class, PAP and the ACLs are kept. Unverified choices: defaultEventBasedHold is
+    // cleared, UBLA and autoclass are kept, and a locked retention policy is kept. The legacy
+    // profile keeps merging.
     let omitted_clears = replace && native;
     let labels = match body.get("labels") {
         Some(value) => Some(update_labels(value, mode, profile)?),
@@ -577,8 +584,9 @@ fn reject_unsupported_update_fields(
     Ok(())
 }
 
-/// The storage class of an update. Cloud Storage accepted a null class and left the class alone
-/// (recorded 2026-10-31), and an update names a rejected class, unlike an insert.
+/// The storage class of an update. A null class leaves the class alone (an unverified choice, see
+/// `parse_bucket_update`), and an update names a rejected class, unlike an insert (recorded
+/// 2026-10-31).
 fn update_storage_class(
     body: &serde_json::Map<String, Value>,
     profile: CompatProfile,
@@ -640,8 +648,9 @@ fn update_touches_bucket(body: &serde_json::Map<String, Value>) -> bool {
     })
 }
 
-/// A lifecycle member. A JSON array is not a lifecycle message, and Cloud Storage accepted it
-/// without changing the stored rules (recorded 2026-10-31); the legacy profile rejects it.
+/// A lifecycle member. A JSON array is not a lifecycle message; the recording shows it accepted, but
+/// it was sent to a bucket without rules, so it cannot tell "cleared" from "left alone". Leaving
+/// the rules alone is the choice that cannot destroy data; the legacy profile rejects it.
 fn parse_lifecycle(
     value: Option<&Value>,
     profile: CompatProfile,
