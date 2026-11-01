@@ -4768,7 +4768,7 @@
           ]
         }
       ],
-      "test_ids": [ "wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order", "wire_parity_http::legacy_profile_keeps_compact_bodies", "json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value", "bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value", "bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others", "bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions", "bucket_soft_delete_http::new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted", "bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently", "bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged", "bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup", "storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic", "storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds", "storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond", "retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording", "retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override", "grpc::v2::update_copy::tests::grpc_update_object_retention", "grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds", "storage::catalog::objects::retention::tests::column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause","config::storage::tests::memory_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::unconfigured_native_server_gives_new_buckets_the_seven_day_default","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range",
+      "test_ids": [ "bucket_http::satisfies_pzi_is_true_in_every_location", "wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order", "wire_parity_http::legacy_profile_keeps_compact_bodies", "json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value", "bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value", "bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others", "bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions", "bucket_soft_delete_http::new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted", "bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently", "bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged", "bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup", "storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic", "storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds", "storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond", "retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording", "retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override", "grpc::v2::update_copy::tests::grpc_update_object_retention", "grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds", "storage::catalog::objects::retention::tests::column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause","config::storage::tests::memory_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::unconfigured_native_server_gives_new_buckets_the_seven_day_default","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range",
         "bucket_soft_delete_get_list_and_restore_round_trip",
         "strict_soft_deleted_bucket_access_uses_project_permissions",
         "bucket_query_booleans_keep_supported_and_unsupported_semantics",
@@ -4866,7 +4866,8 @@
         "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
         "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
-      "verification": [ {"command":"cargo test --locked --test bucket_http --test retention_roundtrip_http --test basic_contract_http --test acl_http; cargo test --locked --lib grpc::v2::update_copy","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others","bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions","retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording","retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override","grpc::v2::update_copy::tests::grpc_update_object_retention","grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds"]},
+      "verification": [ {"command":"cargo test --locked --test bucket_http --test retention_roundtrip_http --test basic_contract_http --test acl_http; cargo test --locked --lib grpc::v2::update_copy","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["bucket_http::satisfies_pzi_is_true_in_every_location","bucket_http::writing_patch_and_put_evaluate_metageneration_preconditions","retention_roundtrip_http::bucket_retention_policy_denies_delete_and_overwrite_with_the_object_retention_wording","retention_roundtrip_http::unlocked_removal_and_shortening_share_one_refusal_without_the_override","grpc::v2::update_copy::tests::grpc_update_object_retention","grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds"]},
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others"]},
         {"command":"cargo test --locked -- --test-threads=4","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["wire_parity_http::bucket_resources_carry_recorded_fields_in_recorded_order","wire_parity_http::legacy_profile_keeps_compact_bodies","json::tests::satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value","bucket_http::satisfies_pzi_and_pzs_are_ignored_on_insert_patch_and_put_whatever_their_value","bucket_soft_delete_http::new_bucket_without_a_policy_gets_the_seven_day_default_and_is_soft_deleted","bucket_soft_delete_http::explicit_zero_policy_overrides_the_default_and_deletes_permanently","bucket_soft_delete_http::zero_default_keeps_new_buckets_without_a_policy_and_existing_ones_are_unchanged","bucket_soft_delete_http::invalid_default_retention_is_rejected_at_startup","storage::catalog::bucket_soft_delete::tests::new_bucket_generations_are_nanosecond_scale_unique_and_monotonic","storage::catalog::bucket_soft_delete::tests::schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds","storage::catalog::bucket_soft_delete::tests::schema_45_backfills_generations_and_keeps_new_ones_unique","retention_roundtrip_http::locked_retention_read_back_is_accepted_and_a_shorter_time_is_not","retention_roundtrip_http::unlocked_retention_compares_below_the_displayed_millisecond","storage::catalog::objects::retention::tests::column_keeps_nanoseconds_and_reads_microsecond_rows_unchanged","storage::catalog::objects::retention::tests::session_value_keeps_the_remainder_and_reads_older_sessions","storage::resumable_http_tests::object_retention::object_retention_mode_transitions_and_injected_clock_expiry","retention_roundtrip_http::custom_time_read_back_is_accepted_and_a_decrease_is_not","object::retention::tests::echoing_the_displayed_millisecond_time_of_a_locked_value_is_refused_even_with_the_override","object::retention::tests::echoing_the_displayed_millisecond_time_of_an_unlocked_value_is_a_shortening","object::retention::tests::a_time_even_one_millisecond_shorter_is_refused","object::retention::tests::a_longer_time_is_accepted_and_stored_as_requested","json::object_retention::tests::retain_until_displays_milliseconds_and_keeps_nanoseconds","json::object_retention::tests::retain_until_at_the_end_of_the_supported_range","memory_backend::memory_backend_default_frees_deleted_data_so_repeated_create_delete_never_exhausts_capacity","memory_backend::memory_backend_keeps_seven_day_soft_delete_when_asked_and_capacity_errors_name_the_cause","config::storage::tests::memory_backend_defaults_soft_delete_off_unless_the_setting_is_explicit","bucket_initialization::soft_delete_default_reaches_initializer_and_seed_buckets_and_an_entry_can_override_it","bucket_initialization::invalid_soft_delete_policy_in_the_buckets_file_is_reported_before_any_mutation","bucket_soft_delete_http::unconfigured_native_server_gives_new_buckets_the_seven_day_default","bucket_soft_delete_http::unconfigured_legacy_server_gives_new_buckets_no_soft_delete_policy","storage::catalog_tests::bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_nanosecond_range"]},
         {"command":"cargo test --locked --lib -- object::retention object::unix_nanos storage::catalog::objects::retention import::codec","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/response-wire-provider-observations.md","test_ids":["object::retention::tests::one_nanosecond_decides_shortening_and_expiry_on_every_platform","object::unix_nanos::tests::keeps_nanoseconds_that_are_not_a_multiple_of_100","storage::catalog::objects::retention::tests::read_restores_the_exact_nanosecond_from_the_columns","import::codec::tests::retention_timestamps_keep_every_nanosecond_on_every_platform"]},
         {"command":"cargo test --locked --offline --test bucket_soft_delete_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/bucket-soft-delete-restore.md","test_ids":["bucket_soft_delete_get_list_and_restore_round_trip","strict_soft_deleted_bucket_access_uses_project_permissions"]},
@@ -7487,6 +7488,7 @@
         "bucket_cors_malformed_input_preserves_entire_resource",
         "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
         "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+        "bucket_get_rejects_patch_only_acl_query_parameters",
         "bucket_get_ignores_or_rejects_patch_only_acl_query_parameters",
         "bucket_patch_accepts_only_empty_lifecycle_rules",
         "bucket_patch_conditioned_race_has_one_winner",
@@ -7499,6 +7501,7 @@
         "bucket_patch_merges_labels_class_and_preserves_resources",
         "bucket_patch_missing_bucket_validates_body_before_lookup",
         "bucket_patch_null_settings_follow_profile_defaults",
+        "bucket_patch_rejects_get_only_generation_query_parameter",
         "bucket_patch_get_only_generation_query_parameter_follows_profile",
         "bucket_patch_settings_control_future_object_effects",
         "bucket_patch_strict_permissions_and_policy_preservation",
@@ -7578,8 +7581,8 @@
             "bucket_patch_unsupported_and_output_inputs_preserve_state",
             "bucket_patch_accepts_only_empty_lifecycle_rules",
             "bucket_patch_missing_bucket_validates_body_before_lookup",
-            "bucket_get_ignores_or_rejects_patch_only_acl_query_parameters",
-            "bucket_patch_get_only_generation_query_parameter_follows_profile",
+            "bucket_get_rejects_patch_only_acl_query_parameters",
+            "bucket_patch_rejects_get_only_generation_query_parameter",
             "bucket_patch_full_resource_round_trip_preserves_unchanged_fields",
             "bucket_patch_location_comparison_is_case_insensitive"
           ]
@@ -7775,7 +7778,7 @@
             "bucket_cors_malformed_input_preserves_entire_resource",
             "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
             "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
-            "bucket_get_ignores_or_rejects_patch_only_acl_query_parameters",
+            "bucket_get_rejects_patch_only_acl_query_parameters",
             "bucket_patch_accepts_only_empty_lifecycle_rules",
             "bucket_patch_conditioned_race_has_one_winner",
             "bucket_patch_conditions_and_query_contract",
@@ -7787,7 +7790,7 @@
             "bucket_patch_merges_labels_class_and_preserves_resources",
             "bucket_patch_missing_bucket_validates_body_before_lookup",
             "bucket_patch_null_settings_follow_profile_defaults",
-            "bucket_patch_get_only_generation_query_parameter_follows_profile",
+            "bucket_patch_rejects_get_only_generation_query_parameter",
             "bucket_patch_settings_control_future_object_effects",
             "bucket_patch_strict_permissions_and_policy_preservation",
             "bucket_patch_unsupported_and_output_inputs_preserve_state",
@@ -9059,8 +9062,10 @@
         "bucket_put_location_comparison_is_case_insensitive",
         "bucket_put_missing_bucket_validates_body_before_lookup",
         "bucket_put_null_settings_follow_profile_defaults",
+        "bucket_put_omitted_settings_survive_partial_iam_updates",
         "bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits",
         "bucket_put_ruby_update_block_preserves_unrelated_settings",
+        "bucket_put_rejects_get_only_generation_query_parameter",
         "bucket_put_get_only_generation_query_parameter_follows_profile",
         "bucket_put_replaces_omitted_fields_and_preserves_resources",
         "bucket_put_settings_control_future_object_effects",
@@ -9110,7 +9115,7 @@
       "verification": [
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits","bucket_put_get_only_generation_query_parameter_follows_profile"]},
         {"command":"cargo test --locked --test bucket_if_match_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-bucket-write-etags.md","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
-        {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits","bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_empty_null_and_invalid_inputs","bucket_put_full_resource_round_trip_preserves_unchanged_fields","bucket_put_settings_control_future_object_effects","bucket_put_null_settings_follow_profile_defaults","bucket_put_uses_clock_and_rolls_back_invalid_replacement","retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","auth::tests::pap_mutations_require_update_and_set_iam_permissions"]},
+        {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["bucket_put_omitted_settings_survive_partial_iam_updates","bucket_put_replaces_omitted_fields_and_preserves_resources","bucket_put_empty_null_and_invalid_inputs","bucket_put_full_resource_round_trip_preserves_unchanged_fields","bucket_put_settings_control_future_object_effects","bucket_put_null_settings_follow_profile_defaults","bucket_put_uses_clock_and_rolls_back_invalid_replacement","retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","auth::tests::pap_mutations_require_update_and_set_iam_permissions"]},
         {"command":"Getting-started native PUT block extracted with awk and executed once with bash -eu against an isolated HTTP/permissive debug binary","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["guide-bucket-put-native"]},
         {"command":"just check-sdk","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["TestBucketMetadataReplace","TestStrictAuthBucketMetadataReplace","bucket_put_ruby_update_block_preserves_unrelated_settings"]},
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
@@ -9134,7 +9139,7 @@
             "bucket_put_legacy_rendering_and_restart",
             "bucket_put_unsupported_and_output_inputs_preserve_state",
             "bucket_put_missing_bucket_validates_body_before_lookup",
-            "bucket_put_get_only_generation_query_parameter_follows_profile",
+            "bucket_put_rejects_get_only_generation_query_parameter",
             "bucket_put_full_resource_round_trip_preserves_unchanged_fields",
             "bucket_put_location_comparison_is_case_insensitive"
           ]
@@ -9341,7 +9346,7 @@
             "bucket_put_location_comparison_is_case_insensitive",
             "bucket_put_missing_bucket_validates_body_before_lookup",
             "bucket_put_null_settings_follow_profile_defaults",
-            "bucket_put_get_only_generation_query_parameter_follows_profile",
+            "bucket_put_rejects_get_only_generation_query_parameter",
             "bucket_put_replaces_omitted_fields_and_preserves_resources",
             "bucket_put_settings_control_future_object_effects",
             "bucket_put_strict_permissions_and_policy_preservation",
@@ -26495,10 +26500,11 @@
         },
         {
           "id": "BASIC-HASH-MEDIA",
-          "description": "Explicit Content-Type isolates correct MD5-only, CRC32C-only and both X-Goog-Hash success; a JSON media upload does not verify a declared hash, so a wrong one is accepted and the computed hashes are stored (recorded on Cloud Storage 2026-10-31). Count checksum/status only; parser/reason/conflict/precedence choices remain on JSON-OBJECTS-007.",
+          "description": "Explicit Content-Type isolates correct MD5-only, CRC32C-only and both X-Goog-Hash success; a JSON media upload does not verify a declared hash, so a wrong one is accepted and the computed hashes are stored (recorded on Cloud Storage 2026-10-31). Count checksum/status only; parser/reason/conflict/precedence choices remain on JSON-OBJECTS-007. The 2026-10-23 verification ran an earlier version of this test (basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites) that asserted validation; it is kept only so that entry stays unchanged, and only the current test is counted here.",
           "result": "PASS",
           "test_ids": [
-            "basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones"
+            "basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones",
+            "basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites"
           ]
         },
         {
@@ -26545,6 +26551,7 @@
       "test_ids": [
         "empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes",
         "obj_http_media_and_multipart_independent_checksum_vectors_across_chunks",
+        "basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites",
         "basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones",
         "basic_contract_multipart_metadata_only_checksums_validate_stored_bytes",
         "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
@@ -26569,7 +26576,7 @@
           "test_ids": [
             "empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes",
             "obj_http_media_and_multipart_independent_checksum_vectors_across_chunks",
-            "basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones",
+            "basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites",
             "basic_contract_multipart_metadata_only_checksums_validate_stored_bytes",
             "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
             "basic_contract_single_request_resumable_checksums_validate_stored_bytes",
@@ -28798,6 +28805,7 @@
         "gunzipping_a_plain_body_fails_400_before_the_headers_are_sent",
         "head_with_range_answers_206_and_content_range_on_json_and_xml",
         "media_responses_carry_the_provider_object_headers",
+        "media_upload_hash_is_checked_against_the_stored_bytes",
         "media_upload_stores_computed_hashes_whatever_the_declared_md5",
         "anonymous_json_media_read_of_a_public_object_carries_the_public_header_set",
         "xml_unsatisfiable_range_carries_object_headers_and_echoes_the_range"
@@ -28820,9 +28828,10 @@
           "artifact": "docs/en/evidence/media-read-provider-observations.md",
           "test_ids": [
             "media_transport_gzip_stores_the_decoded_body",
-            "media_upload_stores_computed_hashes_whatever_the_declared_md5"
+            "media_upload_hash_is_checked_against_the_stored_bytes"
           ]
         },
+        {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["media_upload_stores_computed_hashes_whatever_the_declared_md5"]},
         {
           "command": "cargo test --locked --test sdk_object_wire_http json_media_head",
           "result": "PASS",
