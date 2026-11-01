@@ -219,8 +219,9 @@ to this slice.
 These results predate the native replacement behavior. The Ruby update block and the
 Go `TestBucketMetadataReplace` have since been rewritten for the native replacement
 (the Ruby case is now `bucket_put_ruby_update_block_replaces_and_setters_patch`),
-but they have not been re-run as a pair, so the SDK part of this verification is not
-counted for the native profile until they are.
+and both passed against the native profile on 2026-11-01
+(`GCSM_TEST_RAMDISK=0 bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby`,
+which also ran `TestStrictAuthBucketMetadataReplace`).
 
 On 2026-10-27, Ruby 4.0.9 / Storage 1.62.1 and Go 1.27.3 / Storage v1.70.0 /
 generated API v0.309.0 reproduced lost versioning/labels before the fix.
