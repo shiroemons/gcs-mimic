@@ -457,3 +457,104 @@ Pinned/current-stable Rust CI and native amd64/arm64 container CI are configured
 - [Container checks](evidence/p0-containers.txt)
 - [Freshness check](evidence/p0-dependencies.txt)
 - [Coding-agent rules](../../AGENTS.md)
+
+## Differential harness
+
+`cargo xtask differential` sends the same declarative request sequences to the
+real Cloud Storage service and to a freshly built native-profile `gcs-mimic`,
+normalizes both responses and reports every difference in status, headers and
+JSON body paths. It finds drift in implemented behavior; it does not decide
+which side is right, and it never fixes anything. HTTP goes through the
+external `curl` command; the transport is a trait so a `grpcurl` transport can
+be added later.
+
+```sh
+cargo xtask differential validate            # parse and check the case files, no network
+cargo xtask differential run                 # self-check: gcs-mimic only
+cargo xtask differential run --reference compatibility/differential/reference/gcs.json
+GCS_MIMIC_DIFF_PROJECT=<project> GCS_MIMIC_DIFF_TOKEN="$(gcloud auth print-access-token)" \
+  cargo xtask differential run --record compatibility/differential/reference/gcs.json
+```
+
+Modes:
+
+- **Self-check** is the default. Nothing contacts Google. It checks that every
+  case runs and that each step meets its `expect_status`.
+- **Live** needs both `GCS_MIMIC_DIFF_PROJECT` and `GCS_MIMIC_DIFF_TOKEN`
+  (an OAuth access token); one alone is an error. The token goes to `curl` on
+  stdin, never on the command line. The run creates one disposable
+  `us-central1` STANDARD bucket with soft delete off for all cases, plus the
+  one bucket the `bucket-lifecycle` case creates and deletes itself. It always
+  empties and deletes them afterwards and confirms a 404. The report states how
+  many requests the run sent to the live service. The sanitized reference
+  responses are saved (`--record FILE`, default `reference-recording.json` in
+  the output directory).
+- **Replay** (`--reference FILE`) compares gcs-mimic with a saved recording and
+  never contacts Google, so a fix can be checked offline. Re-record when a case
+  changes; a recording whose step names no longer match the case is reported as
+  an error. `--record FILE` in self-check mode records gcs-mimic itself, which
+  gives an offline fixture for testing the replay path.
+
+Other options: `--cases DIR` (default `compatibility/differential/cases`),
+`--filter TEXT` (case ids containing the text), `--out DIR` (default a
+temporary directory outside the repository), `--binary PATH` (skip the build),
+`--evidence FILE` (also write the Markdown report there) and `--fail-on-diff`
+(exit nonzero on differences; harness errors and failed cleanups always fail).
+
+Every file the harness writes is checked first: it must not contain the
+project, the token, a bucket name of the run, the local endpoint or a local
+path, otherwise nothing is written. Values are replaced by placeholders before
+they are compared, recorded or reported (`<bucket>`, `<project>`,
+`<project-number>`, `<host>`, `<time>`, `<etag>`, `<generation>` and captured
+variables). The infrastructure headers `date`, `server`, `alt-svc`,
+`x-guploader-uploadid`, `content-length` and similar are dropped.
+
+### Case files
+
+One JSON file per case in `compatibility/differential/cases/`; the `id` equals
+the file name, and unknown fields are rejected. Areas can add files
+independently.
+
+```json
+{
+  "id": "object-preconditions",
+  "description": "What the case checks.",
+  "bucket": true,
+  "compare": {"ignore_headers": ["vary"]},
+  "steps": [
+    {
+      "name": "upload",
+      "method": "POST",
+      "path": "/upload/storage/v1/b/{bucket}/o",
+      "query": {"uploadType": "media", "name": "{object}"},
+      "headers": {"Content-Type": "text/plain"},
+      "body_text": "hello",
+      "capture": {"gen": "body:generation"},
+      "expect_status": 200,
+      "compare": {"ignore_body_paths": ["$.items[*].etag"], "body": "auto"}
+    }
+  ]
+}
+```
+
+- `bucket` (default true) makes `{bucket}` the shared bucket. Cases that mutate
+  bucket state in a way other cases would notice should use `{new_bucket}`
+  and create and delete it themselves. `{missing_bucket}` names a bucket that
+  does not exist.
+- Variables: `{project}`, `{bucket}`, `{new_bucket}`, `{missing_bucket}`,
+  `{object}`, `{object2}` (unique per case) and captured values. `{{` and `}}`
+  write literal braces. A variable must be defined before its first use.
+- `body` is JSON; `body_text` is raw text. Query values are percent-encoded by
+  the harness; write paths already encoded.
+- `capture` maps a name to `body:dotted.path` or `header:name` /
+  `header:name?param` (a query parameter of the header value, such as the
+  upload ID in a resumable `Location`).
+- `compare` (case level, merged into each step) accepts `ignore_headers`,
+  `only_headers`, `ignore_body_paths` (`$.a.b[*].c`, covering the subtree) and
+  `body` (`auto`, `json`, `text`, `ignore`). `"compare": false` on a step runs
+  it without comparing it.
+- `protocol` defaults to `http`; no other value is accepted yet.
+
+Cases may never request locked retention. Before any request is sent,
+validation rejects `lockRetentionPolicy` in a path, query or body,
+`isLocked: true`, and an object retention mode of `Locked`.

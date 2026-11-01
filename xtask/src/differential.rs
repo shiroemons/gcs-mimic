@@ -1,0 +1,329 @@
+//! Differential harness: sends the same declarative request sequences to the
+//! real Cloud Storage service and to a local gcs-mimic, normalizes the
+//! responses and reports every difference.
+//!
+//! The harness never contacts Google unless `GCS_MIMIC_DIFF_PROJECT` and
+//! `GCS_MIMIC_DIFF_TOKEN` are both set. See `docs/en/development.md`.
+
+mod bucket;
+mod case;
+mod diff;
+mod normalize;
+mod recording;
+mod report;
+mod runner;
+mod server;
+mod template;
+mod transport;
+
+use runner::{CaseOutcome, Names, Side, run_side};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
+use transport::{CurlTransport, Transport};
+
+type Result<T> = std::result::Result<T, String>;
+
+const DEFAULT_CASES: &str = "compatibility/differential/cases";
+const DEFAULT_ENDPOINT: &str = "https://storage.googleapis.com";
+const LOCAL_PROJECT: &str = "local-project";
+
+pub const USAGE: &str = "Usage: cargo xtask differential validate [--cases DIR] | differential run [--cases DIR] [--filter TEXT] [--out DIR] [--record FILE] [--reference FILE] [--evidence FILE] [--binary PATH] [--fail-on-diff]";
+
+#[derive(Default)]
+struct Options {
+    cases: Option<PathBuf>,
+    filter: Option<String>,
+    out: Option<PathBuf>,
+    record: Option<PathBuf>,
+    reference: Option<PathBuf>,
+    evidence: Option<PathBuf>,
+    binary: Option<PathBuf>,
+    fail_on_diff: bool,
+}
+
+fn parse_options(args: &[String]) -> Result<Options> {
+    let mut options = Options::default();
+    let mut iter = args.iter();
+    while let Some(flag) = iter.next() {
+        if flag == "--fail-on-diff" {
+            options.fail_on_diff = true;
+            continue;
+        }
+        let value = iter.next().ok_or_else(|| format!("{flag} needs a value"))?;
+        let path = || PathBuf::from(value);
+        match flag.as_str() {
+            "--cases" => options.cases = Some(path()),
+            "--filter" => options.filter = Some(value.clone()),
+            "--out" => options.out = Some(path()),
+            "--record" => options.record = Some(path()),
+            "--reference" => options.reference = Some(path()),
+            "--evidence" => options.evidence = Some(path()),
+            "--binary" => options.binary = Some(path()),
+            other => return Err(format!("unknown option {other}")),
+        }
+    }
+    Ok(options)
+}
+
+fn random_hex() -> String {
+    use std::io::Read;
+    let mut bytes = [0u8; 4];
+    let filled = fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut bytes))
+        .is_ok();
+    if !filled {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        bytes = (nanos ^ std::process::id()).to_le_bytes();
+    }
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// UTC calendar date from the system clock (civil-from-days).
+fn today() -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let days = i64::try_from(secs / 86_400).unwrap_or(0) + 719_468;
+    let era = days.div_euclid(146_097);
+    let doe = days.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+enum Mode {
+    SelfCheck,
+    Live {
+        project: String,
+        token: String,
+        endpoint: String,
+    },
+    Replay(PathBuf),
+}
+
+fn select_mode(options: &Options) -> Result<Mode> {
+    let project = env::var("GCS_MIMIC_DIFF_PROJECT")
+        .ok()
+        .filter(|v| !v.is_empty());
+    let token = env::var("GCS_MIMIC_DIFF_TOKEN")
+        .ok()
+        .filter(|v| !v.is_empty());
+    match (project, token, &options.reference) {
+        (Some(_), _, Some(_)) | (_, Some(_), Some(_)) => Err(
+            "--reference replays a recording; unset GCS_MIMIC_DIFF_PROJECT and GCS_MIMIC_DIFF_TOKEN".into(),
+        ),
+        (Some(project), Some(token), None) => {
+            let endpoint = env::var("GCS_MIMIC_DIFF_ENDPOINT").unwrap_or_else(|_| DEFAULT_ENDPOINT.into());
+            if !endpoint.starts_with("https://") {
+                return Err("GCS_MIMIC_DIFF_ENDPOINT must start with https://".into());
+            }
+            Ok(Mode::Live { project, token, endpoint })
+        }
+        (Some(_), None, None) | (None, Some(_), None) => Err(
+            "set both GCS_MIMIC_DIFF_PROJECT and GCS_MIMIC_DIFF_TOKEN to contact the live service, or neither".into(),
+        ),
+        (None, None, Some(path)) => Ok(Mode::Replay(path.clone())),
+        (None, None, None) => Ok(Mode::SelfCheck),
+    }
+}
+
+pub fn validate(root: &Path, args: &[String]) -> Result<()> {
+    let options = parse_options(args)?;
+    let dir = root.join(options.cases.unwrap_or_else(|| DEFAULT_CASES.into()));
+    let cases = case::load_cases(&dir)?;
+    println!("{} differential cases are valid", cases.len());
+    Ok(())
+}
+
+fn write_checked(path: &Path, text: &str, secrets: &[(String, &str)]) -> Result<()> {
+    report::ensure_clean(text, secrets).map_err(|e| format!("{}: {e}", path.display()))?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    }
+    fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Runs the harness. Returns whether the run counts as failed.
+pub fn run(root: &Path, args: &[String]) -> Result<bool> {
+    let options = parse_options(args)?;
+    let mode = select_mode(&options)?;
+    let dir = root.join(
+        options
+            .cases
+            .clone()
+            .unwrap_or_else(|| DEFAULT_CASES.into()),
+    );
+    let mut cases = case::load_cases(&dir)?;
+    if let Some(filter) = &options.filter {
+        cases.retain(|c| c.id.contains(filter.as_str()));
+        if cases.is_empty() {
+            return Err(format!("no case matches {filter:?}"));
+        }
+    }
+    let replayed = match &mode {
+        Mode::Replay(path) => Some(recording::from_json(&crate::read_json(path)?)?),
+        _ => None,
+    };
+    let work = env::temp_dir().join(format!("gcsmimic-differential-{}", random_hex()));
+    let scratch = work.join("scratch");
+    fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
+    let outcome = execute(root, &options, &mode, replayed, &cases, &work, &scratch);
+    server::remove_dir(&scratch);
+    server::remove_dir(&work.join("data"));
+    outcome
+}
+
+fn execute(
+    root: &Path,
+    options: &Options,
+    mode: &Mode,
+    replayed: Option<recording::Recording>,
+    cases: &[case::Case],
+    work: &Path,
+    scratch: &Path,
+) -> Result<bool> {
+    let binary = match &options.binary {
+        Some(path) => path.clone(),
+        None => server::build(root)?,
+    };
+    let local = server::LocalServer::start(&binary, work)?;
+    let run_id = format!("gcsmimic-diff-{}", random_hex());
+    let names = Names {
+        bucket: format!("{run_id}-b"),
+        new_bucket: format!("{run_id}-n"),
+        missing_bucket: format!("{run_id}-m"),
+    };
+    let project = match mode {
+        Mode::Live { project, .. } => project.as_str(),
+        _ => LOCAL_PROJECT,
+    };
+    let mimic_transport = CurlTransport::new(&local.endpoint, None, true, scratch);
+    let host = local.endpoint.trim_start_matches("http://").to_owned();
+    let mimic_side = Side {
+        transport: &mimic_transport,
+        project,
+        hosts: vec![local.endpoint.clone(), host],
+    };
+    println!(
+        "running {} cases against gcs-mimic at the local endpoint",
+        cases.len()
+    );
+    let mimic_run = run_side(&mimic_side, cases, &names);
+    let mut secrets: Vec<(String, &str)> = vec![
+        (names.bucket.clone(), "bucket name"),
+        (names.new_bucket.clone(), "bucket name"),
+        (names.missing_bucket.clone(), "bucket name"),
+        (local.endpoint.clone(), "local endpoint"),
+    ];
+
+    let mut reference_requests = None;
+    let mut reference_cleanup = Vec::new();
+    let mut reference_failed_cleanup = false;
+    let mut generated = today();
+    let reference_cases: Option<Vec<CaseOutcome>> = match mode {
+        Mode::SelfCheck => None,
+        Mode::Replay(_) => {
+            let recorded = replayed.ok_or("recording was not loaded")?;
+            generated = format!("{generated} (recording of {})", recorded.generated);
+            reference_requests = None;
+            Some(recorded.cases)
+        }
+        Mode::Live {
+            project,
+            token,
+            endpoint,
+        } => {
+            secrets.push((project.clone(), "project"));
+            secrets.push((token.clone(), "access token"));
+            let transport = CurlTransport::new(endpoint, Some(token.clone()), false, scratch);
+            let hosts = vec![
+                endpoint.clone(),
+                endpoint.trim_start_matches("https://").to_owned(),
+                "https://www.googleapis.com".into(),
+                "www.googleapis.com".into(),
+            ];
+            let side = Side {
+                transport: &transport,
+                project,
+                hosts,
+            };
+            println!(
+                "running {} cases against the live reference service",
+                cases.len()
+            );
+            let run = run_side(&side, cases, &names);
+            reference_requests = Some(transport.requests());
+            reference_cleanup = run.cleanup;
+            reference_failed_cleanup = run.failed_cleanup;
+            let recording = recording::Recording {
+                generated: today(),
+                requests: transport.requests(),
+                cases: run.cases.clone(),
+            };
+            let path = options
+                .record
+                .clone()
+                .unwrap_or_else(|| out_dir(options, work).join("reference-recording.json"));
+            write_checked(
+                &path,
+                &(recording::to_json(&recording).to_string() + "\n"),
+                &secrets,
+            )?;
+            println!("wrote sanitized reference recording: {}", path.display());
+            Some(run.cases)
+        }
+    };
+
+    if let (Mode::SelfCheck, Some(path)) = (mode, &options.record) {
+        // Recording gcs-mimic itself gives an offline fixture for testing replay.
+        let recording = recording::Recording {
+            generated: today(),
+            requests: 0,
+            cases: mimic_run.cases.clone(),
+        };
+        write_checked(
+            path,
+            &(recording::to_json(&recording).to_string() + "\n"),
+            &secrets,
+        )?;
+    }
+
+    let reports = report::build(cases, &mimic_run.cases, reference_cases.as_deref());
+    let mode_label = match mode {
+        Mode::SelfCheck => "self-check (gcs-mimic only)",
+        Mode::Live { .. } => "live comparison against the real service",
+        Mode::Replay(_) => "replay of a recorded reference",
+    };
+    let header = report::Header {
+        mode: mode_label,
+        generated: &generated,
+        reference_requests,
+        cleanup: &mimic_run.cleanup,
+        reference_cleanup: &reference_cleanup,
+    };
+    let markdown = report::markdown(&header, &reports);
+    let json_text = report::json_report(&header, &reports).to_string() + "\n";
+    let out = out_dir(options, work);
+    write_checked(&out.join("report.md"), &markdown, &secrets)?;
+    write_checked(&out.join("report.json"), &json_text, &secrets)?;
+    if let Some(path) = &options.evidence {
+        write_checked(path, &markdown, &secrets)?;
+    }
+    println!("{markdown}");
+    println!("reports: {}", out.display());
+    let failed_cleanup = mimic_run.failed_cleanup || reference_failed_cleanup;
+    Ok(failed_cleanup || report::has_failures(&reports, options.fail_on_diff))
+}
+
+fn out_dir(options: &Options, work: &Path) -> PathBuf {
+    options.out.clone().unwrap_or_else(|| work.join("out"))
+}
