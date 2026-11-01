@@ -8768,7 +8768,7 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id":"PUT-ETAG-HEADERS-IGNORED","description":"The .NET UpdateBucketAsync If-Match (gzip full-resource PUT) and a stale If-Match on PUT return 200 and apply the replacement, as observed on Cloud Storage on 2026-10-31; query metageneration conditions remain atomic. Accepted-but-ignored by observed provider behavior, not an evaluated precondition.","result":"PASS","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
-        {"id":"PUT-RUBY-UPDATE-BLOCK","description":"Ruby Storage 1.62.1 update block changes only PAP; the native profile clears the omitted versioning, labels and default hold like a recorded Cloud Storage PUT (2026-10-31) and keeps the storage class, soft delete policy and access settings, while the legacy-emulator profile preserves every omitted setting as a local choice (SPEC-BUCKET-PUT). Not yet verified against the current native behavior: the Rust test bucket_put_ruby_update_block_preserves_unrelated_settings and the Go TestBucketMetadataReplace still assert that omitted settings survive, and TestBucketMetadataReplace currently fails; the case returns to PASS only after both are updated and re-run, and the Ruby update block (sdk-tests/ruby, https.rb --bucket-put) passes. Until then only the class, soft delete and access-setting retention (bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits) is verified.","result":"PENDING","test_ids":["bucket_put_ruby_update_block_preserves_unrelated_settings","bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits","TestBucketMetadataReplace"]},
+        {"id":"PUT-RUBY-UPDATE-BLOCK","description":"Ruby Storage 1.62.1 update block changes only PAP; the native profile clears the omitted versioning, labels and default hold like a recorded Cloud Storage PUT (2026-10-31) and keeps the storage class, soft delete policy and access settings, while the legacy-emulator profile preserves every omitted setting as a local choice (SPEC-BUCKET-PUT). Not yet verified as a whole: the Ruby script case bucket_put_ruby_update_block_replaces_and_setters_patch (sdk-tests/ruby/https.rb --bucket-put) now asserts that the block sends a PUT that clears the omitted versioning and labels and that plain setters send PATCHes that keep what they do not name, and the Go TestBucketMetadataReplace asserts the same replacement, but neither has been re-run against this source; the case returns to PASS only after both are re-run. Until then only the class, soft delete and access-setting retention (bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits) is verified.","result":"PENDING","test_ids":["bucket_put_ruby_update_block_replaces_and_setters_patch","bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits","TestBucketMetadataReplace"]},
         {"id":"RETENTION-CONFIG-CONTRIBUTION","description":"PUT sets/changes explicit retention and preserves omitted policy; explicit null clears unlocked policy and locked removal/shortening fails. Scope: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"id":"LIFECYCLE-UPDATE-REPLACE","description":"PUT replaces supplied lifecycle rules and preserves omitted configuration; explicit null/empty clears. Actions are not executed; docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
         {
@@ -8865,7 +8865,7 @@
         },
         {
           "id": "PUT-GO-SDK",
-          "description": "Pinned generated Go API Buckets.Update emits PUT; explicit replacement, conditions, high-level Attrs/object effects and strict denial/admin checks. Pending: TestBucketMetadataReplace currently fails against the native replacement behavior and is not counted as passing until the SDK test is updated and re-run.",
+          "description": "Pinned generated Go API Buckets.Update emits PUT; explicit replacement, conditions, high-level Attrs/object effects and strict denial/admin checks. Pending: TestBucketMetadataReplace now asserts the native replacement (omitted labels, versioning and default event-based hold cleared, storage class kept; the hold clearing is extrapolated from the other recorded fields), but it has not been re-run against this source and is not counted as passing until it is.",
           "test_ids": [
             "TestBucketMetadataReplace",
             "TestStrictAuthBucketMetadataReplace"
@@ -9064,6 +9064,7 @@
         "bucket_put_null_settings_follow_profile_defaults",
         "bucket_put_omitted_settings_survive_partial_iam_updates",
         "bucket_put_keeps_the_class_soft_delete_and_access_settings_it_omits",
+        "bucket_put_ruby_update_block_replaces_and_setters_patch",
         "bucket_put_ruby_update_block_preserves_unrelated_settings",
         "bucket_put_rejects_get_only_generation_query_parameter",
         "bucket_put_get_only_generation_query_parameter_follows_profile",
@@ -53012,12 +53013,12 @@
         },
         {
           "id": "PUT-GO-SDK",
-          "description": "Pinned generated Go API Buckets.Update emits PUT; replacement/defaults, conditions, high-level Attrs/object effects and strict denial/admin checks.",
+          "description": "Pinned generated Go API Buckets.Update emits PUT; replacement, conditions, high-level Attrs/object effects and strict denial/admin checks. Pending: TestBucketMetadataReplace now asserts the native replacement but has not been re-run against this source, so it is not counted as passing until it is.",
           "test_ids": [
             "TestBucketMetadataReplace",
             "TestStrictAuthBucketMetadataReplace"
           ],
-          "result": "PASS"
+          "result": "PENDING"
         },
         {
           "id": "GO-CORS",

@@ -9,6 +9,8 @@ JSON-BUCKETS-013はPARTIAL、再現精度はLOCAL_SIMULATIONのままです。
 ロック済みのretentionPolicyは残します。storageClass、softDeletePolicy、アクセス設定（PAP・UBLA）は省略しても保ちます。
 `predefinedAcl`を適用し、本文の`name`がパスと違うときは400を返します。
 PUTで更新を送るクライアント（生成されたGo APIの`Buckets.Update`など）では、省略した設定が消えます。
+Ruby google-cloud-storage 1.62.1の`bucket.update`ブロックもPUTを送るため、触れなかったversioningとlabelsが消えます。
+属性への直接代入はPATCHなので、名前を挙げなかった設定を保ちます（Rubyの受け入れケース`bucket_put_ruby_update_block_replaces_and_setters_patch`）。
 
 ## レガシー互換のプロファイル
 

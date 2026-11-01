@@ -77,7 +77,7 @@ No provider bucket is contacted or authorized by this contract.
 | --- | --- | --- |
 | `bucket_put_replaces_omitted_fields_and_preserves_resources` | Update a populated bucket; compare PATCH merge; GET/list/restart | Omitted modeled fields survive; supplied labels replace the map; identity, IAM, objects and bytes survive; one revision and changed etag |
 | `bucket_put_empty_null_and_invalid_inputs` | Empty object/map, null map, versioning:{}, empty wire body, top-level null/array, invalid JSON/types, oversized body | Empty object preserves settings; null/empty labels clear; versioning:{} disables; empty wire body/null/array/invalid input 400 and body over 64 KiB 413, without mutation |
-| `bucket_put_ruby_update_block_preserves_unrelated_settings` | Ruby update block changes only PAP on a bucket with versioning and labels; equivalent generated Go PUT | PAP changes while versioning and labels survive reload; no optional workaround arguments |
+| `bucket_put_ruby_update_block_replaces_and_setters_patch` | Ruby update block changes only PAP on a bucket with versioning and labels, then plain setters set versioning and labels (output of `sdk-tests/ruby/https.rb --bucket-put`, native profile) | The block sends a PUT: PAP changes and the omitted versioning and labels are cleared. The setters send PATCHes: they keep PAP and anything they do not name |
 | `bucket_put_omitted_settings_survive_partial_iam_updates` | Empty PUT and PAP-only PUT on a bucket with all modeled settings, in both profiles; restart | Labels, class, versioning, holds, CORS, UBLA, lifecycle, retention and soft-delete policy survive; only explicit PAP changes |
 | `bucket_put_label_boundaries_and_classes` | 64/65 keys; Unicode and 63/64 characters; classes | Shared insert/PATCH label and class validation; PUT labels replace the whole map; null label values invalid |
 | `bucket_put_unsupported_and_output_inputs_preserve_state` | Unsupported fields, omitted acl versus acl:[], defaultObjectAcl, output-only/unknown fields, versioning:{"enabled":true,"future":1}, lifecycle | Unsupported 400 badRequest without mutation; omitted acl accepted as local policy; acl:[] ignored; lifecycle empty rules clear; unknown versioning children ignored while enabled applies |
@@ -216,10 +216,11 @@ to this slice.
 
 ## SDK omission-preservation verification (2026-10-27, before native replacement)
 
-These results predate the native replacement behavior. The Rust test that asserts a
-Ruby update block preserves unrelated settings and the Go `TestBucketMetadataReplace`
-still describe omission preservation, so the SDK part of this verification is not
-counted for the native profile until those tests are updated and re-run.
+These results predate the native replacement behavior. The Ruby update block and the
+Go `TestBucketMetadataReplace` have since been rewritten for the native replacement
+(the Ruby case is now `bucket_put_ruby_update_block_replaces_and_setters_patch`),
+but they have not been re-run as a pair, so the SDK part of this verification is not
+counted for the native profile until they are.
 
 On 2026-10-27, Ruby 4.0.9 / Storage 1.62.1 and Go 1.27.3 / Storage v1.70.0 /
 generated API v0.309.0 reproduced lost versioning/labels before the fix.
