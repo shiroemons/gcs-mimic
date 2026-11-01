@@ -87,7 +87,8 @@ pub(crate) fn test_permissions_query(
             StatusCode::BAD_REQUEST,
             "required",
             "Missing permissions; supply permissions=storage.objects.get",
-        ));
+        )
+        .at_parameter("permissions"));
     }
     let mut query = query::parse_query(&rest.join("&"))?;
     if query.get("userProject").is_some_and(String::is_empty) {

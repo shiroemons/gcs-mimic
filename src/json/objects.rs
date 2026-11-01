@@ -231,7 +231,8 @@ fn parse_object_query(
                 StatusCode::BAD_REQUEST,
                 "invalidAltValue",
                 "alt must be json or media",
-            ));
+            )
+            .at_parameter("alt"));
         }
     };
     let conditions = ObjectConditions {
@@ -499,13 +500,14 @@ pub(super) fn integer(
         .remove(key)
         .map(|value| {
             if value.starts_with('+') {
-                return Err(JsonError::invalid_parameter(format!(
-                    "{key} must be an int64"
-                )));
+                return Err(
+                    JsonError::invalid_parameter(format!("{key} must be an int64"))
+                        .at_parameter(key),
+                );
             }
-            value
-                .parse()
-                .map_err(|_| JsonError::invalid_parameter(format!("{key} must be an int64")))
+            value.parse().map_err(|_| {
+                JsonError::invalid_parameter(format!("{key} must be an int64")).at_parameter(key)
+            })
         })
         .transpose()
 }

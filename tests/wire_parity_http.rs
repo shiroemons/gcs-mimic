@@ -828,3 +828,44 @@ fn json_api_responses_carry_the_recorded_cache_envelope() {
         Some(read.json()["etag"].as_str().unwrap())
     );
 }
+
+#[test]
+fn error_items_name_the_rejected_parameter_or_header() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    let item = |reply: &Reply| reply.json()["error"]["errors"][0].clone();
+
+    let bad_size = server.request(
+        "GET",
+        "/storage/v1/b?project=project-a&maxResults=abc",
+        "",
+        b"",
+    );
+    bad_size.status(400);
+    assert_eq!(item(&bad_size)["location"], "maxResults");
+    assert_eq!(item(&bad_size)["locationType"], "parameter");
+
+    let missing_project = server.request("GET", "/storage/v1/b", "", b"");
+    missing_project.status(400);
+    assert_eq!(item(&missing_project)["location"], "project");
+
+    let bad_projection = server.request("GET", &format!("{OBJECT}?projection=bogus"), "", b"");
+    bad_projection.status(400);
+    assert_eq!(item(&bad_projection)["location"], "projection");
+
+    let unbalanced = server.request("GET", &format!("{OBJECT}?fields=metadata%28a"), "", b"");
+    unbalanced.status(400);
+    assert_eq!(item(&unbalanced)["location"], "fields");
+
+    // A failed precondition names the header even when the condition was a query parameter.
+    let failed = server.request("DELETE", &format!("{OBJECT}?ifGenerationMatch=1"), "", b"");
+    failed.status(412);
+    assert_eq!(item(&failed)["location"], "If-Match");
+    assert_eq!(item(&failed)["locationType"], "header");
+
+    // A rejection that is not about one input carries no location.
+    let missing = server.request("GET", "/storage/v1/b/parity/o/absent.txt", "", b"");
+    missing.status(404);
+    assert!(item(&missing).get("location").is_none());
+}

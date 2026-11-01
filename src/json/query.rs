@@ -434,22 +434,7 @@ fn parse(
             } else {
                 1000
             };
-            let max_results = match query.remove("maxResults") {
-                None => page_cap,
-                Some(value) => {
-                    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-                        return Err(JsonError::invalid_parameter("maxResults must be a uint32"));
-                    }
-                    let size = value
-                        .parse::<u32>()
-                        .map_err(|_| JsonError::invalid_parameter("maxResults must be a uint32"))?;
-                    if size == 0 {
-                        page_cap
-                    } else {
-                        size.min(page_cap)
-                    }
-                }
-            };
+            let max_results = list_page_size(&mut query, page_cap)?;
             let prefix = query.remove("prefix").unwrap_or_default();
             if prefix.len() > 222 {
                 return Err(JsonError::invalid_parameter("prefix exceeds 222 bytes"));
@@ -565,6 +550,25 @@ fn unsupported(query: &BTreeMap<String, String>, keys: &[&str]) -> Result<(), Js
     Ok(())
 }
 
+/// The `maxResults` of a bucket list: `0` or absent selects the page cap, which also bounds larger
+/// values.
+fn list_page_size(query: &mut BTreeMap<String, String>, page_cap: u32) -> Result<u32, JsonError> {
+    let Some(value) = query.remove("maxResults") else {
+        return Ok(page_cap);
+    };
+    let invalid =
+        || JsonError::invalid_parameter("maxResults must be a uint32").at_parameter("maxResults");
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(invalid());
+    }
+    let size = value.parse::<u32>().map_err(|_| invalid())?;
+    Ok(if size == 0 {
+        page_cap
+    } else {
+        size.min(page_cap)
+    })
+}
+
 fn project(query: &mut BTreeMap<String, String>) -> Result<String, JsonError> {
     let project = query.remove("project").ok_or_else(|| {
         JsonError::new(
@@ -572,6 +576,7 @@ fn project(query: &mut BTreeMap<String, String>) -> Result<String, JsonError> {
             "required",
             "Missing required project; add ?project=local-project to the bucket collection URL",
         )
+        .at_parameter("project")
     })?;
     validate_project(&project)?;
     Ok(project)
@@ -597,7 +602,8 @@ pub(super) fn projection(query: &mut BTreeMap<String, String>) -> Result<Project
         Some("full") => Ok(Projection::Full),
         Some(_) => Err(JsonError::invalid_parameter(
             "projection must be noAcl or full",
-        )),
+        ))
+        .map_err(|error| error.at_parameter("projection")),
     }
 }
 
@@ -625,13 +631,15 @@ fn conditions(query: &mut BTreeMap<String, String>) -> Result<Conditions, JsonEr
             .remove(key)
             .map(|value| {
                 if value.starts_with('+') {
-                    return Err(JsonError::invalid_parameter(format!(
-                        "{key} must be an int64"
-                    )));
+                    return Err(
+                        JsonError::invalid_parameter(format!("{key} must be an int64"))
+                            .at_parameter(key),
+                    );
                 }
-                value
-                    .parse::<i64>()
-                    .map_err(|_| JsonError::invalid_parameter(format!("{key} must be an int64")))
+                value.parse::<i64>().map_err(|_| {
+                    JsonError::invalid_parameter(format!("{key} must be an int64"))
+                        .at_parameter(key)
+                })
             })
             .transpose()
     };

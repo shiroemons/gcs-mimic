@@ -130,13 +130,15 @@ pub(crate) fn route(
         ] {
             if let Some(value) = remaining.remove(key) {
                 if value.is_empty() || value.starts_with('+') {
-                    return Err(JsonError::invalid_parameter(format!(
-                        "{key} must be an int64"
-                    )));
+                    return Err(
+                        JsonError::invalid_parameter(format!("{key} must be an int64"))
+                            .at_parameter(key),
+                    );
                 }
-                let number = value
-                    .parse::<i64>()
-                    .map_err(|_| JsonError::invalid_parameter(format!("{key} must be an int64")))?;
+                let number = value.parse::<i64>().map_err(|_| {
+                    JsonError::invalid_parameter(format!("{key} must be an int64"))
+                        .at_parameter(key)
+                })?;
                 if (key == "sourceGeneration" && number <= 0)
                     || (key == "maxBytesRewrittenPerCall"
                         && (number < 1048576 || number % 1048576 != 0))

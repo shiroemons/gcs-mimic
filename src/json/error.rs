@@ -63,6 +63,57 @@ pub(crate) const FIELDS_PARAMETER: ErrorLocation = ErrorLocation {
     name: "fields",
 };
 
+/// Const constructor for the query-parameter entries of [`PARAMETERS`].
+const fn parameter_location(name: &'static str) -> ErrorLocation {
+    ErrorLocation {
+        kind: "parameter",
+        name,
+    }
+}
+
+/// The JSON API query parameters whose rejection Cloud Storage reports with a `parameter`
+/// location. A fixed table lets the error keep a `&'static` reference to the location instead of
+/// owning the client-supplied name.
+static PARAMETERS: [ErrorLocation; 30] = [
+    parameter_location("alt"),
+    parameter_location("fields"),
+    parameter_location("generation"),
+    parameter_location("ifGenerationMatch"),
+    parameter_location("ifGenerationNotMatch"),
+    parameter_location("ifMetagenerationMatch"),
+    parameter_location("ifMetagenerationNotMatch"),
+    parameter_location("ifSourceGenerationMatch"),
+    parameter_location("ifSourceGenerationNotMatch"),
+    parameter_location("ifSourceMetagenerationMatch"),
+    parameter_location("ifSourceMetagenerationNotMatch"),
+    parameter_location("maxResults"),
+    parameter_location("pageToken"),
+    parameter_location("permissions"),
+    parameter_location("predefinedAcl"),
+    parameter_location("destinationPredefinedAcl"),
+    parameter_location("predefinedDefaultObjectAcl"),
+    parameter_location("project"),
+    parameter_location("projection"),
+    parameter_location("serviceAccountEmail"),
+    parameter_location("showDeletedKeys"),
+    parameter_location("softDeleted"),
+    parameter_location("sourceGeneration"),
+    parameter_location("userProject"),
+    parameter_location("delimiter"),
+    parameter_location("prefix"),
+    parameter_location("startOffset"),
+    parameter_location("endOffset"),
+    parameter_location("versions"),
+    parameter_location("kmsKeyName"),
+];
+
+impl ErrorLocation {
+    /// The `parameter` location for a query parameter name, if it is one the API names.
+    pub(crate) fn parameter(name: &str) -> Option<&'static ErrorLocation> {
+        PARAMETERS.iter().find(|location| location.name == name)
+    }
+}
+
 impl JsonError {
     fn storage_capacity() -> Self {
         Self::new(
@@ -126,6 +177,20 @@ impl JsonError {
             allow: None,
             location: None,
         }
+    }
+
+    /// Names the rejected query parameter in the error item (`locationType: parameter`). A name
+    /// outside the API's parameter table leaves the error without a location.
+    pub(crate) fn at_parameter(mut self, name: &str) -> Self {
+        self.location = ErrorLocation::parameter(name);
+        self
+    }
+
+    /// Names the `If-Match` header: Cloud Storage reports every failed precondition there, even
+    /// when the condition was a query parameter.
+    pub(crate) fn at_if_match(mut self) -> Self {
+        self.location = Some(&IF_MATCH_HEADER);
+        self
     }
 
     pub(crate) fn invalid_parameter(message: impl Into<String>) -> Self {
@@ -375,7 +440,8 @@ impl From<ObjectError> for JsonError {
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",
                 "Precondition failed",
-            ),
+            )
+            .at_if_match(),
             ObjectError::OverwriteForbidden | ObjectError::Forbidden => Self::forbidden(),
             ObjectError::UnlockedRetentionOverrideRequired => Self::new(
                 StatusCode::FORBIDDEN,

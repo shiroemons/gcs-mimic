@@ -123,7 +123,10 @@ fn parse_route(
                     .parse::<i64>()
                     .ok()
                     .filter(|_| !value.starts_with('+'))
-                    .ok_or_else(|| JsonError::invalid_parameter(format!("{key} must be an int64")))
+                    .ok_or_else(|| {
+                        JsonError::invalid_parameter(format!("{key} must be an int64"))
+                            .at_parameter(key)
+                    })
             })
             .transpose()
     };

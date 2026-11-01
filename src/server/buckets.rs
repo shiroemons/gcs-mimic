@@ -436,7 +436,7 @@ async fn set_iam(
                     .etag
                     .as_deref()
                     .ok_or_else(|| unavailable("stored IAM policy has no etag"))?;
-                // The same quoted tag that getIamPolicy returns in its ETag header.
+                // A quoted form of the bare tag getIamPolicy returns in its ETag header and body.
                 crate::http_conditions::require_etag_match(&if_match, &format!("\"{etag}\""))
                     .map_err(|error| match error {
                         EtagError::Invalid => {
@@ -445,7 +445,13 @@ async fn set_iam(
                         EtagError::PreconditionFailed => CatalogError::PreconditionFailed,
                     })
             })
-            .await?;
+            .await
+            // Cloud Storage names the `If-Match` header for a stale policy etag.
+            .map_err(|error| {
+                let stale = matches!(error, CatalogError::PreconditionFailed);
+                let error = JsonError::from(error);
+                if stale { error.at_if_match() } else { error }
+            })?;
     Ok(json::policy_resource(&policy, bucket))
 }
 
