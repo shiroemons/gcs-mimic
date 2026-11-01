@@ -232,10 +232,10 @@ fn execute(
     let mimic_run = run_side(&mimic_side, cases, &names);
     let mut secrets: Vec<(String, &str)> = vec![
         (names.bucket.clone(), "bucket name"),
-        (names.new_bucket.clone(), "bucket name"),
         (names.missing_bucket.clone(), "bucket name"),
         (local.endpoint.clone(), "local endpoint"),
     ];
+    secrets.extend((0..cases.len()).map(|index| (names.new_bucket_for(index), "bucket name")));
 
     let mut reference_requests = None;
     let mut reference_cleanup = Vec::new();

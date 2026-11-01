@@ -1,0 +1,13 @@
+{
+  "id": "bkt-project-resources",
+  "description": "Project-level resources that need no setup: the project service account, and HMAC key lookups for keys that do not exist. No HMAC key is created, so nothing needs cleaning up. The service account email carries the project number and is not compared.",
+  "bucket": false,
+  "steps": [
+    {"name": "service-account", "method": "GET", "path": "/storage/v1/projects/{project}/serviceAccount", "compare": {"ignore_body_paths": ["$.email_address"]}, "expect_status": 200},
+    {"name": "service-account-fields", "method": "GET", "path": "/storage/v1/projects/{project}/serviceAccount", "query": {"fields": "kind"}, "expect_status": 200},
+    {"name": "hmac-get-missing", "method": "GET", "path": "/storage/v1/projects/{project}/hmacKeys/GOOGNOSUCHKEYID000000", "expect_status": 404},
+    {"name": "hmac-update-missing", "method": "PUT", "path": "/storage/v1/projects/{project}/hmacKeys/GOOGNOSUCHKEYID000000", "body": {"state": "INACTIVE"}, "expect_status": 404},
+    {"name": "hmac-delete-missing", "method": "DELETE", "path": "/storage/v1/projects/{project}/hmacKeys/GOOGNOSUCHKEYID000000", "expect_status": 404},
+    {"name": "hmac-create-without-service-account", "method": "POST", "path": "/storage/v1/projects/{project}/hmacKeys", "expect_status": 400}
+  ]
+}

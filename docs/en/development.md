@@ -541,6 +541,8 @@ independently.
   bucket state in a way other cases would notice should use `{new_bucket}`
   and create and delete it themselves. `{missing_bucket}` names a bucket that
   does not exist.
+- `{new_bucket}` is the same name for every step of one case and a different
+  name for each case, so cases never reuse a name another case just deleted.
 - Variables: `{project}`, `{bucket}`, `{new_bucket}`, `{missing_bucket}`,
   `{object}`, `{object2}` (unique per case) and captured values. `{{` and `}}`
   write literal braces. A variable must be defined before its first use.
