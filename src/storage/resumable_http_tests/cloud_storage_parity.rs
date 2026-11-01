@@ -58,6 +58,7 @@ async fn multipart_upload_content_types_must_agree_and_plain_bodies_are_media() 
     assert_eq!(reply.status, 400);
     // The envelope is JSON but labelled text/html, as Cloud Storage sent it.
     assert_eq!(reply.headers["content-type"], "text/html; charset=UTF-8");
+    assert_eq!(reply.headers["x-content-type-options"], "nosniff");
     assert!(
         reply.json()["error"]["message"]
             .as_str()

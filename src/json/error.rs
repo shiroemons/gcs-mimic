@@ -93,24 +93,24 @@ pub struct JsonError {
     /// small, which `Result` returns throughout the crate depend on.
     pub location: Option<&'static ErrorLocation>,
     /// Whether the XML API reports this as `ObjectUnderActiveHold`.
-    pub xml_active_hold: bool,
+    pub(crate) xml_active_hold: bool,
     /// Cloud Storage answered some failures with a bare text page instead of a JSON envelope.
-    pub plain: Option<&'static PlainText>,
+    pub(crate) plain: Option<&'static PlainText>,
     /// Cloud Storage's upload front end sent some JSON error envelopes as `text/html`.
-    pub html_typed: bool,
+    pub(crate) html_typed: bool,
 }
 
 /// A bare text error page: the front end's answer to a request no JSON handler claims.
 #[derive(Debug, PartialEq, Eq)]
-pub struct PlainText {
-    pub content_type: &'static str,
-    pub body: &'static str,
+pub(crate) struct PlainText {
+    pub(crate) content_type: &'static str,
+    pub(crate) body: &'static str,
     /// Whether the page carries the JSON API's no-store cache headers.
-    pub cache: PlainCache,
+    pub(crate) cache: PlainCache,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum PlainCache {
+pub(crate) enum PlainCache {
     NoStore,
     Unspecified,
 }
@@ -419,6 +419,13 @@ impl JsonError {
                 "application/json; charset=UTF-8"
             }),
         );
+        // A text/html body that quotes request input must not be sniffed into script.
+        if self.html_typed {
+            headers.insert(
+                "x-content-type-options",
+                header::HeaderValue::from_static("nosniff"),
+            );
+        }
         // Recorded Cloud Storage JSON errors forbid every cache, HTTP/1.0 ones included.
         headers.insert(
             header::CACHE_CONTROL,
