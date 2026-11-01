@@ -22,6 +22,20 @@ pub(super) fn object_status(error: ObjectError) -> Status {
     json_status(error.into())
 }
 
+/// [`object_status`] for an RPC that names one object: Cloud Storage repeats `<bucket>/<object>`
+/// in its not-found message over gRPC.
+pub(super) fn named_object_status<'a>(
+    bucket: &'a str,
+    name: &'a str,
+) -> impl Fn(ObjectError) -> Status + 'a {
+    move |error| {
+        if matches!(error, ObjectError::UnsupportedMetadata(_)) {
+            return object_status(error);
+        }
+        json_status(json::JsonError::from(error).naming_object(bucket, name))
+    }
+}
+
 /// Anonymous denials ask for credentials, matching bucket RPCs, BidiReadObject and JSON.
 pub(super) fn access_status(error: json::JsonError, caller: Option<Caller<'_>>) -> Status {
     json_status(crate::server::anonymous_error(error, caller))
@@ -115,6 +129,13 @@ struct OwnerFields {
 }
 
 impl OwnerFields {
+    /// Every owner-related field, which Cloud Storage returns on the resource of a write or
+    /// update (observed 2026-11-01) though a read returns them only when its mask asks.
+    const ALL: Self = Self {
+        acl: true,
+        owner: true,
+    };
+
     /// `*` selects every field; other paths name top-level fields, optionally under `prefix`
     /// (ReadObject nests the object in `metadata`, where `metadata` alone selects all of it).
     fn selected(mask: Option<&prost_types::FieldMask>, prefix: Option<&str>) -> Self {
@@ -177,7 +198,15 @@ fn mask_object(
     macro_rules! fields { ($($field:ident),+ $(,)?) => {{
         for path in &mask.paths {
             if !matches!(path.as_str(), $(stringify!($field))|+ | "checksums.crc32c" | "checksums.md5_hash") {
-                return Err(unsupported(&format!("read_mask path {path}; request a supported top-level object field"), None));
+                // A name that is no Object field is a client error. A sub-path of a real field
+                // (`owner.entity`) is only unsupported here: the recording cannot tell whether
+                // Cloud Storage accepts it, so it stays an error instead of a false success.
+                let root = path.split('.').next().unwrap_or_default();
+                return Err(if matches!(root, $(stringify!($field))|+) {
+                    unsupported(&format!("read_mask path {path}; request a supported top-level object field"), None)
+                } else {
+                    Status::invalid_argument(format!("There is no field for this resource named '{path}'."))
+                });
             }
         }
         $(if !mask.paths.iter().any(|p| p == stringify!($field)) { object.$field = Default::default(); })+
@@ -221,6 +250,32 @@ fn mask_object(
         object.checksums = kept_checksums;
     }
     Ok(object)
+}
+
+/// Rejects a data message whose CRC32C differs from its content, with the wording and hex form
+/// Cloud Storage uses over gRPC.
+pub(super) fn verify_crc32c(data: &pb::ChecksummedData) -> Result<(), Status> {
+    match data.crc32c {
+        Some(client) if client != crc32c::crc32c(&data.content) => {
+            Err(Status::invalid_argument(format!(
+                "Checksummed data message crc32c mismatch: server computed: '{:08x}', client provided '{client:08x}'.",
+                crc32c::crc32c(&data.content)
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Cloud Storage names the object and its size when a read starts past the end;
+/// [`read_range`] keeps the generic bound check.
+fn check_read_offset(record: &crate::object::ObjectRecord, offset: i64) -> Result<(), Status> {
+    if u64::try_from(offset).is_ok_and(|offset| offset > record.size) {
+        return Err(Status::out_of_range(format!(
+            "Invalid read offset '{offset}' for object 'projects/_/buckets/{}/{}#{}'. The read offset must not be greater than the object's size ({} bytes).",
+            record.bucket, record.name, record.generation, record.size
+        )));
+    }
+    Ok(())
 }
 
 fn read_range(size: u64, offset: i64, limit: i64) -> Result<(u64, u64), Status> {
@@ -288,7 +343,7 @@ impl Storage {
             &access,
         )
         .await
-        .map_err(object_status)?;
+        .map_err(named_object_status(bucket, name))?;
         Ok(Response::new(()))
     }
     /// Shares the JSON session-URI cancellation so staged bytes follow one cleanup journal.
@@ -359,7 +414,7 @@ impl Storage {
                 &access,
             )
             .await
-            .map_err(object_status)?;
+            .map_err(named_object_status(bucket, name))?;
         let mut object = super::append::object(&record, finality)?;
         if finality == Finality::Finalized {
             self.add_owner_fields(
@@ -371,6 +426,34 @@ impl Storage {
             .await?;
         }
         Ok(Response::new(mask_object(object, r.read_mask.as_ref())?))
+    }
+    /// Fills ACL and owner on the resource a write or update answers with. A caller that may
+    /// write but not read the ACL still gets its result, with both fields empty.
+    pub(super) async fn add_written_owner_fields(
+        &self,
+        caller: Option<Caller<'_>>,
+        bucket: &str,
+        object: &mut pb::Object,
+    ) -> Result<(), Status> {
+        match self
+            .add_owner_fields(
+                caller,
+                bucket,
+                std::slice::from_mut(object),
+                OwnerFields::ALL,
+            )
+            .await
+        {
+            Err(status)
+                if matches!(
+                    status.code(),
+                    tonic::Code::PermissionDenied | tonic::Code::Unauthenticated
+                ) =>
+            {
+                Ok(())
+            }
+            other => other,
+        }
     }
     /// Fills the ACL and owner a read mask selects, from the same shared projection as JSON
     /// `projection=full`: under uniform bucket-level access, or for an object whose ACL the
@@ -407,7 +490,7 @@ impl Storage {
                 continue;
             }
             if fields.acl {
-                object.acl = convert::object_acl(object, bucket, &entries);
+                object.acl = convert::object_acl(object, bucket, &acl.project, &entries);
             }
             if fields.owner {
                 object.owner = owner
@@ -445,7 +528,8 @@ impl Storage {
                 &access,
             )
             .await
-            .map_err(object_status)?;
+            .map_err(named_object_status(bucket, name))?;
+        check_read_offset(&record, r.read_offset)?;
         let (start, length) = read_range(record.size, r.read_offset, r.read_limit)?;
         reader.set_range(start, length).await.map_err(|_| {
             Status::internal("Cannot seek object data; restore a valid data directory")
@@ -512,21 +596,14 @@ impl Storage {
         }
         let (tx, rx) = mpsc::channel(1);
         crate::task::spawn_supervised("grpc-read-object", async move {
-            let mut response = first;
+            // Cloud Storage ends the stream after the last data message instead of appending an
+            // empty one (observed 2026-11-01); an empty object still gets its metadata message.
+            let mut pending = Some(first);
             loop {
-                match reader.next_chunk().await {
-                    Ok(data) => {
-                        let done = data.is_none();
-                        let bytes = data.unwrap_or_default();
-                        response.checksummed_data = Some(pb::ChecksummedData {
-                            crc32c: Some(crc32c::crc32c(&bytes)),
-                            content: bytes,
-                        });
-                        if tx.send(Ok(response)).await.is_err() || done {
-                            break;
-                        }
-                        response = pb::ReadObjectResponse::default();
-                    }
+                let (bytes, done) = match reader.next_chunk().await {
+                    Ok(Some(bytes)) => (bytes, false),
+                    Ok(None) if pending.is_some() => (Default::default(), true),
+                    Ok(None) => break,
                     Err(_) => {
                         let _ = tx
                             .send(Err(Status::internal(
@@ -535,6 +612,14 @@ impl Storage {
                             .await;
                         break;
                     }
+                };
+                let mut response = pending.take().unwrap_or_default();
+                response.checksummed_data = Some(pb::ChecksummedData {
+                    crc32c: Some(crc32c::crc32c(&bytes)),
+                    content: bytes,
+                });
+                if tx.send(Ok(response)).await.is_err() || done {
+                    break;
                 }
             }
         });
@@ -1024,7 +1109,10 @@ impl Storage {
             let completion = written_record.map_err(session_status)?;
             sent?;
             result = if let Some(value) = completion.as_ref() {
-                WriteStatus::Resource(decode_completion(Some(value))?)
+                let mut resource = decode_completion(Some(value))?;
+                self.add_written_owner_fields(caller, bucket, &mut resource)
+                    .await?;
+                WriteStatus::Resource(resource)
             } else {
                 WriteStatus::PersistedSize(written as i64)
             };
@@ -1067,7 +1155,13 @@ impl Storage {
             .catalog
             .prepare_object_upload(&bucket, &name, options.conditions, &options.access)
             .await
-            .map_err(object_status)?;
+            .map_err(|error| match error {
+                // Over WriteObject Cloud Storage words a missing bucket differently from reads.
+                ObjectError::BucketNotFound => {
+                    Status::not_found(format!("Bucket 'projects/_/buckets/{bucket}' not found"))
+                }
+                error => object_status(error),
+            })?;
         let (tx, rx) = mpsc::channel(2);
         let limits = SingleWriteLimits {
             expected: options.expected,
@@ -1102,7 +1196,9 @@ impl Storage {
                 return Err(object_status(error));
             }
         };
-        let resource = convert::object(&record)?;
+        let mut resource = convert::object(&record)?;
+        self.add_written_owner_fields(caller, &bucket, &mut resource)
+            .await?;
         let result = pb::bidi_write_object_response::WriteStatus::Resource(resource);
         if let Some(tx) = responses {
             send_status(tx, &result).await?;
@@ -1224,14 +1320,7 @@ fn resumable_piece(
         Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
         None => pb::ChecksummedData::default(),
     };
-    if data
-        .crc32c
-        .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
-    {
-        return Err(Status::invalid_argument(
-            "checksummed_data.crc32c mismatch; resend the correct data and checksum",
-        ));
-    }
+    verify_crc32c(&data)?;
     let end = offset
         .checked_add(data.content.len() as u64)
         .ok_or_else(|| Status::out_of_range("write_offset plus content length overflows"))?
@@ -1301,14 +1390,7 @@ async fn produce_single_write<
             Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
             None => pb::ChecksummedData::default(),
         };
-        if data
-            .crc32c
-            .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
-        {
-            return Err(Status::invalid_argument(
-                "checksummed_data.crc32c mismatch; resend the correct data and checksum",
-            ));
-        }
+        verify_crc32c(&data)?;
         let discard = (offset - start).min(data.content.len() as u64) as usize;
         let added = data.content.slice(discard..);
         offset = offset
@@ -1457,6 +1539,28 @@ mod tests {
         ));
         assert_eq!(unsupported.code(), tonic::Code::Unimplemented);
         assert!(!unsupported.details().is_empty());
+        let mismatch = verify_crc32c(&pb::ChecksummedData {
+            content: b"hello".to_vec().into(),
+            crc32c: Some(1),
+        })
+        .unwrap_err();
+        assert_eq!(mismatch.code(), tonic::Code::InvalidArgument);
+        assert_eq!(
+            mismatch.message(),
+            "Checksummed data message crc32c mismatch: server computed: '9a71bb4c', client provided '00000001'."
+        );
+        let unknown = mask_object(
+            pb::Object::default(),
+            Some(&prost_types::FieldMask {
+                paths: vec!["noSuchField".into()],
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(unknown.code(), tonic::Code::InvalidArgument);
+        assert_eq!(
+            unknown.message(),
+            "There is no field for this resource named 'noSuchField'."
+        );
         assert_eq!(read_range(15, -5, 3).unwrap(), (10, 3));
         assert_eq!(read_range(15, i64::MIN, 0).unwrap(), (0, 15));
         assert_eq!(read_range(15, 15, 0).unwrap(), (15, 0));
@@ -1539,6 +1643,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn grpc_io_write_returns_acl_and_owner_and_read_ends_with_data() {
+        let (_dir, storage) = setup(true).await;
+        let mut request = Request::new(());
+        request
+            .metadata_mut()
+            .insert("authorization", "Bearer admin".parse().unwrap());
+        let admin = storage.authenticate(&request).unwrap();
+        let written = storage
+            .receive_write(
+                &mut tonic::codegen::tokio_stream::iter([Ok(message("written", b"hello"))]),
+                admin,
+                None,
+                EndOfStream::Required,
+            )
+            .await
+            .unwrap();
+        let pb::bidi_write_object_response::WriteStatus::Resource(resource) = written else {
+            panic!("a finished write answers with the resource");
+        };
+        assert!(!resource.acl.is_empty());
+        assert!(resource.owner.is_some());
+        assert!(
+            resource
+                .acl
+                .iter()
+                .any(|entry| entry.entity_alt.starts_with("project-owners-")),
+            "a project-team entry repeats its entity under the project ID"
+        );
+
+        let mut read = storage
+            .read_object(
+                Request::new(pb::ReadObjectRequest {
+                    bucket: "projects/_/buckets/grpc-io".into(),
+                    object: "written".into(),
+                    ..Default::default()
+                }),
+                admin,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        let first = read.next().await.unwrap().unwrap();
+        assert_eq!(first.checksummed_data.unwrap().content.as_ref(), b"hello");
+        assert!(first.metadata.is_some());
+        assert!(
+            read.next().await.is_none(),
+            "no empty message follows the last data message"
+        );
+    }
+
+    #[tokio::test]
     async fn grpc_io_full_read_masks_return_acl_and_owner() {
         let (_dir, storage) = setup(true).await;
         let mut request = Request::new(());
@@ -1575,7 +1730,10 @@ mod tests {
         assert!(full.update_storage_class_time.is_some());
         // Google reports finalize_time on every ordinary object.
         assert!(full.finalize_time.is_some());
-        assert_eq!(full.finalize_time, full.create_time);
+        // create_time is the finalize time cut to milliseconds.
+        let (finalized, created) = (full.finalize_time.unwrap(), full.create_time.unwrap());
+        assert_eq!(finalized.seconds, created.seconds);
+        assert_eq!(finalized.nanos / 1_000_000 * 1_000_000, created.nanos);
         assert!(!full.acl.is_empty());
         for entry in &full.acl {
             assert!(!entry.entity.is_empty() && !entry.role.is_empty());

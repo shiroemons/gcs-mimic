@@ -909,7 +909,7 @@ impl Storage {
                     &access,
                 )
                 .await
-                .map_err(error)?;
+                .map_err(|e| error(JsonError::from(e).naming_object(bucket, name)))?;
             for key in current
                 .metadata
                 .keys()
@@ -953,65 +953,11 @@ impl Storage {
                 &access,
             )
             .await
-            .map_err(error)?;
+            .map_err(|e| error(JsonError::from(e).naming_object(bucket, name)))?;
         let mut object = convert::object(&record)?;
-        if paths.iter().any(|p| p == "acl") {
-            self.add_object_acl(caller, &record, &mut object).await?;
-        }
+        self.add_written_owner_fields(caller, bucket, &mut object)
+            .await?;
         Ok(Response::new(object))
-    }
-    /// Adds the object's ACL as JSON `projection=full` does, for a caller that may read it.
-    async fn add_object_acl(
-        &self,
-        caller: Option<Caller<'_>>,
-        record: &crate::object::ObjectRecord,
-        object: &mut pb::Object,
-    ) -> Result<(), Status> {
-        use crate::{acl::AclKind, json::acl::AclOwner};
-        let access = match authorize_bucket(
-            &self.state,
-            caller,
-            auth::OBJECTS_GET_IAM,
-            &record.bucket,
-        )
-        .await
-        {
-            Ok(access) => access,
-            Err(e) if matches!(e.status.as_u16(), 401 | 403) => return Ok(()),
-            Err(e) => return Err(error(e)),
-        };
-        let generations = vec![(record.name.clone(), record.generation)];
-        let Some(acl) = self
-            .state
-            .catalog
-            .object_acl_projection(&record.bucket, generations, &access)
-            .await
-            .map_err(error)?
-        else {
-            return Ok(());
-        };
-        let (Some(entries), Some(true)) = (acl.objects.first(), acl.visible.first().copied())
-        else {
-            return Ok(());
-        };
-        if acl.uniform_access {
-            return Ok(());
-        }
-        let owner = AclOwner {
-            kind: AclKind::Object,
-            bucket: &record.bucket,
-            object: Some((&record.name, record.generation)),
-            metageneration: record.metageneration,
-        };
-        object.acl = entries
-            .iter()
-            .map(|entry| {
-                let rendered =
-                    json::acl::acl_entry_resource(&self.state.api_base_url, owner, entry);
-                convert::object_access_control(&rendered)
-            })
-            .collect();
-        Ok(())
     }
     pub(super) async fn compose_object(
         &self,
@@ -2060,7 +2006,7 @@ mod tests {
             .into_inner();
         assert_eq!(b.labels.len(), 1);
         assert_eq!(b.labels["new"], "yes");
-        assert!(!b.versioning.unwrap().enabled);
+        assert!(b.versioning.is_none());
         let stale = pb::UpdateBucketRequest {
             bucket: Some(pb::Bucket {
                 name: resource.into(),

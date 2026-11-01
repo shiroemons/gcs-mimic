@@ -7,8 +7,13 @@ pub(crate) fn bucket_name(resource: &str) -> Result<&str, Status> {
             !name.is_empty() && !name.contains('/') && !name.chars().any(char::is_control)
         })
         .ok_or_else(|| {
-            Status::invalid_argument(
-                "Invalid bucket resource name; use projects/_/buckets/example-bucket",
+            // Recorded on object RPCs; bucket RPCs reuse it because the recording cannot tell
+            // whether Cloud Storage words them differently.
+            super::status::invalid_with_reason(
+                format!(
+                    "Invalid bucket name '{resource}'. Bucket names must take the form 'projects/{{project-id}}/buckets/{{bucket-id}}'. The project-id must be '_'."
+                ),
+                "GRPC_INVALID_BUCKET",
             )
         })
 }
@@ -18,7 +23,10 @@ pub(crate) fn object_name<'a>(
     object: &'a str,
 ) -> Result<(&'a str, &'a str), Status> {
     let bucket = bucket_name(bucket)?;
-    if object.is_empty() || object.len() > 1024 || object.chars().any(char::is_control) {
+    if object.is_empty() {
+        return Err(super::status::invalid_field("No object name"));
+    }
+    if object.len() > 1024 || object.chars().any(char::is_control) {
         return Err(Status::invalid_argument(
             "Invalid object name; use a nonempty name of at most 1024 UTF-8 bytes, for example folder/object.txt",
         ));

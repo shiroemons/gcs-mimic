@@ -1,6 +1,6 @@
 //! Comparison results, Markdown and JSON rendering, and the redaction guard.
 
-use super::case::{Case, fingerprint};
+use super::case::{Case, Step, fingerprint};
 use super::diff::{Difference, compare};
 use super::runner::{CaseOutcome, StepOutcome};
 use serde_json::{Value, json};
@@ -46,6 +46,22 @@ pub(crate) struct CaseReport {
 fn note_expectation(label: &str, step: &StepOutcome, notes: &mut Vec<String>) {
     if let Some(expectation) = &step.expectation {
         notes.push(format!("{label}: {expectation}"));
+    }
+}
+
+/// The reference's unmet expectation, judged against the case as it stands now: a recording keeps
+/// the expectation the case had when it was made, and correcting a case's `expect_status` must
+/// not need a new recording. A step with no `expect_status`, or
+/// that failed before a response, keeps its recorded note.
+fn note_reference_expectation(spec: &Step, step: &StepOutcome, notes: &mut Vec<String>) {
+    match (&step.result, spec.expect_status) {
+        (Ok(response), Some(expected)) if response.status != expected => notes.push(format!(
+            "reference: expected status {expected}, got {}",
+            response.status
+        )),
+        (Ok(_), Some(_)) => {}
+        // Without an `expect_status` there is nothing to judge again; keep what was recorded.
+        (Ok(_), None) | (Err(_), _) => note_expectation("reference", step, notes),
     }
 }
 
@@ -100,7 +116,7 @@ fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome
             note_expectation("mimic", step, &mut report.notes);
         }
         if let Some(step) = reference_step {
-            note_expectation("reference", step, &mut report.notes);
+            note_reference_expectation(spec, step, &mut report.notes);
         }
         if let (Some(opts), Some(Ok(m)), Some(Ok(r))) = (
             spec.compare.as_ref(),
@@ -357,15 +373,31 @@ fn path_ends_at(c: char) -> bool {
     c.is_whitespace() || matches!(c, '"' | '\'' | '\\')
 }
 
+/// The first local path in `text`: its start and prefix. A prefix only starts a path when no
+/// name character precedes it, so `/tmp/` inside an object name (`logs/tmp/a`) or a URL path
+/// (`https://host/tmp/x`) is not mistaken for a leak.
+fn find_path(text: &str) -> Option<(usize, &'static str)> {
+    let starts_path = |at: usize| {
+        text[..at].chars().next_back().is_none_or(|before| {
+            !(before.is_alphanumeric() || matches!(before, '.' | '_' | '-' | '~' | '%' | '+'))
+        })
+    };
+    PATH_PREFIXES
+        .into_iter()
+        .filter_map(|prefix| {
+            text.match_indices(prefix)
+                .map(|(at, _)| at)
+                .find(|&at| starts_path(at))
+                .map(|at| (at, prefix))
+        })
+        .min_by_key(|&(at, _)| at)
+}
+
 /// The text with every local path replaced as a whole by `<path>`.
 fn redact_paths(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(start) = PATH_PREFIXES
-        .iter()
-        .filter_map(|prefix| rest.find(prefix))
-        .min()
-    {
+    while let Some((start, _)) = find_path(rest) {
         out.push_str(&rest[..start]);
         out.push_str("<path>");
         let tail = &rest[start..];
@@ -387,10 +419,7 @@ fn leak_of(text: &str, secrets: &[(String, &str)]) -> Option<String> {
     if super::normalize::contains_email(text) {
         return Some("an email address".into());
     }
-    PATH_PREFIXES
-        .into_iter()
-        .find(|path| text.contains(path))
-        .map(|path| format!("a local path ({path})"))
+    find_path(text).map(|(_, path)| format!("a local path ({path})"))
 }
 
 /// A piece of text with every secret, email and local path replaced.
@@ -539,6 +568,21 @@ mod tests {
             ["line 1: an email address"]
         );
         assert_eq!(find_leaks("see /var/folders/x", &secrets).len(), 1);
+        // A prefix inside a longer name is an object name or a URL path, not a local path.
+        for benign in [
+            "logs/tmp/a.txt",
+            "https://host/tmp/x",
+            "a/private/b",
+            "my.home/home/x",
+        ] {
+            assert!(find_leaks(benign, &secrets).is_empty(), "{benign}");
+        }
+        assert_eq!(find_leaks("path=/tmp/x", &secrets).len(), 1);
+        assert_eq!(find_leaks("file:///Users/a", &secrets).len(), 1);
+        assert_eq!(
+            redact_paths("keep logs/tmp/a, drop /tmp/x"),
+            "keep logs/tmp/a, drop <path>"
+        );
     }
 
     #[test]
@@ -582,6 +626,50 @@ mod tests {
             );
             assert_eq!(stale.outcome, Outcome::Error);
         }
+    }
+
+    #[test]
+    fn the_reference_expectation_follows_the_case_not_the_recorded_note() {
+        use super::super::case::parse_case;
+        use super::super::normalize::{NormBody, NormResponse};
+        use std::collections::BTreeMap;
+        let case = parse_case(
+            &json!({"id": "c", "description": "d", "bucket": false,
+                    "steps": [{"name": "s", "method": "GET", "path": "/x", "expect_status": 200}]}),
+            "c",
+        )
+        .unwrap();
+        let outcome = |status: u16, note: Option<&str>| CaseOutcome {
+            id: "c".into(),
+            bucket: Some(case.bucket.label().into()),
+            error: None,
+            steps: vec![StepOutcome {
+                name: "s".into(),
+                request: "GET /x".into(),
+                result: Ok(NormResponse {
+                    status,
+                    headers: BTreeMap::new(),
+                    body: NormBody::Empty,
+                }),
+                expectation: note.map(str::to_owned),
+                retries: 0,
+                fingerprint: fingerprint(&case.steps[0]),
+            }],
+        };
+        // The recording was made when the case still expected 400; the case now expects 200.
+        let stale = outcome(200, Some("expected status 400, got 200"));
+        let report = compare_case(&case, &outcome(200, None), Some(&stale));
+        assert!(
+            report.steps[0].notes.is_empty(),
+            "{:?}",
+            report.steps[0].notes
+        );
+        // A reference that does not meet the case's current expectation is still reported.
+        let wrong = compare_case(&case, &outcome(200, None), Some(&outcome(404, None)));
+        assert_eq!(
+            wrong.steps[0].notes,
+            ["reference: expected status 200, got 404"]
+        );
     }
 
     #[test]

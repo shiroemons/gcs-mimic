@@ -132,9 +132,10 @@ pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
         create_time: Some(record.time_created.into()),
         update_time: Some(record.updated.into()),
         default_event_based_hold: record.default_event_based_hold,
-        versioning: Some(pb::bucket::Versioning {
-            enabled: record.versioning_enabled,
-        }),
+        // Cloud Storage omits the message for a bucket whose versioning is currently off, as JSON does.
+        versioning: record
+            .versioning_enabled
+            .then_some(pb::bucket::Versioning { enabled: true }),
         cors: record
             .cors
             .iter()
@@ -185,6 +186,10 @@ pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
     }
 }
 
+fn millis(time: std::time::SystemTime) -> Timestamp {
+    unix_nanos_timestamp(UnixNanos::from(time).floor_to_millis())
+}
+
 pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status> {
     let custom_time = record.custom_time.as_ref().map(|time| {
         crate::object::custom_time_key(time)
@@ -206,11 +211,13 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
         content_language: record.content_language.clone().unwrap_or_default(),
         cache_control: record.cache_control.clone().unwrap_or_default(),
         metadata: record.metadata.clone().into_iter().collect(),
-        create_time: Some(record.time_created.into()),
-        update_time: Some(record.updated.into()),
+        // Cloud Storage returned these three at millisecond precision over gRPC while
+        // `finalize_time` kept its microseconds (observed 2026-11-01).
+        create_time: Some(millis(record.time_created)),
+        update_time: Some(millis(record.updated)),
         // A storage class changes only by rewriting into a new generation, as in JSON
         // `timeStorageClassUpdated`.
-        update_storage_class_time: Some(record.time_created.into()),
+        update_storage_class_time: Some(millis(record.time_created)),
         // Catalog records are finalized; the appendable adapter clears this for unfinalized
         // generations. The same stored time as JSON `timeFinalized`.
         finalize_time: Some(record.time_created.into()),
@@ -260,6 +267,7 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
 pub(crate) fn object_acl(
     object: &pb::Object,
     bucket: &str,
+    project: &str,
     entries: &[AclEntry],
 ) -> Vec<pb::ObjectAccessControl> {
     let owner = AclOwner {
@@ -274,6 +282,10 @@ pub(crate) fn object_acl(
             // The base URL only reaches `selfLink`, which the protobuf resource does not carry.
             let value = crate::json::acl::acl_entry_resource("", owner, entry);
             let text = |value: &serde_json::Value| value.as_str().unwrap_or_default().to_owned();
+            let team = value.get("projectTeam").map(|team| pb::ProjectTeam {
+                project_number: text(&team["projectNumber"]),
+                team: text(&team["team"]),
+            });
             pb::ObjectAccessControl {
                 role: text(&value["role"]),
                 id: text(&value["id"]),
@@ -282,11 +294,13 @@ pub(crate) fn object_acl(
                 etag: text(&value["etag"]),
                 email: text(&value["email"]),
                 domain: text(&value["domain"]),
-                project_team: value.get("projectTeam").map(|team| pb::ProjectTeam {
-                    project_number: text(&team["projectNumber"]),
-                    team: text(&team["team"]),
-                }),
-                entity_alt: String::new(),
+                // Cloud Storage repeats a project-team entity under the project ID (observed
+                // 2026-11-01).
+                entity_alt: team
+                    .as_ref()
+                    .map(|team| format!("project-{}-{project}", team.team))
+                    .unwrap_or_default(),
+                project_team: team,
             }
         })
         .collect()
@@ -430,6 +444,12 @@ mod tests {
         assert_eq!(proto.metadata["key"], value["metadata"]["key"]);
         assert_eq!(proto.checksums.unwrap().md5_hash, record.md5);
         assert_eq!(proto.custom_time.unwrap().nanos, 123_456_789);
+        // The bucket fixture time carries microseconds; the object keeps only the milliseconds,
+        // except finalize_time.
+        assert_eq!(proto.create_time.unwrap().nanos, 123_000_000);
+        assert_eq!(proto.update_time.unwrap().nanos, 123_000_000);
+        assert_eq!(proto.update_storage_class_time.unwrap().nanos, 123_000_000);
+        assert_eq!(proto.finalize_time.unwrap().nanos, 123_456_000);
         assert!(proto.acl.is_empty() && proto.kms_key.is_empty());
         let composite = object(&ObjectRecord {
             component_count: Some(i64::from(i32::MAX)),

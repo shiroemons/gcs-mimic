@@ -399,14 +399,15 @@ fn update_labels(
     mode: WriteMode,
     profile: CompatProfile,
 ) -> Result<Option<BTreeMap<String, Option<String>>>, JsonError> {
-    // A labels member that is not a map (a string or an array) changes nothing here. The recording
-    // sent a string to a bucket that had no labels, so it cannot tell "cleared" from "left alone";
-    // keeping the labels is the choice that cannot destroy data.
+    // A labels member that is not a map clears every label, like null. A string was confirmed in
+    // the recording (`bkt-patch-errors`, own bucket: the harness label vanished with the rest);
+    // an array or other non-map type is extrapolated from the string, which the recording cannot
+    // distinguish.
     if value.is_null() {
         return Ok(None);
     }
     if profile == CompatProfile::Native && !value.is_object() {
-        return Ok(Some(BTreeMap::new()));
+        return Ok(None);
     }
     let replace = mode == WriteMode::Replace;
     let labels = value

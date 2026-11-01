@@ -177,6 +177,17 @@ fn write_checked(path: &Path, text: &str, secrets: &[(String, &str)]) -> Result<
     }
     fs::write(&target, &text).map_err(|e| format!("{}: {e}", target.display()))?;
     if leaks.is_empty() {
+        // A `.redacted` copy from an earlier leaking run would read as this run's result.
+        // A missing file is the usual case; any other failure would leave the stale copy behind.
+        let mut stale = path.as_os_str().to_owned();
+        stale.push(".redacted");
+        let stale = PathBuf::from(stale);
+        match fs::remove_file(&stale) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(format!("{}: {e}", stale.display()));
+            }
+            _ => {}
+        }
         return Ok(());
     }
     Err(format!(
@@ -321,6 +332,8 @@ fn run_mimic(
         hosts: vec![
             local.endpoint.clone(),
             local.endpoint.trim_start_matches("http://").to_owned(),
+            // The ErrorInfo domain names the service, so mimic reports the live value too.
+            "storage.googleapis.com".to_owned(),
         ],
         server_error_wait: Duration::from_secs(3),
         label_new_buckets: false,
@@ -575,6 +588,10 @@ mod tests {
         assert!(write_checked(&path, text, &secrets).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "earlier");
         assert!(write_checked(&dir.join("ok.json"), "{}", &secrets).is_ok());
+        // A clean write of the same path removes the stale redacted copy.
+        assert!(dir.join("out.json.redacted").exists());
+        assert!(write_checked(&path, "{}", &secrets).is_ok());
+        assert!(!dir.join("out.json.redacted").exists());
         server::remove_dir(&dir);
     }
     #[test]

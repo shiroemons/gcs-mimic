@@ -3,7 +3,7 @@
 
 use super::{
     Storage, convert, names,
-    object_io::{access_status, common, conditions, hashes, object_status},
+    object_io::{access_status, common, conditions, hashes, object_status, verify_crc32c},
     pb,
     status::unsupported_for as unsupported,
 };
@@ -216,14 +216,7 @@ impl Storage {
                 Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
                 None => pb::ChecksummedData::default(),
             };
-            if data
-                .crc32c
-                .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
-            {
-                return Err(Status::invalid_argument(
-                    "checksummed_data.crc32c mismatch; resend the correct data and checksum",
-                ));
-            }
+            verify_crc32c(&data)?;
             // A takeover's opening message only asks for the persisted size, so its offset
             // carries no meaning without data.
             if !data.content.is_empty() {

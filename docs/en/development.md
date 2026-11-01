@@ -546,9 +546,11 @@ Modes:
 - **Sweep** (`cargo xtask differential sweep`, same environment variables)
   lists the buckets whose names start with `gcsmimic-diff-` and carry the
   `gcs-mimic-differential=1` label, and cleans each one up the same way. A
-  bucket with the prefix but without the label is left alone and counted. Use
-  it after an interrupted run (Ctrl-C, a crash, a killed process); it reports
-  counts, never bucket names. (The final listing of a run uses only the run's
+  bucket with the prefix but without the label is left alone and named in the
+  report (a case that replaces a bucket's labels can leave its own bucket like
+  this after a crash), so you can delete it by hand. Use it after an
+  interrupted run (Ctrl-C, a crash, a killed process); it reports the cleanup
+  of labelled buckets by number, not by name. (The final listing of a run uses only the run's
   own random prefix and does not need the label.)
 - **Rate limits.** Cloud Storage documents these limits
   (<https://docs.cloud.google.com/storage/quotas>): bucket creation and
@@ -565,7 +567,9 @@ Modes:
   an error, and so is one made under another `bucket` mode (shared, own,
   none) of the case. The mode is stored per case beside the step fingerprints
   rather than inside them, so a recording made before it was stored still
-  replays; its mode is simply not compared. `--record FILE` in self-check mode records gcs-mimic itself, which
+  replays; its mode is simply not compared. The `expect_status` of a step is not part of its
+  fingerprint, and a replay judges the recorded response against the case's
+  current `expect_status`, so correcting that value needs no new recording. `--record FILE` in self-check mode records gcs-mimic itself, which
   gives an offline fixture for testing the replay path.
 
 Other options: `--cases DIR` (default `compatibility/differential/cases`),
@@ -583,7 +587,8 @@ project, the project number, the token, a bucket name of the run, the local
 endpoint, an email address or a local path. If it does, the requested file is
 left untouched, a fully redacted copy (each local path replaced as a whole) is
 written to `<file>.redacted`, and the run fails naming only the location of the
-leak (case, step, JSON path), never the value.
+leak (case, step, JSON path), never the value. A later clean write of the same
+file removes the stale `<file>.redacted`.
 Values are replaced by placeholders before they are compared, recorded or
 reported. Placeholders keep the type and shape of the value, because a string
 and a number, or a different width, are different JSON: `<generation:str:16>`,

@@ -1381,22 +1381,35 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
         }
         let value = without_acl(server.request("PATCH", path, r#"{"labels":null}"#).json());
         assert!(value.get("labels").is_none());
-        // The native profile leaves the labels and the class alone for a labels member that is not a
-        // map and for a null storageClass (the recording cannot tell "left alone" from "cleared", so
-        // this is the choice that keeps data); the legacy profile rejects all three.
+        // The native profile clears the labels for a labels member that is not a map (a string was
+        // confirmed in the recording; an array or other type is extrapolated from it) and leaves
+        // the class alone for a null storageClass; the legacy profile rejects all three.
         for body in [
             r#"{"labels":[]}"#,
             r#"{"labels":""}"#,
             r#"{"storageClass":null}"#,
         ] {
             if profile == "native" {
-                server
+                let set = server
                     .request("PATCH", path, r#"{"labels":{"again":"yes"}}"#)
                     .json();
                 let reply = server.request("PATCH", path, body);
                 assert_eq!(reply.status, 200, "{body}: {}", reply.body);
-                assert_eq!(reply.json()["storageClass"], first["storageClass"]);
-                assert_eq!(reply.json()["labels"], json!({"again":"yes"}), "{body}");
+                let reply = reply.json();
+                assert_eq!(reply["storageClass"], first["storageClass"]);
+                if body.contains("labels") {
+                    assert!(reply.get("labels").is_none(), "{body}: {reply}");
+                    let advanced = |value: &serde_json::Value| {
+                        value["metageneration"]
+                            .as_str()
+                            .unwrap()
+                            .parse::<i64>()
+                            .unwrap()
+                    };
+                    assert_eq!(advanced(&reply), advanced(&set) + 1, "{body}");
+                } else {
+                    assert_eq!(reply["labels"], json!({"again":"yes"}), "{body}");
+                }
             } else {
                 assert_eq!(server.request("PATCH", path, body).status, 400, "{body}");
             }
