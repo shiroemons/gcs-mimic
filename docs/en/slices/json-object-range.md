@@ -58,17 +58,20 @@ zero and no Content-Range, as §14.2 permits. A blanket claim that every empty-o
 range must return 416 would be incorrect; Google's precise empty-suffix response
 has not been independently verified.
 
-Malformed syntax, unknown units, comma-separated ranges and repeated Range fields
-are ignored, yielding a complete 200 response without Content-Range. Google rules
-out multiple partial ranges but does not document their exact failure/fallback
-response. Ignoring them is an explicit local HTTP rule, not a claim of matching
-every undocumented Google edge response. Metadata GETs retain their existing
-behavior and do not apply Range to JSON resources.
+Malformed syntax, unknown units and repeated Range fields are ignored, yielding a
+complete 200 response without Content-Range. A comma-separated (multiple) range
+answers 501 `Multiple Ranges are not supported`, as recorded from Cloud Storage
+on 2026-11-01. Ignoring malformed ranges is an explicit local HTTP rule, not a
+claim of matching every undocumented Google edge response. Metadata GETs retain
+their existing behavior and do not apply Range to JSON resources.
 
-If-Range remains 501 `notImplemented`, including ETag and date forms. The checked
-Google references do not establish this JSON validator subset; RFC definitions
-alone do not establish Google's support. ETag conditional requests remain outside
-this slice, with their existing explicit rejection.
+A JSON media (`alt=media`) GET ignores If-Range, whether its value is an ETag or a
+date and whether or not Range is present, so the Range applies whatever the
+validator, as recorded from Cloud Storage on 2026-11-01. It also ignores
+standalone If-Modified-Since and If-Unmodified-Since. An object metadata GET or a
+bucket GET that carries If-Range or a standalone date validator was not recorded
+and still answers 400 `badRequest`, a local choice. ETag conditional requests
+keep their own contract.
 
 ### Headers on 206
 

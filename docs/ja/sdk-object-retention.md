@@ -12,14 +12,14 @@
 multipart・resumableアップロードとPATCH・PUTで`retention {mode, retainUntilTime}`を設定でき、
 取得・一覧・アップロード応答で読み戻せます。`mode`は`Unlocked`か`Locked`です。
 `null`・`{}`・全項目nullは設定の削除で、PUTで省略した場合は保持します。
-Unlockedは延長が自由で、ロック・短縮・削除には`overrideUnlockedRetention=true`が必要です。
-Lockedは同じかより後の時刻への延長だけを受け付け、期限後も削除できません。
+Unlockedは延長が自由で、ロック・短縮・削除には`overrideUnlockedRetention=true`が必要です（なければ403 `forbidden`）。
+Lockedは同じかより後の時刻への延長だけを受け付け、短縮・削除・モード変更は上書きの有無にかかわらず403 `forbidden`で、期限後も削除できません。
 
 `retainUntilTime`より前の削除（世代指定とsoft deleteを含む）と同名アップロードによる置換は
 `403 retentionPolicyNotMet`です。バージョニング有効のバケットでは、保持中のライブ世代を
 非現行にできますが、非現行世代の削除は拒否します。期限は注入クロックで判定します。
 機能が無効なバケット、event-based hold中のオブジェクト、100年を超える期限は
-`400 invalidArgument`です。copy・rewrite・composeの宛先`retention`は`400 badRequest`で拒否し、
+400です。copy・rewrite・composeの宛先`retention`は`400 badRequest`で拒否し、
 コピー元の設定も引き継ぎません。ホールドとバケットの保持ポリシーとは独立に判定し、
 `retentionExpirationTime`は両者のうち遅い期限を返します。
 

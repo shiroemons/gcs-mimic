@@ -11273,7 +11273,7 @@
         },
         {
           "id": "NOTIF-LIMITS",
-          "description": "The 101st configuration and the 11th configuration for the same event type (all-event configurations count for every type) return 400 invalidArgument inside the insert transaction without storing.",
+          "description": "The 101st configuration and the 11th configuration for the same event type (all-event configurations count for every type) return 400 (reason invalid) inside the insert transaction without storing.",
           "result": "PASS",
           "test_ids": [
             "notification::tests::limits_count_all_event_configs_against_every_event_type",
@@ -25834,7 +25834,7 @@
         }
       ],
       "known_deviations": [
-        "Restriction violations and early re-enabling return local 400 invalidArgument; the provider error status/reason is undocumented.",
+        "Restriction violations and early re-enabling return local 400 (reason invalid); the provider error status/reason is undocumented.",
         "PUT preserves an omitted autoclass under the local PUT rule; Ruby Bucket#update sends only changed attributes.",
         "Autoclass timestamps are computed when the change is applied and fall within the request, but may differ from the bucket updated time by microseconds.",
         "No access/age-driven class transitions, pricing, 128 KiB rule or relocation pause (BEHAVIOR-BUCKET-020); changing the terminal class moves no objects."
@@ -30905,7 +30905,7 @@
         {"language":"Go","toolchain":"1.27.3","sdk":"cloud.google.com/go/storage","version":"v1.70.0","transport":"HTTP JSON; SetObjectRetention, Writer.Retention and retained delete","result":"PASS","verified_at":"2026-10-29","command":"bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-retention\" gcs-mimic","artifact":"docs/en/slices/sdk-object-retention.md","test_ids":["object.retention"]},
         {"language":"Ruby","toolchain":"4.0.9","sdk":"google-cloud-storage","version":"1.62.1","transport":"HTTP JSON; enable_object_retention, File#retention= and retained delete","result":"PASS","verified_at":"2026-10-29","command":"bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-retention\" gcs-mimic","artifact":"docs/en/slices/sdk-object-retention.md","test_ids":["object.retention"]}
       ],
-      "known_deviations": ["SPEC-OBJECT-RETENTION: invalid transitions, disabled buckets and event-hold conflicts return local 400 invalidArgument; retained deletes reuse 403 retentionPolicyNotMet; past retainUntilTime is accepted; PUT omission keeps retention. gRPC input, copy/rewrite/compose destination retention, XML retention headers, lifecycle interaction, initialization files and the project lien remain PENDING."],
+      "known_deviations": ["SPEC-OBJECT-RETENTION: shortening, removing or locking an Unlocked retention without overrideUnlockedRetention=true and every reduction of a Locked one return 403 forbidden, while other invalid transitions, disabled buckets and event-hold conflicts return a local 400; retained deletes reuse 403 retentionPolicyNotMet; past retainUntilTime is accepted; PUT omission keeps retention. gRPC input, copy/rewrite/compose destination retention, XML retention headers, lifecycle interaction, initialization files and the project lien remain PENDING."],
       "implemented_in": null,
       "last_verified": "2026-10-29"
     },

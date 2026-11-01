@@ -2,21 +2,30 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Contract checked on **2026-10-27**. Scope: JSON-BUCKETS-013,
-`PUT /storage/v1/b/{bucket}`, in native and legacy-emulator profiles.
-PUT preserves omitted modeled settings, including labels, default storage class,
-versioning, default event-based hold, CORS, PAP, UBLA, lifecycle, retention and
-soft-delete policies. Explicit values retain their existing validation and effects.
-This local compatibility choice supports Ruby Storage 1.62.1 update blocks;
-it has not been verified against real GCS (SPEC-BUCKET-PUT).
+Contract checked on **2026-10-27** and revised on **2026-11-01**. Scope:
+JSON-BUCKETS-013, `PUT /storage/v1/b/{bucket}`, in native and legacy-emulator
+profiles.
 
-**Update 2026-11-01.** A recorded Cloud Storage session showed PUT replacing the
-resource, so the native profile now clears the omitted labels, CORS, lifecycle,
-versioning, retention policy (a locked one stays) and default event-based hold,
-keeps the storage class, soft-delete policy and access settings, applies
-`predefinedAcl`, and answers 400 when the body `name` differs from the path.
-The preservation described above now applies only to the legacy-emulator
-profile, which stays a local compatibility choice.
+**Native profile (since 2026-11-01).** A recorded Cloud Storage session showed
+PUT replacing the resource, so the native profile clears the omitted labels,
+CORS, lifecycle, versioning, retention policy (a locked one stays) and default
+event-based hold, keeps the storage class, soft-delete policy and access
+settings (PAP, UBLA) it omits, applies `predefinedAcl`, and answers 400 when the
+body `name` differs from the path. A client that sends PUT for an update, such
+as the generated Go API `Buckets.Update`, therefore loses the settings it leaves
+out in this profile.
+
+**Legacy-emulator profile.** PUT preserves omitted modeled settings, including
+labels, default storage class, versioning, default event-based hold, CORS, PAP,
+UBLA, lifecycle, retention and soft-delete policies. Explicit values retain
+their existing validation and effects. This local compatibility choice supports
+Ruby Storage 1.62.1 update blocks; it has not been verified against real GCS
+(SPEC-BUCKET-PUT).
+
+The sections below were written for the omission-preserving behavior. Where they
+say that an omitted setting is preserved, that holds for the legacy-emulator
+profile and, in the native profile, only for the storage class, soft-delete
+policy and access settings.
 
 ## Sources and reconciliation
 
@@ -205,7 +214,12 @@ transaction-time authorization cases in src/storage/catalog.rs.
 No real-cloud differential run or complete-method compatibility claim belongs
 to this slice.
 
-## SDK omission-preservation verification
+## SDK omission-preservation verification (2026-10-27, before native replacement)
+
+These results predate the native replacement behavior. The Rust test that asserts a
+Ruby update block preserves unrelated settings and the Go `TestBucketMetadataReplace`
+still describe omission preservation, so the SDK part of this verification is not
+counted for the native profile until those tests are updated and re-run.
 
 On 2026-10-27, Ruby 4.0.9 / Storage 1.62.1 and Go 1.27.3 / Storage v1.70.0 /
 generated API v0.309.0 reproduced lost versioning/labels before the fix.
@@ -237,6 +251,11 @@ under one second with exit 0: all three `jq -e` assertions returned true,
 the stale condition returned 412 `conditionNotMet`, and `cmp` confirmed the
 subsequent GET matched the preceding resource. PUT-GUIDE is PASS for this native
 block only; Docker and restart verification remain historical.
+
+On 2026-11-01 the same block, with its assertion after the empty PUT changed to the
+native replacement (labels, versioning and default hold cleared, storage class kept),
+was extracted and executed once with `bash -eu` against the native debug binary in
+HTTP/permissive mode and exited 0.
 
 PUT-REFERENCE is PENDING: PUT-ASSERT was changed for omission preservation and
 the shared unsupported response, but the comparison has not been rerun.

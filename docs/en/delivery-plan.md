@@ -238,9 +238,12 @@ Go/Ruby clients and isolated Chromium trust without verification bypass.
 Order 7 originally closed under the omission-reset policy with the
 [historical PUT evidence](evidence/bucket-metadata-put.md), including Rust/Go,
 reference, container and native/Docker guide checks with restart equality.
-The [current PUT contract](slices/bucket-metadata-put.md) preserves omitted
-settings as a local SDK compatibility choice and records Rust/Go/Ruby and native
-PUT guide checks; reference/container/Docker checks were not rerun for that policy.
+The [current PUT contract](slices/bucket-metadata-put.md) replaces omitted
+settings in the native profile, as recorded from Cloud Storage, and preserves
+them in the legacy-emulator profile as a local SDK compatibility choice; it
+records Rust and native PUT guide checks, while the Go and Ruby SDK checks await
+an update for the native behavior. Reference, container and Docker checks were
+not rerun for that policy.
 Separate maintenance adopted API client v0.308.0 with Storage v1.70.0 unchanged;
 the full SDK suite passes and all 31 dependency inputs report CURRENT.
 The complete buckets.update row stays PARTIAL for advanced fields,

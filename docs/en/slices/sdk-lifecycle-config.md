@@ -12,8 +12,10 @@ are never executed. The behavior row remains PARTIAL.
 - LIFECYCLE-PATCH-CLEAR: null, an empty object, a null rule list or an empty
   rule list clears
   configuration; omit lifecycle from subsequent responses.
-- LIFECYCLE-UPDATE-REPLACE: PUT replaces supplied lifecycle and preserves omitted
-  lifecycle.
+- LIFECYCLE-UPDATE-REPLACE: PUT replaces supplied lifecycle; an omitted
+  lifecycle is cleared in the native profile (as recorded from Cloud Storage)
+  and preserved in the legacy-emulator profile, a local choice under
+  SPEC-BUCKET-PUT.
 - LIFECYCLE-VALIDATE-ACTION: accept Delete, SetStorageClass with a supported
   bucket storage class, and AbortIncompleteMultipartUpload; reject invalid
   actions with guidance.

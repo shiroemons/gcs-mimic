@@ -56,7 +56,7 @@ contains enabled:false without lockedTime on both aliases. Output-only lockedTim
 is ignored. Exact provider error text and disabled field omission need provider
 evidence; these choices are tracked in SPEC-UBLA-EDGES. A null iamConfiguration
 resource remains invalid; null uniform-access children mean absent input.
-PATCH and PUT preserve omitted uniform access, including on locked buckets.
+PATCH and PUT preserve omitted uniform access, including on locked buckets (the native PUT keeps omitted access settings as recorded from Cloud Storage while it clears other omitted settings).
 Disabling resets the deadline; subsequent activation starts another 90-day period.
 
 ## Persistence and authorization

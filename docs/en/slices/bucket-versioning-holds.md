@@ -56,7 +56,8 @@ delete, with checks in the mutation transaction.
 New media, multipart and resumable-finalization objects inherit the current
 bucket `defaultEventBasedHold`, unless object metadata explicitly supplies
 `eventBasedHold`. Both boolean values are writable on insert, PATCH and PUT.
-PATCH omission preserves the hold. PUT omission preserves the hold as a local
+PATCH omission preserves the hold. PUT omission clears the hold in the native profile (as
+recorded from Cloud Storage) and preserves it in the legacy-emulator profile, a local
 conservative rule pending independent evidence; explicit false releases it.
 Invalid scalar/null input is rejected with 400 `invalidArgument`. Held live
 objects reject overwrite and delete; a held noncurrent generation rejects explicit

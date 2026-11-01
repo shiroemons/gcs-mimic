@@ -92,7 +92,7 @@ retention, lifecycle and other advanced fields are outside these rows.
 | Row | Requirements for ✅ within this field set |
 | --- | --- |
 | Bucket PATCH | Merge labels, remove selected label keys, update the supported default class and preserve omitted fields; empty labels merges no keys, labels:null clears the map; null/empty class is rejected. These null/empty rules are declared local choices pending SPEC-BUCKET-PATCH, not service-verified. |
-| Bucket PUT | Preserve omitted settings; replace a supplied labels map, clear null/empty labels, reject null/empty class. This local choice supports Ruby update blocks and remains unverified against GCS under SPEC-BUCKET-PUT. |
+| Bucket PUT | Replace the resource: the native profile clears omitted labels, versioning, CORS, lifecycle, retention policy and default event-based hold (as recorded from Cloud Storage) and keeps the omitted storage class, soft delete policy and access settings; the legacy-emulator profile preserves every omitted setting as a local choice (SPEC-BUCKET-PUT). A supplied labels map replaces all keys, null/empty labels clear it, null/empty class is rejected. |
 | Object PATCH | Change only supplied fixed fields; merge custom keys; null clears a fixed field or the map and removes individual custom keys; preserve other keys and empty-string custom values. |
 | Object PUT | Replace all scoped fixed/custom metadata; reset omitted fixed fields and custom metadata, including clearing `contentEncoding`; absent content type serves as `application/octet-stream`. |
 

@@ -185,10 +185,13 @@ CORS, retention, predefined ACL queries and `userProject` return 501;
 
 ## Replace bucket labels and default storage class
 
-PUT preserves omitted modeled settings. A supplied labels map replaces all keys;
-null/empty labels clear it, and versioning:{} disables versioning. This is a
-local choice supporting Ruby update blocks under SPEC-BUCKET-PUT, without
-real-GCS verification. Existing objects, retained
+PUT replaces the resource, like Cloud Storage. In the native profile an omitted
+`labels`, `versioning`, `cors`, `lifecycle`, `retentionPolicy` and
+`defaultEventBasedHold` are cleared (a locked retention policy stays), while the
+storage class, soft delete policy and access settings it omits are kept; the
+compatibility profile preserves every omitted setting. A supplied labels map
+replaces all keys, null/empty labels clear it, and versioning:{} disables
+versioning. Existing objects, retained
 versions, holds, identity and IAM policy survive replacement. Changing a default
 class does not rewrite existing objects or simulate physical placement.
 
@@ -208,7 +211,7 @@ jq -e --argjson prior "$put_revision" \
   "$put_dir/replaced.json"
 curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' \
   --data '{}' "$endpoint/storage/v1/b/demo-bucket" > "$put_dir/reset.json"
-jq -e '.labels == {"stage":"replacement"} and .storageClass == "COLDLINE" and .versioning.enabled and .defaultEventBasedHold' \
+jq -e '(.labels == null) and .storageClass == "COLDLINE" and ((.versioning.enabled // false) | not) and ((.defaultEventBasedHold // false) | not)' \
   "$put_dir/reset.json"
 put_status=$(curl --disable --noproxy '*' --silent --show-error -o "$put_dir/stale.json" \
   -w '%{http_code}' -X PUT -H 'Content-Type: application/json' --data '{"labels":{"stage":"stale"}}' \
@@ -231,17 +234,19 @@ for accepted full-resource round trips and remaining provider questions.
 
 The [final PUT verification](evidence/bucket-metadata-put.md) records execution
 of the original shared create/PATCH/PUT blocks against the native release binary
-and Docker image. Those historical runs predate the omission-preserving policy;
-the current Rust/SDK checks are recorded in the PUT contract.
-The updated native PUT block passes on 2026-10-27; the Docker block and restart
-were not rerun for omission preservation.
+and Docker image. Those historical runs predate the native replacement
+behavior; the current Rust/SDK checks are recorded in the PUT contract. The
+PUT block above asserts the native behavior (omitted `labels`, `versioning` and
+`defaultEventBasedHold` cleared, storage class kept); on the compatibility
+profile an empty PUT preserves them, so adjust that assertion there.
 
 ## Verify bucket versioning and default holds
 
 Create-time `versioning.enabled` retains overwritten or deleted generations.
 `defaultEventBasedHold` protects newly uploaded bytes until explicitly released.
-This native walkthrough also works with the compatibility profile; PATCH changes
-supplied defaults and PUT also preserves omitted settings.
+This walkthrough also works with the compatibility profile; PATCH changes
+supplied defaults in both profiles, while a PUT clears omitted settings only in the
+native profile.
 
 ```sh
 history_dir=$(mktemp -d)
@@ -505,8 +510,10 @@ overwrite changes the validator. If-Match uses strong comparison, If-None-Match
 uses weak comparison, and conditions precede Range. Generation/metageneration
 query conditions can combine with either header: Match query-condition or
 If-Match failures return 412 before NotMatch query-condition or If-None-Match
-304 responses. Write/list validators return 501.
-Standalone date validators and If-Range also return 501; If-Modified-Since is
+304 responses. Validators on lists and on most writes return 400 `badRequest`.
+A JSON media (`alt=media`) GET ignores standalone date validators and If-Range,
+as recorded from Cloud Storage; an object metadata or bucket GET that carries
+one still returns 400 `badRequest`, a local choice. If-Modified-Since is
 ignored with If-None-Match, and If-Unmodified-Since is ignored with If-Match.
 See the [read validator contract](slices/json-read-etag-validators.md).
 
