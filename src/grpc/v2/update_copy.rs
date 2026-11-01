@@ -1671,12 +1671,8 @@ mod tests {
     /// `retention_expire_time` at millisecond precision (observed 2026-10-31).
     #[tokio::test]
     async fn grpc_retention_keeps_nanoseconds_and_expire_time_is_milliseconds() {
-        // Windows holds a SystemTime in 100 ns ticks and floors a finer wire fraction.
-        const FINE_NANOS: i32 = if cfg!(windows) {
-            123_456_700
-        } else {
-            123_456_789
-        };
+        // Not a multiple of 100 ns, which a platform flooring a SystemTime would lose.
+        const FINE_NANOS: i32 = 123_456_789;
         let (s, _dir) = setup().await;
         let mut record = json::parse_insert(
             br#"{"name":"retention-ns"}"#,
@@ -1758,7 +1754,9 @@ mod tests {
             format!(
                 "Object 'policy-ms/kept' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until {}",
                 crate::object::retention::pacific_rfc3339(
-                    object.time_created + std::time::Duration::from_secs(3600)
+                    crate::object::unix_nanos::UnixNanos::from(
+                        object.time_created + std::time::Duration::from_secs(3600)
+                    )
                 )
             )
         );

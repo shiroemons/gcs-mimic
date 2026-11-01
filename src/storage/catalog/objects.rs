@@ -2587,18 +2587,28 @@ pub(super) fn publish_in_transaction<T>(
 }
 
 fn validate_publication_timestamps(record: &ObjectRecord) -> Result<(), ObjectError> {
+    let outside = || {
+        ObjectError::InvalidFixedMetadata("Object timestamps and computed retention expiration must remain within the supported RFC3339 UTC range".into())
+    };
+    if let Some(retention) = record.retention
+        && !retention
+            .retain_until
+            .micros_and_remainder()
+            .is_some_and(|(micros, _)| crate::clock::rfc3339_micros(i128::from(micros)))
+    {
+        return Err(outside());
+    }
     for time in [
         Some(record.time_created),
         Some(record.updated),
         record.retention_expiration_time,
-        record.retention.map(|retention| retention.retain_until),
     ]
     .into_iter()
     .flatten()
     {
         let micros = unix_micros(time).map_err(object_unavailable)?;
         if !crate::clock::rfc3339_micros(i128::from(micros)) {
-            return Err(ObjectError::InvalidFixedMetadata("Object timestamps and computed retention expiration must remain within the supported RFC3339 UTC range".into()));
+            return Err(outside());
         }
     }
     Ok(())

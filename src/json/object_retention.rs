@@ -1,9 +1,11 @@
 //! JSON wire form of object retention (`retention`) and bucket `objectRetention`.
 
-use super::{JsonError, buckets::timestamp};
-use crate::object::retention::{ObjectRetention, RetentionMode};
+use super::{JsonError, buckets::timestamp_nanos};
+use crate::object::{
+    retention::{ObjectRetention, RetentionMode},
+    unix_nanos::UnixNanos,
+};
 use serde_json::{Value, json};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const EXAMPLE: &str = "use {\"mode\":\"Unlocked\",\"retainUntilTime\":\"2030-01-01T00:00:00Z\"}";
 
@@ -52,27 +54,20 @@ pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError>
         .ok_or_else(|| invalid("retention.retainUntilTime must be an RFC 3339 string"))?;
     let (seconds, nanos) = crate::object::custom_time_key(until)
         .map_err(|_| invalid("retention.retainUntilTime must be an RFC 3339 timestamp"))?;
-    let offset = Duration::from_secs(seconds.unsigned_abs());
-    let base = if seconds < 0 {
-        UNIX_EPOCH.checked_sub(offset)
-    } else {
-        UNIX_EPOCH.checked_add(offset)
-    };
     // Cloud Storage kept the full nanosecond value for comparisons while responses showed only
     // the millisecond (observed 2026-10-31, including .123999999 displayed as .123). The time is
-    // kept to the nanosecond too and rendering truncates to milliseconds.
+    // kept to the nanosecond too, as seconds and nanoseconds rather than a `SystemTime`, which
+    // Windows floors to 100 ns; rendering truncates to milliseconds.
     let out_of_range = || invalid("retention.retainUntilTime is outside the supported range");
-    let retain_until = base
-        .and_then(|time| time.checked_add(Duration::from_nanos(u64::from(nanos))))
-        .ok_or_else(out_of_range)?;
-    timestamp(retain_until).map_err(|_| out_of_range())?;
+    let retain_until = UnixNanos::new(seconds, nanos).ok_or_else(out_of_range)?;
+    timestamp_nanos(retain_until).map_err(|_| out_of_range())?;
     Ok(Some(ObjectRetention { mode, retain_until }))
 }
 
 pub(super) fn render(retention: &ObjectRetention) -> Result<Value, JsonError> {
     Ok(json!({
         "mode": retention.mode.as_str(),
-        "retainUntilTime": timestamp(retention.retain_until)?,
+        "retainUntilTime": timestamp_nanos(retention.retain_until)?,
     }))
 }
 
@@ -100,8 +95,8 @@ pub(super) fn render_bucket(bucket: &crate::bucket::BucketRecord) -> Option<Valu
 }
 
 /// Returned as `retentionExpirationTime`: the later of bucket-policy and object retention.
-pub(super) fn expiration(time: Option<SystemTime>) -> Result<Option<String>, JsonError> {
-    time.map(timestamp).transpose()
+pub(super) fn expiration(time: Option<UnixNanos>) -> Result<Option<String>, JsonError> {
+    time.map(timestamp_nanos).transpose()
 }
 
 #[cfg(test)]
@@ -178,19 +173,12 @@ mod tests {
                 .unwrap()
                 .retain_until
         };
-        // The sub-millisecond part is kept, so times one SystemTime tick apart still compare as
-        // different. A tick is 1 ns on Unix but 100 ns on Windows, which floors a finer fraction.
-        let (lower, higher) = if cfg!(windows) {
-            (
-                "2030-01-01T00:00:00.123456700Z",
-                "2030-01-01T00:00:00.123456800Z",
-            )
-        } else {
-            (
-                "2030-01-01T00:00:00.123456788Z",
-                "2030-01-01T00:00:00.123456789Z",
-            )
-        };
+        // The sub-millisecond part is kept, so times one nanosecond apart still compare as
+        // different on every platform (not a multiple of 100 ns, which Windows would floor).
+        let (lower, higher) = (
+            "2030-01-01T00:00:00.123456788Z",
+            "2030-01-01T00:00:00.123456789Z",
+        );
         assert_ne!(stored(lower), stored(higher));
         assert!(stored(lower) < stored(higher));
     }
