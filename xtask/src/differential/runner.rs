@@ -13,6 +13,15 @@ pub(crate) struct Names {
     pub(crate) missing_bucket: String,
 }
 
+impl Names {
+    /// The `{new_bucket}` of the case at `index`: one name per case, so a case
+    /// never meets a name another case just deleted and the live service has
+    /// no reuse delay to trip over.
+    pub(crate) fn new_bucket_for(&self, index: usize) -> String {
+        format!("{}-{index}", self.new_bucket)
+    }
+}
+
 pub(crate) struct Side<'a> {
     pub(crate) transport: &'a dyn Transport,
     pub(crate) project: &'a str,
@@ -47,7 +56,6 @@ pub(crate) struct SideRun {
 fn base_normalizer(side: &Side<'_>, names: &Names) -> Normalizer {
     let mut norm = Normalizer::default();
     norm.add_literal(&names.bucket, "<bucket>");
-    norm.add_literal(&names.new_bucket, "<new_bucket>");
     norm.add_literal(&names.missing_bucket, "<missing_bucket>");
     norm.add_literal(side.project, "<project>");
     for host in &side.hosts {
@@ -98,18 +106,20 @@ fn run_case(
     side: &Side<'_>,
     case: &Case,
     names: &Names,
+    new_bucket: &str,
     base: &Normalizer,
     project_numbers_seen: &mut Vec<String>,
 ) -> CaseOutcome {
     let mut vars = Vars::from([
         ("project".to_owned(), side.project.to_owned()),
         ("bucket".to_owned(), names.bucket.clone()),
-        ("new_bucket".to_owned(), names.new_bucket.clone()),
+        ("new_bucket".to_owned(), new_bucket.to_owned()),
         ("missing_bucket".to_owned(), names.missing_bucket.clone()),
         ("object".to_owned(), format!("{}-1", case.id)),
         ("object2".to_owned(), format!("{}-2", case.id)),
     ]);
     let mut norm = base.clone();
+    norm.add_literal(new_bucket, "<new_bucket>");
     let mut outcome = CaseOutcome {
         id: case.id.clone(),
         steps: Vec::new(),
@@ -188,7 +198,6 @@ pub(crate) fn run_side(side: &Side<'_>, cases: &[Case], names: &Names) -> SideRu
         failed_cleanup: false,
     };
     let needs_shared = cases.iter().any(|c| c.bucket);
-    let needs_new = cases.iter().any(|c| c.uses_variable("new_bucket"));
     let mut seen = Vec::new();
     let mut shared_error = None;
     if needs_shared {
@@ -201,7 +210,12 @@ pub(crate) fn run_side(side: &Side<'_>, cases: &[Case], names: &Names) -> SideRu
             Err(error) => shared_error = Some(format!("create shared bucket: {error}")),
         }
     }
-    for case in cases {
+    let mut new_targets = Vec::new();
+    for (index, case) in cases.iter().enumerate() {
+        let new_bucket = names.new_bucket_for(index);
+        if case.uses_variable("new_bucket") {
+            new_targets.push((case.id.clone(), new_bucket.clone()));
+        }
         if case.bucket
             && let Some(error) = &shared_error
         {
@@ -213,17 +227,17 @@ pub(crate) fn run_side(side: &Side<'_>, cases: &[Case], names: &Names) -> SideRu
             continue;
         }
         run.cases
-            .push(run_case(side, case, names, &base, &mut seen));
+            .push(run_case(side, case, names, &new_bucket, &base, &mut seen));
     }
-    let mut targets = Vec::new();
+    let mut targets: Vec<(String, String)> = Vec::new();
     if needs_shared {
-        targets.push(("shared bucket", &names.bucket));
+        targets.push(("shared bucket".to_owned(), names.bucket.clone()));
     }
-    if needs_new {
-        targets.push(("lifecycle bucket", &names.new_bucket));
+    for (id, name) in new_targets {
+        targets.push((format!("bucket of {id}"), name));
     }
     for (label, name) in targets {
-        match bucket::cleanup(side, name) {
+        match bucket::cleanup(side, &name) {
             Ok(note) => run.cleanup.push(format!("{label}: {note}")),
             Err(error) => {
                 run.failed_cleanup = true;
@@ -233,4 +247,89 @@ pub(crate) fn run_side(side: &Side<'_>, cases: &[Case], names: &Names) -> SideRu
         }
     }
     run
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::differential::case::parse_case;
+    use crate::differential::transport::Response;
+    use serde_json::json;
+    use std::cell::RefCell;
+
+    /// Answers every GET with 404 (so cleanup sees the bucket as gone), every
+    /// DELETE with 204 and everything else with an empty 200.
+    #[derive(Default)]
+    struct Recorder {
+        sent: RefCell<Vec<String>>,
+    }
+
+    impl Transport for Recorder {
+        fn send(&self, request: &Request) -> Result<Response, String> {
+            self.sent
+                .borrow_mut()
+                .push(format!("{} {}", request.method, request.target));
+            let status = match request.method.as_str() {
+                "DELETE" => 204,
+                "GET" => 404,
+                _ => 200,
+            };
+            Ok(Response {
+                status,
+                headers: Vec::new(),
+                body: b"{}".to_vec(),
+            })
+        }
+
+        fn requests(&self) -> u64 {
+            self.sent.borrow().len() as u64
+        }
+    }
+
+    fn case(id: &str) -> Case {
+        let value = json!({
+            "id": id,
+            "description": "test",
+            "bucket": false,
+            "steps": [
+                {"name": "create", "method": "POST", "path": "/storage/v1/b/{new_bucket}"},
+                {"name": "delete", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}"}
+            ]
+        });
+        parse_case(&value, id).expect("test case parses")
+    }
+
+    #[test]
+    fn each_case_gets_its_own_new_bucket_that_is_normalized_and_cleaned() {
+        let names = Names {
+            bucket: "run-b".into(),
+            new_bucket: "run-n".into(),
+            missing_bucket: "run-m".into(),
+        };
+        let transport = Recorder::default();
+        let side = Side {
+            transport: &transport,
+            project: "proj-x",
+            hosts: Vec::new(),
+        };
+        let run = run_side(&side, &[case("one"), case("two")], &names);
+        let sent = transport.sent.borrow();
+        let created: Vec<&String> = sent.iter().filter(|l| l.starts_with("POST")).collect();
+        assert_eq!(created.len(), 2);
+        assert_ne!(created[0], created[1], "cases must not share a bucket name");
+        for outcome in &run.cases {
+            for step in &outcome.steps {
+                assert!(step.request.contains("<new_bucket>"), "{}", step.request);
+                assert!(!step.request.contains("run-n"), "{}", step.request);
+            }
+        }
+        assert_eq!(run.cleanup.len(), 2, "{:?}", run.cleanup);
+        for name in [names.new_bucket_for(0), names.new_bucket_for(1)] {
+            assert!(
+                sent.iter()
+                    .any(|l| l.starts_with(&format!("GET /storage/v1/b/{name}/o?"))),
+                "no cleanup confirmation for {name}"
+            );
+        }
+    }
 }
