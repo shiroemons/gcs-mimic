@@ -58,9 +58,7 @@ pub(crate) fn test_permissions_query(
                 permission.as_str(),
                 crate::auth::BUCKETS_CREATE | crate::auth::BUCKETS_LIST
             ) {
-                return Err(invalid(
-                    "Project-only permission; test a bucket permission such as storage.buckets.get",
-                ));
+                return Err(invalid("Invalid argument."));
             }
             if crate::auth::Permission::try_from(permission.as_str()).is_err() {
                 if PREDEFINED_ROLES
@@ -71,9 +69,9 @@ pub(crate) fn test_permissions_query(
                         "permission {permission}; use a supported operation permission such as storage.objects.get"
                     )));
                 }
-                return Err(invalid(
-                    "Invalid permission; use a supported name such as storage.objects.get",
-                ));
+                return Err(invalid(format!(
+                    "{permission} is not a valid Google Cloud Storage permission."
+                )));
             }
             if !permissions.contains(&permission) {
                 permissions.push(permission);
@@ -86,7 +84,7 @@ pub(crate) fn test_permissions_query(
         return Err(JsonError::new(
             StatusCode::BAD_REQUEST,
             "required",
-            "Missing permissions; supply permissions=storage.objects.get",
+            "Required parameter: permissions",
         ));
     }
     let mut query = query::parse_query(&rest.join("&"))?;
@@ -99,14 +97,13 @@ pub(crate) fn test_permissions_query(
     Ok((permissions, fields))
 }
 
-fn invalid(message: &str) -> JsonError {
+fn invalid(message: impl Into<String>) -> JsonError {
     JsonError::new(StatusCode::BAD_REQUEST, "invalid", message)
 }
 
 pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| {
-        JsonError::new(StatusCode::BAD_REQUEST, "parseError", "Invalid JSON policy")
-    })?;
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|error| JsonError::json_parse_error(&error))?;
     let body = value
         .as_object()
         .ok_or_else(|| invalid("Policy must be an object"))?;
@@ -152,16 +149,22 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
             }
             let Some((_, level, _)) = PREDEFINED_ROLES.iter().find(|(name, _, _)| *name == role)
             else {
-                return Err(invalid("Unknown policy role"));
+                return Err(invalid(format!(
+                    "Role {role} is not supported for this resource."
+                )));
             };
             if *level == GrantLevel::Project {
                 return Err(invalid("Role cannot be granted on a bucket"));
             }
+            // A binding without members grants nothing, and Cloud Storage dropped it from the
+            // stored policy without complaint (recorded 2026-10-31).
             let values = binding
                 .get("members")
                 .and_then(Value::as_array)
-                .filter(|values| !values.is_empty())
-                .ok_or_else(|| invalid("binding members must be a nonempty array"))?;
+                .ok_or_else(|| invalid("binding members must be an array"))?;
+            if values.is_empty() {
+                continue;
+            }
             principals += values.len();
             if principals > 1500 {
                 return Err(invalid("Policy exceeds 1500 principal occurrences"));
@@ -242,7 +245,7 @@ fn validate_member(member: &str) -> Result<(), JsonError> {
     }
     let (kind, id) = member
         .split_once(':')
-        .ok_or_else(|| invalid("Malformed policy member"))?;
+        .ok_or_else(|| unknown_member_type(member))?;
     if matches!(kind, "projectOwner" | "projectEditor" | "projectViewer") {
         return super::validate_project(id).map_err(|_| invalid("Invalid convenience project"));
     }
@@ -255,8 +258,15 @@ fn validate_member(member: &str) -> Result<(), JsonError> {
         "principal" | "principalSet" if id.starts_with("//") && id.len() > 2 => {
             Err(JsonError::unsupported("federated principal"))
         }
-        _ => Err(invalid("Malformed or unknown policy member")),
+        _ => Err(unknown_member_type(member)),
     }
+}
+
+/// Cloud Storage's wording for a member with no known type prefix (recorded 2026-10-31).
+fn unknown_member_type(member: &str) -> JsonError {
+    invalid(format!(
+        "The member {member} is of an unknown type. Please set a valid type prefix for the member."
+    ))
 }
 
 pub(crate) fn policy_resource(policy: &Policy, bucket: &str) -> Value {
