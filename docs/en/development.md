@@ -56,25 +56,35 @@ sequence. Dependency downloads and container pulls can require network access;
 this is not an entirely offline command.
 
 `just check` runs only the host's tests and the type-checks of the other targets, so
-three kinds of failure reach CI first: tests whose result depends on the platform clock
-(Linux `SystemTime` holds nanoseconds, macOS microseconds, Windows 100 ns ticks),
-Linux-only code, and the SDK suites in `just check-sdk-clients` / `just check-sdk`.
+three kinds of failure reach CI first: tests whose result depends on timestamp
+precision, Linux-only code, and the SDK suites in `just check-sdk-clients` /
+`just check-sdk`. The precision differences have two sources. Linux and macOS both
+let `SystemTime` hold nanoseconds, but the macOS clock only reads microseconds, so a
+value from `SystemTime::now()` has a nanosecond part on Linux and not on macOS. On
+Windows the `SystemTime` type itself counts 100 ns intervals and floors a finer
+fraction.
+
 Run the library tests on Linux with the pinned Rust image (`rust_image` in
-`sdk-scorecard/run.sh`), keeping the build output in a volume so the host `target/` is
-untouched:
+`sdk-scorecard/run.sh`), keeping the build output in volumes so the host `target/` is
+untouched. One container installs the build tools (the image has no `cc`), hands the
+volumes to an ordinary user and runs the tests as that user:
 
 ```bash
+cat > "$TMPDIR/linux-lib-tests.sh" <<'SCRIPT'
+apt-get update -qq && apt-get install -y -qq build-essential pkg-config cmake protobuf-compiler
+useradd -m tester
+chown -R tester /t /usr/local/cargo/registry
+su -m tester -c 'HOME=/tmp cargo test --locked --lib'
+SCRIPT
 docker run --rm -v "$PWD":/w -v gcs-target:/t -v gcs-cargo:/usr/local/cargo/registry \
-  -e CARGO_TARGET_DIR=/t -w /w "$RUST_IMAGE" \
-  sh -c 'apt-get update -qq && apt-get install -y -qq build-essential pkg-config cmake protobuf-compiler && cargo test --locked --lib'
+  -v "$TMPDIR/linux-lib-tests.sh":/linux-lib-tests.sh:ro \
+  -e CARGO_TARGET_DIR=/t -w /w "$RUST_IMAGE" sh /linux-lib-tests.sh
 ```
 
-The first run needs root to install the build tools. Run the tests themselves as an
-ordinary user (`-u 1000:1000 -e HOME=/tmp -e TMPDIR=/tmp`, after `chmod -R a+rwX` on the two
-volumes, with `--offline`): as root, three permission-denied sync tests fail
+Do not run the tests as root: three permission-denied sync tests
 (`ingest_unreadable_file_is_deferred_while_other_files_progress` and the two
-`sync::mirror` permission tests), which CI does not see. Windows tests cannot run
-locally; keep timestamp tests to values every platform holds exactly.
+`sync::mirror` permission tests) fail there, and CI does not run as root. Windows
+tests cannot run locally; keep timestamp tests to values every platform holds exactly.
 
 The local Rust check ignores an inherited `RUSTUP_TOOLCHAIN` and uses the
 repository pin. The SDK recipe clears `GCS_MIMIC_GO_TEST_RUN` so an inherited
