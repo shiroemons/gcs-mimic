@@ -520,7 +520,7 @@ fn compose_method_body_and_selector_boundaries() {
             .status,
         413
     );
-    for query in ["projection=full", "projection=noAcl", "undeclared=value"] {
+    for query in ["projection=full", "projection=noAcl"] {
         server
             .request(
                 "POST",

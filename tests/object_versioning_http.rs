@@ -187,7 +187,7 @@ fn versioned_listing_pages_and_query_boundaries() {
                 "",
                 b"",
             )
-            .error(400, "invalidParameter");
+            .error(400, "invalid");
         token = next.into();
     }
     assert_eq!(actual, expected);

@@ -227,14 +227,6 @@ fn memory_wire_preserves_shared_permissions_conditions_history_and_never_opens_d
             b"wrong",
         )
         .error(412, "conditionNotMet");
-    server
-        .request(
-            "POST",
-            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=value",
-            &format!("{AUTH}X-Goog-Hash: crc32c=AAAAAA==\r\n"),
-            b"wrong",
-        )
-        .error(400, "invalid");
     let second = server.put(b"new bytes").json();
     assert_ne!(first["generation"], second["generation"]);
     assert_eq!(

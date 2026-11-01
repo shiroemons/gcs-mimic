@@ -74,6 +74,12 @@ pub(crate) fn route(
             if_metageneration_match: condition("ifMetagenerationMatch")?,
             ..Default::default()
         };
+        // `projection` is a defined parameter this route does not implement.
+        if query.contains_key("projection") {
+            return Err(JsonError::invalid_parameter(
+                "Unknown query parameter for this method: projection",
+            ));
+        }
         // Cloud Storage ignored a query parameter it does not define, such as the gRPC-only
         // `deleteSourceObjects`: the sources survived a recorded compose that carried it.
         Ok(crate::json::ObjectRequest::Compose {
