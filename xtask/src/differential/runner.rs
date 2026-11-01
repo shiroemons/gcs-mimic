@@ -61,6 +61,9 @@ pub(crate) struct CaseOutcome {
     pub(crate) steps: Vec<StepOutcome>,
     /// A harness failure that stopped the case.
     pub(crate) error: Option<String>,
+    /// The case's `bucket` mode when it ran (`shared`, `own`, `none`). A
+    /// recording made before this was recorded has `None` and skips the check.
+    pub(crate) bucket: Option<String>,
 }
 
 pub(crate) struct SideRun {
@@ -176,6 +179,7 @@ fn failed_case(case: &Case, error: String) -> CaseOutcome {
         id: case.id.clone(),
         steps: case.steps.iter().map(skipped_step).collect(),
         error: Some(error),
+        bucket: Some(case.bucket.label().to_owned()),
     }
 }
 
@@ -295,6 +299,7 @@ fn run_case(
         id: case.id.clone(),
         steps: Vec::new(),
         error: None,
+        bucket: Some(case.bucket.label().to_owned()),
     };
     let mut failed = false;
     for step in &case.steps {

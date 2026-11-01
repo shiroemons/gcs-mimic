@@ -90,6 +90,17 @@ pub(crate) enum BucketMode {
     Own,
 }
 
+impl BucketMode {
+    /// The name recorded with a case's outcome.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Shared => "shared",
+            Self::None => "none",
+            Self::Own => "own",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Case {
     pub(crate) id: String,

@@ -531,7 +531,10 @@ Modes:
 - **Replay** (`--reference FILE`) compares gcs-mimic with a saved recording and
   never contacts Google, so a fix can be checked offline. Re-record when a case
   changes; a recording whose steps no longer match the case is reported as
-  an error. `--record FILE` in self-check mode records gcs-mimic itself, which
+  an error, and so is one made under another `bucket` mode (shared, own,
+  none) of the case. The mode is stored per case beside the step fingerprints
+  rather than inside them, so a recording made before it was stored still
+  replays; its mode is simply not compared. `--record FILE` in self-check mode records gcs-mimic itself, which
   gives an offline fixture for testing the replay path.
 
 Other options: `--cases DIR` (default `compatibility/differential/cases`),

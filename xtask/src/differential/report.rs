@@ -58,6 +58,16 @@ fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome
         if let Some(error) = &reference.error {
             errors.push(format!("reference: {error}"));
         }
+        // A case that moved between the shared bucket and its own one answers a
+        // different question, though its steps are unchanged.
+        if let Some(recorded) = &reference.bucket
+            && recorded != case.bucket.label()
+        {
+            errors.push(format!(
+                "bucket mode changed from '{recorded}' to '{}' since the reference was recorded; record again",
+                case.bucket.label()
+            ));
+        }
         let expected: Vec<_> = case.steps.iter().map(|s| s.name.clone()).collect();
         let recorded: Vec<_> = reference.steps.iter().map(|s| s.name.clone()).collect();
         if recorded != expected {
@@ -143,6 +153,7 @@ pub(crate) fn build(
                 id: case.id.clone(),
                 steps: Vec::new(),
                 error: Some("case did not run".into()),
+                bucket: None,
             };
             let mut report =
                 compare_case(case, mimic_outcome.unwrap_or(&missing), reference_outcome);
@@ -539,6 +550,7 @@ mod tests {
         let current = parse_case(&case_json("/new"), "c").unwrap();
         let outcome = |case: &Case, error: Option<&str>| CaseOutcome {
             id: "c".into(),
+            bucket: Some(case.bucket.label().into()),
             error: error.map(str::to_owned),
             steps: vec![StepOutcome {
                 name: "s".into(),
@@ -687,6 +699,7 @@ mod tests {
         .unwrap();
         let outcome = |note: Option<&str>| CaseOutcome {
             id: "c".into(),
+            bucket: Some("none".into()),
             error: None,
             steps: vec![StepOutcome {
                 name: "s".into(),
@@ -715,6 +728,24 @@ mod tests {
         assert!(has_failures(&[noted], strict));
         let wrong_case = compare_case(&case, &outcome(None), Some(&outcome(Some("expected 404"))));
         assert_eq!(wrong_case.outcome, Outcome::Error);
+        // A recording of the same steps under another bucket mode is refused; one
+        // made before the mode was recorded still replays.
+        for (recorded, refused) in [(Some("shared"), true), (Some("none"), false), (None, false)] {
+            let reference = CaseOutcome {
+                bucket: recorded.map(str::to_owned),
+                ..outcome(None)
+            };
+            let report = compare_case(&case, &outcome(None), Some(&reference));
+            assert_eq!(
+                report
+                    .errors
+                    .iter()
+                    .any(|e| e.contains("bucket mode changed")),
+                refused,
+                "{recorded:?}: {:?}",
+                report.errors
+            );
+        }
         let harness = CaseOutcome {
             error: Some("boom".into()),
             ..outcome(None)

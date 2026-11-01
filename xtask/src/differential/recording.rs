@@ -61,6 +61,7 @@ pub(crate) fn to_json(recording: &Recording) -> Value {
             json!({
                 "id": case.id,
                 "error": case.error,
+                "bucket": case.bucket,
                 "steps": case.steps.iter().map(step_json).collect::<Vec<_>>(),
             })
         })
@@ -141,6 +142,7 @@ pub(crate) fn from_json(value: &Value) -> Result<Recording> {
             Ok(CaseOutcome {
                 id: case["id"].as_str().ok_or("case without id")?.to_owned(),
                 error: case["error"].as_str().map(str::to_owned),
+                bucket: case["bucket"].as_str().map(str::to_owned),
                 steps: case["steps"]
                     .as_array()
                     .ok_or("case without steps")?
@@ -172,6 +174,7 @@ mod tests {
             cases: vec![CaseOutcome {
                 id: "c".into(),
                 error: Some("boom".into()),
+                bucket: Some("own".into()),
                 steps: vec![
                     StepOutcome {
                         name: "a".into(),
