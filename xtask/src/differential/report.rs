@@ -5,8 +5,6 @@ use super::diff::{Difference, compare};
 use super::runner::{CaseOutcome, StepOutcome};
 use serde_json::{Value, json};
 
-type Result<T> = std::result::Result<T, String>;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Outcome {
     /// No difference from the reference (or, in self-check mode, all steps ran).
@@ -323,23 +321,87 @@ pub(crate) fn json_report(header: &Header<'_>, reports: &[CaseReport]) -> Value 
     })
 }
 
-/// Refuses to write text that still holds a known secret, a name from the live
-/// run or a local path. Labels, not values, go into the error.
-pub(crate) fn ensure_clean(text: &str, secrets: &[(String, &str)]) -> Result<()> {
-    for (value, label) in secrets {
-        if value.len() >= 3 && text.contains(value.as_str()) {
-            return Err(format!("output still contains the {label}"));
-        }
+/// What is wrong with one piece of text, if anything: a label, never the value.
+fn leak_of(text: &str, secrets: &[(String, &str)]) -> Option<String> {
+    if let Some((_, label)) = secrets
+        .iter()
+        .find(|(value, _)| value.len() >= 3 && text.contains(value.as_str()))
+    {
+        return Some(format!("the {label}"));
     }
     if super::normalize::contains_email(text) {
-        return Err("output still contains an email address".into());
+        return Some("an email address".into());
     }
-    for path in ["/Users/", "/private/", "/var/folders", "/tmp/", "/home/"] {
-        if text.contains(path) {
-            return Err(format!("output contains a local path ({path})"));
+    ["/Users/", "/private/", "/var/folders", "/tmp/", "/home/"]
+        .into_iter()
+        .find(|path| text.contains(path))
+        .map(|path| format!("a local path ({path})"))
+}
+
+/// A readable name for an array element: its `id` or `name`, else its index.
+fn element_label(index: usize, item: &Value) -> String {
+    ["id", "name"]
+        .into_iter()
+        .find_map(|key| item[key].as_str())
+        .map_or_else(|| index.to_string(), str::to_owned)
+}
+
+fn walk_leaks(value: &Value, path: &str, secrets: &[(String, &str)], out: &mut Vec<String>) {
+    match value {
+        Value::String(text) => {
+            if let Some(leak) = leak_of(text, secrets) {
+                out.push(format!("{path}: {leak}"));
+            }
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                let label = element_label(index, item);
+                walk_leaks(item, &format!("{path}[{label}]"), secrets, out);
+            }
+        }
+        Value::Object(map) => {
+            for (key, item) in map {
+                if let Some(leak) = leak_of(key, secrets) {
+                    out.push(format!("{path}: a key holds {leak}"));
+                }
+                walk_leaks(item, &format!("{path}.{key}"), secrets, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Where known secrets, emails or local paths remain in `text`: a JSON path
+/// (cases and steps by id or name, headers by name) for a JSON document, line
+/// numbers otherwise. Values never appear in the result.
+pub(crate) fn find_leaks(text: &str, secrets: &[(String, &str)]) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(value) = serde_json::from_str::<Value>(text) {
+        walk_leaks(&value, "$", secrets, &mut out);
+    } else {
+        for (index, line) in text.lines().enumerate() {
+            if let Some(leak) = leak_of(line, secrets) {
+                out.push(format!("line {}: {leak}", index + 1));
+            }
         }
     }
-    Ok(())
+    out
+}
+
+/// The text with every remaining secret, email and local path replaced, so it
+/// can be kept for inspection after a leak was found.
+pub(crate) fn redact_leaks(text: &str, secrets: &[(String, &str)]) -> String {
+    let mut out = text.to_owned();
+    for (value, _) in secrets {
+        if value.len() >= 3 {
+            out = out.replace(value.as_str(), "<redacted>");
+        }
+    }
+    out = super::normalize::scrub_emails(&out).replace("<email>", "<redacted>");
+    for path in ["/Users/", "/private/", "/var/folders", "/tmp/", "/home/"] {
+        out = out.replace(path, "<path>/");
+    }
+    out
 }
 
 pub(crate) fn has_failures(reports: &[CaseReport], fail_on_diff: bool) -> bool {
@@ -357,17 +419,17 @@ mod tests {
     #[test]
     fn guard_rejects_secrets_and_local_paths() {
         let secrets = vec![("my-project".to_owned(), "project")];
-        assert!(ensure_clean("clean <project>", &secrets).is_ok());
+        assert!(find_leaks("clean <project>", &secrets).is_empty());
         assert_eq!(
-            ensure_clean("x my-project", &secrets).unwrap_err(),
-            "output still contains the project"
+            find_leaks("x my-project", &secrets),
+            ["line 1: the project"]
         );
-        assert!(ensure_clean("see /Users/a/b", &secrets).is_err());
+        assert_eq!(find_leaks("see /Users/a/b", &secrets).len(), 1);
         assert_eq!(
-            ensure_clean("mail someone@example.com", &secrets).unwrap_err(),
-            "output still contains an email address"
+            find_leaks("mail someone@example.com", &secrets),
+            ["line 1: an email address"]
         );
-        assert!(ensure_clean("see /var/folders/x", &secrets).is_err());
+        assert_eq!(find_leaks("see /var/folders/x", &secrets).len(), 1);
     }
 
     #[test]
@@ -410,6 +472,34 @@ mod tests {
             );
             assert_eq!(stale.outcome, Outcome::Error);
         }
+    }
+
+    #[test]
+    fn leaks_are_located_by_case_step_and_header_without_their_values() {
+        let secrets = vec![("my-project".to_owned(), "project")];
+        let text = json!({"cases": [{"id": "c1", "steps": [
+            {"name": "s1", "response": {"headers": {"location": "https://x/my-project/o"},
+                                         "body": {"owner": "someone@example.com"}}}]}]})
+        .to_string();
+        let leaks = find_leaks(&text, &secrets);
+        assert_eq!(
+            leaks,
+            [
+                "$.cases[c1].steps[s1].response.body.owner: an email address",
+                "$.cases[c1].steps[s1].response.headers.location: the project",
+            ]
+        );
+        assert!(
+            leaks
+                .iter()
+                .all(|l| !l.contains("my-project/") && !l.contains("someone"))
+        );
+        let redacted = redact_leaks(&text, &secrets);
+        assert!(find_leaks(&redacted, &secrets).is_empty(), "{redacted}");
+        assert_eq!(
+            find_leaks("a\nsee /Users/x\nb", &secrets),
+            ["line 2: a local path (/Users/)"]
+        );
     }
     #[test]
     fn renders_differences_with_paths() {

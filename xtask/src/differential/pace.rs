@@ -25,8 +25,16 @@ pub(crate) enum Cost {
     BucketLifecycle,
 }
 
+/// gRPC status RESOURCE_EXHAUSTED, the gRPC counterpart of HTTP 429.
+const GRPC_RESOURCE_EXHAUSTED: u16 = 8;
+
+/// A gRPC request carries the RPC name (`pkg.Service/Method`) as its method.
+fn is_grpc(request: &Request) -> bool {
+    !request.method.chars().all(|c| c.is_ascii_uppercase())
+}
+
 pub(crate) fn cost(request: &Request) -> Cost {
-    let grpc = !request.method.chars().all(|c| c.is_ascii_uppercase());
+    let grpc = is_grpc(request);
     if grpc {
         let rpc = request.method.rsplit('/').next().unwrap_or_default();
         return match rpc {
@@ -95,7 +103,12 @@ impl Transport for Paced<'_> {
         let mut backoff = FIRST_BACKOFF;
         loop {
             let response = self.inner.send(request)?;
-            if response.status != 429 || self.retries.get() >= MAX_RETRIES {
+            let throttled = if is_grpc(request) {
+                response.status == GRPC_RESOURCE_EXHAUSTED
+            } else {
+                response.status == 429
+            };
+            if !throttled || self.retries.get() >= MAX_RETRIES {
                 return Ok(response);
             }
             self.retries.set(self.retries.get() + 1);
@@ -203,6 +216,34 @@ mod tests {
         assert!(SLEPT.with(|s| s.borrow().is_empty()));
     }
 
+    #[test]
+    fn retries_a_grpc_resource_exhausted_but_not_an_http_8() {
+        struct Status(u16, Cell<u32>);
+        impl Transport for Status {
+            fn send(&self, _: &Request) -> Result<Response> {
+                let left = self.1.get();
+                self.1.set(left.saturating_sub(1));
+                Ok(Response {
+                    status: if left > 0 { self.0 } else { 0 },
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                })
+            }
+            fn requests(&self) -> u64 {
+                0
+            }
+        }
+        let grpc = Status(8, Cell::new(2));
+        let paced = Paced::with_sleeper(&grpc, |_| {});
+        let response = paced
+            .send(&request("google.storage.v2.Storage/GetBucket", ""))
+            .unwrap();
+        assert_eq!((response.status, paced.take_retries()), (0, 2));
+        let http = Status(8, Cell::new(2));
+        let paced = Paced::with_sleeper(&http, |_| {});
+        assert_eq!(paced.send(&request("GET", "/x")).unwrap().status, 8);
+        assert_eq!(paced.take_retries(), 0);
+    }
     #[test]
     fn gives_up_after_the_retry_limit_and_returns_the_last_429() {
         let inner = Throttle {

@@ -73,6 +73,7 @@ fn base_normalizer(side: &Side<'_>, names: &Names) -> Normalizer {
     let mut norm = Normalizer::default();
     norm.add_literal(&names.bucket, "<bucket>");
     norm.add_literal(&names.missing_bucket, "<missing_bucket>");
+    norm.add_literal(&names.run_id, "<run>");
     norm.add_literal(side.project, "<project>");
     for host in &side.hosts {
         let placeholder = if host.contains("www.googleapis.com") {
@@ -333,11 +334,17 @@ fn run_one(
     let new_bucket = names.new_bucket_for(index);
     let own = (case.bucket == BucketMode::Own).then(|| format!("{}{index}", names.own_bucket));
     let bucket_name = own.clone().unwrap_or_else(|| names.bucket.clone());
+    // Cleanup and creation messages name these buckets, so every one is hidden.
+    let mut norm = base.clone();
+    if let Some(name) = &own {
+        norm.add_literal(name, "<bucket>");
+    }
+    norm.add_literal(&new_bucket, "<new_bucket>");
     if let (BucketMode::Shared, Some(error)) = (case.bucket, shared_error) {
         return failed_case(case, error.clone());
     }
     if let Some(name) = &own {
-        match bucket::create(side, base, name) {
+        match bucket::create(side, &norm, name) {
             Ok(numbers) => run.project_numbers.extend(numbers),
             Err(error) => return failed_case(case, format!("create the case bucket: {error}")),
         }
@@ -348,12 +355,12 @@ fn run_one(
     };
     let outcome = run_case(side, case, &buckets, names, base, &mut run.project_numbers);
     if let Some(name) = &own {
-        cleanup_line(side, base, format!("bucket of {}", case.id), name, run);
+        cleanup_line(side, &norm, format!("bucket of {}", case.id), name, run);
     }
     if case.uses_variable("new_bucket") {
         cleanup_line(
             side,
-            base,
+            &norm,
             format!("new bucket of {}", case.id),
             &new_bucket,
             run,
@@ -547,6 +554,38 @@ mod tests {
         assert_eq!(run.cases[0].steps[0].request, "GET /storage/v1/b/<bucket>");
     }
 
+    #[test]
+    fn errors_about_a_case_bucket_do_not_name_it() {
+        struct Denied;
+        impl Transport for Denied {
+            fn send(&self, _: &Request) -> Result<Response, String> {
+                Ok(Response {
+                    status: 403,
+                    headers: Vec::new(),
+                    body: b"no access to run-c0".to_vec(),
+                })
+            }
+            fn requests(&self) -> u64 {
+                0
+            }
+        }
+        let value = json!({"id": "own", "description": "d", "bucket": "own",
+            "steps": [{"name": "get", "method": "GET", "path": "/storage/v1/b/{bucket}"}]});
+        let own = parse_case(&value, "own").unwrap();
+        let denied = Denied;
+        let side = Side {
+            transport: &denied,
+            grpc: None,
+            project: "proj-x",
+            hosts: Vec::new(),
+            server_error_wait: Duration::ZERO,
+        };
+        let run = run_side(&side, &[own], &names());
+        let error = run.cases[0].error.clone().unwrap_or_default();
+        assert!(error.contains("create the case bucket"), "{error}");
+        assert!(!error.contains("run-c0"), "{error}");
+        assert!(error.contains("<bucket>"), "{error}");
+    }
     #[test]
     fn a_failed_step_skips_the_rest_except_always_steps_and_cleanup_still_runs() {
         let value = json!({"id": "brk", "description": "d", "bucket": false, "steps": [

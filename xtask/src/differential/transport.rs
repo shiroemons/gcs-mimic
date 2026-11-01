@@ -155,7 +155,14 @@ impl CurlTransport {
         request_path: &Path,
     ) -> Result<Response> {
         let mut command = Command::new("curl");
-        command.args(["--disable", "--silent", "--show-error", "--max-time", "60"]);
+        command.args([
+            "--disable",
+            "--http1.1",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "60",
+        ]);
         command.args(["--max-filesize", "8388608", "--write-out", "%{http_code}"]);
         if self.bypass_proxy {
             command.args(["--noproxy", "*"]);

@@ -174,7 +174,7 @@ pub(crate) fn contains_email(text: &str) -> bool {
 
 /// Replaces email addresses (service accounts, callers in ACL entries) with
 /// `<email>`; a caller's address must not reach a recording or a report.
-fn scrub_emails(text: &str) -> String {
+pub(crate) fn scrub_emails(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = String::new();
     let mut copied = 0;

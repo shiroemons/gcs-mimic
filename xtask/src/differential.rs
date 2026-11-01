@@ -154,12 +154,28 @@ pub fn validate(root: &Path, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Writes `text` after redacting what the guard finds. When something was
+/// still there the redacted file is kept for inspection and the error names
+/// where it was (case, step, JSON path or header), never the value.
 fn write_checked(path: &Path, text: &str, secrets: &[(String, &str)]) -> Result<()> {
-    report::ensure_clean(text, secrets).map_err(|e| format!("{}: {e}", path.display()))?;
+    let leaks = report::find_leaks(text, secrets);
+    let text = if leaks.is_empty() {
+        text.to_owned()
+    } else {
+        report::redact_leaks(text, secrets)
+    };
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     }
-    fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
+    fs::write(path, &text).map_err(|e| format!("{}: {e}", path.display()))?;
+    if leaks.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{}: redacted file written, but values were still present at:\n  {}",
+        path.display(),
+        leaks.join("\n  ")
+    ))
 }
 
 /// Runs the harness. Returns whether the run counts as failed.
@@ -517,6 +533,23 @@ mod tests {
         case::parse_case(&value, id).unwrap()
     }
 
+    #[test]
+    fn a_leak_still_writes_the_redacted_file_and_fails_with_the_location() {
+        let dir = env::temp_dir().join(format!("gcsmimic-wc-{}", random_hex()));
+        let path = dir.join("out.json");
+        let secrets = vec![("secret-proj".to_owned(), "project")];
+        let text = r#"{"cases":[{"id":"c","steps":[{"name":"s","request":"GET /secret-proj"}]}]}"#;
+        let error = write_checked(&path, text, &secrets).unwrap_err();
+        assert!(
+            error.contains("$.cases[c].steps[s].request: the project"),
+            "{error}"
+        );
+        assert!(!error.contains("secret-proj"), "{error}");
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(!written.contains("secret-proj") && written.contains("<redacted>"));
+        assert!(write_checked(&dir.join("ok.json"), "{}", &secrets).is_ok());
+        server::remove_dir(&dir);
+    }
     #[test]
     fn missing_grpcurl_skips_only_the_grpc_cases() {
         let cases = [case_from("a", "http"), case_from("b", "grpc")];
