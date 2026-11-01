@@ -706,6 +706,17 @@ impl ConnectionService {
             reads,
         };
         let sent_body = has_body(&request);
+        let method = request.method().clone();
+        let path = request.uri().path().to_owned();
+        let call = if request
+            .uri()
+            .query()
+            .is_some_and(|query| query.split('&').any(|pair| pair == "alt=media"))
+        {
+            json::EnvelopeCall::MediaRead
+        } else {
+            json::EnvelopeCall::Metadata
+        };
         let endpoints = match config
             .runtime_endpoints
             .snapshot(&config, &state.api_base_url)
@@ -751,6 +762,7 @@ impl ConnectionService {
                 hyper::header::HeaderValue::from_static("close"),
             );
         }
+        json::apply_envelope(&method, &path, call, state.clock.now(), &mut response);
         responded.store(true, Ordering::Release);
         Ok(response.map(|body| finished.track(body)))
     }
@@ -1171,6 +1183,22 @@ fn json_response_cached(value: &serde_json::Value, cache: JsonCache) -> Response
     response
 }
 
+/// A resource response narrowed by `fields`. The `ETag` header still names the whole resource,
+/// as Cloud Storage sends it with a field-selected body.
+fn json_response_selected(
+    value: &mut serde_json::Value,
+    fields: &json::Fields,
+    cache: JsonCache,
+) -> Response<Full<Bytes>> {
+    let etag = json::etag_header(value);
+    fields.apply(value);
+    let mut response = json_response_cached(value, cache);
+    if let Some(etag) = etag {
+        response.headers_mut().insert("etag", etag);
+    }
+    response
+}
+
 fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
     let mut response = Response::new(Full::new(Bytes::new()));
     *response.status_mut() = status;
@@ -1184,6 +1212,9 @@ fn json_response(value: &serde_json::Value) -> Response<Full<Bytes>> {
         "content-type",
         hyper::header::HeaderValue::from_static("application/json; charset=UTF-8"),
     );
+    if let Some(etag) = json::etag_header(value) {
+        response.headers_mut().insert("etag", etag);
+    }
     response
 }
 

@@ -179,7 +179,7 @@ fn iam_policy_writes_compare_if_match_with_the_policy_etag() {
         .unwrap()
         .trim()
         .to_owned();
-    assert_eq!(http_etag, format!("\"{current}\""));
+    assert_eq!(http_etag, current);
     server
         .request(
             "PUT",

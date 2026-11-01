@@ -4,7 +4,7 @@
 use super::RequestBody as Incoming;
 use super::{
     BUCKET_BODY_LIMIT, JSON_RESOURCE_CACHE_CONTROL, JsonCache, QueryPrecondition, State, acl,
-    authorize_bucket, authorize_project, empty_response, json_response_cached,
+    authorize_bucket, authorize_project, empty_response, json_response_selected,
     read_metadata_response, validate_bodyless_post,
 };
 use crate::{
@@ -115,8 +115,7 @@ pub(super) async fn respond<'a>(
     if acl_full {
         acl::add_full_projection(state, caller, &mut value, base_url).await?;
     }
-    fields.apply(&mut value);
-    Ok(json_response_cached(&value, cache))
+    Ok(json_response_selected(&mut value, &fields, cache))
 }
 
 async fn authorize(
@@ -412,7 +411,7 @@ async fn get_iam(
     })?;
     read_metadata_response(
         request.headers(),
-        &format!("\"{etag}\""),
+        etag,
         json::policy_resource(&policy, bucket),
         fields,
         QueryPrecondition::Unmatched,

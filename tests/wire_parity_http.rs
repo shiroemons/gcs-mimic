@@ -129,7 +129,8 @@ fn json_etags_encode_generation_and_metageneration_like_cloud_storage() {
     patched.status(200);
     let patched_etag = expected_etag(Some(generation), 2);
     assert_eq!(patched.json()["etag"], patched_etag);
-    assert_eq!(header(&patched, "etag"), None);
+    // A mutation response carries the resource etag as a header too (recorded).
+    assert_eq!(header(&patched, "etag"), Some(patched_etag.as_str()));
     // The .NET client sends the fetched resource gzip-compressed with its etag as If-Match.
     let mut resource = patched.json();
     resource["metadata"] = serde_json::json!({"k":"replaced"});
@@ -778,4 +779,52 @@ fn object_inserts_and_json_write_errors_forbid_every_cache() {
     assert_eq!(rejected.status, 409);
     assert_eq!(header(&rejected, "cache-control"), Some(NO_STORE));
     assert_eq!(header(&rejected, "pragma"), Some("no-cache"));
+}
+
+#[test]
+fn json_api_responses_carry_the_recorded_cache_envelope() {
+    const NO_CACHE: &str = "no-cache, no-store, max-age=0, must-revalidate";
+    const REVALIDATE: &str = "private, max-age=0, must-revalidate, no-transform";
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+
+    let read = server.request("GET", "/storage/v1/b/parity", "", b"");
+    read.status(200);
+    assert_eq!(header(&read, "cache-control"), Some(REVALIDATE));
+    assert_eq!(header(&read, "pragma"), None);
+    assert_eq!(header_values(&read, "vary").join(", "), "Origin, X-Origin");
+    assert_ne!(
+        header(&read, "expires"),
+        Some("Mon, 01 Jan 1990 00:00:00 GMT")
+    );
+    assert!(header(&read, "expires").is_some());
+
+    let created = server.request(
+        "POST",
+        "/storage/v1/b?project=project-a",
+        JSON,
+        br#"{"name":"parity-two"}"#,
+    );
+    let missing = server.request("GET", "/storage/v1/b/parity-absent", "", b"");
+    missing.status(404);
+    let deleted = server.request("DELETE", "/storage/v1/b/parity-two", "", b"");
+    deleted.status(204);
+    for reply in [&created, &missing, &deleted] {
+        assert_eq!(header(reply, "cache-control"), Some(NO_CACHE));
+        assert_eq!(
+            header(reply, "expires"),
+            Some("Mon, 01 Jan 1990 00:00:00 GMT")
+        );
+        assert_eq!(header(reply, "pragma"), Some("no-cache"));
+        assert_eq!(header_values(reply, "vary").join(", "), "Origin, X-Origin");
+    }
+    assert_eq!(header(&deleted, "content-type"), Some("application/json"));
+
+    // A field-selected body keeps the full resource's ETag header.
+    let selected = server.request("GET", "/storage/v1/b/parity?fields=name", "", b"");
+    assert_eq!(
+        header(&selected, "etag"),
+        Some(read.json()["etag"].as_str().unwrap())
+    );
 }

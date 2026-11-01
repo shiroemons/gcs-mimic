@@ -8,7 +8,7 @@ mod upload;
 use super::RequestBody as Incoming;
 use super::{
     BUCKET_BODY_LIMIT, JsonCache, ObjectCtx, ResponseBody, acl, boxed, empty_response,
-    json_response_cached, resumable, retention_access, validate_bodyless_post,
+    json_response_selected, resumable, retention_access, validate_bodyless_post,
 };
 use crate::{
     auth,
@@ -147,8 +147,7 @@ pub(super) async fn respond(
     if acl_full {
         add_acl(ctx, &mut value, written.acl_snapshot).await?;
     }
-    fields.apply(&mut value);
-    Ok(boxed(json_response_cached(&value, cache)))
+    Ok(boxed(json_response_selected(&mut value, &fields, cache)))
 }
 
 fn response_fields(uri: &Uri, operation: &ObjectRequest) -> Result<json::Fields, JsonError> {
