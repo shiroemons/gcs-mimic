@@ -129,6 +129,13 @@ struct OwnerFields {
 }
 
 impl OwnerFields {
+    /// Every owner-related field, which Cloud Storage returns on the resource of a write or
+    /// update (observed 2026-11-01) though a read returns them only when its mask asks.
+    const ALL: Self = Self {
+        acl: true,
+        owner: true,
+    };
+
     /// `*` selects every field; other paths name top-level fields, optionally under `prefix`
     /// (ReadObject nests the object in `metadata`, where `metadata` alone selects all of it).
     fn selected(mask: Option<&prost_types::FieldMask>, prefix: Option<&str>) -> Self {
@@ -420,6 +427,34 @@ impl Storage {
         }
         Ok(Response::new(mask_object(object, r.read_mask.as_ref())?))
     }
+    /// Fills ACL and owner on the resource a write or update answers with. A caller that may
+    /// write but not read the ACL still gets its result, with both fields empty.
+    pub(super) async fn add_written_owner_fields(
+        &self,
+        caller: Option<Caller<'_>>,
+        bucket: &str,
+        object: &mut pb::Object,
+    ) -> Result<(), Status> {
+        match self
+            .add_owner_fields(
+                caller,
+                bucket,
+                std::slice::from_mut(object),
+                OwnerFields::ALL,
+            )
+            .await
+        {
+            Err(status)
+                if matches!(
+                    status.code(),
+                    tonic::Code::PermissionDenied | tonic::Code::Unauthenticated
+                ) =>
+            {
+                Ok(())
+            }
+            other => other,
+        }
+    }
     /// Fills the ACL and owner a read mask selects, from the same shared projection as JSON
     /// `projection=full`: under uniform bucket-level access, or for an object whose ACL the
     /// caller may not read (`storage.objects.getIamPolicy`), both stay empty and the read still
@@ -455,7 +490,7 @@ impl Storage {
                 continue;
             }
             if fields.acl {
-                object.acl = convert::object_acl(object, bucket, &entries);
+                object.acl = convert::object_acl(object, bucket, &acl.project, &entries);
             }
             if fields.owner {
                 object.owner = owner
@@ -561,21 +596,14 @@ impl Storage {
         }
         let (tx, rx) = mpsc::channel(1);
         crate::task::spawn_supervised("grpc-read-object", async move {
-            let mut response = first;
+            // Cloud Storage ends the stream after the last data message instead of appending an
+            // empty one (observed 2026-11-01); an empty object still gets its metadata message.
+            let mut pending = Some(first);
             loop {
-                match reader.next_chunk().await {
-                    Ok(data) => {
-                        let done = data.is_none();
-                        let bytes = data.unwrap_or_default();
-                        response.checksummed_data = Some(pb::ChecksummedData {
-                            crc32c: Some(crc32c::crc32c(&bytes)),
-                            content: bytes,
-                        });
-                        if tx.send(Ok(response)).await.is_err() || done {
-                            break;
-                        }
-                        response = pb::ReadObjectResponse::default();
-                    }
+                let (bytes, done) = match reader.next_chunk().await {
+                    Ok(Some(bytes)) => (bytes, false),
+                    Ok(None) if pending.is_some() => (Default::default(), true),
+                    Ok(None) => break,
                     Err(_) => {
                         let _ = tx
                             .send(Err(Status::internal(
@@ -584,6 +612,14 @@ impl Storage {
                             .await;
                         break;
                     }
+                };
+                let mut response = pending.take().unwrap_or_default();
+                response.checksummed_data = Some(pb::ChecksummedData {
+                    crc32c: Some(crc32c::crc32c(&bytes)),
+                    content: bytes,
+                });
+                if tx.send(Ok(response)).await.is_err() || done {
+                    break;
                 }
             }
         });
@@ -1073,7 +1109,10 @@ impl Storage {
             let completion = written_record.map_err(session_status)?;
             sent?;
             result = if let Some(value) = completion.as_ref() {
-                WriteStatus::Resource(decode_completion(Some(value))?)
+                let mut resource = decode_completion(Some(value))?;
+                self.add_written_owner_fields(caller, bucket, &mut resource)
+                    .await?;
+                WriteStatus::Resource(resource)
             } else {
                 WriteStatus::PersistedSize(written as i64)
             };
@@ -1157,7 +1196,9 @@ impl Storage {
                 return Err(object_status(error));
             }
         };
-        let resource = convert::object(&record)?;
+        let mut resource = convert::object(&record)?;
+        self.add_written_owner_fields(caller, &bucket, &mut resource)
+            .await?;
         let result = pb::bidi_write_object_response::WriteStatus::Resource(resource);
         if let Some(tx) = responses {
             send_status(tx, &result).await?;
@@ -1602,6 +1643,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn grpc_io_write_returns_acl_and_owner_and_read_ends_with_data() {
+        let (_dir, storage) = setup(true).await;
+        let mut request = Request::new(());
+        request
+            .metadata_mut()
+            .insert("authorization", "Bearer admin".parse().unwrap());
+        let admin = storage.authenticate(&request).unwrap();
+        let written = storage
+            .receive_write(
+                &mut tonic::codegen::tokio_stream::iter([Ok(message("written", b"hello"))]),
+                admin,
+                None,
+                EndOfStream::Required,
+            )
+            .await
+            .unwrap();
+        let pb::bidi_write_object_response::WriteStatus::Resource(resource) = written else {
+            panic!("a finished write answers with the resource");
+        };
+        assert!(!resource.acl.is_empty());
+        assert!(resource.owner.is_some());
+        assert!(
+            resource
+                .acl
+                .iter()
+                .any(|entry| entry.entity_alt.starts_with("project-owners-")),
+            "a project-team entry repeats its entity under the project ID"
+        );
+
+        let mut read = storage
+            .read_object(
+                Request::new(pb::ReadObjectRequest {
+                    bucket: "projects/_/buckets/grpc-io".into(),
+                    object: "written".into(),
+                    ..Default::default()
+                }),
+                admin,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        let first = read.next().await.unwrap().unwrap();
+        assert_eq!(first.checksummed_data.unwrap().content.as_ref(), b"hello");
+        assert!(first.metadata.is_some());
+        assert!(
+            read.next().await.is_none(),
+            "no empty message follows the last data message"
+        );
+    }
+
+    #[tokio::test]
     async fn grpc_io_full_read_masks_return_acl_and_owner() {
         let (_dir, storage) = setup(true).await;
         let mut request = Request::new(());
@@ -1638,7 +1730,10 @@ mod tests {
         assert!(full.update_storage_class_time.is_some());
         // Google reports finalize_time on every ordinary object.
         assert!(full.finalize_time.is_some());
-        assert_eq!(full.finalize_time, full.create_time);
+        // create_time is the finalize time cut to milliseconds.
+        let (finalized, created) = (full.finalize_time.unwrap(), full.create_time.unwrap());
+        assert_eq!(finalized.seconds, created.seconds);
+        assert_eq!(finalized.nanos / 1_000_000 * 1_000_000, created.nanos);
         assert!(!full.acl.is_empty());
         for entry in &full.acl {
             assert!(!entry.entity.is_empty() && !entry.role.is_empty());
