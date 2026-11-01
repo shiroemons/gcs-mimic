@@ -547,9 +547,11 @@ Modes:
 - **Sweep** (`cargo xtask differential sweep`, same environment variables)
   lists the buckets whose names start with `gcsmimic-diff-` and carry the
   `gcs-mimic-differential=1` label, and cleans each one up the same way. A
-  bucket with the prefix but without the label is left alone and counted. Use
-  it after an interrupted run (Ctrl-C, a crash, a killed process); it reports
-  counts, never bucket names. (The final listing of a run uses only the run's
+  bucket with the prefix but without the label is left alone and named in the
+  report (a case that replaces a bucket's labels can leave its own bucket like
+  this after a crash), so you can delete it by hand. Use it after an
+  interrupted run (Ctrl-C, a crash, a killed process); it reports the cleanup
+  of labelled buckets by number, not by name. (The final listing of a run uses only the run's
   own random prefix and does not need the label.)
 - **Rate limits.** Cloud Storage documents these limits
   (<https://docs.cloud.google.com/storage/quotas>): bucket creation and

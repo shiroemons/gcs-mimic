@@ -140,15 +140,16 @@ pub(crate) enum LabelFilter {
 }
 
 /// The project's buckets that start with `prefix`: the names to clean up, and
-/// how many were left alone for lacking the label.
+/// the names left alone for lacking the label. A bucket whose labels a PUT or
+/// a PATCH replaced, as a case may do, looks like this too.
 pub(crate) fn list_prefixed(
     side: &Side<'_>,
     norm: &Normalizer,
     prefix: &str,
     filter: LabelFilter,
-) -> Result<(Vec<String>, usize)> {
+) -> Result<(Vec<String>, Vec<String>)> {
     let mut names = Vec::new();
-    let mut unlabelled = 0;
+    let mut unlabelled = Vec::new();
     let mut page: Option<String> = None;
     loop {
         let mut target = format!(
@@ -169,7 +170,7 @@ pub(crate) fn list_prefixed(
                 continue;
             };
             if filter == LabelFilter::Required && item["labels"][LABEL].as_str() != Some("1") {
-                unlabelled += 1;
+                unlabelled.push(name.to_owned());
             } else {
                 names.push(name.to_owned());
             }
@@ -473,6 +474,21 @@ pub(crate) fn cleanup(side: &Side<'_>, norm: &Normalizer, name: &str) -> Result<
     }
 }
 
+/// The report line for buckets left alone. They are named: a case that replaces a bucket's
+/// labels leaves its own bucket looking like this after a crash, and the person running the
+/// sweep has to decide.
+fn left_alone_line(norm: &Normalizer, unlabelled: &[String]) -> Option<String> {
+    if unlabelled.is_empty() {
+        return None;
+    }
+    let listed: Vec<String> = unlabelled.iter().map(|name| norm.text(name)).collect();
+    Some(format!(
+        "sweep: {} bucket(s) with the prefix but without the {LABEL} label were left alone (delete them by hand if they are leftovers): {}",
+        listed.len(),
+        listed.join(", ")
+    ))
+}
+
 /// Lists the buckets whose names start with `prefix` and cleans each one up.
 /// Returns one line per bucket (never its name) and whether any failed.
 pub(crate) fn sweep(
@@ -486,11 +502,7 @@ pub(crate) fn sweep(
         Err(error) => return (vec![format!("sweep: CLEANUP FAILED: {error}")], true),
     };
     let mut lines = vec![format!("sweep: {} leftover bucket(s) found", names.len())];
-    if unlabelled > 0 {
-        lines.push(format!(
-            "sweep: {unlabelled} bucket(s) with the prefix but without the {LABEL} label were left alone"
-        ));
-    }
+    lines.extend(left_alone_line(norm, &unlabelled));
     let mut failed = false;
     for (index, name) in names.iter().enumerate() {
         match cleanup(side, norm, name) {
@@ -727,9 +739,23 @@ mod tests {
         let norm = Normalizer::default();
         let (names, left) =
             list_prefixed(&side, &norm, NAME_PREFIX, LabelFilter::Required).unwrap();
-        assert_eq!((names, left), (vec!["gcsmimic-diff-a".to_owned()], 1));
+        assert_eq!(
+            (names, left),
+            (
+                vec!["gcsmimic-diff-a".to_owned()],
+                vec!["gcsmimic-diff-b".to_owned()]
+            )
+        );
         let (names, left) = list_prefixed(&side, &norm, NAME_PREFIX, LabelFilter::Ignored).unwrap();
-        assert_eq!((names.len(), left), (2, 0));
+        assert_eq!((names.len(), left.len()), (2, 0));
+
+        // The report names the bucket it left alone.
+        let line = left_alone_line(&norm, &["gcsmimic-diff-b".to_owned()]).unwrap();
+        assert!(
+            line.contains("1 bucket(s)") && line.contains("gcsmimic-diff-b"),
+            "{line}"
+        );
+        assert!(left_alone_line(&norm, &[]).is_none());
     }
 
     #[test]
