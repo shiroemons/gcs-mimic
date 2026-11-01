@@ -4052,6 +4052,7 @@ XML GET and HEAD with satisfiable, suffix, open-ended, multiple and unsatisfiabl
 
 ## Cleanup
 
+```text
 - mimic new bucket of bkt-acl-crud: already absent (404)
 - mimic new bucket of bkt-create-errors: already absent (404)
 - mimic new bucket of bkt-create-full: already absent (404)
@@ -4142,3 +4143,4 @@ XML GET and HEAD with satisfiable, suffix, open-ended, multiple and unsatisfiabl
       {
         "message": "Uniform bucket-level ac
 - reference sweep: 0 leftover bucket(s) found
+```
