@@ -1,0 +1,24 @@
+{
+  "id": "obj-metadata-write",
+  "description": "PATCH and PUT of object metadata: custom metadata, null removal of a key and of the whole map, null content fields, empty bodies, unknown fields, wrong types and metageneration preconditions. Checks SPEC-015.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "patch-custom", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"metadata": {"a": "1", "b": "2"}, "cacheControl": "no-cache", "contentLanguage": "en", "contentDisposition": "inline"}, "expect_status": 200},
+    {"name": "patch-null-key", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"metadata": {"a": null}}, "expect_status": 200},
+    {"name": "patch-null-metadata", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"metadata": null}, "expect_status": 200},
+    {"name": "patch-null-cache-control", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"cacheControl": null}, "expect_status": 200},
+    {"name": "patch-null-content-type", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"contentType": null}, "expect_status": 200},
+    {"name": "patch-empty-string-content-type", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"contentType": ""}, "expect_status": 200},
+    {"name": "patch-empty-body", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {}, "expect_status": 200},
+    {"name": "patch-unknown-field", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"bogusField": "x"}, "expect_status": 400},
+    {"name": "patch-wrong-type", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"metadata": "str"}, "expect_status": 400},
+    {"name": "patch-invalid-json", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "headers": {"Content-Type": "application/json"}, "body_text": "{{not json", "expect_status": 400},
+    {"name": "patch-metageneration-mismatch", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifMetagenerationMatch": "999"}, "body": {"metadata": {"x": "y"}}, "expect_status": 412},
+    {"name": "patch-metageneration-not-match", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifMetagenerationNotMatch": "999"}, "body": {"metadata": {"x": "y"}}, "expect_status": 200},
+    {"name": "patch-missing-object", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object2}", "body": {"metadata": {"x": "y"}}, "expect_status": 404},
+    {"name": "put-replace", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"contentType": "text/csv", "metadata": {"z": "9"}}, "expect_status": 200},
+    {"name": "put-empty", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {}, "expect_status": 200},
+    {"name": "put-missing-object", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object2}", "body": {"metadata": {"z": "9"}}, "expect_status": 404},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false}
+  ]
+}

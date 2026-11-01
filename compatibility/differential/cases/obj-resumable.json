@@ -1,0 +1,27 @@
+{
+  "id": "obj-resumable",
+  "description": "Resumable upload: start, status query, single-request completion, query and resend after completion, a separate session with a small non-final chunk, cancel and query after cancel, bad Content-Range, mismatched total, an unknown session and start-time errors. The Location header differs per side and is ignored. Checks SPEC-RSM-EDGES and SPEC-RSM-LOCATION.",
+  "compare": {"ignore_headers": ["location"]},
+  "steps": [
+    {"name": "start", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "name": "{object}"}, "headers": {"Content-Type": "application/json", "X-Upload-Content-Type": "text/plain", "X-Upload-Content-Length": "10"}, "body": {"contentType": "text/plain", "metadata": {"k": "v"}}, "capture": {"up1": "header:location?upload_id"}, "expect_status": 200},
+    {"name": "status-empty", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up1}"}, "headers": {"Content-Range": "bytes */10"}, "body_text": "", "expect_status": 308},
+    {"name": "total-mismatch", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up1}"}, "headers": {"Content-Range": "bytes 0-9/12"}, "body_text": "0123456789", "expect_status": 400},
+    {"name": "bad-content-range", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up1}"}, "headers": {"Content-Range": "bytes nonsense"}, "body_text": "0123456789", "expect_status": 400},
+    {"name": "complete", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up1}"}, "headers": {"Content-Range": "bytes 0-9/10"}, "body_text": "0123456789", "expect_status": 200},
+    {"name": "status-after-complete", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up1}"}, "headers": {"Content-Range": "bytes */10"}, "body_text": "", "expect_status": 200},
+    {"name": "resend-after-complete", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up1}"}, "headers": {"Content-Range": "bytes 0-9/10"}, "body_text": "0123456789", "expect_status": 200},
+    {"name": "get-result", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "expect_status": 200},
+    {"name": "download-result", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "expect_status": 200},
+    {"name": "start-chunked", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "name": "{object2}"}, "headers": {"Content-Type": "application/json", "X-Upload-Content-Type": "text/plain"}, "body": {}, "capture": {"up2": "header:location?upload_id"}, "expect_status": 200},
+    {"name": "chunk-not-final", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up2}"}, "headers": {"Content-Range": "bytes 0-4/*"}, "body_text": "01234", "expect_status": 308},
+    {"name": "status-after-chunk", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up2}"}, "headers": {"Content-Range": "bytes */*"}, "body_text": "", "expect_status": 308},
+    {"name": "cancel", "method": "DELETE", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up2}"}, "expect_status": 499},
+    {"name": "status-after-cancel", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up2}"}, "headers": {"Content-Range": "bytes */*"}, "body_text": "", "expect_status": 404},
+    {"name": "cancel-again", "method": "DELETE", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{up2}"}, "expect_status": 404},
+    {"name": "unknown-session", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "unknown-session-id"}, "headers": {"Content-Range": "bytes */*"}, "body_text": "", "expect_status": 404},
+    {"name": "start-no-name", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable"}, "headers": {"Content-Type": "application/json"}, "body": {}, "expect_status": 400},
+    {"name": "start-precondition-fail", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "name": "{object}", "ifGenerationMatch": "0"}, "headers": {"Content-Type": "application/json"}, "body": {}, "expect_status": 412},
+    {"name": "start-missing-bucket", "method": "POST", "path": "/upload/storage/v1/b/{missing_bucket}/o", "query": {"uploadType": "resumable", "name": "{object}"}, "headers": {"Content-Type": "application/json"}, "body": {}, "expect_status": 404},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false}
+  ]
+}

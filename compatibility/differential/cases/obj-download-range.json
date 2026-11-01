@@ -1,0 +1,27 @@
+{
+  "id": "obj-download-range",
+  "description": "Range downloads: closed, suffix, open-ended, clamped, unsatisfiable, malformed, multiple and non-bytes ranges, If-Range, and the same on an empty object. Checks SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "0123456789", "capture": {"etag": "body:etag"}, "compare": false, "expect_status": 200},
+    {"name": "upload-empty", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object2}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "", "compare": false, "expect_status": 200},
+    {"name": "full", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "expect_status": 200},
+    {"name": "closed", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=2-4"}, "expect_status": 206},
+    {"name": "suffix", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=-3"}, "expect_status": 206},
+    {"name": "open-ended", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=7-"}, "expect_status": 206},
+    {"name": "clamped", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=0-99"}, "expect_status": 206},
+    {"name": "unsatisfiable", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=20-30"}, "expect_status": 416},
+    {"name": "malformed", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=abc"}, "expect_status": 200},
+    {"name": "reversed", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=5-2"}, "expect_status": 200},
+    {"name": "multiple", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=0-1,3-4"}, "expect_status": 200},
+    {"name": "non-bytes-unit", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "items=0-1"}, "expect_status": 200},
+    {"name": "range-on-metadata", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "headers": {"Range": "bytes=2-4"}, "expect_status": 200},
+    {"name": "if-range-etag", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=2-4", "If-Range": "{etag}"}, "expect_status": 206},
+    {"name": "if-range-stale", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"Range": "bytes=2-4", "If-Range": "\"stale\""}, "expect_status": 200},
+    {"name": "empty-full", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object2}", "query": {"alt": "media"}, "expect_status": 200},
+    {"name": "empty-first-byte", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object2}", "query": {"alt": "media"}, "headers": {"Range": "bytes=0-0"}, "expect_status": 416},
+    {"name": "empty-suffix", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object2}", "query": {"alt": "media"}, "headers": {"Range": "bytes=-5"}, "expect_status": 416},
+    {"name": "empty-open-ended", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object2}", "query": {"alt": "media"}, "headers": {"Range": "bytes=0-"}, "expect_status": 416},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false},
+    {"name": "cleanup-empty", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object2}", "compare": false}
+  ]
+}

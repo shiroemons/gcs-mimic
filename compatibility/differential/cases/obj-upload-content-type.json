@@ -1,0 +1,25 @@
+{
+  "id": "obj-upload-content-type",
+  "description": "Media upload without a Content-Type header, without a name, with contentEncoding in the query, an empty body, a name that needs percent-encoding and bad preconditions or uploadType values. Checks SPEC-011.",
+  "steps": [
+    {"name": "no-content-type", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-nct"}, "headers": {"Content-Type": ""}, "body_text": "hello", "expect_status": 200},
+    {"name": "get-no-content-type", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-nct", "query": {"fields": "name,contentType,size"}, "expect_status": 200},
+    {"name": "no-name", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 400},
+    {"name": "query-content-encoding", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-enc", "contentEncoding": "gzip"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 200},
+    {"name": "empty-body", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-empty"}, "headers": {"Content-Type": "text/plain"}, "body_text": "", "expect_status": 200},
+    {"name": "encoded-name", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object} sp/ü?#+"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 200},
+    {"name": "get-encoded-name", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}%20sp%2F%C3%BC%3F%23%2B", "query": {"fields": "name,size"}, "expect_status": 200},
+    {"name": "download-encoded-name", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}%20sp%2F%C3%BC%3F%23%2B", "query": {"alt": "media"}, "expect_status": 200},
+    {"name": "if-generation-match-nonzero-on-absent", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-absent", "ifGenerationMatch": "5"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 412},
+    {"name": "if-metageneration-match-on-absent", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-absent", "ifMetagenerationMatch": "1"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 412},
+    {"name": "invalid-precondition-value", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-absent", "ifGenerationMatch": "abc"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 400},
+    {"name": "no-upload-type", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"name": "{object}-absent"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 400},
+    {"name": "unknown-upload-type", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "bogus", "name": "{object}-absent"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 400},
+    {"name": "missing-bucket", "method": "POST", "path": "/upload/storage/v1/b/{missing_bucket}/o", "query": {"uploadType": "media", "name": "{object}-absent"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 404},
+    {"name": "get-query-encoding", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-enc", "query": {"fields": "name,contentEncoding,size"}, "expect_status": 200},
+    {"name": "cleanup-nct", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-nct", "compare": false},
+    {"name": "cleanup-enc", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-enc", "compare": false},
+    {"name": "cleanup-empty", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-empty", "compare": false},
+    {"name": "cleanup-encoded-name", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}%20sp%2F%C3%BC%3F%23%2B", "compare": false}
+  ]
+}
