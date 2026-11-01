@@ -97,7 +97,15 @@ Windowsのテストは一時ディレクトリに`RUNNER_TEMP`を使います。
 `debug = "line-tables-only"`）。パニックとバックトレースの位置は残したまま、コンパイルとリンクを短くし、
 `target/`を小さくします。テストのCPU時間の大半は依存クレートで使われるため、依存クレートだけを
 `opt-level = 3`（`[profile.dev.package."*"]`）でビルドします。ライブラリのテストは約121秒から79秒に短くなり、
-依存クレートは一度ビルドすればキャッシュされます。
+依存クレートは一度ビルドすればキャッシュされます。ローカルではCargo既定のインクリメンタルコンパイルを有効のままにしてください。
+`src/`を1行変えたあとの`cargo test --workspace --no-run`は、`CARGO_INCREMENTAL=0`の約43秒に対して
+約8秒で終わります（Apple Mシリーズ、14コア）。Cargoは以前のコンパイラ、フラグ、フィーチャーで作った
+インクリメンタルの状態を削除しないため、`just check`は最初に`scripts/trim-target.sh`
+（`just trim-target`でも実行可）を実行します。このスクリプトは、`GCSM_TARGET_INCREMENTAL_DAYS`日（既定3日）
+どのビルドも触れていないインクリメンタルのクレートディレクトリを削除します。それでも`target/`が
+`GCSM_TARGET_MAX_MB`（既定30720）を超える場合は、インクリメンタルの状態をすべて削除し、
+さらにデバッグとクロスチェックのビルド出力を削除します。CargoはCIを検出すると、既定でインクリメンタル
+コンパイルを無効にします。
 
 Markdownファイルと`docs/`だけを変えた場合は、Foundation checksを実行せず、Documentation checksワークフローを実行します。
 このワークフローは`scripts/check.sh`と同じ`scripts/check-docs.sh`を使い、機能台帳と生成した機能表、

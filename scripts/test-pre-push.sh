@@ -14,7 +14,7 @@ cp scripts/pre-push-progress.sh "$work/scripts/pre-push-progress.sh"
 # Periodic reports are exercised once below; the other runs only print stage transitions.
 export GCSM_PRE_PUSH_PROGRESS_INTERVAL=0
 # Replace expensive checks, retaining the real recipe graph and output pipeline.
-for script in test-pre-push test-check; do
+for script in test-pre-push test-check test-trim-target trim-target; do
   printf 'exit 0\n' >"$work/scripts/$script.sh"
 done
 printf 'exec "$@"\n' >"$work/scripts/with-test-tmpdir.sh"

@@ -157,7 +157,17 @@ the workspace `[profile.dev]`), which keeps panic and backtrace locations while
 shortening compiling and linking and shrinking `target/`. Dependencies build
 with `opt-level = 3` (`[profile.dev.package."*"]`) because the tests spend most
 of their CPU time in them; the library tests drop from about 121 s to 79 s, and
-the dependencies compile once and stay cached.
+the dependencies compile once and stay cached. Keep Cargo's default
+incremental compilation for local work: after a one-line change in `src/`,
+`cargo test --workspace --no-run` rebuilds in about 8 s instead of about 43 s
+with `CARGO_INCREMENTAL=0` (Apple M-series, 14 cores). Cargo never deletes
+incremental state left by an earlier compiler, flag or feature set, so
+`just check` first runs `scripts/trim-target.sh` (also `just trim-target`). It
+removes incremental crate directories no build touched for
+`GCSM_TARGET_INCREMENTAL_DAYS` (default 3) and, if `target/` still exceeds
+`GCSM_TARGET_MAX_MB` (default 30720), all incremental state and then the debug
+and cross-check outputs. Cargo turns incremental compilation off by default
+when it detects CI.
 
 Changes that touch only Markdown files or `docs/` skip Foundation checks and
 run the Documentation checks workflow instead. It runs `scripts/check-docs.sh`,

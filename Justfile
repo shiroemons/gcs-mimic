@@ -6,7 +6,13 @@ default:
 check:
     bash scripts/test-pre-push.sh
     bash scripts/test-check.sh
+    bash scripts/test-trim-target.sh
+    bash scripts/trim-target.sh
     env -u RUSTUP_TOOLCHAIN bash scripts/with-test-tmpdir.sh bash scripts/check.sh
+
+# Drop stale incremental state and keep target/ under GCSM_TARGET_MAX_MB (default 30720).
+trim-target:
+    bash scripts/trim-target.sh
 
 # Check upstream dependency freshness; requires network access.
 check-dependencies:
