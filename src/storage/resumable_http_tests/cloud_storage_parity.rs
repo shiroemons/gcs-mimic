@@ -164,3 +164,32 @@ async fn metadata_writes_ignore_unknown_members_and_release_holds_on_put() {
     assert!(put.json().get("temporaryHold").is_none());
     h.stop().await;
 }
+
+#[tokio::test]
+async fn failed_conditional_media_read_of_a_public_object_is_never_cacheable() {
+    let h = Harness::start(1000, false, None).await;
+    let created = h
+        .request(
+            "POST",
+            &format!("{MEDIA}&predefinedAcl=publicRead"),
+            "Content-Type: text/plain\r\nX-Goog-Gcs-Idempotency-Token: pub\r\n",
+            b"hello",
+        )
+        .await;
+    assert_eq!(created.status, 200);
+    let get = "/storage/v1/b/bucket/o/object?alt=media";
+    let ok = h.request("GET", get, "", b"").await;
+    assert_eq!(ok.status, 200);
+    assert_eq!(
+        ok.headers["cache-control"],
+        "public, max-age=3600, must-revalidate"
+    );
+    let failed = h.request("GET", get, "If-Match: \"other\"\r\n", b"").await;
+    assert_eq!(failed.status, 412);
+    assert_eq!(
+        failed.headers["cache-control"],
+        "no-cache, no-store, max-age=0, must-revalidate"
+    );
+    assert_eq!(failed.headers["pragma"], "no-cache");
+    h.stop().await;
+}

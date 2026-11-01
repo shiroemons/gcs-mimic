@@ -251,11 +251,16 @@ fn plain_media_failure(
         "content-type",
         HeaderValue::from_static("text/html; charset=UTF-8"),
     );
-    for name in ["etag", "cache-control"] {
-        if let Some(value) = representation.get(name) {
-            headers.insert(name, value.clone());
-        }
+    if let Some(etag) = representation.get("etag") {
+        headers.insert("etag", etag.clone());
     }
+    // A failure that depends on a request header must never be stored by a shared cache, even
+    // for a public object whose 200 is cacheable (recorded: no-store, no-cache).
+    headers.insert(
+        "cache-control",
+        HeaderValue::from_static(crate::json::NO_STORE_CACHE_CONTROL),
+    );
+    headers.insert("pragma", HeaderValue::from_static("no-cache"));
     response
 }
 
