@@ -134,8 +134,9 @@ Unreleased user-visible changes that the next minor release notes must state:
   unknown, finished or cancelled session) answers with a bare
   `text/plain` body and without `cache-control`, `expires`, `pragma` or
   `vary`, as does a session status reply (308) and a cancellation (499); a
-  client that read these bodies as JSON must read the text. Checksum and header errors on a session request
-  keep their JSON error. Upload errors that carry a JSON envelope keep
+  client that read these bodies as JSON must read the text. Checksum and
+  header errors on a session request keep their JSON error. Upload errors
+  that carry a JSON envelope keep
   `x-content-type-options: nosniff`, which Cloud Storage does not send, because
   the body quotes request input under a `text/html` content type. JSON error
   bodies add `location` and `locationType` (the parameter name, or `If-Match`
