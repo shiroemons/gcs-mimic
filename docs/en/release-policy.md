@@ -121,6 +121,40 @@ Unreleased user-visible changes that the next minor release notes must state:
   A gRPC request that passes `projects/0` (what a project without a number
   renders as) as a bucket project or parent is rejected with
   `INVALID_ARGUMENT`.
+- JSON API responses carry Cloud Storage's common headers: `cache-control`,
+  `expires`, `vary: Origin, X-Origin`, `pragma: no-cache` on mutations and
+  errors, `content-type: application/json` on 204 and 304, and a bare `ETag`
+  header equal to the body `etag` (not on Move; the IAM header is unquoted and
+  `If-Match` accepts the bare value). Upload-path errors and XML virtual-host
+  responses do not get them. JSON error bodies add `location` and
+  `locationType` (the parameter name, or `If-Match` for a failed precondition).
+- Bucket errors use reason `invalid` and Cloud Storage's wording (for example
+  `The specified bucket does not exist.`). Bucket PATCH defaults to
+  `projection=full`; PUT clears omitted `labels`, `cors`, `lifecycle`,
+  `versioning`, `retentionPolicy` and `defaultEventBasedHold` (a locked
+  retention policy stays) and answers 400 when the body `name` differs from
+  the path. `predefinedAcl` applies on PATCH and PUT. Unknown query
+  parameters, an array `lifecycle` and a different `location` are accepted,
+  and a non-map `labels` clears all labels. `setIamPolicy` advances
+  `metageneration` and drops bindings with no members.
+- JSON media uploads no longer verify `X-Goog-Hash` or `Content-MD5` (as
+  recorded from Cloud Storage); multipart metadata, resumable and XML uploads
+  still do. A request without `uploadType`, or a non-multipart body, is a media
+  upload. Unknown metadata members and mistyped holds are ignored; PUT clears
+  holds it does not name. Downloads ignore `If-Range` and date validators, and
+  a multi-range request answers 501.
+- XML: list element order and `MaxKeys`, `Vary`/`Expires`, the PUT
+  `Content-Type`, 412 wording and copy/DELETE `Details` follow Cloud Storage; a
+  `x-goog-copy-source-if-match` mismatch and a multi-range GET answer 400;
+  object GET and HEAD ignore unknown query parameters and `x-goog-*` headers
+  (known but unsupported ones such as `userProject` are rejected).
+- gRPC errors carry Cloud Storage's messages and details (`ErrorInfo`,
+  `BadRequest`); object create and update times are millisecond precision,
+  `WriteObject` and `UpdateObject` return `acl` and `owner`, `ReadObject` no
+  longer ends with an empty message, and an unknown `read_mask` path is
+  `INVALID_ARGUMENT`.
+- Object retention times are nanosecond `UnixNanos` values on every OS. The
+  Windows floor to 100 ns ticks still awaits confirmation on Windows CI.
 
 ## The 1.0.0 gate
 
