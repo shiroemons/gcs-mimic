@@ -983,3 +983,35 @@ fn xml_object_errors_and_headers_match_the_recorded_responses() {
     crc.status(400);
     assert!(crc.body.contains("<Code>CrcMismatch</Code>"));
 }
+
+#[test]
+fn xml_range_errors_of_a_public_object_are_private() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/parity/o?uploadType=media&name=pub.txt&predefinedAcl=publicRead",
+            "Content-Type: text/plain\r\n",
+            b"0123456789",
+        )
+        .status(200);
+    let whole = server.request("GET", "/parity/pub.txt", "", b"");
+    whole.status(200);
+    assert_eq!(
+        header(&whole, "cache-control"),
+        Some("public, max-age=3600")
+    );
+    for range in ["bytes=0-1,3-4", "bytes=20-30"] {
+        let refused = server.request(
+            "GET",
+            "/parity/pub.txt",
+            &format!("Range: {range}\r\n"),
+            b"",
+        );
+        assert!(matches!(refused.status, 400 | 416), "{range}");
+        assert_eq!(header(&refused, "cache-control"), Some(PRIVATE), "{range}");
+        assert!(header(&refused, "expires").is_some(), "{range}");
+    }
+}

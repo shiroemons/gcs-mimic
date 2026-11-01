@@ -9,7 +9,7 @@ use crate::{
     auth, bucket::BucketAccess, csek::CustomerKey, json, object::ObjectRecord,
     storage::ObjectReader, xml,
 };
-use hyper::{HeaderMap, Method, Request, Response, StatusCode};
+use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValue};
 
 pub(super) async fn respond(
     mut request: Request<Incoming>,
@@ -136,6 +136,7 @@ async fn read(
             request,
             headers,
             xml::Error::multiple_ranges(requested),
+            ctx.state.clock.now(),
         ));
     }
     let range = match json::object_media_range(request.headers(), record.size) {
@@ -145,6 +146,7 @@ async fn read(
                 request,
                 headers,
                 xml::Error::unsatisfiable_range(requested),
+                ctx.state.clock.now(),
             ));
         }
         Err(error) => return Err(error.into()),
@@ -194,7 +196,17 @@ async fn gunzipped(
             .await
             .map_err(json::JsonError::from)?
     {
-        return Ok(gzip::plain_body_rejection(headers));
+        // The rejection is private whatever the object's own Cache-Control says.
+        let mut response = gzip::plain_body_rejection(headers);
+        let rejection = response.headers_mut();
+        rejection.insert(
+            "cache-control",
+            HeaderValue::from_static(xml::PRIVATE_CACHE_CONTROL),
+        );
+        if let Some(value) = xml::envelope::expires(ctx.state.clock.now()) {
+            rejection.insert("expires", value);
+        }
+        return Ok(response);
     }
     gzip::insert_transcoded_headers(&mut headers);
     headers.extend(overrides);
@@ -219,6 +231,7 @@ fn range_error(
     request: &Request<Incoming>,
     mut headers: HeaderMap,
     error: xml::Error,
+    now: std::time::SystemTime,
 ) -> Response<ResponseBody> {
     let error = error.response(xml::ErrorBody::for_method(request.method()));
     for name in [
@@ -230,10 +243,16 @@ fn range_error(
         headers.remove(name);
     }
     let (parts, body) = error.into_parts();
-    for name in ["content-type", "content-length"] {
+    // The error is private whatever the object's own Cache-Control says: a public object's
+    // refusal must not stay in a shared cache.
+    for name in ["content-type", "content-length", "cache-control"] {
         if let Some(value) = parts.headers.get(name) {
             headers.insert(name, value.clone());
         }
+    }
+    headers.remove("expires");
+    if let Some(value) = xml::envelope::expires(now) {
+        headers.insert("expires", value);
     }
     let mut response = boxed(Response::new(body));
     *response.status_mut() = parts.status;
