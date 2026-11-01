@@ -490,7 +490,8 @@ fn left_alone_line(norm: &Normalizer, unlabelled: &[String]) -> Option<String> {
 }
 
 /// Lists the buckets whose names start with `prefix` and cleans each one up.
-/// Returns one line per bucket (never its name) and whether any failed.
+/// Returns one line per cleaned bucket (never its name), a line naming the labelless buckets it
+/// left alone, and whether any failed.
 pub(crate) fn sweep(
     side: &Side<'_>,
     norm: &Normalizer,

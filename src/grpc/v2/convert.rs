@@ -123,7 +123,7 @@ pub(crate) fn bucket(record: &BucketRecord) -> pb::Bucket {
         create_time: Some(record.time_created.into()),
         update_time: Some(record.updated.into()),
         default_event_based_hold: record.default_event_based_hold,
-        // Cloud Storage omits the message for a bucket that never enabled versioning, as JSON does.
+        // Cloud Storage omits the message for a bucket whose versioning is currently off, as JSON does.
         versioning: record
             .versioning_enabled
             .then_some(pb::bucket::Versioning { enabled: true }),

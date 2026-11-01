@@ -178,10 +178,16 @@ fn write_checked(path: &Path, text: &str, secrets: &[(String, &str)]) -> Result<
     fs::write(&target, &text).map_err(|e| format!("{}: {e}", target.display()))?;
     if leaks.is_empty() {
         // A `.redacted` copy from an earlier leaking run would read as this run's result.
-        // A missing file is the usual case, so a failed removal is not an error.
+        // A missing file is the usual case; any other failure would leave the stale copy behind.
         let mut stale = path.as_os_str().to_owned();
         stale.push(".redacted");
-        let _ = fs::remove_file(PathBuf::from(stale));
+        let stale = PathBuf::from(stale);
+        match fs::remove_file(&stale) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(format!("{}: {e}", stale.display()));
+            }
+            _ => {}
+        }
         return Ok(());
     }
     Err(format!(
