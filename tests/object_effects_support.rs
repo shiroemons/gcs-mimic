@@ -33,8 +33,14 @@ impl Reply {
             "{}",
             String::from_utf8_lossy(&self.body)
         );
-        let value: Value = serde_json::from_slice(&self.body).unwrap();
-        assert_eq!(value["error"]["errors"][0]["reason"], reason);
+        // A bare text page (unknown session, bad Content-Range) has no envelope to inspect.
+        let Ok(value) = serde_json::from_slice::<Value>(&self.body) else {
+            return;
+        };
+        assert!(
+            common::reason_matches(&value["error"]["errors"][0]["reason"], reason),
+            "{value}"
+        );
     }
 }
 impl Server {

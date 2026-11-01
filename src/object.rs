@@ -89,7 +89,15 @@ impl ObjectRecord {
     /// Holds and the bucket policy also forbid making a live object noncurrent.
     pub(crate) fn check_policy_and_holds(&self, now: SystemTime) -> Result<(), ObjectError> {
         if self.has_hold() {
-            return Err(ObjectError::ActiveHold);
+            return Err(ObjectError::ActiveHold(Box::new(HeldObject {
+                bucket: self.bucket.clone(),
+                name: self.name.clone(),
+                kind: if self.temporary_hold {
+                    HoldKind::Temporary
+                } else {
+                    HoldKind::EventBased
+                },
+            })));
         }
         if self
             .retention_expiration_time
@@ -134,11 +142,24 @@ impl ObjectRecord {
     }
 }
 
+/// A custom time as Cloud Storage prints it in the decrease refusal: UTC with a `+00:00` offset
+/// and microsecond fraction only when one is present.
+fn custom_time_display((seconds, nanos): (i64, u32)) -> String {
+    let time = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(seconds.unsigned_abs());
+    let rendered = crate::json::timestamp(time).unwrap_or_default();
+    let fraction = if nanos == 0 {
+        String::new()
+    } else {
+        format!(".{:06}", nanos / 1000)
+    };
+    format!("{}{fraction}+00:00", rendered.get(..19).unwrap_or_default())
+}
+
 /// Reuse the strict civil-date parser while preserving nanosecond precision on the wire.
 pub(crate) fn custom_time_key(value: &str) -> Result<(i64, u32), ObjectError> {
     let invalid = || {
         ObjectError::InvalidFixedMetadata(
-            "customTime must be RFC 3339, for example 2026-10-20T01:02:03Z".into(),
+            "Parse Error: Invalid value for type.googleapis.com/google.protobuf.Timestamp field: 'Field 'customTime', Illegal timestamp format; timestamps must end with 'Z' or have a valid timezone offset.'.".into(),
         )
     };
     if !value.is_ascii() || value.len() < 20 || value.starts_with("0000") {
@@ -239,17 +260,21 @@ impl ObjectMetadataUpdate {
 
     pub(crate) fn apply(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
         self.validate()?;
-        if let Some(value) = self.custom_time.or_else(|| self.replace.then_some(None)) {
-            let next = value.as_deref().map(custom_time_key).transpose()?;
+        // Cloud Storage kept the current custom time for `null` and for a PUT that omits it
+        // (both recorded as 200); only a time can change it, and never backwards.
+        if let Some(Some(value)) = self.custom_time {
+            let next = custom_time_key(&value)?;
             if let Some(previous) = &record.custom_time {
                 let previous = custom_time_key(previous)?;
-                if next.is_none_or(|v| v < previous) {
-                    return Err(ObjectError::InvalidFixedMetadata(
-                        "customTime cannot be removed or decreased; supply the current or a later RFC 3339 time".into(),
-                    ));
+                if next < previous {
+                    return Err(ObjectError::InvalidFixedMetadata(format!(
+                        "Custom time cannot be decreased. Previously: {}. Attempting to set: {}.",
+                        custom_time_display(previous),
+                        custom_time_display(next)
+                    )));
                 }
             }
-            record.custom_time = value;
+            record.custom_time = Some(value);
         }
         if let Some(hold) = self.event_based_hold {
             record.event_based_hold = hold;
@@ -357,6 +382,21 @@ pub(crate) const UNLOCKED_RETENTION_OVERRIDE_MESSAGE: &str = "The unlocked objec
 /// The wording Cloud Storage used when it refused to change a Locked retention.
 pub(crate) const LOCKED_RETENTION_MESSAGE: &str = "The locked object retention cannot be removed. Its retention mode cannot be changed and its retention period cannot be shortened.";
 
+/// The kind of hold that denied a delete or overwrite; Cloud Storage names it in the message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HoldKind {
+    Temporary,
+    EventBased,
+}
+
+/// The held object named by a denied delete or overwrite. Boxed to keep [`ObjectError`] small.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct HeldObject {
+    pub bucket: String,
+    pub name: String,
+    pub kind: HoldKind,
+}
+
 /// The retained object named by a denied delete or overwrite. Boxed to keep [`ObjectError`] small.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RetainedObject {
@@ -365,15 +405,50 @@ pub(crate) struct RetainedObject {
     pub until: SystemTime,
 }
 
+/// Which stored hash an upload's declared hash disagreed with, and both digests.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct HashMismatch {
+    pub algorithm: HashAlgorithm,
+    pub provided: Vec<u8>,
+    pub calculated: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HashAlgorithm {
+    Crc32c,
+    Md5,
+}
+
+/// A compose component that could not be used. Cloud Storage names the component in both
+/// failures, which the generic missing-object and precondition errors cannot.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ComponentFailure {
+    pub bucket: String,
+    pub name: String,
+    pub kind: ComponentFailureKind,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ComponentFailureKind {
+    NotFound,
+    /// The component's `ifGenerationMatch` named a generation other than the live one.
+    GenerationMismatch {
+        required: i64,
+        actual: i64,
+    },
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ObjectError {
     BucketNotFound,
     ObjectNotFound,
     PreconditionFailed,
+    /// A compose component was missing or failed its generation precondition.
+    Component(Box<ComponentFailure>),
     PublicAccessPrevention,
     /// Publication would replace a live object, but the caller may not delete it.
     OverwriteForbidden,
-    ActiveHold,
+    ActiveHold(Box<HeldObject>),
     /// The bucket retention policy or the object's own retain-until time has not passed.
     ObjectRetentionNotMet(Box<RetainedObject>),
     /// An Unlocked retention was shortened or removed without `overrideUnlockedRetention`.
@@ -385,6 +460,9 @@ pub(crate) enum ObjectError {
     Forbidden,
     NotModified,
     ChecksumMismatch,
+    /// The streamed body disagreed with a declared hash; the same failure as
+    /// [`Self::ChecksumMismatch`], with both digests for the JSON message.
+    HashMismatch(Box<HashMismatch>),
     TooLarge,
     InvalidMetadata,
     InvalidFixedMetadata(String),
@@ -409,11 +487,12 @@ impl fmt::Display for ObjectError {
             Self::BucketNotFound => formatter.write_str("bucket not found"),
             Self::ObjectNotFound => formatter.write_str("object not found"),
             Self::PreconditionFailed => formatter.write_str("precondition failed"),
+            Self::Component(_) => formatter.write_str("compose component unusable"),
             Self::PublicAccessPrevention => {
                 formatter.write_str("public access prevention is enforced")
             }
             Self::OverwriteForbidden => formatter.write_str("overwrite forbidden"),
-            Self::ActiveHold => formatter.write_str("object under active hold"),
+            Self::ActiveHold(_) => formatter.write_str("object under active hold"),
             Self::ObjectRetentionNotMet(_) => {
                 formatter.write_str("object retention period has not elapsed")
             }
@@ -426,7 +505,9 @@ impl fmt::Display for ObjectError {
             ),
             Self::Forbidden => formatter.write_str("forbidden"),
             Self::NotModified => formatter.write_str("not modified"),
-            Self::ChecksumMismatch => formatter.write_str("checksum mismatch"),
+            Self::ChecksumMismatch | Self::HashMismatch(_) => {
+                formatter.write_str("checksum mismatch")
+            }
             Self::TooLarge => formatter.write_str("object too large"),
             Self::InvalidMetadata => formatter.write_str("custom metadata exceeds 8 KiB"),
             Self::InvalidFixedMetadata(reason) => formatter.write_str(reason),

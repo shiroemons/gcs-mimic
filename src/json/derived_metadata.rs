@@ -40,9 +40,10 @@ pub(crate) fn derived_metadata(
     bytes: &[u8],
     source: &ObjectRecord,
 ) -> Result<(ObjectMetadataUpdate, Option<String>, ExpectedHashes), JsonError> {
+    // An absent, `null` or empty-object resource keeps the source metadata (recorded for `{}`).
     if bytes.is_empty()
         || std::str::from_utf8(bytes)
-            .is_ok_and(|value| value.trim_matches([' ', '\t', '\r', '\n']) == "null")
+            .is_ok_and(|value| matches!(value.trim_matches([' ', '\t', '\r', '\n']), "null" | "{}"))
     {
         return Ok((
             ObjectMetadataUpdate {
@@ -171,6 +172,10 @@ mod tests {
         assert_eq!(destination.metadata.len(), 1);
         assert!(destination.metadata.contains_key("destination"));
         assert!(destination.content_type.is_empty());
-        assert_eq!(derived_metadata(b"{}", &source).unwrap().0.metadata, None);
+        // An empty resource keeps the source metadata, like an absent one (recorded for `{}`).
+        assert_eq!(
+            derived_metadata(b"{}", &source).unwrap(),
+            derived_metadata(b"", &source).unwrap()
+        );
     }
 }

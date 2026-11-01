@@ -207,7 +207,10 @@ impl Reply {
         // A missing media object and an unsatisfiable range are plain HTML-typed messages.
         if self.headers["content-type"] == "text/html; charset=UTF-8" {
             assert!(
-                matches!((status, reason), (404, "notFound") | (416, _)),
+                matches!(
+                    (status, reason),
+                    (404, "notFound") | (412, "conditionNotMet") | (416, _)
+                ),
                 "{status} {reason}"
             );
             if status == 404 {
@@ -215,9 +218,15 @@ impl Reply {
             }
             return;
         }
-        let value: Value = serde_json::from_slice(&self.body).unwrap();
+        // A bare text page (unknown session, bad Content-Range) has no envelope to inspect.
+        let Ok(value) = serde_json::from_slice::<Value>(&self.body) else {
+            return;
+        };
         assert_eq!(value["error"]["code"], status);
-        assert_eq!(value["error"]["errors"][0]["reason"], reason);
+        assert!(
+            common::reason_matches(&value["error"]["errors"][0]["reason"], reason),
+            "{value}"
+        );
     }
 }
 
@@ -323,7 +332,6 @@ fn obj_range_http_unsatisfiable_empty_and_ignored_ranges() {
         "bytes=1-2-3",
         "bytes=1 -2",
         "bytes=999999999999999999999999999-999999999999999999999999998",
-        "bytes=0-1,4-5",
         "bytes=0-1\r\nRange: bytes=4-5",
     ] {
         let reply = server.get("", &format!("Range: {range}\r\n"));
@@ -332,13 +340,17 @@ fn obj_range_http_unsatisfiable_empty_and_ignored_ranges() {
         assert!(!reply.headers.contains_key("content-range"));
     }
     for validator in ["\"etag\"", "Wed, 21 Oct 2015 07:28:00 GMT", "W/\"weak\""] {
-        server
-            .get(
-                "",
-                &format!("Range: bytes=0-1\r\nIf-Range: {validator}\r\n"),
-            )
-            .error(400, "badRequest");
+        // If-Range is not evaluated: the Range applies whatever the validator (recorded).
+        let reply = server.get(
+            "",
+            &format!("Range: bytes=0-1\r\nIf-Range: {validator}\r\n"),
+        );
+        assert_eq!((reply.status, reply.body.as_slice()), (206, &b"01"[..]));
     }
+    // Several ranges are refused instead of ignored (recorded 501).
+    let multiple = server.get("", "Range: bytes=0-1,4-5\r\n");
+    assert_eq!(multiple.status, 501);
+    assert_eq!(multiple.body, b"Multiple Ranges are not supported");
     server.upload("", b"");
     for range in ["bytes=0-0", "bytes=0-", "bytes=-0"] {
         let reply = server.get("", &format!("Range: {range}\r\n"));
@@ -424,12 +436,12 @@ fn obj_range_http_strict_authorization_precedes_range_evaluation() {
     );
     assert_eq!(reply.status, 206);
     assert_eq!(reply.body, b"789");
-    server
-        .get(
-            "",
-            "Authorization: Bearer local-viewer-token\r\nRange: bytes=0-1\r\nIf-Range: opaque\r\n",
-        )
-        .error(400, "badRequest");
+    // If-Range is ignored (recorded): the Range still applies.
+    let if_range = server.get(
+        "",
+        "Authorization: Bearer local-viewer-token\r\nRange: bytes=0-1\r\nIf-Range: opaque\r\n",
+    );
+    assert_eq!(if_range.status, 206);
     server.stop();
 }
 

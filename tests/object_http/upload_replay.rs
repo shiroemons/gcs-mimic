@@ -14,13 +14,17 @@ fn upload_replay_unconditional_response_survives_overwrite_and_restart() {
     server
         .upload(query, token, b"different")
         .error(400, "invalidArgument");
-    server
-        .upload(
-            query,
-            &format!("{token}X-Goog-Hash: md5=AAAAAAAAAAAAAAAAAAAAAA==\r\n"),
-            b"original",
-        )
-        .error(400, "invalid");
+    // The declared hash is not examined (recorded), so the retry replays the first response.
+    assert_eq!(
+        server
+            .upload(
+                query,
+                &format!("{token}X-Goog-Hash: md5=AAAAAAAAAAAAAAAAAAAAAA==\r\n"),
+                b"original",
+            )
+            .body,
+        original.body
+    );
     let replacement = server
         .upload(
             "name=replay",

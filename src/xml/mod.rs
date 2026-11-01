@@ -348,11 +348,9 @@ impl From<JsonError> for Error {
             StatusCode::FORBIDDEN if error.reason == "retentionPolicyNotMet" => {
                 "RetentionPolicyNotMet"
             }
-            StatusCode::FORBIDDEN if error.reason == "objectUnderActiveHold" => {
-                "ObjectUnderActiveHold"
-            }
+            StatusCode::FORBIDDEN if error.xml_active_hold => "ObjectUnderActiveHold",
             StatusCode::FORBIDDEN => "AccessDenied",
-            StatusCode::NOT_FOUND if error.message == "Bucket not found" => "NoSuchBucket",
+            StatusCode::NOT_FOUND if error.is_missing_bucket() => "NoSuchBucket",
             StatusCode::NOT_FOUND => "NoSuchKey",
             StatusCode::PRECONDITION_FAILED => "PreconditionFailed",
             StatusCode::RANGE_NOT_SATISFIABLE => "InvalidRange",

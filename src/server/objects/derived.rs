@@ -32,7 +32,6 @@ pub(super) async fn copy(
 ) -> Result<Written, JsonError> {
     json::validate_keyed_object_headers(
         request.headers(),
-        json::ObjectRead::Metadata,
         &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
     )?;
     let destination_key = json::request_key(request.headers())?;
@@ -145,7 +144,10 @@ async fn copy_object(
             &source_access,
             source_key,
         )
-        .await?;
+        .await
+        .map_err(|failure| {
+            JsonError::from(failure).naming_object(&params.source_bucket, &params.source_name)
+        })?;
     let (mut metadata, storage_class, expected) = json::derived_metadata(body, &source.object)?;
     metadata.customer_key_sha256 = destination_key.map(CustomerKey::sha256);
     let source_location = if source.object.component_count.is_some() {
@@ -199,11 +201,7 @@ pub(super) async fn compose(
     name: String,
     conditions: ObjectConditions,
 ) -> Result<serde_json::Value, JsonError> {
-    json::validate_keyed_object_headers(
-        request.headers(),
-        json::ObjectRead::Metadata,
-        &[crate::csek::DESTINATION_PREFIX],
-    )?;
+    json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     let key = json::request_key(request.headers())?;
     reject_headers(
         request.headers(),

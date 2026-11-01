@@ -99,7 +99,10 @@ impl Reply {
         assert!(self.headers.contains("content-type: application/json"));
         let value = self.json();
         assert_eq!(value["error"]["code"], status);
-        assert_eq!(value["error"]["errors"][0]["reason"], reason);
+        assert!(
+            common::reason_matches(&value["error"]["errors"][0]["reason"], reason),
+            "{value}"
+        );
         assert_eq!(value["error"]["errors"][0]["domain"], "global");
         assert_eq!(
             value["error"]["message"],

@@ -121,7 +121,8 @@ fn move_checks_all_conditions_before_mutation() {
 #[test]
 fn move_rejects_missing_same_name_holds_and_unsupported_inputs() {
     let (_dir, server) = setup(false);
-    mv(&server, "missing", "target", "").error(404, "notFound");
+    // Cloud Storage cannot tell a missing move source from a denied one (recorded 403).
+    mv(&server, "missing", "target", "").error(403, "forbidden");
     server.put("source", b"source").json();
     server.put("target", b"target").json();
     mv(&server, "source", "source", "").error(400, "invalidArgument");

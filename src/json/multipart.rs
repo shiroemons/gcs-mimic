@@ -95,7 +95,11 @@ pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonErro
     if mime != "multipart/related" {
         return Err(invalid());
     }
-    let boundary = boundary(&params)?;
+    // A multipart type without a boundary got the front end's bare text page.
+    let boundary = boundary(&params).map_err(|mut error| {
+        error.plain = Some(&super::error::BAD_CONTENT_TYPE_TEXT);
+        error
+    })?;
     // RFC 2387 permits type and start; reordered roots are outside this ordered subset.
     for (key, value) in &params {
         if key != "boundary" && !(key == "type" && value.eq_ignore_ascii_case("application/json")) {
@@ -103,6 +107,39 @@ pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonErro
         }
     }
     Ok(boundary)
+}
+
+/// Whether the request declares a `multipart/*` body at all.
+pub(crate) fn is_multipart_content_type(headers: &HeaderMap) -> bool {
+    headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("multipart/")
+        })
+}
+
+/// The media part and the metadata must agree on the type. The message is Cloud Storage's,
+/// which spells out where each upload type puts its type.
+pub(crate) fn check_declared_content_type(declared: &str, part: &str) -> Result<(), JsonError> {
+    let essence = |value: &str| {
+        value
+            .split(';')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+    };
+    if essence(declared) == essence(part) {
+        return Ok(());
+    }
+    Err(JsonError::invalid(format!(
+        "Content-Type specified in the upload ({part}) does not match Content-Type specified in metadata ({declared}). If it was a simple upload (uploadType=media), the Content-Type was specified as a bare header. If it was a multipart upload (uploadType=multipart), then the Content-Type was specified in the second part of the multipart. If it was a resumable upload (uploadType=resumable), then the Content-Type was specified with the X-Upload-Content-Type header with the start of the resumable session. For more information, see https://cloud.google.com/storage/docs/json_api/v1/how-tos/upload."
+    ))
+    .html_typed())
 }
 
 pub(crate) fn batch_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
@@ -387,8 +424,13 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             }
             bytes.extend_from_slice(&chunk);
         }
+        // Only the metadata part arrived; Cloud Storage counts the payloads it received.
         if self.closed {
-            return Err(invalid());
+            return Err(JsonError::new(
+                StatusCode::BAD_REQUEST,
+                "invalidPayloadSize",
+                "Payload size invalid. Expected 2-3 payloads. Actual size: 1",
+            ));
         }
         Ok(bytes)
     }
@@ -461,7 +503,14 @@ pub(crate) fn multipart_metadata(
     let ObjectMetadataRequest {
         mut update,
         mut unchanged,
-    } = parse_object_metadata(bytes, super::WriteMode::Patch)?;
+    } = parse_object_metadata(bytes, super::WriteMode::Patch).map_err(|error| {
+        // The upload front end labelled a metadata part that is not JSON as `text/html`.
+        if error.message.starts_with("Parse Error") {
+            error.html_typed()
+        } else {
+            error
+        }
+    })?;
     update.content_type = update
         .content_type
         .filter(|value| value.as_ref().is_some_and(|value| !value.is_empty()));
@@ -483,9 +532,7 @@ pub(crate) fn multipart_metadata(
     let name = match query_name {
         Some(name) => name,
         None => metadata_name
-            .ok_or_else(|| {
-                JsonError::new(StatusCode::BAD_REQUEST, "required", "Missing required name")
-            })?
+            .ok_or_else(JsonError::missing_object_name)?
             .as_str()
             .ok_or_else(|| JsonError::invalid_argument("name must be a string"))?
             .to_owned(),

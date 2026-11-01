@@ -167,14 +167,15 @@ pub(crate) fn validate_stored(
         return Ok(());
     };
     if bucket == BucketRetention::Disabled {
-        return Err(invalid(
-            "Object retention is not enabled for this bucket; create the bucket with enableObjectRetention=true before setting retention",
-        ));
+        return Err(invalid("Bucket does not have object retention enabled."));
     }
     if record.event_based_hold {
         return Err(invalid(
-            "A retention configuration cannot be set on an object subject to an event-based hold; release eventBasedHold first",
+            "Retention and event based holds cannot be configured together.",
         ));
+    }
+    if retention.retain_until <= now {
+        return Err(invalid("Retain until time cannot be in the past."));
     }
     if now
         .checked_add(MAX_RETENTION)

@@ -10,7 +10,7 @@ const EXAMPLE: &str = "use {\"mode\":\"Unlocked\",\"retainUntilTime\":\"2030-01-
 /// Parses an object `retention` value. `null`, `{}` and an object whose fields are all null
 /// remove the configuration: Go sends `null` and Ruby sends `{}` for removal.
 pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError> {
-    let invalid = |detail: &str| JsonError::invalid_argument(format!("{detail}; {EXAMPLE}"));
+    let invalid = |detail: &str| JsonError::invalid(format!("{detail}; {EXAMPLE}"));
     if value.is_null() {
         return Ok(None);
     }
@@ -33,13 +33,20 @@ pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError>
         (None, None) => return Ok(None),
         (Some(mode), Some(until)) => (mode, until),
         _ => {
-            return Err(invalid("retention requires both mode and retainUntilTime"));
+            return Err(JsonError::invalid(
+                "Missing retain until time. Both mode and retain until time are required.",
+            ));
         }
     };
     let mode = mode
         .as_str()
         .and_then(RetentionMode::parse)
-        .ok_or_else(|| invalid("retention.mode must be Unlocked or Locked"))?;
+        .ok_or_else(|| {
+            JsonError::invalid(format!(
+                "Invalid value for: {} is not a valid value",
+                mode.as_str().unwrap_or_default()
+            ))
+        })?;
     let until = until
         .as_str()
         .ok_or_else(|| invalid("retention.retainUntilTime must be an RFC 3339 string"))?;
@@ -134,11 +141,7 @@ mod tests {
             json!({"mode":"Unlocked","retainUntilTime":"2030-01-01T00:00:00Z","extra":1}),
             json!({"mode":"Unlocked","retainUntilTime":"2030-01-01T00:00:00Z","retentionExpirationTime":"2020-01-01T00:00:00Z"}),
         ] {
-            assert_eq!(
-                parse(&invalid).unwrap_err().reason,
-                "invalidArgument",
-                "{invalid}"
-            );
+            assert_eq!(parse(&invalid).unwrap_err().reason, "invalid", "{invalid}");
         }
     }
 
@@ -200,7 +203,7 @@ mod tests {
         );
         assert_eq!(
             parsed_render("10000-01-01T00:00:00Z").unwrap_err().reason,
-            "invalidArgument"
+            "invalid"
         );
     }
     #[test]

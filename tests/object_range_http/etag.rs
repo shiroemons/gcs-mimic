@@ -29,6 +29,10 @@ fn not_modified(server: &Server, path: &str, headers: &str, etag: &str, cache: &
         "content-range",
         "content-encoding",
     ] {
+        // A media 304 keeps the representation's type with its `x-goog-*` description (recorded).
+        if name == "content-type" && path.contains("alt=media") {
+            continue;
+        }
         assert!(!reply.headers.contains_key(name), "{name}");
     }
     let mut bytes = Vec::new();
@@ -79,10 +83,18 @@ fn json_etag_read_object_metadata_media_and_range() {
         for header in [
             "If-Match: \"other\"\r\n".to_owned(),
             format!("If-Match: W/{etag}\r\n"),
-            format!("If-Match: \"other\"\r\nIf-None-Match: {etag}\r\n"),
         ] {
             server
                 .request("GET", &path, &header, b"")
+                .error(412, "conditionNotMet");
+        }
+        let both = format!("If-Match: \"other\"\r\nIf-None-Match: {etag}\r\n");
+        if path.contains("alt=media") {
+            // Media reads evaluate If-None-Match first (recorded 304).
+            not_modified(&server, &path, &both, etag, CACHE_BY_PATH);
+        } else {
+            server
+                .request("GET", &path, &both, b"")
                 .error(412, "conditionNotMet");
         }
     }
@@ -371,14 +383,18 @@ fn json_etag_read_unsupported_lists_dates_and_writes() {
         BUCKET.to_owned(),
     ] {
         for name in ["If-Modified-Since", "If-Unmodified-Since", "If-Range"] {
-            server
-                .request(
-                    "GET",
-                    &path,
-                    &format!("{name}: Wed, 21 Oct 2015 07:28:00 GMT\r\n"),
-                    b"",
-                )
-                .error(400, "badRequest");
+            let reply = server.request(
+                "GET",
+                &path,
+                &format!("{name}: Wed, 21 Oct 2015 07:28:00 GMT\r\n"),
+                b"",
+            );
+            // A JSON media read ignores these validators (recorded); other reads refuse them.
+            if path.contains("alt=media") {
+                assert_eq!(reply.status, 200, "{name}");
+            } else {
+                reply.error(400, "badRequest");
+            }
         }
     }
     for path in [
@@ -491,7 +507,8 @@ fn json_etag_read_combined_query_conditions_use_one_selected_record() {
                 ("If-None-Match: \"stale\"\r\n".into(), success),
                 (
                     format!("If-Match: \"stale\"\r\nIf-None-Match: {etag}\r\n"),
-                    412,
+                    // Media reads evaluate If-None-Match first (recorded 304).
+                    if path.contains("alt=media") { 304 } else { 412 },
                 ),
                 (
                     format!("If-Match: {etag}\r\nIf-None-Match: {etag}\r\n"),
@@ -732,9 +749,13 @@ fn json_etag_read_if_match_overrides_if_unmodified_since() {
                 b"",
             )
             .error(412, "conditionNotMet");
-        server
-            .request("GET", &path, unmodified, b"")
-            .error(400, "badRequest");
+        let alone = server.request("GET", &path, unmodified, b"");
+        if path.contains("alt=media") {
+            // A JSON media read ignores the date validator (recorded).
+            assert_eq!(alone.status, 200);
+        } else {
+            alone.error(400, "badRequest");
+        }
     }
     server.stop();
 }

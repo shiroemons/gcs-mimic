@@ -12,9 +12,7 @@ use serde_json::Value;
 
 fn error(error: RewriteError) -> JsonError {
     match error {
-        RewriteError::Invalid => {
-            JsonError::invalid_parameter("Invalid rewrite token or mismatched rewrite request")
-        }
+        RewriteError::Invalid => JsonError::invalid("Invalid argument."),
         RewriteError::Gone => JsonError::new(
             StatusCode::GONE,
             "gone",
@@ -96,7 +94,6 @@ pub(super) async fn respond(
     json::validate_read_condition_headers(request.headers(), json::EtagConditions::Unsupported)?;
     json::validate_keyed_object_headers(
         request.headers(),
-        json::ObjectRead::Metadata,
         &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
     )?;
     let keys = Keys {
@@ -118,13 +115,10 @@ pub(super) async fn respond(
     let body = if bytes.is_empty() {
         None
     } else {
-        Some(serde_json::from_slice::<Value>(&bytes).map_err(|_| {
-            JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "parseError",
-                "Invalid rewrite metadata JSON",
-            )
-        })?)
+        Some(
+            serde_json::from_slice::<Value>(&bytes)
+                .map_err(|cause| JsonError::parse_error(&bytes, &cause))?,
+        )
     };
     let body = body.filter(|value| !value.is_null());
     activity.send_modify(|progress| progress.awaiting_catalog = true);
@@ -152,7 +146,7 @@ pub(super) async fn respond(
     let mut response = Response::new(Full::new(Bytes::from(json::render_body(&value))));
     response.headers_mut().insert(
         "content-type",
-        hyper::header::HeaderValue::from_static("application/json; charset=utf-8"),
+        hyper::header::HeaderValue::from_static("application/json; charset=UTF-8"),
     );
     let response = boxed(response);
     if let Some(owner) = &mut owner {
@@ -176,6 +170,28 @@ struct RewriteJob {
     keys: Keys,
     source_access: BucketAccess,
     destination_access: BucketAccess,
+}
+
+/// Resolves the rewrite source; a missing one is named in the error as Cloud Storage does.
+async fn resolve_source(
+    catalog: &Catalog,
+    operation: &RewriteRequest,
+    access: &BucketAccess,
+    keys: Keys,
+) -> Result<crate::storage::DerivedSource, JsonError> {
+    catalog
+        .resolve_derived_source_keyed(
+            &operation.path[0],
+            &operation.path[1],
+            operation.number("sourceGeneration"),
+            operation.conditions(RewriteSide::Source),
+            access,
+            keys.source,
+        )
+        .await
+        .map_err(|failure| {
+            JsonError::from(failure).naming_object(&operation.path[0], &operation.path[1])
+        })
 }
 
 async fn execute(
@@ -214,16 +230,7 @@ async fn execute(
         )?;
         token.clone()
     } else {
-        let source = catalog
-            .resolve_derived_source_keyed(
-                &operation.path[0],
-                &operation.path[1],
-                operation.number("sourceGeneration"),
-                operation.conditions(RewriteSide::Source),
-                &source_access,
-                keys.source,
-            )
-            .await?;
+        let source = resolve_source(&catalog, &operation, &source_access, keys).await?;
         let mut destination = destination(&source.object, &operation, &body)?;
         destination.metadata.customer_key_sha256 =
             keys.destination.map(crate::csek::CustomerKey::sha256);

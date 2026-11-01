@@ -595,9 +595,9 @@ pub(super) fn projection(query: &mut BTreeMap<String, String>) -> Result<Project
     match query.remove("projection").as_deref() {
         None | Some("noAcl") => Ok(Projection::NoAcl),
         Some("full") => Ok(Projection::Full),
-        Some(_) => Err(JsonError::invalid_parameter(
-            "projection must be noAcl or full",
-        )),
+        Some(other) => Err(JsonError::invalid_parameter(format!(
+            "Invalid string value: '{other}'. Allowed values: [full, noacl]"
+        ))),
     }
 }
 

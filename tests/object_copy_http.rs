@@ -341,8 +341,9 @@ fn copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it() {
         assert!(replaced.get(field).is_none(), "{field}");
     }
     let empty = copy(&server, "dir%2F%E7%8C%AB%252F", "empty-metadata", "", b"{}").json();
-    assert!(empty.get("metadata").is_none());
-    assert!(empty.get("contentType").is_none());
+    // An empty resource keeps the source metadata like an absent one (recorded for `{}`).
+    assert_eq!(empty["metadata"], copied["metadata"]);
+    assert_eq!(empty["contentType"], copied["contentType"]);
     assert_eq!(
         server.get("dir%2F%E7%8C%AB%252F").json()["eventBasedHold"],
         true
@@ -579,7 +580,6 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
         br#"{"temporaryHold":true}"#,
         br#"{"customTime":"2026-10-20T01:02:03Z"}"#,
         br#"{"retention":{}}"#,
-        br#"{"unknown":true}"#,
         br#"{"generation":"1"}"#,
     ] {
         copy(&server, "source", "target", "", body).error(400, "badRequest");
@@ -725,7 +725,14 @@ fn copy_preserves_composite_identity_and_inherited_class_until_class_or_location
     assert_eq!(inherited["storageClass"], "NEARLINE");
     assert_eq!(inherited["componentCount"], 2);
     assert!(inherited.get("md5Hash").is_none());
-    let replaced = copy(&server, "source", "different-class", "", b"{}").json();
+    let replaced = copy(
+        &server,
+        "source",
+        "different-class",
+        "",
+        br#"{"storageClass":"STANDARD"}"#,
+    )
+    .json();
     assert_eq!(replaced["storageClass"], "STANDARD");
     assert_eq!(replaced["componentCount"], 1);
     assert!(replaced.get("md5Hash").is_none());

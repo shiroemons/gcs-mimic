@@ -50,14 +50,15 @@ pub(crate) use buckets::{
 };
 pub(crate) use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
 pub(crate) use derived_metadata::{DestinationLocation, derived_component_count, derived_metadata};
-pub use error::JsonError;
 pub(crate) use error::{IF_MATCH_HEADER, NO_STORE_CACHE_CONTROL, safe_backend_cause};
+pub use error::{JsonError, PlainCache, PlainText};
 pub(crate) use fields::Fields;
 pub(crate) use format::{ResponseFormat, render_body, with_format};
 pub(crate) use iam::policy_etag;
 pub(crate) use iam::{parse_policy, policy_resource, test_permissions_query};
 pub(crate) use multipart::{
-    Multipart, PartKind, batch_boundary, form_data_boundary, multipart_boundary, multipart_metadata,
+    Multipart, PartKind, batch_boundary, check_declared_content_type, form_data_boundary,
+    is_multipart_content_type, multipart_boundary, multipart_metadata,
 };
 pub(crate) use object_copy::ObjectCopyParams;
 pub(crate) use object_list::{ObjectListParams, object_list};
@@ -70,7 +71,7 @@ pub(crate) use objects::{
     object_media_transcoding, validate_read_condition_headers,
 };
 pub(crate) use objects::{
-    ObjectGetParams, ObjectInsertParams, ObjectRead, ObjectRequest, UploadRequest,
+    ObjectGetParams, ObjectInsertParams, ObjectRequest, UploadRequest, declared_hashes,
     object_media_headers, object_media_range, object_resource, parse_object_upload_headers,
     route_object, route_object_with_profile, validate_keyed_object_headers,
     validate_object_get_headers, validate_object_name,

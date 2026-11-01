@@ -185,8 +185,7 @@ pub(crate) fn decode_object_page_token(
     query: &ObjectListQuery,
     projection: super::Projection,
 ) -> Result<ObjectListCursor, JsonError> {
-    let invalid =
-        || JsonError::invalid_parameter("Invalid pageToken for this object listing query");
+    let invalid = || JsonError::invalid(format!("Next page token not valid: {token}"));
     if token.len() > 16 * 1024 {
         return Err(invalid());
     }

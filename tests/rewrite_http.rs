@@ -225,11 +225,11 @@ fn rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget() {
     ] {
         server
             .request("POST", &format!("{path}&{query}"), ADMIN, b"")
-            .error(400, "invalidParameter");
+            .error(400, "invalid");
     }
     server
         .request("POST", &path, ADMIN, b"{}")
-        .error(400, "invalidParameter");
+        .error(400, "invalid");
     server
         .request(
             "POST",
@@ -237,7 +237,7 @@ fn rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget() {
             ADMIN,
             b"",
         )
-        .error(400, "invalidParameter");
+        .error(400, "invalid");
     for index in 0..token.len() {
         let mut tampered = token.to_owned();
         tampered.replace_range(
@@ -254,7 +254,7 @@ fn rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget() {
     }
     server
         .request("POST", &continue_path("not-a-token"), ADMIN, b"")
-        .error(400, "invalidParameter");
+        .error(400, "invalid");
     assert_eq!(
         server.request("POST", &path, ADMIN, b"").json()["done"],
         true
@@ -434,9 +434,6 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
             )
             .error(400, "badRequest");
     }
-    server
-        .request("POST", BASE, ADMIN, br#"{"temporaryHold":{}}"#)
-        .error(400, "invalidArgument");
     server
         .request("POST", BASE, ADMIN, br#"{"temporaryHold":true}"#)
         .error(400, "badRequest");
@@ -699,7 +696,12 @@ fn rewrite_metadata_checksums_validate_and_identity_is_path_selected() {
     assert_eq!(completed["resource"]["bucket"], "test-bucket");
     assert_eq!(completed["resource"]["metadata"]["team"], "雪");
     assert_eq!(server.get("destination?alt=media").body, payload);
-    let cleared = server.request("POST", BASE, ADMIN, b"{}").json();
+    // An empty resource keeps the source metadata like an absent one (recorded for `{}`).
+    let kept = server.request("POST", BASE, ADMIN, b"{}").json();
+    assert_eq!(kept["resource"]["contentType"], source["contentType"]);
+    let cleared = server
+        .request("POST", BASE, ADMIN, br#"{"cacheControl":"no-cache"}"#)
+        .json();
     assert!(cleared["resource"].get("metadata").is_none());
     assert!(cleared["resource"].get("contentType").is_none());
     assert_eq!(
@@ -870,7 +872,7 @@ fn rewrite_composite_count_uses_the_bucket_class_selected_at_publication() {
                 "POST",
                 &format!("{BASE}?maxBytesRewrittenPerCall=1048576"),
                 ADMIN,
-                b"{}",
+                br#"{"metadata":{"k":"v"}}"#,
             )
             .json();
         assert_eq!(first["done"], false);

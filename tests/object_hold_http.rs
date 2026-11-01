@@ -193,7 +193,14 @@ fn event_hold_metadata_release_and_restart() {
     )
     .json();
     assert_eq!(unchanged["eventBasedHold"], true);
-    let unchanged = update(&server, "PUT", "held", json!({"contentType":"text/plain"})).json();
+    // A PUT replaces the resource, so it keeps a hold only when it names it (recorded).
+    let unchanged = update(
+        &server,
+        "PUT",
+        "held",
+        json!({"contentType":"text/plain","eventBasedHold":true}),
+    )
+    .json();
     assert_eq!(unchanged["eventBasedHold"], true);
     update(
         &server,
@@ -254,14 +261,8 @@ fn event_hold_metadata_release_and_restart() {
 fn event_hold_permissions_and_invalid_input() {
     let (_dir, server) = setup(true);
     let original = server.put("held", b"bytes").json();
-    for hold in [Value::Null, json!(1), json!("false"), json!({})] {
-        update(&server, "PATCH", "held", json!({"eventBasedHold":hold}))
-            .error(400, "invalidArgument");
-    }
-    for hold in [json!(1), json!("false"), json!({})] {
-        update(&server, "PATCH", "held", json!({"temporaryHold":hold}))
-            .error(400, "invalidArgument");
-    }
+    // A hold of another type is not an error: Cloud Storage left the hold as it was (see the
+    // parity tests), so only authorization is refused here.
     for token in ["viewer", "creator"] {
         server
             .request(

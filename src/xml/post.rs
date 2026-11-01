@@ -499,6 +499,11 @@ fn plan(form: &Form, bucket: &str) -> Result<Plan, Error> {
     }
     let (content_type, _) =
         json::parse_object_upload_headers(&selected, ObjectConditions::default())?;
+    let content_type = if content_type.is_empty() {
+        "application/octet-stream".to_owned()
+    } else {
+        content_type
+    };
     let declared_length = fields
         .get("content-length")
         .map(|raw| {

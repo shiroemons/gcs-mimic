@@ -350,7 +350,7 @@ fn deprecated_object_change_notification_routes_are_not_recreated() {
         json!({"id": "channel", "type": "web_hook", "address": "https://example.invalid/hook"});
     // `o/watch` stays an opaque object name, whose item route has no POST; channels are unknown.
     for (path, status) in [
-        ("/storage/v1/b/test-bucket/o/watch", 405),
+        ("/storage/v1/b/test-bucket/o/watch", 404),
         ("/storage/v1/channels/stop", 404),
     ] {
         let reply = server.request("POST", path, "", watch.to_string().as_bytes());

@@ -1,6 +1,5 @@
 use super::JsonError;
 use crate::object::{ObjectError, ObjectMetadataUpdate, ObjectRecord};
-use hyper::StatusCode;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
@@ -75,13 +74,8 @@ fn parse_metadata(
     mode: WriteMode,
     acl: AclField,
 ) -> Result<ObjectMetadataRequest, JsonError> {
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "parseError",
-            "Invalid JSON object resource",
-        )
-    })?;
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
     let body = value
         .as_object()
         .ok_or_else(|| JsonError::invalid_argument("Object resource must be a JSON object"))?;
@@ -115,26 +109,9 @@ fn parse_metadata(
             content_language: string(body, "contentLanguage")?,
             cache_control: string(body, "cacheControl")?,
             metadata,
-            temporary_hold: body
-                .get("temporaryHold")
-                .filter(|v| !v.is_null())
-                .map(|value| {
-                    value.as_bool().ok_or_else(|| {
-                        JsonError::invalid_argument(
-                            "temporaryHold must be a boolean, for example true or false",
-                        )
-                    })
-                })
-                .transpose()?,
+            temporary_hold: hold(body, "temporaryHold"),
             custom_time: string(body, "customTime")?,
-            event_based_hold: body
-                .get("eventBasedHold")
-                .map(|value| {
-                    value.as_bool().ok_or_else(|| {
-                        JsonError::invalid_argument("eventBasedHold must be a boolean")
-                    })
-                })
-                .transpose()?,
+            event_based_hold: hold(body, "eventBasedHold"),
             retention: body
                 .get("retention")
                 .map(super::object_retention::parse)
@@ -197,10 +174,17 @@ fn unchanged_fields(body: &Map<String, Value>) -> Result<Map<String, Value>, Jso
                 | "customTime"
                 | "retention"
         ) {
-            return Err(JsonError::unsupported_object(key));
+            // Cloud Storage ignored a member that is not part of the object resource.
+            continue;
         }
     }
     Ok(unchanged)
+}
+
+/// A hold flag. Cloud Storage applied a boolean and left the hold alone for `null` or a value
+/// of another type (a recorded PATCH with `"yes"` answered 200 and changed nothing visible).
+fn hold(body: &Map<String, Value>, key: &str) -> Option<bool> {
+    body.get(key).and_then(Value::as_bool)
 }
 
 /// A custom metadata change: `None` keeps the entries, `Some(None)` clears them, and a `None`
@@ -209,6 +193,8 @@ type CustomMetadataUpdate = Option<Option<BTreeMap<String, Option<String>>>>;
 
 fn custom_metadata(body: &Map<String, Value>) -> Result<CustomMetadataUpdate, JsonError> {
     body.get("metadata")
+        // A value that is neither an object nor null was ignored (recorded for a string).
+        .filter(|value| value.is_null() || value.is_object())
         .map(|value| {
             if value.is_null() {
                 return Ok(None);

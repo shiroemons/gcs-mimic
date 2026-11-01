@@ -51,8 +51,8 @@ pub(super) fn route(
         super::validate_object_name(&source)?;
         super::validate_object_name(&destination)?;
         if source == destination {
-            return Err(JsonError::invalid_argument(
-                "Source and destination must differ; for example, move source.txt to destination.txt",
+            return Err(JsonError::invalid(
+                "Source and destination object names must be different.",
             ));
         }
         let mut query = parse_query(uri.query().unwrap_or_default())?;

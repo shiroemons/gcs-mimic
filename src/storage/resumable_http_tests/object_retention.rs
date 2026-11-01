@@ -478,7 +478,7 @@ async fn object_retention_requires_enabled_bucket_and_no_event_hold() {
         ADMIN,
     )
     .await
-    .error(400, "invalidArgument");
+    .error(400, "invalid");
     h.request("GET", "/storage/v1/b/bucket/o/plain", ADMIN, b"")
         .await
         .error(404, "notFound");
@@ -496,7 +496,7 @@ async fn object_retention_requires_enabled_bucket_and_no_event_hold() {
         ADMIN,
     )
     .await
-    .error(400, "invalidArgument");
+    .error(400, "invalid");
     // Removing an absent configuration is a no-op even where the feature is disabled.
     assert_eq!(
         patch(&h, "bucket/o/plain", "", json!({"retention": null}), ADMIN)
@@ -512,7 +512,7 @@ async fn object_retention_requires_enabled_bucket_and_no_event_hold() {
     ] {
         multipart(&h, "locked", "invalid", metadata, ADMIN)
             .await
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
     }
     h.request("GET", "/storage/v1/b/locked/o/invalid", ADMIN, b"")
         .await
@@ -535,7 +535,7 @@ async fn object_retention_requires_enabled_bucket_and_no_event_hold() {
         ADMIN,
     )
     .await
-    .error(400, "invalidArgument");
+    .error(400, "invalid");
     let released = patch(
         &h,
         "locked/o/held",
@@ -554,9 +554,7 @@ async fn object_retention_requires_enabled_bucket_and_no_event_hold() {
         ADMIN,
     )
     .await;
-    delete(&h, "locked/o/held")
-        .await
-        .error(403, "objectUnderActiveHold");
+    delete(&h, "locked/o/held").await.error(403, "forbidden");
     patch(
         &h,
         "locked/o/held",

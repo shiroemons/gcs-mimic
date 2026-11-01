@@ -5,8 +5,8 @@ use crate::{
     hashing::{Hasher, Hashes},
     notification::NotificationMode,
     object::{
-        ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
-        UploadChunk,
+        ExpectedHashes, HashAlgorithm, HashMismatch, ObjectConditions, ObjectError,
+        ObjectMetadataUpdate, ObjectRecord, UploadChunk,
     },
 };
 use bytes::{Bytes, BytesMut};
@@ -1434,15 +1434,27 @@ impl Catalog {
                 })?;
             }
             let previous_retention = record.retention;
+            let previous_event_hold = record.event_based_hold;
             let override_unlocked = update.override_unlocked_retention;
+            // A PUT replaces the resource, so a hold it does not name is released (recorded:
+            // a PUT of only `metadata` under a temporary hold answered without the hold).
+            if update.replace {
+                record.event_based_hold = false;
+                record.temporary_hold = false;
+            }
             update.apply(&mut record)?;
+            if record.event_based_hold && !previous_event_hold && record.retention.is_some() {
+                return Err(ObjectError::InvalidFixedMetadata(
+                    "Retention and event based holds cannot be configured together.".into(),
+                ));
+            }
             if record.retention != previous_retention {
+                retention::validate_publication(&transaction, &record, clock.now())?;
                 crate::object::retention::check_transition(
                     previous_retention.as_ref(),
                     record.retention.as_ref(),
                     override_unlocked,
                 )?;
-                retention::validate_publication(&transaction, &record, clock.now())?;
             }
             let (retention_mode, retain_until, retain_sub_micro) =
                 retention::columns(record.retention.as_ref())?;
@@ -1757,10 +1769,19 @@ async fn write_stream(
         }
     }
     let Hashes { md5, crc32c } = hasher.finish();
-    if expected.md5.is_some_and(|value| value != md5)
-        || expected.crc32c.is_some_and(|value| value != crc32c)
-    {
-        return Err(ObjectError::ChecksumMismatch);
+    if let Some(provided) = expected.crc32c.filter(|value| *value != crc32c) {
+        return Err(ObjectError::HashMismatch(Box::new(HashMismatch {
+            algorithm: HashAlgorithm::Crc32c,
+            provided: provided.to_be_bytes().to_vec(),
+            calculated: crc32c.to_be_bytes().to_vec(),
+        })));
+    }
+    if let Some(provided) = expected.md5.filter(|value| *value != md5) {
+        return Err(ObjectError::HashMismatch(Box::new(HashMismatch {
+            algorithm: HashAlgorithm::Md5,
+            provided: provided.to_vec(),
+            calculated: md5.to_vec(),
+        })));
     }
     if let UploadSink::Disk(file) = file {
         make_durable(
@@ -3366,14 +3387,11 @@ mod tests {
                 )
                 .await
                 .unwrap_err();
-            assert_eq!(
-                error,
-                if checksum_mismatch {
-                    ObjectError::ChecksumMismatch
-                } else {
-                    ObjectError::BucketNotFound
-                }
-            );
+            if checksum_mismatch {
+                assert!(matches!(error, ObjectError::HashMismatch(_)), "{error:?}");
+            } else {
+                assert_eq!(error, ObjectError::BucketNotFound);
+            }
             assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);
         }
         catalog.close().await.unwrap();

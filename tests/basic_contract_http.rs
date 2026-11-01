@@ -534,7 +534,7 @@ fn basic_contract_single_request_resumable_checksums_validate_stored_bytes() {
 }
 
 #[test]
-fn basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites() {
+fn basic_contract_media_hash_matrix_stores_computed_hashes_and_ignores_declared_ones() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, &[]);
     server.bucket("test-bucket");
@@ -568,18 +568,14 @@ fn basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed
     .iter()
     .enumerate()
     {
-        let name = format!("invalid-{index}");
+        // Cloud Storage did not examine X-Goog-Hash on a JSON media upload: a recorded wrong
+        // digest was stored with 200 and the computed hashes.
+        let name = format!("ignored-{index}");
         let headers = format!("Content-Type: application/octet-stream\r\nX-Goog-Hash: {hash}\r\n");
-        server.upload(&name, &headers, HASH_BYTES).error(400);
-        server
-            .get(&format!("/storage/v1/b/test-bucket/o/{name}"))
-            .error(404);
-        server
-            .get(&format!("/storage/v1/b/test-bucket/o/{name}?alt=media"))
-            .missing_media(&name);
-        let before = server.seed_object(&name);
-        server.upload(&name, &headers, HASH_BYTES).error(400);
-        assert_eq!(server.snapshot(&name), before, "{hash}");
+        let uploaded = server.upload(&name, &headers, HASH_BYTES).json();
+        assert_eq!(uploaded["md5Hash"], MD5, "{hash}");
+        assert_eq!(uploaded["crc32c"], CRC32C, "{hash}");
+        assert_eq!(server.snapshot(&name), (uploaded, HASH_BYTES.to_vec()));
     }
     server.stop();
 }
@@ -657,10 +653,10 @@ fn basic_contract_json_errors_keep_complete_envelopes_with_fields_selection() {
             412,
         ),
         (
-            "POST",
-            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=bad-hash".to_owned(),
-            "Content-Type: application/octet-stream\r\nX-Goog-Hash: md5=AAAAAAAAAAAAAAAAAAAAAA==\r\n",
-            HASH_BYTES,
+            "PUT",
+            "/storage/v1/b/test-bucket/o/existing".to_owned(),
+            "Content-Type: application/json\r\n",
+            b"{oops",
             400,
         ),
     ] {
@@ -680,9 +676,6 @@ fn basic_contract_json_errors_keep_complete_envelopes_with_fields_selection() {
     }
     assert_eq!(server.get("/storage/v1/b/test-bucket").json(), bucket);
     assert_eq!(server.snapshot("existing"), object);
-    server
-        .get("/storage/v1/b/test-bucket/o/bad-hash")
-        .error(404);
     server.stop();
 }
 

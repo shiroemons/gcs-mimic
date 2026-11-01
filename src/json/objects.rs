@@ -141,6 +141,12 @@ pub(crate) fn route_object_with_profile(
                 && matches!(*method, Method::DELETE | Method::PATCH | Method::PUT))
     };
     if !allowed {
+        // Cloud Storage answered `POST` to an object resource with its bare not-found page.
+        if !upload && !download && object.is_some() && *method == Method::POST {
+            let mut error = JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found");
+            error.plain = Some(&super::error::NOT_FOUND_HTML);
+            return Some(Err(error));
+        }
         let mut error = JsonError::new(
             StatusCode::METHOD_NOT_ALLOWED,
             "methodNotAllowed",
@@ -226,20 +232,25 @@ fn parse_object_query(
                 "alt=media requires GET or HEAD",
             ));
         }
-        Some(_) => {
+        Some(other) => {
             return Err(JsonError::new(
                 StatusCode::BAD_REQUEST,
                 "invalidAltValue",
-                "alt must be json or media",
+                format!("Unknown output format: {other}"),
             ));
         }
     };
-    let conditions = ObjectConditions {
-        if_generation_match: integer(&mut query, "ifGenerationMatch")?,
-        if_generation_not_match: integer(&mut query, "ifGenerationNotMatch")?,
-        if_metageneration_match: integer(&mut query, "ifMetagenerationMatch")?,
-        if_metageneration_not_match: integer(&mut query, "ifMetagenerationNotMatch")?,
-    };
+    let upload = name.is_none();
+    let conditions = (|| {
+        Ok::<_, JsonError>(ObjectConditions {
+            if_generation_match: integer(&mut query, "ifGenerationMatch")?,
+            if_generation_not_match: integer(&mut query, "ifGenerationNotMatch")?,
+            if_metageneration_match: integer(&mut query, "ifMetagenerationMatch")?,
+            if_metageneration_not_match: integer(&mut query, "ifMetagenerationNotMatch")?,
+        })
+    })()
+    // The upload front end labelled its query problems `text/html`.
+    .map_err(|error| if upload { error.html_typed() } else { error })?;
     match name {
         None => {
             let upload = UploadQuery {
@@ -341,23 +352,18 @@ fn parse_upload_query(
             })
         })
         .transpose()?;
-    let missing_name =
-        || JsonError::new(StatusCode::BAD_REQUEST, "required", "Missing required name");
+    let missing_name = JsonError::missing_object_name;
     let (multipart, resumable) = match query.remove("uploadType").as_deref() {
         Some("media") => (false, false),
         Some("multipart") => (true, false),
         Some("resumable") => (true, true),
-        None => {
-            return Err(JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "required",
-                "Missing required uploadType",
-            ));
-        }
+        // An upload that names no type was stored as a media upload (recorded 200).
+        None => (false, false),
         Some(_) => {
-            return Err(JsonError::invalid_parameter(
-                "uploadType must be media, multipart or resumable",
-            ));
+            let mut error =
+                JsonError::invalid_parameter("uploadType must be media, multipart or resumable");
+            error.plain = Some(&super::error::BAD_REQUEST_TEXT);
+            return Err(error);
         }
     };
     let name = query.remove("name");
@@ -429,11 +435,9 @@ fn parse_named_object_query(
     } = target;
     let generation = integer(&mut query, "generation")?;
     if method == Method::PATCH || method == Method::PUT {
-        let projection = if method == Method::PUT && !query.contains_key("projection") {
-            Projection::Full
-        } else {
-            projection(&mut query)?
-        };
+        // A PUT without `projection` answered without `acl` and `owner` (recorded), although
+        // the reference documents `full` as its default.
+        let projection = projection(&mut query)?;
         let retention_override = if boolean(&mut query, "overrideUnlockedRetention")? {
             UnlockedOverride::Requested
         } else {
@@ -499,13 +503,9 @@ pub(super) fn integer(
         .remove(key)
         .map(|value| {
             if value.starts_with('+') {
-                return Err(JsonError::invalid_parameter(format!(
-                    "{key} must be an int64"
-                )));
+                return Err(JsonError::invalid_long(&value));
             }
-            value
-                .parse()
-                .map_err(|_| JsonError::invalid_parameter(format!("{key} must be an int64")))
+            value.parse().map_err(|_| JsonError::invalid_long(&value))
         })
         .transpose()
 }
@@ -557,9 +557,10 @@ pub(crate) fn parse_object_upload_headers(
         );
         parse_object_upload_headers(&advisory, ObjectConditions::default())?;
     }
+    // `Content-MD5` is not examined: Cloud Storage stored a JSON upload whose header named the
+    // wrong digest (recorded 200 with the computed hashes).
     for name in [
         "content-encoding",
-        "content-md5",
         "content-range",
         "x-upload-content-length",
     ] {
@@ -580,7 +581,8 @@ pub(crate) fn parse_object_upload_headers(
                 .map_err(|_| JsonError::invalid_parameter("Invalid Content-Type header"))
         })
         .transpose()?
-        .unwrap_or("application/octet-stream");
+        // An upload without a type stores none (recorded: the resource omits `contentType`).
+        .unwrap_or_default();
     let mime = content_type.split(';').next().unwrap_or_default().trim();
     let token = |value: &str| {
         !value.is_empty()
@@ -588,14 +590,23 @@ pub(crate) fn parse_object_upload_headers(
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte))
     };
-    if !mime
-        .split_once('/')
-        .is_some_and(|(kind, subtype)| token(kind) && token(subtype))
+    if headers.contains_key("content-type")
+        && !mime
+            .split_once('/')
+            .is_some_and(|(kind, subtype)| token(kind) && token(subtype))
     {
         return Err(JsonError::invalid_parameter("Invalid Content-Type header"));
     }
+    // `X-Goog-Hash` is not examined either. Recorded JSON media uploads that named a wrong,
+    // malformed or unknown-algorithm hash all stored the computed hashes with 200, so only a
+    // multipart metadata `crc32c`/`md5Hash` (below) is verified on this route.
+    Ok((content_type.to_owned(), ExpectedHashes::default()))
+}
+
+/// The hashes a resumable initiation declares with `X-Goog-Hash`. Recorded JSON media uploads
+/// ignored the header, but the resumable route was not recorded, so it keeps verifying.
+pub(crate) fn declared_hashes(headers: &HeaderMap) -> Result<ExpectedHashes, JsonError> {
     let mut hashes = ExpectedHashes::default();
-    // JSON media uploads accept X-Goog-Hash: https://docs.cloud.google.com/storage/docs/data-validation
     for header in headers.get_all("x-goog-hash") {
         let header = header
             .to_str()
@@ -619,36 +630,22 @@ pub(crate) fn parse_object_upload_headers(
             }
         }
     }
-    Ok((content_type.to_owned(), hashes))
+    Ok(hashes)
 }
 
-/// What an object request returns. Only media reads honor ranges, so only they must reject the
-/// unsupported `If-Range` validator.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ObjectRead {
-    Metadata,
-    Media,
-}
-
-/// Reject unsupported encryption and range-validator headers explicitly.
+/// Reject unsupported encryption headers explicitly. `If-Range` is not one: Cloud Storage
+/// honored the `Range` of a media read without evaluating it.
 // shortcut: GET/DELETE tokens do not deduplicate retries; add replay storage for strict retry fidelity.
-pub(crate) fn validate_object_get_headers(
-    headers: &HeaderMap,
-    read: ObjectRead,
-) -> Result<(), JsonError> {
-    validate_keyed_object_headers(headers, read, &[])
+pub(crate) fn validate_object_get_headers(headers: &HeaderMap) -> Result<(), JsonError> {
+    validate_keyed_object_headers(headers, &[])
 }
 
 /// As [`validate_object_get_headers`], leaving the listed key header prefixes to the caller.
 pub(crate) fn validate_keyed_object_headers(
     headers: &HeaderMap,
-    read: ObjectRead,
     keys: &[&str],
 ) -> Result<(), JsonError> {
     unsupported_headers(headers, keys)?;
-    if read == ObjectRead::Media && headers.contains_key("if-range") {
-        return Err(JsonError::unsupported_object("If-Range"));
-    }
     Ok(())
 }
 
@@ -656,6 +653,9 @@ pub(crate) fn validate_keyed_object_headers(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EtagConditions {
     Supported,
+    /// A JSON media read: the entity tags are evaluated, while `If-Modified-Since`,
+    /// `If-Unmodified-Since` and `If-Range` are ignored as Cloud Storage ignored them.
+    MediaRead,
     MatchOnly,
     /// Accepted and not evaluated, matching an observed Cloud Storage write that ignores both.
     Ignored,

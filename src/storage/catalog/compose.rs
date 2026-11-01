@@ -206,7 +206,7 @@ impl Catalog {
             .metadata
             .customer_key_sha256
             .map(crate::csek::CustomerKey::from_sha256);
-        let sources = self.resolve_derived_sources_keyed(specs, key).await?;
+        let sources = self.resolve_compose_components(specs, key).await?;
         let keys = combine_sources(&sources, disposal, &*self.0.clock, &mut destination)?;
         let transfer = self
             .begin_derived_ephemeral(

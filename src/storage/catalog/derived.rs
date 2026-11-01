@@ -10,7 +10,10 @@ use super::{
 use crate::{
     bucket::BucketAccess,
     hashing::{Hasher, Hashes},
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord},
+    object::{
+        ComponentFailure, ComponentFailureKind, ExpectedHashes, ObjectConditions, ObjectError,
+        ObjectMetadataUpdate, ObjectRecord,
+    },
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::{
@@ -105,6 +108,39 @@ pub(crate) struct DerivedSegment {
     pub source: DerivedSource,
     pub offset: u64,
     pub length: u64,
+}
+
+/// Whether a failed source lookup keeps the generic error or names the failing component.
+#[derive(Clone, Copy)]
+enum SourceFailures {
+    Plain,
+    NameComponent,
+}
+
+/// Turns a missing source or a failed `ifGenerationMatch` into the compose component error.
+fn name_component(
+    connection: &Connection,
+    source: &DerivedSourceSpec,
+    error: ObjectError,
+) -> ObjectError {
+    let kind = match (&error, source.conditions.if_generation_match) {
+        (ObjectError::ObjectNotFound, _) => ComponentFailureKind::NotFound,
+        (ObjectError::PreconditionFailed, Some(required)) => {
+            match objects::lookup(connection, &source.bucket, &source.name) {
+                Ok(Some(live)) => ComponentFailureKind::GenerationMismatch {
+                    required,
+                    actual: live.0.generation,
+                },
+                _ => return error,
+            }
+        }
+        _ => return error,
+    };
+    ObjectError::Component(Box::new(ComponentFailure {
+        bucket: source.bucket.clone(),
+        name: source.name.clone(),
+        kind,
+    }))
 }
 
 #[derive(Clone, Debug)]
@@ -434,6 +470,27 @@ impl Catalog {
         sources: Vec<DerivedSourceSpec>,
         key: Option<crate::csek::CustomerKey>,
     ) -> Result<Vec<DerivedSource>, ObjectError> {
+        self.resolve_sources(sources, key, SourceFailures::Plain)
+            .await
+    }
+
+    /// As [`Self::resolve_derived_sources_keyed`], but a missing component or a failed
+    /// generation precondition names the component, as Cloud Storage's compose does.
+    pub(crate) async fn resolve_compose_components(
+        &self,
+        sources: Vec<DerivedSourceSpec>,
+        key: Option<crate::csek::CustomerKey>,
+    ) -> Result<Vec<DerivedSource>, ObjectError> {
+        self.resolve_sources(sources, key, SourceFailures::NameComponent)
+            .await
+    }
+
+    async fn resolve_sources(
+        &self,
+        sources: Vec<DerivedSourceSpec>,
+        key: Option<crate::csek::CustomerKey>,
+        failures: SourceFailures,
+    ) -> Result<Vec<DerivedSource>, ObjectError> {
         if sources.is_empty() || sources.len() > 32 {
             return Err(ObjectError::InvalidDerivedArgument(
                 "derived request requires 1 to 32 sources".into(),
@@ -455,7 +512,13 @@ impl Catalog {
                         source.conditions,
                         super::objects::RequestKind::Write,
                         &source.access,
-                    )?;
+                    )
+                    .map_err(|error| match failures {
+                        SourceFailures::Plain => error,
+                        SourceFailures::NameComponent => {
+                            name_component(&transaction, &source, error)
+                        }
+                    })?;
                     super::customer_keys::check(&object, key)?;
                     let id = random_id()?;
                     let path = if let Some(memory) = &memory {
@@ -1571,7 +1634,7 @@ mod tests {
                 )
             })
             .await;
-        assert_eq!(result, Err(ObjectError::ActiveHold));
+        assert!(matches!(result, Err(ObjectError::ActiveHold(_))));
         assert_eq!(bytes(&catalog, "target").await, b"original");
         catalog.close().await.unwrap();
         fs::remove_dir_all(path).unwrap();

@@ -87,7 +87,7 @@ fn compose_body_rejects_malformed_source_and_destination_shapes() {
         compose::parse_compose(b"{", "bucket", "name")
             .unwrap_err()
             .reason,
-        "parseError"
+        "invalid"
     );
 }
 
