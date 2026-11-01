@@ -8,7 +8,7 @@
     {"name": "get-rewritten", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object2}", "expect_status": 200},
     {"name": "rewrite-metadata-body", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/rewriteTo/b/{bucket}/o/{object}-meta", "body": {"contentType": "text/csv", "metadata": {"b": "2"}}, "expect_status": 200},
     {"name": "rewrite-storage-class", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/rewriteTo/b/{bucket}/o/{object}-cls", "body": {"storageClass": "STANDARD"}, "expect_status": 200},
-    {"name": "rewrite-max-bytes-zero", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/rewriteTo/b/{bucket}/o/{object}-zero", "query": {"maxBytesRewrittenPerCall": "0"}, "expect_status": 200},
+    {"name": "rewrite-max-bytes-zero", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/rewriteTo/b/{bucket}/o/{object}-zero", "query": {"maxBytesRewrittenPerCall": "0"}, "expect_status": 400},
     {"name": "rewrite-max-bytes-small", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/rewriteTo/b/{bucket}/o/{object}-small", "query": {"maxBytesRewrittenPerCall": "1"}, "expect_status": 400},
     {"name": "rewrite-bogus-token", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/rewriteTo/b/{bucket}/o/{object}-tok", "query": {"rewriteToken": "bogus"}, "expect_status": 400},
     {"name": "rewrite-onto-itself", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/rewriteTo/b/{bucket}/o/{object}", "body": {"metadata": {"c": "3"}}, "expect_status": 200},

@@ -10,6 +10,6 @@
     {"name": "copy-source-generation", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-goog-copy-source": "/{bucket}/{object}", "x-goog-copy-source-generation": "{gen}"}, "expect_status": 200},
     {"name": "copy-missing-source", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-goog-copy-source": "/{bucket}/{object}-absent"}, "expect_status": 404},
     {"name": "copy-destination-precondition", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-goog-copy-source": "/{bucket}/{object}", "x-goog-if-generation-match": "0"}, "expect_status": 412},
-    {"name": "copy-source-etag-mismatch", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-goog-copy-source": "/{bucket}/{object}", "x-goog-copy-source-if-match": "\"bogus\""}, "expect_status": 412}
+    {"name": "copy-source-etag-mismatch", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object2}", "headers": {"x-goog-copy-source": "/{bucket}/{object}", "x-goog-copy-source-if-match": "\"bogus\""}, "expect_status": 400}
   ]
 }

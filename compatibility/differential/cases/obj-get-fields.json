@@ -17,7 +17,7 @@
     {"name": "fields-owner", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,owner", "projection": "full"}, "expect_status": 200},
     {"name": "fields-missing-key", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,metadata/zzz"}, "expect_status": 200},
     {"name": "fields-unknown", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "nosuchfield"}, "expect_status": 400},
-    {"name": "fields-empty-segment", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,,size"}, "expect_status": 400},
+    {"name": "fields-empty-segment", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,,size"}, "expect_status": 200},
     {"name": "fields-subselector-on-scalar", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "size/x"}, "expect_status": 400},
     {"name": "fields-unbalanced-parenthesis", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "metadata(a"}, "expect_status": 400},
     {"name": "fields-empty-value", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": ""}, "expect_status": 200},

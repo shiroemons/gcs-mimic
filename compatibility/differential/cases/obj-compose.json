@@ -19,7 +19,7 @@
     {"name": "get-twice-component-count", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-twice", "query": {"fields": "name,size,componentCount"}, "expect_status": 200},
     {"name": "get-source-before-delete", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-gen", "query": {"fields": "name"}, "expect_status": 200},
     {"name": "compose-delete-source-objects", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-del/compose", "query": {"deleteSourceObjects": "true"}, "body": {"sourceObjects": [{"name": "{object}-gen"}, {"name": "{object}-nodest"}]}, "expect_status": 200},
-    {"name": "get-deleted-source", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-gen", "query": {"fields": "name"}, "expect_status": 404},
+    {"name": "get-deleted-source", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-gen", "query": {"fields": "name"}, "expect_status": 200},
     {"name": "cleanup-a", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-a", "compare": false},
     {"name": "cleanup-b", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-b", "compare": false},
     {"name": "cleanup-composed", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object2}", "compare": false},

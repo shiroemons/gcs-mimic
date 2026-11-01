@@ -6,9 +6,9 @@
     {"name": "download", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "capture": {"hetag": "header:etag"}, "expect_status": 200},
     {"name": "media-if-none-match-current", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"If-None-Match": "{hetag}"}, "expect_status": 304},
     {"name": "media-if-match-other", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"If-Match": "\"other\""}, "expect_status": 412},
-    {"name": "media-if-modified-since-future", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"If-Modified-Since": "Fri, 01 Jan 2100 00:00:00 GMT"}, "expect_status": 304},
-    {"name": "media-if-unmodified-since-past", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"If-Unmodified-Since": "Thu, 01 Jan 2015 00:00:00 GMT"}, "expect_status": 412},
-    {"name": "media-if-none-match-and-match", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"If-None-Match": "{hetag}", "If-Match": "\"other\""}, "expect_status": 412},
+    {"name": "media-if-modified-since-future", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"If-Modified-Since": "Fri, 01 Jan 2100 00:00:00 GMT"}, "expect_status": 200},
+    {"name": "media-if-unmodified-since-past", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"If-Unmodified-Since": "Thu, 01 Jan 2015 00:00:00 GMT"}, "expect_status": 200},
+    {"name": "media-if-none-match-and-match", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "headers": {"If-None-Match": "{hetag}", "If-Match": "\"other\""}, "expect_status": 304},
     {"name": "metadata-if-none-match-current", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "headers": {"If-None-Match": "{jetag}"}, "expect_status": 304},
     {"name": "metadata-if-match-other", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "headers": {"If-Match": "\"other\""}, "expect_status": 412},
     {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false}

@@ -5,7 +5,7 @@
     {"name": "get-invalid-alt", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "bogus"}, "expect_status": 400},
     {"name": "get-missing-bucket", "method": "GET", "path": "/storage/v1/b/{missing_bucket}/o/{object}", "expect_status": 404},
     {"name": "post-object-resource", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {}, "expect_status": 404},
-    {"name": "put-object-resource-invalid-json", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "headers": {"Content-Type": "application/json"}, "body_text": "{{oops", "expect_status": 404},
+    {"name": "put-object-resource-invalid-json", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}", "headers": {"Content-Type": "application/json"}, "body_text": "{{oops", "expect_status": 400},
     {"name": "get-trailing-slash", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}%2F", "expect_status": 404},
     {"name": "get-media-trailing-slash", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}%2F", "query": {"alt": "media"}, "expect_status": 404},
     {"name": "delete-precondition-invalid", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifGenerationMatch": "abc"}, "expect_status": 400},

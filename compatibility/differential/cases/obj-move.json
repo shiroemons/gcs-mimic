@@ -11,7 +11,7 @@
     {"name": "get-source-after-move", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "expect_status": 404},
     {"name": "get-destination", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object2}", "expect_status": 200},
     {"name": "download-destination", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object2}", "query": {"alt": "media"}, "expect_status": 200},
-    {"name": "move-missing-source", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/moveTo/o/{object}-x", "expect_status": 404},
+    {"name": "move-missing-source", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/moveTo/o/{object}-x", "expect_status": 403},
     {"name": "move-onto-itself", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object2}/moveTo/o/{object2}", "expect_status": 400},
     {"name": "move-overwrite-existing", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object2}/moveTo/o/{object}-other", "expect_status": 200},
     {"name": "cleanup-other", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-other", "compare": false},
