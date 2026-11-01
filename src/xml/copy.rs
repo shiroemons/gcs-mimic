@@ -104,9 +104,10 @@ fn validate_source_etags(headers: &HeaderMap, record: &ObjectRecord) -> Result<(
             }
             let matches = value.trim_matches('"') == expected.trim_matches('"');
             if matches != must_match {
-                // Cloud Storage answered a non-matching `x-goog-copy-source-if-match` with 400
-                // InvalidArgument, not 412 (recorded). `if-none-match` was not recorded; it
-                // is assumed to fail the same way.
+                // Cloud Storage answered `x-goog-copy-source-if-match: "bogus"`, an ETag that is not
+                // shaped like an MD5, with 400 InvalidArgument (recorded). A well-formed ETag that
+                // merely differs, and `if-none-match`, were not recorded; they are assumed to fail
+                // the same way.
                 return Err(Error::new(
                     StatusCode::BAD_REQUEST,
                     "InvalidArgument",
