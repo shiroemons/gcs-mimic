@@ -5,7 +5,7 @@ JSON-BUCKETS-013はPARTIAL、再現精度はLOCAL_SIMULATIONのままです。
 ## ネイティブのプロファイル（2026-11-01以降）
 
 記録した実際のCloud Storageは、PUTでリソース全体を置き換えていました。
-そのためネイティブのプロファイルでは、省略したlabels、CORS、lifecycle、versioning、retentionPolicy、defaultEventBasedHoldを消します。
+そのためネイティブのプロファイルでは、省略したlabels、CORS、lifecycle、versioning、retentionPolicyを消します。defaultEventBasedHoldも消しますが、記録にこのフィールドはなく、他のフィールドからの外挿です。
 ロック済みのretentionPolicyは残します。storageClass、softDeletePolicy、アクセス設定（PAP・UBLA）は省略しても保ちます。
 `predefinedAcl`を適用し、本文の`name`がパスと違うときは400を返します。
 PUTで更新を送るクライアント（生成されたGo APIの`Buckets.Update`など）では、省略した設定が消えます。

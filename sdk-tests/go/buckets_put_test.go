@@ -84,8 +84,9 @@ func TestBucketMetadataReplace(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstAttrs = requireBucketReplacement(t, ctx, bucket, firstAttrs, pap)
-	// Cloud Storage replaces the whole resource on PUT: omitted labels, versioning and the default
-	// event-based hold are cleared, while the storage class keeps its value (recorded bkt-patch-put-edges).
+	// Cloud Storage replaces the whole resource on PUT: omitted labels and versioning are cleared and the
+	// storage class keeps its value (recorded bkt-patch-put-edges). The default event-based hold is cleared
+	// by extrapolation from those fields; the recording has no defaultEventBasedHold.
 	if firstAttrs.VersioningEnabled || firstAttrs.DefaultEventBasedHold || len(firstAttrs.Labels) != 0 ||
 		firstAttrs.StorageClass != "NEARLINE" || firstAttrs.PublicAccessPrevention != storage.PublicAccessPreventionEnforced {
 		t.Fatalf("PUT must clear omitted labels/versioning/hold, keep the class and set PAP: %+v", firstAttrs)
