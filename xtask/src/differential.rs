@@ -154,26 +154,30 @@ pub fn validate(root: &Path, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Writes `text` after redacting what the guard finds. When something was
-/// still there the redacted file is kept for inspection and the error names
-/// where it was (case, step, JSON path or header), never the value.
+/// Writes `text` to `path` when the guard finds nothing. Otherwise `path` is
+/// left untouched (it may hold an earlier, clean file), the redacted text goes
+/// to `<path>.redacted` for inspection, and the error names where the values
+/// were (case, step, JSON path or header), never the values.
 fn write_checked(path: &Path, text: &str, secrets: &[(String, &str)]) -> Result<()> {
     let leaks = report::find_leaks(text, secrets);
-    let text = if leaks.is_empty() {
-        text.to_owned()
+    let (target, text) = if leaks.is_empty() {
+        (path.to_owned(), text.to_owned())
     } else {
-        report::redact_leaks(text, secrets)
+        let mut name = path.as_os_str().to_owned();
+        name.push(".redacted");
+        (PathBuf::from(name), report::redact_leaks(text, secrets))
     };
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     }
-    fs::write(path, &text).map_err(|e| format!("{}: {e}", path.display()))?;
+    fs::write(&target, &text).map_err(|e| format!("{}: {e}", target.display()))?;
     if leaks.is_empty() {
         return Ok(());
     }
     Err(format!(
-        "{}: redacted file written, but values were still present at:\n  {}",
+        "{}: values were still present, so the file was not written; the redacted text is in {} (found at:\n  {}\n)",
         path.display(),
+        target.display(),
         leaks.join("\n  ")
     ))
 }
@@ -545,8 +549,14 @@ mod tests {
             "{error}"
         );
         assert!(!error.contains("secret-proj"), "{error}");
-        let written = fs::read_to_string(&path).unwrap();
+        // The requested path is not written; the redacted copy sits beside it.
+        assert!(!path.exists());
+        let written = fs::read_to_string(dir.join("out.json.redacted")).unwrap();
         assert!(!written.contains("secret-proj") && written.contains("<redacted>"));
+        // An earlier clean file at the requested path survives a later leak.
+        fs::write(&path, "earlier").unwrap();
+        assert!(write_checked(&path, text, &secrets).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "earlier");
         assert!(write_checked(&dir.join("ok.json"), "{}", &secrets).is_ok());
         server::remove_dir(&dir);
     }

@@ -321,6 +321,33 @@ pub(crate) fn json_report(header: &Header<'_>, reports: &[CaseReport]) -> Value 
     })
 }
 
+/// Local path prefixes; a path is redacted from its prefix to the next
+/// whitespace, quote or backslash, so the user name and everything after it go too.
+const PATH_PREFIXES: [&str; 5] = ["/Users/", "/private/", "/var/folders", "/tmp/", "/home/"];
+
+fn path_ends_at(c: char) -> bool {
+    c.is_whitespace() || matches!(c, '"' | '\'' | '\\')
+}
+
+/// The text with every local path replaced as a whole by `<path>`.
+fn redact_paths(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = PATH_PREFIXES
+        .iter()
+        .filter_map(|prefix| rest.find(prefix))
+        .min()
+    {
+        out.push_str(&rest[..start]);
+        out.push_str("<path>");
+        let tail = &rest[start..];
+        let end = tail.find(path_ends_at).unwrap_or(tail.len());
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// What is wrong with one piece of text, if anything: a label, never the value.
 fn leak_of(text: &str, secrets: &[(String, &str)]) -> Option<String> {
     if let Some((_, label)) = secrets
@@ -332,39 +359,65 @@ fn leak_of(text: &str, secrets: &[(String, &str)]) -> Option<String> {
     if super::normalize::contains_email(text) {
         return Some("an email address".into());
     }
-    ["/Users/", "/private/", "/var/folders", "/tmp/", "/home/"]
+    PATH_PREFIXES
         .into_iter()
         .find(|path| text.contains(path))
         .map(|path| format!("a local path ({path})"))
 }
 
+/// A piece of text with every secret, email and local path replaced.
+fn redact_text(text: &str, secrets: &[(String, &str)]) -> String {
+    let mut out = text.to_owned();
+    for (value, _) in secrets {
+        if value.len() >= 3 {
+            out = out.replace(value.as_str(), "<redacted>");
+        }
+    }
+    out = super::normalize::scrub_emails(&out).replace("<email>", "<redacted>");
+    redact_paths(&out)
+}
+
 /// A readable name for an array element: its `id` or `name`, else its index.
-fn element_label(index: usize, item: &Value) -> String {
+/// A label that would itself leak is replaced by the index.
+fn element_label(index: usize, item: &Value, secrets: &[(String, &str)]) -> String {
     ["id", "name"]
         .into_iter()
         .find_map(|key| item[key].as_str())
+        .filter(|label| leak_of(label, secrets).is_none())
         .map_or_else(|| index.to_string(), str::to_owned)
+}
+
+fn key_label(key: &str, secrets: &[(String, &str)]) -> String {
+    if leak_of(key, secrets).is_some() {
+        "<redacted-key>".into()
+    } else {
+        key.to_owned()
+    }
 }
 
 fn walk_leaks(value: &Value, path: &str, secrets: &[(String, &str)], out: &mut Vec<String>) {
     match value {
         Value::String(text) => {
             if let Some(leak) = leak_of(text, secrets) {
-                out.push(format!("{path}: {leak}"));
+                out.push(format!("{}: {leak}", redact_text(path, secrets)));
             }
         }
         Value::Array(items) => {
             for (index, item) in items.iter().enumerate() {
-                let label = element_label(index, item);
+                let label = element_label(index, item, secrets);
                 walk_leaks(item, &format!("{path}[{label}]"), secrets, out);
             }
         }
         Value::Object(map) => {
             for (key, item) in map {
+                let label = key_label(key, secrets);
                 if let Some(leak) = leak_of(key, secrets) {
-                    out.push(format!("{path}: a key holds {leak}"));
+                    out.push(format!(
+                        "{}: a key holds {leak}",
+                        redact_text(path, secrets)
+                    ));
                 }
-                walk_leaks(item, &format!("{path}.{key}"), secrets, out);
+                walk_leaks(item, &format!("{path}.{label}"), secrets, out);
             }
         }
         _ => {}
@@ -373,7 +426,8 @@ fn walk_leaks(value: &Value, path: &str, secrets: &[(String, &str)], out: &mut V
 
 /// Where known secrets, emails or local paths remain in `text`: a JSON path
 /// (cases and steps by id or name, headers by name) for a JSON document, line
-/// numbers otherwise. Values never appear in the result.
+/// numbers otherwise. Values never appear in the result, and the locations
+/// themselves are redacted too.
 pub(crate) fn find_leaks(text: &str, secrets: &[(String, &str)]) -> Vec<String> {
     let mut out = Vec::new();
     if let Ok(value) = serde_json::from_str::<Value>(text) {
@@ -388,20 +442,36 @@ pub(crate) fn find_leaks(text: &str, secrets: &[(String, &str)]) -> Vec<String> 
     out
 }
 
-/// The text with every remaining secret, email and local path replaced, so it
-/// can be kept for inspection after a leak was found.
-pub(crate) fn redact_leaks(text: &str, secrets: &[(String, &str)]) -> String {
-    let mut out = text.to_owned();
-    for (value, _) in secrets {
-        if value.len() >= 3 {
-            out = out.replace(value.as_str(), "<redacted>");
+fn redact_value(value: &Value, secrets: &[(String, &str)]) -> Value {
+    match value {
+        Value::String(text) => Value::String(redact_text(text, secrets)),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(|i| redact_value(i, secrets)).collect())
         }
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, item)| (redact_text(key, secrets), redact_value(item, secrets)))
+                .collect(),
+        ),
+        other => other.clone(),
     }
-    out = super::normalize::scrub_emails(&out).replace("<email>", "<redacted>");
-    for path in ["/Users/", "/private/", "/var/folders", "/tmp/", "/home/"] {
-        out = out.replace(path, "<path>/");
+}
+
+/// The text with every remaining secret, email and local path replaced, so it
+/// can be kept for inspection after a leak was found. A JSON document is
+/// redacted value by value (detection and replacement see the same string);
+/// anything else as plain text.
+pub(crate) fn redact_leaks(text: &str, secrets: &[(String, &str)]) -> String {
+    match serde_json::from_str::<Value>(text) {
+        Ok(value) => {
+            let mut out = redact_value(&value, secrets).to_string();
+            if text.ends_with('\n') {
+                out.push('\n');
+            }
+            out
+        }
+        Err(_) => redact_text(text, secrets),
     }
-    out
 }
 
 pub(crate) fn has_failures(reports: &[CaseReport], fail_on_diff: bool) -> bool {
@@ -501,6 +571,40 @@ mod tests {
             ["line 2: a local path (/Users/)"]
         );
     }
+    #[test]
+    fn local_paths_are_replaced_as_a_whole_and_labels_that_leak_become_indices() {
+        let secrets = vec![("my-project".to_owned(), "project")];
+        let text = json!({"cases": [{"id": "my-project-case", "steps": [
+            {"name": "s", "request": "GET /x", "error": "open /Users/alice/src/x.rs failed",
+             "my-project": {"e": "a@b.co"}}]}]})
+        .to_string();
+        let leaks = find_leaks(&text, &secrets);
+        assert_eq!(leaks.len(), 4, "{leaks:?}");
+        assert!(
+            leaks
+                .iter()
+                .all(|l| !l.contains("my-project") && !l.contains("alice")),
+            "{leaks:?}"
+        );
+        assert!(
+            leaks
+                .iter()
+                .any(|l| l.starts_with("$.cases[0].steps[s].error"))
+        );
+        assert!(leaks.iter().any(|l| l.contains("<redacted-key>")));
+        let redacted = redact_leaks(&text, &secrets);
+        assert!(
+            !redacted.contains("alice") && !redacted.contains("src/x.rs"),
+            "{redacted}"
+        );
+        assert!(redacted.contains("open <path> failed"), "{redacted}");
+        assert!(find_leaks(&redacted, &secrets).is_empty(), "{redacted}");
+        assert_eq!(
+            redact_leaks("see '/home/bob/a b' and /tmp/z.", &secrets),
+            "see '<path> b' and <path>"
+        );
+    }
+
     #[test]
     fn renders_differences_with_paths() {
         let report = CaseReport {

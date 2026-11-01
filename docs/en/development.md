@@ -531,7 +531,10 @@ temporary directory outside the repository), `--binary PATH` (skip the build),
 
 Every file the harness writes is checked first: it must not contain the
 project, the project number, the token, a bucket name of the run, the local
-endpoint, an email address or a local path, otherwise nothing is written.
+endpoint, an email address or a local path. If it does, the requested file is
+left untouched, a fully redacted copy (each local path replaced as a whole) is
+written to `<file>.redacted`, and the run fails naming only the location of the
+leak (case, step, JSON path), never the value.
 Values are replaced by placeholders before they are compared, recorded or
 reported. Placeholders keep the type and shape of the value, because a string
 and a number, or a different width, are different JSON: `<generation:str:16>`,
