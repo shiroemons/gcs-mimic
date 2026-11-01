@@ -175,14 +175,21 @@ mod tests {
                 .unwrap()
                 .retain_until
         };
-        // The nanosecond is kept, so times a nanosecond apart still compare as different.
-        assert_ne!(
-            stored("2030-01-01T00:00:00.123456788Z"),
-            stored("2030-01-01T00:00:00.123456789Z")
-        );
-        assert!(
-            stored("2030-01-01T00:00:00.123456788Z") < stored("2030-01-01T00:00:00.123456789Z")
-        );
+        // The sub-millisecond part is kept, so times one SystemTime tick apart still compare as
+        // different. A tick is 1 ns on Unix but 100 ns on Windows, which rounds a finer fraction.
+        let (lower, higher) = if cfg!(windows) {
+            (
+                "2030-01-01T00:00:00.123456700Z",
+                "2030-01-01T00:00:00.123456800Z",
+            )
+        } else {
+            (
+                "2030-01-01T00:00:00.123456788Z",
+                "2030-01-01T00:00:00.123456789Z",
+            )
+        };
+        assert_ne!(stored(lower), stored(higher));
+        assert!(stored(lower) < stored(higher));
     }
 
     #[test]

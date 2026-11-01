@@ -172,9 +172,13 @@ mod tests {
         UNIX_EPOCH + Duration::new(secs, nanos)
     }
 
+    /// The sub-microsecond nanoseconds a test time carries. Windows holds a SystemTime in 100 ns
+    /// ticks and rounds a finer value, so there the remainder is a multiple of 100.
+    const REMAINDER: u32 = if cfg!(windows) { 700 } else { 789 };
+
     #[test]
     fn columns_split_a_time_into_microseconds_and_a_remainder() {
-        let time = at(4_000_000_000, 123_456_789);
+        let time = at(4_000_000_000, 123_456_000 + REMAINDER);
         let retention = ObjectRetention {
             mode: RetentionMode::Unlocked,
             retain_until: time,
@@ -182,7 +186,7 @@ mod tests {
         let (mode, micros, remainder) = columns(Some(&retention)).unwrap();
         assert_eq!(mode, Some("Unlocked"));
         assert_eq!(micros, Some(4_000_000_000_123_456));
-        assert_eq!(remainder, 789);
+        assert_eq!(remainder, i64::from(REMAINDER));
         let whole = ObjectRetention {
             retain_until: at(4_000_000_000, 123_456_000),
             ..retention
@@ -233,10 +237,10 @@ mod tests {
     fn session_value_keeps_the_remainder_and_reads_older_sessions() {
         let retention = ObjectRetention {
             mode: RetentionMode::Unlocked,
-            retain_until: at(4_000_000_000, 123_456_789),
+            retain_until: at(4_000_000_000, 123_456_000 + REMAINDER),
         };
         let value = session_value(Some(&Some(retention)));
-        assert_eq!(value["value"]["retainUntilSubMicroNanos"], 789);
+        assert_eq!(value["value"]["retainUntilSubMicroNanos"], REMAINDER);
         assert_eq!(from_session(&value).unwrap(), Some(Some(retention)));
         // Without a remainder the key is absent, which is also how older sessions look.
         let whole = ObjectRetention {

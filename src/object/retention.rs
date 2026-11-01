@@ -290,11 +290,17 @@ mod tests {
 
     #[test]
     fn pacific_time_follows_daylight_saving_and_trims_the_fraction() {
+        // Windows holds a SystemTime in 100 ns ticks, so the fine fraction ends in two zeros there.
+        let (fine_nanos, fine_text) = if cfg!(windows) {
+            (123_456_700, ".1234567")
+        } else {
+            (123_456_793, ".123456793")
+        };
         let at = |seconds: u64, nanos: u32| UNIX_EPOCH + Duration::new(seconds, nanos);
         // 2026-10-31T17:03:59.123456793Z, the instant Cloud Storage printed with -07:00.
         assert_eq!(
-            pacific_rfc3339(at(1_793_466_239, 123_456_793)),
-            "2026-10-31T10:03:59.123456793-07:00"
+            pacific_rfc3339(at(1_793_466_239, fine_nanos)),
+            format!("2026-10-31T10:03:59{fine_text}-07:00")
         );
         assert_eq!(
             pacific_rfc3339(at(1_793_466_239, 123_000_000)),

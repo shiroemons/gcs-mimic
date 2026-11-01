@@ -1671,6 +1671,12 @@ mod tests {
     /// `retention_expire_time` at millisecond precision (observed 2026-10-31).
     #[tokio::test]
     async fn grpc_retention_keeps_nanoseconds_and_expire_time_is_milliseconds() {
+        // Windows holds a SystemTime in 100 ns ticks and floors a finer wire fraction.
+        const FINE_NANOS: i32 = if cfg!(windows) {
+            123_456_700
+        } else {
+            123_456_789
+        };
         let (s, _dir) = setup().await;
         let mut record = json::parse_insert(
             br#"{"name":"retention-ns"}"#,
@@ -1695,7 +1701,7 @@ mod tests {
                             mode: pb::object::retention::Mode::Unlocked as i32,
                             retain_until_time: Some(prost_types::Timestamp {
                                 seconds: now + 3600,
-                                nanos: 123_456_789,
+                                nanos: FINE_NANOS,
                             }),
                         }),
                         ..Default::default()
@@ -1709,7 +1715,7 @@ mod tests {
             .unwrap()
             .into_inner();
         let until = object.retention.unwrap().retain_until_time.unwrap();
-        assert_eq!((until.seconds, until.nanos), (now + 3600, 123_456_789));
+        assert_eq!((until.seconds, until.nanos), (now + 3600, FINE_NANOS));
         let expire = object.retention_expire_time.unwrap();
         assert_eq!((expire.seconds, expire.nanos), (now + 3600, 123_000_000));
         s.state.catalog.close().await.unwrap();
