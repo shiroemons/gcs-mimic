@@ -357,15 +357,31 @@ fn path_ends_at(c: char) -> bool {
     c.is_whitespace() || matches!(c, '"' | '\'' | '\\')
 }
 
+/// The first local path in `text`: its start and prefix. A prefix only starts a path when no
+/// name character precedes it, so `/tmp/` inside an object name (`logs/tmp/a`) or a URL path
+/// (`https://host/tmp/x`) is not mistaken for a leak.
+fn find_path(text: &str) -> Option<(usize, &'static str)> {
+    let starts_path = |at: usize| {
+        text[..at].chars().next_back().is_none_or(|before| {
+            !(before.is_alphanumeric() || matches!(before, '.' | '_' | '-' | '~' | '%' | '+'))
+        })
+    };
+    PATH_PREFIXES
+        .into_iter()
+        .filter_map(|prefix| {
+            text.match_indices(prefix)
+                .map(|(at, _)| at)
+                .find(|&at| starts_path(at))
+                .map(|at| (at, prefix))
+        })
+        .min_by_key(|&(at, _)| at)
+}
+
 /// The text with every local path replaced as a whole by `<path>`.
 fn redact_paths(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(start) = PATH_PREFIXES
-        .iter()
-        .filter_map(|prefix| rest.find(prefix))
-        .min()
-    {
+    while let Some((start, _)) = find_path(rest) {
         out.push_str(&rest[..start]);
         out.push_str("<path>");
         let tail = &rest[start..];
@@ -387,10 +403,7 @@ fn leak_of(text: &str, secrets: &[(String, &str)]) -> Option<String> {
     if super::normalize::contains_email(text) {
         return Some("an email address".into());
     }
-    PATH_PREFIXES
-        .into_iter()
-        .find(|path| text.contains(path))
-        .map(|path| format!("a local path ({path})"))
+    find_path(text).map(|(_, path)| format!("a local path ({path})"))
 }
 
 /// A piece of text with every secret, email and local path replaced.
@@ -539,6 +552,21 @@ mod tests {
             ["line 1: an email address"]
         );
         assert_eq!(find_leaks("see /var/folders/x", &secrets).len(), 1);
+        // A prefix inside a longer name is an object name or a URL path, not a local path.
+        for benign in [
+            "logs/tmp/a.txt",
+            "https://host/tmp/x",
+            "a/private/b",
+            "my.home/home/x",
+        ] {
+            assert!(find_leaks(benign, &secrets).is_empty(), "{benign}");
+        }
+        assert_eq!(find_leaks("path=/tmp/x", &secrets).len(), 1);
+        assert_eq!(find_leaks("file:///Users/a", &secrets).len(), 1);
+        assert_eq!(
+            redact_paths("keep logs/tmp/a, drop /tmp/x"),
+            "keep logs/tmp/a, drop <path>"
+        );
     }
 
     #[test]
