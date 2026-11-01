@@ -383,6 +383,8 @@ pub enum CatalogError {
     AlreadyExists,
     NotFound,
     NotEmpty,
+    /// A soft-deleted bucket cannot be restored because a live bucket has its name.
+    RestoreConflict,
     PreconditionFailed,
     PublicAccessPrevention,
     /// The bucket's current owning project is not one the caller was authorized for.
@@ -410,6 +412,8 @@ impl fmt::Display for CatalogError {
             Self::AlreadyExists => formatter.write_str("bucket already exists"),
             Self::NotFound => formatter.write_str("bucket not found"),
             Self::NotEmpty => formatter.write_str("bucket is not empty"),
+            Self::RestoreConflict => formatter
+                .write_str("a bucket with this name exists, so the soft-deleted one cannot be restored"),
             Self::PreconditionFailed => formatter.write_str("precondition failed"),
             Self::PublicAccessPrevention => {
                 formatter.write_str("public access prevention is enforced")

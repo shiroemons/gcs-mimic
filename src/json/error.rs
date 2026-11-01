@@ -364,6 +364,13 @@ impl From<CatalogError> for JsonError {
             CatalogError::NotFound => {
                 Self::new(StatusCode::NOT_FOUND, "notFound", BUCKET_NOT_FOUND)
             }
+            // The wording is a local choice; only the "you already own it" text of a create
+            // conflict was recorded.
+            CatalogError::RestoreConflict => Self::new(
+                StatusCode::CONFLICT,
+                "conflict",
+                "A bucket with this name already exists, so the soft-deleted bucket cannot be restored.",
+            ),
             CatalogError::NotEmpty => {
                 Self::new(StatusCode::CONFLICT, "conflict", "Bucket is not empty")
             }
