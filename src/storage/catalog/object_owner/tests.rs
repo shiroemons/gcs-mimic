@@ -280,3 +280,20 @@ fn permissive_reconcile_renames_the_creator_and_leaves_project_owner_rows() {
         Some(ObjectOwner::ProjectOwners { .. })
     ));
 }
+
+#[test]
+fn the_local_creator_owner_is_never_a_caller_even_with_a_matching_identity() {
+    let identity = crate::auth::Identity::from_upload_snapshot(
+        &json!({"id": LOCAL_CREATOR_ID, "projects": {}}),
+    )
+    .unwrap();
+    assert!(!local_creator("user-x@example.test").is_principal(Some(&identity)));
+    let ordinary =
+        crate::auth::Identity::from_upload_snapshot(&json!({"id": "local:owner", "projects": {}}))
+            .unwrap();
+    let owner = ObjectOwner::Principal {
+        id: "local:owner".into(),
+        entity: None,
+    };
+    assert!(owner.is_principal(Some(&ordinary)));
+}

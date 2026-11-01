@@ -85,8 +85,12 @@ Unreleased user-visible changes that the next minor release notes must state:
   only labels who wrote the object and never authorizes. Existing objects keep
   working: those owned by the project owners stay so, and the creator name follows
   the setting at the next start. The legacy-emulator profile is unchanged, and
-  strict mode already recorded the registered caller. Clients that compared an
-  object ACL or `owner` with `project-owners-N` alone must expect the extra entry.
+  strict mode already recorded the registered caller. In strict mode, copy
+  and rewrite responses now also name the registered caller as `owner` (without
+  `acl`), and the reserved identity id namespace `gcs-mimic:` is rejected in
+  `identity_file`. An explicit `local_creator_email` is rejected in strict mode
+  and in the legacy profile. Clients that compared an object ACL or `owner` with
+  `project-owners-N` alone must expect the extra entry.
 - Native bucket resources carry `satisfiesPZI: true`, nanosecond-scale
   19-digit `generation` values (schema 46 rescales stored ones) and
   millisecond timestamps; JSON media responses no longer send `accept-ranges`.

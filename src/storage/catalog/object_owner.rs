@@ -3,7 +3,10 @@
 use super::{objects::object_unavailable, principals::Profile, unavailable};
 use crate::{
     bucket::{BucketAccess, CatalogError},
-    object::{ObjectError, owner::ObjectOwner},
+    object::{
+        ObjectError,
+        owner::{LOCAL_CREATOR_ID, ObjectOwner},
+    },
 };
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params, types::Type};
 
@@ -11,11 +14,6 @@ pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN owner TEXT CHECK
 
 #[cfg(test)]
 mod tests;
-
-/// Owner id of objects written by the permissive profile's local creator. The id is fixed, so a
-/// changed creator address renames the entity without rewriting the owner kind. Strict identity
-/// ids are operator-chosen; this one is namespaced so the two do not collide in practice.
-pub(crate) const LOCAL_CREATOR_ID: &str = "gcs-mimic:local-creator";
 
 pub(super) fn canonicalize(owner: &mut ObjectOwner, profile: Option<&Profile>) {
     match profile {

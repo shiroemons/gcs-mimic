@@ -8,7 +8,7 @@
 //! Nothing here contacts Google or the metadata server.
 
 mod acl_identity;
-pub use acl_identity::validate_local_creator_email;
+pub(crate) use acl_identity::validate_local_creator_email;
 mod jwt;
 mod policy;
 pub(crate) mod roles;
@@ -499,6 +499,12 @@ impl Registry {
             if !visible_ascii(id, MAX_ID_BYTES) {
                 return Err(error(format!(
                     "id must be 1..={MAX_ID_BYTES} bytes of printable ASCII without whitespace"
+                )));
+            }
+            if id.starts_with(crate::object::owner::RESERVED_ID_PREFIX) {
+                return Err(error(format!(
+                    "id must not start with {}; that namespace is reserved for emulator-internal principals",
+                    crate::object::owner::RESERVED_ID_PREFIX
                 )));
             }
             if !ids.insert(id.to_owned()) {
@@ -1565,6 +1571,14 @@ mod tests {
             (
                 "long id",
                 valid(&format!(r#"{{"id":"{long_id}","tokens":["t"]}}"#)),
+            ),
+            (
+                "reserved local creator id",
+                valid(r#"{"id":"gcs-mimic:local-creator","tokens":["t"]}"#),
+            ),
+            (
+                "reserved namespace",
+                valid(r#"{"id":"gcs-mimic:other","tokens":["t"]}"#),
             ),
             (
                 "duplicate id",

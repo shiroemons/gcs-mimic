@@ -669,6 +669,10 @@ fn strict_copy_requires_source_read_destination_create_and_delete_for_overwrite(
         .request("POST", &route, "Authorization: Bearer creator\r\n", b"")
         .error(403, "forbidden");
     assert_eq!(
+        first["owner"],
+        json!({"entity": "user-creator@example.test"})
+    );
+    assert_eq!(
         server.get("copy").json(),
         object_effects_support::common::without_acl(first)
     );

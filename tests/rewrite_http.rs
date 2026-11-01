@@ -443,6 +443,10 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
         .request("POST", BASE, ADMIN, br#"{"temporaryHold":true}"#)
         .error(400, "badRequest");
     assert_eq!(
+        first["resource"]["owner"],
+        json!({"entity": "user-admin@example.test"})
+    );
+    assert_eq!(
         server.get("destination").json(),
         common::without_acl(first["resource"].clone())
     );

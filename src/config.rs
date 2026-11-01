@@ -699,7 +699,12 @@ fn apply_access_setting(config: &mut Config, key: &str, value: String) -> Result
         }
         "local_creator_email" => {
             if !value.is_empty() {
-                crate::auth::validate_local_creator_email(&value).map_err(|reason| format!("local_creator_email {reason}; use an address such as local-user@gcs-mimic.invalid or an empty value to disable it"))?;
+                crate::auth::validate_local_creator_email(&value).map_err(|reason| {
+                    format!(
+                        "local_creator_email {reason}; use an address such as \
+                         local-user@gcs-mimic.invalid or an empty value to disable it"
+                    )
+                })?;
             }
             config.local_creator_email = value;
         }
@@ -839,6 +844,19 @@ impl ConfigurationReport {
                 input.source,
                 &input.key,
                 "local_creator_email requires compat_profile=native; the legacy emulator profile never records a creator. Use --compat-profile native or remove the setting.",
+            ));
+            self.invalid.insert("local_creator_email".into());
+        }
+        // Strict mode records the registered caller, so a creator address would be silently unused.
+        if (config.auth_mode == AuthMode::Strict || config.identity_file.is_some())
+            && !config.local_creator_email.is_empty()
+            && let Some(input) = settings.get("local_creator_email")
+            && !self.invalid.contains("local_creator_email")
+        {
+            self.diagnostics.errors.push(Diagnostic::new(
+                input.source,
+                &input.key,
+                "local_creator_email applies only to auth_mode=permissive; strict mode records the registered caller as owner. Remove the setting or use permissive mode.",
             ));
             self.invalid.insert("local_creator_email".into());
         }
@@ -1297,6 +1315,40 @@ mod tests {
                 "{bad}"
             );
         }
+        // Strict mode records the registered caller, so an explicit creator is rejected rather
+        // than silently ignored; the same holds through the environment.
+        let strict = [
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            "identities.json",
+            "--local-creator-email",
+            "a@example.test",
+        ]
+        .map(str::to_owned);
+        assert!(
+            Config::load(&strict, &empty)
+                .unwrap_err()
+                .to_string()
+                .contains("applies only to auth_mode=permissive")
+        );
+        let strict_env = BTreeMap::from([(
+            "GCS_MIMIC_LOCAL_CREATOR_EMAIL".into(),
+            "a@example.test".into(),
+        )]);
+        let strict_args = [
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            "identities.json",
+        ]
+        .map(str::to_owned);
+        assert!(
+            Config::load(&strict_args, &strict_env)
+                .unwrap_err()
+                .to_string()
+                .contains("applies only to auth_mode=permissive")
+        );
         let legacy = ["--compat-profile", "legacy-emulator"].map(str::to_owned);
         assert!(Config::load(&legacy, &empty).is_ok());
         let mut conflict = legacy.to_vec();

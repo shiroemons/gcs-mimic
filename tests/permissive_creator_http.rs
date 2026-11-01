@@ -95,6 +95,7 @@ fn default_creator_owns_every_creation_path_in_json_and_xml() {
         )
         .json();
     assert_eq!(rewritten["done"], true);
+    assert_eq!(rewritten["resource"]["owner"], json!({"entity": DEFAULT}));
     assert_creator(&full(&server, "rewritten"), DEFAULT);
     let moved = server.request(
         "POST",
