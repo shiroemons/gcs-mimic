@@ -301,8 +301,15 @@ async fn execute(
     };
     let progress = catalog
         .continue_rewrite(&token, source_access, destination_access, move |record| {
-            json::object_resource_keyed(record, &base, json::Projection::NoAcl, keys.destination)
-                .map_err(ObjectError::backend)
+            let mut value = json::object_resource_keyed(
+                record,
+                &base,
+                json::Projection::NoAcl,
+                keys.destination,
+            )
+            .map_err(ObjectError::backend)?;
+            json::add_derived_owner(&mut value, record);
+            Ok(value)
         })
         .await
         .map_err(error)?;

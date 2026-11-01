@@ -70,6 +70,9 @@ fn default_creator_owns_every_creation_path_in_json_and_xml() {
         )
         .json();
     assert_eq!(copied["name"], "copied");
+    // Without the full projection a copy response names the owner but not the ACL.
+    assert_eq!(copied["owner"], json!({"entity": DEFAULT}));
+    assert!(copied.get("acl").is_none());
     assert_creator(&full(&server, "copied"), DEFAULT);
     let composed = server
         .request(
@@ -172,6 +175,15 @@ fn legacy_profile_and_invalid_addresses_are_not_accepted_or_changed() {
     server.put("legacy", b"a").json();
     let object = full(&server, "legacy");
     assert_ne!(object["owner"]["entity"], DEFAULT);
+    let copied = server
+        .request(
+            "POST",
+            &format!("{BUCKET}/o/legacy/copyTo/b/test-bucket/o/legacy-copy"),
+            "",
+            b"",
+        )
+        .json();
+    assert!(copied.get("owner").is_none());
     assert!(
         !object["acl"]
             .as_array()
