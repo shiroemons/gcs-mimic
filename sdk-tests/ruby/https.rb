@@ -35,6 +35,7 @@ class EmulatorOriginGuard < Faraday::Middleware
     unless [env.url.scheme, env.url.host, env.url.port] == @origin
       raise ArgumentError, "refusing request outside the emulator origin"
     end
+    @observed[:requests] << [env.method, env.url.path] if @observed.key?(:requests)
     @observed[:chunks] += 1 if env.method == :put && env.request_headers["Content-Range"]
     @app.call(env).on_complete do |response|
       @observed[:locations] << response.response_headers["location"] if response.response_headers["location"]
@@ -100,7 +101,7 @@ connection.builder.adapter(:net_http) do |http|
   # Pin localhost dialing so hosts-file changes cannot redirect the test off-machine.
   http.ipaddr = "127.0.0.1" if origin.hostname == "localhost"
 end
-observed = { chunks: 0, locations: [] }
+observed = { chunks: 0, locations: [], requests: [] }
 connection.builder.use(EmulatorOriginGuard, origin, observed)
 
 if ARGV.empty? || ARGV == ["--bucket-put"]
@@ -109,12 +110,30 @@ if ARGV.empty? || ARGV == ["--bucket-put"]
     item.labels = { "keep" => "yes" }
   end
   begin
+    observed[:requests].clear
     put_bucket.update { |item| item.public_access_prevention = "enforced" }
+    # google-cloud-storage 1.62.1 sends the block's changes as a PUT (Buckets.update), which
+    # replaces the whole resource on Cloud Storage: settings the block omits are cleared.
+    raise "update block did not send a PUT: #{observed[:requests]}" unless
+      observed[:requests] == [[:put, "/storage/v1/b/#{put_bucket.name}"]]
+
     put_bucket.reload!
-    raise "PUT lost versioning" unless put_bucket.versioning?
-    raise "PUT lost labels" unless put_bucket.labels == { "keep" => "yes" }
+    raise "PUT kept versioning" if put_bucket.versioning?
+    raise "PUT kept labels" unless put_bucket.labels.empty?
     raise "PUT did not change PAP" unless put_bucket.public_access_prevention_enforced?
-    puts "bucket_put_ruby_update_block_preserves_unrelated_settings passed"
+
+    # Setters outside a block are PATCHes and preserve everything they do not name.
+    observed[:requests].clear
+    put_bucket.versioning = true
+    put_bucket.labels = { "patched" => "yes" }
+    raise "setters did not send PATCH: #{observed[:requests]}" unless
+      observed[:requests].all? { |method, _| method == :patch } && !observed[:requests].empty?
+
+    put_bucket.reload!
+    raise "PATCH lost versioning" unless put_bucket.versioning?
+    raise "PATCH lost labels" unless put_bucket.labels == { "patched" => "yes" }
+    raise "PATCH lost PAP" unless put_bucket.public_access_prevention_enforced?
+    puts "bucket_put_ruby_update_block_replaces_and_setters_patch passed"
   ensure
     put_bucket.delete
   end
