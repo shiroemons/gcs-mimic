@@ -602,7 +602,7 @@
           "Verify all supported generation/metageneration conditions atomically for mutations, content/custom metadata merge versus replacement, MD5/CRC32C calculation and supplied-checksum rejection, query-bound paging, strict local project/bucket permissions and failed-overwrite preservation. Delivered on 2026-10-23; docs/en/evidence/basic-json-contract.md maps this condition to the frozen profile, executed Rust/Go/container/native/Docker evidence and preserved method/gap destinations.",
           "Map remaining field/header/error gaps to explicit pending cases or named deferred scope. Preserve every broad feature's existing cases and deviations; unknown Google behavior is not proven by a local test or a successful SDK call. Delivered on 2026-10-23; docs/en/evidence/basic-json-contract.md maps this condition to the frozen profile, executed Rust/Go/container/native/Docker evidence and preserved method/gap destinations."
         ],
-        "deferred_scope": "If-Range contract research and any resulting implementation remain separate later work under SPEC-RANGE-VALIDATORS; retain explicit 501 rejection until authoritative sources establish the Google contract. This work does not block the basic JSON milestone, copy/rewrite/compose or signed URLs. Historical versions, soft delete/restore, glob/context filters, transcoding, token-keyed response replay, object IAM/ACL, conditional IAM, full UBLA/PAP, retention/lifecycle, billing/encryption infrastructure, XML writes, gRPC and undocumented provider wire-edge parity beyond the selected source baseline also remain deferred. Required bucket-core source effects are not excluded by this list. These exclusions remain visible on the broad feature rows.",
+        "deferred_scope": "If-Range contract research and any resulting implementation remain separate later work under SPEC-RANGE-VALIDATORS; the 2026-11-01 recording establishes that a JSON media GET ignores If-Range, while metadata and bucket GETs keep a local 400 badRequest (a local choice). This work does not block the basic JSON milestone, copy/rewrite/compose or signed URLs. Historical versions, soft delete/restore, glob/context filters, transcoding, token-keyed response replay, object IAM/ACL, conditional IAM, full UBLA/PAP, retention/lifecycle, billing/encryption infrastructure, XML writes, gRPC and undocumented provider wire-edge parity beyond the selected source baseline also remain deferred. Required bucket-core source effects are not excluded by this list. These exclusions remain visible on the broad feature rows.",
         "evidence": [
           "docs/en/slices/json-response-fields.md",
           "docs/en/slices/json-read-etag-validators.md",
@@ -3966,7 +3966,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -4664,7 +4664,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -4690,7 +4690,7 @@
         },
         {
           "id": "ETAG-READ-DATE-PRECEDENCE",
-          "description": "If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads; stray date/If-Range headers retain existing ignored behavior on writes and lists",
+          "description": "If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads (on JSON media the date validators and If-Range are ignored when alone, as recorded; on metadata and bucket GETs a standalone date or If-Range is a local 400 badRequest); stray date/If-Range headers are ignored on writes and lists",
           "test_ids": [
             "etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior",
             "etag::json_etag_read_if_match_overrides_if_unmodified_since"
@@ -5537,7 +5537,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -6134,7 +6134,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -6763,7 +6763,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -7415,7 +7415,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -8319,7 +8319,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -8983,7 +8983,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -13240,7 +13240,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -13720,7 +13720,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "JSON metadata/whole-media/range GET support generation selection and conditions; selfLink selects the current object and mediaLink pins a generation. Historical range/IAM/version/ETag evidence: docs/en/slices/json-object-range.md, docs/en/evidence/bucket-iam.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. JSON GET gzip expansion uses bounded 64 KiB input/output steps, ignores Range with full 200, removes encoding/length/range headers and retains stored hash/ETag/encoding/length headers. Accepted gzip/no-transform returns raw bytes; corruption/truncation/expansion beyond max_object_bytes aborts. Metadata and media HEAD work; media HEAD sends the GET headers without a body; XML GET/HEAD expand gzip as well. Final Rust 1262/0/0 and five-SDK complete comparison pass: docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. If-Range, double-compression detection, exact provider transcoding/fallback/header/full-ACL parity and broader profiles keep this row PARTIAL. Transfer ceilings remain independent of inactivity; upload advisory/post-EOF waits retain separate bounds. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): JSON media and metadata GET ignore If-Range (the Range applies whatever the validator) and the date validators If-Modified-Since and If-Unmodified-Since, evaluate If-None-Match before the other conditions, and answer a multi-range request with 501 Multiple Ranges are not supported; a 412 media response carries cache-control no-store and the plain text page. If-Range without Range is also ignored. SPEC-RANGE-VALIDATORS is resolved for the recorded forms; SPEC-RANGE-FALLBACK keeps its other questions.",
+      "notes": "JSON metadata/whole-media/range GET support generation selection and conditions; selfLink selects the current object and mediaLink pins a generation. Historical range/IAM/version/ETag evidence: docs/en/slices/json-object-range.md, docs/en/evidence/bucket-iam.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. JSON GET gzip expansion uses bounded 64 KiB input/output steps, ignores Range with full 200, removes encoding/length/range headers and retains stored hash/ETag/encoding/length headers. Accepted gzip/no-transform returns raw bytes; corruption/truncation/expansion beyond max_object_bytes aborts. Metadata and media HEAD work; media HEAD sends the GET headers without a body; XML GET/HEAD expand gzip as well. Final Rust 1262/0/0 and five-SDK complete comparison pass: docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. If-Range, double-compression detection, exact provider transcoding/fallback/header/full-ACL parity and broader profiles keep this row PARTIAL. Transfer ceilings remain independent of inactivity; upload advisory/post-EOF waits retain separate bounds. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a JSON media (alt=media) GET ignores If-Range (the Range applies whatever the validator) and the date validators If-Modified-Since and If-Unmodified-Since; the metadata GET and bucket GET are not covered by the recording and keep the local 400 badRequest for a standalone date validator or If-Range (a local choice). JSON GETs evaluate If-None-Match before the other conditions, and answer a multi-range request with 501 Multiple Ranges are not supported; a 412 media response carries cache-control no-store and the plain text page. If-Range without Range is also ignored on media. SPEC-RANGE-VALIDATORS is resolved for the recorded media forms; SPEC-RANGE-FALLBACK keeps its other questions.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -14028,7 +14028,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -14054,7 +14054,7 @@
         },
         {
           "id": "ETAG-READ-DATE-PRECEDENCE",
-          "description": "If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads; stray date/If-Range headers retain existing ignored behavior on writes and lists",
+          "description": "If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads (on JSON media the date validators and If-Range are ignored when alone, as recorded; on metadata and bucket GETs a standalone date or If-Range is a local 400 badRequest); stray date/If-Range headers are ignored on writes and lists",
           "test_ids": [
             "etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior",
             "etag::json_etag_read_if_match_overrides_if_unmodified_since"
@@ -15143,7 +15143,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -16259,7 +16259,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -16874,7 +16874,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -18059,7 +18059,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -23720,7 +23720,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Documented JSON If-Match/If-None-Match GET scope for supported etag-bearing resources: objects.get metadata/media/range, buckets.get and buckets.getIamPolicy, with combined query conditions, permissions, one selected snapshot and fields interactions. Collection responses have no etag and ACL routes do not exist; list/write validators, JSON date conditions, XML/gRPC/HEAD and If-Range are outside this row. Exact provider opaque encoding/header/error and mixed-extension ordering questions remain on PARTIAL method rows and SPEC-JSON-ETAG-WIRE; target EXACT is unchanged. See docs/en/slices/json-read-etag-validators.md and docs/en/evidence/basic-json-fields-etag.md. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): JSON GETs ignore If-Range and the date validators, so the date precedence and If-Range lines in the acceptance cases describe ignored headers; If-None-Match is evaluated before the other conditions.",
+      "notes": "Documented JSON If-Match/If-None-Match GET scope for supported etag-bearing resources: objects.get metadata/media/range, buckets.get and buckets.getIamPolicy, with combined query conditions, permissions, one selected snapshot and fields interactions. Collection responses have no etag and ACL routes do not exist; list/write validators, JSON date conditions, XML/gRPC/HEAD and If-Range are outside this row. Exact provider opaque encoding/header/error and mixed-extension ordering questions remain on PARTIAL method rows and SPEC-JSON-ETAG-WIRE; target EXACT is unchanged. See docs/en/slices/json-read-etag-validators.md and docs/en/evidence/basic-json-fields-etag.md. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a JSON media (alt=media) GET ignores If-Range and the date validators when they stand alone, while metadata and bucket GETs keep the local 400 badRequest for them (a local choice); If-None-Match is evaluated before the other conditions.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -23848,7 +23848,7 @@
         },
         {
           "id": "ETAG-READ-DATE-PRECEDENCE",
-          "description": "If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads; stray date/If-Range headers retain existing ignored behavior on writes and lists",
+          "description": "If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads (on JSON media the date validators and If-Range are ignored when alone, as recorded; on metadata and bucket GETs a standalone date or If-Range is a local 400 badRequest); stray date/If-Range headers are ignored on writes and lists",
           "test_ids": [
             "etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior",
             "etag::json_etag_read_if_match_overrides_if_unmodified_since"
@@ -26803,7 +26803,7 @@
         },
         {
           "id": "ETAG-READ-REJECTIONS",
-          "description": "ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data",
+          "description": "ETag headers on lists and on writes other than object If-Match PUT/PATCH and bucket PUT/PATCH (which ignore them) return 400 badRequest; standalone If-Modified-Since, If-Unmodified-Since and If-Range are ignored on JSON media (alt=media) GETs, as recorded, but still fail with 400 badRequest on object metadata and bucket GETs (a local choice, not a recorded Cloud Storage response); rejected writes preserve data",
           "test_ids": [
             "etag::json_etag_read_unsupported_lists_dates_and_writes",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
@@ -26829,7 +26829,7 @@
         },
         {
           "id": "ETAG-READ-DATE-PRECEDENCE",
-          "description": "If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads; stray date/If-Range headers retain existing ignored behavior on writes and lists",
+          "description": "If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads (on JSON media the date validators and If-Range are ignored when alone, as recorded; on metadata and bucket GETs a standalone date or If-Range is a local 400 badRequest); stray date/If-Range headers are ignored on writes and lists",
           "test_ids": [
             "etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior",
             "etag::json_etag_read_if_match_overrides_if_unmodified_since"
