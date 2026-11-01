@@ -611,6 +611,18 @@ independently.
   case (a failed capture, a transport error). Use it for steps that undo state
   that blocks cleanup: switching versioning off, releasing a hold or an
   unlocked retention. Steps that did not run are recorded as skipped.
+- `"pap_reset": "<reason>"` marks a bucket `PUT`, or a `PATCH` that nulls
+  `iamConfiguration`, which may reset public access prevention to its default
+  (a `PUT` replaces the resource, so omitting the setting can reset it). Without
+  the reason the validator refuses such a step unless its body sets the setting
+  to `enforced`; `expect_status` is no exemption, because an expected refusal
+  can turn out to be an applied write.
+- A `PUT .../iam` that the case expects to be applied (no `expect_status`, or
+  200) must keep `roles/storage.admin` or `roles/storage.legacyBucketOwner` for
+  a `projectOwner:` or `projectEditor:` member. The policy replaces the whole
+  bucket policy; without these bindings the measuring account is locked out and
+  every later step answers 403. Build the body from the policy `iam-get` shows
+  and add only the change under test.
 - `body_base64` sends binary bytes (a gzip stream); it is exclusive with `body`
   and `body_text`.
 - `{new_bucket}` is the same name for every step of one case and a different

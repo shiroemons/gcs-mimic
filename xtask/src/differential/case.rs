@@ -69,6 +69,10 @@ pub(crate) struct Step {
     /// Runs even after an earlier step failed the case (restoring versioning,
     /// releasing a hold), so the bucket can still be deleted.
     pub(crate) always: bool,
+    /// Why this step may reset public access prevention to its default (a
+    /// bucket PUT without `iamConfiguration`, a PATCH nulling it). The reason
+    /// is required so such a step is a deliberate, reviewed exception.
+    pub(crate) pap_reset: Option<String>,
     pub(crate) capture: Vec<(String, String)>,
     /// `None` runs the step without comparing it (setup or probe steps).
     pub(crate) compare: Option<CompareOpts>,
@@ -320,6 +324,7 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
             "body_text",
             "body_base64",
             "always",
+            "pap_reset",
             "expect_status",
             "capture",
             "compare",
@@ -401,6 +406,10 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
             .unwrap_or_default(),
         body,
         expect_status,
+        pap_reset: map
+            .get("pap_reset")
+            .map(|_| text("pap_reset"))
+            .transpose()?,
         always: match map.get("always") {
             None => false,
             Some(Value::Bool(flag)) => *flag,

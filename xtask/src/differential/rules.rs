@@ -42,6 +42,8 @@ fn check_step(case: &Case, step: &Step) -> Result<()> {
     check_unexpanded_lock(step)?;
     check_expanded_request(step)?;
     check_bucket_creation(step)?;
+    check_pap_reset(step)?;
+    check_iam_keeps_admin(step)?;
     if case.bucket == BucketMode::Shared && changes_shared_bucket(step) {
         return Err(
             "changes the metadata of the shared {bucket}; the case needs \"bucket\": \"own\""
@@ -144,6 +146,92 @@ fn check_json_bucket_creation(step: &Step) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn json_body(step: &Step) -> Option<Value> {
+    match &step.body {
+        Body::Json(value) => Some(value.clone()),
+        Body::Text(text) => serde_json::from_str(&text.replace("{{", "{").replace("}}", "}")).ok(),
+        Body::None | Body::Bytes(_) => None,
+    }
+}
+
+/// A bucket PUT replaces the whole resource and a PATCH nulling
+/// `iamConfiguration` removes it, so either can reset public access prevention
+/// to its default even though no step names the setting. The live guard cannot
+/// see that, so the case must say why the step is acceptable (`pap_reset`).
+fn check_pap_reset(step: &Step) -> Result<()> {
+    // `expect_status` is no exemption: an expectation of a refusal can be wrong,
+    // and then the step resets the setting.
+    if step.protocol != Protocol::Http || step.pap_reset.is_some() {
+        return Ok(());
+    }
+    let path = strip_query(&step.path);
+    let on_bucket = path
+        .strip_prefix("/storage/v1/b/")
+        .is_some_and(|rest| !rest.is_empty() && !rest.contains('/'));
+    if !on_bucket || !matches!(step.method.as_str(), "PUT" | "PATCH") {
+        return Ok(());
+    }
+    let Some(body) = json_body(step) else {
+        return Ok(());
+    };
+    let config = &body["iamConfiguration"];
+    let enforced = config["publicAccessPrevention"].as_str() == Some("enforced");
+    let resets = match step.method.as_str() {
+        "PUT" => !enforced,
+        _ => body.get("iamConfiguration").is_some() && !config.is_object(),
+    };
+    if resets {
+        return Err(
+            "could reset public access prevention (a PUT without it, or a PATCH \
+                    nulling iamConfiguration); say why in \"pap_reset\" or set it to enforced"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+/// Roles that let the measuring account keep managing the bucket.
+const ADMIN_ROLES: [&str; 2] = ["roles/storage.admin", "roles/storage.legacyBucketOwner"];
+
+/// A `setIamPolicy` body replaces the whole policy. The creator's access comes
+/// from the project owner and editor bindings, so a body that drops them locks
+/// the measuring account out and every later step answers 403.
+fn check_iam_keeps_admin(step: &Step) -> Result<()> {
+    if step.protocol != Protocol::Http
+        || step.method != "PUT"
+        || !strip_query(&step.path).ends_with("/iam")
+    {
+        return Ok(());
+    }
+    let Some(body) = json_body(step) else {
+        return Ok(());
+    };
+    // A body without literal bindings is the subject of the step itself.
+    let Some(bindings) = body["bindings"].as_array() else {
+        return Ok(());
+    };
+    let keeps_admin = bindings.iter().any(|binding| {
+        binding["role"]
+            .as_str()
+            .is_some_and(|role| ADMIN_ROLES.contains(&role))
+            && binding["members"].as_array().is_some_and(|members| {
+                members.iter().filter_map(Value::as_str).any(|member| {
+                    member.starts_with("projectOwner:") || member.starts_with("projectEditor:")
+                })
+            })
+    });
+    // The service rejects a policy it refuses (invalid member or role, stale
+    // etag) before applying it, so such a step cannot lock anyone out.
+    let applied = step.expect_status.is_none_or(|status| status == 200);
+    if keeps_admin || !applied {
+        return Ok(());
+    }
+    Err("a setIamPolicy body must keep roles/storage.admin or \
+         roles/storage.legacyBucketOwner for projectOwner: or projectEditor:, or the \
+         measuring account loses access to the bucket"
+        .into())
 }
 
 /// A step that writes bucket-level state of the shared bucket: it would leak
@@ -258,6 +346,58 @@ mod tests {
             json!({"name": "s", "protocol": "grpc", "rpc": "google.storage.v2.Storage/CreateBucket"}),
             "CreateBucket",
         );
+    }
+
+    #[test]
+    fn bucket_writes_that_could_reset_public_access_prevention_need_a_reason() {
+        let put = json!({"name": "s", "method": "PUT", "path": "/storage/v1/b/{new_bucket}",
+                         "body": {"name": "{new_bucket}"}, "expect_status": 400});
+        rejects(json!(false), put.clone(), "pap_reset");
+        let patch_null = json!({"name": "s", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}",
+                                "body": {"iamConfiguration": null}});
+        rejects(json!(false), patch_null.clone(), "pap_reset");
+        for step in [put, patch_null] {
+            let mut with_reason = step;
+            with_reason["pap_reset"] = json!("measures the reset");
+            assert!(parse_case(&case_of(json!(false), with_reason), "x").is_ok());
+        }
+        let ok = [
+            json!({"name": "s", "method": "PUT", "path": "/storage/v1/b/{new_bucket}",
+                   "body": {"name": "{new_bucket}", "iamConfiguration": {"publicAccessPrevention": "enforced"}}}),
+            json!({"name": "s", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}", "body": {"iamConfiguration": {}}}),
+            json!({"name": "s", "method": "PUT", "path": "/storage/v1/b/{new_bucket}/o/x", "body": {}}),
+        ];
+        for step in ok {
+            assert!(
+                parse_case(&case_of(json!(false), step.clone()), "x").is_ok(),
+                "{step}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_applied_iam_policy_must_keep_an_admin_role_for_project_owners_or_editors() {
+        let set = |status: Option<u16>, bindings: Value| {
+            let mut step = json!({"name": "s", "method": "PUT", "path": "/storage/v1/b/{new_bucket}/iam",
+                                  "body": {"version": 1, "bindings": bindings}});
+            if let Some(status) = status {
+                step["expect_status"] = json!(status);
+            }
+            step
+        };
+        let viewer =
+            json!([{"role": "roles/storage.objectViewer", "members": ["projectViewer:{project}"]}]);
+        rejects(json!(false), set(Some(200), viewer.clone()), "must keep");
+        rejects(json!(false), set(None, viewer.clone()), "must keep");
+        // A refused policy is never applied, so it cannot lock anyone out.
+        assert!(parse_case(&case_of(json!(false), set(Some(400), viewer)), "x").is_ok());
+        let admin = json!([{"role": "roles/storage.admin", "members": ["projectOwner:{project}"]}]);
+        assert!(parse_case(&case_of(json!(false), set(Some(200), admin)), "x").is_ok());
+        let owner = json!([{"role": "roles/storage.legacyBucketOwner", "members": ["projectEditor:{project}"]}]);
+        assert!(parse_case(&case_of(json!(false), set(Some(200), owner)), "x").is_ok());
+        let wrong_member =
+            json!([{"role": "roles/storage.admin", "members": ["projectViewer:{project}"]}]);
+        rejects(json!(false), set(Some(200), wrong_member), "must keep");
     }
 
     #[test]
