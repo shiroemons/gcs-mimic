@@ -125,8 +125,10 @@ Unreleased user-visible changes that the next minor release notes must state:
 - `temporaryHold` and `eventBasedHold` are now reported as `false` once they
   were set and released, and omitted on an object that never had them, as
   Cloud Storage does. A PATCH or PUT that names a hold sets it to the given
-  value (also `false`); a PUT that omits it returns it to omitted; a copy,
-  rewrite or compose destination starts omitted. Only `true` blocks delete and
+  value (also `false`); a PUT that omits it returns it to omitted; a create that
+  names `false` returns `false` (the recording has no create-time `false`, so
+  this follows the PATCH behavior); a copy, rewrite or compose destination
+  starts omitted. Only `true` blocks delete and
   overwrite. gRPC keeps `event_based_hold` always present and `temporary_hold`
   a plain bool. Catalog schema 48 adds `objects.temporary_hold_released` and
   `objects.event_based_hold_released`; the migration is automatic and one-way

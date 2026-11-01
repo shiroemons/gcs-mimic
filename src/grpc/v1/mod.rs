@@ -199,6 +199,8 @@ fn metadata(
     }
     // `temporary_hold` is a plain bool, so false cannot be told from omitted; a replace
     // already releases a hold it does not name, and only true is a statement worth keeping.
+    // Treating a v1 replace that sends `temporary_hold=false` as never set (not as a released
+    // `false`) is an inference: the recording has no gRPC session.
     if object.temporary_hold {
         body["temporaryHold"] = json!(true);
     }
