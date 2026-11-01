@@ -862,7 +862,8 @@ pub(crate) fn headers(
     for key in headers.keys() {
         let key = key.as_str();
         // Cloud Storage answered an object GET with an unknown `x-goog-` header as if it were
-        // absent (recorded), so object reads ignore those; the recognized ones are parsed by
+        // absent (recorded), so GET and HEAD ignore those (HEAD is assumed); DELETE was not
+        // recorded and rejects them; the recognized ones are parsed by
         // their callers. Bucket operations give some `x-goog-` headers meaning (ACLs, project
         // billing) that this adapter does not implement, so they still reject unknown ones.
         // Headers of other protocols and the HTTP conditions carry semantics this adapter

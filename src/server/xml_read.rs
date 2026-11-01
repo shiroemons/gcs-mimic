@@ -32,7 +32,11 @@ pub(super) async fn respond(
     xml::headers(
         request.headers(),
         &mut operation,
-        xml::UnknownGoogHeaders::Ignore,
+        if delete {
+            xml::UnknownGoogHeaders::Reject
+        } else {
+            xml::UnknownGoogHeaders::Ignore
+        },
     )?;
     if delete
         && let Some(name) =

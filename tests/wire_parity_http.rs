@@ -701,7 +701,7 @@ fn xml_listing_matches_the_recorded_document() {
         truncated.body
     );
     // A listing that names no usable max-keys echoes no MaxKeys, and a delimiter follows the
-    // marker.
+    // marker. `-1` is recorded; `abc` is an assumption, as the record cannot tell it from `-1`.
     for query in ["", "?max-keys=-1", "?max-keys=abc"] {
         let unlimited = server.request("GET", &format!("/parity{query}"), "", b"");
         unlimited.status(200);
@@ -1014,4 +1014,21 @@ fn xml_range_errors_of_a_public_object_are_private() {
         assert_eq!(header(&refused, "cache-control"), Some(PRIVATE), "{range}");
         assert!(header(&refused, "expires").is_some(), "{range}");
     }
+}
+
+#[test]
+fn xml_delete_rejects_an_unknown_x_goog_header() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    let refused = server.request(
+        "DELETE",
+        "/parity/plain.txt",
+        "x-goog-bogus-header: 1\r\n",
+        b"",
+    );
+    refused.status(400);
+    server
+        .request("GET", "/parity/plain.txt", "", b"")
+        .status(200);
 }
