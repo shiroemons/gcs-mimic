@@ -3,7 +3,10 @@ use crate::server::RequestBody as Incoming;
 use crate::{
     auth::{self, Caller},
     json,
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, UploadChunk},
+    object::{
+        ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectMetadataUpdate,
+        UploadChunk,
+    },
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed, stream_upload},
     storage::ObjectUpload,
 };
@@ -313,32 +316,52 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     Ok(metadata)
 }
 
-/// A PUT whose body did not match a declared hash names the hash that was declared. Which of two
-/// declared hashes failed is not known here, so MD5 is assumed when it was declared; the actual
-/// CRC32C is not available to the adapter, so that mismatch carries no `Details`.
+/// A PUT whose body did not match a declared hash names the hash that failed. The storage layer
+/// reports which one and both digests, so a CRC32C failure carries Cloud Storage's `Details`
+/// with the declared and computed values (recorded in `xml-put-edges/put-hash-mismatch`).
+/// Without that report, MD5 is assumed when it was declared, which no recording distinguishes.
 fn upload_error(
     error: ObjectError,
     caller: Option<Caller<'_>>,
     operation: &ReadRequest,
     expected: &ExpectedHashes,
 ) -> Error {
-    if !matches!(error, ObjectError::ChecksumMismatch) {
-        return storage_error(error, caller);
-    }
-    if expected.md5.is_none() && expected.crc32c.is_some() {
-        return Error::new(
+    let object = format!("{}/{}", operation.bucket, operation.name);
+    let crc_failed = match &error {
+        ObjectError::HashMismatch(mismatch) => mismatch.algorithm == HashAlgorithm::Crc32c,
+        ObjectError::ChecksumMismatch => expected.md5.is_none() && expected.crc32c.is_some(),
+        _ => return storage_error(error, caller),
+    };
+    if crc_failed {
+        let mut failure = Error::new(
             StatusCode::BAD_REQUEST,
             "CrcMismatch",
             "The CRC32C you specified did not match what we computed.",
         );
+        if let ObjectError::HashMismatch(mismatch) = &error {
+            failure.details = Some(format!(
+                "{object}, CRC mismatch (expected: {}, actual: {})",
+                crc_detail(&mismatch.provided),
+                crc_detail(&mismatch.calculated)
+            ));
+        }
+        return failure;
     }
-    let mut error = Error::new(
+    let mut failure = Error::new(
         StatusCode::BAD_REQUEST,
         "BadDigest",
         "The MD5 you specified in Content-MD5 or x-goog-hash did not match what we computed.",
     );
-    error.details = Some(format!("{}/{}", operation.bucket, operation.name));
-    error
+    failure.details = Some(object);
+    failure
+}
+
+/// A CRC32C as Cloud Storage prints it in a mismatch: unpadded hex, then the base64 form.
+fn crc_detail(digest: &[u8]) -> String {
+    let value = digest
+        .iter()
+        .fold(0_u64, |value, byte| (value << 8) | u64::from(*byte));
+    format!("0x{value:x} ({})", json::base64(digest))
 }
 
 pub(super) fn storage_error(error: ObjectError, caller: Option<Caller<'_>>) -> Error {

@@ -430,6 +430,25 @@ fn xml_put_invalid_headers_and_checksums_preserve_entire_object() {
         );
         assert_eq!(snapshot(&server, &data), before);
     }
+    // The recorded CRC32C mismatch for "hello" names the object and both values; a correct MD5
+    // declared beside a wrong CRC32C is reported as the CRC32C that failed.
+    let hello_md5 = "XUFAKrxLKna5cZ2REBfFkg==";
+    for header in [
+        "x-goog-hash: crc32c=AAAAAA==\r\n".to_owned(),
+        format!("Content-MD5: {hello_md5}\r\nx-goog-hash: crc32c=AAAAAA==\r\n"),
+    ] {
+        let reply = server.request("PUT", OBJECT, &format!("{ADMIN}{header}"), b"hello");
+        xml_error(&reply, 400, "CrcMismatch");
+        assert!(
+            String::from_utf8_lossy(&reply.body).contains(
+                "<Details>iam-bucket/object, CRC mismatch (expected: 0x0 (AAAAAA==), \
+                 actual: 0x9a71bb4c (mnG7TA==))</Details>"
+            ),
+            "{}",
+            String::from_utf8_lossy(&reply.body)
+        );
+        assert_eq!(snapshot(&server, &data), before);
+    }
     xml_error(
         &server.request(
             "PUT",
