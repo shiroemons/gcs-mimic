@@ -76,16 +76,7 @@ async fn completed_retries_reject_new_checksums_without_invalidating_completion(
             } else {
                 b""
             };
-            let refused = "Status or completed retries cannot introduce new checksum declarations";
-            // Whether an MD5 is refused outright or compared with the declared one first
-            // depends on the session, so either wording is accepted for it.
-            for (checksum, messages) in [
-                ("crc32c=Nks/tw==", [refused, refused]),
-                (
-                    "md5=AAAAAAAAAAAAAAAAAAAAAA==",
-                    [refused, "Conflicting MD5 declarations"],
-                ),
-            ] {
+            for checksum in ["crc32c=Nks/tw==", "md5=AAAAAAAAAAAAAAAAAAAAAA=="] {
                 h.request(
                     "PUT",
                     &path,
@@ -93,7 +84,7 @@ async fn completed_retries_reject_new_checksums_without_invalidating_completion(
                     body,
                 )
                 .await
-                .session_error_in(400, &messages);
+                .error(400, "invalidParameter");
             }
             let headers = if declared {
                 format!("Content-Range: {range}\r\nX-Goog-Hash: md5=kAFQmDzST7DWlj99KOF/cg==\r\n")
@@ -129,9 +120,13 @@ async fn conflicting_final_hash_preserves_error_and_session_invalidation() {
     stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {size}\r\nContent-Range: bytes 0-{}/{size}\r\nX-Goog-Hash: crc32c=AQIDBA==\r\n\r\n", size - 1).as_bytes()).await.unwrap();
     stream.write_all(&vec![b'a'; size as usize]).await.unwrap();
     let reply = Harness::read_response(stream).await;
-    assert_eq!(reply.status, 400);
-    assert_eq!(reply.headers["content-type"], "text/plain; charset=utf-8");
-    assert!(String::from_utf8_lossy(&reply.body).contains("CRC32C"));
+    reply.error(400, "invalidParameter");
+    assert!(
+        reply.json()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("CRC32C")
+    );
     h.request("GET", "/storage/v1/b/bucket/o/conflict", "", b"")
         .await
         .error(404, "notFound");
@@ -194,11 +189,6 @@ impl Reply {
             );
         }
     }
-    fn session_error_in(&self, status: u16, bodies: &[&str]) {
-        let body = String::from_utf8_lossy(&self.body).into_owned();
-        assert!(bodies.contains(&body.as_str()), "{body}");
-        self.session_error(status, &body);
-    }
     fn error(&self, status: u16, reason: &str) {
         assert_eq!(
             self.status,
@@ -206,10 +196,10 @@ impl Reply {
             "{}",
             String::from_utf8_lossy(&self.body)
         );
-        // A bare text page (such as the Content-Range refusal) has no reason to compare.
-        if let Ok(body) = serde_json::from_slice::<Value>(&self.body) {
-            assert_eq!(body["error"]["errors"][0]["reason"], reason);
-        }
+        let body: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
+            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
+        });
+        assert_eq!(body["error"]["errors"][0]["reason"], reason);
     }
 }
 impl Harness {
@@ -2410,9 +2400,7 @@ async fn contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_sessi
         let reply = tokio::time::timeout(Duration::from_secs(1), Harness::read_response(stream))
             .await
             .unwrap();
-        assert_eq!(reply.status, 400);
-        assert_eq!(reply.headers["content-type"], "text/plain; charset=utf-8");
-        assert!(!reply.body.is_empty());
+        reply.session_error(400, "Content-Length does not match Content-Range");
     }
     assert_eq!(std::fs::metadata(stage).unwrap().len(), 0);
     drop(lease);

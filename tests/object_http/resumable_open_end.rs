@@ -220,8 +220,7 @@ fn open_range_rejects_malformed_and_inconsistent_requests_without_advancing() {
     let object = pattern(CHUNK);
     let path = session(&server, "shrink", "");
     put_prefix(&server, &path, &object);
-    put_chunked(&server, &path, "bytes 0-*/*", &object[..100])
-        .session_error(400, "inconsistent upload offset or total");
+    put_chunked(&server, &path, "bytes 0-*/*", &object[..100]).error(400, "invalidParameter");
     let probe = status(&server, &path);
     assert_eq!(probe.headers["range"], format!("bytes=0-{}", CHUNK - 1));
     // An empty open request at the persisted offset completes the prefix as the object.

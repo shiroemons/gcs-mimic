@@ -6,7 +6,9 @@
 //! handler from re-deriving them and keeps errors, mutations and reads consistent. Media
 //! downloads and the XML API carry their own headers and are left alone.
 
-use super::{NO_STORE_CACHE_CONTROL, error::MEDIA_ERROR_CACHE_CONTROL, http_date};
+use super::{
+    Decoding, NO_STORE_CACHE_CONTROL, decode, error::MEDIA_ERROR_CACHE_CONTROL, http_date,
+};
 use hyper::{
     Method, Response, StatusCode,
     header::{self, HeaderValue},
@@ -49,20 +51,25 @@ pub(crate) enum Call {
 impl Call {
     pub(crate) fn of_request<B>(request: &hyper::Request<B>) -> Self {
         let query = request.uri().query().unwrap_or_default();
+        // Names and values are compared decoded, because `alt=%6Dedia` is `alt=media` to the
+        // handlers; a malformed escape never matches and the handler reports it.
         let param = |name: &str| {
-            query
-                .split('&')
-                .find_map(|pair| pair.strip_prefix(name)?.strip_prefix('='))
+            query.split('&').find_map(|pair| {
+                let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+                (decode(key, Decoding::Form).ok()? == name)
+                    .then(|| decode(value, Decoding::Form).ok())
+                    .flatten()
+            })
         };
         if request.uri().path().starts_with("/upload/") {
-            let boundary_missing = param("uploadType") == Some("multipart")
+            let boundary_missing = param("uploadType").as_deref() == Some("multipart")
                 && !request
                     .headers()
                     .get(header::CONTENT_TYPE)
                     .and_then(|value| value.to_str().ok())
                     .is_some_and(|value| value.contains("boundary="));
             let unknown_type = param("uploadType")
-                .is_some_and(|kind| !matches!(kind, "media" | "multipart" | "resumable"));
+                .is_some_and(|kind| !matches!(kind.as_str(), "media" | "multipart" | "resumable"));
             if param("upload_id").or_else(|| param("uploadId")).is_some()
                 || boundary_missing
                 || unknown_type
@@ -70,7 +77,7 @@ impl Call {
                 return Self::UploadFrontEnd;
             }
         }
-        if param("alt") == Some("media") {
+        if param("alt").as_deref() == Some("media") {
             Self::MediaRead
         } else {
             Self::Metadata
@@ -420,6 +427,15 @@ mod tests {
             );
             assert_eq!(header(&reply, "expires"), expected, "{policy}");
         }
+    }
+
+    #[test]
+    fn the_call_is_read_from_the_decoded_query() {
+        let call = |uri: &str| Call::of_request(&hyper::Request::get(uri).body(()).unwrap());
+        assert!(call("/storage/v1/b/x/o/y?alt=%6Dedia") == Call::MediaRead);
+        assert!(call("/storage/v1/b/x/o/y?%61lt=media") == Call::MediaRead);
+        assert!(call("/storage/v1/b/x/o/y?alt=json") == Call::Metadata);
+        assert!(call("/upload/storage/v1/b/x/o?uploadType=%62ogus") == Call::UploadFrontEnd);
     }
 
     #[test]

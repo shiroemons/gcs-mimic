@@ -241,7 +241,7 @@ fn chunk_framing(
         _ => false,
     };
     if mismatch {
-        return Err(JsonError::invalid_parameter(
+        return Err(JsonError::session_protocol(
             "Content-Length does not match Content-Range",
         ));
     }
@@ -260,15 +260,15 @@ fn open_extent(
     max_bytes: u64,
 ) -> Result<(u64, Option<u64>, bool), JsonError> {
     if total.is_some_and(|n| session_total.is_some_and(|t| n != t)) {
-        return Err(JsonError::invalid_parameter("Inconsistent upload total"));
+        return Err(JsonError::session_protocol("Inconsistent upload total"));
     }
     match (total.or(session_total), length) {
         (Some(total), length) => {
             let remaining = total
                 .checked_sub(start)
-                .ok_or_else(|| JsonError::invalid_parameter("Inconsistent upload total"))?;
+                .ok_or_else(|| JsonError::session_protocol("Inconsistent upload total"))?;
             if length.is_some_and(|n| n != remaining) {
-                return Err(JsonError::invalid_parameter(
+                return Err(JsonError::session_protocol(
                     "Content-Length does not match Content-Range",
                 ));
             }
@@ -277,7 +277,7 @@ fn open_extent(
         (None, Some(length)) => {
             let end = start
                 .checked_add(length)
-                .ok_or_else(|| JsonError::invalid_parameter("Upload offset overflow"))?;
+                .ok_or_else(|| JsonError::session_protocol("Upload offset overflow"))?;
             Ok((length, Some(end), false))
         }
         (None, None) => Ok((max_bytes.saturating_sub(start), None, true)),
@@ -295,9 +295,7 @@ fn plan_chunk(
     let (start, length, total, kind) = match range {
         Some(Range::Status(total)) => {
             if length != Some(0) || headers.contains_key("transfer-encoding") {
-                return Err(JsonError::invalid_parameter(
-                    "Status requires an empty body",
-                ));
+                return Err(JsonError::session_protocol("Status requires an empty body"));
             }
             (session.offset, 0, total, ChunkKind::Status)
         }
@@ -310,29 +308,29 @@ fn plan_chunk(
         }
         None => {
             if session.offset != 0 && session.state != SessionState::Complete {
-                return Err(JsonError::invalid_parameter(
+                return Err(JsonError::session_protocol(
                     "Content-Range required after the first chunk",
                 ));
             }
             let length = length.ok_or_else(|| {
-                JsonError::invalid_parameter("Content-Length required without Content-Range")
+                JsonError::session_protocol("Content-Length required without Content-Range")
             })?;
             (0, length, Some(length), ChunkKind::Data)
         }
     };
     if start > session.offset {
-        return Err(JsonError::invalid_parameter("Upload offset leaves a gap"));
+        return Err(JsonError::session_protocol("Upload offset leaves a gap"));
     }
     let end = start
         .checked_add(length)
-        .ok_or_else(|| JsonError::invalid_parameter("Upload offset overflow"))?;
+        .ok_or_else(|| JsonError::session_protocol("Upload offset overflow"))?;
     if end > max_bytes || total.is_some_and(|n| n > max_bytes) {
         return Err(ObjectError::TooLarge.into());
     }
     if total.is_some_and(|n| session.total.is_some_and(|t| n != t) || n < session.offset)
         || session.total.is_some_and(|n| end > n)
     {
-        return Err(JsonError::invalid_parameter("Inconsistent upload total"));
+        return Err(JsonError::session_protocol("Inconsistent upload total"));
     }
     let total = total.or(session.total);
     let finalize = match kind {
@@ -340,7 +338,7 @@ fn plan_chunk(
         ChunkKind::Data => open_end || total == Some(end),
     };
     if kind == ChunkKind::Data && !finalize && !length.is_multiple_of(256 * 1024) {
-        return Err(JsonError::invalid_parameter(
+        return Err(JsonError::session_protocol(
             "Nonfinal chunk must be a multiple of 256 KiB",
         ));
     }
@@ -355,20 +353,7 @@ fn plan_chunk(
     })
 }
 
-/// A session URI request. The upload front end answers a failed continuation with a bare text
-/// page, so protocol errors leave as text (see `JsonError::session_text`).
 pub(super) async fn session_response(
-    request: Request<Incoming>,
-    bucket: &str,
-    id: &str,
-    ctx: ObjectCtx<'_>,
-) -> Result<Response<ResponseBody>, JsonError> {
-    session_exchange(request, bucket, id, ctx)
-        .await
-        .map_err(JsonError::session_text)
-}
-
-async fn session_exchange(
     request: Request<Incoming>,
     bucket: &str,
     id: &str,

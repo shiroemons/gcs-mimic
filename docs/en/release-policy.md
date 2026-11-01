@@ -130,11 +130,12 @@ Unreleased user-visible changes that the next minor release notes must state:
   the upload errors carry `cache-control`, `expires` and `pragma`, and
   `alt=media` downloads and media failures carry the `expires` their cache
   policy implies. A session request the upload front end rejects (a malformed
-  `Content-Range`, an inconsistent total or offset, an unknown, finished or
-  cancelled session) answers with a bare `text/plain` body and without
-  `cache-control`, `expires`, `pragma` or `vary`, as does a session status
-  reply (308) and a cancellation (499); a client that read these bodies as
-  JSON must read the text. Upload errors that carry a JSON envelope keep
+  `Content-Range`, a length, total or offset that disagrees with it, an
+  unknown, finished or cancelled session) answers with a bare
+  `text/plain` body and without `cache-control`, `expires`, `pragma` or
+  `vary`, as does a session status reply (308) and a cancellation (499); a client that read these bodies as
+  JSON must read the text. Checksum and header errors on a session request
+  keep their JSON error. Upload errors that carry a JSON envelope keep
   `x-content-type-options: nosniff`, which Cloud Storage does not send, because
   the body quotes request input under a `text/html` content type. JSON error
   bodies add `location` and `locationType` (the parameter name, or `If-Match`

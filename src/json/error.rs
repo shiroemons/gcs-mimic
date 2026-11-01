@@ -145,12 +145,11 @@ pub(crate) const CONTENT_RANGE_TEXT: PlainText = PlainText {
     cache: PlainCache::Unspecified,
 };
 
-/// A session-continuation failure that has no recorded text of its own. The recorded failures
-/// of a continuation (an unusable `Content-Range`, an unknown session) are all bare
-/// `text/plain` pages without cache fields, so the other session-protocol errors (an
-/// inconsistent total, a gap in the offsets, a finished or cancelled session) use the same
-/// form with the message they already had. The form is inferred; only the two wordings above
-/// were recorded.
+/// A session-protocol failure that has no recorded text of its own. The recorded failures
+/// of a continuation (an unusable `Content-Range`, an unknown session) are bare `text/plain`
+/// pages without cache fields, so the other protocol errors (an inconsistent total, a gap in
+/// the offsets, a finished or cancelled session) use the same form with the message they
+/// already had. The form is inferred; only the two wordings above were recorded.
 pub(crate) const SESSION_MESSAGE_TEXT: PlainText = PlainText {
     content_type: "text/plain; charset=utf-8",
     body: None,
@@ -370,14 +369,15 @@ impl JsonError {
         self
     }
 
-    /// Sends a session-protocol failure as the bare text page the upload front end used.
-    /// Errors of other kinds (a failed checksum or precondition) keep their JSON envelope.
-    pub(crate) fn session_text(mut self) -> Self {
-        let protocol = self.reason == "invalidParameter" || self.status == StatusCode::GONE;
-        if protocol && self.plain.is_none() {
-            self.plain = Some(&SESSION_MESSAGE_TEXT);
-        }
-        self
+    /// A session-protocol failure (a `Content-Range` that cannot be used, a gap or total that
+    /// disagrees with the session): the upload front end answered these with a bare `text/plain`
+    /// page, so the message leaves as that page with no error `reason`. Failures of other kinds
+    /// (checksums, headers, preconditions) keep their JSON envelope, because SDKs read the
+    /// `reason` from it.
+    pub(crate) fn session_protocol(message: impl Into<String>) -> Self {
+        let mut error = Self::invalid_parameter(message);
+        error.plain = Some(&SESSION_MESSAGE_TEXT);
+        error
     }
 
     /// An upload that names no object.
@@ -658,11 +658,18 @@ impl From<crate::storage::ResumableError> for JsonError {
                 error.plain = Some(&NOT_FOUND_TEXT);
                 error
             }
-            ResumableError::Gone => Self::new(
-                StatusCode::GONE,
-                "gone",
-                "Upload session is no longer active",
-            ),
+            // Not recorded: a finished or cancelled session is answered like the recorded unknown
+            // session (404), as a bare text page, because the front end decides both from the
+            // session state alone.
+            ResumableError::Gone => {
+                let mut error = Self::new(
+                    StatusCode::GONE,
+                    "gone",
+                    "Upload session is no longer active",
+                );
+                error.plain = Some(&SESSION_MESSAGE_TEXT);
+                error
+            }
             ResumableError::Invalid(message) => Self::invalid_parameter(message),
             ResumableError::Object(error) => error.into(),
         }
