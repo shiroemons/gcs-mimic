@@ -8,10 +8,17 @@ use tonic::{Code, Status};
 const NOT_MODIFIED: &str =
     "The resource you requested has not been modified according to the condition you specified.";
 
+/// The message of the JSON object error for a failed generation or metageneration condition.
+const JSON_PRECONDITION_FAILED: &str = "Precondition failed";
+
 pub(crate) fn from_json(mut error: crate::json::JsonError) -> Status {
     match (error.status.as_u16(), error.reason) {
-        // The JSON object error words it shorter; gRPC carries the recorded text of bucket RPCs.
-        (412, "conditionNotMet") => error.message = crate::json::PRECONDITION_NOT_HELD.into(),
+        // The JSON object error words a failed precondition shorter; gRPC carries the recorded
+        // text of bucket RPCs. Other 412s (public access prevention, a bucket that is not empty)
+        // keep their own message: they are not failed preconditions.
+        (412, "conditionNotMet") if error.message == JSON_PRECONDITION_FAILED => {
+            error.message = crate::json::PRECONDITION_NOT_HELD.into();
+        }
         (304, "notModified") => error.message = NOT_MODIFIED.into(),
         _ => {}
     }
@@ -155,6 +162,19 @@ mod tests {
             "Not modified",
         ));
         assert_eq!(unmodified.message(), NOT_MODIFIED);
+        // A 412 that is not a failed condition keeps its own message.
+        let pap = from_json(crate::bucket::CatalogError::PublicAccessPrevention.into());
+        assert_eq!(pap.code(), Code::FailedPrecondition);
+        assert_eq!(pap.message(), "Public access prevention is enforced");
+        let not_empty = from_json(crate::json::JsonError::new(
+            StatusCode::PRECONDITION_FAILED,
+            "conditionNotMet",
+            "bucket must be empty prior to deletion",
+        ));
+        assert_eq!(
+            not_empty.message(),
+            "bucket must be empty prior to deletion"
+        );
     }
 
     #[test]
