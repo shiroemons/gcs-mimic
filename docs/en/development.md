@@ -199,6 +199,8 @@ workspace/all-target Clippy with `-D warnings` in addition to these manifest lin
 It also type-checks the Windows MSVC, Linux musl and macOS ARM64 release targets,
 plus the Linux glibc target that the CI Rust jobs use, other than the host
 through `scripts/check-cross.sh`, installing missing Rust targets with `rustup`.
+Foundation CI runs that script in a separate `cross` job beside the `rust` job,
+which sets `GCSM_CHECK_CROSS=0` to skip it in `scripts/check.sh`.
 The glibc target is needed because std gives Linux glibc types such as
 `fs::Metadata` extra statx fields, so size lints such as `large_enum_variant`
 fire only there. C dependencies compile to empty stub objects there, so

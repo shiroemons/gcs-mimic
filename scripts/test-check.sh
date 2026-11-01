@@ -116,6 +116,14 @@ while IFS= read -r command; do
   diff -u "$work/prefix" "$work/actual"
 done <"$work/expected"
 
+# Skipping the other targets leaves every other check in order; an invalid switch runs nothing.
+GCS_MIMIC_CHECK_FAIL='' GCSM_CHECK_CROSS=0 run_check
+test "$status" = 0
+grep -v -- '--target ' "$work/expected" | diff -u - "$work/actual"
+GCS_MIMIC_CHECK_FAIL='' GCSM_CHECK_CROSS=2 run_check
+test "$status" = 2
+grep -v -- '--target ' "$work/expected" | sed -n '1,/^xtask lint$/p' | diff -u - "$work/actual"
+
 no_tests_prefix=$(sed -n '1,/--no-run/p' "$work/expected")
 GCS_MIMIC_CHECK_FAIL='' GCS_MIMIC_CHECK_NO_TESTS=1 run_check
 test "$status" = 1
