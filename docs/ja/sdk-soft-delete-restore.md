@@ -9,8 +9,13 @@
 バケットのinsert・PATCH・PUTで`softDeletePolicy.retentionDurationSeconds`を設定します。
 0は無効、604800秒から7776000秒は有効です。範囲外の値は状態を変えず400で拒否します。
 get・listで保持秒数と`effectiveTime`を返し、期間を延ばしたときだけ有効時刻を更新します。
-空設定と`null`は省略と同じです。GCSの新規バケットの既定7日とは異なり、
-ローカルでは省略時に無効とし、予期しないディスク保持と既存利用者の動作変更を避けます。
+空設定と`null`は省略と同じです。
+ポリシーを指定せずに作った新しいバケットは、Cloud Storageと同じ604800秒（7日）になり、`effectiveTime`は`timeCreated`と同じです。
+サーバー設定`GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`（`--default-soft-delete-retention-seconds`、
+JSONでは`default_soft_delete_retention_seconds`）で変えられ、0にするとポリシーを保存せず、従来どおり完全削除になります。
+`--backend memory`は明示しない限り0です。リクエストで明示したポリシーは0を含めてそのまま保存し、
+既存のバケットは保存済みの設定を保ちます。`import`・同期ディレクトリ・legacy-emulatorで作るバケットには既定を付けません。
+初期ファイルとバケット設定ファイルで作るバケットには既定を付けます。
 これらの仕様差と90日境界の資料間の違いはSPEC-SOFT-DELETEに記録しています。
 
 既存の`bucket`に7日を設定する例です。固定したGo Storage v1.70.0と
@@ -39,7 +44,7 @@ noncurrentにし、その世代を明示して削除するとsoft-deletedにな�
 通常の取得・一覧から削除済み世代を隠し、`softDeleted=true`でメタデータを取得できます。
 GETには`generation`が必要で、`alt=media`は使えません。一覧は既存の絞り込みとページングを使い、
 `versions=true`との併用を拒否します。
-ポリシーの省略と0は同じ扱いです。`softDeleted=true`の一覧は200で、保持中の世代がなければ
+ポリシーのないバケット（以前のバケットや既定0で作ったバケット）と0を明示したバケットは同じ扱いです。`softDeleted=true`の一覧は200で、保持中の世代がなければ
 空になります。該当世代がなければメタデータGETとrestoreは404を返します。
 公式の一覧・restoreはポリシーなしの400を定めており、この扱いはローカルの仕様差です。
 
@@ -56,11 +61,12 @@ Rubyが送るform本文は、検証済みURL queryと完全に一致する場合
 注入クロックで期限切れを判定し、取得・一覧・復元で存在しない扱いにします。
 同じバケットの削除・削除済み一覧・復元のついでに、最大100件ずつ回収します。
 タイマー、ポーリング、起動時の全件走査は追加していません。
-soft-deletedだけが残るバケットは完全削除でき、その世代も削除します。
-バケット自体のsoft deleteとJSON-BUCKETS-010はNOT_STARTED、初期化ファイルの設定はPENDINGです。
+soft-deletedだけが残るバケットは削除できます。正の保持期間がなければその世代と一緒に完全削除し、
+あればそれらを保持したsoft-deletedのバケット版になります。
+バケット自体のsoft deleteとJSON-BUCKETS-010は[バケットのsoft delete契約（英語）](../en/slices/bucket-soft-delete-restore.md)で扱います。
 HNS、ACLコピー、Autoclass、ライフサイクル実行と伝播の再現もPENDINGです。
 
-スキーマ26への列追加で設定と削除済み世代を永続化します。新しい設定キーや依存はありません。
+スキーマ26への列追加で設定と削除済み世代を永続化します。既定の保持期間を変えるサーバー設定を1つ追加しており、新しい依存はありません。
 対象Rustテスト7件、Go・RubyのHTTP全SDK検証は通過しています。
 最終の`RUST_TEST_THREADS=8 just check`も通過し、591行の台帳と生成マトリクスを検査しています。
 受け入れケースはSOFT-DELETE-CONFIG、DEFAULT、DELETE、OVERWRITE、LIST-GET、RESTORE、

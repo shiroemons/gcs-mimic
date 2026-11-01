@@ -28,7 +28,9 @@ strictモードでは、作成時の有効化に`storage.buckets.enableObjectRet
 `storage.objects.overrideUnlockedRetention`が必要です。スキーマ29への列追加で保存し、
 既存のバケットは無効、既存のオブジェクトは設定なしとして移行します。
 
-gRPCは`Bucket.object_retention`と`Object.retention`を返しますが、設定の入力は明示的な
-未対応エラーです。copy・rewrite・composeでの設定、XMLのヘッダー（EXT-XML-016/027）、
+gRPCは`Bucket.object_retention`と`Object.retention`を返します。0.8.0以降は、CreateBucketの
+`enable_object_retention`と、UpdateObjectの`retention` mask・`override_unlocked_retention`で設定できます
+（[SDK互換（英語）](../en/slices/grpc-v2-sdk-parity.md)）。WriteObjectでの指定と`retention.<field>`のmaskは
+明示的な未対応エラーです。copy・rewrite・composeでの設定、XMLのヘッダー（EXT-XML-016/027）、
 ライフサイクルとの相互作用、初期化ファイル、プロジェクトのlien、プロバイダーと完全に
 一致するエラー詳細はPENDINGです。ローカルの選択はSPEC-OBJECT-RETENTIONに記録しています。

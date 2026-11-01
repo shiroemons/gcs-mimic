@@ -12,7 +12,7 @@
 gcs-mimicは、ローカル開発とCIで使うGoogle Cloud Storageエミュレーターです。
 Google Cloudのアカウントなしで、公式のCloud Storage SDKをそのまま使えます。
 
-- **SDKでそのまま動く**: Go・Ruby・Node.js・Python・PHPが[SDKスコアカード](#sdkスコアカード)の全ケースを通過します。
+- **SDKでそのまま動く**: Go・Ruby・Node.js・Python・PHP・Java・.NET・Rustの8つのSDKが[SDKスコアカード](#sdkスコアカード)の全ケースを通過します。
 - **旧設定を読み替える**: 旧フラグや`FAKE_GCS_*`の多くを受け付けます。保存データの変換やクライアントアダプターには対応範囲があります（[移行](#fake-gcs-serverから移行する)を参照）。
 - **コンテナ1つ**: ディレクトリから初期ファイルを読み込み、ボリュームにデータを残せます。
 
@@ -23,7 +23,7 @@ Google Cloudのアカウントなしで、公式のCloud Storage SDKをそのま
 
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
-  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.7.0
+  -e GCS_MIMIC_SCHEME=http ghcr.io/shiroemons/gcs-mimic:0.8.0
 curl --retry 5 --retry-all-errors -H 'Content-Type: application/json' \
   -d '{"name":"demo-bucket"}' 'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --data-binary 'hello' \
@@ -35,7 +35,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 
 - 既定では認証なしで受け付けるため、ポートは`127.0.0.1`にだけ公開します。
 - コンテナを消してもデータを残すには、`-v gcs-mimic-data:/var/lib/gcs-mimic`を付けます。
-- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:0.7.0`
+- Docker Hubにも同じイメージがあります: `shiroemons/gcs-mimic:0.8.0`
 - `GCS_MIMIC_SCHEME=http`を外すと、組み込みの開発用証明書でHTTPSになります。[ローカルHTTPS（英語）](../en/local-https.md)を参照してください。
 
 ## Docker Compose
@@ -43,7 +43,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.8.0
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -156,7 +156,7 @@ gcs_emulator:
 ```diff
  gcs:
 -  image: fsouza/fake-gcs-server:1.56.1
-+  image: ghcr.io/shiroemons/gcs-mimic:0.7.0
++  image: ghcr.io/shiroemons/gcs-mimic:0.8.0
    command: ["-scheme", "http", "-external-url", "http://gcs:4443"]
    volumes:
      - ./data:/data
@@ -165,27 +165,28 @@ gcs_emulator:
 ```
 
 旧設定は、起動時に`GCS_MIMIC_*`の名前付きで警告されます。都合のよいときに名前を変えてください。
-公開済み0.7.0の例外と違いは次のとおりです。
+0.8.0の例外と違いは次のとおりです。
 
 | fake-gcs-server | gcs-mimic |
 | --- | --- |
 | `/storage`のデータ | 代わりに`/var/lib/gcs-mimic`に保存し、`-filesystem-root`は無視します。古いデータは[`gcs-mimic import fake-gcs-server`（英語）](../en/slices/import-filesystem.md)で変換します。 |
-| `-backend memory` | ありません。データは再起動しても残ります。まっさらにするにはコンテナを消してください。 |
-| `-event.*`（Pub/Sub通知） | ありません。通知を待つテストが止まったままにならないよう、起動を止めます。 |
+| `-backend memory` | 上限付きのRAM保存（`GCS_MIMIC_BACKEND=memory`）に読み替えます。データは終了時に消えます。上限は[RAM保存（英語）](../en/slices/memory-backend.md)を参照してください。 |
+| `-event.*`（Pub/Sub通知） | nativeのイベント設定に読み替えます。配信には、`GCS_MIMIC_PUBSUB_EMULATOR_HOST`などで指定するローカルのPub/Subエミュレーターが必要です。Google Pub/Subには接続しません。設定が不完全なら起動を止めます。 |
 | `-public-host` | 受け付けます。従来どおりHostヘッダーで照合するには`GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`も必要です。 |
 | `?project=`なしの`GET /storage/v1/b` | Google Cloud Storageと同じく400を返します。SDKは最初からプロジェクトを送ります。 |
 | resumableアップロードの取り消し | 499を返します。Googleが取り消し成功として定めている値で、エラーではありません。 |
 
 [移行手順](fake-gcs-server-migration.md)と[設定・環境変数の対応](fake-gcs-server-configuration.md)を参照してください。
 
-開発中ソースには、上限付きRAM保存、ローカルPub/Sub配信、HTTP batch・method override、
+0.8.0では、上限付きRAM保存、ローカルPub/Sub配信、HTTP batch・method override、
 XML一覧・コピー・multipart、明示的な管理・reset・reseed、strictのローカルJWT、SDKアダプターを追加しています。
-ディレクトリの継続監視、削除承認、復旧とlive `sync`コマンドは統合中です。
-これらにはソースからのビルドが必要で、上の0.7.0イメージには含まれません。
+ディレクトリの継続監視、削除承認、稼働中のサーバーを操作する`gcs-mimic sync`コマンドも使えます。
 [対応範囲と検証表（英語）](../en/evidence/migration-integration.md)を参照してください。
+広い機能行は、受け入れケースがすべて通るまでPARTIALのままです。
 GoはRust子プロセスを使い、`NoListener`はUnix HTTPです。
 `fake-gcs-server`実行ファイル名を固定したラッパーは、イメージの変更だけでは移行できず、
 明示的なアダプターが必要です。
+[GitHub上の利用例と移行の境界（英語）](../en/fake-gcs-server-migration.md#observed-github-uses-and-migration-boundaries)も参照してください。
 
 ## よく使う設定
 
@@ -198,7 +199,7 @@ GoはRust子プロセスを使い、`NoListener`はUnix HTTPです。
 | `GCS_MIMIC_AUTH_MODE` | `strict`でローカルのbearer tokenを検査。[strict認証（英語）](../en/getting-started.md#strict-local-authentication) |
 | `GCS_MIMIC_LOG_LEVEL` | `debug`・`info`（既定）・`warn`・`error` |
 
-`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.7.0 --help`ですべての設定を確認できます。
+`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.8.0 --help`ですべての設定を確認できます。
 
 ## 機能の概要
 
@@ -238,18 +239,23 @@ GoはRust子プロセスを使い、`NoListener`はUnix HTTPです。
 | Node.js | 51/51 | 25/51 | 22/51 |
 | PHP | 51/51 | 25/51 | 20/51 |
 | Python | 51/51 | 19/51 | 24/51 |
-| スコア（/100） | 100 | 44.9 | 41.5 |
+| Java | 70/70 | 35/70 | 35/70 |
+| .NET | 70/70（1 n/a） | 31/70（1 n/a） | 31/70（1 n/a） |
+| Rust | 47/47（4 n/a） | 0/47（4 n/a） | 0/47（4 n/a） |
+| スコア（/100） | 100 | 39.8 | 37.7 |
 
-2026-10-29に、コミット`e7fb384`で記録しました（[結果](../../sdk-scorecard/results/2026-10-29-5/summary.md)）。
+2026-10-31に、コミット`35de4e1`で記録しました（[結果](../../sdk-scorecard/results/2026-10-31-2/summary.md)）。
 ケースの通過は通常のSDKの操作が動くことを示すもので、APIの完成を意味しません。
+n/aはSDKに公開APIがないケースで、そのSDKの分母から除きます。
 
 ## 次に読む
 
 - [Dockerでの使い方](container-usage.md)、[SDKの設定](sdk-setup.md)、[Rails Active Storage](rails-active-storage.md)
 - [fake-gcs-serverからの移行](fake-gcs-server-migration.md)と[設定・環境変数の対応](fake-gcs-server-configuration.md)
 - [機能比較](feature-comparison.md)と[詳細な機能表](feature-matrix.md)
-- [ファイル保存の仕組み](storage-backends.md)と[ロードマップ](roadmap.md)
+- [ファイル保存の仕組み](storage-backends.md)、[設計（英語）](../en/design.md)、[ロードマップ](roadmap.md)
 - [開発とpush前の確認](development.md)と[バージョンと公開の方針](release-policy.md)
+- [0.8.0のリリースノート（英語）](../en/releases/0.8.0.md)と[すべてのリリース](https://github.com/shiroemons/gcs-mimic/releases)
 - 英語ガイド: [ソースからのビルドとAPIの手順](../en/getting-started.md)、[ローカルHTTPS](../en/local-https.md)、
   [署名付きURL](../en/signed-urls.md)、[ネイティブバイナリ](../en/native-binary.md)
 

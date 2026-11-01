@@ -4,10 +4,10 @@
 
 fake-gcs-serverの設定は、名前を一括置換せず用途ごとに対応させます。
 サーバーの起動時、gcs-mimicは既知の`FAKE_GCS_*`と旧フラグのうち対応先があるものをnative設定に読み替え、それぞれnativeの名前を警告で案内します。
-開発中ソースでは`filesystem`をdiskへ、`memory`を上限付きRAM保存へ対応させます。
+0.8.0以降は`filesystem`をdiskへ、`memory`を上限付きRAM保存へ対応させます。
 イベント設定は、明示したローカルPub/Subエミュレーターと完全なproject/topic設定が必要です。
 通知設定の作成では、エミュレーターを設定している場合に限り、トピックがエミュレーターに存在するかを確かめ、存在しなければCloud Storageと同じ400を返します。エミュレーターに接続できない場合は503を返し、設定は作られません。エミュレーターがないときは、トピックを確かめずに受け付けます。
-不完全なイベント設定と未知のbackendは起動を止めます。公開済み0.7.0は以前の制限のままです。
+不完全なイベント設定と未知のbackendは起動を止めます。0.7.0以前にはRAM保存とイベント配信がありません。
 未知の`FAKE_GCS_*`は警告だけです。
 読み替えの一覧は[旧設定の読み替え（英語）](../en/slices/legacy-setting-aliases.md)を参照してください。
 0.6.0以前は、既知19個をすべて移行案内付きのエラーにします。
@@ -18,8 +18,8 @@ fake-gcs-serverの設定は、名前を一括置換せず用途ごとに対応�
 RAMの既定値は本文64 MiBとSQLiteのmain/TEMPそれぞれ16 MiBで、設定で変えられます。
 これらは保存の上限であり、プロセスRSSの保証ではありません。RAMは再起動で消え、data_dirを開きません。
 通知は上限付きoutboxから外部のローカルエミュレーターへ少なくとも1回配信し、Googleへ自動接続しません。
-ソースの[RAM契約](../en/slices/memory-backend.md)と[通知契約](../en/slices/pubsub-notification-delivery.md)を参照してください。
-seedは毎回起動時に反映します。ソース版は全体を準備して一括公開し、変更した保護対象があれば全体を戻します。
+[RAM契約（英語）](../en/slices/memory-backend.md)と[通知契約（英語）](../en/slices/pubsub-notification-delivery.md)を参照してください。
+seedは毎回起動時に反映します。0.8.0以降は全体を準備して一括公開し、変更した保護対象があれば全体を戻します。
 管理APIのreseedは明示的な有効化が必要で、diskはmerge、RAMは置換です。
 `.metadata`という末尾のseedファイルも通常の本文であり、移行用sidecarとして自動判定しません。
 稼働中の同期操作は[同期CLI](sync-cli.md)を参照してください。
@@ -179,8 +179,8 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | バケットCORS | JSONバケットAPI | XML用・JSONは別の固定ルール |
 | ルールのないバケットのCORS（`-cors-headers`の代わり） | `GCS_MIMIC_CORS_FALLBACK=allow-all` | CORSルールのないバケットのXML・公開URLだけに適用。正しい形式のリクエストヘッダーはすべて許可。全体のCORSルールは設定できない |
 | バケットlocation | JSONバケットAPI | 公式のregional・predefined dual-region名と`US`・`EU`・`ASIA`。大文字小文字を区別せず、大文字のlocationと対応するlocationTypeを返す |
-| メモリ保存モード | なし | 未対応 |
-| イベント通知先・絞り込み | なし | 未対応 |
+| メモリ保存モード | `GCS_MIMIC_BACKEND=memory`・`--backend memory`・JSONの`backend` | 揮発するチャンクとメモリ上のSQLite。既定は本文64 MiB・ページ16 MiBで設定でき、プロセスRSSとは別。既存のディスクデータには触れない。[RAM契約（英語）](../en/slices/memory-backend.md) |
+| イベント通知先・絞り込み | `GCS_MIMIC_PUBSUB_EMULATOR_HOST`・`PUBSUB_EMULATOR_HOST`とnative・旧イベント設定 | 明示したローカルのHTTPエミュレーターと用意済みのtopic、上限付きの永続outboxで少なくとも1回配信する。通知設定の作成時にtopicの存在を確かめる。接続先がなければGoogleへは接続せず失敗する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md) |
 | 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`。JSONバケットAPIと同じ名前に対応。空文字・JSONのnullは`US` |
 | 新規バケットのsoft delete既定の保持期間 | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`・`--default-soft-delete-retention-seconds`・JSONの`default_soft_delete_retention_seconds` | `softDeletePolicy`を指定せずに作ったバケットに与える保持期間。既定は`604800`秒（7日、Cloud Storageと同じ）。ただし`--backend memory`では、削除したデータが固定のメモリ予算を占め続けるため既定は`0`です（`604800`を含め、明示した値はそのまま適用されます）。`0`または`604800`～`7776000`を指定できます。`0`にすると保持ポリシーを持たず、オブジェクトやバケットの削除で本文を即座に解放します（従来およびfake-gcs-serverと同じ。ディスクの節約になります）。既存のバケット、`import`とディレクトリ同期で作るバケットは変わりません。リクエストで明示したポリシー（0を含む）が優先されます。legacy-emulatorプロファイルは既定を適用せず、正の値を拒否します |
 | 作成者として扱うローカル主体 | `GCS_MIMIC_LOCAL_CREATOR_EMAIL`・`--local-creator-email`・JSONの`local_creator_email` | nativeのpermissiveのみ。認証なしで書いたオブジェクトの`owner`と、ACLの`user-`のOWNERエントリに記録するメールアドレス（Cloud Storageが呼び出し元を記録するのと同じ）。既定は`local-user@gcs-mimic.invalid`（予約ドメイン）。空にすると無効になり`project-owners-N`に戻る。作成者の記録だけに使い、権限は与えない。値を変えると次の起動で既存オブジェクトの作成者名も変わる。strictでは登録した呼び出し元が、legacyでは何も記録されないため、どちらでも空でない値を明示すると拒否される |

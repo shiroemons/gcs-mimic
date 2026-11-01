@@ -5,6 +5,11 @@
 対象はDESIGN-040とDESIGN-084です。どちらもPARTIALを維持します。
 新しい設定や依存は追加していません。[英語の契約と証跡](../en/slices/sdk-active-storage-v2-signing.md)が正本です。
 
+このページは最初のRSA/SDKスライスと当時の結果の記録です。
+後続の[V2 HMACとヘッダー署名（英語）](../en/slices/xml-v2-hmac-signatures.md)が、HMACのquery、
+GOOG1/AWSヘッダー、HEAD、virtual-hostのオブジェクトリソースを追加しています。
+下の表と除外のうち、これらに関わるものはそちらの対応範囲で置き換わります。親の機能行はPARTIALのままです。
+
 | ケース | 結果 | 対応範囲 |
 | --- | --- | --- |
 | V2-DETECT | PASS | GoogleAccessId・Expires・Signatureの欠落・重複、V4との混在をXML 400で拒否 |
@@ -22,7 +27,8 @@
 
 V2は公式仕様上、Hostと通常のレスポンス上書きqueryを署名に含みません。
 パスはパーセントエンコードを含めてそのまま検証し、URLのhost・path・queryを書き換えません。
-V2のHEAD・世代選択・virtual-host形式は明示的に拒否します。HMACはRSA鍵登録の案内付きで失敗します。
+このスライスの時点では、V2のHEAD・世代選択・virtual-host形式を明示的に拒否し、HMACはRSA鍵登録の案内付きで失敗していました。
+HMAC、HEAD、virtual-hostの現在の扱いは[V2 HMACとヘッダー署名（英語）](../en/slices/xml-v2-hmac-signatures.md)を参照してください。
 
 2026-10-27に型検査、署名単体11件、HTTPSの`just check-sdk`が成功しました。
 Go 1.27.3／Storage 1.70.0、Ruby 4.0.9／Storage 1.62.1を使用しています。

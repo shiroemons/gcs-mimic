@@ -2,10 +2,10 @@
 
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
-2026-10-31のソースを対象に更新しています。公開イメージの例は`0.7.0`です。
-開発中の追加機能にはソースビルドが必要です。SDK・ブラウザー・配布物の検証範囲と結果は
+0.8.0の内容を対象に更新しています。公開イメージの例は`0.8.0`です。
+SDK・ブラウザー・配布物の検証範囲と結果は
 [統合検証（英語）](../en/evidence/migration-integration.md)にまとめています。
-この結果によって公開イメージの機能や、未達の受入条件が変わるわけではありません。
+この結果によって未達の受入条件が変わるわけではありません。
 fake-gcs-serverで使っていた用途の不足を、使える単位の`0.x`として公開します。
 固定した参照版の全機能と追加機能を検証した段階を`1.0.0`とします。
 以下は着手順の目安で、公開日を約束するものではありません。
@@ -15,7 +15,7 @@ fake-gcs-serverで使っていた用途の不足を、使える単位の`0.x`と
 
 ## 現在使えること
 
-[0.7.0](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.7.0)では、
+[0.8.0](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.8.0)では、
 ネイティブ版とLinux AMD64・ARM64イメージを提供しています。
 イメージはGHCRとDocker Hubから取得できます。HTTPでの導入、既定のHTTPS、
 HTTP/HTTPS同時待受、公開ホストのルーティング、locationの既定値、ログレベルを設定できます。
@@ -30,25 +30,25 @@ media・multipart・コピーの呼び出しトークンは、上限付きのロ
 JSONのmedia GETとXMLのGETは、gzipで保存したオブジェクトを展開して返します。
 Storage v2 gRPCは再開可能アップロード、追記、範囲読込に対応しています。
 旧Storage v1も参照版の12個のRPCに対応していますが、入力・応答には制限があります。
-詳細は[0.5.0のリリースノート](../en/releases/0.5.0.md)と
+詳細は[0.8.0のリリースノート](../en/releases/0.8.0.md)、[0.5.0のリリースノート](../en/releases/0.5.0.md)と
 [0.4.0の機能範囲と制限](../en/releases/0.4.0.md)を参照してください。
 
 バケット初期設定は未作成分だけを作り、APIの変更を保持します。
 seedは毎回の起動時に適用し、拡張子からMIMEを決めます。
-ソース版はツリー全体を準備して一括公開し、変更した保護対象があると全体を戻してreadyを出しません。
+0.8.0以降はツリー全体を準備して一括公開し、変更した保護対象があると全体を戻してreadyを出しません。
 同一のオブジェクトは世代を保持します。
 同期ディレクトリにはAPIの変更を継続的に書き出します。
-ソース版は外部変更の継続監視と、revisionを固定した削除承認・状態/検出事項のページ・待機を追加しています。
+0.8.0では外部変更の継続監視と、revisionを固定した削除承認・状態/検出事項のページ・待機を追加しています。
 競合と復旧の制御は統合中です。移行はファイルシステムに加え、停止前に取得したメモリsnapshotの
 元の名前と履歴を、対応範囲を明示して扱います。
 [コンテナの使い方](container-usage.md)と[移行ガイド](fake-gcs-server-migration.md)に条件があります。
 
 SDKとブラウザーの検証は、宣言した範囲が対象です。
-[5つのSDKのスコアカード](../../sdk-scorecard/README.md)では、permissiveなHTTPSの条件で
-Go・Ruby・Node.js・PHP・Pythonの全ケースが通ります。範囲と残りの条件は
+[8つのSDKのスコアカード](../../sdk-scorecard/README.md)では、
+Go・Ruby・Node.js・PHP・Python・Java・.NET・Rustの全ケースが通ります。範囲と残りの条件は
 [SDK統合](../en/slices/sdk-scorecard-integration.md)に記録しています。
 Rails Active Storageには[非Google universeを使うstorage.ymlの手順](rails-active-storage.md)があります。
-ソース版は登録したローカルJWTと最終originの署名アダプターも追加しています。
+0.8.0では登録したローカルJWTと最終originの署名アダプターも追加しています。
 Googleの既定universeを使うOAuthは、引き続きローカル認証の手順ではありません。
 API全体の完全互換を意味しません。範囲と制約は
 [機能比較](feature-comparison.md)と[生成機能表](feature-matrix.md)にあります。
@@ -69,7 +69,7 @@ API全体の完全互換を意味しません。範囲と制約は
 現在は小さな実装単位で、残る受入条件に対応しています。
 移行の検証記録は、その後のXML・ACL・認証変更の証拠には使いません。
 変更後の最終統合検証は残っています。
-継続監視と保護付き削除はソースに部分実装があり、将来の提案だけではありません。
+継続監視と保護付き削除は0.8.0に部分実装があり、将来の提案だけではありません。
 競合・復旧制御とstrict起動は、それぞれの受入条件を満たしてから対応済みにします。
 DESIGN-062・DESIGN-072・DESIGN-074は`PARTIAL`のままです。
 
@@ -83,9 +83,9 @@ DESIGN-062・DESIGN-072・DESIGN-074は`PARTIAL`のままです。
 seedの`.metadata`は通常の本文で、永続移行のsidecar形式とは別です。
 [移行の契約](../en/slices/import-filesystem.md)に条件があります。
 
-ソース版にはHTTP batch・method override、XML一覧・コピー・multipartがあります。
+0.8.0にはHTTP batch・method override、XML一覧・コピー・multipartがあります。
 管理・reset・reseed、ローカルイベント配信、Go子プロセスfacade、上限付きRAM保存もあります。
-記録したソース時点では、対象を限定した統合検証が成功しました。
+対象を限定した統合検証は成功しています。
 残りのJSON/XMLフィールド、全Go公開API、
 環境別・Google契約との差分は未完了です。
 旧Storage v1も、参照版が受け付ける入力と応答全体への対応は未完了です。
@@ -148,7 +148,7 @@ SQLiteは維持でき、監視後にサイズだけ更新する実装では不�
 `1.0.0`は固定参照版の全機能、移行、指定した追加機能を検証してから公開します。
 Google API全体への対応とは分けます。[バージョン方針](release-policy.md)に判定条件があります。
 
-初回`0.x`は公開済みで、公開イメージの例は`0.7.0`です。
+初回`0.x`は公開済みで、公開イメージの例は`0.8.0`です。
 初回の対象は、宣言済みのJSON・公開/非公開転送・URL・永続化・seed・Go/Ruby・
 CORS・HTTPSでした。Rails、lifecycle、gRPC、完全互換の完成は前提にしていません。
 環境別CI、依存更新、リリースノート、ライセンス同梱、checksum、公開イメージ取得の検証は、各公開で必要です。

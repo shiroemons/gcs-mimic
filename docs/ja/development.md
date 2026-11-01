@@ -112,4 +112,13 @@ Markdownファイルと`docs/`だけを変えた場合は、Foundation checksを
 リリースノートのリンク、Docker Hubの説明文を検査します。コミット済みのドキュメントを読む検査を追加するときは、
 両方のワークフローで実行されるよう、このスクリプトに加えます。ほかのファイルも変えた場合は通常どおりFoundation checksを実行し、
 リリースのワークフローは常にすべての検査を実行します。ドキュメントだけのコミットでFoundation checksを実行したいときは、手動実行を使います。
-依存の更新確認や直接実行するコマンドは[英語の開発手順](../en/development.md)を参照してください。
+
+`just check`は、Windows MSVC・Linux musl・macOS ARM64のリリースターゲットと、
+CIのRustジョブが使うLinux glibcのターゲットも、`scripts/check-cross.sh`で型検査します。Foundation CIはこのスクリプトを`rust`ジョブと並行する`cross`ジョブで実行し、
+`rust`ジョブは`GCSM_CHECK_CROSS=0`を指定して`scripts/check.sh`からの実行を省きます。
+`just check`はホストのテストとほかのターゲットの型検査だけなので、時刻精度に依存するテスト、Linux専用のコード、
+SDKスイートの失敗はCIで初めて出ることがあります。`cargo xtask lint`は[AGENTS.md](../../AGENTS.md)の実装規則を
+本番コードに強制し、検出が1件でもあれば失敗します。
+
+依存の更新確認、Linuxでのテスト手順、lintの規則、直接実行するコマンド、差分比較ハーネスは
+[英語の開発手順](../en/development.md)を参照してください。

@@ -4,9 +4,9 @@
 
 [English](../en/slices/sync-cli.md) · [機能表](feature-matrix.md)
 
-開発中ソースの`sync`コマンドは、稼働中サーバーの管理APIへ接続します。
+0.8.0で追加した`sync`コマンドは、稼働中サーバーの管理APIへ接続します。
 別プロセスからdata_dirを開かず、サーバーの設定や権限を変更しません。
-DESIGN-072・DESIGN-074全体はPARTIALです。公開済み0.7.0にはこのCLIはありません。
+DESIGN-072・DESIGN-074全体はPARTIALです。0.7.0以前にはこのCLIはありません。
 
 ```sh
 gcs-mimic sync status --endpoint https://127.0.0.1:4443

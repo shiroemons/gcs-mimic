@@ -6,9 +6,9 @@
 
 最短の起動方法は[READMEの「まず動かす」](README.md#まず動かす)です。
 `docker run`ひとつで組み込みの開発用証明書を使うHTTPSが起動し、`-e GCS_MIMIC_SCHEME=http`でHTTPになります。
-すべての設定は`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.7.0 --help`で確認できます。
-イメージ`ghcr.io/shiroemons/gcs-mimic:0.7.0`は`linux/amd64`と`linux/arm64`向けに公開済みで、
-ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.7.0`として公開しており、
+すべての設定は`docker run --rm ghcr.io/shiroemons/gcs-mimic:0.8.0 --help`で確認できます。
+イメージ`ghcr.io/shiroemons/gcs-mimic:0.8.0`は`linux/amd64`と`linux/arm64`向けに公開済みで、
+ログインなしでpullできます。Docker Hubでも同じdigestのイメージを`shiroemons/gcs-mimic:0.8.0`として公開しており、
 以下のコマンドではどちらの名前も使えます。CIではこのバージョンを明示してください。
 未公開のソースを試す場合は、チェックアウトでローカルイメージをビルドし、以下のコマンドのイメージ名を置き換えます。
 
@@ -29,7 +29,7 @@ docker run -d --name gcs-mimic \
   -p 127.0.0.1:4443:4443 \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
-  ghcr.io/shiroemons/gcs-mimic:0.7.0
+  ghcr.io/shiroemons/gcs-mimic:0.8.0
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -106,7 +106,7 @@ data/
 ```sh
 docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
   -e GCS_MIMIC_SCHEME=http \
-  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.7.0
+  -v "$PWD/data:/data:ro" ghcr.io/shiroemons/gcs-mimic:0.8.0
 curl 'http://localhost:4443/storage/v1/b?project=local-project'
 ```
 
@@ -137,13 +137,17 @@ readinessより前に、起動のたびに初期ファイルを反映します�
 | ない | 作成する |
 | 初期ファイルから書き込む内容と完全に同じ（本体と初期ファイルのContent-Typeが同じで、Content-Encoding・Content-Disposition・Content-Language・Cache-Control・custom time・独自メタデータがない） | そのまま。世代も変えず、`unchanged`として数える |
 | それ以外の違いがある（APIで変更したメタデータを含む） | 初期ファイルの既定メタデータで新しい現行世代に置き換える。バージョニングが有効なバケットでは以前の世代をnoncurrentとして残す |
-| 違いはあるが、オブジェクトホールドや保持期間の対象 | そのままにし、警告を出して`blocked`として数える |
+| 違いはあるが、オブジェクトホールドや保持期間の対象 | 初期ファイル全体を反映せずに起動を失敗させ、readyを出さない |
 
 ホールドとストレージクラスは比較しないため、内容が同じならホールド中のオブジェクトも`unchanged`です。
+0.8.0以降は、初期ファイル全体を準備してから1つのトランザクションで反映します。途中で失敗すると、それまでのカタログと本文をそのまま残します。
+0.7.0以前は保護対象のオブジェクトだけを飛ばして`blocked`として数え、残りを反映していました。
+0.8.0以降の`blocked`は常に0です。ホールドを外すには`seed_dir`なしで起動し、保持期間なら期限まで待つか、初期ファイルを合わせてください。
 
 初期ファイルのないオブジェクトには触れず、初期ファイルを消してもオブジェクトは削除しません。
 APIで削除したオブジェクトは次回の起動時に再作成し、初期ファイルの編集も次回の起動時に反映します。
-ファイル監視やreseed用のエンドポイントはないため、コンテナを再起動してください。
+初期ファイルのディレクトリは監視しないため、コンテナを再起動してください。
+0.8.0以降は、`--admin-enabled true`で管理APIを有効にすると`/_internal/reseed`でも反映できます（[一括反映とreseed（英語）](../en/slices/atomic-seed-reseed.md)）。
 
 Content-Typeは、固定の対応表を使ってファイルの拡張子から決めます（例: `.png`は`image/png`）。
 以前の既定値どおりすべて`application/octet-stream`にするには、`GCS_MIMIC_SEED_CONTENT_TYPE=octet-stream`を指定します。
@@ -158,7 +162,7 @@ Content-Typeは、固定の対応表を使ってファイルの拡張子から�
 
 fake-gcs-serverと同じく、再起動すると内容が異なる初期オブジェクトは置き換わり、APIでのメタデータ変更も残りません。
 意図した違いは2点だけです。fake-gcs-serverは完全に同じオブジェクトでも新しい世代を書き込みますが、
-gcs-mimicはそのまま残します。また、gcs-mimicには`/_internal/reseed`のルートがありません。
+gcs-mimicはそのまま残します。また、gcs-mimicの`/_internal/reseed`は、管理APIを明示的に有効にした場合だけ使えます。
 fake-gcs-serverの実行用ストレージにあるxattrやサイドカーのメタデータは移行しません。
 初期ファイルのディレクトリは読み込み専用の入力で、APIで保存しても`/data`へは書き戻しません。
 APIで保存したオブジェクトをファイルとして見るには、別の[同期ディレクトリ](#オブジェクトをホストのディレクトリへ書き出す)を使います。
@@ -196,12 +200,16 @@ readinessの成功後、既存のバケット（空のバケットを含む）�
 保存状態の本体はSQLiteのカタログと内部ファイルで、このディレクトリは写しです。
 データの永続化には、引き続き`/var/lib/gcs-mimic`のボリュームが必要です。
 
-サーバーの外で作成・編集したファイルは、起動時に新しい世代としてhash付きで取り込みます。
-ファイル監視はないため、編集を反映するには再起動します。取り込んだファイルがAPIから
-見えるのは、readinessの約1秒後です。ファイルを消してもオブジェクトは削除されず、
+サーバーの外で作成・編集したファイルは、新しい世代としてhash付きで取り込みます。
+0.8.0以降は、LinuxのinotifyとmacOSのkqueueでディレクトリを[継続して監視（英語）](../en/slices/continuous-directory-observation.md)し、
+再起動しなくても編集を反映します。0.7.0以前は起動時だけ取り込んでいました。
+readyは最初の照合より前に出るため、同期の完了を示す合図ではありません。
+ファイルを消しても、それだけではオブジェクトを削除しません。削除は、revisionを固定した削除一覧を
+[`gcs-mimic sync`](sync-cli.md)で確認して承認したときだけ行います。
 APIでバケットを削除してもディレクトリは残ります。同じオブジェクトをAPIとファイルの両方で
-変更した場合は、どちらも相手を上書きせず、ファイルはそのまま残ります。起動時の
-`sync_ingested`・`sync_reconciled`ログイベントでは、こうしたファイルを`conflicting`として数えます。
+変更した場合は、どちらも相手を上書きせず、ファイルはそのまま残ります。
+`sync_ingested`・`sync_reconciled`ログイベントでは、こうしたファイルを`conflicting`として数え、
+`gcs-mimic sync conflicts`で一覧・解決できます。
 `logs/2026-10-28T12:00:00.log`のように`\`や`:`を含む名前と、ホストのファイル名に
 対応付けられないオブジェクト名は書き出さずに飛ばします。書き出し自体は止まらず、APIからは使えます。
 
@@ -210,8 +218,8 @@ APIでバケットを削除してもディレクトリは残ります。同じ�
 `docker compose down --volumes`などでデータボリュームを新しくすると、古いディレクトリは
 `ForeignMarker`の診断で起動時に拒否されます。古いディレクトリは退避し、新しい空のディレクトリを
 使ってください。データや初期ファイルのディレクトリと重ねることはできません。
-同期にはpermissive認証が必要で（strictでは拒否します）、LinuxとmacOSで動作します。
-Windowsでは拒否します。
+同期はLinuxとmacOSで動作し、Windowsでは拒否します。
+0.8.0以降はstrictでも使え、起動にはローカルのID登録が、同期の操作にはプロジェクト所有者の権限が必要です。
 
 書き出したファイルとディレクトリは、サーバーのユーザーだけが読めるモード（`0600`・`0700`）です。
 Docker Desktopはbind mountの所有者を対応付けるため、macOSのホストでは読めます。
@@ -224,7 +232,7 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
   -p 127.0.0.1:4443:4443 \
   -v "$PWD/data:/data" -v "$PWD/sync:/sync" \
   -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/data -e GCS_MIMIC_SYNC_DIR=/sync \
-  ghcr.io/shiroemons/gcs-mimic:0.7.0
+  ghcr.io/shiroemons/gcs-mimic:0.8.0
 ```
 
 検証済みの範囲、復旧の挙動、未実装の作業は[同期の契約（英語）](../en/slices/directory-synchronization.md)を参照してください。
@@ -282,6 +290,7 @@ APIで削除したバケットは次回起動時に再作成します。既存pr
 （既定`local-project`）の順に所有projectを決めます。
 strictでもローカル管理として初期化し、API権限は付与しません。
 IAMポリシー、ACL、lifecycle、UBLA、未知フィールドは空・無効でも拒否します。
+0.8.0以降は`softDeletePolicy`を指定でき、`retentionDurationSeconds`を0にすると新しい既定のsoft deleteを外せます。
 JSON APIの固定CORSとXMLのバケット別CORSは別です。
 上限はファイル1MiB、1000件、各64KiBです。
 JSON-BUCKETS-002、JSON-BUCKETS-008、DESIGN-062はPARTIAL、
@@ -292,5 +301,6 @@ BEHAVIOR-BUCKET-009はIMPLEMENTEDを維持します。
 
 - [HTTPSと証明書](../en/local-https.md#local-https-with-an-explicit-development-ca)
 - [SDK・認証・ブラウザー](../en/getting-started.md)
+- [ソースからのビルドと検証](development.md)
 - [イメージ配布と対応環境](../en/container-distribution.md)
 - [今後の導入機能](roadmap.md)

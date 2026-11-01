@@ -8,7 +8,7 @@
 
 名前は`projects/_/buckets/NAME`です。作成時のparentは空または`projects/_`、所有projectは`bucket.project`に`projects/<id>`で指定します。Go SDKはこの形式を自動で組み立てます。routing metadataの`bucket`・`project`を復号して要求と照合します。Go SDKが付けるDirectPath診断は受け付けます。
 
-作成時はlocation、storage class、labels、CORS、versioning、default event hold、retention、soft delete、IAM設定の共有JSON検証を使います。未対応の意味を持つ設定・read maskは`UNIMPLEMENTED`です。取得・削除のメタ世代条件、prefixとページング、非空バケットの削除拒否に対応します。strictでは共有認可を使い、保護されたバケットへの未認証アクセスは`UNAUTHENTICATED`、登録済みprincipalの権限不足は`PERMISSION_DENIED`になります。`allUsers`で許可されたGet/DeleteはJSONと同様に匿名でも成功し、公開アクセス防止も共有の判定に従います。
+作成時はlocation、storage class、labels、CORS、versioning、default event hold、retention、soft delete、IAM設定の共有JSON検証を使います。Autoclassは[共有の設定規則（英語）](../en/slices/bucket-autoclass-storage-class.md)に従い、出力専用の時刻は拒否します。object retentionは`enable_object_retention`で有効にします（[SDK互換（英語）](../en/slices/grpc-v2-sdk-parity.md)）。read maskでは`etag`・`autoclass`・`lifecycle`・`object_retention`も選べます。未対応の意味を持つ設定・read maskは`UNIMPLEMENTED`です。取得・削除のメタ世代条件、prefixとページング、非空バケットの削除拒否に対応します。strictでは共有認可を使い、保護されたバケットへの未認証アクセスは`UNAUTHENTICATED`、登録済みprincipalの権限不足は`PERMISSION_DENIED`になります。`allUsers`で許可されたGet/DeleteはJSONと同様に匿名でも成功し、公開アクセス防止も共有の判定に従います。
 
 課金先を指定する`x-goog-user-project`は、空値を明示した場合もErrorInfo付き`UNIMPLEMENTED`で拒否します。JSONの明示的な`userProject`も未対応です。Go SDKの既定呼び出しと`Bucket.UserProject("")`はこのmetadataを送らないため利用できます。
 

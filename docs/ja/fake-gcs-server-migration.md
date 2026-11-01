@@ -12,10 +12,9 @@
 UX-012とUX-001はPARTIAL、DESIGN-061は既存のホスト・コンテナ接続範囲で
 IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置き換えは含みません。
 
-公開イメージの例は0.7.0です。開発中ソースのRAM保存、ローカルPub/Sub、HTTP batch、
-XML一覧・コピー・multipart、管理・reset・reseed、strict JWT、追加SDKアダプターには
-ソースからのビルドが必要です。[機能と検証の対応表（英語）](../en/evidence/migration-integration.md)では、
-実施済みの通信テストと、未実施の最終SDK・コンテナ・ブラウザー検証を分けています。
+公開イメージの例は0.8.0です。0.8.0では、RAM保存、ローカルPub/Sub、HTTP batch、
+XML一覧・コピー・multipart、管理・reset・reseed、strict JWT、追加SDKアダプターも使えます。
+[機能と検証の対応表（英語）](../en/evidence/migration-integration.md)に、各機能の対応範囲と検証結果をまとめています。
 機能の実装状態は共通の台帳を原本とし、全面置換は未達のままです。
 
 ## GitHubで確認した利用例と移行時の違い
@@ -56,7 +55,7 @@ Railsは既存の検証優先対象です。このconsumer調査で代表的なR
 | `-scheme http` | `GCS_MIMIC_SCHEME: http` | 省略時はHTTPSなので、既存のHTTPクライアントが接続できません。イメージのhealthcheckもこの値に従います。 |
 | `-host 0.0.0.0 -port 4443` | `GCS_MIMIC_LISTEN: 0.0.0.0:4443` | ループバックだけで待ち受けると他のコンテナから接続できません。イメージの既定値を明示しています。 |
 | `-public-host gcs:4443 -external-url http://gcs:4443` | `GCS_MIMIC_API_BASE_URL: http://gcs:4443` | コンテナのSDKがresumableのLocationへ接続するために必要です。nativeのpath-style読み取りにはpublic-host設定が不要です。旧来の仮想ホスト判定や公開権限は再現しません。 |
-| `-backend filesystem -filesystem-root /storage` | `/var/lib/gcs-mimic`へ名前付きボリューム | 既定はSQLiteと内部blobの永続ストレージです。保存形式が違うため、移行元のボリュームは別に保管します。この手順にmemory backendの代替はありません。 |
+| `-backend filesystem -filesystem-root /storage` | `/var/lib/gcs-mimic`へ名前付きボリューム | 既定はSQLiteと内部blobの永続ストレージです。保存形式が違うため、移行元のボリュームは別に保管します。`-backend memory`は上限付きのRAM保存に読み替えますが、この手順では使いません。 |
 | 空のバケットディレクトリを置く`-data /data` | `GCS_MIMIC_BUCKETS_FILE: /buckets.json`と読み取り専用マウント | `./data:/data:ro`のマウントだけで起動のたびにseedを反映し、空のディレクトリもバケットになります。バケットにCORSやバージョニングを設定するには、バケットファイルを使います。 |
 
 `data/assets/`と`data/exports/`の代わりに、起動前に`buckets.json`を作ります。
@@ -114,7 +113,7 @@ Goでは削除前に`err`を確認してください。未設定での`softDelet
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.7.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.8.0
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
@@ -230,7 +229,7 @@ googleauth 1.17.6は、既定のuniverseのサービスアカウントではGoog
 | 症状 | 原因 | 直し方 |
 | --- | --- | --- |
 | `-scheme`や`FAKE_GCS_SCHEME`で起動が止まる | 0.6.0以前は旧設定名を読み替えない | 0.7.0以降に上げるか、古いcommandやキーを消して`GCS_MIMIC_SCHEME: http`へ置き換える。 |
-| `-event.pubsub-topic`などの`FAKE_GCS_EVENT_*`で起動が止まる | イベント通知は未対応 | イベント設定を消す。通知が必要なテストはまだgcs-mimicでは動かせない。 |
+| `-event.pubsub-topic`などの`FAKE_GCS_EVENT_*`で起動が止まる | 0.7.0以前は配信がない。0.8.0以降は完全なローカル配信設定が必要 | project・topicと、明示したローカルPub/Subエミュレーターの接続先を指定し、topicとsubscriptionは別に用意する。[通知契約（英語）](../en/slices/pubsub-notification-delivery.md)を参照。 |
 | SDKの開始は成功するが次の接続が失敗する | Locationがループバックかホスト専用のURL | コンテナ向けに`GCS_MIMIC_API_BASE_URL: http://gcs:4443`を指定し、サービスを再作成する。 |
 | ブラウザーが`gcs`を名前解決できない | コンテナDNSはホストでは使えない | この例では`http://localhost:14443`を使い、署名なしセッションのpath/queryを保って変換する。 |
 | 後から足した空ディレクトリがバケットにならない | 0.2.1以前は初期ファイルを一度だけ読み込んでいた。[0.3.0のリリースノート（英語）](../en/releases/0.3.0.md)を参照 | 0.3.0へ更新すると起動のたびにseedを反映するため、再起動でバケットが作られる。またはバケットファイルへ`{"name":"exports"}`を追加して再起動する。データボリュームは消さない。 |
@@ -241,4 +240,4 @@ googleauth 1.17.6は、既定のuniverseのサービスアカウントではGoog
 
 英語版と同じく、移行元の比較ではコピー再実行・preflight・取り消し後の応答とRubyメタデータに
 差が残っています。アプリのコードを変えずに全面移行できるとは主張しません。
-既存ストレージの取り込み、memory backend、Go埋め込み、公開イメージ、実ブラウザーの検証は対象外です。
+この手順の検証には、既存ストレージの取り込み、memory backend、Go埋め込み、公開イメージ、実ブラウザーを含みません。
