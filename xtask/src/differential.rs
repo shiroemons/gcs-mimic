@@ -177,6 +177,11 @@ fn write_checked(path: &Path, text: &str, secrets: &[(String, &str)]) -> Result<
     }
     fs::write(&target, &text).map_err(|e| format!("{}: {e}", target.display()))?;
     if leaks.is_empty() {
+        // A `.redacted` copy from an earlier leaking run would read as this run's result.
+        // A missing file is the usual case, so a failed removal is not an error.
+        let mut stale = path.as_os_str().to_owned();
+        stale.push(".redacted");
+        let _ = fs::remove_file(PathBuf::from(stale));
         return Ok(());
     }
     Err(format!(
@@ -577,6 +582,10 @@ mod tests {
         assert!(write_checked(&path, text, &secrets).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "earlier");
         assert!(write_checked(&dir.join("ok.json"), "{}", &secrets).is_ok());
+        // A clean write of the same path removes the stale redacted copy.
+        assert!(dir.join("out.json.redacted").exists());
+        assert!(write_checked(&path, "{}", &secrets).is_ok());
+        assert!(!dir.join("out.json.redacted").exists());
         server::remove_dir(&dir);
     }
     #[test]

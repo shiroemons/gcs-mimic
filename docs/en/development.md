@@ -586,7 +586,8 @@ project, the project number, the token, a bucket name of the run, the local
 endpoint, an email address or a local path. If it does, the requested file is
 left untouched, a fully redacted copy (each local path replaced as a whole) is
 written to `<file>.redacted`, and the run fails naming only the location of the
-leak (case, step, JSON path), never the value.
+leak (case, step, JSON path), never the value. A later clean write of the same
+file removes the stale `<file>.redacted`.
 Values are replaced by placeholders before they are compared, recorded or
 reported. Placeholders keep the type and shape of the value, because a string
 and a number, or a different width, are different JSON: `<generation:str:16>`,
