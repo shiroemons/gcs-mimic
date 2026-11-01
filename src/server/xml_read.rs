@@ -29,7 +29,11 @@ pub(super) async fn respond(
         .authorize(permission, &operation.bucket)
         .await
         .map_err(|error| anonymous_error(error, ctx.caller))?;
-    xml::headers(request.headers(), &mut operation)?;
+    xml::headers(
+        request.headers(),
+        &mut operation,
+        xml::UnknownGoogHeaders::Ignore,
+    )?;
     if delete
         && let Some(name) =
             crate::csek::has_headers(request.headers(), crate::csek::DESTINATION_PREFIX)
@@ -121,10 +125,27 @@ async fn read(
         return gunzipped(ctx, &record, reader, headers, overrides, request.method()).await;
     }
     headers.extend(operation.response_overrides);
+    let requested = request
+        .headers()
+        .get("range")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    // Cloud Storage rejects a multi-range request with 400 instead of serving the first range.
+    if requested.trim().to_ascii_lowercase().starts_with("bytes=") && requested.contains(',') {
+        return Ok(range_error(
+            request,
+            headers,
+            xml::Error::multiple_ranges(requested),
+        ));
+    }
     let range = match json::object_media_range(request.headers(), record.size) {
         Ok(range) => range,
         Err(error) if error.status == StatusCode::RANGE_NOT_SATISFIABLE => {
-            return Ok(unsatisfiable_range(request, headers));
+            return Ok(range_error(
+                request,
+                headers,
+                xml::Error::unsatisfiable_range(requested),
+            ));
         }
         Err(error) => return Err(error.into()),
     };
@@ -191,20 +212,15 @@ async fn gunzipped(
     Ok(response)
 }
 
-/// An unsatisfiable Range keeps the object's validators, generation, hashes and
-/// `accept-ranges`, with an `InvalidRange` document in place of the representation
-/// headers, and no `content-range` (observed 2026-10-31).
-fn unsatisfiable_range(
+/// A refused Range keeps the object's validators, generation, hashes and `accept-ranges`, with
+/// the error document in place of the representation headers, and no `content-range`
+/// (observed 2026-10-31 for an unsatisfiable and for a multiple range).
+fn range_error(
     request: &Request<Incoming>,
     mut headers: HeaderMap,
+    error: xml::Error,
 ) -> Response<ResponseBody> {
-    let requested = request
-        .headers()
-        .get("range")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    let error = xml::Error::unsatisfiable_range(requested)
-        .response(xml::ErrorBody::for_method(request.method()));
+    let error = error.response(xml::ErrorBody::for_method(request.method()));
     for name in [
         "content-range",
         "content-encoding",

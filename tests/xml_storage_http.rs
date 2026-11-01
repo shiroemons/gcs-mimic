@@ -667,13 +667,13 @@ fn xml_copy_failed_conditions_digests_and_unsupported_inputs_preserve_destinatio
         ),
         (
             "x-goog-copy-source-if-match: mismatch\r\n",
-            412,
-            "PreconditionFailed",
+            400,
+            "InvalidArgument",
         ),
         (
             "x-goog-copy-source-if-none-match: 5d41402abc4b2a76b9719d911017c592\r\n",
-            412,
-            "PreconditionFailed",
+            400,
+            "InvalidArgument",
         ),
         (
             "Content-MD5: AAAAAAAAAAAAAAAAAAAAAA==\r\n",

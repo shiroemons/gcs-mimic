@@ -104,10 +104,13 @@ fn validate_source_etags(headers: &HeaderMap, record: &ObjectRecord) -> Result<(
             }
             let matches = value.trim_matches('"') == expected.trim_matches('"');
             if matches != must_match {
+                // Cloud Storage answered a non-matching `x-goog-copy-source-if-match` with 400
+                // InvalidArgument, not 412 (recorded). `if-none-match` was not recorded; it
+                // is assumed to fail the same way.
                 return Err(Error::new(
-                    StatusCode::PRECONDITION_FAILED,
-                    "PreconditionFailed",
-                    "The source ETag condition was not met",
+                    StatusCode::BAD_REQUEST,
+                    "InvalidArgument",
+                    "Invalid argument.",
                 ));
             }
         }
@@ -153,6 +156,7 @@ pub(super) async fn respond(
         .await
         .map_err(|error| anonymous_error(error, ctx.caller))?;
     let source = source(request.headers(), ctx)?;
+    let (source_bucket, source_name) = (source.bucket.clone(), source.name.clone());
     let source_access = ctx
         .authorize(auth::OBJECTS_GET, &source.bucket)
         .await
@@ -186,7 +190,9 @@ pub(super) async fn respond(
             key,
         ))
         .await
-        .map_err(|error| put::storage_error(error, ctx.caller))?;
+        .map_err(|error| {
+            put::storage_error(error, ctx.caller).naming_object(&source_bucket, &source_name)
+        })?;
     validate_source_etags(request.headers(), &source.object)?;
     json::read_body(request.into_body(), 0).await?;
     let modified = source.object.updated;

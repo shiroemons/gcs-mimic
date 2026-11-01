@@ -418,15 +418,15 @@ fn xml_put_invalid_headers_and_checksums_preserve_entire_object() {
         );
         assert_eq!(snapshot(&server, &data), before);
     }
-    for header in [
-        "Content-MD5: AAAAAAAAAAAAAAAAAAAAAA==\r\n",
-        "x-goog-hash: crc32c=AAAAAA==\r\n",
-        "x-goog-hash: md5=AAAAAAAAAAAAAAAAAAAAAA==\r\n",
+    for (header, code) in [
+        ("Content-MD5: AAAAAAAAAAAAAAAAAAAAAA==\r\n", "BadDigest"),
+        ("x-goog-hash: crc32c=AAAAAA==\r\n", "CrcMismatch"),
+        ("x-goog-hash: md5=AAAAAAAAAAAAAAAAAAAAAA==\r\n", "BadDigest"),
     ] {
         xml_error(
             &server.request("PUT", OBJECT, &format!("{ADMIN}{header}"), b"replacement"),
             400,
-            "BadDigest",
+            code,
         );
         assert_eq!(snapshot(&server, &data), before);
     }

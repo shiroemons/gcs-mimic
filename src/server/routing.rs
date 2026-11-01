@@ -451,12 +451,12 @@ async fn respond_xml_object(
     let put = request.method() == Method::PUT;
     let delete = request.method() == Method::DELETE;
     let multipart = xml::multipart::matches(request.uri());
-    // Only a read's missing-object error names the requested path; a write can miss a different
-    // object, such as a copy source.
+    // A read's or delete's missing-object error names the requested path; a PUT can miss a
+    // different object, such as a copy source, and names that one itself.
     let target = parsed
         .as_ref()
         .ok()
-        .filter(|_| head || request.method() == Method::GET)
+        .filter(|_| head || delete || request.method() == Method::GET)
         .map(|read| (read.bucket.clone(), read.name.clone()));
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
     let authentication = if put && !multipart {

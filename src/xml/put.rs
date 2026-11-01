@@ -308,6 +308,34 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     Ok(metadata)
 }
 
+/// A PUT whose body did not match a declared hash names the hash that was declared. Which of two
+/// declared hashes failed is not known here, so MD5 is assumed when it was declared; the actual
+/// CRC32C is not available to the adapter, so that mismatch carries no `Details`.
+fn upload_error(
+    error: ObjectError,
+    caller: Option<Caller<'_>>,
+    operation: &ReadRequest,
+    expected: &ExpectedHashes,
+) -> Error {
+    if !matches!(error, ObjectError::ChecksumMismatch) {
+        return storage_error(error, caller);
+    }
+    if expected.md5.is_none() && expected.crc32c.is_some() {
+        return Error::new(
+            StatusCode::BAD_REQUEST,
+            "CrcMismatch",
+            "The CRC32C you specified did not match what we computed.",
+        );
+    }
+    let mut error = Error::new(
+        StatusCode::BAD_REQUEST,
+        "BadDigest",
+        "The MD5 you specified in Content-MD5 or x-goog-hash did not match what we computed.",
+    );
+    error.details = Some(format!("{}/{}", operation.bucket, operation.name));
+    error
+}
+
 pub(super) fn storage_error(error: ObjectError, caller: Option<Caller<'_>>) -> Error {
     match error {
         ObjectError::ChecksumMismatch => Error::new(
@@ -401,7 +429,7 @@ pub(crate) async fn respond(
                 drop(sender);
                 match ctx.await_catalog(upload).await {
                     Ok(_) | Err(ObjectError::BodyAborted(_)) => {}
-                    Err(error) => return Err(storage_error(error, caller)),
+                    Err(error) => return Err(upload_error(error, caller, &operation, &expected)),
                 }
                 return Err(error);
             }
@@ -412,7 +440,7 @@ pub(crate) async fn respond(
             }).await
         }
     }
-    .map_err(|error| storage_error(error, caller))?;
+    .map_err(|error| upload_error(error, caller, &operation, &expected))?;
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
     let mut response = boxed(Response::new(Full::new(Bytes::new())));
     json::insert_response_headers(&record, response.headers_mut());

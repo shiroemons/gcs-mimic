@@ -191,7 +191,7 @@ fn validate_headers(headers: &HeaderMap) -> Result<(), Error> {
         conditions: ObjectConditions::default(),
         response_overrides: HeaderMap::new(),
     };
-    super::headers(headers, &mut operation)?;
+    super::headers(headers, &mut operation, super::UnknownGoogHeaders::Reject)?;
     if operation.conditions != ObjectConditions::default()
         || headers.contains_key("range")
         || crate::csek::has_headers(headers, crate::csek::DESTINATION_PREFIX).is_some()

@@ -189,7 +189,7 @@ pub(crate) async fn respond(
         ));
     }
     headers.remove("x-goog-interop-list-objects-format");
-    super::headers(&headers, &mut operation)?;
+    super::headers(&headers, &mut operation, super::UnknownGoogHeaders::Reject)?;
     if operation.conditions != crate::object::ObjectConditions::default()
         || headers
             .keys()

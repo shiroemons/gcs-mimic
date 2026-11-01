@@ -268,7 +268,6 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
         "response-content-encoding",
         "response-expires",
         "response-unknown",
-        "unknown",
     ] {
         let path = format!("{OBJECT}?{parameter}=value");
         error(&server.get(ADMIN, &path), 400, "InvalidArgument");
@@ -282,6 +281,12 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
         );
         error(&send(&server, "GET", &url, ""), 400, "InvalidArgument");
     }
+    // A parameter that names no response override or sub-resource is ignored, as Cloud Storage
+    // answered a GET with an unknown query parameter (recorded).
+    assert_eq!(
+        server.get(ADMIN, &format!("{OBJECT}?unknown=value")).status,
+        200
+    );
     assert_eq!(server.get(ADMIN, METADATA).ok().json(), before);
 }
 
