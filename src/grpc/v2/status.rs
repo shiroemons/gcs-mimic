@@ -1,8 +1,20 @@
-use crate::grpc::generated::google::rpc::{ErrorInfo, Status as RpcStatus};
+use crate::grpc::generated::google::rpc::{
+    BadRequest, ErrorInfo, Status as RpcStatus, bad_request,
+};
 use prost::Message;
 use tonic::{Code, Status};
 
-pub(crate) fn from_json(error: crate::json::JsonError) -> Status {
+/// The gRPC message of a conditional read that matched `if_*_not_match` (recorded on `GetObject`).
+const NOT_MODIFIED: &str =
+    "The resource you requested has not been modified according to the condition you specified.";
+
+pub(crate) fn from_json(mut error: crate::json::JsonError) -> Status {
+    match (error.status.as_u16(), error.reason) {
+        // The JSON object error words it shorter; gRPC carries the recorded text of bucket RPCs.
+        (412, "conditionNotMet") => error.message = crate::json::PRECONDITION_NOT_HELD.into(),
+        (304, "notModified") => error.message = NOT_MODIFIED.into(),
+        _ => {}
+    }
     if error.message.starts_with("gcs-mimic does not support ") {
         return unsupported(&error.message);
     }
@@ -68,4 +80,97 @@ pub(crate) fn unsupported(method: &str) -> Status {
         }],
     };
     Status::with_details(Code::Unimplemented, message, details.encode_to_vec().into())
+}
+
+/// The domain Cloud Storage puts in the `ErrorInfo` of a rejected request. It names the service,
+/// not the endpoint the client dialed, so an emulator on another host keeps the same value.
+const ERROR_DOMAIN: &str = "storage.googleapis.com";
+
+/// An `INVALID_ARGUMENT` status that carries one `google.rpc.ErrorInfo`, as Cloud Storage does
+/// for malformed resource names.
+pub(crate) fn invalid_with_reason(message: String, reason: &str) -> Status {
+    let info = ErrorInfo {
+        reason: reason.into(),
+        domain: ERROR_DOMAIN.into(),
+        metadata: Default::default(),
+    };
+    with_detail(
+        Code::InvalidArgument,
+        message,
+        "type.googleapis.com/google.rpc.ErrorInfo",
+        info.encode_to_vec(),
+    )
+}
+
+/// An `INVALID_ARGUMENT` status that carries a `google.rpc.BadRequest` with one field violation
+/// whose description repeats the message, as Cloud Storage does for an empty object name.
+pub(crate) fn invalid_field(message: &str) -> Status {
+    let violation = BadRequest {
+        field_violations: vec![bad_request::FieldViolation {
+            description: message.into(),
+            ..Default::default()
+        }],
+    };
+    with_detail(
+        Code::InvalidArgument,
+        message.into(),
+        "type.googleapis.com/google.rpc.BadRequest",
+        violation.encode_to_vec(),
+    )
+}
+
+fn with_detail(code: Code, message: String, type_url: &str, value: Vec<u8>) -> Status {
+    let details = RpcStatus {
+        code: code as i32,
+        message: message.clone(),
+        details: vec![prost_types::Any {
+            type_url: type_url.into(),
+            value,
+        }],
+    };
+    Status::with_details(code, message, details.encode_to_vec().into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hyper::StatusCode;
+
+    fn rpc_status(status: &Status) -> RpcStatus {
+        RpcStatus::decode(status.details()).unwrap()
+    }
+
+    #[test]
+    fn precondition_failures_use_the_grpc_wording() {
+        let failed = from_json(crate::json::JsonError::new(
+            StatusCode::PRECONDITION_FAILED,
+            "conditionNotMet",
+            "Precondition failed",
+        ));
+        assert_eq!(failed.code(), Code::FailedPrecondition);
+        assert_eq!(failed.message(), crate::json::PRECONDITION_NOT_HELD);
+        let unmodified = from_json(crate::json::JsonError::new(
+            StatusCode::NOT_MODIFIED,
+            "notModified",
+            "Not modified",
+        ));
+        assert_eq!(unmodified.message(), NOT_MODIFIED);
+    }
+
+    #[test]
+    fn resource_name_errors_carry_their_details() {
+        let bucket = crate::grpc::v2::names::bucket_name("x").unwrap_err();
+        assert_eq!(bucket.code(), Code::InvalidArgument);
+        assert!(bucket.message().starts_with("Invalid bucket name 'x'."));
+        let detail = &rpc_status(&bucket).details[0];
+        let info = ErrorInfo::decode(detail.value.as_slice()).unwrap();
+        assert_eq!(info.reason, "GRPC_INVALID_BUCKET");
+        assert_eq!(info.domain, ERROR_DOMAIN);
+
+        let object = crate::grpc::v2::names::object_name("projects/_/buckets/b", "").unwrap_err();
+        assert_eq!(object.message(), "No object name");
+        let detail = &rpc_status(&object).details[0];
+        let violations = BadRequest::decode(detail.value.as_slice()).unwrap();
+        assert_eq!(violations.field_violations[0].description, "No object name");
+    }
 }

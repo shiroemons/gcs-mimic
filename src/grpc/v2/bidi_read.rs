@@ -201,7 +201,7 @@ impl Storage {
                     &access,
                 )
                 .await
-                .map_err(|e| error(e, caller))?;
+                .map_err(|e| error(JsonError::from(e).naming_object(bucket, object), caller))?;
             let selected = Arc::new(Selected {
                 record,
                 reader: Mutex::new(reader),

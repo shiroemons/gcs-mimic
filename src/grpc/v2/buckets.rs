@@ -27,7 +27,9 @@ fn project_name(resource: &str) -> Result<&str, Status> {
         .strip_prefix("projects/")
         .filter(|id| !id.contains('/'))
         .ok_or_else(|| {
-            Status::invalid_argument("Invalid project; use projects/local-project or projects/_")
+            Status::invalid_argument(format!(
+                "Invalid project name '{resource}'. Project names must take the form 'projects/{{project_number}}'."
+            ))
         })?;
     json::validate_project(project).map_err(json_error)?;
     // `Bucket.project` renders a project with no number as `projects/0` (see
@@ -61,6 +63,14 @@ fn routing<T>(request: &Request<T>, field: &str, resource: &str) -> Result<(), S
             })?;
             let key = json::decode(key, json::Decoding::Form).map_err(json_error)?;
             let value = json::decode(value, json::Decoding::Form).map_err(json_error)?;
+            if key == "bucket" && names::bucket_name(&value).is_err() {
+                return Err(super::status::invalid_with_reason(
+                    format!(
+                        "Invalid bucket name found in x-goog-request-params metadata (bucket={value}). Must be of the form `projects/_/buckets/{{bucket_id}}`"
+                    ),
+                    "GRPC_INVALID_X_GOOG_REQUEST_PARAMS_INVALID_BUCKET_FORMAT",
+                ));
+            }
             if key == field && value != resource {
                 return Err(Status::invalid_argument(
                     "Routing metadata conflicts with the request; use the same resource in x-goog-request-params and the request",

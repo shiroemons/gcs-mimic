@@ -22,6 +22,20 @@ pub(super) fn object_status(error: ObjectError) -> Status {
     json_status(error.into())
 }
 
+/// [`object_status`] for an RPC that names one object: Cloud Storage repeats `<bucket>/<object>`
+/// in its not-found message over gRPC.
+pub(super) fn named_object_status<'a>(
+    bucket: &'a str,
+    name: &'a str,
+) -> impl Fn(ObjectError) -> Status + 'a {
+    move |error| {
+        if matches!(error, ObjectError::UnsupportedMetadata(_)) {
+            return object_status(error);
+        }
+        json_status(json::JsonError::from(error).naming_object(bucket, name))
+    }
+}
+
 /// Anonymous denials ask for credentials, matching bucket RPCs, BidiReadObject and JSON.
 pub(super) fn access_status(error: json::JsonError, caller: Option<Caller<'_>>) -> Status {
     json_status(crate::server::anonymous_error(error, caller))
@@ -177,7 +191,15 @@ fn mask_object(
     macro_rules! fields { ($($field:ident),+ $(,)?) => {{
         for path in &mask.paths {
             if !matches!(path.as_str(), $(stringify!($field))|+ | "checksums.crc32c" | "checksums.md5_hash") {
-                return Err(unsupported(&format!("read_mask path {path}; request a supported top-level object field"), None));
+                // A name that is no Object field is a client error. A sub-path of a real field
+                // (`owner.entity`) is only unsupported here: the recording cannot tell whether
+                // Cloud Storage accepts it, so it stays an error instead of a false success.
+                let root = path.split('.').next().unwrap_or_default();
+                return Err(if matches!(root, $(stringify!($field))|+) {
+                    unsupported(&format!("read_mask path {path}; request a supported top-level object field"), None)
+                } else {
+                    Status::invalid_argument(format!("There is no field for this resource named '{path}'."))
+                });
             }
         }
         $(if !mask.paths.iter().any(|p| p == stringify!($field)) { object.$field = Default::default(); })+
@@ -221,6 +243,32 @@ fn mask_object(
         object.checksums = kept_checksums;
     }
     Ok(object)
+}
+
+/// Rejects a data message whose CRC32C differs from its content, with the wording and hex form
+/// Cloud Storage uses over gRPC.
+pub(super) fn verify_crc32c(data: &pb::ChecksummedData) -> Result<(), Status> {
+    match data.crc32c {
+        Some(client) if client != crc32c::crc32c(&data.content) => {
+            Err(Status::invalid_argument(format!(
+                "Checksummed data message crc32c mismatch: server computed: '{:08x}', client provided '{client:08x}'.",
+                crc32c::crc32c(&data.content)
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Cloud Storage names the object and its size when a read starts past the end;
+/// [`read_range`] keeps the generic bound check.
+fn check_read_offset(record: &crate::object::ObjectRecord, offset: i64) -> Result<(), Status> {
+    if u64::try_from(offset).is_ok_and(|offset| offset > record.size) {
+        return Err(Status::out_of_range(format!(
+            "Invalid read offset '{offset}' for object 'projects/_/buckets/{}/{}#{}'. The read offset must not be greater than the object's size ({} bytes).",
+            record.bucket, record.name, record.generation, record.size
+        )));
+    }
+    Ok(())
 }
 
 fn read_range(size: u64, offset: i64, limit: i64) -> Result<(u64, u64), Status> {
@@ -288,7 +336,7 @@ impl Storage {
             &access,
         )
         .await
-        .map_err(object_status)?;
+        .map_err(named_object_status(bucket, name))?;
         Ok(Response::new(()))
     }
     /// Shares the JSON session-URI cancellation so staged bytes follow one cleanup journal.
@@ -359,7 +407,7 @@ impl Storage {
                 &access,
             )
             .await
-            .map_err(object_status)?;
+            .map_err(named_object_status(bucket, name))?;
         let mut object = super::append::object(&record, finality)?;
         if finality == Finality::Finalized {
             self.add_owner_fields(
@@ -445,7 +493,8 @@ impl Storage {
                 &access,
             )
             .await
-            .map_err(object_status)?;
+            .map_err(named_object_status(bucket, name))?;
+        check_read_offset(&record, r.read_offset)?;
         let (start, length) = read_range(record.size, r.read_offset, r.read_limit)?;
         reader.set_range(start, length).await.map_err(|_| {
             Status::internal("Cannot seek object data; restore a valid data directory")
@@ -1067,7 +1116,13 @@ impl Storage {
             .catalog
             .prepare_object_upload(&bucket, &name, options.conditions, &options.access)
             .await
-            .map_err(object_status)?;
+            .map_err(|error| match error {
+                // Over WriteObject Cloud Storage words a missing bucket differently from reads.
+                ObjectError::BucketNotFound => {
+                    Status::not_found(format!("Bucket 'projects/_/buckets/{bucket}' not found"))
+                }
+                error => object_status(error),
+            })?;
         let (tx, rx) = mpsc::channel(2);
         let limits = SingleWriteLimits {
             expected: options.expected,
@@ -1224,14 +1279,7 @@ fn resumable_piece(
         Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
         None => pb::ChecksummedData::default(),
     };
-    if data
-        .crc32c
-        .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
-    {
-        return Err(Status::invalid_argument(
-            "checksummed_data.crc32c mismatch; resend the correct data and checksum",
-        ));
-    }
+    verify_crc32c(&data)?;
     let end = offset
         .checked_add(data.content.len() as u64)
         .ok_or_else(|| Status::out_of_range("write_offset plus content length overflows"))?
@@ -1301,14 +1349,7 @@ async fn produce_single_write<
             Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
             None => pb::ChecksummedData::default(),
         };
-        if data
-            .crc32c
-            .is_some_and(|crc| crc != crc32c::crc32c(&data.content))
-        {
-            return Err(Status::invalid_argument(
-                "checksummed_data.crc32c mismatch; resend the correct data and checksum",
-            ));
-        }
+        verify_crc32c(&data)?;
         let discard = (offset - start).min(data.content.len() as u64) as usize;
         let added = data.content.slice(discard..);
         offset = offset
@@ -1457,6 +1498,28 @@ mod tests {
         ));
         assert_eq!(unsupported.code(), tonic::Code::Unimplemented);
         assert!(!unsupported.details().is_empty());
+        let mismatch = verify_crc32c(&pb::ChecksummedData {
+            content: b"hello".to_vec().into(),
+            crc32c: Some(1),
+        })
+        .unwrap_err();
+        assert_eq!(mismatch.code(), tonic::Code::InvalidArgument);
+        assert_eq!(
+            mismatch.message(),
+            "Checksummed data message crc32c mismatch: server computed: '9a71bb4c', client provided '00000001'."
+        );
+        let unknown = mask_object(
+            pb::Object::default(),
+            Some(&prost_types::FieldMask {
+                paths: vec!["noSuchField".into()],
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(unknown.code(), tonic::Code::InvalidArgument);
+        assert_eq!(
+            unknown.message(),
+            "There is no field for this resource named 'noSuchField'."
+        );
         assert_eq!(read_range(15, -5, 3).unwrap(), (10, 3));
         assert_eq!(read_range(15, i64::MIN, 0).unwrap(), (0, 15));
         assert_eq!(read_range(15, 15, 0).unwrap(), (15, 0));

@@ -321,6 +321,8 @@ fn run_mimic(
         hosts: vec![
             local.endpoint.clone(),
             local.endpoint.trim_start_matches("http://").to_owned(),
+            // The ErrorInfo domain names the service, so mimic reports the live value too.
+            "storage.googleapis.com".to_owned(),
         ],
         server_error_wait: Duration::from_secs(3),
         label_new_buckets: false,

@@ -909,7 +909,7 @@ impl Storage {
                     &access,
                 )
                 .await
-                .map_err(error)?;
+                .map_err(|e| error(JsonError::from(e).naming_object(bucket, name)))?;
             for key in current
                 .metadata
                 .keys()
@@ -953,7 +953,7 @@ impl Storage {
                 &access,
             )
             .await
-            .map_err(error)?;
+            .map_err(|e| error(JsonError::from(e).naming_object(bucket, name)))?;
         let mut object = convert::object(&record)?;
         if paths.iter().any(|p| p == "acl") {
             self.add_object_acl(caller, &record, &mut object).await?;
