@@ -57,7 +57,9 @@ pub(super) async fn respond<'a>(
         );
     // A write that turns uniform bucket-level access off answers without ACL fields, as one that
     // turns it on does (recorded 2026-10-31), so the state before the write matters too.
-    let acl_full = acl_full && !leaves_uniform_access(state, &access, &operation).await?;
+    let acl_full = acl_full
+        && !(profile == CompatProfile::Native
+            && leaves_uniform_access(state, &access, &operation).await?);
     // Only the recorded bucket list carries a cache header; other bucket operations keep none.
     let cache = if matches!(operation, BucketRequest::List(_)) {
         JsonCache::Resource
@@ -117,9 +119,20 @@ pub(super) async fn respond<'a>(
     };
     if acl_full {
         acl::add_full_projection(state, caller, &mut value, base_url).await?;
+        add_legacy_uniform_owner(&mut value, profile);
     }
     fields.apply(&mut value);
     Ok(json_response_cached(&value, cache))
+}
+
+/// The legacy profile keeps reporting the project owners team as `owner` for a bucket under
+/// uniform bucket-level access; Cloud Storage reports none (recorded 2026-10-31).
+fn add_legacy_uniform_owner(value: &mut Value, profile: CompatProfile) {
+    let uniform = value["iamConfiguration"]["uniformBucketLevelAccess"]["enabled"] == true;
+    if profile == CompatProfile::LegacyEmulator && uniform && value.get("owner").is_none() {
+        let number = value["projectNumber"].as_str().unwrap_or("0").to_owned();
+        value["owner"] = serde_json::json!({"entity": format!("project-owners-{number}")});
+    }
 }
 
 /// Whether a PATCH or PUT starts on a bucket whose uniform bucket-level access is enabled.
@@ -332,7 +345,10 @@ async fn write(
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
     let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-    json::require_matching_bucket_name(&bytes, bucket)?;
+    // Only the native profile checks the body name against the path (recorded 2026-10-31).
+    if profile == CompatProfile::Native {
+        json::require_matching_bucket_name(&bytes, bucket)?;
+    }
     let mut update = match mode {
         WriteMode::Replace => json::parse_bucket_replacement(&bytes, profile)?,
         WriteMode::Patch => json::parse_bucket_patch(&bytes, profile)?,
@@ -570,6 +586,7 @@ async fn get(
         json::bucket_resource_with_profile(&record, ctx.base_url, params.projection, profile)?;
     if params.projection == json::Projection::Full {
         acl::add_full_projection(state, caller, &mut resource, ctx.base_url).await?;
+        add_legacy_uniform_owner(&mut resource, profile);
     }
     read_metadata_response(
         request.headers(),

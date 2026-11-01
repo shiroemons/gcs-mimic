@@ -1731,10 +1731,12 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
             relocated.error(400, "badRequest");
         }
         let before = server.request("GET", path, "").json();
-        // A body that names another bucket disagrees with the path.
-        server
-            .request(method, path, r#"{"name":"different"}"#)
-            .error(400, "invalidParameter");
+        // A body that names another bucket disagrees with the path (native profile only).
+        if profile == "native" {
+            server
+                .request(method, path, r#"{"name":"different"}"#)
+                .error(400, "invalidParameter");
+        }
         assert_eq!(server.request("GET", path, "").json(), before);
         let fields = [
             "id",
@@ -3983,6 +3985,12 @@ fn bkt_http_query_body_name_and_route_boundaries() {
             404
         );
     }
+    // The legacy profile still rejects a parameter the method does not define, which the native
+    // profile ignores.
+    let legacy_dir = TestDir::new();
+    let legacy = profile_server(&legacy_dir, "legacy-emulator");
+    let reply = legacy.request("GET", "/storage/v1/b?project=x&unknown=1", "");
+    assert_eq!(reply.status, 400, "{}", reply.body);
 }
 
 #[test]
