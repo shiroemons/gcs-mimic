@@ -467,6 +467,9 @@ pub(crate) fn find_leaks(text: &str, secrets: &[(String, &str)]) -> Vec<String> 
             }
         }
     }
+    // Object key order depends on whether serde_json's `preserve_order` is unified into the
+    // build (it is in the workspace, not in xtask alone), so sort for a stable report.
+    out.sort();
     out
 }
 
