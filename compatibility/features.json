@@ -30917,7 +30917,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "Temporary and event-based holds persist on upload and PATCH/PUT, protect deletion and upload/copy/rewrite/compose replacement, and release independently; retention and complete provider wire parity remain pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a metadata PUT releases the hold it does not name, and an unknown member or mistyped hold value is ignored instead of rejected (SPEC-OBJECT-HOLDS-CUSTOMTIME keeps the customTime wire questions).",
+      "notes": "Temporary and event-based holds persist on upload and PATCH/PUT, protect deletion and upload/copy/rewrite/compose replacement, and release independently; retention and complete provider wire parity remain pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): a metadata PUT releases the hold it does not name, and an unknown member or mistyped hold value is ignored instead of rejected; a hold set once is reported as false after release and omitted when never set (catalog schema 48 keeps the three states, gRPC keeps its always-present event_based_hold) (SPEC-OBJECT-HOLDS-CUSTOMTIME keeps the customTime wire questions).",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
