@@ -4,7 +4,7 @@
 //! objects resource/insert/patch references and Discovery revision 20261020. Retention is
 //! independent of the bucket retention policy: an object is protected until both are met.
 
-use super::{ObjectError, ObjectRecord};
+use super::{ObjectError, ObjectRecord, unix_nanos::UnixNanos};
 use std::time::{Duration, SystemTime};
 
 /// The official guide caps retain-until at 3,155,760,000 seconds (100 years) from now.
@@ -35,27 +35,16 @@ impl RetentionMode {
 
 /// Held to the nanosecond, as Cloud Storage compared it; responses display the millisecond
 /// truncation. The catalog stores whole microseconds plus a sub-microsecond remainder column.
+/// The time is a [`UnixNanos`], never a `SystemTime`, which Windows floors to 100 ns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ObjectRetention {
     pub mode: RetentionMode,
-    pub retain_until: SystemTime,
+    pub retain_until: UnixNanos,
 }
 
 impl ObjectRetention {
     pub(crate) fn active(&self, now: SystemTime) -> bool {
-        now < self.retain_until
-    }
-}
-
-/// Drops the sub-millisecond part, the precision JSON responses display.
-pub(crate) fn truncate_to_millis(time: SystemTime) -> SystemTime {
-    match time.duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(since) => {
-            SystemTime::UNIX_EPOCH
-                + Duration::from_millis(since.as_millis().try_into().unwrap_or(u64::MAX))
-        }
-        // Times before the epoch are not valid retention times; compare them unchanged.
-        Err(_) => time,
+        UnixNanos::from(now) < self.retain_until
     }
 }
 
@@ -66,17 +55,14 @@ pub(crate) fn truncate_to_millis(time: SystemTime) -> SystemTime {
 /// frontends use the `America/Los_Angeles` zone, so the offset follows the US rule in force
 /// since 2007 (second Sunday of March 02:00 to first Sunday of November 02:00); earlier years
 /// use the same rule, which is an inference, not an observation.
-pub(crate) fn pacific_rfc3339(time: SystemTime) -> String {
-    let since = time
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    let seconds = i64::try_from(since.as_secs()).unwrap_or(i64::MAX / 2);
+pub(crate) fn pacific_rfc3339(time: UnixNanos) -> String {
+    let seconds = time.secs().clamp(i64::MIN / 2, i64::MAX / 2);
     let offset_hours = if pacific_daylight_time(seconds) { 7 } else { 8 };
     let local = seconds - offset_hours * 3600;
     let days = local.div_euclid(86_400);
     let day_seconds = local.rem_euclid(86_400);
     let (year, month, day) = civil_from_days(days);
-    let mut fraction = format!("{:09}", since.subsec_nanos());
+    let mut fraction = format!("{:09}", time.subsec_nanos());
     while fraction.ends_with('0') {
         fraction.pop();
     }
@@ -174,7 +160,7 @@ pub(crate) fn validate_stored(
             "Retention and event based holds cannot be configured together.",
         ));
     }
-    if now
+    if UnixNanos::from(now)
         .checked_add(MAX_RETENTION)
         .is_none_or(|limit| retention.retain_until > limit)
     {
@@ -221,11 +207,14 @@ pub(crate) fn check_transition(
 mod tests {
     use super::*;
     use std::time::UNIX_EPOCH;
+    fn nanos(secs: i64, nanos: u32) -> UnixNanos {
+        UnixNanos::new(secs, nanos).unwrap()
+    }
 
-    fn config(mode: RetentionMode, seconds: u64) -> ObjectRetention {
+    fn config(mode: RetentionMode, seconds: i64) -> ObjectRetention {
         ObjectRetention {
             mode,
-            retain_until: UNIX_EPOCH + Duration::from_secs(seconds),
+            retain_until: nanos(seconds, 0),
         }
     }
 
@@ -288,17 +277,11 @@ mod tests {
 
     #[test]
     fn pacific_time_follows_daylight_saving_and_trims_the_fraction() {
-        // Windows holds a SystemTime in 100 ns ticks, so the fine fraction ends in two zeros there.
-        let (fine_nanos, fine_text) = if cfg!(windows) {
-            (123_456_700, ".1234567")
-        } else {
-            (123_456_793, ".123456793")
-        };
-        let at = |seconds: u64, nanos: u32| UNIX_EPOCH + Duration::new(seconds, nanos);
+        let at = |seconds: i64, fraction: u32| nanos(seconds, fraction);
         // 2026-10-31T17:03:59.123456793Z, the instant Cloud Storage printed with -07:00.
         assert_eq!(
-            pacific_rfc3339(at(1_793_466_239, fine_nanos)),
-            format!("2026-10-31T10:03:59{fine_text}-07:00")
+            pacific_rfc3339(at(1_793_466_239, 123_456_793)),
+            "2026-10-31T10:03:59.123456793-07:00"
         );
         assert_eq!(
             pacific_rfc3339(at(1_793_466_239, 123_000_000)),
@@ -329,12 +312,13 @@ mod tests {
     }
 
     /// A retention whose stored time carries microseconds beyond its displayed millisecond.
-    fn micros(mode: RetentionMode, millis: u64, extra_micros: u64) -> ObjectRetention {
+    fn micros(mode: RetentionMode, millis: i64, extra_micros: u32) -> ObjectRetention {
         ObjectRetention {
             mode,
-            retain_until: UNIX_EPOCH
-                + Duration::from_millis(millis)
-                + Duration::from_micros(extra_micros),
+            retain_until: nanos(
+                millis.div_euclid(1000),
+                u32::try_from(millis.rem_euclid(1000)).unwrap() * 1_000_000 + extra_micros * 1000,
+            ),
         }
     }
 
@@ -394,6 +378,31 @@ mod tests {
                 Some(longer)
             );
         }
+    }
+
+    /// Times a nanosecond apart that no 100 ns clock tick could tell apart: the comparison must
+    /// not pass through a `SystemTime`, which Windows floors.
+    #[test]
+    fn one_nanosecond_decides_shortening_and_expiry_on_every_platform() {
+        let stored = ObjectRetention {
+            mode: RetentionMode::Locked,
+            retain_until: nanos(1_900_000_000, 123_456_789),
+        };
+        let one_less = ObjectRetention {
+            retain_until: nanos(1_900_000_000, 123_456_788),
+            ..stored
+        };
+        assert_eq!(
+            write(&stored, one_less, UnlockedOverride::Requested),
+            Err(ObjectError::LockedRetention)
+        );
+        assert_eq!(
+            write(&stored, stored, UnlockedOverride::Requested),
+            Ok(Some(stored))
+        );
+        let clock = |nanos: u32| UNIX_EPOCH + Duration::new(1_900_000_000, nanos);
+        assert!(stored.active(clock(123_456_788)));
+        assert!(!stored.active(clock(123_456_789)));
     }
 
     #[test]

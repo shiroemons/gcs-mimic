@@ -3,10 +3,19 @@ use crate::{
     acl::{AclEntry, AclKind},
     bucket::BucketRecord,
     json::acl::AclOwner,
-    object::{ObjectRecord, retention::RetentionMode},
+    object::{ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos},
 };
 use prost_types::{Duration, Timestamp};
 use serde_json::Value;
+
+/// A retention time as a protobuf timestamp, straight from its seconds and nanoseconds so no
+/// platform clock resolution is involved.
+fn unix_nanos_timestamp(time: UnixNanos) -> Timestamp {
+    Timestamp {
+        seconds: time.secs(),
+        nanos: i32::try_from(time.subsec_nanos()).unwrap_or_default(),
+    }
+}
 
 /// Converts stored JSON lifecycle rules, which the shared validator has already accepted.
 fn lifecycle(rules: &[Value]) -> Option<pb::bucket::Lifecycle> {
@@ -233,13 +242,13 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
         // retention.retain_until_time kept its nanoseconds (observed 2026-10-31).
         retention_expire_time: record
             .earliest_deletion_time()
-            .map(|time| crate::object::retention::truncate_to_millis(time).into()),
+            .map(|time| unix_nanos_timestamp(time.floor_to_millis())),
         retention: record.retention.map(|retention| pb::object::Retention {
             mode: match retention.mode {
                 RetentionMode::Unlocked => pb::object::retention::Mode::Unlocked,
                 RetentionMode::Locked => pb::object::retention::Mode::Locked,
             } as i32,
-            retain_until_time: Some(retention.retain_until.into()),
+            retain_until_time: Some(unix_nanos_timestamp(retention.retain_until)),
         }),
         custom_time,
         ..Default::default()

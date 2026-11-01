@@ -231,7 +231,7 @@ async fn object_retention_schema_migration_and_restart() {
     assert_eq!(retention.mode.as_str(), "Locked");
     assert_eq!(
         retention.retain_until,
-        UNIX_EPOCH + Duration::from_secs(START + 3600)
+        crate::object::unix_nanos::UnixNanos::from(UNIX_EPOCH + Duration::from_secs(START + 3600))
     );
     assert_eq!(created["generation"], kept.generation.to_string());
     catalog.close().await.unwrap();

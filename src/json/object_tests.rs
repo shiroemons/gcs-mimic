@@ -996,6 +996,7 @@ fn notification_payload_keeps_the_resource_field_order_after_dropping_links() {
 fn retained_denial_names_the_later_of_policy_and_object_retention() {
     use crate::object::retention::{ObjectRetention, RetentionMode};
     let at = |seconds| UNIX_EPOCH + Duration::from_secs(seconds);
+    let nanos = |seconds| crate::object::unix_nanos::UnixNanos::from(at(seconds));
     let until = |error| match error {
         ObjectError::ObjectRetentionNotMet(retained) => retained.until,
         other => panic!("unexpected {other:?}"),
@@ -1005,12 +1006,12 @@ fn retained_denial_names_the_later_of_policy_and_object_retention() {
         record.retention_expiration_time = Some(at(policy));
         record.retention = Some(ObjectRetention {
             mode: RetentionMode::Unlocked,
-            retain_until: at(object),
+            retain_until: nanos(object),
         });
         let error = record.check_retention(at(1000)).unwrap_err();
-        assert_eq!(until(error), at(3000), "policy {policy} object {object}");
+        assert_eq!(until(error), nanos(3000), "policy {policy} object {object}");
         let error = record.check_retention(at(2500)).unwrap_err();
-        assert_eq!(until(error), at(3000), "policy {policy} object {object}");
+        assert_eq!(until(error), nanos(3000), "policy {policy} object {object}");
         assert!(record.check_retention(at(3000)).is_ok());
     }
 }

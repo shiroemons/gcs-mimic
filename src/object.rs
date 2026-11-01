@@ -2,9 +2,11 @@
 
 use crate::storage::failure::{BackendCause, IoCause};
 use std::{collections::BTreeMap, fmt, time::SystemTime};
+use unix_nanos::UnixNanos;
 
 pub(crate) mod owner;
 pub(crate) mod retention;
+pub(crate) mod unix_nanos;
 
 /// Multipart uploads retain an internal digest without exposing an MD5 checksum.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -80,7 +82,10 @@ impl ObjectRecord {
             (
                 Err(ObjectError::ObjectRetentionNotMet(_)),
                 Err(ObjectError::ObjectRetentionNotMet(_)),
-            ) => Err(self.retained_until(self.earliest_deletion_time().unwrap_or(now))),
+            ) => Err(self.retained_until(
+                self.earliest_deletion_time()
+                    .unwrap_or_else(|| UnixNanos::from(now)),
+            )),
             (Err(error), _) | (Ok(()), Err(error)) => Err(error),
             (Ok(()), Ok(())) => Ok(()),
         }
@@ -103,14 +108,16 @@ impl ObjectRecord {
             .retention_expiration_time
             .is_some_and(|deadline| now < deadline)
         {
-            return Err(self.retained_until(self.retention_expiration_time.unwrap_or(now)));
+            return Err(self.retained_until(UnixNanos::from(
+                self.retention_expiration_time.unwrap_or(now),
+            )));
         }
         Ok(())
     }
 
     /// Bucket policy and object retention share one denial; the time keeps the stored
     /// precision (microseconds for a policy, nanoseconds for object retention).
-    fn retained_until(&self, until: SystemTime) -> ObjectError {
+    fn retained_until(&self, until: UnixNanos) -> ObjectError {
         ObjectError::ObjectRetentionNotMet(Box::new(RetainedObject {
             bucket: self.bucket.clone(),
             name: self.name.clone(),
@@ -127,15 +134,16 @@ impl ObjectRecord {
         {
             return Err(self.retained_until(
                 self.retention
-                    .map_or(now, |retention| retention.retain_until),
+                    .map_or_else(|| UnixNanos::from(now), |retention| retention.retain_until),
             ));
         }
         Ok(())
     }
 
     /// The earliest deletion time across the bucket policy and the object's own retention.
-    pub(crate) fn earliest_deletion_time(&self) -> Option<SystemTime> {
+    pub(crate) fn earliest_deletion_time(&self) -> Option<UnixNanos> {
         self.retention_expiration_time
+            .map(UnixNanos::from)
             .into_iter()
             .chain(self.retention.map(|retention| retention.retain_until))
             .max()
@@ -263,7 +271,7 @@ impl ObjectMetadataUpdate {
     /// must remain restorable and movable.
     pub(crate) fn reject_past_retention(&self, now: SystemTime) -> Result<(), ObjectError> {
         if let Some(Some(retention)) = &self.retention
-            && retention.retain_until <= now
+            && retention.retain_until <= UnixNanos::from(now)
         {
             return Err(ObjectError::InvalidFixedMetadata(
                 "Retain until time cannot be in the past.".into(),
@@ -416,7 +424,7 @@ pub(crate) struct HeldObject {
 pub(crate) struct RetainedObject {
     pub bucket: String,
     pub name: String,
-    pub until: SystemTime,
+    pub until: UnixNanos,
 }
 
 /// Which stored hash an upload's declared hash disagreed with, and both digests.

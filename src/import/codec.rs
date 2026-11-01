@@ -63,7 +63,7 @@ pub(super) fn retention(
         ));
     }
     // Nanosecond precision, like the JSON adapter: retention times compare exactly.
-    let retain_until = parse_bucket_timestamp(&attrs.retention_retain_until).map_err(invalid)?;
+    let retain_until = parse_retention_timestamp(&attrs.retention_retain_until).map_err(invalid)?;
     Ok(Some(crate::object::retention::ObjectRetention {
         mode,
         retain_until,
@@ -182,6 +182,16 @@ enum Precision {
 
 pub(crate) fn parse_timestamp(input: &str) -> Result<i64, &'static str> {
     parse_timestamp_parts(input, Precision::Micros).map(|(micros, _)| micros)
+}
+
+/// A retention time to the nanosecond, as seconds and nanoseconds. It never passes through a
+/// `SystemTime`, so a platform that floors to 100 ns still keeps every digit.
+pub(super) fn parse_retention_timestamp(
+    input: &str,
+) -> Result<crate::object::unix_nanos::UnixNanos, &'static str> {
+    let (micros, nanos) = parse_timestamp_parts(input, Precision::Nanos)?;
+    crate::object::unix_nanos::UnixNanos::from_micros_and_remainder(micros, nanos)
+        .ok_or("retention timestamp is outside the supported range")
 }
 
 pub(super) fn parse_bucket_timestamp(input: &str) -> Result<std::time::SystemTime, &'static str> {
@@ -371,6 +381,28 @@ mod tests {
         ] {
             assert!(parse_bucket_timestamp(input).is_err(), "{input}");
         }
+    }
+    #[test]
+    fn retention_timestamps_keep_every_nanosecond_on_every_platform() {
+        let at = |secs, nanos| crate::object::unix_nanos::UnixNanos::new(secs, nanos).unwrap();
+        for (input, expected) in [
+            (
+                "2030-01-01T00:00:00.123456789Z",
+                at(1_893_456_000, 123_456_789),
+            ),
+            (
+                "2030-01-01T00:00:00.123456788Z",
+                at(1_893_456_000, 123_456_788),
+            ),
+            (
+                "2030-01-01T09:00:00.5+09:00",
+                at(1_893_456_000, 500_000_000),
+            ),
+            ("1969-12-31T23:59:59.999999999Z", at(-1, 999_999_999)),
+        ] {
+            assert_eq!(parse_retention_timestamp(input), Ok(expected), "{input}");
+        }
+        assert!(parse_retention_timestamp("2030-01-01T00:00:00.1234567891Z").is_err());
     }
     proptest! {
         #[test]

@@ -5,12 +5,10 @@ use crate::bucket::{
     validate_storage_class,
 };
 use crate::config::CompatProfile;
+use crate::object::unix_nanos::UnixNanos;
 use hyper::StatusCode;
 use serde_json::{Value, json};
-use std::{
-    collections::BTreeMap,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{collections::BTreeMap, time::SystemTime};
 
 const LEGACY_LOCATION: &str = "US-CENTRAL1";
 
@@ -1163,13 +1161,6 @@ pub(super) fn encode_segment(segment: &str) -> String {
     encoded
 }
 
-fn epoch_nanos(time: SystemTime) -> i128 {
-    match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration.as_nanos() as i128,
-        Err(error) => -(error.duration().as_nanos() as i128),
-    }
-}
-
 fn timestamp_error() -> JsonError {
     JsonError::new(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -1212,7 +1203,12 @@ pub(crate) fn http_date(time: SystemTime) -> Result<String, JsonError> {
 /// Cloud Storage emits (observed 2026-10-31). Stored times keep their finer precision; only
 /// the rendering floors, so ordering and stored deadlines are unaffected.
 pub(crate) fn timestamp(time: SystemTime) -> Result<String, JsonError> {
-    let micros = epoch_nanos(time).div_euclid(1000);
+    timestamp_nanos(UnixNanos::from(time))
+}
+
+/// [`timestamp`] for a time that is already seconds and nanoseconds, such as a retention time.
+pub(crate) fn timestamp_nanos(time: UnixNanos) -> Result<String, JsonError> {
+    let micros = i128::from(time.secs()) * 1_000_000 + i128::from(time.subsec_nanos() / 1000);
     if !crate::clock::rfc3339_micros(micros) {
         return Err(timestamp_error());
     }
