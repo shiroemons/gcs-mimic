@@ -564,7 +564,7 @@ fn bucket_resources_carry_recorded_fields_in_recorded_order() {
         "POST",
         "/storage/v1/b?project=123456",
         JSON,
-        br#"{"name":"uniform","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#,
+        br#"{"name":"uniform","location":"us-central1","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#,
     );
     created.status(200);
     let bucket = assert_pretty(&server.request("GET", "/storage/v1/b/uniform", "", b""));

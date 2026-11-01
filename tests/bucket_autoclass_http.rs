@@ -183,7 +183,7 @@ fn bucket_autoclass_create_get_patch_and_restrictions() {
             {"action":{"type":"Delete"},"condition":{"matchesStorageClass":["STANDARD"]}}]}}),
         json!({"name":"rejected","autoclass":{"enabled":true,"unknown":1}}),
     ] {
-        create(&server, body.clone()).error(400, "invalidArgument");
+        create(&server, body.clone()).error(400, "invalid");
         assert_eq!(bucket(&server, "rejected").status, 404, "{body}");
     }
     // Delete-only lifecycle rules may coexist with Autoclass.
@@ -215,7 +215,7 @@ fn bucket_autoclass_create_get_patch_and_restrictions() {
         json!({"autoclass":{"terminalStorageClass":"COLDLINE"}}),
         json!({"autoclass":"enabled"}),
     ] {
-        patch(&server, "auto", body.clone()).error(400, "invalidArgument");
+        patch(&server, "auto", body.clone()).error(400, "invalid");
         assert_eq!(
             bucket(&server, "auto").json()["metageneration"],
             terminal["metageneration"],
@@ -241,13 +241,13 @@ fn bucket_autoclass_create_get_patch_and_restrictions() {
         json!({"enabled":false,"toggleTime":toggle})
     );
     assert_between(&replaced["updated"], toggle, &disabled["updated"]);
-    patch(&server, "auto", json!({"autoclass":{"enabled":true}})).error(400, "invalidArgument");
+    patch(&server, "auto", json!({"autoclass":{"enabled":true}})).error(400, "invalid");
     patch(
         &server,
         "auto",
         json!({"autoclass":{"terminalStorageClass":"ARCHIVE"}}),
     )
-    .error(400, "invalidArgument");
+    .error(400, "invalid");
     // Disabled Autoclass lifts the class restriction.
     assert_eq!(
         patch(&server, "auto", json!({"storageClass":"NEARLINE"})).json()["storageClass"],
@@ -290,7 +290,7 @@ fn bucket_autoclass_enable_moves_bucket_and_objects_to_standard() {
         "cold",
         json!({"autoclass":{"enabled":true},"storageClass":"COLDLINE"}),
     )
-    .error(400, "invalidArgument");
+    .error(400, "invalid");
     assert!(bucket(&server, "cold").json().get("autoclass").is_none());
     assert_eq!(
         object(&server, "cold", "existing")["storageClass"],

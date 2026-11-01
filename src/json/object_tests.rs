@@ -837,7 +837,7 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
             ObjectError::BucketNotFound,
             404,
             "notFound",
-            "Bucket not found",
+            "The specified bucket does not exist.",
         ),
         (
             ObjectError::ObjectNotFound,

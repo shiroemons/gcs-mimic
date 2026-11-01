@@ -1,7 +1,8 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
-    BucketMetadataUpdate, BucketRecord, CorsRule, SoftDeletedBucket, UNIFORM_ACCESS_LOCK_PERIOD,
-    bucket_location, cors_from_value, cors_value, valid_label, validate_storage_class,
+    BucketMetadataUpdate, BucketRecord, CatalogError, CorsRule, SoftDeletedBucket,
+    UNIFORM_ACCESS_LOCK_PERIOD, bucket_location, cors_from_value, cors_value, valid_label,
+    validate_storage_class,
 };
 use crate::config::CompatProfile;
 use hyper::StatusCode;
@@ -56,6 +57,20 @@ pub(crate) fn validate_bucket_name(name: &str) -> Result<(), JsonError> {
     Ok(())
 }
 
+/// The name of a bucket being created. Insert reports the offending value in the body error, and
+/// a name below the minimum length has its own message (recorded 2026-10-31); a bucket named in
+/// a path keeps the shorter `validate_bucket_name` error.
+fn validate_new_bucket_name(name: &str) -> Result<(), JsonError> {
+    if name.len() < 3 {
+        return Err(JsonError::invalid(format!(
+            "Bucket names must be at least 3 characters in length, got {}: '{name}'",
+            name.len()
+        )));
+    }
+    validate_bucket_name(name)
+        .map_err(|_| JsonError::invalid(format!("Invalid bucket name: '{name}'")))
+}
+
 pub(crate) fn validate_bucket_name_for_profile(
     name: &str,
     profile: CompatProfile,
@@ -73,7 +88,7 @@ pub(crate) fn validate_bucket_name_for_profile(
     {
         Ok(())
     } else {
-        Err(JsonError::invalid_argument("invalid bucket name"))
+        Err(JsonError::invalid("invalid bucket name"))
     }
 }
 
@@ -86,6 +101,18 @@ pub fn parse_insert(
     parse_insert_with_profile(bytes, project, now, CompatProfile::Native, "US")
 }
 
+/// The legacy profile keeps fake-gcs-server's wording; Cloud Storage reports a parser position.
+fn bucket_parse_error(error: &serde_json::Error, profile: CompatProfile) -> JsonError {
+    if profile == CompatProfile::LegacyEmulator {
+        return JsonError::new(
+            StatusCode::BAD_REQUEST,
+            "parseError",
+            "Invalid JSON bucket resource",
+        );
+    }
+    JsonError::json_parse_error(error)
+}
+
 /// fake-gcs-server reads only the first JSON value of an insert body and ignores the rest.
 fn parse_insert_json(bytes: &[u8], profile: CompatProfile) -> Result<Value, JsonError> {
     let parsed = if profile == CompatProfile::LegacyEmulator {
@@ -96,13 +123,7 @@ fn parse_insert_json(bytes: &[u8], profile: CompatProfile) -> Result<Value, Json
     } else {
         serde_json::from_slice(bytes)
     };
-    parsed.map_err(|_| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "parseError",
-            "Invalid JSON bucket resource",
-        )
-    })
+    parsed.map_err(|error| bucket_parse_error(&error, profile))
 }
 
 fn reject_unsupported_insert_fields(
@@ -111,6 +132,12 @@ fn reject_unsupported_insert_fields(
 ) -> Result<(), JsonError> {
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
+            if *field == "rpo"
+                && profile == CompatProfile::Native
+                && body.get("rpo").is_some_and(is_default_rpo)
+            {
+                continue;
+            }
             if profile == CompatProfile::Native
                 && *field == "customPlacementConfig"
                 && body.get(*field).is_some_and(|value| {
@@ -125,6 +152,13 @@ fn reject_unsupported_insert_fields(
     Ok(())
 }
 
+/// `rpo` is `DEFAULT` for every non-regional bucket and the only value this emulator keeps, so
+/// echoing it (or clearing it with null) changes nothing; other values need replication that
+/// does not exist locally.
+fn is_default_rpo(value: &Value) -> bool {
+    value.is_null() || value == "DEFAULT"
+}
+
 /// A string field of an insert body; `default` makes the field optional.
 fn insert_string(
     body: &serde_json::Map<String, Value>,
@@ -135,7 +169,7 @@ fn insert_string(
         Some(value) => value
             .as_str()
             .map(str::to_owned)
-            .ok_or_else(|| JsonError::invalid_argument(format!("{field} must be a string"))),
+            .ok_or_else(|| JsonError::invalid(format!("{field} must be a string"))),
         None => default.map(str::to_owned).ok_or_else(|| {
             JsonError::new(
                 StatusCode::BAD_REQUEST,
@@ -157,7 +191,7 @@ fn insert_bool(
         Some(Value::Null) if profile == CompatProfile::LegacyEmulator => Ok(false),
         Some(value) => value
             .as_bool()
-            .ok_or_else(|| JsonError::invalid_argument(format!("{field} must be a boolean"))),
+            .ok_or_else(|| JsonError::invalid(format!("{field} must be a boolean"))),
     }
 }
 
@@ -199,20 +233,18 @@ fn insert_labels(
     };
     let object = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid_argument("labels must be a string map"))?;
+        .ok_or_else(|| JsonError::invalid("labels must be a string map"))?;
     if object.len() > 64 {
-        return Err(JsonError::invalid_argument(
-            "A bucket can have at most 64 labels",
-        ));
+        return Err(JsonError::invalid("A bucket can have at most 64 labels"));
     }
     for (key, value) in object {
         let value = value
             .as_str()
-            .ok_or_else(|| JsonError::invalid_argument("Label values must be strings"))?;
+            .ok_or_else(|| JsonError::invalid("Label values must be strings"))?;
         if !valid_label(key, crate::bucket::LabelPart::Key)
             || !valid_label(value, crate::bucket::LabelPart::Value)
         {
-            return Err(JsonError::invalid_argument("Invalid bucket label"));
+            return Err(JsonError::invalid("Invalid bucket label"));
         }
         labels.insert(key.clone(), value.to_owned());
     }
@@ -230,7 +262,7 @@ pub(crate) fn parse_insert_with_profile(
     let value = parse_insert_json(bytes, profile)?;
     let body = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
+        .ok_or_else(|| JsonError::invalid("Bucket resource must be a JSON object"))?;
     reject_unsupported_insert_fields(body, profile)?;
     let name = if profile == CompatProfile::LegacyEmulator
         && body.get("name").is_none_or(Value::is_null)
@@ -239,20 +271,19 @@ pub(crate) fn parse_insert_with_profile(
     } else {
         insert_string(body, "name", None)?
     };
-    validate_bucket_name_for_profile(&name, profile).map_err(|_| {
-        JsonError::invalid_argument(if profile == CompatProfile::Native {
-            "Invalid bucket name"
-        } else {
-            "invalid bucket name"
-        })
-    })?;
+    if profile == CompatProfile::Native {
+        validate_new_bucket_name(&name)?;
+    } else {
+        validate_bucket_name_for_profile(&name, profile)
+            .map_err(|_| JsonError::invalid("invalid bucket name"))?;
+    }
     let versioning_enabled = match body.get("versioning") {
         None => false,
         Some(Value::Null) if profile == CompatProfile::LegacyEmulator => false,
         Some(value) => {
             let versioning = value
                 .as_object()
-                .ok_or_else(|| JsonError::invalid_argument("versioning must be an object"))?;
+                .ok_or_else(|| JsonError::invalid("versioning must be an object"))?;
             insert_bool(versioning.get("enabled"), "versioning.enabled", profile)?
         }
     };
@@ -306,11 +337,7 @@ pub(crate) fn parse_insert_with_profile(
         autoclass,
         labels,
         cors: parse_cors(body.get("cors"))?.unwrap_or_default(),
-        lifecycle: body
-            .get("lifecycle")
-            .map(crate::bucket::lifecycle::parse)
-            .transpose()?
-            .unwrap_or_default(),
+        lifecycle: parse_lifecycle(body.get("lifecycle"), profile)?.unwrap_or_default(),
         versioning_enabled,
         default_event_based_hold,
         public_access_prevention_enforced: parse_public_access_prevention(
@@ -323,9 +350,7 @@ pub(crate) fn parse_insert_with_profile(
         .unwrap_or(false)
         {
             Some(now.checked_add(UNIFORM_ACCESS_LOCK_PERIOD).ok_or_else(|| {
-                JsonError::invalid_argument(
-                    "Uniform access deadline is outside the supported time range",
-                )
+                JsonError::invalid("Uniform access deadline is outside the supported time range")
             })?)
         } else {
             None
@@ -335,6 +360,20 @@ pub(crate) fn parse_insert_with_profile(
         time_created: now,
         updated: now,
     })
+}
+
+/// Rejects a body whose `name` disagrees with the bucket named in the path, as Cloud Storage does
+/// for PATCH and PUT. An absent or non-string name is left to the ordinary field handling.
+pub(crate) fn require_matching_bucket_name(bytes: &[u8], bucket: &str) -> Result<(), JsonError> {
+    let Ok(Value::Object(body)) = serde_json::from_slice::<Value>(bytes) else {
+        return Ok(());
+    };
+    match body.get("name").and_then(Value::as_str) {
+        Some(name) if name != bucket => Err(JsonError::invalid_parameter(format!(
+            "Value '{name}' in content does not agree with value '{bucket}'. This can happen when a value set through a parameter is inconsistent with a value set in the request."
+        ))),
+        _ => Ok(()),
+    }
 }
 
 pub(crate) fn parse_bucket_patch(
@@ -356,18 +395,19 @@ pub(crate) fn parse_bucket_replacement(
 fn update_labels(
     value: &Value,
     mode: WriteMode,
+    profile: CompatProfile,
 ) -> Result<Option<BTreeMap<String, Option<String>>>, JsonError> {
-    if value.is_null() {
+    // Cloud Storage cleared the labels for a labels member that is not a map, such as a string
+    // (recorded 2026-10-31).
+    if value.is_null() || (profile == CompatProfile::Native && !value.is_object()) {
         return Ok(None);
     }
     let replace = mode == WriteMode::Replace;
     let labels = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid_argument("labels must be an object or null"))?;
+        .ok_or_else(|| JsonError::invalid("labels must be an object or null"))?;
     if replace && labels.len() > 64 {
-        return Err(JsonError::invalid_argument(
-            "A bucket can have at most 64 labels",
-        ));
+        return Err(JsonError::invalid("A bucket can have at most 64 labels"));
     }
     labels
         .iter()
@@ -379,7 +419,7 @@ fn update_labels(
                     value
                         .as_str()
                         .ok_or_else(|| {
-                            JsonError::invalid_argument(if replace {
+                            JsonError::invalid(if replace {
                                 "Label values must be strings"
                             } else {
                                 "Label values must be strings or null"
@@ -393,7 +433,7 @@ fn update_labels(
                     .as_deref()
                     .is_some_and(|value| !valid_label(value, crate::bucket::LabelPart::Value))
             {
-                return Err(JsonError::invalid_argument("Invalid bucket label"));
+                return Err(JsonError::invalid("Invalid bucket label"));
             }
             Ok((key.clone(), value))
         })
@@ -407,24 +447,12 @@ fn parse_bucket_update(
     mode: WriteMode,
 ) -> Result<BucketMetadataUpdate, JsonError> {
     let replace = mode == WriteMode::Replace;
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "parseError",
-            "Invalid JSON bucket resource",
-        )
-    })?;
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|error| bucket_parse_error(&error, profile))?;
     let body = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
-    for field in UNSUPPORTED_FIELDS {
-        if body.contains_key(*field) {
-            if matches!(*field, "acl" | "defaultObjectAcl") {
-                continue;
-            }
-            return Err(JsonError::unsupported(field));
-        }
-    }
+        .ok_or_else(|| JsonError::invalid("Bucket resource must be a JSON object"))?;
+    reject_unsupported_update_fields(body, profile)?;
     // shortcut: legacy JSON unknown/output-only handling needs service evidence; use insert's ignored-input rule.
     let string = |field: &str| {
         body.get(field)
@@ -432,7 +460,7 @@ fn parse_bucket_update(
                 value
                     .as_str()
                     .map(str::to_owned)
-                    .ok_or_else(|| JsonError::invalid_argument(format!("{field} must be a string")))
+                    .ok_or_else(|| JsonError::invalid(format!("{field} must be a string")))
             })
             .transpose()
     };
@@ -442,35 +470,41 @@ fn parse_bucket_update(
                 if value.is_null() && profile == CompatProfile::LegacyEmulator {
                     return Ok(false);
                 }
-                value.as_bool().ok_or_else(|| {
-                    JsonError::invalid_argument(format!("{field} must be a boolean"))
-                })
+                value
+                    .as_bool()
+                    .ok_or_else(|| JsonError::invalid(format!("{field} must be a boolean")))
             })
             .transpose()
     };
-    let storage_class = string("storageClass")?;
-    if let Some(class) = &storage_class {
-        validate_storage_class(class)?;
-    }
-    let labels = body
-        .get("labels")
-        .map(|value| update_labels(value, mode))
-        .transpose()?;
+    let native = profile == CompatProfile::Native;
+    // Cloud Storage accepted a null storageClass and left the class alone (recorded 2026-10-31).
+    let storage_class = update_storage_class(body, profile)?;
+    // A PUT replaces the whole resource, so what it omits is cleared; Cloud Storage kept only the
+    // storage class, the access settings and the ACLs (recorded 2026-10-31). The legacy profile
+    // keeps merging.
+    let omitted_clears = replace && native;
+    let labels = match body.get("labels") {
+        Some(value) => Some(update_labels(value, mode, profile)?),
+        None => omitted_clears.then_some(None),
+    };
     let versioning_enabled = body
         .get("versioning")
         .map(|value| {
-            if value.is_null() && profile == CompatProfile::LegacyEmulator {
+            if value.is_null() {
                 return Ok(Some(false));
             }
             let versioning = value
                 .as_object()
-                .ok_or_else(|| JsonError::invalid_argument("versioning must be an object"))?;
+                .ok_or_else(|| JsonError::invalid("versioning must be an object"))?;
             boolean(versioning.get("enabled"), "versioning.enabled")
                 .map(|enabled| enabled.or(replace.then_some(false)))
         })
         .transpose()?
-        .flatten();
-    let mut location = string("location")?;
+        .flatten()
+        .or(omitted_clears.then_some(false));
+    // The location of a bucket cannot change, and Cloud Storage ignored a different one in a
+    // PATCH or PUT body like any other output-only member (recorded 2026-10-31).
+    let mut location = if native { None } else { string("location")? };
     if profile == CompatProfile::LegacyEmulator {
         if location
             .as_ref()
@@ -491,17 +525,18 @@ fn parse_bucket_update(
             .map(|value| super::acl::parse_entries(value, crate::acl::AclKind::DefaultObject))
             .transpose()?,
         soft_delete_retention: parse_soft_delete_retention(body.get("softDeletePolicy"))?,
-        retention_period: parse_retention_period(body.get("retentionPolicy"))?,
+        retention_period: parse_retention_period(body.get("retentionPolicy"))?
+            .or(omitted_clears.then_some(None)),
         lock_retention_policy: false,
         object_retention_enabled: super::object_retention::parse_bucket(
             body.get("objectRetention"),
         )?,
-        cors: parse_cors(body.get("cors"))?,
-        lifecycle: body
-            .get("lifecycle")
-            .map(crate::bucket::lifecycle::parse)
-            .transpose()?,
+        cors: parse_cors(body.get("cors"))?.or_else(|| omitted_clears.then(Vec::new)),
+        lifecycle: parse_lifecycle(body.get("lifecycle"), profile)?
+            .or_else(|| omitted_clears.then(Vec::new)),
         labels,
+        touched: update_touches_bucket(body),
+        omitted_retention: omitted_clears && !body.contains_key("retentionPolicy"),
         storage_class,
         autoclass: body
             .get("autoclass")
@@ -511,7 +546,8 @@ fn parse_bucket_update(
         default_event_based_hold: boolean(
             body.get("defaultEventBasedHold"),
             "defaultEventBasedHold",
-        )?,
+        )?
+        .or(omitted_clears.then_some(false)),
         location,
         public_access_prevention_enforced: parse_public_access_prevention(
             body.get("iamConfiguration"),
@@ -520,47 +556,168 @@ fn parse_bucket_update(
     })
 }
 
+/// Rejects the bucket settings this emulator does not model. A restated default `rpo` and the
+/// ACL members, which have their own handling, pass.
+fn reject_unsupported_update_fields(
+    body: &serde_json::Map<String, Value>,
+    profile: CompatProfile,
+) -> Result<(), JsonError> {
+    for field in UNSUPPORTED_FIELDS {
+        if body.contains_key(*field) {
+            if matches!(*field, "acl" | "defaultObjectAcl")
+                || (*field == "rpo"
+                    && profile == CompatProfile::Native
+                    && body.get("rpo").is_some_and(is_default_rpo))
+            {
+                continue;
+            }
+            return Err(JsonError::unsupported(field));
+        }
+    }
+    Ok(())
+}
+
+/// The storage class of an update. Cloud Storage accepted a null class and left the class alone
+/// (recorded 2026-10-31), and an update names a rejected class, unlike an insert.
+fn update_storage_class(
+    body: &serde_json::Map<String, Value>,
+    profile: CompatProfile,
+) -> Result<Option<String>, JsonError> {
+    let class = match body.get("storageClass") {
+        None => return Ok(None),
+        Some(Value::Null) if profile == CompatProfile::Native => return Ok(None),
+        Some(value) => value
+            .as_str()
+            .ok_or_else(|| JsonError::invalid("storageClass must be a string"))?,
+    };
+    validate_storage_class(class).map_err(|error| match error {
+        CatalogError::InvalidMetadata(_) => {
+            JsonError::invalid(format!("Invalid storage class \"{class}\""))
+        }
+        error => error.into(),
+    })?;
+    Ok(Some(class.to_owned()))
+}
+
+/// Whether a PATCH or PUT member counts as a change even when it changes no stored value. Cloud
+/// Storage advanced the metageneration for every recognised member except an empty message such
+/// as `versioning: {}`, and for `labels`, `cors` and `lifecycle` even when empty (recorded
+/// 2026-10-31); unknown and output-only members never counted.
+fn update_touches_bucket(body: &serde_json::Map<String, Value>) -> bool {
+    const TOUCHING: &[&str] = &[
+        "acl",
+        "autoclass",
+        "billing",
+        "cors",
+        "defaultEventBasedHold",
+        "defaultObjectAcl",
+        "encryption",
+        "hierarchicalNamespace",
+        "iamConfiguration",
+        "ipFilter",
+        "labels",
+        "lifecycle",
+        "logging",
+        "objectRetention",
+        "retentionPolicy",
+        "rpo",
+        "softDeletePolicy",
+        "storageClass",
+        "versioning",
+        "website",
+    ];
+    const EMPTY_MESSAGE_IS_NO_CHANGE: &[&str] = &[
+        "autoclass",
+        "iamConfiguration",
+        "objectRetention",
+        "retentionPolicy",
+        "softDeletePolicy",
+        "versioning",
+    ];
+    body.iter().any(|(key, value)| {
+        TOUCHING.contains(&key.as_str())
+            && !(EMPTY_MESSAGE_IS_NO_CHANGE.contains(&key.as_str()) && value == &json!({}))
+    })
+}
+
+/// A lifecycle member. A JSON array is not a lifecycle message, and Cloud Storage accepted it
+/// without changing the stored rules (recorded 2026-10-31); the legacy profile rejects it.
+fn parse_lifecycle(
+    value: Option<&Value>,
+    profile: CompatProfile,
+) -> Result<Option<Vec<Value>>, JsonError> {
+    match value {
+        Some(Value::Array(_)) if profile == CompatProfile::Native => Ok(None),
+        Some(value) => Ok(Some(crate::bucket::lifecycle::parse(value)?)),
+        None => Ok(None),
+    }
+}
+
+/// Cloud Storage's rejection of a value that is not an int64: the offending JSON is quoted.
+fn int64_parse_error(value: &Value) -> JsonError {
+    JsonError::invalid(format!(
+        "Parse Error: Invalid value for TYPE_INT64 field: '{value}'."
+    ))
+}
+
+/// An int64 setting sent as a JSON number or a decimal string, as the Discovery document
+/// declares it.
+fn int64_setting(value: &Value) -> Result<i64, JsonError> {
+    value
+        .as_i64()
+        .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+        .ok_or_else(|| int64_parse_error(value))
+}
+
+const SOFT_DELETE_RANGE_MESSAGE: &str =
+    "Soft delete policy must have a retention duration between 3 days and 90 days.";
+const RETENTION_RANGE_MESSAGE: &str =
+    "Retention policy must have a retention period greater than 0 and less than 100 years.";
+
+/// The soft-delete retention of a policy member. An absent member, a null policy and an empty
+/// policy all leave the setting alone: Cloud Storage answered a null policy with the unchanged
+/// resource (recorded 2026-10-31).
 fn parse_soft_delete_retention(value: Option<&Value>) -> Result<Option<u64>, JsonError> {
     let Some(value) = value.filter(|v| !v.is_null()) else {
         return Ok(None);
     };
-    let invalid = || {
-        JsonError::invalid_argument(
-            "softDeletePolicy.retentionDurationSeconds must be 0 or integral seconds from 604800 to 7776000; use {\"retentionDurationSeconds\":\"604800\"}",
-        )
-    };
-    let policy = value.as_object().ok_or_else(invalid)?;
+    let policy = value
+        .as_object()
+        .ok_or_else(|| JsonError::invalid(SOFT_DELETE_RANGE_MESSAGE))?;
     let Some(duration) = policy
         .get("retentionDurationSeconds")
         .filter(|v| !v.is_null())
     else {
         return Ok(None);
     };
-    duration
-        .as_u64()
-        .or_else(|| duration.as_str().and_then(|v| v.parse().ok()))
+    u64::try_from(int64_setting(duration)?)
+        .ok()
         .filter(|v| *v == 0 || (604800..=7776000).contains(v))
         .map(Some)
-        .ok_or_else(invalid)
+        .ok_or_else(|| JsonError::invalid(SOFT_DELETE_RANGE_MESSAGE))
 }
 
+/// The retention period of a bucket policy: `None` leaves the policy alone (absent member or an
+/// empty policy, which Cloud Storage treated as no change), `Some(None)` removes it.
 fn parse_retention_period(value: Option<&Value>) -> Result<Option<Option<u64>>, JsonError> {
     let Some(value) = value else { return Ok(None) };
-    if value.is_null() || value == &json!({}) {
+    if value.is_null() {
         return Ok(Some(None));
     }
-    let policy = value.as_object().ok_or_else(|| {
-        JsonError::invalid_argument(
-            "retentionPolicy must be an object or null; use {\"retentionPeriod\":\"3600\"}",
-        )
-    })?;
+    let policy = value
+        .as_object()
+        .ok_or_else(|| JsonError::invalid(RETENTION_RANGE_MESSAGE))?;
+    if policy.is_empty() {
+        return Ok(None);
+    }
     let Some(period) = policy.get("retentionPeriod").filter(|v| !v.is_null()) else {
         return Ok(Some(None));
     };
-    let period = period.as_u64().or_else(|| period.as_str().and_then(|v| v.parse().ok()))
+    u64::try_from(int64_setting(period)?)
+        .ok()
         .filter(|v| (1..3_155_760_000).contains(v))
-        .ok_or_else(|| JsonError::invalid_argument("retentionPeriod must be integral seconds greater than 0 and less than 3155760000; use \"3600\""))?;
-    Ok(Some(Some(period)))
+        .map(|period| Some(Some(period)))
+        .ok_or_else(|| JsonError::invalid(RETENTION_RANGE_MESSAGE))
 }
 
 fn parse_uniform_access(value: Option<&Value>) -> Result<Option<bool>, JsonError> {
@@ -569,18 +726,18 @@ fn parse_uniform_access(value: Option<&Value>) -> Result<Option<bool>, JsonError
     };
     let config = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid_argument("iamConfiguration must be an object"))?;
+        .ok_or_else(|| JsonError::invalid("iamConfiguration must be an object"))?;
     let mut enabled = None;
     for field in ["uniformBucketLevelAccess", "bucketPolicyOnly"] {
         if let Some(value) = config.get(field).filter(|value| !value.is_null()) {
             let setting = value.as_object().ok_or_else(|| {
-                JsonError::invalid_argument(format!(
+                JsonError::invalid(format!(
                     "{field} must be an object; use {{\"enabled\":true}}"
                 ))
             })?;
             if let Some(value) = setting.get("enabled").filter(|value| !value.is_null()) {
                 let value = value.as_bool().ok_or_else(|| {
-                    JsonError::invalid_argument(format!(
+                    JsonError::invalid(format!(
                         "{field}.enabled must be a boolean; use true or false"
                     ))
                 })?;
@@ -593,20 +750,25 @@ fn parse_uniform_access(value: Option<&Value>) -> Result<Option<bool>, JsonError
 }
 
 fn parse_public_access_prevention(value: Option<&Value>) -> Result<Option<bool>, JsonError> {
-    let Some(value) = value else {
+    // A null `iamConfiguration` leaves the settings alone (recorded 2026-10-31).
+    let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
     };
     let config = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid_argument("iamConfiguration must be an object"))?;
+        .ok_or_else(|| JsonError::invalid("iamConfiguration must be an object"))?;
     config
         .get("publicAccessPrevention")
+        .filter(|value| !value.is_null())
         .map(|value| match value.as_str() {
             Some("enforced") => Ok(true),
             Some("inherited") => Ok(false),
-            _ => Err(JsonError::invalid_argument(
-                "publicAccessPrevention must be inherited or enforced",
-            )),
+            _ => Err(JsonError::invalid(format!(
+                "Invalid value for: {} is not a valid value",
+                value
+                    .as_str()
+                    .map_or_else(|| value.to_string(), str::to_owned)
+            ))),
         })
         .transpose()
 }
@@ -645,10 +807,94 @@ impl UniformAccess {
 /// The resource a predefined ACL query parameter would apply to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum PredefinedAclTarget {
-    Bucket,
     Object,
     /// A media, multipart or resumable upload, which applies `predefinedAcl` outside UBLA.
     ObjectUpload,
+}
+
+/// What a bucket write does with its predefined ACL query parameters.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum BucketAclWrite {
+    Insert,
+    Update,
+}
+
+/// The canned ACLs a bucket write asked for.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub(crate) struct BucketPredefinedAcls {
+    pub acl: Option<crate::acl::PredefinedBucketAcl>,
+    pub default_object_acl: Option<crate::acl::PredefinedObjectAcl>,
+}
+
+const UBLA_INSERT_ACL: &str = "Cannot use ACL API to set bucket policy when object policies are disabled, must use IAM API instead.";
+const UBLA_UPDATE_ACL: &str = "Cannot use ACL API to update bucket policy when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access";
+
+/// Reads `predefinedAcl` and `predefinedDefaultObjectAcl` of a bucket write. Cloud Storage
+/// rejects them under uniform bucket-level access and names the accepted values when one is
+/// unknown. A PATCH or PUT applies them; an insert does not keep ACL entries yet, so it refuses
+/// them rather than accept and ignore.
+pub(crate) fn bucket_predefined_acls(
+    query: Option<&str>,
+    uniform_access: UniformAccess,
+    write: BucketAclWrite,
+    profile: CompatProfile,
+) -> Result<BucketPredefinedAcls, JsonError> {
+    let query = super::parse_query(query.unwrap_or_default())?;
+    // The legacy profile never applied canned ACLs; it refuses them as before.
+    if profile != CompatProfile::Native {
+        for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
+            if query.contains_key(key) {
+                return Err(match uniform_access {
+                    UniformAccess::Enabled => JsonError::invalid(format!(
+                        "{key} cannot be used with uniform bucket-level access; remove {key} (for example, omit {key}=publicRead) and use bucket IAM permissions"
+                    )),
+                    UniformAccess::Disabled => JsonError::unsupported(key),
+                });
+            }
+        }
+        return Ok(BucketPredefinedAcls::default());
+    }
+    let invalid_value = |value: &str, allowed: &str| {
+        JsonError::invalid_parameter(format!(
+            "Invalid string value: '{value}'. Allowed values: {allowed}"
+        ))
+    };
+    let acl = query
+        .get("predefinedAcl")
+        .map(|value| {
+            crate::acl::PredefinedBucketAcl::parse(value)
+                .ok_or_else(|| invalid_value(value, crate::acl::PredefinedBucketAcl::ALLOWED))
+        })
+        .transpose()?;
+    let default_object_acl = query
+        .get("predefinedDefaultObjectAcl")
+        .map(|value| {
+            crate::acl::PredefinedObjectAcl::parse_ignoring_case(value).ok_or_else(|| {
+                invalid_value(value, crate::acl::PredefinedObjectAcl::ALLOWED_DEFAULT)
+            })
+        })
+        .transpose()?;
+    if acl.is_none() && default_object_acl.is_none() {
+        return Ok(BucketPredefinedAcls::default());
+    }
+    if uniform_access == UniformAccess::Enabled {
+        return Err(JsonError::invalid(match write {
+            BucketAclWrite::Insert => UBLA_INSERT_ACL,
+            BucketAclWrite::Update => UBLA_UPDATE_ACL,
+        }));
+    }
+    if write == BucketAclWrite::Insert {
+        let key = if acl.is_some() {
+            "predefinedAcl"
+        } else {
+            "predefinedDefaultObjectAcl"
+        };
+        return Err(JsonError::unsupported(key));
+    }
+    Ok(BucketPredefinedAcls {
+        acl,
+        default_object_acl,
+    })
 }
 
 pub(crate) fn reject_predefined_acl(
@@ -679,9 +925,6 @@ pub(crate) fn reject_predefined_acl(
                     UniformAccess::Disabled,
                     PredefinedAclTarget::Object | PredefinedAclTarget::ObjectUpload,
                 ) => JsonError::unsupported_object(key).at_parameter(key),
-                (UniformAccess::Disabled, PredefinedAclTarget::Bucket) => {
-                    JsonError::unsupported(key).at_parameter(key)
-                }
             });
         }
     }
@@ -730,7 +973,13 @@ pub(crate) fn bucket_resource_with_profile(
     value["timeCreated"] = timestamp(bucket.time_created)?.into();
     value["updated"] = timestamp(bucket.updated)?.into();
     if let Some(policy) = &bucket.soft_delete_policy {
-        value["softDeletePolicy"] = json!({"retentionDurationSeconds": policy.retention_duration_seconds.to_string(), "effectiveTime": timestamp(policy.effective_time)?});
+        let mut soft_delete =
+            json!({"retentionDurationSeconds": policy.retention_duration_seconds.to_string()});
+        // Cloud Storage reports no effective time for a disabled policy (recorded 2026-10-31).
+        if policy.retention_duration_seconds > 0 {
+            soft_delete["effectiveTime"] = timestamp(policy.effective_time)?.into();
+        }
+        value["softDeletePolicy"] = soft_delete;
     }
     let mut uniform_access =
         json!({"enabled": bucket.uniform_bucket_level_access_locked_time.is_some()});
@@ -743,11 +992,15 @@ pub(crate) fn bucket_resource_with_profile(
         "publicAccessPrevention": if bucket.public_access_prevention_enforced { "enforced" } else { "inherited" },
     });
     value["locationType"] = json!(bucket.location_type);
-    // Cloud Storage returned `satisfiesPZI: true` for a new bucket in asia-northeast1
-    // (2026-10-31) and in us-central1 (same day), so every native bucket reports true. The
-    // reference emulator's bucket shape has no such field.
+    // Cloud Storage returned `satisfiesPZI: true` for regional buckets (asia-northeast1 and
+    // us-central1, 2026-10-31) and no such field for a multi-region bucket, which carries
+    // `rpo: DEFAULT` instead. The reference emulator's bucket shape has neither field.
     if profile == CompatProfile::Native {
-        value["satisfiesPZI"] = true.into();
+        if bucket.location_type == "region" {
+            value["satisfiesPZI"] = true.into();
+        } else {
+            value["rpo"] = "DEFAULT".into();
+        }
     }
     if let Some(config) = &bucket.autoclass {
         let mut autoclass =
@@ -773,7 +1026,12 @@ pub(crate) fn bucket_resource_with_profile(
         value["versioning"] = json!({"enabled": bucket.versioning_enabled});
     }
     if let Some(policy) = &bucket.retention_policy {
-        value["retentionPolicy"] = json!({"retentionPeriod":policy.retention_period.to_string(), "effectiveTime":timestamp(policy.effective_time)?, "isLocked":policy.is_locked});
+        let mut retention = json!({"retentionPeriod":policy.retention_period.to_string(), "effectiveTime":timestamp(policy.effective_time)?});
+        // `isLocked` appears only once the policy is locked (recorded 2026-10-31).
+        if policy.is_locked {
+            retention["isLocked"] = true.into();
+        }
+        value["retentionPolicy"] = retention;
     }
     if let Some(object_retention) = super::object_retention::render_bucket(bucket) {
         value["objectRetention"] = object_retention;

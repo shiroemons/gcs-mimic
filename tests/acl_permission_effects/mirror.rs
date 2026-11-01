@@ -80,7 +80,25 @@ fn bucket_acl_and_legacy_iam_share_revocation_without_changing_other_bindings() 
                 json!({"etag":revoked["etag"],"bindings":revoked["bindings"]}),
             )
             .json();
-        assert_eq!(server.request("GET", BUCKET, ADMIN, b"").json(), before);
+        // Replaying the current policy still advances the bucket metageneration, as it did on
+        // Cloud Storage (recorded 2026-10-31); the rest of the bucket is unchanged.
+        let after = server.request("GET", BUCKET, ADMIN, b"").json();
+        let revision = |bucket: &Value| {
+            bucket["metageneration"]
+                .as_str()
+                .unwrap()
+                .parse::<i64>()
+                .unwrap()
+        };
+        assert_eq!(revision(&after), revision(&before) + 1);
+        let stable = |bucket: &Value| {
+            let mut bucket = bucket.clone();
+            for field in ["metageneration", "etag", "updated"] {
+                bucket.as_object_mut().unwrap().remove(field);
+            }
+            bucket
+        };
+        assert_eq!(stable(&after), stable(&before));
         assert_eq!(
             server
                 .request("GET", &format!("{OBJECT}?alt=media"), ADMIN, b"")

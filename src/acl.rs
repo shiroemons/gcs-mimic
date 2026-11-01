@@ -291,6 +291,24 @@ pub(crate) enum PredefinedObjectAcl {
 }
 
 impl PredefinedObjectAcl {
+    /// The accepted spellings of a default object ACL, lowercased as Cloud Storage lists them.
+    pub(crate) const ALLOWED_DEFAULT: &str = "[authenticatedread, bucketownerfullcontrol, bucketownerread, private, projectprivate, publicread]";
+
+    /// Case-insensitive, as the service is (it reports its allowed values lowercased).
+    pub(crate) fn parse_ignoring_case(value: &str) -> Option<Self> {
+        [
+            "authenticatedRead",
+            "bucketOwnerFullControl",
+            "bucketOwnerRead",
+            "private",
+            "projectPrivate",
+            "publicRead",
+        ]
+        .into_iter()
+        .find(|name| name.eq_ignore_ascii_case(value))
+        .and_then(Self::parse)
+    }
+
     pub(crate) fn parse(value: &str) -> Option<Self> {
         Some(match value {
             "authenticatedRead" => Self::AuthenticatedRead,
@@ -329,6 +347,60 @@ impl PredefinedObjectAcl {
             Self::Private => Vec::new(),
             Self::ProjectPrivate => project_private(project),
             Self::PublicRead => vec![entry("allUsers".into(), "READER")],
+        }
+    }
+}
+
+/// A JSON API bucket `predefinedAcl` value.
+///
+/// The entries follow the documented canned lists: the project owners team always holds OWNER,
+/// and the public values add a grant to `allUsers` or `allAuthenticatedUsers`. Cloud Storage
+/// applied `private` as the owners team alone and `projectPrivate` as the three project teams
+/// (recorded 2026-10-31).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PredefinedBucketAcl {
+    AuthenticatedRead,
+    Private,
+    ProjectPrivate,
+    PublicRead,
+    PublicReadWrite,
+}
+
+impl PredefinedBucketAcl {
+    /// The accepted spellings, lowercased as Cloud Storage lists them in its error message.
+    pub(crate) const ALLOWED: &str =
+        "[authenticatedread, private, projectprivate, publicread, publicreadwrite]";
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        [
+            ("authenticatedRead", Self::AuthenticatedRead),
+            ("private", Self::Private),
+            ("projectPrivate", Self::ProjectPrivate),
+            ("publicRead", Self::PublicRead),
+            ("publicReadWrite", Self::PublicReadWrite),
+        ]
+        .into_iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(value))
+        .map(|(_, acl)| acl)
+    }
+
+    pub(crate) fn entries(self, project: &str) -> Vec<AclEntry> {
+        let entry = |entity: String, role: &str| AclEntry {
+            entity,
+            role: role.to_owned(),
+        };
+        let owners = entry(
+            format!("project-owners-{}", project_number(project)),
+            "OWNER",
+        );
+        match self {
+            Self::ProjectPrivate => project_private(project),
+            Self::Private => vec![owners],
+            Self::AuthenticatedRead => {
+                vec![owners, entry("allAuthenticatedUsers".into(), "READER")]
+            }
+            Self::PublicRead => vec![owners, entry("allUsers".into(), "READER")],
+            Self::PublicReadWrite => vec![owners, entry("allUsers".into(), "WRITER")],
         }
     }
 }

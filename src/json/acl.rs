@@ -21,7 +21,17 @@ use serde_json::{Map, Value, json};
 /// error has no underlying cause to keep.
 impl From<crate::acl::AclError> for JsonError {
     fn from(error: crate::acl::AclError) -> Self {
-        Self::invalid_argument(error.to_string())
+        use crate::acl::AclError;
+        // Cloud Storage's wording for the two most common mistakes (recorded 2026-10-31).
+        match error {
+            AclError::InvalidEntity(entity) => {
+                Self::invalid(format!("Scope text \"{entity}\" is not valid."))
+            }
+            AclError::InvalidRole { role, .. } => {
+                Self::invalid(format!("Invalid value for: {role} is not a valid value"))
+            }
+            error => Self::invalid(error.to_string()),
+        }
     }
 }
 
@@ -171,7 +181,7 @@ pub(crate) struct AclBody {
 
 pub(crate) fn parse_entries(value: &Value, kind: AclKind) -> Result<Vec<AclEntry>, JsonError> {
     let entries: Vec<AclEntry> = serde_json::from_value(value.clone()).map_err(|_| {
-        JsonError::invalid_argument("ACL must be an array of objects with entity and role strings")
+        JsonError::invalid("ACL must be an array of objects with entity and role strings")
     })?;
     crate::acl::validate_entries(kind, &entries)?;
     Ok(entries)
@@ -185,23 +195,18 @@ pub(crate) fn parse_acl_body(
     kind: AclKind,
     operation: &AclOperation,
 ) -> Result<AclBody, JsonError> {
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "parseError",
-            "Invalid JSON access control resource",
-        )
-    })?;
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|error| JsonError::json_parse_error(&error))?;
     let body = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid_argument("Access control must be a JSON object"))?;
+        .ok_or_else(|| JsonError::invalid("Access control must be a JSON object"))?;
     let string = |field: &str| {
         body.get(field)
             .map(|value| {
                 value
                     .as_str()
                     .map(str::to_owned)
-                    .ok_or_else(|| JsonError::invalid_argument(format!("{field} must be a string")))
+                    .ok_or_else(|| JsonError::invalid(format!("{field} must be a string")))
             })
             .transpose()
     };
@@ -210,7 +215,12 @@ pub(crate) fn parse_acl_body(
             StatusCode::BAD_REQUEST,
             "required",
             format!(
-                "Required field {field} is missing; for example, send {{\"entity\":\"allUsers\",\"role\":\"READER\"}}"
+                "Access control must contain {}",
+                if field == "role" {
+                    "a role"
+                } else {
+                    "an entity"
+                }
             ),
         )
     };
@@ -220,7 +230,7 @@ pub(crate) fn parse_acl_body(
         AclOperation::Insert => body_entity.ok_or_else(|| required("entity"))?,
         AclOperation::Patch(path) | AclOperation::Update(path) => {
             if body_entity.as_ref().is_some_and(|entity| entity != path) {
-                return Err(JsonError::invalid_argument(format!(
+                return Err(JsonError::invalid(format!(
                     "Body entity must match the path entity {path}; omit entity or send {path}"
                 )));
             }
@@ -525,8 +535,8 @@ mod tests {
         );
         let update = AclOperation::Update("allUsers".into());
         for (body, kind, operation, reason) in [
-            (&b"[]"[..], AclKind::Bucket, &insert, "invalidArgument"),
-            (b"{", AclKind::Bucket, &insert, "parseError"),
+            (&b"[]"[..], AclKind::Bucket, &insert, "invalid"),
+            (b"{", AclKind::Bucket, &insert, "invalid"),
             (
                 br#"{"role":"READER"}"#,
                 AclKind::Bucket,
@@ -544,31 +554,31 @@ mod tests {
                 br#"{"entity":"allUsers","role":"WRITER"}"#,
                 AclKind::Object,
                 &insert,
-                "invalidArgument",
+                "invalid",
             ),
             (
                 br#"{"entity":"allUsers","role":"WRITER"}"#,
                 AclKind::DefaultObject,
                 &insert,
-                "invalidArgument",
+                "invalid",
             ),
             (
                 br#"{"entity":"nobody","role":"READER"}"#,
                 AclKind::Bucket,
                 &insert,
-                "invalidArgument",
+                "invalid",
             ),
             (
                 br#"{"entity":"allAuthenticatedUsers","role":"READER"}"#,
                 AclKind::Bucket,
                 &update,
-                "invalidArgument",
+                "invalid",
             ),
             (
                 br#"{"entity":"allUsers","role":1}"#,
                 AclKind::Bucket,
                 &insert,
-                "invalidArgument",
+                "invalid",
             ),
         ] {
             let error = parse_acl_body(body, kind, operation).unwrap_err();

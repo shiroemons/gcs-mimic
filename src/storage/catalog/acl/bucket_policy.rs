@@ -245,8 +245,13 @@ pub(in super::super) fn replace_from_policy(
     validate_entries(AclKind::Bucket, &entries).map_err(CatalogError::from)?;
     let mut current = stored_bucket_entries(connection, bucket, "bucket")?
         .unwrap_or_else(|| project_private(&row.project));
+    let stored_order = current.clone();
     current.sort_by(|left, right| left.entity.cmp(&right.entity));
-    if current == entries {
+    let changed = current != entries;
+    // Cloud Storage lists the ACL re-derived from a policy in entity order, even when the grants
+    // are the ones the default ACL already had (recorded 2026-10-31), so a different stored
+    // order is rewritten without counting as a change.
+    if !changed && stored_order == entries {
         mark_bound(connection, bucket)?;
         return Ok(false);
     }
@@ -256,7 +261,7 @@ pub(in super::super) fn replace_from_policy(
         .and_then(|mut statement| statement.execute(params![bucket, "bucket", encoded]))
         .map_err(unavailable)?;
     mark_bound(connection, bucket)?;
-    Ok(true)
+    Ok(changed)
 }
 
 pub(in super::super) fn reconcile(

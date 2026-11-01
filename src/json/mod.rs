@@ -39,21 +39,23 @@ pub(crate) mod rewrite;
 pub(crate) use body::read_body;
 pub use buckets::parse_insert;
 pub(crate) use buckets::{
-    PredefinedAclTarget, UniformAccess, bucket_etag, http_date, reject_predefined_acl, timestamp,
-    validate_bucket_name_for_profile,
+    BucketAclWrite, PredefinedAclTarget, UniformAccess, bucket_etag, bucket_predefined_acls,
+    http_date, reject_predefined_acl, timestamp, validate_bucket_name_for_profile,
 };
 #[cfg(test)]
-pub(crate) use buckets::{bucket_list, bucket_resource};
+pub(crate) use buckets::{BucketPredefinedAcls, bucket_list, bucket_resource};
 pub(crate) use buckets::{
     bucket_list_with_profile, bucket_resource_with_profile, parse_bucket_patch,
-    parse_bucket_replacement, parse_insert_with_profile, soft_deleted_bucket_list,
-    soft_deleted_bucket_resource, validate_bucket_name,
+    parse_bucket_replacement, parse_insert_with_profile, require_matching_bucket_name,
+    soft_deleted_bucket_list, soft_deleted_bucket_resource, validate_bucket_name,
 };
 pub(crate) use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
 pub(crate) use derived_metadata::{DestinationLocation, derived_component_count, derived_metadata};
 pub(crate) use envelope::{Call as EnvelopeCall, apply as apply_envelope, etag_header};
 pub use error::JsonError;
-pub(crate) use error::{IF_MATCH_HEADER, NO_STORE_CACHE_CONTROL, safe_backend_cause};
+pub(crate) use error::{
+    BUCKET_NOT_FOUND, IF_MATCH_HEADER, NO_STORE_CACHE_CONTROL, safe_backend_cause,
+};
 pub(crate) use fields::Fields;
 pub(crate) use format::{ResponseFormat, render_body, with_format};
 pub(crate) use iam::policy_etag;

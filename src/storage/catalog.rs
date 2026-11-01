@@ -1751,7 +1751,9 @@ fn apply_soft_delete_retention(
     now: SystemTime,
 ) -> Result<(), CatalogError> {
     if duration != 0 && !(604800..=7776000).contains(&duration) {
-        return Err(CatalogError::InvalidMetadata("softDeletePolicy.retentionDurationSeconds must be 0 or 604800 through 7776000; use 604800".into()));
+        return Err(CatalogError::InvalidMetadata(
+            "Soft delete policy must have a retention duration between 3 days and 90 days.".into(),
+        ));
     }
     let effective_time = record
         .soft_delete_policy
@@ -1821,6 +1823,14 @@ fn apply_retention_policy(
     let Some(period) = update.retention_period else {
         return Ok(());
     };
+    if update.omitted_retention
+        && record
+            .retention_policy
+            .as_ref()
+            .is_some_and(|p| p.is_locked)
+    {
+        return Ok(());
+    }
     if let Some(policy) = record
         .retention_policy
         .as_ref()
@@ -1834,7 +1844,8 @@ fn apply_retention_policy(
     };
     if !(1..3_155_760_000).contains(&period) {
         return Err(CatalogError::InvalidMetadata(
-            "retentionPeriod must be greater than 0 and less than 3155760000; use 3600".into(),
+            "Retention policy must have a retention period greater than 0 and less than 100 years."
+                .into(),
         ));
     }
     let locked = record

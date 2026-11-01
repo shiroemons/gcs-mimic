@@ -181,13 +181,14 @@ fn notification_requests_reject_invalid_input_without_mutation() {
     let server = Server::start(&dir, false);
     server.bucket();
     for (body, reason) in [
-        (&b"{"[..], "parseError"),
+        (&b"{"[..], "invalid"),
         (b"{}", "required"),
         (br#"{"topic":"uploads"}"#, "invalid"),
         (br#"{"topic":"projects/p/topics/goog-topic"}"#, "invalid"),
         (
             br#"{"topic":"projects/p/topics/topic","payload_format":"JSON"}"#,
-            "invalid",
+            // Cloud Storage reports an unknown payload format as a missing one (recorded 2026-10-31).
+            "required",
         ),
         (
             br#"{"topic":"projects/p/topics/topic","event_types":["OBJECT_FINALIZE","OBJECT_FINALIZE"]}"#,
@@ -272,7 +273,7 @@ fn notification_requests_reject_invalid_input_without_mutation() {
             "",
             br#"{"topic":"projects/p/topics/topic","event_types":["OBJECT_ARCHIVE"]}"#,
         )
-        .error(400, "invalidArgument");
+        .error(400, "invalid");
     assert_eq!(ids(&server, "").len(), 10);
 }
 

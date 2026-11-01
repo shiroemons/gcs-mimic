@@ -141,8 +141,9 @@ fn parse(
                 JsonError::new(
                     StatusCode::BAD_REQUEST,
                     "required",
-                    "Missing required serviceAccountEmail; add ?serviceAccountEmail=SERVICE_ACCOUNT@PROJECT.iam.gserviceaccount.com",
-                ).at_parameter("serviceAccountEmail")
+                    "Required parameter: serviceAccountEmail",
+                )
+                .at_parameter("serviceAccountEmail")
             })?;
             validate_service_account_email(&email)?;
             ProjectRequest::CreateHmacKey {
@@ -351,9 +352,11 @@ pub(crate) fn service_account(project: &str) -> Value {
 impl From<HmacKeyError> for JsonError {
     fn from(error: HmacKeyError) -> Self {
         match error {
-            HmacKeyError::NotFound => {
-                Self::new(StatusCode::NOT_FOUND, "notFound", "HMAC key not found")
-            }
+            HmacKeyError::NotFound => Self::new(
+                StatusCode::NOT_FOUND,
+                "notFound",
+                "Access ID not found in project.",
+            ),
             HmacKeyError::PreconditionFailed => Self::new(
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",
@@ -378,9 +381,7 @@ impl From<HmacKeyError> for JsonError {
                 ),
             ),
             HmacKeyError::Catalog(error) => match error {
-                crate::bucket::CatalogError::InvalidMetadata(reason) => {
-                    Self::invalid_argument(reason)
-                }
+                crate::bucket::CatalogError::InvalidMetadata(reason) => Self::invalid(reason),
                 _ => Self::new(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "backendError",

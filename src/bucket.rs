@@ -73,8 +73,7 @@ pub(crate) fn bucket_location(value: &str) -> Result<(&'static str, &'static str
         }
     }
     Err(CatalogError::InvalidMetadata(
-        "Unknown bucket location; use a supported location, for example US or ASIA-NORTHEAST1"
-            .into(),
+        "The specified location constraint is not valid.".into(),
     ))
 }
 
@@ -155,6 +154,12 @@ pub(crate) struct BucketMetadataUpdate {
     pub public_access_prevention_enforced: Option<bool>,
     pub uniform_bucket_level_access_enabled: Option<bool>,
     pub location: Option<String>,
+    /// A recognised member was present even though it sets nothing, which still counts as a
+    /// change and advances the metageneration.
+    pub touched: bool,
+    /// A replacing write left the retention policy out, which clears an unlocked policy; a
+    /// locked policy stays, because omitting it is not a request to shorten it.
+    pub omitted_retention: bool,
 }
 
 impl BucketMetadataUpdate {
@@ -177,6 +182,8 @@ impl BucketMetadataUpdate {
             public_access_prevention_enforced,
             uniform_bucket_level_access_enabled,
             location,
+            touched,
+            omitted_retention,
         } = self;
         acl.is_none()
             && default_object_acl.is_none()
@@ -196,6 +203,8 @@ impl BucketMetadataUpdate {
             && public_access_prevention_enforced.is_none()
             && uniform_bucket_level_access_enabled.is_none()
             && location.is_none()
+            && !touched
+            && !omitted_retention
     }
 }
 
@@ -363,7 +372,7 @@ pub(crate) fn validate_storage_class(storage_class: &str) -> Result<(), CatalogE
             "storageClass requires a region or zone".into(),
         )),
         _ => Err(CatalogError::InvalidMetadata(
-            "Invalid bucket storageClass".into(),
+            "The storage class you specified is not valid.".into(),
         )),
     }
 }

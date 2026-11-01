@@ -106,7 +106,7 @@ async fn object_retention_bucket_enablement_is_create_only_and_persists() {
             body.to_string().as_bytes(),
         )
         .await
-        .error(400, "invalidArgument");
+        .error(400, "invalid");
     }
     h.request("GET", "/storage/v1/b/plain", ADMIN, b"")
         .await
@@ -149,7 +149,7 @@ async fn object_retention_bucket_enablement_is_create_only_and_persists() {
     ] {
         patch(&h, "bucket", "", body, ADMIN)
             .await
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
     }
     assert_eq!(
         h.request("GET", "/storage/v1/b/bucket", ADMIN, b"")

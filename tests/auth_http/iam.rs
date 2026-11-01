@@ -198,10 +198,28 @@ fn iam_policy_round_trip_and_unconditional_versions() {
         set(&server, ADMIN, &json!({"bindings":[]})).ok().json()["bindings"],
         json!([])
     );
+    // A policy write advances the bucket metageneration, replay or not (recorded 2026-10-31);
+    // nothing else about the bucket changes.
+    let bucket_after = server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json();
+    let metageneration = |bucket: &Value| {
+        bucket["metageneration"]
+            .as_str()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap()
+    };
     assert_eq!(
-        server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json(),
-        bucket_before
+        metageneration(&bucket_after),
+        metageneration(&bucket_before) + 1
     );
+    let stable = |bucket: &Value| {
+        let mut bucket = bucket.clone();
+        for field in ["metageneration", "etag", "updated"] {
+            bucket.as_object_mut().unwrap().remove(field);
+        }
+        bucket
+    };
+    assert_eq!(stable(&bucket_after), stable(&bucket_before));
     server
         .get(NO_ROLES, "/storage/v1/b/iam-bucket/o/object")
         .forbidden();
@@ -728,7 +746,6 @@ fn iam_rejects_invalid_policy_shapes() {
         json!({"bindings":[{"role":1}]}),
         json!({"bindings":[{"role":"roles/storage.objectViewer"}]}),
         json!({"bindings":[{"role":"roles/storage.objectViewer", "members":null}]}),
-        json!({"bindings":[{"role":"roles/storage.objectViewer", "members":[]}]}),
         json!({"bindings":[{"role":"roles/storage.objectViewer", "members":[1]}]}),
     ] {
         set(&server, ADMIN, &policy).error(400, "invalid");
@@ -781,6 +798,19 @@ fn iam_rejects_invalid_policy_shapes() {
     )
     .error(400, "invalid");
     assert_eq!(server.get(ADMIN, IAM).ok().json(), before);
+    // A binding without members grants nothing; Cloud Storage dropped it from the stored policy
+    // instead of rejecting it (recorded 2026-10-31).
+    let kept = set(
+        &server,
+        ADMIN,
+        &json!({"bindings":[binding("roles/storage.objectViewer", "user:local"), {"role":"roles/storage.objectViewer", "members":[]}]}),
+    )
+    .ok()
+    .json();
+    assert_eq!(
+        kept["bindings"],
+        json!([binding("roles/storage.objectViewer", "user:local")])
+    );
 }
 
 #[test]
@@ -833,10 +863,6 @@ fn iam_rejects_unsupported_policy_semantics() {
 fn iam_rejects_queries_paths_and_bodies() {
     let (_config, _data, server) = fixture();
     for query in [
-        "optionsRequestedPolicyVersion=0",
-        "optionsRequestedPolicyVersion=2",
-        "optionsRequestedPolicyVersion=4",
-        "optionsRequestedPolicyVersion=-1",
         "optionsRequestedPolicyVersion=",
         "optionsRequestedPolicyVersion=true",
         "optionsRequestedPolicyVersion=1&optionsRequestedPolicyVersion=3",
@@ -846,6 +872,18 @@ fn iam_rejects_queries_paths_and_bodies() {
         server
             .get(ADMIN, &format!("{IAM}?{query}"))
             .error(400, "invalidParameter");
+    }
+    // Cloud Storage answered an out-of-range version with its version 1 policy (recorded
+    // 2026-10-31), so any integer is accepted.
+    for version in ["0", "2", "4", "-1"] {
+        let policy = server
+            .get(
+                ADMIN,
+                &format!("{IAM}?optionsRequestedPolicyVersion={version}"),
+            )
+            .ok()
+            .json();
+        assert_eq!(policy["version"], 1, "{version}");
     }
     for method in ["GET", "PUT"] {
         for query in ["userProject=project-a", "userProject=", "fields="] {
@@ -877,7 +915,7 @@ fn iam_rejects_queries_paths_and_bodies() {
     for bytes in [b"{".as_slice(), b"", b"\xff"] {
         server
             .request("PUT", IAM, ADMIN, bytes)
-            .error(400, "parseError");
+            .error(400, "invalid");
     }
     server
         .get(ADMIN, "/storage/v1/b/iam-bucket/iam/testPermissions")

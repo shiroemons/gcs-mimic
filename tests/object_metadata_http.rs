@@ -714,7 +714,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
         }
         server
             .update(method, "", json!({"acl":null}))
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
         for query in ["predefinedAcl=private", "userProject=test"] {
             server
                 .update(method, &format!("?{query}"), json!({}))

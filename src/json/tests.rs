@@ -198,7 +198,6 @@ fn resource(bucket: &BucketRecord) -> Value {
 fn lifecycle_insert_defaults_and_unknown_resource_fields() {
     for profile in [CompatProfile::Native, CompatProfile::LegacyEmulator] {
         for lifecycle in [
-            json!([]),
             json!(false),
             json!({"rule":false}),
             json!({"rule":[{}]}),
@@ -214,6 +213,13 @@ fn lifecycle_insert_defaults_and_unknown_resource_fields() {
             assert!(buckets::parse_bucket_patch(&bytes, profile).is_err());
             assert!(buckets::parse_bucket_replacement(&bytes, profile).is_err());
         }
+        // A JSON array is not a lifecycle message; Cloud Storage accepted it and stored nothing.
+        let bytes = serde_json::to_vec(&json!({"name":"lifecycle-array","lifecycle":[]})).unwrap();
+        assert_eq!(
+            buckets::parse_insert_with_profile(&bytes, "project", UNIX_EPOCH, profile, "US")
+                .is_ok(),
+            profile == CompatProfile::Native
+        );
         for lifecycle in [
             Value::Null,
             json!({}),
@@ -317,7 +323,7 @@ fn bkt_route_003_wrong_method_has_allow_header() {
                     request(method, path).unwrap(),
                     BucketRequest::Update {
                         params: GetParams {
-                            projection: Projection::Full,
+                            projection: Projection::NoAcl,
                             ..
                         },
                         ..
@@ -339,9 +345,6 @@ fn bkt_qry_001_duplicate_unknown_and_misplaced_parameters() {
         "project=p&project=p",
         "project=p&%70roject=p",
         "project=p&prefix=a&prefix=b",
-        "project=p&wat=1",
-        "project=p&ifMetagenerationMatch=1",
-        "project=p&=x",
         "project=p&prefix=%ff",
         "project=p&prefix=%2",
     ] {
@@ -353,9 +356,33 @@ fn bkt_qry_001_duplicate_unknown_and_misplaced_parameters() {
             "{query}"
         );
     }
-    assert!(request(Method::GET, "/storage/v1/b/abc?project=p").is_err());
-    assert!(request(Method::DELETE, "/storage/v1/b/abc?projection=noAcl").is_err());
-    assert!(request(Method::POST, "/storage/v1/b?project=p&prefix=a").is_err());
+    // Cloud Storage ignores a query parameter the method does not define (recorded 2026-10-31).
+    for (method, path) in [
+        (Method::GET, "/storage/v1/b?project=p&wat=1"),
+        (
+            Method::GET,
+            "/storage/v1/b?project=p&ifMetagenerationMatch=1",
+        ),
+        (Method::GET, "/storage/v1/b?project=p&=x"),
+        (Method::GET, "/storage/v1/b/abc?project=p"),
+        (Method::DELETE, "/storage/v1/b/abc?projection=noAcl"),
+        (Method::POST, "/storage/v1/b?project=p&prefix=a"),
+        (Method::PATCH, "/storage/v1/b/abc?append=false"),
+    ] {
+        assert!(request(method, path).is_ok(), "{path}");
+    }
+    for (method, path) in [
+        (Method::GET, "/storage/v1/b/abc?project=p"),
+        (Method::POST, "/storage/v1/b?project=p&prefix=a"),
+    ] {
+        let legacy = route_with_profile(
+            &method,
+            &path.parse().unwrap(),
+            CompatProfile::LegacyEmulator,
+            "seed",
+        );
+        assert!(legacy.unwrap().is_err(), "{path}");
+    }
     assert!(
         request(Method::GET, "/storage/v1/b?project=p&&prefix=a+b&").is_ok_and(
             |request| matches!(request, BucketRequest::List(params) if params.prefix == "a b")
@@ -403,15 +430,50 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             )
             .is_ok()
         );
+        // The legacy profile never applies canned ACLs; the native profile applies them on
+        // PATCH and PUT, refuses them on insert, and rejects them under uniform access.
+        for (write, profile, expected) in [
+            (
+                BucketAclWrite::Update,
+                CompatProfile::LegacyEmulator,
+                JsonError::unsupported(parameter).reason,
+            ),
+            (
+                BucketAclWrite::Insert,
+                CompatProfile::Native,
+                JsonError::unsupported(parameter).reason,
+            ),
+        ] {
+            assert_eq!(
+                bucket_predefined_acls(
+                    Some(&format!("{parameter}=private")),
+                    UniformAccess::Disabled,
+                    write,
+                    profile,
+                )
+                .unwrap_err()
+                .reason,
+                expected
+            );
+        }
+        let applied = bucket_predefined_acls(
+            Some(&format!("{parameter}=private")),
+            UniformAccess::Disabled,
+            BucketAclWrite::Update,
+            CompatProfile::Native,
+        )
+        .unwrap();
+        assert_ne!(applied, BucketPredefinedAcls::default());
         assert_eq!(
-            reject_predefined_acl(
+            bucket_predefined_acls(
                 Some(&format!("{parameter}=private")),
-                UniformAccess::Disabled,
-                PredefinedAclTarget::Bucket,
+                UniformAccess::Enabled,
+                BucketAclWrite::Update,
+                CompatProfile::Native,
             )
             .unwrap_err()
             .reason,
-            JsonError::unsupported(parameter).reason
+            "invalid"
         );
     }
     assert_eq!(
@@ -718,7 +780,7 @@ fn bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields() {
             parse_insert(body.as_bytes(), "p", UNIX_EPOCH)
                 .unwrap_err()
                 .reason,
-            "parseError"
+            "invalid"
         );
     }
     assert_eq!(
@@ -746,7 +808,7 @@ fn bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields() {
             parse_insert(body.as_bytes(), "p", UNIX_EPOCH)
                 .unwrap_err()
                 .reason,
-            "invalidArgument",
+            "invalid",
             "{body}"
         );
     }
@@ -762,6 +824,10 @@ fn bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields() {
 fn bkt_ins_002_recognized_unsupported_fields_never_succeed() {
     for field in super::buckets::UNSUPPORTED_FIELDS {
         for value in [Value::Null, json!({}), json!([]), json!(false)] {
+            // `rpo` null and DEFAULT restate what every bucket has, so they are accepted below.
+            if *field == "rpo" && value.is_null() {
+                continue;
+            }
             let mut body = json!({"name":"abc"});
             body[field] =
                 if *field == "customPlacementConfig" && (value.is_null() || value == json!({})) {
@@ -774,6 +840,22 @@ fn bkt_ins_002_recognized_unsupported_fields_never_succeed() {
             assert!(error.message.contains(field));
         }
     }
+}
+
+#[test]
+fn rpo_default_is_accepted_and_other_values_are_not() {
+    for value in [Value::Null, json!("DEFAULT")] {
+        let body = json!({"name":"abc", "rpo": value});
+        assert!(parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).is_ok());
+        assert!(
+            buckets::parse_bucket_patch(body.to_string().as_bytes(), CompatProfile::Native).is_ok()
+        );
+    }
+    let body = json!({"name":"abc", "rpo": "ASYNC_TURBO"});
+    assert!(parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).is_err());
+    assert!(
+        buckets::parse_bucket_patch(body.to_string().as_bytes(), CompatProfile::Native).is_err()
+    );
 }
 
 #[test]
@@ -795,7 +877,17 @@ fn satisfies_pzi_and_pzs_in_a_write_body_are_ignored_whatever_their_value() {
             assert_eq!(actual, expected, "{body}");
         }
     }
-    assert_eq!(resource(&expected)["satisfiesPZI"], true);
+    // A regional bucket reports satisfiesPZI; a multi-region one reports rpo instead.
+    assert_eq!(resource(&expected)["rpo"], "DEFAULT");
+    assert!(resource(&expected).get("satisfiesPZI").is_none());
+    let regional = parse_insert(
+        br#"{"name":"abc","location":"us-central1"}"#,
+        "p",
+        UNIX_EPOCH,
+    )
+    .unwrap();
+    assert_eq!(resource(&regional)["satisfiesPZI"], true);
+    assert!(resource(&regional).get("rpo").is_none());
     assert!(resource(&expected).get("satisfiesPZS").is_none());
 }
 
@@ -914,8 +1006,11 @@ fn bkt_ins_003_location_and_storage_class_subset() {
         let body = json!({"name":"abc", "location":location});
         let error = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap_err();
         assert_eq!(error.status, StatusCode::BAD_REQUEST);
-        assert_eq!(error.reason, "invalidArgument");
-        assert!(error.message.contains("US or ASIA-NORTHEAST1"));
+        assert_eq!(error.reason, "invalid");
+        assert_eq!(
+            error.message,
+            "The specified location constraint is not valid."
+        );
     }
     for class in ["", "standard", "made-up"] {
         let body = json!({"name":"abc", "storageClass":class});
@@ -923,7 +1018,7 @@ fn bkt_ins_003_location_and_storage_class_subset() {
             parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH)
                 .unwrap_err()
                 .reason,
-            "invalidArgument"
+            "invalid"
         );
     }
     for class in ["REGIONAL", "RAPID"] {

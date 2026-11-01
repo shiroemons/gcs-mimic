@@ -80,7 +80,7 @@ pub(super) fn parse_bucket(value: Option<&Value>) -> Result<Option<bool>, JsonEr
         Some("Enabled") if value.as_object().is_some_and(|fields| fields.len() == 1) => {
             Ok(Some(true))
         }
-        _ => Err(JsonError::invalid_argument(
+        _ => Err(JsonError::invalid(
             "objectRetention only reports {\"mode\":\"Enabled\"}; enable object retention with the enableObjectRetention=true query parameter on bucket insert",
         )),
     }

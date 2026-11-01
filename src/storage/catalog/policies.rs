@@ -344,11 +344,11 @@ impl Catalog {
             {
                 return Err(CatalogError::PublicAccessPrevention);
             }
-            if super::acl::replace_from_policy(&transaction, &bucket, &policy, principals.as_ref())?
-            {
-                let updated = super::unix_micros(clock.now())?;
-                advance_acl_revision(&transaction, &bucket, updated)?;
-            }
+            super::acl::replace_from_policy(&transaction, &bucket, &policy, principals.as_ref())?;
+            // Every accepted policy write advanced the bucket metageneration on Cloud Storage,
+            // including a replay of the current policy (recorded 2026-10-31).
+            let updated = super::unix_micros(clock.now())?;
+            advance_acl_revision(&transaction, &bucket, updated)?;
             store_policy(&transaction, &bucket, &mut policy)?;
             super::change_journal::append(
                 &transaction,

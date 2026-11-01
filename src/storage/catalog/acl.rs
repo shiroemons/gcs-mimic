@@ -166,6 +166,8 @@ pub(crate) struct AclState {
     pub metageneration: i64,
     /// Selected object name and generation for object ACLs.
     pub object: Option<(String, i64)>,
+    /// The number of the owning project, as ACL entity names spell it.
+    pub project_number: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -185,7 +187,12 @@ pub(crate) enum AclError {
     Bucket(CatalogError),
     Object(ObjectError),
     UniformAccess,
-    EntityNotFound(String),
+    /// The entity is not in the ACL. `project_number` is the owning project's, which decides
+    /// whether a project-team entity names another project.
+    EntityNotFound {
+        entity: String,
+        project_number: String,
+    },
     RoleRequired,
     TooManyEntries,
     NotModified,
@@ -603,6 +610,7 @@ fn load(
                 entries,
                 metageneration: row.metageneration,
                 object: None,
+                project_number: crate::acl::project_number(&row.project),
             };
             (state, None)
         }
@@ -630,6 +638,7 @@ fn load(
                 entries,
                 metageneration: record.metageneration,
                 object: Some((record.name.clone(), record.generation)),
+                project_number: crate::acl::project_number(&row.project),
             };
             (state, Some(record))
         }
@@ -800,7 +809,10 @@ impl Catalog {
                             .entries
                             .iter()
                             .position(|entry| entry.entity == entity)
-                            .ok_or(AclError::EntityNotFound(entity))?;
+                            .ok_or_else(|| AclError::EntityNotFound {
+                                entity: entity.clone(),
+                                project_number: state.project_number.clone(),
+                            })?;
                         state.entries.remove(index);
                         None
                     }

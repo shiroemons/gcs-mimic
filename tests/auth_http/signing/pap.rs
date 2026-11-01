@@ -6,7 +6,8 @@ fn setting(server: &Server, state: &str) -> Value {
     server
         .request(
             "PATCH",
-            BUCKET,
+            // The stored resource reads without ACL fields, which a PATCH adds by default.
+            &format!("{BUCKET}?projection=noAcl"),
             ADMIN,
             json!({"iamConfiguration":{"publicAccessPrevention":state}})
                 .to_string()
@@ -135,17 +136,20 @@ fn pap_invalid_and_unsupported_settings_preserve_resources() {
     let before = server.get(ADMIN, BUCKET).ok().json();
     for method in ["PATCH", "PUT", "POST"] {
         for value in [
-            Value::Null,
             json!(false),
             json!([]),
-            json!({"publicAccessPrevention":null}),
             json!({"publicAccessPrevention":true}),
             json!({"publicAccessPrevention":"unspecified"}),
             json!({"publicAccessPrevention":""}),
             json!({"publicAccessPrevention":"ENFORCED"}),
             json!({"publicAccessPrevention":"disabled"}),
         ] {
-            let body = json!({"name":"invalid-pap","iamConfiguration":value});
+            // Only a POST names a bucket; a body that names another one disagrees with the path.
+            let body = if method == "POST" {
+                json!({"name":"invalid-pap","iamConfiguration":value})
+            } else {
+                json!({"iamConfiguration":value})
+            };
             let path = if method == "POST" {
                 "/storage/v1/b?project=project-a"
             } else {
@@ -153,7 +157,7 @@ fn pap_invalid_and_unsupported_settings_preserve_resources() {
             };
             server
                 .request(method, path, ADMIN, body.to_string().as_bytes())
-                .error(400, "invalidArgument");
+                .error(400, "invalid");
             assert_eq!(server.get(ADMIN, BUCKET).ok().json(), before);
             server
                 .get(ADMIN, "/storage/v1/b/invalid-pap")
@@ -166,10 +170,31 @@ fn pap_invalid_and_unsupported_settings_preserve_resources() {
                 } else {
                     BUCKET
                 };
-                server.request(method,path,ADMIN,json!({"name":"invalid-pap","iamConfiguration":{field:value,"publicAccessPrevention":"enforced"}}).to_string().as_bytes()).error(400,"invalidArgument");
+                let mut body =
+                    json!({"iamConfiguration":{field:value,"publicAccessPrevention":"enforced"}});
+                if method == "POST" {
+                    body["name"] = json!("invalid-pap");
+                }
+                server
+                    .request(method, path, ADMIN, body.to_string().as_bytes())
+                    .error(400, "invalid");
                 assert_eq!(server.get(ADMIN, BUCKET).ok().json(), before);
             }
         }
+    }
+    // A null iamConfiguration, or a null publicAccessPrevention inside it, restates nothing
+    // (recorded 2026-10-31).
+    for value in [Value::Null, json!({"publicAccessPrevention":null})] {
+        let patched = server
+            .request(
+                "PATCH",
+                BUCKET,
+                ADMIN,
+                json!({"iamConfiguration":value}).to_string().as_bytes(),
+            )
+            .ok()
+            .json();
+        assert_eq!(patched["iamConfiguration"], before["iamConfiguration"]);
     }
 }
 

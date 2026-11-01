@@ -12,6 +12,11 @@ const MEDIA_ERROR_CACHE_CONTROL: &str = "private, max-age=0";
 
 /// The missing-object message for operations that do not name one object, such as a copy source.
 const OBJECT_NOT_FOUND: &str = "Object not found";
+/// Cloud Storage's message for a bucket that does not exist, shared by every bucket-scoped route.
+pub(crate) const BUCKET_NOT_FOUND: &str = "The specified bucket does not exist.";
+/// The message of a failed metageneration or entity-tag precondition on a bucket or policy.
+pub(crate) const PRECONDITION_NOT_HELD: &str =
+    "At least one of the pre-conditions you specified did not hold.";
 /// The prefix of Cloud Storage's missing-object message, followed by `<bucket>/<object>`.
 const NO_SUCH_OBJECT: &str = "No such object: ";
 
@@ -197,6 +202,24 @@ impl JsonError {
         Self::new(StatusCode::BAD_REQUEST, "invalidParameter", message)
     }
 
+    /// A rejected value in the request body or a bucket setting. Cloud Storage reports these as
+    /// `invalid` (recorded 2026-10-31), where `invalidArgument` is a gRPC-style name.
+    pub(crate) fn invalid(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalid", message)
+    }
+
+    /// A request body that is not valid JSON. Cloud Storage reports the parser's position with a
+    /// `Parse Error:` prefix and the `invalid` reason (recorded 2026-10-31); only the truncated-body
+    /// wording was recorded, so other syntax errors carry a generic description.
+    pub(crate) fn json_parse_error(error: &serde_json::Error) -> Self {
+        let detail = if error.is_eof() {
+            "Unexpected end of string. Expected a value."
+        } else {
+            "Unexpected token. Expected a value."
+        };
+        Self::invalid(format!("Parse Error: {detail}\n\n^"))
+    }
+
     pub(crate) fn invalid_argument(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalidArgument", message)
     }
@@ -333,11 +356,13 @@ impl From<AuthFailure> for JsonError {
 impl From<CatalogError> for JsonError {
     fn from(error: CatalogError) -> Self {
         match error {
-            CatalogError::AlreadyExists => {
-                Self::new(StatusCode::CONFLICT, "conflict", "Bucket already exists")
-            }
+            CatalogError::AlreadyExists => Self::new(
+                StatusCode::CONFLICT,
+                "conflict",
+                "Your previous request to create the named bucket succeeded and you already own it.",
+            ),
             CatalogError::NotFound => {
-                Self::new(StatusCode::NOT_FOUND, "notFound", "Bucket not found")
+                Self::new(StatusCode::NOT_FOUND, "notFound", BUCKET_NOT_FOUND)
             }
             CatalogError::NotEmpty => {
                 Self::new(StatusCode::CONFLICT, "conflict", "Bucket is not empty")
@@ -345,7 +370,7 @@ impl From<CatalogError> for JsonError {
             CatalogError::PreconditionFailed => Self::new(
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",
-                "Precondition failed",
+                PRECONDITION_NOT_HELD,
             ),
             CatalogError::Forbidden => Self::forbidden(),
             error @ CatalogError::RetentionPolicyLocked(_) => Self::new(
@@ -361,7 +386,7 @@ impl From<CatalogError> for JsonError {
                 "conditionNotMet",
                 "Public access prevention is enforced",
             ),
-            CatalogError::InvalidMetadata(reason) => Self::invalid_argument(reason),
+            CatalogError::InvalidMetadata(reason) => Self::invalid(reason),
             CatalogError::UnsupportedMetadata(field) => Self::unsupported(&field),
             CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
                 Self::storage_capacity()
@@ -403,7 +428,7 @@ impl From<ObjectError> for JsonError {
     fn from(error: ObjectError) -> Self {
         match error {
             ObjectError::BucketNotFound => {
-                Self::new(StatusCode::NOT_FOUND, "notFound", "Bucket not found")
+                Self::new(StatusCode::NOT_FOUND, "notFound", BUCKET_NOT_FOUND)
             }
             ObjectError::InvalidMetadata => Self::invalid_argument("Custom metadata exceeds 8 KiB"),
             ObjectError::InvalidDerivedArgument(reason) => Self::invalid_argument(reason),

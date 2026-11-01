@@ -78,6 +78,10 @@ fn bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage() {
         assert_eq!(applied.json()["metageneration"], generation.to_string());
         assert_eq!(applied.json()["labels"]["step"], generation.to_string());
         resource = applied.json();
+        // PATCH answers with the ACL fields by default; the stored resource reads without them.
+        for field in ["acl", "defaultObjectAcl", "owner"] {
+            resource.as_object_mut().unwrap().remove(field);
+        }
     }
     // Query preconditions keep their atomic evaluation alongside the ignored header.
     let failed = server.request(

@@ -103,9 +103,9 @@ async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
                 json!({"softDeletePolicy":{"retentionDurationSeconds":invalid}}),
             )
             .await
-            .error(400, "invalidArgument");
+            .error(400, "invalid");
         }
-        resource(&h, "POST", "/storage/v1/b?project=project", json!({"name":"invalid-policy", "softDeletePolicy":{"retentionDurationSeconds":invalid}})).await.error(400, "invalidArgument");
+        resource(&h, "POST", "/storage/v1/b?project=project", json!({"name":"invalid-policy", "softDeletePolicy":{"retentionDurationSeconds":invalid}})).await.error(400, "invalid");
     }
     for (method, input) in [
         ("PATCH", json!({})),

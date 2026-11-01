@@ -163,21 +163,21 @@ fn acl_requests_reject_invalid_inputs_without_mutation() {
             "acl",
             json!({"entity": "nobody", "role": "READER"}),
             400,
-            "invalidArgument",
+            "invalid",
         ),
         (
             "POST",
             "acl",
             json!({"entity": "allUsers", "role": "reader"}),
             400,
-            "invalidArgument",
+            "invalid",
         ),
         (
             "PUT",
             "acl/allUsers",
             json!({"entity": "allAuthenticatedUsers", "role": "READER"}),
             400,
-            "invalidArgument",
+            "invalid",
         ),
         ("PUT", "acl/allUsers", json!({}), 400, "required"),
         ("PATCH", "acl/allUsers", json!({}), 400, "required"),
@@ -186,14 +186,14 @@ fn acl_requests_reject_invalid_inputs_without_mutation() {
             "defaultObjectAcl",
             json!({"entity": "allUsers", "role": "WRITER"}),
             400,
-            "invalidArgument",
+            "invalid",
         ),
         (
             "POST",
             "o/object/acl",
             json!({"entity": "allUsers", "role": "WRITER"}),
             400,
-            "invalidArgument",
+            "invalid",
         ),
         (
             "POST",
@@ -221,7 +221,7 @@ fn acl_requests_reject_invalid_inputs_without_mutation() {
     }
     server
         .request("POST", &format!("{BUCKET}/acl"), ADMIN, b"{")
-        .error(400, "parseError");
+        .error(400, "invalid");
     server
         .request("GET", &format!("{BUCKET}/acl"), ADMIN, b"{}")
         .error(400, "invalidArgument");
@@ -485,7 +485,7 @@ fn uniform_access_and_public_access_prevention_restrict_acls() {
     let full = call(&server, "GET", &format!("{BUCKET}?projection=full")).json();
     assert_eq!(metageneration(&full), metageneration(&before));
     assert!(full.get("acl").is_none() && full.get("defaultObjectAcl").is_none());
-    assert_eq!(full["owner"], json!({"entity": "project-owners-0"}));
+    assert!(full.get("owner").is_none());
     let object = call(
         &server,
         "GET",
@@ -675,7 +675,7 @@ fn resource_acl_validation_and_preconditions_preserve_all_metadata() {
             };
             body[field] = invalid;
             for method in ["PATCH", "PUT"] {
-                send(&server, method, &path, body.clone()).error(400, "invalidArgument");
+                send(&server, method, &path, body.clone()).error(400, "invalid");
                 assert_eq!(call(&server, "GET", &full).json(), before);
             }
         }
@@ -724,7 +724,7 @@ fn resource_acl_policy_failures_roll_back_metadata_and_other_acls() {
         let reason = if status == 412 {
             "conditionNotMet"
         } else {
-            "invalidArgument"
+            "invalid"
         };
         send(&server, "PATCH", BUCKET, json!({"iamConfiguration":policy, "acl":[],
             "defaultObjectAcl":[{"entity":"allUsers","role":"READER"}], "labels":{"changed":"yes"}
@@ -754,8 +754,10 @@ fn resource_acl_policy_failures_roll_back_metadata_and_other_acls() {
             body[field] = json!([{"entity":"allUsers","role":"READER"}]);
             let (status, reason) = if policy.get("publicAccessPrevention").is_some() {
                 (412, "conditionNotMet")
-            } else {
+            } else if path.ends_with("/object") {
                 (400, "invalidArgument")
+            } else {
+                (400, "invalid")
             };
             send(&server, "PATCH", &path, body).error(status, reason);
             assert_eq!(call(&server, "GET", &full).json(), before);
@@ -855,9 +857,16 @@ fn resource_acl_generation_selection_and_conditioned_races() {
         } else {
             &updated["labels"]["winner"]
         };
-        assert_eq!(
-            updated["acl"][0]["entity"],
-            format!("user-{}@example.com", winner.as_str().unwrap())
+        // The racing writer's entry is in the list; Cloud Storage lists the project owners team
+        // first on an object (recorded 2026-10-31), so the entry follows it.
+        let expected = format!("user-{}@example.com", winner.as_str().unwrap());
+        assert!(
+            updated["acl"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["entity"] == expected.as_str()),
+            "{expected}: {updated}"
         );
         assert_eq!(metageneration(&updated), revision + 1);
     }

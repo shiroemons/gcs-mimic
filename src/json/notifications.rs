@@ -114,7 +114,19 @@ fn invalid(message: impl Into<String>) -> JsonError {
 /// underlying cause to keep.
 impl From<notification::NotificationError> for JsonError {
     fn from(error: notification::NotificationError) -> Self {
-        invalid(error.to_string())
+        // Cloud Storage's wording for the two commonest mistakes (recorded 2026-10-31); a bad
+        // payload format is reported as a missing one.
+        match error {
+            notification::NotificationError::InvalidTopic(_) => invalid(
+                "Invalid Google Cloud Pub/Sub topic. It should look like '//pubsub.googleapis.com/projects/*/topics/*.'",
+            ),
+            notification::NotificationError::InvalidPayloadFormat(_) => JsonError::new(
+                StatusCode::BAD_REQUEST,
+                "required",
+                "You must specify a payload format in the 'payload_format' field.",
+            ),
+            error => invalid(error.to_string()),
+        }
     }
 }
 
@@ -122,13 +134,8 @@ impl From<notification::NotificationError> for JsonError {
 /// following the server-assigned semantics of those Discovery fields; other unknown fields
 /// follow the bucket insert ignored-input rule.
 pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, JsonError> {
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| {
-        JsonError::new(
-            StatusCode::BAD_REQUEST,
-            "parseError",
-            "Invalid JSON notification resource",
-        )
-    })?;
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|error| JsonError::json_parse_error(&error))?;
     let body = value
         .as_object()
         .ok_or_else(|| invalid("Notification resource must be a JSON object"))?;
@@ -151,7 +158,7 @@ pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, Jso
         JsonError::new(
             StatusCode::BAD_REQUEST,
             "required",
-            "Missing required topic; set topic to //pubsub.googleapis.com/projects/PROJECT/topics/TOPIC",
+            "You must specify a Cloud Pub/Sub topic in the 'topic' field.",
         )
     })?;
     let topic = notification::normalize_topic(topic)?;
@@ -257,7 +264,7 @@ pub(crate) fn notification_not_found() -> JsonError {
     JsonError::new(
         StatusCode::NOT_FOUND,
         "notFound",
-        "Notification configuration not found; list b/BUCKET/notificationConfigs for valid IDs",
+        "The requested resource was not found.",
     )
 }
 
@@ -413,7 +420,7 @@ mod tests {
     #[test]
     fn rejects_malformed_and_unsupported_values() {
         for (body, reason) in [
-            (&b"not json"[..], "parseError"),
+            (&b"not json"[..], "invalid"),
             (b"[]", "invalid"),
             (b"{}", "required"),
             (br#"{"topic":null}"#, "required"),
@@ -425,7 +432,8 @@ mod tests {
             ),
             (
                 br#"{"topic":"projects/p/topics/topic","payload_format":"XML"}"#,
-                "invalid",
+                // Cloud Storage reports an unknown payload format as a missing one.
+                "required",
             ),
             (
                 br#"{"topic":"projects/p/topics/topic","event_types":"OBJECT_DELETE"}"#,
