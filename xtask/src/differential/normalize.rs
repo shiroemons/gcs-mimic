@@ -100,6 +100,32 @@ fn shaped_placeholder(name: &str, item: &Value) -> String {
     }
 }
 
+/// Replaces the number in `project-owners-0` style entities. The emulator has no
+/// project registry and renders `0`; a recorded real number is already
+/// `<project-number>`, so only the team entity position is rewritten.
+fn scrub_project_team_number(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("project-") {
+        let (head, tail) = rest.split_at(at + "project-".len());
+        out.push_str(head);
+        rest = tail;
+        for team in ["owners-", "editors-", "viewers-"] {
+            if let Some(after) = tail.strip_prefix(team) {
+                let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+                if &after[..digits] == "0" {
+                    out.push_str(team);
+                    out.push_str("<project-number>");
+                    rest = &after[digits..];
+                }
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Replaces `generation=<digits>` so URLs and ids compare by shape.
 fn scrub_generation(text: &str) -> String {
     let mut out = String::new();
@@ -242,7 +268,9 @@ impl Normalizer {
         for (value, placeholder) in &self.literals {
             out = out.replace(value.as_str(), placeholder);
         }
-        scrub_emails(&scrub_upload_ids(&scrub_generation(&out)))
+        scrub_emails(&scrub_upload_ids(&scrub_generation(
+            &scrub_project_team_number(&out),
+        )))
     }
 
     pub(crate) fn json(&self, value: &Value) -> Value {
@@ -514,7 +542,10 @@ mod tests {
         assert_eq!(out["id"], "<bucket>/o.txt/<generation:16>");
         let acl = normalizer()
             .json(&json!({"id": "gcsmimic-diff-abc-b/o.txt/1730000000000001/project-owners-0"}));
-        assert_eq!(acl["id"], "<bucket>/o.txt/<generation:16>/project-owners-0");
+        assert_eq!(
+            acl["id"],
+            "<bucket>/o.txt/<generation:16>/project-owners-<project-number>"
+        );
         assert_eq!(out["generation"], "<generation:str:16>");
         assert_eq!(out["metageneration"], "1");
         assert_eq!(out["etag"], "<etag:str>");
@@ -574,6 +605,26 @@ mod tests {
             n.text("https://h/upload?uploadType=resumable&upload_id=ABCdef-123&x=1"),
             "https://h/upload?uploadType=resumable&upload_id=<upload-id>&x=1"
         );
+    }
+
+    #[test]
+    fn emulator_project_number_is_hidden_only_in_team_entities() {
+        let n = normalizer();
+        let out = n.json(&json!({
+            "entity": "project-owners-0",
+            "id": "b/project-viewers-0",
+            "selfLink": "<host>/b/x/acl/project-editors-0",
+            "name": "obj-0",
+            "other": "project-owners-05 and project-owners-",
+        }));
+        assert_eq!(out["entity"], "project-owners-<project-number>");
+        assert_eq!(out["id"], "b/project-viewers-<project-number>");
+        assert_eq!(
+            out["selfLink"],
+            "<host>/b/x/acl/project-editors-<project-number>"
+        );
+        assert_eq!(out["name"], "obj-0");
+        assert_eq!(out["other"], "project-owners-05 and project-owners-");
     }
 
     #[test]
