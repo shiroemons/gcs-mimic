@@ -243,8 +243,10 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, tonic::Status>
                 key_sha256_bytes: sha256.to_vec(),
             }),
         component_count: record.component_count.unwrap_or_default() as i32,
-        temporary_hold: record.temporary_hold,
-        event_based_hold: Some(record.event_based_hold),
+        temporary_hold: record.temporary_hold == Some(true),
+        // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
+        // the three states exist only in the JSON resource.
+        event_based_hold: Some(record.event_based_hold == Some(true)),
         // Cloud Storage returned retention_expire_time at millisecond precision while
         // retention.retain_until_time kept its nanoseconds (observed 2026-10-31).
         retention_expire_time: record
@@ -426,8 +428,8 @@ mod tests {
             time_deleted: None,
             soft_delete_time: None,
             hard_delete_time: None,
-            event_based_hold: false,
-            temporary_hold: true,
+            event_based_hold: None,
+            temporary_hold: Some(true),
             custom_time: Some("2026-10-20T01:02:03.123456789Z".into()),
             retention_expiration_time: None,
             retention: None,

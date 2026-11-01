@@ -44,7 +44,16 @@ fn rewrite_accepts_noop_hold_and_custom_time_defaults() {
     ] {
         let result = server.request("POST", BASE, ADMIN, body).json();
         assert_eq!(result["done"], true);
-        assert!(result["resource"].get("temporaryHold").is_none());
+        // An explicit false is kept as sent (not recorded at create time); null names nothing.
+        assert_eq!(
+            result["resource"]
+                .get("temporaryHold")
+                .and_then(Value::as_bool),
+            std::str::from_utf8(body)
+                .unwrap()
+                .contains("false")
+                .then_some(false)
+        );
         assert!(result["resource"].get("customTime").is_none());
         assert_eq!(server.get("destination?alt=media").body, payload);
     }

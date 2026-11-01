@@ -429,7 +429,7 @@ mod tests {
         object.content_language = Some("en".into());
         object.cache_control = Some("no-cache".into());
         object.metadata.insert("team".into(), "example".into());
-        object.event_based_hold = true;
+        object.event_based_hold = Some(true);
         object.time_deleted = Some(object.updated);
         let params = json::object_list::parse_list(bucket.name.clone(), "delimiter=/").unwrap();
         let page = ObjectListPage {

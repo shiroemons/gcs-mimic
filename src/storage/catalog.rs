@@ -73,6 +73,7 @@ mod rewrite_token;
 
 mod customer_keys;
 mod md5_availability;
+mod object_hold;
 
 mod appendable;
 pub(crate) use appendable::{AppendError, AppendWriter};
@@ -119,7 +120,7 @@ pub(crate) mod acl;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = 47;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = 48;
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -362,6 +363,7 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
     (45, bucket_soft_delete::SCHEMA, None),
     (46, bucket_soft_delete::GENERATION_SCHEMA, None),
     (47, objects::retention::SUB_MICRO_SCHEMA, None),
+    (48, object_hold::SCHEMA, None),
 ];
 
 #[expect(
@@ -900,6 +902,7 @@ const MIGRATIONS: &[(i64, Migration)] = &[
         47,
         Migration::Statements(objects::retention::SUB_MICRO_SCHEMA),
     ),
+    (48, Migration::Statements(object_hold::SCHEMA)),
 ];
 
 /// Resets volatile state and completes crash recovery before the catalog serves requests.

@@ -597,7 +597,7 @@ async fn ingest_new_files_use_seed_mime_and_bucket_default_hold() {
     assert_eq!(scan(&catalog, &root, &config).await.ingested, 1);
     let record = object(&catalog, "test-bucket/file.txt").await;
     assert_eq!(record.content_type, "text/plain; charset=utf-8");
-    assert!(record.event_based_hold);
+    assert_eq!(record.event_based_hold, Some(true));
     drop(root);
     catalog.close().await.unwrap();
 }

@@ -461,8 +461,8 @@ fn record(
         time_deleted: None,
         soft_delete_time: None,
         hard_delete_time: None,
-        event_based_hold: false,
-        temporary_hold: false,
+        event_based_hold: None,
+        temporary_hold: None,
         custom_time: None,
         retention_expiration_time: None,
         // Creation rejects object retention and customer-supplied keys.

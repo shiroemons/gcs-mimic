@@ -64,10 +64,9 @@ fn default_hold_applies_to_all_upload_modes() {
         multipart(&server, "multipart", None)["eventBasedHold"],
         true
     );
-    assert!(
-        multipart(&server, "override", Some(false))
-            .get("eventBasedHold")
-            .is_none()
+    assert_eq!(
+        multipart(&server, "override", Some(false))["eventBasedHold"],
+        false
     );
     let path = resumable(&server, "resumable", json!({}));
     assert_eq!(
@@ -84,12 +83,11 @@ fn default_hold_applies_to_all_upload_modes() {
     // Explicit false must survive the serialized session and process restart.
     drop(server);
     let server = Server::start(&dir, false);
-    assert!(
+    assert_eq!(
         server
             .request("PUT", &path, "Content-Range: bytes 0-4/5\r\n", b"bytes")
-            .json()
-            .get("eventBasedHold")
-            .is_none()
+            .json()["eventBasedHold"],
+        false
     );
     let path = resumable(&server, "changed-default", json!({}));
     settings(&dir, true, false);
@@ -124,7 +122,7 @@ fn default_hold_applies_to_all_upload_modes() {
         ))
         .json();
     assert!(old.get("timeDeleted").is_some());
-    assert!(old.get("eventBasedHold").is_none());
+    assert_eq!(old["eventBasedHold"], false);
 }
 
 #[test]
@@ -214,7 +212,7 @@ fn event_hold_metadata_release_and_restart() {
         json!({"eventBasedHold":false}),
     )
     .json();
-    assert!(released.get("eventBasedHold").is_none());
+    assert_eq!(released["eventBasedHold"], false);
     assert_eq!(released["metageneration"], "4");
     for field in ["generation", "size", "md5Hash", "crc32c", "timeCreated"] {
         assert_eq!(released[field], original[field]);
@@ -239,7 +237,7 @@ fn event_hold_metadata_release_and_restart() {
         json!({"eventBasedHold":false}),
     )
     .json();
-    assert!(archived.get("eventBasedHold").is_none());
+    assert_eq!(archived["eventBasedHold"], false);
     assert!(archived.get("timeDeleted").is_some());
     assert_eq!(server.get("held").json()["eventBasedHold"], true);
     assert_eq!(

@@ -88,25 +88,24 @@ fn temporary_hold_set_release_and_restart() {
         .get("temporaryHold")
         .is_none()
     );
-    assert!(
-        update(&server, "PATCH", json!({"temporaryHold":false}))
-            .json()
-            .get("temporaryHold")
-            .is_none()
+    // Recorded: PATCH false on a hold that was never set (eventBasedHold after an upload that
+    // named only temporaryHold) is reported back as false.
+    assert_eq!(
+        update(&server, "PATCH", json!({"temporaryHold":false})).json()["temporaryHold"],
+        false
     );
     assert_eq!(
         update(&server, "PATCH", json!({"temporaryHold":true})).json()["temporaryHold"],
         true
     );
-    assert!(
+    assert_eq!(
         update(
             &server,
             "PUT",
             json!({"temporaryHold":false,"customTime":created["customTime"]})
         )
-        .json()
-        .get("temporaryHold")
-        .is_none()
+        .json()["temporaryHold"],
+        false
     );
     assert_eq!(
         server
@@ -114,13 +113,16 @@ fn temporary_hold_set_release_and_restart() {
             .status,
         204
     );
-    for hold in [json!(false), json!(null)] {
-        assert!(
-            upload(&server, "defaults", json!({"temporaryHold":hold}))
-                .get("temporaryHold")
-                .is_none()
-        );
-    }
+    // A create-time false is kept as sent (the recording has no create-time false); null is not.
+    assert_eq!(
+        upload(&server, "defaults", json!({"temporaryHold":false}))["temporaryHold"],
+        false
+    );
+    assert!(
+        upload(&server, "defaults-null", json!({"temporaryHold":null}))
+            .get("temporaryHold")
+            .is_none()
+    );
 }
 
 #[test]
@@ -324,4 +326,61 @@ fn multipart_and_pending_resumable_preserve_hold_custom_time() {
     server
         .request("DELETE", "/storage/v1/b/test-bucket/o/pending", "", b"")
         .hold_error();
+}
+
+/// Cloud Storage reports a hold as `false` once it was set, and omits one that never was
+/// (recorded in the differential comparison). The state must survive a restart, and only a
+/// true hold may block a delete.
+#[test]
+fn a_released_hold_reads_back_as_false_and_a_never_set_hold_is_omitted() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, false);
+    server.bucket();
+    let created = upload(&server, "held", json!({}));
+    assert!(created.get("temporaryHold").is_none());
+    assert!(created.get("eventBasedHold").is_none());
+    let held = update(&server, "PATCH", json!({"temporaryHold":true})).json();
+    assert_eq!(held["temporaryHold"], true);
+    assert!(held.get("eventBasedHold").is_none());
+    let released = update(&server, "PATCH", json!({"temporaryHold":false})).json();
+    assert_eq!(released["temporaryHold"], false);
+    assert!(released.get("eventBasedHold").is_none());
+    // A value of the wrong type or null changes nothing, whatever state the hold is in.
+    for body in [
+        json!({"temporaryHold":"yes"}),
+        json!({"temporaryHold":null}),
+    ] {
+        let unchanged = update(&server, "PATCH", body).json();
+        assert_eq!(unchanged["temporaryHold"], false);
+    }
+    server.stop();
+    server = Server::start(&dir, false);
+    assert_eq!(server.get("held").json()["temporaryHold"], false);
+    let selected = server
+        .get("held?fields=name,temporaryHold,eventBasedHold")
+        .json();
+    assert_eq!(selected["temporaryHold"], false);
+    assert!(selected.get("eventBasedHold").is_none());
+    // A released hold no longer blocks deletion; a PUT that omits it returns to never set.
+    let replaced = update(&server, "PUT", json!({"metadata":{"a":"1"}})).json();
+    assert!(replaced.get("temporaryHold").is_none());
+    update(&server, "PATCH", json!({"eventBasedHold":true})).json();
+    server
+        .request(
+            "DELETE",
+            "/storage/v1/b/test-bucket/o/held",
+            "Authorization: Bearer admin\r\n",
+            b"",
+        )
+        .error(403, "forbidden");
+    let both = update(&server, "PATCH", json!({"eventBasedHold":false})).json();
+    assert_eq!(both["eventBasedHold"], false);
+    assert!(both.get("temporaryHold").is_none());
+    let deleted = server.request(
+        "DELETE",
+        "/storage/v1/b/test-bucket/o/held",
+        "Authorization: Bearer admin\r\n",
+        b"",
+    );
+    assert_eq!(deleted.status, 204);
 }

@@ -50,7 +50,13 @@ fn compose_accepts_noop_hold_and_custom_time_defaults() {
         )
         .json();
         assert_eq!(result["componentCount"], 2);
-        assert!(result.get("temporaryHold").is_none());
+        // An explicit false is kept as sent; the recording does not cover a create-time false, so
+        // echoing the request is a guess that adds no state the client did not name.
+        if destination.get("temporaryHold").is_some() {
+            assert_eq!(result["temporaryHold"], false);
+        } else {
+            assert!(result.get("temporaryHold").is_none());
+        }
         assert!(result.get("customTime").is_none());
         assert_eq!(media(&server, "target").body, b"firstsecond");
     }
@@ -485,7 +491,7 @@ fn compose_storage_class_defaults_and_event_holds() {
         json!({"sourceObjects":[{"name":"standard"}],"destination":{"eventBasedHold":false}}),
     )
     .json();
-    assert!(released.get("eventBasedHold").is_none());
+    assert_eq!(released["eventBasedHold"], false);
 }
 
 #[test]

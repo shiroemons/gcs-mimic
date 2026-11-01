@@ -139,8 +139,10 @@ pub(super) fn object(record: &ObjectRecord) -> Result<pb::Object, Status> {
         time_created: Some(record.time_created.into()),
         updated: Some(record.updated.into()),
         time_deleted: record.time_deleted.map(Into::into),
-        event_based_hold: Some(record.event_based_hold),
-        temporary_hold: record.temporary_hold,
+        // gRPC reports the optional field as present even for a never-set hold (recorded, v2);
+        // the three states exist only in the JSON resource.
+        event_based_hold: Some(record.event_based_hold == Some(true)),
+        temporary_hold: record.temporary_hold == Some(true),
         retention_expiration_time: record.retention_expiration_time.map(Into::into),
         ..Default::default()
     })

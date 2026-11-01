@@ -815,7 +815,7 @@ async fn admin_holds_and_disk_full_keep_their_error_types() {
         .publish_object(&bucket, &name, request(None), body(b"held"))
         .await
         .unwrap();
-    assert!(record.event_based_hold);
+    assert_eq!(record.event_based_hold, Some(true));
     assert_eq!(
         admin
             .publish_object(&bucket, &name, request(None), body(b"replacement"))

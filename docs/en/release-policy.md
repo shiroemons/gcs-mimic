@@ -122,6 +122,17 @@ Unreleased user-visible changes that the next minor release notes must state:
   nanosecond remainder. The migration is automatic and one-way like the
   earlier ones (the log names the versions); rows stored by 0.7.0 (whole
   microseconds) keep their time with a zero remainder.
+- `temporaryHold` and `eventBasedHold` are now reported as `false` once they
+  were set and released, and omitted on an object that never had them, as
+  Cloud Storage does. A PATCH or PUT that names a hold sets it to the given
+  value (also `false`); a PUT that omits it returns it to omitted; a copy,
+  rewrite or compose destination starts omitted. Only `true` blocks delete and
+  overwrite. gRPC keeps `event_based_hold` always present and `temporary_hold`
+  a plain bool. Catalog schema 48 adds `objects.temporary_hold_released` and
+  `objects.event_based_hold_released`; the migration is automatic and one-way
+  like the earlier ones. Rows stored before it read as omitted (0) or `true`
+  (1): a stored 0 cannot show whether the hold was ever set, so no `false` is
+  invented.
 - A bucket PATCH that carries `autoclass:{}` is a no-op like `{}`. An empty
   PATCH answers 304 (no body) when `ifMetagenerationNotMatch` names the current
   value and a native-profile 412 (`At least one of the pre-conditions you

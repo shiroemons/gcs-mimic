@@ -128,7 +128,7 @@ async fn import_publication_preserves_identity_settings_hold_and_atomic_prefix()
         UNIX_EPOCH + Duration::from_micros(123_456)
     );
     assert_eq!(object.updated, UNIX_EPOCH + Duration::from_micros(234_567));
-    assert!(!object.event_based_hold);
+    assert_eq!(object.event_based_hold, None);
     assert_eq!(
         catalog
             .import_journal()
@@ -158,7 +158,7 @@ async fn import_publication_preserves_identity_settings_hold_and_atomic_prefix()
         )
         .await
         .unwrap();
-    assert!(normal.generation > 902 && normal.event_based_hold);
+    assert!(normal.generation > 902 && normal.event_based_hold == Some(true));
     catalog.close().await.unwrap();
     let reopened = Catalog::open(&dir.0).await.unwrap();
     assert!(!reopened.import_journal().in_progress().await.unwrap());

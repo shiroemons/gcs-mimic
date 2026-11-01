@@ -835,11 +835,11 @@ pub(crate) fn object_resource(
     if !object.metadata.is_empty() {
         value["metadata"] = json!(object.metadata);
     }
-    if object.event_based_hold {
-        value["eventBasedHold"] = json!(true);
+    if let Some(hold) = object.event_based_hold {
+        value["eventBasedHold"] = json!(hold);
     }
-    if object.temporary_hold {
-        value["temporaryHold"] = json!(true);
+    if let Some(hold) = object.temporary_hold {
+        value["temporaryHold"] = json!(hold);
     }
     if let Some(time) = super::object_retention::expiration(object.earliest_deletion_time())? {
         value["retentionExpirationTime"] = json!(time);

@@ -52,8 +52,11 @@ pub struct ObjectRecord {
     pub time_deleted: Option<SystemTime>,
     pub soft_delete_time: Option<SystemTime>,
     pub hard_delete_time: Option<SystemTime>,
-    pub event_based_hold: bool,
-    pub temporary_hold: bool,
+    /// Three states, as Cloud Storage reports them: `None` (never set, omitted on the wire),
+    /// `Some(false)` (set before and released, reported as `false`) and `Some(true)`. Only
+    /// `Some(true)` blocks deletion and overwrite; use `has_hold` instead of reading these.
+    pub event_based_hold: Option<bool>,
+    pub temporary_hold: Option<bool>,
     pub custom_time: Option<String>,
     /// Bucket retention policy expiration only; object retention is kept in `retention`.
     pub retention_expiration_time: Option<SystemTime>,
@@ -67,8 +70,15 @@ impl ObjectRecord {
         self.md5_availability == Md5Availability::Available && self.component_count.is_none()
     }
 
+    /// A PUT replaces the resource, so a hold it does not name returns to never set (recorded:
+    /// a PUT of only `metadata` under a temporary hold answered without the hold, not `false`).
+    pub(crate) fn clear_holds(&mut self) {
+        self.event_based_hold = None;
+        self.temporary_hold = None;
+    }
+
     pub(crate) fn has_hold(&self) -> bool {
-        self.event_based_hold || self.temporary_hold
+        self.event_based_hold == Some(true) || self.temporary_hold == Some(true)
     }
 
     /// Guards removing this generation permanently (or soft deleting it). With both a bucket
@@ -97,7 +107,7 @@ impl ObjectRecord {
             return Err(ObjectError::ActiveHold(Box::new(HeldObject {
                 bucket: self.bucket.clone(),
                 name: self.name.clone(),
-                kind: if self.temporary_hold {
+                kind: if self.temporary_hold == Some(true) {
                     HoldKind::Temporary
                 } else {
                     HoldKind::EventBased
@@ -280,6 +290,14 @@ impl ObjectMetadataUpdate {
         Ok(())
     }
 
+    /// Applies the update to a published generation, where a PUT also clears the holds it omits.
+    pub(crate) fn apply_to_existing(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
+        if self.replace {
+            record.clear_holds();
+        }
+        self.apply(record)
+    }
+
     pub(crate) fn apply(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
         self.validate()?;
         // Cloud Storage kept the current custom time for `null` and for a PUT that omits it
@@ -299,10 +317,10 @@ impl ObjectMetadataUpdate {
             record.custom_time = Some(value);
         }
         if let Some(hold) = self.event_based_hold {
-            record.event_based_hold = hold;
+            record.event_based_hold = Some(hold);
         }
         if let Some(hold) = self.temporary_hold {
-            record.temporary_hold = hold;
+            record.temporary_hold = Some(hold);
         }
         if let Some(retention) = self.retention {
             record.retention = retention;

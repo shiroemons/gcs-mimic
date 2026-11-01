@@ -136,7 +136,7 @@ mod tests {
         assert!(derived_metadata(b"\x0bnull", &crate::json::object_tests::record()).is_err());
         let mut source = crate::json::object_tests::record();
         source.metadata.insert("source".into(), "value".into());
-        source.event_based_hold = true;
+        source.event_based_hold = Some(true);
         let (inherit, class, _) = derived_metadata(b"", &source).unwrap();
         assert_eq!(
             derived_metadata(b" \nnull\t", &source).unwrap(),

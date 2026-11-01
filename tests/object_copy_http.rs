@@ -1,6 +1,6 @@
 mod object_effects_support;
 use object_effects_support::{Reply, Server, common::TestDir, settings};
-use serde_json::json;
+use serde_json::{Value, json};
 
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
 
@@ -300,7 +300,14 @@ fn copy_accepts_noop_hold_and_custom_time_defaults() {
     ] {
         let result = copy(&server, "source", "target", "", body).json();
         assert_eq!(result["name"], "target");
-        assert!(result.get("temporaryHold").is_none());
+        // An explicit false is kept as sent (not recorded at create time); null names nothing.
+        assert_eq!(
+            result.get("temporaryHold").and_then(Value::as_bool),
+            std::str::from_utf8(body)
+                .unwrap()
+                .contains("false")
+                .then_some(false)
+        );
         assert!(result.get("customTime").is_none());
         assert_eq!(media(&server, "test-bucket", "target"), b"source bytes");
     }
@@ -537,7 +544,7 @@ fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
     copy(&server, "source", "held", "", b"").hold_error();
     copy(&server, "held", "held", "", b"").hold_error();
     assert_no_transfer_files(&dir);
-    assert!(
+    assert_eq!(
         copy(
             &server,
             "source",
@@ -545,9 +552,8 @@ fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
             "",
             br#"{"eventBasedHold":false}"#
         )
-        .json()
-        .get("eventBasedHold")
-        .is_none()
+        .json()["eventBasedHold"],
+        false
     );
 }
 

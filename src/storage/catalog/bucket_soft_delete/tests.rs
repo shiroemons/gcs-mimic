@@ -509,6 +509,8 @@ async fn schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds() 
     connection
         .execute_batch(
             "DROP TABLE bucket_generation;
+             ALTER TABLE objects DROP COLUMN temporary_hold_released;
+             ALTER TABLE objects DROP COLUMN event_based_hold_released;
              ALTER TABLE objects DROP COLUMN retain_until_sub_micro_nanos;
              UPDATE buckets SET generation = 1000000100 WHERE name = 'kept';
              UPDATE soft_deleted_buckets SET generation = 1000000200 WHERE name = 'gone';

@@ -214,7 +214,7 @@ fn publication(attrs: &codec::ObjectAttrs, cap: u64) -> Result<Publication, Fail
                     .map(|(key, value)| (key, Some(value)))
                     .collect()
             })),
-            event_based_hold: Some(false),
+            event_based_hold: None,
             ..Default::default()
         },
         expected: ExpectedHashes {
@@ -801,7 +801,7 @@ async fn verify_committed(
                     != attributes.content_language
                 || target.cache_control.as_deref().unwrap_or_default() != attributes.cache_control
                 || target.metadata != attributes.metadata.clone().unwrap_or_default()
-                || target.event_based_hold
+                || target.event_based_hold == Some(true)
                 || target.storage_class != attributes.storage_class
                 || target.custom_time != request.metadata.custom_time.flatten()
             {
