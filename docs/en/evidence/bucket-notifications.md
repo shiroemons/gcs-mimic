@@ -22,8 +22,34 @@ messages.
 - `bash sdk-scorecard/run.sh --out "$TMPDIR/scorecard-notifications" gcs-mimic`: PASS. `bucket.notifications` passes for Go and Ruby. Compared with `sdk-scorecard/results/2026-10-29/gcs-mimic.*.jsonl`, no previously passing case regressed; Go 45 to 46 of 57 and Ruby 40 to 41 of 51 cases pass (score 80.5). Scorecard results were not committed.
 - `npx --yes markdownlint-cli2` on the changed documents: PASS.
 
+## Topic existence check against a configured Pub/Sub emulator
+
+With `pubsub_emulator_host` set, creating a configuration asks the emulator
+whether the topic exists (`GET /v1/projects/P/topics/T`, five-second timeout).
+The cases below run against an in-test stand-in emulator only; no real Pub/Sub
+emulator or Google service was contacted.
+
+- `cargo test --test notifications_http`: PASS, 8 tests and 1 opt-in ignored.
+  `creating_a_config_checks_the_topic_against_the_configured_emulator` covers
+  an existing topic, a missing topic (recorded 400), the validation order (an
+  invalid `payload_format` and a missing `topic` never reach the emulator; an
+  invalid `event_types` is reported only after the topic is confirmed), a 500
+  answer and a refused connection (both 503, nothing created).
+  `a_missing_bucket_is_not_found_without_asking_the_emulator` shows a missing
+  bucket is a 404 and sends no lookup.
+- `cargo test --lib -- notification`: PASS, 37 tests, including
+  `topic_lookup_separates_missing_from_unconfirmed` (200, 404, 500, 307,
+  refused connection) and `topic_lookup_without_a_usable_answer_is_unreachable`
+  (no reply before an injected timeout, a non-HTTP reply, a body past the
+  bounded read), and the 503 mapping and log-cause tests in
+  `json::notifications`.
+- Unrecorded: the recording sent only the full `//pubsub.googleapis.com/...`
+  topic form. Naming the normalized topic in the error for a short
+  `projects/P/topics/T` request is a guess.
+
 ## Not performed
 
 Real-cloud differential runs, HTTPS SDK runs and container builds were not
-performed. Topic existence, publisher permission and event delivery remain
-unimplemented and are recorded as PENDING acceptance cases.
+performed. Publisher permission is not modeled, and topic existence is checked
+only when a local emulator is configured; without one the topic is accepted
+unchecked.

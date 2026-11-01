@@ -130,15 +130,44 @@ impl From<notification::NotificationError> for JsonError {
     }
 }
 
-/// Parse a notifications.insert body. Output-only `id`, `etag` and `selfLink` are ignored,
-/// following the server-assigned semantics of those Discovery fields; other unknown fields
-/// follow the bucket insert ignored-input rule.
+/// Parse a whole notifications.insert body without a topic existence check.
+#[cfg(test)]
 pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, JsonError> {
+    parse_notification_head(bytes)?.finish()
+}
+
+/// A notification body whose topic and payload format are valid; the remaining fields are still
+/// unchecked.
+pub(crate) struct PendingNotification {
+    body: Map<String, Value>,
+    topic: String,
+    payload_format: String,
+}
+
+impl PendingNotification {
+    pub(crate) fn topic(&self) -> &str {
+        &self.topic
+    }
+
+    /// Validate the fields that follow the topic existence check.
+    pub(crate) fn finish(self) -> Result<NotificationConfig, JsonError> {
+        parse_notification_tail(self)
+    }
+}
+
+/// Parse a notifications.insert body up to and including the payload format. Output-only `id`,
+/// `etag` and `selfLink` are ignored, following the server-assigned semantics of those Discovery
+/// fields; other unknown fields follow the bucket insert ignored-input rule.
+///
+/// Cloud Storage validates in a fixed order (recorded 2026-10-31): the topic's presence and
+/// form, the payload format, the topic's existence, then the event types. Parsing therefore stops
+/// after the payload format, so the caller can check the topic before the rest is validated.
+pub(crate) fn parse_notification_head(bytes: &[u8]) -> Result<PendingNotification, JsonError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|error| JsonError::parse_error(bytes, &error))?;
-    let body = value
-        .as_object()
-        .ok_or_else(|| invalid("Notification resource must be a JSON object"))?;
+    let Value::Object(body) = value else {
+        return Err(invalid("Notification resource must be a JSON object"));
+    };
     let field = |name: &str| body.get(name).filter(|value| !value.is_null());
     let string = |name: &str| {
         field(name)
@@ -166,6 +195,29 @@ pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, Jso
         .unwrap_or("JSON_API_V1")
         .to_owned();
     notification::validate_payload_format(&payload_format)?;
+    Ok(PendingNotification {
+        body,
+        topic,
+        payload_format,
+    })
+}
+
+fn parse_notification_tail(pending: PendingNotification) -> Result<NotificationConfig, JsonError> {
+    let PendingNotification {
+        body,
+        topic,
+        payload_format,
+    } = pending;
+    let field = |name: &str| body.get(name).filter(|value| !value.is_null());
+    let string = |name: &str| {
+        field(name)
+            .map(|value| {
+                value
+                    .as_str()
+                    .ok_or_else(|| invalid(format!("{name} must be a string")))
+            })
+            .transpose()
+    };
     let event_types = match field("event_types") {
         None => Vec::new(),
         Some(value) => value
@@ -258,6 +310,45 @@ pub(crate) fn notification_list(
             .collect();
     }
     value
+}
+
+/// Cloud Storage's rejection of a topic the service agent cannot see (recorded 2026-10-31). The
+/// recording only sent the full `//pubsub.googleapis.com/...` form, so naming the normalized
+/// topic for a short `projects/P/topics/T` request is a guess. The
+/// emulator has no permission model, so a missing topic is the only way to reach it.
+pub(crate) fn topic_not_found(topic: &str, bucket_project: &str) -> JsonError {
+    invalid(format!(
+        "Cloud Pub/Sub topic '{topic}' not found, or user '{}' does not have permission to it.",
+        super::projects::service_account_email(bucket_project)
+    ))
+}
+
+/// The emulator could not say whether the topic exists. Accepting the configuration anyway would
+/// hide a missing topic, so the request fails with a retryable error and creates nothing.
+pub(crate) fn topic_unverifiable(error: &notification::TopicCheckError) -> JsonError {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Warn,
+        "notification_topic_check_failed",
+        json!({"cause": error_chain(error)}),
+    );
+    JsonError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "backendError",
+        "Could not confirm that the Cloud Pub/Sub topic exists: the configured local Pub/Sub emulator is unreachable or gave an unexpected answer; start or repair the emulator (pubsub_emulator_host), then retry",
+    )
+}
+
+/// The error and every `source()` below it, so an operator can tell a timeout from a refused
+/// connection or a rejected endpoint. Only the log carries this; the client text is fixed.
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
 }
 
 pub(crate) fn notification_not_found() -> JsonError {
@@ -510,6 +601,34 @@ mod tests {
                 .unwrap()
                 .len(),
             2
+        );
+    }
+}
+
+#[cfg(test)]
+mod topic_check_tests {
+    use super::*;
+    use crate::notification::TopicCheckError;
+
+    #[test]
+    fn every_unconfirmed_lookup_is_a_retryable_503_with_a_fixed_body() {
+        for error in [
+            TopicCheckError::Unexpected(StatusCode::INTERNAL_SERVER_ERROR),
+            TopicCheckError::Unreachable(std::io::Error::other("timed out")),
+        ] {
+            let mapped = topic_unverifiable(&error);
+            assert_eq!(mapped.status, StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(mapped.reason, "backendError");
+            assert!(!mapped.message.contains("timed out"));
+        }
+    }
+
+    #[test]
+    fn the_log_cause_keeps_the_source_chain() {
+        let error = TopicCheckError::Unreachable(std::io::Error::other("connection refused"));
+        assert_eq!(
+            error_chain(&error),
+            "Pub/Sub emulator topic lookup failed: connection refused"
         );
     }
 }

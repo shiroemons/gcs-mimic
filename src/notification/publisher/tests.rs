@@ -126,3 +126,91 @@ async fn publish_uses_checked_local_rest_origin_and_requires_one_acknowledgement
         listener = server.await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn topic_lookup_separates_missing_from_unconfirmed() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Endpoint::parse(&listener.local_addr().unwrap().to_string()).unwrap();
+    for (status, expected) in [
+        (200, "found"),
+        (404, "missing"),
+        (500, "unexpected"),
+        (307, "unexpected"),
+    ] {
+        let server = crate::task::spawn_supervised("pubsub-lookup-test", async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0; 8192];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let request = std::str::from_utf8(&buffer[..read]).unwrap();
+            assert!(request.starts_with("GET /v1/projects/p/topics/topic HTTP/1.1\r\n"));
+            assert!(!request.to_ascii_lowercase().contains("authorization:"));
+            socket
+                .write_all(format!("HTTP/1.1 {status} Test\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}").as_bytes())
+                .await
+                .unwrap();
+            listener
+        });
+        let result = endpoint
+            .topic_exists("//pubsub.googleapis.com/projects/p/topics/topic")
+            .await;
+        let actual = match result {
+            Ok(()) => "found",
+            Err(TopicCheckError::NotFound) => "missing",
+            Err(TopicCheckError::Unexpected(_)) => "unexpected",
+            Err(TopicCheckError::Unreachable(error)) => panic!("{error}"),
+        };
+        assert_eq!(actual, expected, "{status}");
+        listener = server.await.unwrap();
+    }
+    // Nothing listening: the connection is refused, which is unconfirmed rather than missing.
+    drop(listener);
+    assert!(matches!(
+        endpoint
+            .topic_exists("//pubsub.googleapis.com/projects/p/topics/topic")
+            .await,
+        Err(TopicCheckError::Unreachable(_))
+    ));
+}
+
+#[tokio::test]
+async fn topic_lookup_without_a_usable_answer_is_unreachable() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Endpoint::parse(&listener.local_addr().unwrap().to_string()).unwrap();
+    let topic = "//pubsub.googleapis.com/projects/p/topics/topic";
+    // None of these answers is a 200 or a 404: silence, a non-HTTP reply and a body past the
+    // bounded read must each leave the topic unconfirmed.
+    let oversized = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: 9000\r\nConnection: close\r\n\r\n{}",
+        "x".repeat(9000)
+    );
+    for reply in [
+        None,
+        Some("not http at all\r\n\r\n".to_owned()),
+        Some(oversized),
+    ] {
+        let hold = reply.is_none();
+        let server = crate::task::spawn_supervised("pubsub-unusable-test", async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0; 8192];
+            let _ = socket.read(&mut buffer).await.unwrap();
+            match reply {
+                Some(reply) => socket.write_all(reply.as_bytes()).await.unwrap(),
+                // Keep the socket open and silent until the client gives up.
+                None => {
+                    let _ = socket.read(&mut buffer).await;
+                }
+            }
+            listener
+        });
+        let result = endpoint
+            .topic_exists_within(topic, Duration::from_millis(if hold { 100 } else { 5000 }))
+            .await;
+        assert!(
+            matches!(result, Err(TopicCheckError::Unreachable(_))),
+            "{result:?}"
+        );
+        listener = server.await.unwrap();
+    }
+}

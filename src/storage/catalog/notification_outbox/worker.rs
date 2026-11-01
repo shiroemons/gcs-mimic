@@ -20,6 +20,18 @@ impl Catalog {
         Ok(())
     }
 
+    /// Confirm with the configured local Pub/Sub emulator that `topic` exists. Without an
+    /// emulator nothing can be confirmed, so the topic is accepted unchecked.
+    pub(crate) async fn check_notification_topic(
+        &self,
+        topic: &str,
+    ) -> Result<(), crate::notification::TopicCheckError> {
+        match self.0.pubsub_endpoint.get() {
+            Some(endpoint) => endpoint.topic_exists(topic).await,
+            None => Ok(()),
+        }
+    }
+
     pub(crate) fn start_notification_publisher(
         &self,
         endpoint: Endpoint,
@@ -27,6 +39,8 @@ impl Catalog {
         if self.0.notification_started.swap(true, Ordering::AcqRel) {
             return Err(unavailable("notification publisher already started"));
         }
+        // The swap above makes this the only writer, so the set cannot lose a race.
+        let _ = self.0.pubsub_endpoint.set(endpoint.clone());
         let health = TaskHealth::default();
         self.watch_background_task(health.clone());
         let weak = Arc::downgrade(&self.0);

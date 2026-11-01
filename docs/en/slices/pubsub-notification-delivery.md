@@ -28,6 +28,19 @@ Those events remain in the bounded persistent queue until delivery is enabled.
 Operators must provision the topic and subscriptions in their Pub/Sub emulator;
 gcs-mimic does not create topics or simulate service-agent permissions.
 
+When an emulator is configured, creating a configuration asks it
+(`GET /v1/projects/{project}/topics/{topic}`) whether the topic exists, as
+Cloud Storage does. A missing topic is rejected with the 400 Cloud Storage
+returns (reason `invalid`, "Cloud Pub/Sub topic ... not found, or user
+`service-NUMBER@gs-project-accounts.iam.gserviceaccount.com` does not have
+permission to it."). The check runs after the topic and `payload_format` checks and
+before `event_types`. If the emulator is unreachable, does not answer within five
+seconds or replies with anything other than 200 or 404, the request fails with a
+retryable 503 and no configuration is created. Permissions are not modeled, so
+only existence is checked. Without an emulator the topic is accepted unchecked,
+which differs from Cloud Storage. Existing configurations, reads and delivery are
+unaffected when a topic is later removed.
+
 An optional global rule preserves fake-gcs-server's event settings:
 
 | Native option / JSON key | Legacy flag / environment suffix | Effect |
