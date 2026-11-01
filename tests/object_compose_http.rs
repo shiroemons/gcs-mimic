@@ -38,7 +38,7 @@ fn media(server: &Server, name: &str) -> Reply {
 }
 
 #[test]
-fn compose_accepts_noop_hold_and_custom_time_defaults() {
+fn compose_keeps_an_explicit_false_hold_and_ignores_null_custom_time() {
     let (_dir, server) = setup(false);
     server.put("a", b"first").json();
     server.put("b", b"second").json();

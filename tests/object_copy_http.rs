@@ -291,7 +291,7 @@ fn copy_token_rejects_recreated_source_or_destination_buckets() {
 }
 
 #[test]
-fn copy_accepts_noop_hold_and_custom_time_defaults() {
+fn copy_keeps_an_explicit_false_hold_and_ignores_null_custom_time() {
     let (_dir, server) = setup(false);
     server.put("source", b"source bytes").json();
     for body in [

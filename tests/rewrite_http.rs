@@ -36,7 +36,7 @@ fn continue_path(token: &str) -> String {
 }
 
 #[test]
-fn rewrite_accepts_noop_hold_and_custom_time_defaults() {
+fn rewrite_keeps_an_explicit_false_hold_and_ignores_null_custom_time() {
     let (_dir, server, payload, _) = setup(false, 19);
     for body in [
         br#"{"temporaryHold":false}"#.as_slice(),
