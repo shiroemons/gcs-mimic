@@ -313,6 +313,8 @@ pub(crate) fn notification_list(
 }
 
 /// Cloud Storage's rejection of a topic the service agent cannot see (recorded 2026-10-31). The
+/// recording only sent the full `//pubsub.googleapis.com/...` form, so naming the normalized
+/// topic for a short `projects/P/topics/T` request is a guess. The
 /// emulator has no permission model, so a missing topic is the only way to reach it.
 pub(crate) fn topic_not_found(topic: &str, bucket_project: &str) -> JsonError {
     invalid(format!(
@@ -327,13 +329,26 @@ pub(crate) fn topic_unverifiable(error: &notification::TopicCheckError) -> JsonE
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
         "notification_topic_check_failed",
-        json!({"cause": error.to_string()}),
+        json!({"cause": error_chain(error)}),
     );
     JsonError::new(
         StatusCode::SERVICE_UNAVAILABLE,
         "backendError",
         "Could not confirm that the Cloud Pub/Sub topic exists: the configured local Pub/Sub emulator is unreachable or gave an unexpected answer; start or repair the emulator (pubsub_emulator_host), then retry",
     )
+}
+
+/// The error and every `source()` below it, so an operator can tell a timeout from a refused
+/// connection or a rejected endpoint. Only the log carries this; the client text is fixed.
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
 }
 
 pub(crate) fn notification_not_found() -> JsonError {
@@ -586,6 +601,34 @@ mod tests {
                 .unwrap()
                 .len(),
             2
+        );
+    }
+}
+
+#[cfg(test)]
+mod topic_check_tests {
+    use super::*;
+    use crate::notification::TopicCheckError;
+
+    #[test]
+    fn every_unconfirmed_lookup_is_a_retryable_503_with_a_fixed_body() {
+        for error in [
+            TopicCheckError::Unexpected(StatusCode::INTERNAL_SERVER_ERROR),
+            TopicCheckError::Unreachable(std::io::Error::other("timed out")),
+        ] {
+            let mapped = topic_unverifiable(&error);
+            assert_eq!(mapped.status, StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(mapped.reason, "backendError");
+            assert!(!mapped.message.contains("timed out"));
+        }
+    }
+
+    #[test]
+    fn the_log_cause_keeps_the_source_chain() {
+        let error = TopicCheckError::Unreachable(std::io::Error::other("connection refused"));
+        assert_eq!(
+            error_chain(&error),
+            "Pub/Sub emulator topic lookup failed: connection refused"
         );
     }
 }

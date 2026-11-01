@@ -853,3 +853,29 @@ fn creating_a_config_checks_the_topic_against_the_configured_emulator() {
 fn error_json(reply: &object_effects_support::Reply) -> Value {
     serde_json::from_slice(&reply.body).unwrap()
 }
+
+#[test]
+fn a_missing_bucket_is_not_found_without_asking_the_emulator() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let endpoint = listener.local_addr().unwrap().to_string();
+    let dir = TestDir::new();
+    let mut server = EventServer::start(&dir, &endpoint, &[]);
+    let reply = server.request(
+        "POST",
+        "/storage/v1/b/no-such-bucket/notificationConfigs",
+        br#"{"topic":"projects/local/topics/present"}"#,
+    );
+    assert_eq!(
+        reply.status,
+        404,
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
+    // No lookup reached the emulator.
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    server.stop();
+}

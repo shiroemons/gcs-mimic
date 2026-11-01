@@ -82,21 +82,23 @@ pub(super) async fn respond(
 
 /// With a local Pub/Sub emulator configured, reject a topic it does not have, as Cloud Storage
 /// does. A lookup that gets no clear answer fails the request rather than accepting the topic.
+/// The bucket is read first so a missing bucket is a 404 whatever the emulator would answer,
+/// and no outbound lookup is made for it.
 async fn check_topic(
     state: &State,
     bucket: &str,
     access: &BucketAccess,
     topic: &str,
 ) -> Result<(), JsonError> {
+    let record = state
+        .catalog
+        .get_bucket_authorized(bucket, access)
+        .await?
+        .ok_or(CatalogError::NotFound)?;
     match state.catalog.check_notification_topic(topic).await {
         Ok(()) => Ok(()),
+        // The service agent named in the message belongs to the bucket's project.
         Err(crate::notification::TopicCheckError::NotFound) => {
-            // The service agent named in the message belongs to the bucket's project.
-            let record = state
-                .catalog
-                .get_bucket_authorized(bucket, access)
-                .await?
-                .ok_or(CatalogError::NotFound)?;
             Err(topic_not_found(topic, &record.project))
         }
         Err(error) => Err(topic_unverifiable(&error)),

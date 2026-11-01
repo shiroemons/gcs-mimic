@@ -81,7 +81,16 @@ impl Endpoint {
     /// Ask the emulator whether `topic` exists, bounded by the same attempt timeout as a publish.
     /// Only existence is checked: the emulator has no permission model to consult.
     pub(crate) async fn topic_exists(&self, topic: &str) -> Result<(), TopicCheckError> {
-        let status = tokio::time::timeout(ATTEMPT_TIMEOUT, self.topic_status(topic))
+        self.topic_exists_within(topic, ATTEMPT_TIMEOUT).await
+    }
+
+    /// `topic_exists` with the attempt timeout injected, so tests need not wait five seconds.
+    async fn topic_exists_within(
+        &self,
+        topic: &str,
+        timeout: Duration,
+    ) -> Result<(), TopicCheckError> {
+        let status = tokio::time::timeout(timeout, self.topic_status(topic))
             .await
             .map_err(|elapsed| TopicCheckError::Unreachable(io::Error::other(elapsed)))?
             .map_err(TopicCheckError::Unreachable)?;
