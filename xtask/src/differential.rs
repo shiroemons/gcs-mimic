@@ -234,7 +234,7 @@ fn execute(
         Mode::Replay(_) => {
             let recorded = replayed.ok_or("recording was not loaded")?;
             generated = format!("{generated} (recording of {})", recorded.generated);
-            reference_requests = None;
+            reference_requests = Some(recorded.requests);
             Some(recorded.cases)
         }
         Mode::Live {

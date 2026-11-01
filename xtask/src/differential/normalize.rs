@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
 /// Infrastructure headers that differ per request and carry no API contract.
-const DROPPED_HEADERS: [&str; 11] = [
+const DROPPED_HEADERS: [&str; 12] = [
     "date",
     "server",
     "alt-svc",
@@ -20,6 +20,7 @@ const DROPPED_HEADERS: [&str; 11] = [
     "transfer-encoding",
     "via",
     "x-goog-request-id",
+    "x-goog-gcs-base-ts",
 ];
 
 const TIME_KEYS: [&str; 9] = [
@@ -150,6 +151,8 @@ impl Normalizer {
             "etag" => "<etag>".into(),
             "x-goog-generation" => "<generation>".into(),
             "last-modified" => "<time>".into(),
+            // Only the fixed 1990 value is part of the contract; a current date varies.
+            "expires" if value.ends_with(" GMT") && !value.contains("1990") => "<time>".into(),
             _ => self.text(value),
         }
     }
@@ -274,6 +277,8 @@ mod tests {
                     "application/json; charset=UTF-8".into(),
                 ),
                 ("X-Goog-Generation".into(), "1730000000000001".into()),
+                ("Expires".into(), "Sun, 01 Nov 2026 00:17:44 GMT".into()),
+                ("X-Goog-GCS-Base-TS".into(), "1a19".into()),
             ],
             body: br#"{"name":"gcsmimic-diff-abc-b"}"#.to_vec(),
         };
@@ -283,6 +288,8 @@ mod tests {
         assert_eq!(out.headers["etag"], "<etag>");
         assert_eq!(out.headers["vary"], "Origin, X-Origin");
         assert_eq!(out.headers["x-goog-generation"], "<generation>");
+        assert_eq!(out.headers["expires"], "<time>");
+        assert!(!out.headers.contains_key("x-goog-gcs-base-ts"));
         assert_eq!(out.body, NormBody::Json(json!({"name": "<bucket>"})));
     }
 

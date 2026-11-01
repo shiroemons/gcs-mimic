@@ -203,7 +203,7 @@ pub(crate) fn markdown(header: &Header<'_>, reports: &[CaseReport]) -> String {
     ));
     if let Some(requests) = header.reference_requests {
         out.push_str(&format!(
-            "- Requests sent to the live reference service: {requests}\n"
+            "- Requests sent to the live reference service (when recorded): {requests}\n"
         ));
     }
     out.push_str("\n## Summary\n\n| Case | Result | Differing fields |\n| --- | --- | --- |\n");
@@ -380,7 +380,7 @@ mod tests {
         let md = markdown(&header, std::slice::from_ref(&report));
         assert!(md.contains("status: reference `404`, mimic `400`"));
         assert!(md.contains("body `$.a`: reference `\"x\"`, mimic `(absent)`"));
-        assert!(md.contains("Requests sent to the live reference service: 9"));
+        assert!(md.contains("Requests sent to the live reference service (when recorded): 9"));
         assert!(has_failures(&[report], true));
     }
 }
