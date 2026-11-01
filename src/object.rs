@@ -70,6 +70,13 @@ impl ObjectRecord {
         self.md5_availability == Md5Availability::Available && self.component_count.is_none()
     }
 
+    /// A PUT replaces the resource, so a hold it does not name returns to never set (recorded:
+    /// a PUT of only `metadata` under a temporary hold answered without the hold, not `false`).
+    pub(crate) fn clear_holds(&mut self) {
+        self.event_based_hold = None;
+        self.temporary_hold = None;
+    }
+
     pub(crate) fn has_hold(&self) -> bool {
         self.event_based_hold == Some(true) || self.temporary_hold == Some(true)
     }
@@ -283,6 +290,14 @@ impl ObjectMetadataUpdate {
         Ok(())
     }
 
+    /// Applies the update to a published generation, where a PUT also clears the holds it omits.
+    pub(crate) fn apply_to_existing(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
+        if self.replace {
+            record.clear_holds();
+        }
+        self.apply(record)
+    }
+
     pub(crate) fn apply(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
         self.validate()?;
         // Cloud Storage kept the current custom time for `null` and for a PUT that omits it
@@ -300,13 +315,6 @@ impl ObjectMetadataUpdate {
                 }
             }
             record.custom_time = Some(value);
-        }
-        // A PUT replaces the resource, so a hold it does not name returns to never set
-        // (recorded: a PUT of only `metadata` under a temporary hold answered without the
-        // hold, not with `false`).
-        if self.replace {
-            record.event_based_hold = None;
-            record.temporary_hold = None;
         }
         if let Some(hold) = self.event_based_hold {
             record.event_based_hold = Some(hold);

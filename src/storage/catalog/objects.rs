@@ -1442,7 +1442,7 @@ impl Catalog {
             let previous_event_hold = record.event_based_hold;
             let override_unlocked = update.override_unlocked_retention;
             update.reject_past_retention(clock.now())?;
-            update.apply(&mut record)?;
+            update.apply_to_existing(&mut record)?;
             if record.event_based_hold == Some(true) && previous_event_hold != Some(true) && record.retention.is_some() {
                 return Err(ObjectError::InvalidFixedMetadata(
                     "Retention and event based holds cannot be configured together.".into(),
