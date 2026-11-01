@@ -125,9 +125,20 @@ Unreleased user-visible changes that the next minor release notes must state:
   `expires`, `vary: Origin, X-Origin`, `pragma: no-cache` on mutations and
   errors, `content-type: application/json` on 204 and 304, and a bare `ETag`
   header equal to the body `etag` (not on Move; the IAM header is unquoted and
-  `If-Match` accepts the bare value). Upload-path errors and XML virtual-host
-  responses do not get them. JSON error bodies add `location` and
-  `locationType` (the parameter name, or `If-Match` for a failed precondition).
+  `If-Match` accepts the bare value). XML virtual-host responses do not get them.
+  The upload path follows the same rules: the resumable initiation reply and
+  the upload errors carry `cache-control`, `expires` and `pragma`, and
+  `alt=media` downloads and media failures carry the `expires` their cache
+  policy implies. A session request the upload front end rejects (a malformed
+  `Content-Range`, an inconsistent total or offset, an unknown, finished or
+  cancelled session) answers with a bare `text/plain` body and without
+  `cache-control`, `expires`, `pragma` or `vary`, as does a session status
+  reply (308) and a cancellation (499); a client that read these bodies as
+  JSON must read the text. Upload errors that carry a JSON envelope keep
+  `x-content-type-options: nosniff`, which Cloud Storage does not send, because
+  the body quotes request input under a `text/html` content type. JSON error
+  bodies add `location` and `locationType` (the parameter name, or `If-Match`
+  for a failed precondition).
 - Bucket errors use reason `invalid` and Cloud Storage's wording (for example
   `The specified bucket does not exist.`). Bucket PATCH defaults to
   `projection=full`; PUT clears omitted `labels`, `cors`, `lifecycle`,
