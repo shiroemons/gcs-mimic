@@ -7,8 +7,9 @@ use std::fmt;
 /// The `Cache-Control` Cloud Storage sends with JSON API errors and media downloads.
 pub(crate) const NO_STORE_CACHE_CONTROL: &str = "no-cache, no-store, max-age=0, must-revalidate";
 
-/// The `Cache-Control` of a media download that Cloud Storage answers with a plain error.
-const MEDIA_ERROR_CACHE_CONTROL: &str = "private, max-age=0";
+/// The `Cache-Control` of a media download that Cloud Storage answers with a plain error; its
+/// `Expires` is the response time.
+pub(crate) const MEDIA_ERROR_CACHE_CONTROL: &str = "private, max-age=0";
 
 /// The missing-object message for operations that do not name one object, such as a copy source.
 const OBJECT_NOT_FOUND: &str = "Object not found";
@@ -104,7 +105,8 @@ pub struct JsonError {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct PlainText {
     pub(crate) content_type: &'static str,
-    pub(crate) body: &'static str,
+    /// The page text; `None` sends the error's own message.
+    pub(crate) body: Option<&'static str>,
     /// Whether the page carries the JSON API's no-store cache headers.
     pub(crate) cache: PlainCache,
 }
@@ -118,35 +120,46 @@ pub(crate) enum PlainCache {
 /// `POST` to an object resource, which has no such method.
 pub(crate) const NOT_FOUND_HTML: PlainText = PlainText {
     content_type: "text/html; charset=UTF-8",
-    body: "Not Found",
+    body: Some("Not Found"),
     cache: PlainCache::NoStore,
 };
 
 /// An upload request that names no session the server knows.
 pub(crate) const NOT_FOUND_TEXT: PlainText = PlainText {
     content_type: "text/plain; charset=utf-8",
-    body: "Not Found",
+    body: Some("Not Found"),
     cache: PlainCache::Unspecified,
 };
 
 /// A multipart upload whose `Content-Type` carries no boundary.
 pub(crate) const BAD_CONTENT_TYPE_TEXT: PlainText = PlainText {
     content_type: "text/plain; charset=utf-8",
-    body: "Bad content type.  Please use multipart.",
+    body: Some("Bad content type.  Please use multipart."),
     cache: PlainCache::Unspecified,
 };
 
 /// A resumable chunk whose `Content-Range` Cloud Storage could not use.
 pub(crate) const CONTENT_RANGE_TEXT: PlainText = PlainText {
     content_type: "text/plain; charset=utf-8",
-    body: "Failed to parse Content-Range header.",
+    body: Some("Failed to parse Content-Range header."),
+    cache: PlainCache::Unspecified,
+};
+
+/// A session-protocol failure that has no recorded text of its own. The recorded failures
+/// of a continuation (an unusable `Content-Range`, an unknown session) are bare `text/plain`
+/// pages without cache fields, so the other protocol errors (an inconsistent total, a gap in
+/// the offsets, a finished or cancelled session) use the same form with the message they
+/// already had. The form is inferred; only the two wordings above were recorded.
+pub(crate) const SESSION_MESSAGE_TEXT: PlainText = PlainText {
+    content_type: "text/plain; charset=utf-8",
+    body: None,
     cache: PlainCache::Unspecified,
 };
 
 /// An upload request whose `uploadType` is not one of the three.
 pub(crate) const BAD_REQUEST_TEXT: PlainText = PlainText {
     content_type: "text/plain; charset=utf-8",
-    body: "Bad Request",
+    body: Some("Bad Request"),
     cache: PlainCache::Unspecified,
 };
 
@@ -356,6 +369,17 @@ impl JsonError {
         self
     }
 
+    /// A session-protocol failure (a `Content-Range` that cannot be used, a gap or total that
+    /// disagrees with the session): the upload front end answered these with a bare `text/plain`
+    /// page, so the message leaves as that page with no error `reason`. Failures of other kinds
+    /// (checksums, headers, preconditions) keep their JSON envelope, because SDKs read the
+    /// `reason` from it.
+    pub(crate) fn session_protocol(message: impl Into<String>) -> Self {
+        let mut error = Self::invalid_parameter(message);
+        error.plain = Some(&SESSION_MESSAGE_TEXT);
+        error
+    }
+
     /// An upload that names no object.
     pub(crate) fn missing_object_name() -> Self {
         Self::new(
@@ -467,7 +491,11 @@ impl JsonError {
             return response;
         }
         if let Some(plain) = self.plain {
-            let mut response = Response::new(Full::new(Bytes::from_static(plain.body.as_bytes())));
+            let body = plain.body.map_or_else(
+                || Bytes::from(self.message.clone()),
+                |text| Bytes::from_static(text.as_bytes()),
+            );
+            let mut response = Response::new(Full::new(body));
             *response.status_mut() = self.status;
             let headers = response.headers_mut();
             headers.insert(
@@ -483,7 +511,12 @@ impl JsonError {
             }
             return response;
         }
-        let mut response = Response::new(Full::new(Bytes::from(super::render_body(&self.value()))));
+        let mut text = super::render_body(&self.value());
+        // The upload front end ended its `text/html` envelopes with a newline (recorded).
+        if self.html_typed {
+            text.push('\n');
+        }
+        let mut response = Response::new(Full::new(Bytes::from(text)));
         *response.status_mut() = self.status;
         let headers = response.headers_mut();
         headers.insert(
@@ -625,11 +658,18 @@ impl From<crate::storage::ResumableError> for JsonError {
                 error.plain = Some(&NOT_FOUND_TEXT);
                 error
             }
-            ResumableError::Gone => Self::new(
-                StatusCode::GONE,
-                "gone",
-                "Upload session is no longer active",
-            ),
+            // Not recorded: a finished or cancelled session is answered like the recorded unknown
+            // session (404), as a bare text page, because the front end decides both from the
+            // session state alone.
+            ResumableError::Gone => {
+                let mut error = Self::new(
+                    StatusCode::GONE,
+                    "gone",
+                    "Upload session is no longer active",
+                );
+                error.plain = Some(&SESSION_MESSAGE_TEXT);
+                error
+            }
             ResumableError::Invalid(message) => Self::invalid_parameter(message),
             ResumableError::Object(error) => error.into(),
         }

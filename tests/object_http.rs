@@ -266,6 +266,19 @@ impl Reply {
         assert_eq!(error["errors"][0]["message"], error["message"]);
     }
 
+    /// A session-continuation failure: a bare `text/plain` page that carries none of the JSON
+    /// API cache fields or `Vary`, as the upload front end sends it.
+    fn session_error(&self, status: u16, body: &str) {
+        self.plain_error(status, "text/plain; charset=utf-8", body);
+        for name in ["cache-control", "expires", "pragma", "vary"] {
+            assert!(
+                !self.headers.contains_key(name),
+                "{name}: {:?}",
+                self.headers
+            );
+        }
+    }
+
     /// A bare text page: the status, content type and the whole body are compared.
     fn plain_error(&self, status: u16, content_type: &str, body: &str) {
         assert_eq!(self.status, status);

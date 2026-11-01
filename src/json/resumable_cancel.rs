@@ -4,7 +4,7 @@ use http_body_util::Full;
 use hyper::{
     Request, Response, StatusCode,
     body::{Body, Bytes},
-    header::{CACHE_CONTROL, HeaderValue},
+    header::{CONTENT_TYPE, HeaderValue},
 };
 
 pub(crate) async fn cancel_response<B: Body + Unpin>(
@@ -22,9 +22,12 @@ pub(crate) async fn cancel_response<B: Body + Unpin>(
         .map_err(JsonError::from)?;
     let mut response = Response::new(Full::new(Bytes::new()));
     *response.status_mut() = cancelled_status();
-    response
-        .headers_mut()
-        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    // The 499 was not recorded; it follows the recorded 308 status reply: `text/plain` with
+    // no cache field.
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
     Ok(response)
 }
 

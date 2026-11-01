@@ -132,7 +132,7 @@ async fn conflicting_final_hash_preserves_error_and_session_invalidation() {
         .error(404, "notFound");
     h.request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
         .await
-        .error(410, "gone");
+        .session_error(410, "Upload session is no longer active");
     h.stop().await;
 }
 
@@ -170,6 +170,25 @@ impl Reply {
     fn json(&self) -> Value {
         serde_json::from_slice(&self.body).unwrap()
     }
+    /// A session-continuation failure: a bare `text/plain` page without the JSON API cache
+    /// fields or `Vary`, as the upload front end sends it.
+    fn session_error(&self, status: u16, body: &str) {
+        assert_eq!(
+            self.status,
+            status,
+            "{}",
+            String::from_utf8_lossy(&self.body)
+        );
+        assert_eq!(self.headers["content-type"], "text/plain; charset=utf-8");
+        assert_eq!(String::from_utf8_lossy(&self.body), body);
+        for name in ["cache-control", "expires", "pragma", "vary"] {
+            assert!(
+                !self.headers.contains_key(name),
+                "{name}: {:?}",
+                self.headers
+            );
+        }
+    }
     fn error(&self, status: u16, reason: &str) {
         assert_eq!(
             self.status,
@@ -177,10 +196,10 @@ impl Reply {
             "{}",
             String::from_utf8_lossy(&self.body)
         );
-        // A bare text page (such as the Content-Range refusal) has no reason to compare.
-        if let Ok(body) = serde_json::from_slice::<Value>(&self.body) {
-            assert_eq!(body["error"]["errors"][0]["reason"], reason);
-        }
+        let body: Value = serde_json::from_slice(&self.body).unwrap_or_else(|_| {
+            panic!("not a JSON error: {}", String::from_utf8_lossy(&self.body))
+        });
+        assert_eq!(body["error"]["errors"][0]["reason"], reason);
     }
 }
 impl Harness {
@@ -682,7 +701,12 @@ async fn initiation_returns_opaque_fixed_location_and_status_without_publication
         .await;
     assert_eq!(reply.status, 200);
     assert!(reply.body.is_empty());
-    assert_eq!(reply.headers["cache-control"], "no-store");
+    assert_eq!(
+        reply.headers["cache-control"],
+        "no-cache, no-store, max-age=0, must-revalidate"
+    );
+    assert_eq!(reply.headers["pragma"], "no-cache");
+    assert_eq!(reply.headers["expires"], "Mon, 01 Jan 1990 00:00:00 GMT");
     assert!(
         reply.headers["location"]
             .starts_with("https://configured.invalid/proxy/upload/storage/v1/")
@@ -1962,7 +1986,11 @@ async fn strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadl
     let cancelled = h.request("DELETE", &path, "", b"").await;
     assert_eq!(cancelled.status, 499);
     assert!(cancelled.body.is_empty());
-    assert_eq!(cancelled.headers["cache-control"], "no-store");
+    assert_eq!(
+        cancelled.headers["content-type"],
+        "text/plain; charset=utf-8"
+    );
+    assert!(!cancelled.headers.contains_key("cache-control"));
     assert!(!h.dir.0.join("staging").join(session.blob_id).exists());
     for method in ["PUT", "POST", "DELETE"] {
         assert_eq!(
@@ -2372,11 +2400,7 @@ async fn contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_sessi
         let reply = tokio::time::timeout(Duration::from_secs(1), Harness::read_response(stream))
             .await
             .unwrap();
-        assert_eq!(reply.status, 400);
-        assert_eq!(
-            reply.json()["error"]["errors"][0]["reason"],
-            "invalidParameter"
-        );
+        reply.session_error(400, "Content-Length does not match Content-Range");
     }
     assert_eq!(std::fs::metadata(stage).unwrap().len(), 0);
     drop(lease);
