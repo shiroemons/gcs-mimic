@@ -12,16 +12,33 @@ pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN owner TEXT CHECK
 #[cfg(test)]
 mod tests;
 
+/// Owner id of objects written by the permissive profile's local creator. The id is fixed, so a
+/// changed creator address renames the entity without rewriting the owner kind. Strict identity
+/// ids are operator-chosen; this one is namespaced so the two do not collide in practice.
+pub(crate) const LOCAL_CREATOR_ID: &str = "gcs-mimic:local-creator";
+
 pub(super) fn canonicalize(owner: &mut ObjectOwner, profile: Option<&Profile>) {
     match profile {
         Some(Profile::Strict(identities)) => {
-            if let ObjectOwner::Principal { id, entity } = owner {
+            // A strict restart keeps the recorded creator of objects written while permissive.
+            if let ObjectOwner::Principal { id, entity } = owner
+                && id != LOCAL_CREATOR_ID
+            {
                 *entity = identities
                     .get(id)
                     .and_then(crate::auth::Identity::acl_entity);
             }
         }
-        Some(Profile::Permissive | Profile::TrustedLocal) | None => {}
+        Some(Profile::Permissive {
+            creator: Some(creator),
+        }) => {
+            if let ObjectOwner::Principal { id, entity } = owner
+                && id == LOCAL_CREATOR_ID
+            {
+                *entity = Some(creator.to_string());
+            }
+        }
+        Some(Profile::Permissive { creator: None } | Profile::TrustedLocal) | None => {}
     }
 }
 
@@ -29,7 +46,10 @@ pub(super) fn reconcile(
     connection: &mut Connection,
     profile: &Profile,
 ) -> Result<(), CatalogError> {
-    if !matches!(profile, Profile::Strict(_)) {
+    if !matches!(
+        profile,
+        Profile::Strict(_) | Profile::Permissive { creator: Some(_) }
+    ) {
         return Ok(());
     }
     let mut after: Option<(String, String, i64)> = None;
@@ -88,6 +108,7 @@ pub(super) fn for_publication(
     connection: &Connection,
     bucket: &str,
     access: &BucketAccess,
+    profile: Option<&Profile>,
 ) -> Result<ObjectOwner, ObjectError> {
     if let BucketAccess::Policy {
         identity: Some(identity),
@@ -97,6 +118,19 @@ pub(super) fn for_publication(
         return Ok(ObjectOwner::Principal {
             id: identity.id().to_owned(),
             entity: identity.acl_entity(),
+        });
+    }
+    // The permissive profile has no caller, so the configured local creator stands in. Whether a
+    // real caller would also own an object written through the administrative seeding path is not
+    // distinguishable from the recordings; that path keeps the project owners.
+    if matches!(access, BucketAccess::Permissive)
+        && let Some(Profile::Permissive {
+            creator: Some(creator),
+        }) = profile
+    {
+        return Ok(ObjectOwner::Principal {
+            id: LOCAL_CREATOR_ID.into(),
+            entity: Some(creator.to_string()),
         });
     }
     let project = connection

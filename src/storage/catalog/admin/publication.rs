@@ -970,6 +970,7 @@ fn publish_entry(
                 transaction,
                 bucket,
                 &access,
+                None,
             )?)
         },
     };

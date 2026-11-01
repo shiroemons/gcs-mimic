@@ -48,6 +48,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
   --admin-enabled BOOL         false (local management API; isolate the listener when enabled)
   --admin-principal ID         none (strict local fixture administration; independent of Google IAM)
+  --local-creator-email EMAIL local-user@gcs-mimic.invalid (permissive native: creator recorded as owner and ACL OWNER of new objects; empty disables; grants nothing)
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
   --max-connections N          32 (1..1024; shared across listeners and TLS handshakes)
   --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
@@ -335,6 +336,10 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     if report.valid(&["data_dir", "seed_dir", "default_seed_dir", "sync_dir"]) {
         let warnings = gcs_mimic::config_input::resolve_default_seed(&mut report.config);
         report.diagnostics.warnings.extend(warnings);
+    }
+    // The legacy profile (fake-gcs-server compatible) keeps project-owner objects.
+    if report.config.compat_profile == gcs_mimic::config::CompatProfile::Native {
+        auth = auth.with_local_creator_email(&report.config.local_creator_email);
     }
     if report.diagnostics.is_err() {
         return Err(report.diagnostics.into());

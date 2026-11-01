@@ -393,6 +393,7 @@ impl Catalog {
                         &transaction,
                         &session.bucket,
                         &options.access,
+                        principals.as_ref(),
                     )?),
                 };
                 let (_, _retired, resource) = objects::publish_in_transaction(
