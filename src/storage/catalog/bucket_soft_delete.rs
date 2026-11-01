@@ -241,7 +241,7 @@ fn restore_in_transaction(
         .map_err(unavailable)?
         .is_some()
     {
-        return Err(CatalogError::AlreadyExists);
+        return Err(CatalogError::RestoreConflict);
     }
     // The restored policy is a new IAM revision so stale policy etags cannot overwrite it.
     let revision = next_revision(connection)?;
