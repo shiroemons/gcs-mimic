@@ -198,10 +198,28 @@ fn iam_policy_round_trip_and_unconditional_versions() {
         set(&server, ADMIN, &json!({"bindings":[]})).ok().json()["bindings"],
         json!([])
     );
+    // A policy write advances the bucket metageneration, replay or not (recorded 2026-10-31);
+    // nothing else about the bucket changes.
+    let bucket_after = server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json();
+    let metageneration = |bucket: &Value| {
+        bucket["metageneration"]
+            .as_str()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap()
+    };
     assert_eq!(
-        server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json(),
-        bucket_before
+        metageneration(&bucket_after),
+        metageneration(&bucket_before) + 1
     );
+    let stable = |bucket: &Value| {
+        let mut bucket = bucket.clone();
+        for field in ["metageneration", "etag", "updated"] {
+            bucket.as_object_mut().unwrap().remove(field);
+        }
+        bucket
+    };
+    assert_eq!(stable(&bucket_after), stable(&bucket_before));
     server
         .get(NO_ROLES, "/storage/v1/b/iam-bucket/o/object")
         .forbidden();

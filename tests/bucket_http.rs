@@ -3958,12 +3958,12 @@ fn bkt_http_query_body_name_and_route_boundaries() {
             .raw(&format!(
                 "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 999999\r\n\r\n"
             ))
-            .error(400, "invalid");
+            .error(400, "invalidArgument");
         server
             .raw(&format!(
                 "{method} {path} HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n"
             ))
-            .error(400, "invalid");
+            .error(400, "invalidArgument");
     }
     server.raw("POST /storage/v1/b?project=x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 65537\r\n\r\n").error(413,"uploadTooLarge");
     let exact = format!("{}{}", r#"{"name":"exact-cap"}"#, " ".repeat(65536 - 20));
