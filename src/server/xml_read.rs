@@ -29,7 +29,15 @@ pub(super) async fn respond(
         .authorize(permission, &operation.bucket)
         .await
         .map_err(|error| anonymous_error(error, ctx.caller))?;
-    xml::headers(request.headers(), &mut operation)?;
+    xml::headers(
+        request.headers(),
+        &mut operation,
+        if delete {
+            xml::UnknownGoogHeaders::Reject
+        } else {
+            xml::UnknownGoogHeaders::Ignore
+        },
+    )?;
     if delete
         && let Some(name) =
             crate::csek::has_headers(request.headers(), crate::csek::DESTINATION_PREFIX)
@@ -97,10 +105,16 @@ async fn read(
         xml::CacheScope::Private
     };
     let mut headers = xml::media_headers(&record, scope)?;
+    // A private object is sent with `Expires` set to the response time, even when the object
+    // carries its own `Cache-Control` (recorded with `no-cache`).
+    if scope == xml::CacheScope::Private
+        && let Some(value) = xml::envelope::expires(ctx.state.clock.now())
+    {
+        headers.insert("expires", value);
+    }
     json::insert_response_headers(&record, &mut headers);
-    headers.remove("x-goog-hash");
-    if reveal {
-        insert_hashes(&mut headers, &record);
+    if !reveal {
+        headers.remove("x-goog-hash");
     }
     if json::object_media_negotiable(&record) {
         // The XML API varies every representation of a stored-gzip object, gunzipped or not,
@@ -115,10 +129,29 @@ async fn read(
         return gunzipped(ctx, &record, reader, headers, overrides, request.method()).await;
     }
     headers.extend(operation.response_overrides);
+    let requested = request
+        .headers()
+        .get("range")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    // Cloud Storage rejects a multi-range request with 400 instead of serving the first range.
+    if requested.trim().to_ascii_lowercase().starts_with("bytes=") && requested.contains(',') {
+        return Ok(range_error(
+            request,
+            headers,
+            xml::Error::multiple_ranges(requested),
+            ctx.state.clock.now(),
+        ));
+    }
     let range = match json::object_media_range(request.headers(), record.size) {
         Ok(range) => range,
         Err(error) if error.status == StatusCode::RANGE_NOT_SATISFIABLE => {
-            return Ok(unsatisfiable_range(request, headers));
+            return Ok(range_error(
+                request,
+                headers,
+                xml::Error::unsatisfiable_range(requested),
+                ctx.state.clock.now(),
+            ));
         }
         Err(error) => return Err(error.into()),
     };
@@ -167,7 +200,17 @@ async fn gunzipped(
             .await
             .map_err(json::JsonError::from)?
     {
-        return Ok(gzip::plain_body_rejection(headers));
+        // The rejection is private whatever the object's own Cache-Control says.
+        let mut response = gzip::plain_body_rejection(headers);
+        let rejection = response.headers_mut();
+        rejection.insert(
+            "cache-control",
+            HeaderValue::from_static(xml::PRIVATE_CACHE_CONTROL),
+        );
+        if let Some(value) = xml::envelope::expires(ctx.state.clock.now()) {
+            rejection.insert("expires", value);
+        }
+        return Ok(response);
     }
     gzip::insert_transcoded_headers(&mut headers);
     headers.extend(overrides);
@@ -185,20 +228,16 @@ async fn gunzipped(
     Ok(response)
 }
 
-/// An unsatisfiable Range keeps the object's validators, generation, hashes and
-/// `accept-ranges`, with an `InvalidRange` document in place of the representation
-/// headers, and no `content-range` (observed 2026-10-31).
-fn unsatisfiable_range(
+/// A refused Range keeps the object's validators, generation, hashes and `accept-ranges`, with
+/// the error document in place of the representation headers, and no `content-range`
+/// (observed 2026-10-31 for an unsatisfiable and for a multiple range).
+fn range_error(
     request: &Request<Incoming>,
     mut headers: HeaderMap,
+    error: xml::Error,
+    now: std::time::SystemTime,
 ) -> Response<ResponseBody> {
-    let requested = request
-        .headers()
-        .get("range")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    let error = xml::Error::unsatisfiable_range(requested)
-        .response(xml::ErrorBody::for_method(request.method()));
+    let error = error.response(xml::ErrorBody::for_method(request.method()));
     for name in [
         "content-range",
         "content-encoding",
@@ -208,30 +247,19 @@ fn unsatisfiable_range(
         headers.remove(name);
     }
     let (parts, body) = error.into_parts();
-    for name in ["content-type", "content-length"] {
+    // The error is private whatever the object's own Cache-Control says: a public object's
+    // refusal must not stay in a shared cache.
+    for name in ["content-type", "content-length", "cache-control"] {
         if let Some(value) = parts.headers.get(name) {
             headers.insert(name, value.clone());
         }
+    }
+    headers.remove("expires");
+    if let Some(value) = xml::envelope::expires(now) {
+        headers.insert("expires", value);
     }
     let mut response = boxed(Response::new(body));
     *response.status_mut() = parts.status;
     *response.headers_mut() = headers;
     response
-}
-
-/// Cloud Storage's XML API sends one `x-goog-hash` field per algorithm, always for the
-/// whole object, including on a range (observed 2026-10-31). The JSON API instead combines
-/// them in one field.
-fn insert_hashes(headers: &mut HeaderMap, record: &ObjectRecord) {
-    let crc32c = format!("crc32c={}", json::base64(&record.crc32c.to_be_bytes()));
-    let md5 = record
-        .has_md5()
-        .then(|| format!("md5={}", json::base64(&record.md5)));
-    // Base64 always forms a valid header value; omitting a hash is safer than panicking
-    // if that ever changes.
-    for value in std::iter::once(crc32c).chain(md5) {
-        if let Ok(value) = HeaderValue::try_from(value) {
-            headers.append("x-goog-hash", value);
-        }
-    }
 }

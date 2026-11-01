@@ -689,20 +689,37 @@ fn xml_listing_matches_the_recorded_document() {
         "{}",
         delimited.body
     );
-    // A truncated page keeps its continuation markers after the request markers.
+    // A truncated page puts its continuation marker between the request markers and MaxKeys.
     let truncated = server.request("GET", "/parity?max-keys=1&marker=a", "", b"");
     truncated.status(200);
     assert!(
-        truncated
-            .body
-            .contains("<Marker>a</Marker><MaxKeys>1</MaxKeys><IsTruncated>true</IsTruncated>"),
+        truncated.body.contains(
+            "<Marker>a</Marker><NextMarker>plain.txt</NextMarker>\
+             <MaxKeys>1</MaxKeys><IsTruncated>true</IsTruncated>"
+        ),
         "{}",
         truncated.body
     );
+    // A listing that names no usable max-keys echoes no MaxKeys, and a delimiter follows the
+    // marker. `-1` is recorded; `abc` is an assumption, as the record cannot tell it from `-1`.
+    for query in ["", "?max-keys=-1", "?max-keys=abc"] {
+        let unlimited = server.request("GET", &format!("/parity{query}"), "", b"");
+        unlimited.status(200);
+        assert!(
+            unlimited
+                .body
+                .contains("<Marker></Marker><IsTruncated>false</IsTruncated>"),
+            "{query}: {}",
+            unlimited.body
+        );
+    }
+    let delimited = server.request("GET", "/parity?delimiter=%2F&prefix=p", "", b"");
     assert!(
-        truncated.body.contains("<NextMarker>"),
+        delimited.body.contains(
+            "<Prefix>p</Prefix><Marker></Marker><Delimiter>/</Delimiter><IsTruncated>false</IsTruncated>"
+        ),
         "{}",
-        truncated.body
+        delimited.body
     );
 }
 
@@ -868,4 +885,150 @@ fn error_items_name_the_rejected_parameter_or_header() {
     let missing = server.request("GET", "/storage/v1/b/parity/o/absent.txt", "", b"");
     missing.status(404);
     assert!(item(&missing).get("location").is_none());
+}
+
+#[test]
+fn xml_object_errors_and_headers_match_the_recorded_responses() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    // A PUT sends no Cache-Control and varies by Origin; its failures say the same.
+    let stale = server.request(
+        "PUT",
+        "/parity/plain.txt",
+        "x-goog-if-generation-match: 1\r\n",
+        b"x",
+    );
+    stale.status(412);
+    assert!(stale.body.contains(
+        "<Message>At least one of the pre-conditions you specified did not hold.</Message>"
+    ));
+    assert_eq!(header(&stale, "cache-control"), None);
+    assert_eq!(header(&stale, "vary"), Some("Origin"));
+    // A DELETE of an absent object names it, and is private with an Expires.
+    let absent = server.request("DELETE", "/parity/absent.txt", "", b"");
+    absent.status(404);
+    assert!(
+        absent
+            .body
+            .contains("<Details>No such object: parity/absent.txt</Details>")
+    );
+    assert_eq!(header(&absent, "cache-control"), Some(PRIVATE));
+    assert!(header(&absent, "expires").is_some());
+    assert_eq!(header(&absent, "vary"), Some("Origin"));
+    // A copy from an absent source names the source, not the destination.
+    let copy = server.request(
+        "PUT",
+        "/parity/copy.txt",
+        "x-goog-copy-source: /parity/nope.txt\r\n",
+        b"",
+    );
+    copy.status(404);
+    assert!(
+        copy.body
+            .contains("<Details>No such object: parity/nope.txt</Details>")
+    );
+    // A non-matching copy-source ETag is a 400, not a 412.
+    let etag = server.request(
+        "PUT",
+        "/parity/copy.txt",
+        "x-goog-copy-source: /parity/plain.txt\r\nx-goog-copy-source-if-match: \"bogus\"\r\n",
+        b"",
+    );
+    etag.status(400);
+    assert!(
+        etag.body
+            .contains("<Code>InvalidArgument</Code><Message>Invalid argument.</Message>")
+    );
+    // Several ranges are refused with the object's validators; a malformed one is ignored.
+    let multi = server.request("GET", "/parity/plain.txt", "Range: bytes=0-1,3-4\r\n", b"");
+    multi.status(400);
+    assert!(
+        multi
+            .body
+            .contains("<Details>Multiple ranges are not supported; Range:bytes=0-1,3-4</Details>")
+    );
+    assert_eq!(header(&multi, "accept-ranges"), Some("bytes"));
+    assert!(header(&multi, "etag").is_some());
+    server
+        .request("GET", "/parity/plain.txt", "Range: bytes=abc\r\n", b"")
+        .status(200);
+    // An unknown query parameter or x-goog header is ignored on an object read.
+    server
+        .request("GET", "/parity/plain.txt?bogusParameter=1", "", b"")
+        .status(200);
+    server
+        .request(
+            "GET",
+            "/parity/plain.txt",
+            "x-goog-bogus-header: 1\r\n",
+            b"",
+        )
+        .status(200);
+    // A successful PUT is an empty text/html response with one x-goog-hash field per algorithm.
+    let put = server.request("PUT", "/parity/new.txt", "", b"hi");
+    put.status(200);
+    assert_eq!(
+        header(&put, "content-type"),
+        Some("text/html; charset=UTF-8")
+    );
+    assert_eq!(header_values(&put, "x-goog-hash").len(), 2);
+    // A declared CRC32C that does not match is a CrcMismatch.
+    let crc = server.request(
+        "PUT",
+        "/parity/bad.txt",
+        "x-goog-hash: crc32c=AAAAAA==\r\n",
+        b"hi",
+    );
+    crc.status(400);
+    assert!(crc.body.contains("<Code>CrcMismatch</Code>"));
+}
+
+#[test]
+fn xml_range_errors_of_a_public_object_are_private() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/parity/o?uploadType=media&name=pub.txt&predefinedAcl=publicRead",
+            "Content-Type: text/plain\r\n",
+            b"0123456789",
+        )
+        .status(200);
+    let whole = server.request("GET", "/parity/pub.txt", "", b"");
+    whole.status(200);
+    assert_eq!(
+        header(&whole, "cache-control"),
+        Some("public, max-age=3600")
+    );
+    for range in ["bytes=0-1,3-4", "bytes=20-30"] {
+        let refused = server.request(
+            "GET",
+            "/parity/pub.txt",
+            &format!("Range: {range}\r\n"),
+            b"",
+        );
+        assert!(matches!(refused.status, 400 | 416), "{range}");
+        assert_eq!(header(&refused, "cache-control"), Some(PRIVATE), "{range}");
+        assert!(header(&refused, "expires").is_some(), "{range}");
+    }
+}
+
+#[test]
+fn xml_delete_rejects_an_unknown_x_goog_header() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    setup(&server);
+    let refused = server.request(
+        "DELETE",
+        "/parity/plain.txt",
+        "x-goog-bogus-header: 1\r\n",
+        b"",
+    );
+    refused.status(400);
+    server
+        .request("GET", "/parity/plain.txt", "", b"")
+        .status(200);
 }

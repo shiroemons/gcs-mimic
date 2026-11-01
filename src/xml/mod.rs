@@ -16,6 +16,7 @@ pub(crate) mod buckets;
 mod copy;
 mod cors;
 mod document;
+pub(crate) mod envelope;
 pub(crate) mod list;
 pub(crate) mod multipart;
 pub(crate) use cors::{cors, warn_unconfigured_cors};
@@ -244,6 +245,9 @@ pub(crate) struct Error {
 pub(crate) const DECLARATION: &str = "<?xml version='1.0' encoding='UTF-8'?>";
 /// The fixed message of a missing object; `Details` names the object.
 const NO_SUCH_KEY: &str = "The specified key does not exist.";
+/// The fixed message of a failed precondition, whichever precondition failed.
+const PRECONDITION_NOT_HELD: &str =
+    "At least one of the pre-conditions you specified did not hold.";
 
 /// Whether an XML error response carries its body. A HEAD response sends only the headers,
 /// including the Content-Length of the body it omits.
@@ -275,7 +279,7 @@ impl Error {
 
     /// Names the requested object in a missing-object error, as Cloud Storage does.
     pub(crate) fn naming_object(mut self, bucket: &str, name: &str) -> Self {
-        if self.code == "NoSuchKey" && self.message == NO_SUCH_KEY {
+        if self.code == "NoSuchKey" && self.message == NO_SUCH_KEY && self.details.is_none() {
             self.details = Some(format!("No such object: {bucket}/{name}"));
         }
         self
@@ -290,6 +294,20 @@ impl Error {
             "The requested range cannot be satisfied.",
         );
         error.details = Some(requested.to_owned());
+        error
+    }
+
+    /// The 400 for a Range header with several ranges; `Details` echoes the header as
+    /// Cloud Storage does (observed 2026-10-31).
+    pub(crate) fn multiple_ranges(requested: &str) -> Self {
+        let mut error = Self::new(
+            StatusCode::BAD_REQUEST,
+            "InvalidArgument",
+            "Invalid argument.",
+        );
+        error.details = Some(format!(
+            "Multiple ranges are not supported; Range:{requested}"
+        ));
         error
     }
 
@@ -361,6 +379,8 @@ impl From<JsonError> for Error {
         };
         let message = if error.is_missing_object() {
             NO_SUCH_KEY.to_owned()
+        } else if error.status == StatusCode::PRECONDITION_FAILED {
+            PRECONDITION_NOT_HELD.to_owned()
         } else {
             error.message
         };
@@ -698,7 +718,18 @@ pub(crate) fn route(
             }
         }
         // Authentication validates credential fields from the original URI before using this operation.
-        if let Some(key) = query.keys().find(|key| !signing_parameter(key)) {
+        // Cloud Storage answered a GET with an unknown query parameter as if it were absent
+        // (recorded). A parameter that selects a different resource, such as `acl`, would give
+        // a false success if ignored, so those stay rejected. HEAD and PUT share the GET and
+        // PUT parsing; HEAD ignoring unknown parameters is assumed, not recorded.
+        let ignores_unknown = matches!(*method, Method::GET | Method::HEAD);
+        if let Some(key) = query.keys().find(|key| {
+            !signing_parameter(key)
+                && (!ignores_unknown
+                    || SUBRESOURCES.contains(&key.as_str())
+                    || RECOGNIZED_UNSUPPORTED_QUERY.contains(&key.as_str())
+                    || key.starts_with("response-"))
+        }) {
             return Err(Error::unsupported(key));
         }
         Ok(ReadRequest {
@@ -710,6 +741,33 @@ pub(crate) fn route(
         })
     })())
 }
+
+/// Query parameters that address a sub-resource of an object (its ACL, torrent, tags and so on)
+/// rather than the object itself. Answering them with the object would be a false success.
+const SUBRESOURCES: &[&str] = &[
+    "acl",
+    "attributes",
+    "legal-hold",
+    "partNumber",
+    "retention",
+    "tagging",
+    "torrent",
+    "uploadId",
+    "uploads",
+];
+
+/// Query parameters with defined meaning (billing project, preconditions, soft-delete
+/// selection) that this adapter does not implement on an object read. Ignoring them would answer
+/// as if the billing project, condition or selection were absent, so they are rejected like
+/// the `x-goog-user-project` header.
+const RECOGNIZED_UNSUPPORTED_QUERY: &[&str] = &[
+    "ifGenerationMatch",
+    "ifGenerationNotMatch",
+    "ifMetagenerationMatch",
+    "ifMetagenerationNotMatch",
+    "softDeleted",
+    "userProject",
+];
 
 fn signing_parameter(key: &str) -> bool {
     crate::auth::signature::PARAMETERS.contains(&key)
@@ -743,7 +801,27 @@ fn number(raw: &str, min: MinValue) -> Result<i64, Error> {
         })
 }
 
-pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<(), Error> {
+/// `x-goog-` headers with defined meaning that this adapter does not implement. An object read
+/// that ignored them would answer as if the condition, billing or key were absent.
+const RECOGNIZED_UNSUPPORTED_GOOG_HEADERS: &[&str] = &[
+    "x-goog-encryption-kms-key-name",
+    "x-goog-if-generation-not-match",
+    "x-goog-if-metageneration-not-match",
+    "x-goog-user-project",
+];
+
+/// How request validation treats an `x-goog-` header it does not recognize.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UnknownGoogHeaders {
+    Reject,
+    Ignore,
+}
+
+pub(crate) fn headers(
+    headers: &HeaderMap,
+    request: &mut ReadRequest,
+    unknown: UnknownGoogHeaders,
+) -> Result<(), Error> {
     if let Some(hash) = crate::auth::signature::payload_hash(headers).map_err(|_| {
         Error::new(
             StatusCode::BAD_REQUEST,
@@ -779,18 +857,28 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
     // http_client.go:1551-1587 uses them on idempotent reads, which need no token replay.
     for key in headers.keys() {
         let key = key.as_str();
-        // Customer-supplied key headers are parsed by the GET/HEAD and DELETE callers.
+        // Cloud Storage answered an object GET with an unknown `x-goog-` header as if it were
+        // absent (recorded), so GET and HEAD ignore those (HEAD is assumed); DELETE was not
+        // recorded and rejects them; the recognized ones are parsed by
+        // their callers. Bucket operations give some `x-goog-` headers meaning (ACLs, project
+        // billing) that this adapter does not implement, so they still reject unknown ones.
+        // Headers of other protocols and the HTTP conditions carry semantics this adapter
+        // does not implement, and ignoring them would be a false success.
         if (key.starts_with("x-goog-")
-            && !crate::csek::is_key_header(key, crate::csek::DESTINATION_PREFIX)
-            && !crate::auth::signature::authentication_header(key)
-            && !matches!(
-                key,
-                "x-goog-if-generation-match"
-                    | "x-goog-if-metageneration-match"
-                    | "x-goog-api-client"
-                    | "x-goog-gcs-idempotency-token"
-                    | "x-goog-content-sha256"
-            ))
+            && unknown == UnknownGoogHeaders::Ignore
+            && RECOGNIZED_UNSUPPORTED_GOOG_HEADERS.contains(&key))
+            || (key.starts_with("x-goog-")
+                && unknown == UnknownGoogHeaders::Reject
+                && !crate::csek::is_key_header(key, crate::csek::DESTINATION_PREFIX)
+                && !crate::auth::signature::authentication_header(key)
+                && !matches!(
+                    key,
+                    "x-goog-if-generation-match"
+                        | "x-goog-if-metageneration-match"
+                        | "x-goog-api-client"
+                        | "x-goog-gcs-idempotency-token"
+                        | "x-goog-content-sha256"
+                ))
             || (key.starts_with("x-amz-") && !crate::auth::signature::authentication_header(key))
             || matches!(
                 key,
@@ -911,6 +999,7 @@ fn element(body: &mut String, name: &str, value: &str) {
 
 pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<HeaderMap, Error> {
     let mut headers = json::object_media_headers(record)?;
+    insert_hashes(&mut headers, record);
     // Only the XML API advertises ranges; the JSON media response omits the field.
     headers.insert("accept-ranges", HeaderValue::from_static("bytes"));
     let cache = record.cache_control.as_deref().unwrap_or(match scope {
@@ -963,4 +1052,35 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
         headers.insert(key, value);
     }
     Ok(headers)
+}
+
+/// Cloud Storage's XML API sends one `x-goog-hash` field per algorithm, always for the
+/// whole object, including on a range (observed 2026-10-31). The JSON API instead combines
+/// them in one field.
+pub(crate) fn insert_hashes(headers: &mut HeaderMap, record: &ObjectRecord) {
+    headers.remove("x-goog-hash");
+    let crc32c = format!("crc32c={}", json::base64(&record.crc32c.to_be_bytes()));
+    let md5 = record
+        .has_md5()
+        .then(|| format!("md5={}", json::base64(&record.md5)));
+    // Base64 always forms a valid header value; omitting a hash is safer than panicking
+    // if that ever changes.
+    for value in std::iter::once(crc32c).chain(md5) {
+        if let Ok(value) = HeaderValue::try_from(value) {
+            headers.append("x-goog-hash", value);
+        }
+    }
+}
+
+/// Moves every value of the named fields, so a field sent once per algorithm keeps them all.
+pub(crate) fn move_headers(from: &mut HeaderMap, to: &mut HeaderMap, names: &[&'static str]) {
+    for name in names {
+        if let hyper::header::Entry::Occupied(entry) = from.entry(*name) {
+            let (key, values) = entry.remove_entry_mult();
+            to.remove(&key);
+            for value in values {
+                to.append(key.clone(), value);
+            }
+        }
+    }
 }

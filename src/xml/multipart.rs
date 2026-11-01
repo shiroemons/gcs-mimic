@@ -381,15 +381,15 @@ async fn complete(
     let mut response = response(body);
     json::insert_response_headers(&record, response.headers_mut());
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
-    for name in [
-        "etag",
-        "x-goog-hash",
-        "x-goog-generation",
-        "x-goog-metageneration",
-    ] {
-        if let Some(value) = headers.remove(name) {
-            response.headers_mut().insert(name, value);
-        }
-    }
+    super::move_headers(
+        &mut headers,
+        response.headers_mut(),
+        &[
+            "etag",
+            "x-goog-hash",
+            "x-goog-generation",
+            "x-goog-metageneration",
+        ],
+    );
     Ok(response)
 }

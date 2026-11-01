@@ -858,18 +858,18 @@ fn success_response(
         headers.insert("content-type", HeaderValue::from_static(content_type));
         headers.insert("content-length", content_length);
     }
-    for name in [
-        "etag",
-        "x-goog-generation",
-        "x-goog-metageneration",
-        "x-goog-hash",
-        "x-goog-stored-content-length",
-        "x-goog-stored-content-encoding",
-    ] {
-        if let Some(value) = media.remove(name) {
-            response.headers_mut().insert(name, value);
-        }
-    }
+    super::move_headers(
+        &mut media,
+        response.headers_mut(),
+        &[
+            "etag",
+            "x-goog-generation",
+            "x-goog-metageneration",
+            "x-goog-hash",
+            "x-goog-stored-content-length",
+            "x-goog-stored-content-encoding",
+        ],
+    );
     Ok(response)
 }
 

@@ -368,7 +368,6 @@ fn xml_bucket_list_rejects_invalid_scopes_options_and_preserves_objects() {
     let token = elements(&page, "NextContinuationToken")[0];
     for query in [
         "list-type=3",
-        "max-keys=-1",
         "max-keys=0",
         "max-keys=4294967296",
         "encoding-type=xml",
@@ -668,13 +667,13 @@ fn xml_copy_failed_conditions_digests_and_unsupported_inputs_preserve_destinatio
         ),
         (
             "x-goog-copy-source-if-match: mismatch\r\n",
-            412,
-            "PreconditionFailed",
+            400,
+            "InvalidArgument",
         ),
         (
             "x-goog-copy-source-if-none-match: 5d41402abc4b2a76b9719d911017c592\r\n",
-            412,
-            "PreconditionFailed",
+            400,
+            "InvalidArgument",
         ),
         (
             "Content-MD5: AAAAAAAAAAAAAAAAAAAAAA==\r\n",
