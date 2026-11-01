@@ -258,6 +258,20 @@ impl ObjectMetadataUpdate {
         Ok(())
     }
 
+    /// Refuses a retain-until time the request itself sets that has already passed. Only a
+    /// newly requested value is checked: an object whose retention has expired stays valid and
+    /// must remain restorable and movable.
+    pub(crate) fn reject_past_retention(&self, now: SystemTime) -> Result<(), ObjectError> {
+        if let Some(Some(retention)) = &self.retention
+            && retention.retain_until <= now
+        {
+            return Err(ObjectError::InvalidFixedMetadata(
+                "Retain until time cannot be in the past.".into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn apply(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
         self.validate()?;
         // Cloud Storage kept the current custom time for `null` and for a PUT that omits it

@@ -169,6 +169,7 @@ fn publication_record(
         retention: None,
         customer_key_sha256: None,
     };
+    options.metadata.reject_past_retention(defaults.time)?;
     options.metadata.apply(&mut record)?;
     let period: Option<i64> = connection
         .prepare_cached("SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1")

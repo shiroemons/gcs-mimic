@@ -787,6 +787,9 @@ impl UploadCommit {
             retention: None,
             customer_key_sha256: None,
         };
+        if self.identity.is_none() {
+            self.metadata.reject_past_retention(defaults.time)?;
+        }
         self.metadata.clone().apply(&mut record)?;
         if let Some(identity) = self.identity {
             record.time_created = identity.time_created();
@@ -1442,6 +1445,7 @@ impl Catalog {
                 record.event_based_hold = false;
                 record.temporary_hold = false;
             }
+            update.reject_past_retention(clock.now())?;
             update.apply(&mut record)?;
             if record.event_based_hold && !previous_event_hold && record.retention.is_some() {
                 return Err(ObjectError::InvalidFixedMetadata(

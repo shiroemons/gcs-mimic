@@ -827,3 +827,84 @@ async fn object_retention_resumable_upload_and_strict_permissions() {
     );
     h.stop().await;
 }
+
+#[tokio::test]
+async fn an_object_whose_retention_expired_can_still_be_restored_after_deletion() {
+    let h = Harness::start(1024, true, None).await;
+    set_clock(&h, START);
+    create_bucket(
+        &h,
+        "restore",
+        json!({"softDeletePolicy":{"retentionDurationSeconds":"604800"}}),
+    )
+    .await;
+    let created = multipart(
+        &h,
+        "restore",
+        "doc",
+        json!({"retention": retention("Unlocked", HOUR)}),
+        ADMIN,
+    )
+    .await
+    .json();
+    set_clock(&h, START + 7200);
+    assert_eq!(delete(&h, "restore/o/doc").await.status, 204);
+    let generation = created["generation"].as_str().unwrap();
+    let restored = h
+        .request(
+            "POST",
+            &format!("/storage/v1/b/restore/o/doc/restore?generation={generation}"),
+            ADMIN,
+            b"",
+        )
+        .await;
+    assert_eq!(
+        restored.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&restored.body)
+    );
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn an_object_whose_retention_expired_can_still_be_moved() {
+    let h = Harness::start(1024, true, None).await;
+    set_clock(&h, START);
+    create_bucket(&h, "moving", json!({})).await;
+    multipart(
+        &h,
+        "moving",
+        "doc",
+        json!({"retention": retention("Unlocked", HOUR)}),
+        ADMIN,
+    )
+    .await
+    .json();
+    set_clock(&h, START + 7200);
+    let moved = h
+        .request(
+            "POST",
+            "/storage/v1/b/moving/o/doc/moveTo/o/moved",
+            ADMIN,
+            b"",
+        )
+        .await;
+    assert_eq!(
+        moved.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&moved.body)
+    );
+    // A retain-until time the request itself sets in the past is still refused.
+    let past = multipart(
+        &h,
+        "moving",
+        "late",
+        json!({"retention": retention("Unlocked", HALF_HOUR)}),
+        ADMIN,
+    )
+    .await;
+    past.error(400, "invalid");
+    h.stop().await;
+}

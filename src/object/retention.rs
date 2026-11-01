@@ -174,9 +174,6 @@ pub(crate) fn validate_stored(
             "Retention and event based holds cannot be configured together.",
         ));
     }
-    if retention.retain_until <= now {
-        return Err(invalid("Retain until time cannot be in the past."));
-    }
     if now
         .checked_add(MAX_RETENTION)
         .is_none_or(|limit| retention.retain_until > limit)
