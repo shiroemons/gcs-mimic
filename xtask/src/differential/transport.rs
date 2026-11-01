@@ -263,7 +263,18 @@ impl GrpcTransport {
         }
     }
 
-    fn args(&self, rpc: &str, headers: &[(String, String)]) -> Vec<String> {
+    /// Builds the arguments. `-expand-headers` expands every `${NAME}` in every
+    /// header from the environment, so a case header containing `${` is refused;
+    /// only the authorization header may use it.
+    fn args(&self, rpc: &str, headers: &[(String, String)]) -> Result<Vec<String>> {
+        if let Some((name, _)) = headers
+            .iter()
+            .find(|(n, v)| n.contains("${") || v.contains("${"))
+        {
+            return Err(format!(
+                "gRPC metadata {name:?} contains \"${{\", which would be expanded from the environment"
+            ));
+        }
         let mut args = vec!["-import-path".to_owned()];
         args.push(self.proto_root.display().to_string());
         args.extend([
@@ -292,7 +303,7 @@ impl GrpcTransport {
             self.address.clone(),
             rpc.to_owned(),
         ]);
-        args
+        Ok(args)
     }
 }
 
@@ -352,14 +363,21 @@ impl Transport for GrpcTransport {
     fn send(&self, request: &Request) -> Result<Response> {
         self.counter.fetch_add(1, Ordering::Relaxed);
         let mut command = Command::new("grpcurl");
-        command.args(self.args(&request.method, &request.headers));
+        command.args(self.args(&request.method, &request.headers)?);
+        // Nothing but what grpcurl needs: the environment may hold other secrets.
+        command.env_clear();
+        let inherited = ["PATH", "HOME", "SSL_CERT_FILE", "SSL_CERT_DIR"];
+        let proxies = ["HTTPS_PROXY", "https_proxy", "GRPC_PROXY"];
+        for name in inherited
+            .into_iter()
+            .chain(proxies.into_iter().filter(|_| !self.plaintext))
+        {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
         if let Some(token) = &self.bearer {
             command.env(TOKEN_ENV, token);
-        }
-        if self.plaintext {
-            for name in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
-                command.env_remove(name);
-            }
         }
         let mut child = command
             .stdin(Stdio::piped())
@@ -396,10 +414,12 @@ mod tests {
             Some("s3cret-token".into()),
             Path::new("protos"),
         );
-        let args = transport.args(
-            "google.storage.v2.Storage/GetBucket",
-            &[("x-goog-request-params".into(), "bucket=b".into())],
-        );
+        let args = transport
+            .args(
+                "google.storage.v2.Storage/GetBucket",
+                &[("x-goog-request-params".into(), "bucket=b".into())],
+            )
+            .unwrap();
         assert!(args.iter().all(|a| !a.contains("s3cret-token")));
         assert!(args.contains(&"-expand-headers".to_owned()));
         assert!(args.contains(&format!("authorization: Bearer ${{{TOKEN_ENV}}}")));
@@ -407,7 +427,9 @@ mod tests {
         assert!(!args.contains(&"-plaintext".to_owned()));
         assert_eq!(args[args.len() - 1], "google.storage.v2.Storage/GetBucket");
         let local = GrpcTransport::new("127.0.0.1:1", true, None, Path::new("protos"));
-        let args = local.args("a.B/C", &[]);
+        let args = local.args("a.B/C", &[]).unwrap();
+        let hostile = vec![("x-a".to_owned(), "${HOME}".to_owned())];
+        assert!(transport.args("a.B/C", &hostile).is_err());
         assert!(args.contains(&"-plaintext".to_owned()));
         assert!(!args.contains(&"-expand-headers".to_owned()));
     }

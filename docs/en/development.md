@@ -587,6 +587,8 @@ JSON, and an array of objects sends a client-streaming call. `query`,
   loopback port; the live side is `storage.googleapis.com:443` over TLS.
 - The bearer token reaches `grpcurl` through an environment variable that its
   `-expand-headers` option expands, so it never appears on the command line.
+  A case header containing `${` is rejected (it would expand from the
+  environment), and `grpcurl` runs with a cleared environment.
 - The compared `status` is the gRPC status code (0 is OK, 5 NOT_FOUND, 9
   FAILED_PRECONDITION). A successful body is the response message (an array
   when a server-streaming call returned several); a failed call's body is

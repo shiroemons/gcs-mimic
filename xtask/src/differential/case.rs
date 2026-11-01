@@ -282,6 +282,15 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
     };
     if protocol == Protocol::Grpc {
         check_grpc_step(&body, context)?;
+        if let Some(headers) = map.get("headers") {
+            for (name, value) in string_pairs(headers, context)? {
+                if name.contains("${") || value.contains("${") {
+                    return Err(format!(
+                        "{context}.headers: \"${{\" is not allowed in gRPC metadata"
+                    ));
+                }
+            }
+        }
     }
     let expect_status = match map.get("expect_status") {
         None => None,
@@ -389,6 +398,10 @@ pub(crate) fn parse_case(value: &Value, file_stem: &str) -> Result<Case> {
 /// Checks names, variable use and the live-bucket safety rules before any
 /// request is sent.
 fn validate(case: &Case) -> Result<()> {
+    // First, so a lock hidden behind an undefined variable is still named as a lock.
+    if let Some(reason) = locked_violation(case) {
+        return Err(format!("forbidden locked retention: {reason}"));
+    }
     let mut names = BTreeSet::new();
     let mut known: BTreeSet<String> = BUILTIN_VARS.iter().map(|v| (*v).to_owned()).collect();
     if !case.bucket {
@@ -416,10 +429,7 @@ fn validate(case: &Case) -> Result<()> {
             known.insert(var.clone());
         }
     }
-    match locked_violation(case) {
-        Some(reason) => Err(format!("forbidden locked retention: {reason}")),
-        None => Ok(()),
-    }
+    Ok(())
 }
 
 /// Also matches the gRPC spellings (`LockBucketRetentionPolicy`, `lock_retention_policy`).
@@ -432,19 +442,23 @@ fn json_locks(value: &Value) -> Option<String> {
     match value {
         Value::Object(map) => {
             for (key, item) in map {
-                let truthy = matches!(item, Value::Bool(true))
+                // Only a literal false is known to be unlocked; a variable or a
+                // number could resolve to a lock at run time.
+                let unlocked = matches!(item, Value::Bool(false))
                     || item
                         .as_str()
-                        .is_some_and(|s| s.eq_ignore_ascii_case("true"));
-                if key.replace('_', "").eq_ignore_ascii_case("isLocked") && truthy {
-                    return Some("isLocked set to true".into());
+                        .is_some_and(|s| s.eq_ignore_ascii_case("false"));
+                if key.replace('_', "").eq_ignore_ascii_case("isLocked") && !unlocked {
+                    return Some("isLocked is not literally false".into());
                 }
+                // gRPC JSON also accepts the enum number (LOCKED is 2), so a
+                // mode must be a plain string other than LOCKED, with no variable.
                 if key.eq_ignore_ascii_case("mode")
-                    && item
+                    && !item
                         .as_str()
-                        .is_some_and(|s| s.eq_ignore_ascii_case("locked"))
+                        .is_some_and(|s| !s.eq_ignore_ascii_case("locked") && !s.contains('{'))
                 {
-                    return Some("retention mode Locked".into());
+                    return Some("retention mode is Locked or not a plain string".into());
                 }
                 if mentions_lock(key) {
                     return Some("lockRetentionPolicy".into());
@@ -621,6 +635,34 @@ mod tests {
             let err = parse_case(&case_with(step.clone()), "x").unwrap_err();
             assert!(err.contains("forbidden locked retention"), "{step}: {err}");
         }
+    }
+
+    #[test]
+    fn rejects_numeric_named_and_templated_lock_modes() {
+        let forbidden = [
+            json!({"retention": {"mode": 2}}),
+            json!({"retention": {"mode": "LOCKED"}}),
+            json!({"retention": {"mode": "{mode}"}}),
+            json!({"retention": {"mode": null}}),
+            json!({"retentionPolicy": {"isLocked": "{flag}"}}),
+            json!({"retention_policy": {"is_locked": 1}}),
+        ];
+        for body in forbidden {
+            let step = json!({"name": "s", "protocol": "grpc", "rpc": "a.B/C", "body": body});
+            let err = parse_case(&case_with(step), "x").unwrap_err();
+            assert!(err.contains("forbidden locked retention"), "{body}: {err}");
+        }
+    }
+
+    #[test]
+    fn rejects_environment_expansion_in_grpc_metadata() {
+        let step = json!({"name": "s", "protocol": "grpc", "rpc": "a.B/C",
+            "headers": {"x-a": "${HOME}"}});
+        assert!(
+            parse_case(&case_with(step), "x")
+                .unwrap_err()
+                .contains("gRPC metadata")
+        );
     }
 
     #[test]
