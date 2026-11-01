@@ -3,8 +3,8 @@
   "description": "Create a bucket, create it again, get it, delete it twice and get it after deletion.",
   "bucket": false,
   "steps": [
-    {"name": "create", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "location": "us-central1", "storageClass": "STANDARD", "softDeletePolicy": {"retentionDurationSeconds": "0"}}, "expect_status": 200},
-    {"name": "create-again", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "location": "us-central1"}, "expect_status": 409},
+    {"name": "create", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "location": "us-central1", "storageClass": "STANDARD", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"publicAccessPrevention": "enforced"}}, "capture": {"mg": "body:metageneration"}, "expect_status": 200},
+    {"name": "create-again", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "location": "us-central1", "iamConfiguration": {"publicAccessPrevention": "enforced"}, "softDeletePolicy": {"retentionDurationSeconds": "0"}}, "expect_status": 409},
     {"name": "get", "method": "GET", "path": "/storage/v1/b/{new_bucket}", "expect_status": 200},
     {"name": "delete", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "expect_status": 204},
     {"name": "delete-again", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "expect_status": 404},

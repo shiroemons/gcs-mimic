@@ -1,6 +1,7 @@
 {
   "id": "bucket-preconditions",
   "description": "Metageneration preconditions on bucket get and patch: 412 on mismatch, 304 on not-match with the current value.",
+  "bucket": "own",
   "steps": [
     {"name": "get", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "name,metageneration"}, "capture": {"mgen": "body:metageneration"}, "expect_status": 200},
     {"name": "patch-match-mismatch", "method": "PATCH", "path": "/storage/v1/b/{bucket}", "query": {"ifMetagenerationMatch": "999"}, "body": {"labels": {"x": "y"}}, "expect_status": 412},

@@ -1,9 +1,9 @@
 {
   "id": "bkt-iam-pap-ubla",
-  "description": "Bucket IAM policy read, set and testPermissions (project principals only, never allUsers or allAuthenticatedUsers), then uniform bucket-level access and public access prevention toggles with their invalid inputs and aliases. Public access prevention is only ever enforced, never relaxed to make anything public.",
+  "description": "Bucket IAM policy read, set and testPermissions (project principals only, never allUsers or allAuthenticatedUsers), then uniform bucket-level access and public access prevention toggles with their invalid inputs and aliases. Public access prevention stays enforced throughout (the harness refuses any relaxation), so only the enforce toggle and invalid values are measured.",
   "bucket": false,
   "steps": [
-    {"name": "create", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "location": "us-central1", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": false}}}, "expect_status": 200},
+    {"name": "create", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "location": "us-central1", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": false}, "publicAccessPrevention": "enforced"}}, "capture": {"mg": "body:metageneration"}, "expect_status": 200},
     {"name": "iam-get", "method": "GET", "path": "/storage/v1/b/{new_bucket}/iam", "capture": {"etag0": "body:etag"}, "expect_status": 200},
     {"name": "iam-get-version-3", "method": "GET", "path": "/storage/v1/b/{new_bucket}/iam", "query": {"optionsRequestedPolicyVersion": "3"}, "expect_status": 200},
     {"name": "iam-get-version-invalid", "method": "GET", "path": "/storage/v1/b/{new_bucket}/iam", "query": {"optionsRequestedPolicyVersion": "-1"}, "expect_status": 400},
@@ -29,14 +29,12 @@
     {"name": "ubla-read-only-locked-time-ignored", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}", "body": {"iamConfiguration": {"uniformBucketLevelAccess": {"enabled": true, "lockedTime": "2000-01-01T00:00:00Z"}}}, "expect_status": 200},
     {"name": "ubla-null", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}", "body": {"iamConfiguration": {"uniformBucketLevelAccess": null}}, "expect_status": 200},
     {"name": "ubla-get-after-null", "method": "GET", "path": "/storage/v1/b/{new_bucket}", "query": {"fields": "iamConfiguration"}, "expect_status": 200},
-    {"name": "ubla-disable", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}", "body": {"iamConfiguration": {"uniformBucketLevelAccess": {"enabled": false}}}, "expect_status": 200},
+    {"name": "ubla-disable", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}", "body": {"iamConfiguration": {"uniformBucketLevelAccess": {"enabled": false}, "publicAccessPrevention": "enforced"}}, "capture": {"mg": "body:metageneration"}, "expect_status": 200},
     {"name": "pap-enforce", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}", "body": {"iamConfiguration": {"publicAccessPrevention": "enforced"}}, "expect_status": 200},
     {"name": "pap-get-enforced", "method": "GET", "path": "/storage/v1/b/{new_bucket}", "query": {"fields": "iamConfiguration"}, "expect_status": 200},
     {"name": "pap-invalid-value", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}", "body": {"iamConfiguration": {"publicAccessPrevention": "bogus"}}, "expect_status": 400},
-    {"name": "pap-unspecified", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}", "body": {"iamConfiguration": {"publicAccessPrevention": "unspecified"}}, "expect_status": 400},
-    {"name": "pap-set-inherited", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}", "body": {"iamConfiguration": {"publicAccessPrevention": "inherited"}}, "expect_status": 200},
-    {"name": "pap-null", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}", "body": {"iamConfiguration": {"publicAccessPrevention": null}}, "expect_status": 400},
     {"name": "pap-get-final", "method": "GET", "path": "/storage/v1/b/{new_bucket}", "query": {"fields": "iamConfiguration"}, "expect_status": 200},
+    {"name": "prepare-non-default-state", "method": "PATCH", "path": "/storage/v1/b/{new_bucket}", "body": {"versioning": {"enabled": true}, "lifecycle": {"rule": [{"action": {"type": "Delete"}, "condition": {"age": 10}}]}, "cors": [{"origin": ["https://example.com"], "method": ["GET"]}], "retentionPolicy": {"retentionPeriod": "3600"}, "labels": {"keep": "me"}}, "compare": false, "expect_status": 200},
     {"name": "pap-put-omitted-preserves", "method": "PUT", "path": "/storage/v1/b/{new_bucket}", "body": {"name": "{new_bucket}"}, "query": {"fields": "iamConfiguration"}, "expect_status": 200},
     {"name": "delete", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "expect_status": 204}
   ]

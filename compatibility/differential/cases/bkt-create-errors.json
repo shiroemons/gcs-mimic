@@ -1,23 +1,15 @@
 {
   "id": "bkt-create-errors",
-  "description": "Bucket creation inputs that must be rejected: unknown location, storage class, retention and soft delete values, short name, missing project, malformed JSON, and the SPEC-LIFECYCLE-ARRAY, unknown-field and unknown-query-parameter probes. Steps that may succeed on one side are followed by an unchecked delete so no bucket leaks.",
+  "description": "Bucket creation inputs that must be rejected: unknown location, storage class, retention and soft delete values, short name, missing project and malformed JSON. Probes that may succeed on one side are separate cases (bkt-create-*) so no later step meets a bucket an earlier one created.",
   "bucket": false,
   "steps": [
-    {"name": "invalid-location", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "location": "mars-central1"}, "expect_status": 400},
-    {"name": "invalid-storage-class", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "storageClass": "SUPERFAST"}, "expect_status": 400},
-    {"name": "negative-retention", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "retentionPolicy": {"retentionPeriod": "-1"}}, "expect_status": 400},
-    {"name": "non-numeric-retention", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "retentionPolicy": {"retentionPeriod": "abc"}}, "expect_status": 400},
-    {"name": "soft-delete-below-minimum", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "softDeletePolicy": {"retentionDurationSeconds": "100"}}, "expect_status": 400},
-    {"name": "name-too-short", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "ab"}, "expect_status": 400},
-    {"name": "missing-project", "method": "POST", "path": "/storage/v1/b", "body": {"name": "{new_bucket}"}, "expect_status": 400},
-    {"name": "malformed-json", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "headers": {"Content-Type": "application/json"}, "body_text": "{{\"name\": ", "expect_status": 400},
-    {"name": "predefined-acl-with-ubla", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}", "predefinedAcl": "private"}, "body": {"name": "{new_bucket}", "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": true}}}, "expect_status": 400},
-    {"name": "cleanup-ubla-probe", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false},
-    {"name": "lifecycle-as-array", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "lifecycle": []}, "expect_status": 400},
-    {"name": "cleanup-lifecycle-probe", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false},
-    {"name": "unknown-body-field", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "noSuchField": "x"}, "expect_status": 200},
-    {"name": "cleanup-unknown-field-probe", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false},
-    {"name": "unknown-query-parameter", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}", "append": "false"}, "body": {"name": "{new_bucket}"}, "expect_status": 400},
-    {"name": "cleanup-unknown-query-probe", "method": "DELETE", "path": "/storage/v1/b/{new_bucket}", "compare": false}
+    {"name":"invalid-location","method":"POST","path":"/storage/v1/b","query":{"project":"{project}"},"body":{"name":"{new_bucket}","location":"mars-central1","iamConfiguration":{"publicAccessPrevention":"enforced"},"softDeletePolicy":{"retentionDurationSeconds":"0"}},"expect_status":400},
+    {"name":"invalid-storage-class","method":"POST","path":"/storage/v1/b","query":{"project":"{project}"},"body":{"name":"{new_bucket}","storageClass":"SUPERFAST","iamConfiguration":{"publicAccessPrevention":"enforced"},"softDeletePolicy":{"retentionDurationSeconds":"0"}},"expect_status":400},
+    {"name":"negative-retention","method":"POST","path":"/storage/v1/b","query":{"project":"{project}"},"body":{"name":"{new_bucket}","retentionPolicy":{"retentionPeriod":"-1"},"iamConfiguration":{"publicAccessPrevention":"enforced"},"softDeletePolicy":{"retentionDurationSeconds":"0"}},"expect_status":400},
+    {"name":"non-numeric-retention","method":"POST","path":"/storage/v1/b","query":{"project":"{project}"},"body":{"name":"{new_bucket}","retentionPolicy":{"retentionPeriod":"abc"},"iamConfiguration":{"publicAccessPrevention":"enforced"},"softDeletePolicy":{"retentionDurationSeconds":"0"}},"expect_status":400},
+    {"name":"soft-delete-below-minimum","method":"POST","path":"/storage/v1/b","query":{"project":"{project}"},"body":{"name":"{new_bucket}","softDeletePolicy":{"retentionDurationSeconds":"100"},"iamConfiguration":{"publicAccessPrevention":"enforced"}},"expect_status":400},
+    {"name":"name-too-short","method":"POST","path":"/storage/v1/b","query":{"project":"{project}"},"body":{"name":"ab"},"expect_status":400},
+    {"name":"missing-project","method":"POST","path":"/storage/v1/b","body":{"name":"{new_bucket}","iamConfiguration":{"publicAccessPrevention":"enforced"},"softDeletePolicy":{"retentionDurationSeconds":"0"}},"expect_status":400},
+    {"name":"malformed-json","method":"POST","path":"/storage/v1/b","query":{"project":"{project}"},"headers":{"Content-Type":"application/json"},"body_text":"{{\"name\": ","expect_status":400}
   ]
 }

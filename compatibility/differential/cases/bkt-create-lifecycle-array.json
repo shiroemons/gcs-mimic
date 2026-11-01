@@ -1,0 +1,9 @@
+{
+  "id": "bkt-create-lifecycle-array",
+  "description": "Bucket creation with lifecycle as an array instead of an object (SPEC-LIFECYCLE-ARRAY). The bucket is deleted afterwards in case a side accepts it.",
+  "bucket": false,
+  "steps": [
+    {"name":"lifecycle-as-array","method":"POST","path":"/storage/v1/b","query":{"project":"{project}"},"body":{"name":"{new_bucket}","lifecycle":[],"iamConfiguration":{"publicAccessPrevention":"enforced"},"softDeletePolicy":{"retentionDurationSeconds":"0"}},"expect_status":400},
+    {"name":"cleanup","method":"DELETE","path":"/storage/v1/b/{new_bucket}","compare":false,"always":true}
+  ]
+}
