@@ -183,6 +183,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | イベント通知先・絞り込み | なし | 未対応 |
 | 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`。JSONバケットAPIと同じ名前に対応。空文字・JSONのnullは`US` |
 | 新規バケットのsoft delete既定の保持期間 | `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS`・`--default-soft-delete-retention-seconds`・JSONの`default_soft_delete_retention_seconds` | `softDeletePolicy`を指定せずに作ったバケットに与える保持期間。既定は`604800`秒（7日、Cloud Storageと同じ）。ただし`--backend memory`では、削除したデータが固定のメモリ予算を占め続けるため既定は`0`です（`604800`を含め、明示した値はそのまま適用されます）。`0`または`604800`～`7776000`を指定できます。`0`にすると保持ポリシーを持たず、オブジェクトやバケットの削除で本文を即座に解放します（従来およびfake-gcs-serverと同じ。ディスクの節約になります）。既存のバケット、`import`とディレクトリ同期で作るバケットは変わりません。リクエストで明示したポリシー（0を含む）が優先されます。legacy-emulatorプロファイルは既定を適用せず、正の値を拒否します |
+| 作成者として扱うローカル主体 | `GCS_MIMIC_LOCAL_CREATOR_EMAIL`・`--local-creator-email`・JSONの`local_creator_email` | nativeのpermissiveのみ。認証なしで書いたオブジェクトの`owner`と、ACLの`user-`のOWNERエントリに記録するメールアドレス（Cloud Storageが呼び出し元を記録するのと同じ）。既定は`local-user@gcs-mimic.invalid`（予約ドメイン）。空にすると無効になり`project-owners-N`に戻る。作成者の記録だけに使い、権限は与えない。値を変えると次の起動で既存オブジェクトの作成者名も変わる。strictでは登録した呼び出し元が、legacyでは何も記録されないため、どちらでも空でない値を明示すると拒否される |
 | ログレベル選択 | `GCS_MIMIC_LOG_LEVEL`・`--log-level`・JSONの`log_level` | 既定は`info`。`debug`・`info`・`warn`・`error`、`warning`は`warn`の別名。診断とstdoutのready/stoppedは常に表示 |
 
 HTTPとHTTPSを同時に受け付ける場合は、次のように起動します。

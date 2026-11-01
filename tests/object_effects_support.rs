@@ -82,6 +82,33 @@ impl Server {
             gcs_mimic::config::Config::default().max_object_bytes,
         )
     }
+    /// Permissive server with extra serve arguments.
+    pub(crate) fn start_with_args(dir: &common::TestDir, extra: &[&str]) -> Self {
+        let mut command = common::server_command();
+        command
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+            ])
+            .arg(&dir.0)
+            .args(["--api-base-url", "http://127.0.0.1:4443"])
+            .args(extra);
+        let mut child = command.stdout(Stdio::piped()).spawn().unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let ready: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(ready["event"], "ready");
+        Self {
+            child,
+            address: ready["listen"].as_str().unwrap().into(),
+            stdout,
+        }
+    }
     pub(crate) fn start_with_limits(
         dir: &common::TestDir,
         strict: bool,

@@ -79,7 +79,11 @@ fn canonical_owner_entities_require_current_registered_ids_and_keep_profile_boun
         id: "local:owner".into(),
         entity: Some("user-original@example.test".into()),
     };
-    for profile in [None, Some(Profile::Permissive), Some(Profile::TrustedLocal)] {
+    for profile in [
+        None,
+        Some(Profile::Permissive { creator: None }),
+        Some(Profile::TrustedLocal),
+    ] {
         let mut owner = original.clone();
         canonicalize(&mut owner, profile.as_ref());
         assert_eq!(owner, original);
@@ -169,4 +173,127 @@ fn interrupted_owner_reconciliation_retries_with_new_registry_without_changing_i
             .unwrap();
         assert_eq!(unchanged, (7, 3, 42, vec![1, 2, 3]));
     }
+}
+
+fn permissive(email: Option<&str>) -> Profile {
+    Profile::Permissive {
+        creator: email.map(|email| Arc::from(format!("user-{email}"))),
+    }
+}
+
+fn local_creator(entity: &str) -> ObjectOwner {
+    ObjectOwner::Principal {
+        id: LOCAL_CREATOR_ID.into(),
+        entity: Some(entity.into()),
+    }
+}
+
+#[test]
+fn permissive_creator_owns_unauthenticated_publications_without_widening_other_paths() {
+    let connection = Connection::open_in_memory().unwrap();
+    connection
+        .execute_batch("CREATE TABLE buckets(name TEXT, project TEXT); INSERT INTO buckets VALUES('b','project');")
+        .unwrap();
+    let with_creator = permissive(Some("who@example.test"));
+    assert_eq!(
+        for_publication(
+            &connection,
+            "b",
+            &BucketAccess::Permissive,
+            Some(&with_creator)
+        )
+        .unwrap(),
+        local_creator("user-who@example.test")
+    );
+    // No creator configured, no profile yet, or the legacy-style trusted profile keep the
+    // project owners, which is also what existing data holds.
+    for profile in [Some(permissive(None)), Some(Profile::TrustedLocal), None] {
+        assert_eq!(
+            for_publication(
+                &connection,
+                "b",
+                &BucketAccess::Permissive,
+                profile.as_ref()
+            )
+            .unwrap(),
+            ObjectOwner::ProjectOwners {
+                project: "project".into()
+            }
+        );
+    }
+}
+
+#[test]
+fn permissive_canonicalize_follows_the_configured_address_only_for_the_local_creator() {
+    let mut owner = local_creator("user-old@example.test");
+    canonicalize(&mut owner, Some(&permissive(Some("new@example.test"))));
+    assert_eq!(owner, local_creator("user-new@example.test"));
+    // Disabling the creator keeps what was recorded.
+    canonicalize(&mut owner, Some(&permissive(None)));
+    assert_eq!(owner, local_creator("user-new@example.test"));
+    // Strict restarts neither erase nor rewrite the recorded permissive creator.
+    canonicalize(
+        &mut owner,
+        Some(&strict(json!([{"id":"local:owner","tokens":[]}]))),
+    );
+    assert_eq!(owner, local_creator("user-new@example.test"));
+    let mut other = ObjectOwner::Principal {
+        id: "local:owner".into(),
+        entity: Some("user-x@example.test".into()),
+    };
+    canonicalize(&mut other, Some(&permissive(Some("new@example.test"))));
+    assert_eq!(other.entity().as_deref(), Some("user-x@example.test"));
+    let mut project = ObjectOwner::ProjectOwners {
+        project: "project".into(),
+    };
+    canonicalize(&mut project, Some(&permissive(Some("new@example.test"))));
+    assert!(matches!(project, ObjectOwner::ProjectOwners { .. }));
+}
+
+#[test]
+fn permissive_reconcile_renames_the_creator_and_leaves_project_owner_rows() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    connection.execute_batch("CREATE TABLE objects(bucket TEXT,name TEXT,generation INTEGER,owner TEXT,PRIMARY KEY(bucket,name,generation));").unwrap();
+    for (name, owner) in [
+        ("created", local_creator("user-old@example.test")),
+        (
+            "legacy",
+            ObjectOwner::ProjectOwners {
+                project: "project".into(),
+            },
+        ),
+    ] {
+        connection
+            .execute(
+                "INSERT INTO objects VALUES('b',?1,1,?2)",
+                params![name, serde_json::to_string(&owner).unwrap()],
+            )
+            .unwrap();
+    }
+    reconcile(&mut connection, &permissive(Some("new@example.test"))).unwrap();
+    assert_eq!(
+        selected(&connection, "b", "created", 1).unwrap(),
+        Some(local_creator("user-new@example.test"))
+    );
+    assert!(matches!(
+        selected(&connection, "b", "legacy", 1).unwrap(),
+        Some(ObjectOwner::ProjectOwners { .. })
+    ));
+}
+
+#[test]
+fn the_local_creator_owner_is_never_a_caller_even_with_a_matching_identity() {
+    let identity = crate::auth::Identity::from_upload_snapshot(
+        &json!({"id": LOCAL_CREATOR_ID, "projects": {}}),
+    )
+    .unwrap();
+    assert!(!local_creator("user-x@example.test").is_principal(Some(&identity)));
+    let ordinary =
+        crate::auth::Identity::from_upload_snapshot(&json!({"id": "local:owner", "projects": {}}))
+            .unwrap();
+    let owner = ObjectOwner::Principal {
+        id: "local:owner".into(),
+        entity: None,
+    };
+    assert!(owner.is_principal(Some(&ordinary)));
 }

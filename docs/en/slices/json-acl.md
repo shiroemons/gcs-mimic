@@ -120,8 +120,13 @@ routes retain 400 `invalid`. Exact mixed-error precedence is unverified.
 - The original storage checkpoint did not evaluate ACL grants. Selected-generation
   object READER/OWNER reads now have [permission evidence](acl-permission-effects.md);
   bucket, owner, membership and canned/default ACL work remains scoped separately.
-- The uploader's `user-` OWNER entry and the object `owner` field are not
-  modeled.
+- The creator is modeled only for the native permissive profile: objects written
+  without authentication carry the configured local creator (`local_creator_email`,
+  default `local-user@gcs-mimic.invalid`) as `owner` and as the last default ACL
+  `user-` OWNER entry (project teams first, as recorded). The creator never
+  authorizes anything. Strict objects carry the registered caller; the legacy
+  profile keeps `project-owners-N`. The position of the creator entry after
+  entries are deleted and re-added is not remembered (it is always last).
 - Upload `predefinedAcl` (media, multipart, resumable) is applied as recorded in
   [upload predefined ACL evidence](../evidence/upload-predefined-acl.md). Object
   PATCH/PUT `predefinedAcl`, bucket `predefinedAcl`/`predefinedDefaultObjectAcl`

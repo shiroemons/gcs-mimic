@@ -424,6 +424,7 @@ fn record(
     name: &str,
     bucket_class: String,
     row: &Row,
+    profile: Option<&super::principals::Profile>,
 ) -> Result<ObjectRecord, ObjectError> {
     let storage_class = super::bucket_autoclass::object_storage_class(
         connection,
@@ -441,6 +442,7 @@ fn record(
             connection,
             bucket,
             &row.options.access,
+            profile,
         )?),
         content_type: row.options.content_type.clone(),
         content_encoding: None,
@@ -921,13 +923,14 @@ impl Catalog {
         );
         let clock = self.0.clock.clone();
         let memory = self.0.memory.clone();
+        let principals = self.0.principals.get().cloned();
         self.run_upload(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(object_unavailable)?;
             let (storage_class, _) = authorized_bucket(&transaction, &bucket, &options.access)?;
             let (current, stale) = match select(&transaction, &bucket, &name)? {
-                Lookup::Live(row) => (Some(record(&transaction, &bucket, &name, storage_class.clone(), &row)?), None),
+                Lookup::Live(row) => (Some(record(&transaction, &bucket, &name, storage_class.clone(), &row, principals.as_ref())?), None),
                 Lookup::Stale(id) => (None, Some(id)),
                 Lookup::Absent => (None, None),
             };
@@ -979,7 +982,7 @@ impl Catalog {
                 updated: time,
                 write_handle: handle.clone(),
             };
-            let created = record(&transaction, &bucket, &name, storage_class, &row)?;
+            let created = record(&transaction, &bucket, &name, storage_class, &row, principals.as_ref())?;
             let checkpoint = memory.as_ref().map(|store| store.create_draft_checkpoint(&blob_id)).transpose().map_err(object_unavailable)?;
             let committed = transaction.commit().map_err(object_unavailable);
             if let Some(checkpoint) = checkpoint {
@@ -1017,6 +1020,7 @@ impl Catalog {
         let (owned_bucket, owned_name, handle) =
             (bucket.to_owned(), name.to_owned(), new_handle.clone());
         let presented = write_handle.map(<[u8]>::to_vec);
+        let principals = self.0.principals.get().cloned();
         let selected = self
             .run_upload(move |connection| {
                 let transaction = connection
@@ -1035,7 +1039,7 @@ impl Catalog {
                         ));
                     }
                 };
-                let record = record(&transaction, &owned_bucket, &owned_name, storage_class, &row)?;
+                let record = record(&transaction, &owned_bucket, &owned_name, storage_class, &row, principals.as_ref())?;
                 match presented {
                     Some(presented) if presented != row.write_handle.as_bytes() => {
                         return Ok(Err(AppendError::Superseded));
@@ -1105,6 +1109,7 @@ impl Catalog {
         let (bucket, name, access) = (bucket.to_owned(), name.to_owned(), access.clone());
         let data_dir = self.0.data_dir.clone();
         let memory = self.0.memory.clone();
+        let principals = self.0.principals.get().cloned();
         let (record, file) = self
             .run_object(move |connection| {
                 let transaction = connection.transaction().map_err(object_unavailable)?;
@@ -1115,7 +1120,14 @@ impl Catalog {
                 if generation.is_some_and(|generation| generation != row.generation) {
                     return Err(ObjectError::ObjectNotFound);
                 }
-                let record = record(&transaction, &bucket, &name, storage_class, &row)?;
+                let record = record(
+                    &transaction,
+                    &bucket,
+                    &name,
+                    storage_class,
+                    &row,
+                    principals.as_ref(),
+                )?;
                 check_conditions(Some(&record), conditions, super::objects::RequestKind::Read)?;
                 // Opened inside the transaction so finalization cannot unlink it first.
                 let file = if let Some(memory) = memory {
@@ -1152,6 +1164,7 @@ impl Catalog {
             (bucket.to_owned(), name.to_owned(), access.clone());
         let catalog = self.clone();
         let clock = self.0.clock.clone();
+        let principals = self.0.principals.get().cloned();
         self.run_upload(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1169,6 +1182,7 @@ impl Catalog {
                 &owned_name,
                 storage_class,
                 &row,
+                principals.as_ref(),
             )?;
             check_conditions(
                 Some(&record),

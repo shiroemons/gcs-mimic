@@ -861,6 +861,7 @@ impl UploadCommit {
                     &transaction,
                     &self.bucket,
                     &self.access,
+                    self.principals.as_ref(),
                 )?),
                 OwnerAssignment::Preserve(owner) => owner.clone(),
                 OwnerAssignment::Unknown => None,

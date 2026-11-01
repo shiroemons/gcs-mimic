@@ -53,6 +53,15 @@ const PROJECT_PRIVATE: &[(&str, &str)] = &[
     ("project-viewers-0", "READER"),
 ];
 
+/// An object written without credentials is owned by the configured local creator.
+const CREATOR: (&str, &str) = ("user-local-user@gcs-mimic.invalid", "OWNER");
+
+fn object_private() -> Vec<(String, String)> {
+    let mut entries = PROJECT_PRIVATE.to_vec();
+    entries.push(CREATOR);
+    pairs(&entries)
+}
+
 fn metageneration(value: &Value) -> i64 {
     value["metageneration"].as_str().unwrap().parse().unwrap()
 }
@@ -300,13 +309,15 @@ fn default_object_acl_applies_only_to_objects_created_afterwards() {
     server.put("after", b"2").json();
     let mut inherited = pairs(PROJECT_PRIVATE);
     inherited.push(("allUsers".into(), "READER".into()));
+    // The unauthenticated creator is recorded as the object owner.
+    inherited.push(("user-local-user@gcs-mimic.invalid".into(), "OWNER".into()));
     inherited.sort_unstable();
     let after = call(&server, "GET", &format!("{BUCKET}/o/after/acl")).json();
     assert_eq!(entries(&after), inherited);
     assert_eq!(entity(&after["items"], "allUsers")["object"], "after");
     assert_eq!(
         entries(&call(&server, "GET", &format!("{BUCKET}/o/before/acl")).json()),
-        pairs(PROJECT_PRIVATE)
+        object_private()
     );
     // Changing the default later never rewrites existing objects.
     assert_eq!(
@@ -328,7 +339,7 @@ fn default_object_acl_applies_only_to_objects_created_afterwards() {
     server.put("after", b"3").json();
     assert_eq!(
         entries(&call(&server, "GET", &format!("{BUCKET}/o/after/acl")).json()),
-        pairs(PROJECT_PRIVATE)
+        object_private()
     );
 }
 
@@ -368,9 +379,12 @@ fn object_acl_targets_a_generation_and_renders_with_full_projection() {
     )
     .json();
     assert_eq!(entity(&full["acl"], "allUsers")["etag"], entry["etag"]);
-    assert_eq!(full["owner"], json!({"entity":"project-owners-0"}));
+    assert_eq!(
+        full["owner"],
+        json!({"entity":"user-local-user@gcs-mimic.invalid"})
+    );
     let listed = call(&server, "GET", &format!("{BUCKET}/o?projection=full")).json();
-    assert_eq!(listed["items"][0]["acl"].as_array().unwrap().len(), 4);
+    assert_eq!(listed["items"][0]["acl"].as_array().unwrap().len(), 5);
     let selected = call(
         &server,
         "GET",
@@ -388,7 +402,7 @@ fn object_acl_targets_a_generation_and_renders_with_full_projection() {
         json!({"contentType": "text/plain"}),
     )
     .json();
-    assert_eq!(patched["acl"].as_array().unwrap().len(), 4);
+    assert_eq!(patched["acl"].as_array().unwrap().len(), 5);
 
     let bucket = call(&server, "GET", &format!("{BUCKET}?projection=full")).json();
     assert_eq!(bucket["acl"].as_array().unwrap().len(), 3);
@@ -408,7 +422,7 @@ fn object_acl_targets_a_generation_and_renders_with_full_projection() {
     server.stop();
     let server = Server::start(&dir, false);
     let stored = call(&server, "GET", &acl).json();
-    assert_eq!(entries(&stored).len(), 4);
+    assert_eq!(entries(&stored).len(), 5);
     assert_eq!(
         call(&server, "DELETE", &format!("{BUCKET}/o/dir%2Fname")).status,
         204
@@ -527,7 +541,7 @@ fn metadata_updates_replace_and_clear_acls() {
     body["contentType"] = json!("text/plain");
     let replaced = send(&server, "PUT", &object, body.clone()).json();
     assert_eq!(replaced["contentType"], "text/plain");
-    assert_eq!(replaced["acl"].as_array().unwrap().len(), 3);
+    assert_eq!(replaced["acl"].as_array().unwrap().len(), 4);
     // Reordered entries still describe the same ACL.
     let full = call(&server, "GET", &format!("{object}?projection=full")).json();
     let mut body = full;
@@ -568,14 +582,11 @@ fn metadata_updates_replace_and_clear_acls() {
         server.put("inherited", b"x").json();
         assert_eq!(
             entries(&call(&server, "GET", &format!("{BUCKET}/o/inherited/acl")).json()),
-            pairs(&[
-                ("domain-example.com", "OWNER"),
-                ("project-owners-0", "OWNER")
-            ])
+            pairs(&[("domain-example.com", "OWNER"), CREATOR])
         );
         assert_eq!(
             entries(&call(&server, "GET", &format!("{object}/acl")).json()).len(),
-            3
+            4
         );
         let before = metageneration(&call(&server, "GET", &object).json());
         let updated = send(
@@ -589,10 +600,7 @@ fn metadata_updates_replace_and_clear_acls() {
         .json();
         assert_eq!(
             entries(&json!({"items":updated["acl"]})),
-            pairs(&[
-                ("allAuthenticatedUsers", "READER"),
-                ("project-owners-0", "OWNER")
-            ])
+            pairs(&[("allAuthenticatedUsers", "READER"), CREATOR])
         );
         assert_eq!(updated["contentType"], "application/json");
         assert_eq!(metageneration(&updated), before + 1);
@@ -602,7 +610,10 @@ fn metadata_updates_replace_and_clear_acls() {
             entity(&omitted["acl"], "allAuthenticatedUsers")["role"],
             "READER"
         );
-        assert_eq!(entity(&omitted["acl"], "project-owners-0")["role"], "OWNER");
+        assert_eq!(
+            entity(&omitted["acl"], "user-local-user@gcs-mimic.invalid")["role"],
+            "OWNER"
+        );
         assert!(omitted.get("metadata").is_none());
         let cleared = send(
             &server,
@@ -611,10 +622,7 @@ fn metadata_updates_replace_and_clear_acls() {
             json!({"acl":[]}),
         )
         .json();
-        assert_eq!(
-            entries(&json!({"items":cleared["acl"]})),
-            pairs(&[("project-owners-0", "OWNER")])
-        );
+        assert_eq!(entries(&json!({"items":cleared["acl"]})), pairs(&[CREATOR]));
         send(
             &server,
             method,
@@ -628,15 +636,12 @@ fn metadata_updates_replace_and_clear_acls() {
         server.put("empty-default", b"x").json();
         assert_eq!(
             entries(&call(&server, "GET", &format!("{BUCKET}/o/empty-default/acl")).json()),
-            pairs(&[("project-owners-0", "OWNER")])
+            pairs(&[CREATOR])
         );
         // Existing objects keep their own stored ACL when the default changes.
         assert_eq!(
             entries(&call(&server, "GET", &format!("{BUCKET}/o/inherited/acl")).json()),
-            pairs(&[
-                ("domain-example.com", "OWNER"),
-                ("project-owners-0", "OWNER")
-            ])
+            pairs(&[("domain-example.com", "OWNER"), CREATOR])
         );
         send(&server, "PATCH", &object, json!({"acl": PROJECT_PRIVATE.iter().map(|(entity, role)| json!({"entity":entity,"role":role})).collect::<Vec<_>>()})).json();
     }
@@ -801,7 +806,7 @@ fn resource_acl_generation_selection_and_conditioned_races() {
             )
             .json()
         ),
-        pairs(&[("project-owners-0", "OWNER")])
+        pairs(&[CREATOR])
     );
     let full = format!("{object}?projection=full");
     let before = call(&server, "GET", &full).json();
@@ -882,7 +887,7 @@ fn resource_acl_generation_selection_and_conditioned_races() {
             )
             .json()
         ),
-        pairs(&[("project-owners-0", "OWNER")])
+        pairs(&[CREATOR])
     );
     assert_eq!(
         entries(&call(&server, "GET", &format!("{object}/acl")).json()).len(),

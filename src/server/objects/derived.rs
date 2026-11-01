@@ -100,13 +100,15 @@ pub(super) async fn copy(
         };
         copy_object(ctx, request, &bytes).await?
     };
+    let mut value = json::object_resource_keyed(
+        &record,
+        &ctx.endpoints.api_base_url,
+        projection,
+        destination_key,
+    )?;
+    json::add_derived_owner(&mut value, &record);
     Ok(Written {
-        value: json::object_resource_keyed(
-            &record,
-            &ctx.endpoints.api_base_url,
-            projection,
-            destination_key,
-        )?,
+        value,
         acl_snapshot,
     })
 }

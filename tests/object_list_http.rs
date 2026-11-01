@@ -325,7 +325,7 @@ fn object_list_resources_defaults_empty_and_restart() {
     }
     let mut full = server.list("projection=full");
     for item in full["items"].as_array_mut().unwrap() {
-        assert_eq!(item["acl"].as_array().unwrap().len(), 3);
+        assert_eq!(item["acl"].as_array().unwrap().len(), 4);
         *item = common::without_acl(item.take());
     }
     assert_eq!(full, page);

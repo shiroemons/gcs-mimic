@@ -8,6 +8,7 @@
 //! Nothing here contacts Google or the metadata server.
 
 mod acl_identity;
+pub(crate) use acl_identity::validate_local_creator_email;
 mod jwt;
 mod policy;
 pub(crate) mod roles;
@@ -500,6 +501,12 @@ impl Registry {
                     "id must be 1..={MAX_ID_BYTES} bytes of printable ASCII without whitespace"
                 )));
             }
+            if id.starts_with(crate::object::owner::RESERVED_ID_PREFIX) {
+                return Err(error(format!(
+                    "id must not start with {}; that namespace is reserved for emulator-internal principals",
+                    crate::object::owner::RESERVED_ID_PREFIX
+                )));
+            }
             if !ids.insert(id.to_owned()) {
                 return Err(error(format!("duplicate id: {id}")));
             }
@@ -692,6 +699,9 @@ fn visible_ascii(value: &str, max: usize) -> bool {
 #[derive(Debug, Default)]
 pub struct Auth {
     registry: Option<Registry>,
+    /// Permissive mode only: the ACL entity (`user-EMAIL`) recorded as creator of new objects.
+    /// It never authorizes anything.
+    local_creator_entity: Option<String>,
 }
 
 impl Auth {
@@ -702,7 +712,19 @@ impl Auth {
     pub fn strict(registry: Registry) -> Self {
         Self {
             registry: Some(registry),
+            local_creator_entity: None,
         }
+    }
+
+    /// Records `email` as the creator of objects written in permissive mode. Strict mode ignores
+    /// it because its callers are registered principals.
+    pub fn with_local_creator_email(mut self, email: &str) -> Self {
+        self.local_creator_entity = (!email.is_empty()).then(|| format!("user-{email}"));
+        self
+    }
+
+    pub(crate) fn local_creator_entity(&self) -> Option<&str> {
+        self.local_creator_entity.as_deref()
     }
 
     pub fn mode(&self) -> AuthMode {
@@ -1549,6 +1571,14 @@ mod tests {
             (
                 "long id",
                 valid(&format!(r#"{{"id":"{long_id}","tokens":["t"]}}"#)),
+            ),
+            (
+                "reserved local creator id",
+                valid(r#"{"id":"gcs-mimic:local-creator","tokens":["t"]}"#),
+            ),
+            (
+                "reserved namespace",
+                valid(r#"{"id":"gcs-mimic:other","tokens":["t"]}"#),
             ),
             (
                 "duplicate id",

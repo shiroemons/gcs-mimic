@@ -12,7 +12,10 @@ mod tests;
 #[derive(Clone)]
 pub(super) enum Profile {
     TrustedLocal,
-    Permissive,
+    /// `creator` is the ACL entity recorded as owner of new objects; it grants nothing.
+    Permissive {
+        creator: Option<Arc<str>>,
+    },
     Strict(Arc<BTreeMap<String, Identity>>),
 }
 
@@ -33,7 +36,9 @@ impl Catalog {
                     .map(|identity| (identity.id().to_owned(), identity.clone()))
                     .collect(),
             )),
-            None => Profile::Permissive,
+            None => Profile::Permissive {
+                creator: auth.local_creator_entity().map(Arc::from),
+            },
         };
         self.set_principal_profile(profile.clone())?;
         let clock = self.0.clock.clone();

@@ -38,6 +38,7 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "public_base_url",
     "admin_enabled",
     "admin_principal",
+    "local_creator_email",
     "xml_virtual_host_domains",
     "max_connections",
     "max_object_bytes",

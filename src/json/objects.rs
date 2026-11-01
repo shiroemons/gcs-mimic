@@ -764,6 +764,21 @@ pub(crate) fn object_media_range(
     Ok(Some((offset, end - offset + 1)))
 }
 
+/// Copy and rewrite responses name the calling creator as `owner` even without the full
+/// projection, while still omitting `acl` (recorded 2026-11-01). A project-owners owner is left
+/// out: the recordings only show a user owner, so that case is an inference that keeps the
+/// legacy emulator profile unchanged.
+pub(crate) fn add_derived_owner(value: &mut Value, object: &ObjectRecord) {
+    if let Some(crate::object::owner::ObjectOwner::Principal {
+        entity: Some(entity),
+        ..
+    }) = &object.owner
+        && value.get("owner").is_none()
+    {
+        value["owner"] = json!({"entity": entity});
+    }
+}
+
 /// Render the selected immutable generation using the configured advertised endpoint.
 pub(crate) fn object_resource(
     object: &ObjectRecord,

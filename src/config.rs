@@ -22,6 +22,9 @@ pub use runtime::RuntimeEndpoints;
 pub(crate) use runtime::{EndpointError, EndpointSnapshot};
 pub use storage::Backend;
 
+/// Reserved-domain (RFC 2606) address, so it can never name a real Google account.
+pub const DEFAULT_LOCAL_CREATOR_EMAIL: &str = "local-user@gcs-mimic.invalid";
+
 const CONFIG_VALUE_FIX: &str =
     "Expected a string or unsigned integer; use the documented flat JSON setting type.";
 
@@ -137,6 +140,9 @@ pub struct Config {
     /// Local management routes are disabled unless the operator explicitly enables them.
     pub admin_enabled: bool,
     pub admin_principal: Option<String>,
+    /// Email recorded as the creator (owner and ACL OWNER entry) of objects written without
+    /// authentication; empty disables it. Never an authorization input.
+    pub local_creator_email: String,
     pub runtime_endpoints: RuntimeEndpoints,
     pub pubsub_emulator_host: Option<String>,
     pub event_pubsub_project_id: String,
@@ -191,6 +197,7 @@ impl Default for Config {
             public_base_url: None,
             admin_enabled: false,
             admin_principal: None,
+            local_creator_email: DEFAULT_LOCAL_CREATOR_EMAIL.into(),
             runtime_endpoints: RuntimeEndpoints::default(),
             pubsub_emulator_host: None,
             event_pubsub_project_id: String::new(),
@@ -520,7 +527,12 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | "default_location"
         | "default_soft_delete_retention_seconds"
         | "buckets_file" => apply_storage_setting(config, key, value),
-        "auth_mode" | "compat_profile" | "cors_fallback" | "identity_file" | "admin_enabled"
+        "auth_mode"
+        | "compat_profile"
+        | "cors_fallback"
+        | "identity_file"
+        | "admin_enabled"
+        | "local_creator_email"
         | "admin_principal" => apply_access_setting(config, key, value),
         "pubsub_emulator_host"
         | "event_pubsub_project_id"
@@ -685,6 +697,17 @@ fn apply_access_setting(config: &mut Config, key: &str, value: String) -> Result
             }
             config.admin_principal = Some(value);
         }
+        "local_creator_email" => {
+            if !value.is_empty() {
+                crate::auth::validate_local_creator_email(&value).map_err(|reason| {
+                    format!(
+                        "local_creator_email {reason}; use an address such as \
+                         local-user@gcs-mimic.invalid or an empty value to disable it"
+                    )
+                })?;
+            }
+            config.local_creator_email = value;
+        }
         "admin_enabled" => {
             config.admin_enabled = value
                 .parse::<bool>()
@@ -811,6 +834,31 @@ impl ConfigurationReport {
                 "default_location requires compat_profile=native; use --compat-profile native --default-location EU or remove the default_location setting.",
             ));
             self.invalid.insert("default_location".into());
+        }
+        if config.compat_profile == CompatProfile::LegacyEmulator
+            && !config.local_creator_email.is_empty()
+            && let Some(input) = settings.get("local_creator_email")
+            && !self.invalid.contains("local_creator_email")
+        {
+            self.diagnostics.errors.push(Diagnostic::new(
+                input.source,
+                &input.key,
+                "local_creator_email requires compat_profile=native; the legacy emulator profile never records a creator. Use --compat-profile native or remove the setting.",
+            ));
+            self.invalid.insert("local_creator_email".into());
+        }
+        // Strict mode records the registered caller, so a creator address would be silently unused.
+        if (config.auth_mode == AuthMode::Strict || config.identity_file.is_some())
+            && !config.local_creator_email.is_empty()
+            && let Some(input) = settings.get("local_creator_email")
+            && !self.invalid.contains("local_creator_email")
+        {
+            self.diagnostics.errors.push(Diagnostic::new(
+                input.source,
+                &input.key,
+                "local_creator_email applies only to auth_mode=permissive; strict mode records the registered caller as owner. Remove the setting or use permissive mode.",
+            ));
+            self.invalid.insert("local_creator_email".into());
         }
         // Zero is what the legacy profile does anyway, so only a positive request conflicts.
         if config.compat_profile == CompatProfile::LegacyEmulator
@@ -1238,6 +1286,79 @@ mod tests {
         // A bare flag names the accepted value instead of an unrelated example.
         let errors = Config::load(&["--cors-fallback".into()], &empty).unwrap_err();
         assert!(errors.to_string().contains("--cors-fallback allow-all"));
+    }
+
+    #[test]
+    fn local_creator_email_defaults_validates_and_requires_the_native_profile() {
+        let empty = BTreeMap::new();
+        assert_eq!(
+            Config::load(&[], &empty).unwrap().local_creator_email,
+            DEFAULT_LOCAL_CREATOR_EMAIL
+        );
+        let env = BTreeMap::from([(
+            "GCS_MIMIC_LOCAL_CREATOR_EMAIL".into(),
+            "env@example.test".into(),
+        )]);
+        assert_eq!(
+            Config::load(&[], &env).unwrap().local_creator_email,
+            "env@example.test"
+        );
+        let cli = ["--local-creator-email", ""].map(str::to_owned);
+        assert_eq!(Config::load(&cli, &env).unwrap().local_creator_email, "");
+        for bad in ["plain", "a b@example.test", "@example.test", "user-x"] {
+            let args = ["--local-creator-email", bad].map(str::to_owned);
+            assert!(
+                Config::load(&args, &empty)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("local_creator_email"),
+                "{bad}"
+            );
+        }
+        // Strict mode records the registered caller, so an explicit creator is rejected rather
+        // than silently ignored; the same holds through the environment.
+        let strict = [
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            "identities.json",
+            "--local-creator-email",
+            "a@example.test",
+        ]
+        .map(str::to_owned);
+        assert!(
+            Config::load(&strict, &empty)
+                .unwrap_err()
+                .to_string()
+                .contains("applies only to auth_mode=permissive")
+        );
+        let strict_env = BTreeMap::from([(
+            "GCS_MIMIC_LOCAL_CREATOR_EMAIL".into(),
+            "a@example.test".into(),
+        )]);
+        let strict_args = [
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            "identities.json",
+        ]
+        .map(str::to_owned);
+        assert!(
+            Config::load(&strict_args, &strict_env)
+                .unwrap_err()
+                .to_string()
+                .contains("applies only to auth_mode=permissive")
+        );
+        let legacy = ["--compat-profile", "legacy-emulator"].map(str::to_owned);
+        assert!(Config::load(&legacy, &empty).is_ok());
+        let mut conflict = legacy.to_vec();
+        conflict.extend(["--local-creator-email".into(), "a@example.test".into()]);
+        assert!(
+            Config::load(&conflict, &empty)
+                .unwrap_err()
+                .to_string()
+                .contains("requires compat_profile=native")
+        );
     }
 
     #[test]

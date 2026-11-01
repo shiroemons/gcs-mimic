@@ -2,6 +2,13 @@
 
 use crate::{acl::AclEntry, auth::Identity};
 
+/// Owner id of objects written by the permissive profile's local creator. The id is fixed, so a
+/// changed creator address renames the entity without rewriting the owner kind. The whole
+/// `gcs-mimic:` namespace is reserved: `Registry::parse` rejects it, so no strict identity can
+/// claim these objects.
+pub(crate) const LOCAL_CREATOR_ID: &str = "gcs-mimic:local-creator";
+pub(crate) const RESERVED_ID_PREFIX: &str = "gcs-mimic:";
+
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 pub(crate) enum ObjectOwner {
@@ -21,7 +28,9 @@ impl ObjectOwner {
     }
 
     pub(crate) fn is_principal(&self, identity: Option<&Identity>) -> bool {
-        matches!(self, Self::Principal { id, .. } if identity.is_some_and(|identity| identity.id() == id))
+        // The local creator only labels permissive-era objects; it is never a caller, even if a
+        // registry somehow held its id.
+        matches!(self, Self::Principal { id, .. } if id != LOCAL_CREATOR_ID && identity.is_some_and(|identity| identity.id() == id))
     }
 
     pub(crate) fn preserve_grant(&self, entries: &mut Vec<AclEntry>) {

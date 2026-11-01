@@ -14,6 +14,20 @@ fn natural_entity(id: &str) -> Option<String> {
     .then_some(entity)
 }
 
+/// A creator address must be a canonical ACL user email, so `user-EMAIL` is a valid entity.
+pub(crate) fn validate_local_creator_email(email: &str) -> Result<(), &'static str> {
+    let entity = format!("user-{email}");
+    if email.len() > 254
+        || !matches!(
+            crate::acl::Entity::parse(&entity),
+            Ok(crate::acl::Entity::UserEmail(_))
+        )
+    {
+        return Err("must be an email address such as name@example.test");
+    }
+    Ok(())
+}
+
 pub(super) fn parse_entity(
     value: Option<&Value>,
     index: usize,

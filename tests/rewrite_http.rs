@@ -1,5 +1,9 @@
 mod object_effects_support;
-use object_effects_support::{Server, common::TestDir, request, settings};
+use object_effects_support::{
+    Server,
+    common::{self, TestDir},
+    request, settings,
+};
 use serde_json::{Value, json};
 use std::{
     sync::{Arc, Barrier},
@@ -188,7 +192,10 @@ fn rewrite_progress_retry_restart_and_completion_replay_publish_once() {
     assert_eq!(completed["totalBytesRewritten"], payload.len().to_string());
     assert!(completed.get("rewriteToken").is_none());
     assert_eq!(server.get("destination?alt=media").body, payload);
-    assert_eq!(server.get("destination").json(), completed["resource"]);
+    assert_eq!(
+        server.get("destination").json(),
+        common::without_acl(completed["resource"].clone())
+    );
     server.put("destination", b"later").json();
     assert_eq!(
         server.request("POST", &last_path, ADMIN, b"").json(),
@@ -435,7 +442,14 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
     server
         .request("POST", BASE, ADMIN, br#"{"temporaryHold":true}"#)
         .error(400, "badRequest");
-    assert_eq!(server.get("destination").json(), first["resource"]);
+    assert_eq!(
+        first["resource"]["owner"],
+        json!({"entity": "user-admin@example.test"})
+    );
+    assert_eq!(
+        server.get("destination").json(),
+        common::without_acl(first["resource"].clone())
+    );
 }
 
 #[test]
@@ -617,7 +631,7 @@ fn rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds() {
                 b""
             )
             .json(),
-        complete["resource"]
+        common::without_acl(complete["resource"].clone())
     );
 }
 
@@ -670,7 +684,10 @@ fn rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_ta
     let complete = server.request("POST", &path, ADMIN, b"").json();
     assert_eq!(complete["done"], true);
     assert_eq!(server.get("destination?alt=media").body, payload);
-    assert_eq!(server.get("destination").json(), complete["resource"]);
+    assert_eq!(
+        server.get("destination").json(),
+        common::without_acl(complete["resource"].clone())
+    );
 }
 
 #[test]
@@ -925,7 +942,10 @@ fn rewrite_expired_completed_session_never_journals_the_live_blob_on_restart() {
         .execute("UPDATE rewrite_sessions SET deadline=0", [])
         .unwrap();
     let server = Server::start(&dir, false);
-    assert_eq!(server.get("destination").json(), complete["resource"]);
+    assert_eq!(
+        server.get("destination").json(),
+        common::without_acl(complete["resource"].clone())
+    );
     assert_eq!(server.get("destination?alt=media").body, payload);
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     for table in ["rewrite_sessions", "pending_blob_deletions"] {
@@ -1020,7 +1040,10 @@ fn rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success() 
     server.stop();
     let server = Server::start(&dir, false);
     assert_eq!(server.get("destination?alt=media").body, payload);
-    assert_eq!(server.get("destination").json(), complete["resource"]);
+    assert_eq!(
+        server.get("destination").json(),
+        common::without_acl(complete["resource"].clone())
+    );
 }
 
 #[test]
