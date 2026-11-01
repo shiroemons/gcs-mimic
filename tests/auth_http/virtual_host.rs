@@ -1737,10 +1737,14 @@ fn virtual_host_xml_requests_keep_their_own_headers_under_json_api_looking_paths
     assert_eq!(get.status, 200);
     assert_eq!(get.headers["cache-control"], "public, max-age=3600");
     assert!(!get.headers.contains_key("vary"));
-    assert!(!get.headers.contains_key("expires"));
+    // The XML API sends the response time as `Expires` on a private read, never the JSON
+    // API's fixed past date.
+    assert_ne!(get.headers["expires"], "Mon, 01 Jan 1990 00:00:00 GMT");
     let delete = request(&server, "DELETE", &vhost, "/storage/v1/x.json", ADMIN, b"");
     assert_eq!(delete.status, 204);
-    for name in ["content-type", "pragma", "expires"] {
+    for name in ["content-type", "pragma"] {
         assert!(!delete.headers.contains_key(name), "{name}");
     }
+    assert_ne!(delete.headers["expires"], "Mon, 01 Jan 1990 00:00:00 GMT");
+    assert_eq!(delete.headers["vary"], "Origin");
 }

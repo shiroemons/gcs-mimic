@@ -38,8 +38,12 @@ pub(super) async fn respond(
     let call = json::EnvelopeCall::of_request(&request);
     let mut family = Family::Undecided;
     let mut response = route(request, ctx, &mut family).await;
-    if family == Family::Json {
-        json::apply_envelope(&method, &path, call, ctx.state.clock.now(), &mut response);
+    match family {
+        Family::Json => {
+            json::apply_envelope(&method, &path, call, ctx.state.clock.now(), &mut response);
+        }
+        Family::Xml => xml::envelope::apply(&method, ctx.state.clock.now(), &mut response),
+        Family::Undecided => {}
     }
     response
 }
@@ -57,7 +61,10 @@ async fn route(
         ctx.endpoints,
     ) {
         Ok(selected) => selected,
-        Err(error) => return boxed(error.response(xml::ErrorBody::for_method(request.method()))),
+        Err(error) => {
+            *family = Family::Xml;
+            return boxed(error.response(xml::ErrorBody::for_method(request.method())));
+        }
     };
     if selected.is_none()
         && (matches!(

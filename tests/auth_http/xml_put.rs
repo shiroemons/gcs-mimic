@@ -119,7 +119,7 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
     assert_eq!(put.headers["x-goog-stored-content-encoding"], "gzip");
     assert_eq!(
         put.headers["x-goog-hash"],
-        format!("crc32c={CRC},md5={MD5}")
+        format!("crc32c={CRC}, md5={MD5}")
     );
     let get = server.get(&format!("{ADMIN}Accept-Encoding: gzip\r\n"), OBJECT);
     assert_eq!(get.ok().body, b"hello world");
@@ -251,7 +251,7 @@ fn xml_put_individual_and_combined_hash_headers_accept_matching_bytes() {
         assert_eq!(reply.status, 200);
         assert_eq!(
             reply.headers["x-goog-hash"],
-            format!("crc32c={CRC},md5={MD5}")
+            format!("crc32c={CRC}, md5={MD5}")
         );
         assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"hello world");
     }

@@ -282,17 +282,19 @@ fn response(
     body.push_str("</CopyObjectResult>");
     let mut response = Response::new(Full::new(Bytes::from(body)));
     let mut headers = super::media_headers(record, super::CacheScope::Private)?;
-    for name in [
-        "etag",
-        "x-goog-generation",
-        "x-goog-metageneration",
-        "x-goog-hash",
-        "x-goog-component-count",
-    ] {
-        if let Some(value) = headers.remove(name) {
-            response.headers_mut().insert(name, value);
-        }
-    }
+    super::move_headers(
+        &mut headers,
+        response.headers_mut(),
+        &[
+            "etag",
+            "x-goog-generation",
+            "x-goog-metageneration",
+            "x-goog-hash",
+            "x-goog-stored-content-length",
+            "x-goog-stored-content-encoding",
+            "x-goog-component-count",
+        ],
+    );
     json::insert_response_headers(record, response.headers_mut());
     response.headers_mut().insert(
         "content-type",

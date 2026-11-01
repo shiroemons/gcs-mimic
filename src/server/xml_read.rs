@@ -9,7 +9,7 @@ use crate::{
     auth, bucket::BucketAccess, csek::CustomerKey, json, object::ObjectRecord,
     storage::ObjectReader, xml,
 };
-use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValue};
+use hyper::{HeaderMap, Method, Request, Response, StatusCode};
 
 pub(super) async fn respond(
     mut request: Request<Incoming>,
@@ -97,10 +97,16 @@ async fn read(
         xml::CacheScope::Private
     };
     let mut headers = xml::media_headers(&record, scope)?;
+    // A private object is sent with `Expires` set to the response time, even when the object
+    // carries its own `Cache-Control` (recorded with `no-cache`).
+    if scope == xml::CacheScope::Private
+        && let Some(value) = xml::envelope::expires(ctx.state.clock.now())
+    {
+        headers.insert("expires", value);
+    }
     json::insert_response_headers(&record, &mut headers);
-    headers.remove("x-goog-hash");
-    if reveal {
-        insert_hashes(&mut headers, &record);
+    if !reveal {
+        headers.remove("x-goog-hash");
     }
     if json::object_media_negotiable(&record) {
         // The XML API varies every representation of a stored-gzip object, gunzipped or not,
@@ -217,21 +223,4 @@ fn unsatisfiable_range(
     *response.status_mut() = parts.status;
     *response.headers_mut() = headers;
     response
-}
-
-/// Cloud Storage's XML API sends one `x-goog-hash` field per algorithm, always for the
-/// whole object, including on a range (observed 2026-10-31). The JSON API instead combines
-/// them in one field.
-fn insert_hashes(headers: &mut HeaderMap, record: &ObjectRecord) {
-    let crc32c = format!("crc32c={}", json::base64(&record.crc32c.to_be_bytes()));
-    let md5 = record
-        .has_md5()
-        .then(|| format!("md5={}", json::base64(&record.md5)));
-    // Base64 always forms a valid header value; omitting a hash is safer than panicking
-    // if that ever changes.
-    for value in std::iter::once(crc32c).chain(md5) {
-        if let Ok(value) = HeaderValue::try_from(value) {
-            headers.append("x-goog-hash", value);
-        }
-    }
 }

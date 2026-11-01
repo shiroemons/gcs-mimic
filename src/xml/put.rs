@@ -416,17 +416,17 @@ pub(crate) async fn respond(
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
     let mut response = boxed(Response::new(Full::new(Bytes::new())));
     json::insert_response_headers(&record, response.headers_mut());
-    for name in [
-        "etag",
-        "x-goog-generation",
-        "x-goog-metageneration",
-        "x-goog-hash",
-        "x-goog-stored-content-length",
-        "x-goog-stored-content-encoding",
-    ] {
-        if let Some(value) = headers.remove(name) {
-            response.headers_mut().insert(name, value);
-        }
-    }
+    super::move_headers(
+        &mut headers,
+        response.headers_mut(),
+        &[
+            "etag",
+            "x-goog-generation",
+            "x-goog-metageneration",
+            "x-goog-hash",
+            "x-goog-stored-content-length",
+            "x-goog-stored-content-encoding",
+        ],
+    );
     Ok(response)
 }

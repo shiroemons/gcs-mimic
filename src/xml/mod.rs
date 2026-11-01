@@ -16,6 +16,7 @@ pub(crate) mod buckets;
 mod copy;
 mod cors;
 mod document;
+pub(crate) mod envelope;
 pub(crate) mod list;
 pub(crate) mod multipart;
 pub(crate) use cors::{cors, warn_unconfigured_cors};
@@ -915,6 +916,7 @@ fn element(body: &mut String, name: &str, value: &str) {
 
 pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<HeaderMap, Error> {
     let mut headers = json::object_media_headers(record)?;
+    insert_hashes(&mut headers, record);
     // Only the XML API advertises ranges; the JSON media response omits the field.
     headers.insert("accept-ranges", HeaderValue::from_static("bytes"));
     let cache = record.cache_control.as_deref().unwrap_or(match scope {
@@ -967,4 +969,35 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
         headers.insert(key, value);
     }
     Ok(headers)
+}
+
+/// Cloud Storage's XML API sends one `x-goog-hash` field per algorithm, always for the
+/// whole object, including on a range (observed 2026-10-31). The JSON API instead combines
+/// them in one field.
+pub(crate) fn insert_hashes(headers: &mut HeaderMap, record: &ObjectRecord) {
+    headers.remove("x-goog-hash");
+    let crc32c = format!("crc32c={}", json::base64(&record.crc32c.to_be_bytes()));
+    let md5 = record
+        .has_md5()
+        .then(|| format!("md5={}", json::base64(&record.md5)));
+    // Base64 always forms a valid header value; omitting a hash is safer than panicking
+    // if that ever changes.
+    for value in std::iter::once(crc32c).chain(md5) {
+        if let Ok(value) = HeaderValue::try_from(value) {
+            headers.append("x-goog-hash", value);
+        }
+    }
+}
+
+/// Moves every value of the named fields, so a field sent once per algorithm keeps them all.
+pub(crate) fn move_headers(from: &mut HeaderMap, to: &mut HeaderMap, names: &[&'static str]) {
+    for name in names {
+        if let hyper::header::Entry::Occupied(entry) = from.entry(*name) {
+            let (key, values) = entry.remove_entry_mult();
+            to.remove(&key);
+            for value in values {
+                to.append(key.clone(), value);
+            }
+        }
+    }
 }
