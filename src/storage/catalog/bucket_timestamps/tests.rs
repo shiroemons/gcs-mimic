@@ -123,9 +123,12 @@ fn partial_migration_rolls_back_the_first_column_and_schema_version() {
 async fn previous_schema_upgrades_without_changing_microsecond_instants() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    let bucket =
-        crate::json::parse_insert(br#"{"name":"time-bucket"}"#, "project", SystemTime::now())
-            .unwrap();
+    let bucket = crate::json::parse_insert(
+        br#"{"name":"time-bucket"}"#,
+        "project",
+        crate::clock::Clock::now(&crate::clock::MicrosecondClock),
+    )
+    .unwrap();
     let bucket = catalog.insert_bucket(bucket).await.unwrap();
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();

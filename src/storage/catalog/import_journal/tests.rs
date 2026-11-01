@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
 use crate::{
-    clock::SystemClock,
+    clock::MicrosecondClock,
     storage::admin::{BucketDefinition, BucketName, Origin},
     test_support::TestDir,
 };
@@ -252,7 +252,7 @@ async fn import_journal_completion_and_seed_rollback_together() {
             BucketDefinition::default_for(
                 &BucketName::new("existing-bucket").unwrap(),
                 "project",
-                &SystemClock,
+                &MicrosecondClock,
             )
             .unwrap(),
         )
@@ -317,7 +317,7 @@ async fn import_journal_upgrade_preserves_native_state_and_stopped_snapshot() {
             BucketDefinition::default_for(
                 &BucketName::new("existing-bucket").unwrap(),
                 "project",
-                &SystemClock,
+                &MicrosecondClock,
             )
             .unwrap(),
         )

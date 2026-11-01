@@ -523,7 +523,7 @@ async fn sync_root_schema_migration_rolls_back_retries_and_preserves_state() {
             crate::storage::admin::BucketDefinition::default_for(
                 &bucket,
                 "owner",
-                &crate::clock::SystemClock,
+                &crate::clock::MicrosecondClock,
             )
             .unwrap(),
         )
