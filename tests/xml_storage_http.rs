@@ -368,7 +368,6 @@ fn xml_bucket_list_rejects_invalid_scopes_options_and_preserves_objects() {
     let token = elements(&page, "NextContinuationToken")[0];
     for query in [
         "list-type=3",
-        "max-keys=-1",
         "max-keys=0",
         "max-keys=4294967296",
         "encoding-type=xml",

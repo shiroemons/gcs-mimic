@@ -689,20 +689,37 @@ fn xml_listing_matches_the_recorded_document() {
         "{}",
         delimited.body
     );
-    // A truncated page keeps its continuation markers after the request markers.
+    // A truncated page puts its continuation marker between the request markers and MaxKeys.
     let truncated = server.request("GET", "/parity?max-keys=1&marker=a", "", b"");
     truncated.status(200);
     assert!(
-        truncated
-            .body
-            .contains("<Marker>a</Marker><MaxKeys>1</MaxKeys><IsTruncated>true</IsTruncated>"),
+        truncated.body.contains(
+            "<Marker>a</Marker><NextMarker>plain.txt</NextMarker>\
+             <MaxKeys>1</MaxKeys><IsTruncated>true</IsTruncated>"
+        ),
         "{}",
         truncated.body
     );
+    // A listing that names no usable max-keys echoes no MaxKeys, and a delimiter follows the
+    // marker.
+    for query in ["", "?max-keys=-1", "?max-keys=abc"] {
+        let unlimited = server.request("GET", &format!("/parity{query}"), "", b"");
+        unlimited.status(200);
+        assert!(
+            unlimited
+                .body
+                .contains("<Marker></Marker><IsTruncated>false</IsTruncated>"),
+            "{query}: {}",
+            unlimited.body
+        );
+    }
+    let delimited = server.request("GET", "/parity?delimiter=%2F&prefix=p", "", b"");
     assert!(
-        truncated.body.contains("<NextMarker>"),
+        delimited.body.contains(
+            "<Prefix>p</Prefix><Marker></Marker><Delimiter>/</Delimiter><IsTruncated>false</IsTruncated>"
+        ),
         "{}",
-        truncated.body
+        delimited.body
     );
 }
 
