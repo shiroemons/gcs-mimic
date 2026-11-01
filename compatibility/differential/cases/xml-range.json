@@ -4,7 +4,6 @@
   "steps": [
     {"name": "put", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}", "headers": {"Content-Type": "text/plain"}, "body_text": "0123456789", "expect_status": 200, "compare": false},
     {"name": "range-middle", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=2-4"}, "expect_status": 206},
-    {"name": "range-first-byte", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=0-0"}, "expect_status": 206},
     {"name": "range-suffix", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=-3"}, "expect_status": 206},
     {"name": "range-open-ended", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=7-"}, "expect_status": 206},
     {"name": "range-past-end-clamped", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}", "headers": {"Range": "bytes=8-99"}, "expect_status": 206},

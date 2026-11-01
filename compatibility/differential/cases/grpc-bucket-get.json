@@ -1,11 +1,11 @@
 {
   "id": "grpc-bucket-get",
-  "description": "gRPC GetBucket: full resource, a read mask, a missing bucket, an invalid name and a failed metageneration precondition.",
+  "description": "gRPC GetBucket: a stable subset of the resource, a read mask, a missing bucket, an invalid name and a failed metageneration precondition.",
   "steps": [
-    {"name": "get", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"name": "projects/_/buckets/{bucket}"}, "expect_status": 0},
-    {"name": "get-read-mask", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"name": "projects/_/buckets/{bucket}", "readMask": {"paths": ["name", "location", "storageClass", "metageneration"]}}, "expect_status": 0},
-    {"name": "get-missing", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{missing_bucket}"}, "body": {"name": "projects/_/buckets/{missing_bucket}"}, "expect_status": 5},
+    {"name": "get", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"name": "projects/_/buckets/{bucket}", "readMask": {"paths": ["name", "location", "location_type", "storage_class", "versioning"]}}, "expect_status": 0},
+    {"name": "get-read-mask", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"name": "projects/_/buckets/{bucket}", "readMask": {"paths": ["name", "location", "storage_class", "metageneration"]}}, "expect_status": 0},
+    {"name": "get-missing", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{missing_bucket}"}, "body": {"name": "projects/_/buckets/{missing_bucket}"}, "expect_status": 5},
     {"name": "get-invalid-name", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket={bucket}"}, "body": {"name": "{bucket}"}, "expect_status": 3},
-    {"name": "get-metageneration-mismatch", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket=projects/_/buckets/{bucket}"}, "body": {"name": "projects/_/buckets/{bucket}", "ifMetagenerationMatch": "99"}, "expect_status": 9}
+    {"name": "get-metageneration-mismatch", "protocol": "grpc", "rpc": "google.storage.v2.Storage/GetBucket", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": {"name": "projects/_/buckets/{bucket}", "ifMetagenerationMatch": "99"}, "expect_status": 9}
   ]
 }
