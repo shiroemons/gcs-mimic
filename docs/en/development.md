@@ -55,6 +55,27 @@ or `just check-container linux/arm64`. The direct
 sequence. Dependency downloads and container pulls can require network access;
 this is not an entirely offline command.
 
+`just check` runs only the host's tests and the type-checks of the other targets, so
+three kinds of failure reach CI first: tests whose result depends on the platform clock
+(Linux `SystemTime` holds nanoseconds, macOS microseconds, Windows 100 ns ticks),
+Linux-only code, and the SDK suites in `just check-sdk-clients` / `just check-sdk`.
+Run the library tests on Linux with the pinned Rust image (`rust_image` in
+`sdk-scorecard/run.sh`), keeping the build output in a volume so the host `target/` is
+untouched:
+
+```bash
+docker run --rm -v "$PWD":/w -v gcs-target:/t -v gcs-cargo:/usr/local/cargo/registry \
+  -e CARGO_TARGET_DIR=/t -w /w "$RUST_IMAGE" \
+  sh -c 'apt-get update -qq && apt-get install -y -qq build-essential pkg-config cmake protobuf-compiler && cargo test --locked --lib'
+```
+
+The first run needs root to install the build tools. Run the tests themselves as an
+ordinary user (`-u 1000:1000 -e HOME=/tmp -e TMPDIR=/tmp`, after `chmod -R a+rwX` on the two
+volumes, with `--offline`): as root, three permission-denied sync tests fail
+(`ingest_unreadable_file_is_deferred_while_other_files_progress` and the two
+`sync::mirror` permission tests), which CI does not see. Windows tests cannot run
+locally; keep timestamp tests to values every platform holds exactly.
+
 The local Rust check ignores an inherited `RUSTUP_TOOLCHAIN` and uses the
 repository pin. The SDK recipe clears `GCS_MIMIC_GO_TEST_RUN` so an inherited
 filter cannot silently omit tests. CI calls the same `scripts/check.sh` directly,
