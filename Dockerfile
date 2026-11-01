@@ -15,7 +15,7 @@ RUN cargo fetch --locked \
     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses \
     && install -d -o 10001 -g 10001 /runtime-data
 
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e AS runtime
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1 AS runtime
 LABEL org.opencontainers.image.source="https://github.com/shiroemons/gcs-mimic"
 LABEL org.opencontainers.image.licenses="MIT OR Apache-2.0"
 WORKDIR /app

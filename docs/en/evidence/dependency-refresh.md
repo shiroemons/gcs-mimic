@@ -230,3 +230,29 @@ The full `cargo xtask dependencies check` afterwards exited 0: Composer
 linux/amd64, linux/arm64` with `INFO: latest differs only on linux/riscv64`, and
 the Rust, distroless, curl, buildkit and syft-scanner inputs were unchanged
 `CURRENT` results.
+
+## Refresh: 2026-11-01 distroless
+
+The scheduled check at `2026-11-01T10:33Z` reported `docker
+distroless/cc-debian13:nonroot: UPDATE_AVAILABLE`. `docker buildx imagetools
+inspect gcr.io/distroless/cc-debian13:nonroot` showed a rebuilt index in which
+both shipped runtime manifests changed; the tag still tracks Debian 13 and the
+Debian stable codename is still `trixie`.
+
+| Digest | Previous | Adopted |
+| --- | --- | --- |
+| Index | `sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e` | `sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1` |
+| linux/amd64 | `sha256:732d2fe38bb1996cb47f8218b48dc840967684d73c5483894ff2ed638068c1b6` | `sha256:65af2e9e44e71de2df28245f6814301775d3ef04436b7d563f240d86fedf24aa` |
+| linux/arm64 | `sha256:91e80685018de611a20450bed6b011c3d3242b3d9cc4452208121f342703ada0` | `sha256:1026089ebb266c264cfa1828860332f25160079615ee146d159a7d1f3a701bd3` |
+
+The `Dockerfile` runtime stage and the
+[snapshot](../../../compatibility/dependency-status.json) pin the adopted index.
+
+### Validation performed on 2026-11-01
+
+- `cargo xtask dependencies check` at `2026-11-01T13:33:30Z` exited 0: 118
+  inputs were `CURRENT`, fake-gcs-server v1.56.1 stayed `PINNED_REFERENCE`, and
+  Composer `latest` printed `INFO: latest differs only on linux/riscv64`.
+- `just check-container linux/arm64` and `just check-container linux/amd64`
+  exited 0: both images built from the adopted runtime and passed every smoke
+  case.

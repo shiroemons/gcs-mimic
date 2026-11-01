@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-31T01:14:16Z",
-  "scope": "The 2026-10-31 refresh adopts Composer 2.11.1 with PHP 8.5.12, records the approved quick-xml 0.42.0 addition for bounded XML parsing and promotes the already resolved httpdate 1.0.3 to a direct dependency for legacy signature dates. The httpdate edge adds no resolved package or version. The other Cargo, SDK and runtime graph is retained. All eighteen SDK manifests are covered by daily detection. Hyper client support reuses the existing runtime graph. This snapshot does not establish final combined SDK/container/browser success for the current source.",
+  "checked_at_utc": "2026-11-01T13:33:30Z",
+  "scope": "The 2026-11-01 refresh adopts the rebuilt distroless/cc-debian13:nonroot index, whose linux/amd64 and linux/arm64 runtime manifests both changed; no other input changes. The 2026-10-31 refresh adopts Composer 2.11.1 with PHP 8.5.12, records the approved quick-xml 0.42.0 addition for bounded XML parsing and promotes the already resolved httpdate 1.0.3 to a direct dependency for legacy signature dates. The httpdate edge adds no resolved package or version. The other Cargo, SDK and runtime graph is retained. All eighteen SDK manifests are covered by daily detection. Hyper client support reuses the existing runtime graph. This snapshot does not establish final combined SDK/container/browser success for the current source.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
-    "exit_code": 1,
-    "result": "UPDATE_AVAILABLE",
+    "exit_code": 0,
+    "result": "CURRENT",
     "artifact": "docs/en/evidence/dependency-refresh.md",
-    "follow_up": "The 2026-10-31 check reached all fifteen SDK manifests: Rust 1.99.1 and non-Composer packages/runtimes were CURRENT; fake-gcs-server v1.56.1 was PINNED_REFERENCE. Composer 2.11.1 changed both supported platform images and is now adopted. The latest index differs only by a linux/riscv64 entry, so the pin is CURRENT on the declared amd64 and arm64 platforms and the riscv64 difference is reported as INFO. Post-update full freshness and final PHP suites require their own results. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01."
+    "follow_up": "After the distroless adoption the full check exited 0 with 118 CURRENT inputs; fake-gcs-server v1.56.1 stays PINNED_REFERENCE and Composer latest reports the riscv64-only INFO line. Both container platforms were rebuilt and smoke-tested. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01-distroless. Earlier: the 2026-10-31 check reached all fifteen SDK manifests: Rust 1.99.1 and non-Composer packages/runtimes were CURRENT; fake-gcs-server v1.56.1 was PINNED_REFERENCE. Composer 2.11.1 changed both supported platform images and is now adopted. The latest index differs only by a linux/riscv64 entry, so the pin is CURRENT on the declared amd64 and arm64 platforms and the riscv64 difference is reported as INFO. Post-update full freshness and final PHP suites require their own results. Evidence: docs/en/evidence/dependency-refresh.md#refresh-2026-11-01."
   },
   "toolchain": {
     "channel": "stable",
@@ -229,10 +229,10 @@
         "registry": "gcr.io",
         "repository": "distroless/cc-debian13", "reference": "gcr.io/distroless/cc-debian13:nonroot", "release_input": true,
         "tag": "nonroot", "latest_tag": "nonroot", "stable_codename": "trixie",
-        "digest": "sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e",
+        "digest": "sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1",
         "platforms": {
-          "linux/amd64": "sha256:732d2fe38bb1996cb47f8218b48dc840967684d73c5483894ff2ed638068c1b6",
-          "linux/arm64": "sha256:91e80685018de611a20450bed6b011c3d3242b3d9cc4452208121f342703ada0"
+          "linux/amd64": "sha256:65af2e9e44e71de2df28245f6814301775d3ef04436b7d563f240d86fedf24aa",
+          "linux/arm64": "sha256:1026089ebb266c264cfa1828860332f25160079615ee146d159a7d1f3a701bd3"
         },
         "source_url": "https://github.com/GoogleContainerTools/distroless",
         "stable_source_url": "https://deb.debian.org/debian/dists/stable/Release",
