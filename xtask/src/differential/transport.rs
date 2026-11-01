@@ -217,6 +217,8 @@ const STORAGE_PROTO: &str = "google/storage/v2/storage.proto";
 /// The environment variable that carries the bearer token to `grpcurl`. The
 /// header on its command line names the variable (`-expand-headers`), so the
 /// token never appears in the process arguments.
+/// Lets `-format-error` decode `google.rpc.ErrorInfo` and friends in status details.
+const ERROR_DETAILS_PROTO: &str = "google/rpc/error_details.proto";
 const TOKEN_ENV: &str = "GCS_MIMIC_DIFF_GRPC_BEARER";
 /// `grpcurl` exits with this offset plus the gRPC status code on a failed call.
 const STATUS_EXIT_OFFSET: i32 = 64;
@@ -280,6 +282,8 @@ impl GrpcTransport {
         args.extend([
             "-proto".into(),
             STORAGE_PROTO.into(),
+            "-proto".into(),
+            ERROR_DETAILS_PROTO.into(),
             "-format-error".into(),
         ]);
         args.extend(["-connect-timeout".into(), "15".into()]);
@@ -332,8 +336,8 @@ fn grpc_response(exit: Option<i32>, stdout: &str, stderr: &str) -> Result<Respon
         }
     };
     let value = if status != 0 {
-        // With -format-error the status is the last value printed.
-        messages
+        // With -format-error the status is printed to stderr as JSON.
+        parse_messages(stderr)?
             .pop()
             .ok_or("grpcurl reported a failed call without a status")?
     } else {
@@ -445,8 +449,8 @@ mod tests {
         assert!(empty.body.is_empty());
         let failed = grpc_response(
             Some(69),
-            "{\"code\":5,\"message\":\"Bucket not found\"}",
             "",
+            "{\"code\":5,\"message\":\"Bucket not found\"}",
         )
         .unwrap();
         assert_eq!(failed.status, 5);
