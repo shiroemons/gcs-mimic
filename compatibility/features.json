@@ -11713,7 +11713,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -11833,7 +11833,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -11953,7 +11953,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -12069,7 +12069,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -12185,7 +12185,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -12305,7 +12305,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Scoped user/public object reads and bucket ACL/IAM synchronization are implemented in DESIGN-017; object-owner authority, trusted membership and complete default/canned publication remain pending.",
-        "The uploader OWNER entry is not modeled; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
+        "The native permissive profile records the configured local creator (default local-user@gcs-mimic.invalid) as owner and ACL OWNER entry, a recorded-behavior subset that never authorizes and is absent from the legacy profile; provider error text, upsert of new entities, etag encoding and entity normalization are unverified local choices; userProject is unsupported."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
