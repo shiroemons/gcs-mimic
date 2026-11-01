@@ -1,0 +1,9 @@
+{
+  "id": "object-patch",
+  "description": "Patch content type and custom metadata, then read the object back.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "patch", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}", "body": {"contentType": "text/csv", "metadata": {"k": "v"}}, "expect_status": 200},
+    {"name": "get", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "expect_status": 200}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "object-missing",
+  "description": "Metadata read, media download and delete of an object that does not exist.",
+  "steps": [
+    {"name": "get-metadata", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "expect_status": 404},
+    {"name": "download", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "expect_status": 404},
+    {"name": "delete", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "expect_status": 404}
+  ]
+}

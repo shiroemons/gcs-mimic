@@ -1,0 +1,8 @@
+{
+  "id": "bucket-create-invalid",
+  "description": "Create a bucket with an invalid name; no bucket results.",
+  "bucket": false,
+  "steps": [
+    {"name": "create-invalid-name", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "Invalid_Name"}, "expect_status": 400}
+  ]
+}

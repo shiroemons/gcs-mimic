@@ -1,0 +1,10 @@
+{
+  "id": "object-get-download",
+  "description": "Read object metadata, a fields selection and the media download.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "compare": false, "expect_status": 200},
+    {"name": "get-metadata", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "expect_status": 200},
+    {"name": "get-fields", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"fields": "name,size,contentType"}, "expect_status": 200},
+    {"name": "download", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"alt": "media"}, "expect_status": 200}
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "id": "object-preconditions",
+  "description": "Generation preconditions on upload, get and delete.",
+  "steps": [
+    {"name": "upload-if-absent", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}", "ifGenerationMatch": "0"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "capture": {"gen": "body:generation"}, "expect_status": 200},
+    {"name": "upload-if-absent-again", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}", "ifGenerationMatch": "0"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 412},
+    {"name": "get-match-mismatch", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifGenerationMatch": "1"}, "expect_status": 412},
+    {"name": "get-not-match-current", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifGenerationNotMatch": "{gen}"}, "expect_status": 304},
+    {"name": "delete-match-mismatch", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "query": {"ifGenerationMatch": "1"}, "expect_status": 412}
+  ]
+}

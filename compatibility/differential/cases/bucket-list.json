@@ -1,0 +1,7 @@
+{
+  "id": "bucket-list",
+  "description": "List buckets of the project filtered by the harness bucket name prefix.",
+  "steps": [
+    {"name": "list", "method": "GET", "path": "/storage/v1/b", "query": {"project": "{project}", "prefix": "{bucket}"}, "expect_status": 200}
+  ]
+}
