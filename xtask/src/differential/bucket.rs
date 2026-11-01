@@ -112,13 +112,21 @@ pub(crate) fn list_prefixed(
     }
 }
 
-/// One paged GET of a listing; the items under `key`, or `None` when the
-/// bucket or the resource is gone or not offered (404, 400).
+/// Statuses that mean a listing of `what` does not exist for this bucket (it is
+/// gone, or the feature is not offered), so there is nothing to clean up.
+const ABSENT: [u16; 2] = [400, 404];
+/// A managed folders listing is also refused with 412 when uniform bucket-level
+/// access is off and with 403 without permission: neither means a folder is left.
+const FOLDERS_ABSENT: [u16; 4] = [400, 403, 404, 412];
+
+/// One paged GET of a listing; its `items`. A status in `absent` yields what
+/// was read so far without a problem.
 fn list_all(
     side: &Side<'_>,
     norm: &Normalizer,
     target: &str,
-    key: &str,
+    what: &str,
+    absent: &[u16],
     problems: &mut Vec<String>,
 ) -> Vec<Value> {
     let mut items = Vec::new();
@@ -131,23 +139,23 @@ fn list_all(
         let response = match send_retrying(side, &request("GET", url, None)) {
             Ok(response) => response,
             Err(error) => {
-                problems.push(format!("list {key}: {}", norm.text(&error)));
+                problems.push(format!("list {what}: {}", norm.text(&error)));
                 return items;
             }
         };
         match response.status {
             200 => {}
-            400 | 404 => return items,
+            status if absent.contains(&status) => return items,
             _ => {
-                problems.push(format!("list {key}: {}", describe(norm, &response)));
+                problems.push(format!("list {what}: {}", describe(norm, &response)));
                 return items;
             }
         }
         let Ok(listing) = serde_json::from_slice::<Value>(&response.body) else {
-            problems.push(format!("list {key}: not JSON"));
+            problems.push(format!("list {what}: not JSON"));
             return items;
         };
-        items.extend(listing[key].as_array().cloned().unwrap_or_default());
+        items.extend(listing["items"].as_array().cloned().unwrap_or_default());
         match listing["nextPageToken"].as_str() {
             Some(token) => page = Some(token.to_owned()),
             None => return items,
@@ -269,7 +277,7 @@ fn clear_bucket_settings(
         );
     }
     let target = format!("/storage/v1/b/{name}/notificationConfigs?");
-    for item in list_all(side, norm, &target, "items", problems) {
+    for item in list_all(side, norm, &target, "notifications", &ABSENT, problems) {
         if let Some(id) = item["id"].as_str() {
             let delete = request(
                 "DELETE",
@@ -290,7 +298,14 @@ fn clear_bucket_settings(
         }
     }
     let target = format!("/storage/v1/b/{name}/managedFolders?");
-    for item in list_all(side, norm, &target, "items", problems) {
+    for item in list_all(
+        side,
+        norm,
+        &target,
+        "managed folders",
+        &FOLDERS_ABSENT,
+        problems,
+    ) {
         if let Some(folder) = item["name"].as_str() {
             let delete = request(
                 "DELETE",
@@ -332,7 +347,14 @@ pub(crate) fn cleanup(side: &Side<'_>, norm: &Normalizer, name: &str) -> Result<
     clear_bucket_settings(side, norm, name, &bucket, &mut problems);
     let listing =
         format!("/storage/v1/b/{name}/o?versions=true&fields=items(name,generation),nextPageToken");
-    let versions = list_all(side, norm, &listing, "items", &mut problems);
+    let versions = list_all(
+        side,
+        norm,
+        &listing,
+        "object versions",
+        &ABSENT,
+        &mut problems,
+    );
     let mut deleted = 0;
     for item in &versions {
         match (item["name"].as_str(), item["generation"].as_str()) {
@@ -353,20 +375,32 @@ pub(crate) fn cleanup(side: &Side<'_>, norm: &Normalizer, name: &str) -> Result<
         &mut problems,
     );
     let check = request("GET", format!("/storage/v1/b/{name}?fields=name"), None);
-    match send_retrying(side, &check) {
-        Ok(response) if response.status == 404 => {}
-        Ok(response) => problems.push(format!(
-            "bucket still answers: {}",
-            describe(norm, &response)
-        )),
-        Err(error) => problems.push(format!("confirm deletion: {}", norm.text(&error))),
-    }
+    let gone = match send_retrying(side, &check) {
+        Ok(response) if response.status == 404 => true,
+        Ok(response) => {
+            problems.push(format!(
+                "bucket still answers: {}",
+                describe(norm, &response)
+            ));
+            false
+        }
+        Err(error) => {
+            problems.push(format!("confirm deletion: {}", norm.text(&error)));
+            false
+        }
+    };
     if problems.is_empty() {
         Ok(format!(
             "emptied ({deleted} object versions), deleted, GET confirmed 404"
         ))
     } else {
-        Err(problems.join("; "))
+        // Say what state the bucket is in, so a failed step is not read as a leftover.
+        let state = if gone {
+            "the bucket itself is deleted (GET confirmed 404)"
+        } else {
+            "the bucket may still exist"
+        };
+        Err(format!("{}; {state}", problems.join("; ")))
     }
 }
 
@@ -415,6 +449,9 @@ mod tests {
         bucket_gone: RefCell<bool>,
         /// Make the managed folder delete fail, to prove cleanup goes on.
         folder_delete_fails: bool,
+        /// Status of the managed folders listing when not 0 (412 without uniform
+        /// bucket-level access, 403 without permission).
+        folder_list_status: u16,
     }
 
     fn response(status: u16, body: &str) -> Result<Response> {
@@ -458,6 +495,9 @@ mod tests {
                 ("DELETE", p) if p.starts_with("/storage/v1/b/bk/notificationConfigs/") => {
                     self.notifications.borrow_mut().clear();
                     response(204, "")
+                }
+                ("GET", "/storage/v1/b/bk/managedFolders") if self.folder_list_status != 0 => {
+                    response(self.folder_list_status, "{\"error\":\"not offered\"}")
                 }
                 ("GET", "/storage/v1/b/bk/managedFolders") => {
                     let items: Vec<String> = self
@@ -541,6 +581,27 @@ mod tests {
             assert!(sent.contains(needle), "missing {needle:?} in\n{sent}");
         }
         assert!(fake.notifications.borrow().is_empty() && fake.folders.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_refused_managed_folders_listing_means_no_folders_and_cleanup_goes_on() {
+        for status in [412, 403] {
+            let fake = FakeBucket {
+                folder_list_status: status,
+                ..FakeBucket::default()
+            };
+            let note = cleanup(&side(&fake), &Normalizer::default(), "bk")
+                .unwrap_or_else(|e| panic!("{status}: {e}"));
+            assert!(note.contains("GET confirmed 404"), "{note}");
+        }
+        // Any other status is still a problem, and the report says the bucket is gone.
+        let fake = FakeBucket {
+            folder_list_status: 500,
+            ..FakeBucket::default()
+        };
+        let error = cleanup(&side(&fake), &Normalizer::default(), "bk").unwrap_err();
+        assert!(error.contains("list managed folders"), "{error}");
+        assert!(error.contains("the bucket itself is deleted"), "{error}");
     }
 
     #[test]

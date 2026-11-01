@@ -264,14 +264,18 @@ pub(crate) fn markdown(header: &Header<'_>, reports: &[CaseReport]) -> String {
         }
     }
     out.push_str("\n## Cleanup\n\n");
+    // Raw error text (URLs, JSON, angle brackets) would break the Markdown
+    // lint outside a code block.
+    out.push_str("```text\n");
     for (label, lines) in [
         ("mimic", header.cleanup),
         ("reference", header.reference_cleanup),
     ] {
         for line in lines {
-            out.push_str(&format!("- {label} {line}\n"));
+            out.push_str(&format!("- {label} {}\n", line.replace("```", "'''")));
         }
     }
+    out.push_str("```\n");
     out
 }
 
@@ -641,6 +645,7 @@ mod tests {
         let md = markdown(&header, std::slice::from_ref(&report));
         assert!(md.contains("status: reference `404`, mimic `400`"));
         assert!(md.contains("body `$.a`: reference `\"x\"`, mimic `(absent)`"));
+        assert!(md.contains("## Cleanup\n\n```text\n```\n"), "{md}");
         assert!(md.contains("Requests sent to the live reference service (when recorded): 9"));
         assert!(has_failures(&[report], true));
     }
