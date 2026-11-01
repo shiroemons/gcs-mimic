@@ -1,6 +1,6 @@
 {
   "id": "bkt-acl-crud",
-  "description": "Bucket, default object and object access control lists on a fresh bucket with uniform access disabled: list, get, patch, update, delete and insert of the project-viewers entity (never a public entity), plus invalid role, invalid entity and missing entry errors.",
+  "description": "Bucket, default object and object access control lists on a fresh bucket with uniform access disabled: list, get, patch, update, delete and insert of the project-viewers entity (never a public entity), plus invalid role and invalid entity errors. The three *-get-missing steps request project-owners-1, a project-team entity that names another project, so they record the 400 `Project \"1\" was not found.` answer rather than a missing entry in the same project; object-acl-get-missing-object records the missing object.",
   "bucket": false,
   "steps": [
     {"name": "create", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{project}"}, "body": {"name": "{new_bucket}", "location": "us-central1", "softDeletePolicy": {"retentionDurationSeconds": "0"}, "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": false}, "publicAccessPrevention": "enforced"}}, "capture": {"pn": "body:projectNumber"}, "expect_status": 200},

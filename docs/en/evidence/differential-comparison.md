@@ -76,7 +76,7 @@
 
 ### bkt-acl-crud
 
-Bucket, default object and object access control lists on a fresh bucket with uniform access disabled: list, get, patch, update, delete and insert of the project-viewers entity (never a public entity), plus invalid role, invalid entity and missing entry errors.
+Bucket, default object and object access control lists on a fresh bucket with uniform access disabled: list, get, patch, update, delete and insert of the project-viewers entity (never a public entity), plus invalid role and invalid entity errors. The three *-get-missing steps request project-owners-1, a project-team entity that names another project, so they record the 400 `Project "1" was not found.` answer rather than a missing entry in the same project; object-acl-get-missing-object records the missing object.
 
 - step `bucket-acl-list` (`GET /storage/v1/b/<new_bucket>/acl`)
   - header `etag`: reference `<etag:bare>`, mimic `(absent)`
@@ -361,7 +361,7 @@ Move (moveTo): the source disappears and the destination keeps content and metad
 
 ### obj-resumable
 
-Resumable upload: start, status query, single-request completion, query and resend after completion, a separate session with a small non-final chunk, cancel and query after cancel, bad Content-Range, mismatched total, an unknown session and start-time errors. Checks SPEC-RSM-EDGES.
+Resumable upload: start, status query, single-request completion, query and resend after completion, a second session that is sent a mismatched total and then a malformed Content-Range, followed by a non-final chunk, a status query, a cancel and a query after cancel, an unknown session and start-time errors. The malformed Content-Range puts the second session into a failed state, so chunk-not-final, status-after-chunk, cancel and status-after-cancel record the failed-session answer (400 Failed to parse Content-Range header), not the behavior of a small non-final chunk, a cancel or a query after cancel; verifying those needs each in its own freshly started session, recorded again. start-precondition-fail answers 200 because an ifGenerationMatch given at start is evaluated when the upload completes. Checks SPEC-RSM-EDGES.
 
 - step `start` (`POST /upload/storage/v1/b/<bucket>/o?name=obj-resumable-1&uploadType=resumable`)
   - header `cache-control`: reference `no-cache, no-store, max-age=0, must-revalidate`, mimic `no-store`
@@ -457,7 +457,7 @@ Media upload without a Content-Type header, without a name, with contentEncoding
 
 ### obj-upload-multipart
 
-Multipart upload: metadata fields, content type precedence, missing media part type, missing name, missing boundary, one part only and invalid metadata JSON. Checks SPEC-016 and SPEC-011.
+Multipart upload: metadata fields, a content type that disagrees between the metadata and the media part (metadata-type-wins answers 400, so the object is never created and get-precedence answers 404; despite its name the step records the mismatch rejection, not a precedence), missing media part type, missing name, missing boundary, one part only and invalid metadata JSON. Checks SPEC-016 and SPEC-011.
 
 - step `metadata-type-wins` (`POST /upload/storage/v1/b/<bucket>/o?uploadType=multipart`)
   - header `expires`: reference `Mon, 01 Jan 1990 00:00:00 GMT`, mimic `(absent)`
