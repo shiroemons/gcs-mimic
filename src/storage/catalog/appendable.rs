@@ -425,9 +425,7 @@ fn record(
     };
     // Creation rejects object retention and customer-supplied keys.
     let mut record = defaults.record(
-        bucket.to_owned(),
-        name.to_owned(),
-        row.generation,
+        ObjectTarget::new(bucket, name, row.generation),
         row.options.content_type.clone(),
         row.size,
         crate::hashing::Hashes {

@@ -1,6 +1,6 @@
 use super::super::fault::{Fault, Step};
 use super::*;
-use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
 use crate::{
     clock::{Clock, SystemClock},
     object::UploadChunk,
@@ -110,15 +110,7 @@ async fn old_object(catalog: &Catalog) {
         .unwrap();
     sender.try_send(Ok(UploadChunk::End)).unwrap();
     catalog
-        .put_object(
-            "bucket",
-            "value",
-            "text/plain".into(),
-            Default::default(),
-            Default::default(),
-            1024,
-            body,
-        )
+        .put_object(permissive_upload("bucket", "value", 1024), body)
         .await
         .unwrap();
 }

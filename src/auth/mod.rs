@@ -805,7 +805,7 @@ fn lenient_decode(raw: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::test_fixtures::{PERMISSIVE, live};
+    use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
 
     #[test]
     fn jwt_detection_requires_three_segments_and_a_json_header() {
@@ -1103,15 +1103,7 @@ mod tests {
         sender.send(Ok(UploadChunk::End)).await.unwrap();
         drop(sender);
         catalog
-            .put_object(
-                "acl-permissions",
-                "object",
-                "text/plain".into(),
-                Default::default(),
-                Default::default(),
-                100,
-                body,
-            )
+            .put_object(permissive_upload("acl-permissions", "object", 100), body)
             .await
             .unwrap();
         let mut registry = Registry::parse(br#"{"identities":[{"id":"reader","tokens":["reader"]},{"id":"writer","tokens":["writer"]}]}"#).unwrap();

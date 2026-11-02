@@ -8,7 +8,7 @@ use super::{
     system_time_micros, unix_micros,
 };
 use crate::hashing::Hashes;
-use crate::object::{ObjectError, ObjectRecord, UploadChunk};
+use crate::object::{ObjectError, ObjectRecord, ObjectTarget, UploadChunk};
 use crate::storage::catalog::{bucket_incarnation, sql};
 use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
@@ -143,9 +143,7 @@ fn publication_record(
 ) -> Result<ObjectRecord, ObjectError> {
     let time = defaults.time;
     let mut record = defaults.record(
-        session.bucket.clone(),
-        session.name.clone(),
-        generation,
+        ObjectTarget::new(&session.bucket, &session.name, generation),
         options.content_type,
         length,
         hashes,

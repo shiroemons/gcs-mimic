@@ -1,12 +1,12 @@
 use super::catalog::test_fixtures::bucket;
 use crate as gcs_mimic;
-use crate::storage::test_fixtures::{PERMISSIVE, live, version};
+use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
 use bytes::Bytes;
 use gcs_mimic::{
     bucket::{BucketRecord, CatalogError},
     clock::Clock,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
-    storage::{Catalog, MoveConditions, MoveNames, ObjectReader},
+    storage::{Catalog, MoveConditions, MoveNames, ObjectReader, ObjectUpload},
     test_support::{TestDir, live_len},
 };
 use md5::{Digest, Md5};
@@ -66,12 +66,11 @@ async fn put(
 ) -> Result<ObjectRecord, ObjectError> {
     catalog
         .put_object(
-            "bucket",
-            name,
-            "application/test".into(),
-            ExpectedHashes::default(),
-            conditions,
-            u64::MAX,
+            ObjectUpload {
+                content_type: "application/test".into(),
+                conditions,
+                ..permissive_upload("bucket", name, u64::MAX)
+            },
             body(vec![Bytes::copy_from_slice(data)]),
         )
         .await
@@ -164,15 +163,14 @@ async fn round_trip_exact_hashes_opaque_names_and_restart() {
     ];
     let record = catalog
         .put_object(
-            "bucket",
-            name,
-            "application/test".into(),
-            ExpectedHashes {
-                md5: Some(expected_md5),
-                crc32c: Some(0xe306_9283),
+            ObjectUpload {
+                content_type: "application/test".into(),
+                expected: ExpectedHashes {
+                    md5: Some(expected_md5),
+                    crc32c: Some(0xe306_9283),
+                },
+                ..permissive_upload("bucket", name, 9)
             },
-            ObjectConditions::default(),
-            9,
             body(vec![
                 Bytes::from_static(b"123"),
                 Bytes::from_static(b"456789"),
@@ -244,15 +242,7 @@ async fn producer_closure_without_eof_never_publishes_partial_bytes() {
     drop(sender);
     assert_eq!(
         catalog
-            .put_object(
-                "bucket",
-                "partial",
-                "text/plain".into(),
-                ExpectedHashes::default(),
-                ObjectConditions::default(),
-                100,
-                receiver
-            )
+            .put_object(permissive_upload("bucket", "partial", 100), receiver)
             .await,
         Err(ObjectError::BodyAborted("missing body EOF".into()))
     );
@@ -293,12 +283,10 @@ async fn upload_precheck_rejects_without_waiting_for_body_or_creating_staging() 
             tokio::time::timeout(
                 Duration::from_secs(1),
                 catalog.put_object(
-                    bucket,
-                    "exists",
-                    "text/plain".into(),
-                    ExpectedHashes::default(),
-                    conditions,
-                    100,
+                    ObjectUpload {
+                        conditions,
+                        ..permissive_upload(bucket, "exists", 100)
+                    },
                     receiver
                 )
             )
@@ -332,15 +320,14 @@ async fn empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes() 
         let crc32c = crc32c::crc32c(&data);
         let record = catalog
             .put_object(
-                "bucket",
-                "body",
-                "application/test".into(),
-                ExpectedHashes {
-                    md5: Some(md5),
-                    crc32c: Some(crc32c),
+                ObjectUpload {
+                    content_type: "application/test".into(),
+                    expected: ExpectedHashes {
+                        md5: Some(md5),
+                        crc32c: Some(crc32c),
+                    },
+                    ..permissive_upload("bucket", "body", data.len() as u64)
                 },
-                ObjectConditions::default(),
-                data.len() as u64,
                 body(data.chunks(31_337).map(Bytes::copy_from_slice).collect()),
             )
             .await
@@ -396,12 +383,10 @@ async fn limits_bad_hashes_and_body_errors_leave_no_generation_or_blob() {
     ] {
         let result = catalog
             .put_object(
-                "bucket",
-                "bad",
-                "text/plain".into(),
-                expected,
-                ObjectConditions::default(),
-                max,
+                ObjectUpload {
+                    expected,
+                    ..permissive_upload("bucket", "bad", max)
+                },
                 body(vec![Bytes::from_static(b"abc")]),
             )
             .await;
@@ -433,15 +418,7 @@ async fn limits_bad_hashes_and_body_errors_leave_no_generation_or_blob() {
     drop(sender);
     assert_eq!(
         catalog
-            .put_object(
-                "bucket",
-                "aborted",
-                "text/plain".into(),
-                ExpectedHashes::default(),
-                ObjectConditions::default(),
-                100,
-                receiver
-            )
+            .put_object(permissive_upload("bucket", "aborted", 100), receiver)
             .await,
         Err(ObjectError::BodyAborted("cut short".into()))
     );
@@ -456,15 +433,13 @@ async fn limits_bad_hashes_and_body_errors_leave_no_generation_or_blob() {
     .unwrap();
     let rejected = catalog
         .put_object(
-            "bucket",
-            "preserved",
-            "text/plain".into(),
-            ExpectedHashes {
-                md5: Some([0; 16]),
-                crc32c: None,
+            ObjectUpload {
+                expected: ExpectedHashes {
+                    md5: Some([0; 16]),
+                    crc32c: None,
+                },
+                ..permissive_upload("bucket", "preserved", 100)
             },
-            ObjectConditions::default(),
-            100,
             body(vec![Bytes::from_static(b"replacement")]),
         )
         .await;
@@ -1000,12 +975,10 @@ async fn race_upload<T: Send + 'static>(
     let upload = tokio::spawn(async move {
         worker
             .put_object(
-                "bucket",
-                name,
-                "text/plain".into(),
-                ExpectedHashes::default(),
-                conditions,
-                100,
+                ObjectUpload {
+                    conditions,
+                    ..permissive_upload("bucket", name, 100)
+                },
                 receiver,
             )
             .await
@@ -1813,12 +1786,7 @@ fn stalled_uploads_leave_blocking_workers_available_without_an_upload_limit() {
                 tasks.spawn(async move {
                     catalog
                         .put_object(
-                            "bucket",
-                            &format!("stalled-{index}"),
-                            "text/plain".into(),
-                            ExpectedHashes::default(),
-                            ObjectConditions::default(),
-                            100,
+                            permissive_upload("bucket", &format!("stalled-{index}"), 100),
                             receiver,
                         )
                         .await
@@ -1862,15 +1830,7 @@ async fn cancelled_upload_keeps_directory_owned_until_close_finishes_cleanup() {
     let worker = catalog.clone();
     let upload = tokio::spawn(async move {
         worker
-            .put_object(
-                "bucket",
-                "cancelled",
-                "text/plain".into(),
-                ExpectedHashes::default(),
-                ObjectConditions::default(),
-                100,
-                receiver,
-            )
+            .put_object(permissive_upload("bucket", "cancelled", 100), receiver)
             .await
     });
     tokio::time::timeout(Duration::from_secs(5), async {

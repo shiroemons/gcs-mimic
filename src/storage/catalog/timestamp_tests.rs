@@ -1,11 +1,8 @@
 use super::*;
-use crate::storage::test_fixtures::{PERMISSIVE, live, version};
+use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
 use crate::{
     json::{self, Projection},
-    object::{
-        ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate,
-        UploadChunk,
-    },
+    object::{ComposeSource, ObjectError, ObjectMetadataUpdate, UploadChunk},
 };
 use bytes::Bytes;
 
@@ -236,15 +233,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
             json::timestamp(now).unwrap()
         );
         let object = catalog
-            .put_object(
-                "timestamp-bucket",
-                "media",
-                "text/plain".into(),
-                ExpectedHashes::default(),
-                ObjectConditions::default(),
-                1,
-                body(),
-            )
+            .put_object(permissive_upload("timestamp-bucket", "media", 1), body())
             .await
             .unwrap();
         assert_eq!(object.time_created, expected);
@@ -413,15 +402,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
     let bucket = catalog.insert_bucket(bucket).await.unwrap();
     assert_eq!(bucket.time_created, system_time_micros(-123_457).unwrap());
     let object = catalog
-        .put_object(
-            "timestamp-bucket",
-            "source",
-            "text/plain".into(),
-            ExpectedHashes::default(),
-            ObjectConditions::default(),
-            1,
-            body(),
-        )
+        .put_object(permissive_upload("timestamp-bucket", "source", 1), body())
         .await
         .unwrap();
     for nanos in [100, 123_456_789] {
@@ -453,15 +434,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
         *clock.0.lock().unwrap() = UNIX_EPOCH - Duration::from_nanos(nanos);
         assert!(matches!(
             catalog
-                .put_object(
-                    "timestamp-bucket",
-                    "media",
-                    "text/plain".into(),
-                    ExpectedHashes::default(),
-                    ObjectConditions::default(),
-                    1,
-                    body()
-                )
+                .put_object(permissive_upload("timestamp-bucket", "media", 1), body())
                 .await,
             Err(ObjectError::Unavailable(_))
         ));
@@ -588,15 +561,7 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
         catalog.insert_bucket(bucket).await.unwrap();
     }
     catalog
-        .put_object(
-            "timestamp-0",
-            "object",
-            "text/plain".into(),
-            ExpectedHashes::default(),
-            ObjectConditions::default(),
-            1,
-            body(),
-        )
+        .put_object(permissive_upload("timestamp-0", "object", 1), body())
         .await
         .unwrap();
     let session = catalog

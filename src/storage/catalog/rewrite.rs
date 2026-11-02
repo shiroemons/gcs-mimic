@@ -639,11 +639,8 @@ impl Catalog {
 mod tests {
     use super::*;
     use crate::storage::catalog::test_fixtures::bucket;
-    use crate::storage::test_fixtures::{PERMISSIVE, live};
-    use crate::{
-        clock::Clock,
-        object::{ExpectedHashes, UploadChunk},
-    };
+    use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
+    use crate::{clock::Clock, object::UploadChunk};
     use std::{
         sync::{
             Arc,
@@ -676,15 +673,7 @@ mod tests {
         sender.send(Ok(UploadChunk::End)).await.unwrap();
         drop(sender);
         catalog
-            .put_object(
-                "bucket",
-                "source",
-                "text/plain".into(),
-                ExpectedHashes::default(),
-                ObjectConditions::default(),
-                8,
-                receiver,
-            )
+            .put_object(permissive_upload("bucket", "source", 8), receiver)
             .await
             .unwrap();
         (catalog, directory, clock)

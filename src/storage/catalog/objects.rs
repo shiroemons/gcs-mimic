@@ -1,7 +1,7 @@
 use super::{Catalog, UploadGuard, system_time_micros, unavailable, unix_micros};
 use crate::storage::catalog::sql;
 #[cfg(test)]
-use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
@@ -100,13 +100,16 @@ pub(super) struct PublicationDefaults {
 impl PublicationDefaults {
     pub(super) fn record(
         self,
-        bucket: String,
-        name: String,
-        generation: i64,
+        target: ObjectTarget<i64>,
         content_type: String,
         size: u64,
         hashes: Hashes,
     ) -> ObjectRecord {
+        let ObjectTarget {
+            bucket,
+            name,
+            generation,
+        } = target;
         ObjectRecord {
             bucket,
             name,
@@ -798,9 +801,7 @@ impl UploadCommit {
     ) -> Result<ObjectRecord, ObjectError> {
         let time = defaults.time;
         let mut record = defaults.record(
-            self.bucket.clone(),
-            self.name.clone(),
-            generation,
+            ObjectTarget::new(&self.bucket, &self.name, generation),
             self.content_type.clone(),
             self.body.size,
             Hashes {
@@ -1044,39 +1045,21 @@ impl Catalog {
 
     /// HTTP connection admission bounds streaming uploads.
     /// File I/O uses short Tokio filesystem jobs, never a blocking worker awaiting a body.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "The shared storage contract fixes this signature"
-    )]
     #[cfg(test)]
     pub(crate) async fn put_object(
         &self,
-        bucket: &str,
-        name: &str,
-        content_type: String,
-        expected: ExpectedHashes,
-        conditions: ObjectConditions,
-        max_bytes: u64,
+        upload: ObjectUpload<'_>,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     ) -> Result<ObjectRecord, ObjectError> {
         let permit = self
-            .prepare_object_upload(bucket, name, conditions, PERMISSIVE)
+            .prepare_object_upload(
+                upload.bucket,
+                upload.name,
+                upload.conditions,
+                &upload.access,
+            )
             .await?;
-        self.put_object_prechecked(
-            ObjectUpload {
-                bucket,
-                name,
-                content_type,
-                expected,
-                conditions,
-                max_bytes,
-                metadata: ObjectMetadataUpdate::default(),
-                access: BucketAccess::Permissive,
-            },
-            body,
-            permit,
-        )
-        .await
+        self.put_object_prechecked(upload, body, permit).await
     }
 
     pub(crate) async fn prepare_object_upload(
@@ -3425,15 +3408,7 @@ mod tests {
 
     async fn put(catalog: &Catalog, name: &str, bytes: &'static [u8]) -> ObjectRecord {
         catalog
-            .put_object(
-                "bucket",
-                name,
-                "text/plain".into(),
-                ExpectedHashes::default(),
-                ObjectConditions::default(),
-                1000,
-                body(bytes),
-            )
+            .put_object(permissive_upload("bucket", name, 1000), body(bytes))
             .await
             .unwrap()
     }

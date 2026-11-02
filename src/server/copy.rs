@@ -165,7 +165,7 @@ pub(crate) async fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::test_fixtures::{PERMISSIVE, live, version};
+    use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
     use crate::{
         bucket::{BucketAccess, BucketRecord},
         object::{ObjectConditions, UploadChunk},
@@ -218,15 +218,7 @@ mod tests {
             .unwrap();
         sender.try_send(Ok(UploadChunk::End)).unwrap();
         catalog
-            .put_object(
-                "bucket",
-                name,
-                "text/plain".into(),
-                Default::default(),
-                Default::default(),
-                16 * BYTE_BUDGET,
-                body,
-            )
+            .put_object(permissive_upload("bucket", name, 16 * BYTE_BUDGET), body)
             .await
             .unwrap()
     }

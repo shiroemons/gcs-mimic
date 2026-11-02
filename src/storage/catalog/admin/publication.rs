@@ -2,6 +2,7 @@
 
 use super::objects::object_unavailable as objects_error;
 use super::*;
+use crate::object::ObjectTarget;
 use crate::storage::catalog::sql;
 use crate::{fsutil, hashing::Hasher, storage::failure::BackendCause};
 use std::{
@@ -851,9 +852,7 @@ fn publication_record(
     defaults: objects::PublicationDefaults,
 ) -> Result<ObjectRecord, ObjectError> {
     let mut record = defaults.record(
-        entry.bucket.as_str().into(),
-        entry.name.as_str().into(),
-        generation,
+        ObjectTarget::new(entry.bucket.as_str(), entry.name.as_str(), generation),
         entry.request.content_type.clone(),
         entry.staged.size,
         entry.staged.hashes,

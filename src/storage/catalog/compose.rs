@@ -4,7 +4,7 @@ use super::{
 use crate::object::ObjectTarget;
 use crate::storage::catalog::bucket_incarnation;
 #[cfg(test)]
-use crate::storage::test_fixtures::{PERMISSIVE, live};
+use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
 use crate::{
     bucket::BucketAccess,
     clock::Clock,
@@ -308,15 +308,7 @@ mod tests {
             .unwrap();
         sender.try_send(Ok(UploadChunk::End)).unwrap();
         catalog
-            .put_object(
-                "bucket",
-                "source",
-                "text/plain".into(),
-                ExpectedHashes::default(),
-                ObjectConditions::default(),
-                100,
-                receiver,
-            )
+            .put_object(permissive_upload("bucket", "source", 100), receiver)
             .await
             .unwrap();
         (catalog, path)

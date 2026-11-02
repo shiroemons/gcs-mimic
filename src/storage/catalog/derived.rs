@@ -877,7 +877,8 @@ impl Catalog {
                     owner: Some(super::object_owner::for_publication(&transaction, &destination.bucket, &destination.access, principals.as_ref())?),
                     storage_class, time, event_based_hold: default_hold,
                 };
-                let mut record = defaults.record(destination.bucket, destination.name, generation, destination.content_type, progress.total, Hashes { md5, crc32c });
+                let target = ObjectTarget::new(destination.bucket, destination.name, generation);
+                let mut record = defaults.record(target, destination.content_type, progress.total, Hashes { md5, crc32c });
                 record.component_count = destination.component_count;
                 destination.metadata.apply(&mut record)?;
                 sql::exec(&transaction, "UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query])?;
@@ -1176,7 +1177,7 @@ mod tests {
     use super::*;
     use crate::object::UploadChunk;
     use crate::storage::catalog::test_fixtures::bucket;
-    use crate::storage::test_fixtures::{PERMISSIVE, live, version};
+    use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
     use bytes::Bytes;
     use md5::{Digest, Md5, digest::common::hazmat::SerializableState};
     use std::io::Write;
@@ -1310,15 +1311,7 @@ mod tests {
             .unwrap();
         sender.try_send(Ok(UploadChunk::End)).unwrap();
         catalog
-            .put_object(
-                "bucket",
-                name,
-                "text/plain".into(),
-                Default::default(),
-                Default::default(),
-                1_000_000,
-                body,
-            )
+            .put_object(permissive_upload("bucket", name, 1_000_000), body)
             .await
             .unwrap()
     }

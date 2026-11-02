@@ -1164,7 +1164,7 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::test_fixtures::{PERMISSIVE, live};
+    use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
     use crate::{
         auth::Auth, clock::SystemClock, object::UploadChunk, server::State, storage::Catalog,
         test_support::TestDir,
@@ -1225,12 +1225,7 @@ mod tests {
             .state
             .catalog
             .put_object(
-                bucket,
-                name,
-                "text/plain".into(),
-                Default::default(),
-                Default::default(),
-                storage.max_object_bytes,
+                permissive_upload(bucket, name, storage.max_object_bytes),
                 rx,
             )
             .await

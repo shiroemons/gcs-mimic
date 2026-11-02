@@ -1,5 +1,6 @@
+use super::ObjectUpload;
 use crate::bucket::{BucketAccess, BucketRecord};
-use crate::object::ObjectTarget;
+use crate::object::{ExpectedHashes, ObjectConditions, ObjectTarget};
 use std::time::UNIX_EPOCH;
 
 /// Spelled out at every call site so a test that skips authorization says so.
@@ -11,6 +12,24 @@ pub(crate) fn live(bucket: &str, name: &str) -> ObjectTarget {
 
 pub(crate) fn version(bucket: &str, name: &str, generation: i64) -> ObjectTarget {
     ObjectTarget::new(bucket, name, Some(generation))
+}
+
+/// A text/plain upload with no declared hashes or preconditions and permissive access.
+pub(crate) fn permissive_upload<'a>(
+    bucket: &'a str,
+    name: &'a str,
+    max_bytes: u64,
+) -> ObjectUpload<'a> {
+    ObjectUpload {
+        bucket,
+        name,
+        content_type: "text/plain".into(),
+        expected: ExpectedHashes::default(),
+        conditions: ObjectConditions::default(),
+        max_bytes,
+        metadata: Default::default(),
+        access: BucketAccess::Permissive,
+    }
 }
 
 pub(crate) fn bucket(name: &str, project: &str) -> BucketRecord {

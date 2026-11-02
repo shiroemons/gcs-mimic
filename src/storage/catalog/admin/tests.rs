@@ -1,5 +1,6 @@
 use super::*;
-use crate::storage::test_fixtures::{PERMISSIVE, live, version};
+use crate::storage::ObjectUpload;
+use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
 use crate::{
     clock::SystemClock,
     test_support::{TestDir, live_len},
@@ -94,12 +95,7 @@ async fn reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bod
                 "media" => {
                     worker
                         .put_object(
-                            "test-bucket",
-                            "object",
-                            "text/plain".into(),
-                            Default::default(),
-                            Default::default(),
-                            1024,
+                            permissive_upload("test-bucket", "object", 1024),
                             body(b"new"),
                         )
                         .await
@@ -1063,12 +1059,10 @@ async fn admin_invalid_metadata_cannot_replace_a_readable_generation() {
     assert!(matches!(
         catalog
             .put_object(
-                bucket.as_str(),
-                name.as_str(),
-                "bad\r\nheader".into(),
-                Default::default(),
-                Default::default(),
-                1024,
+                ObjectUpload {
+                    content_type: "bad\r\nheader".into(),
+                    ..permissive_upload(bucket.as_str(), name.as_str(), 1024)
+                },
                 body(b"bad")
             )
             .await,

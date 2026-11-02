@@ -1,6 +1,7 @@
 use super::*;
+use crate::storage::ObjectUpload;
 use crate::storage::catalog::sql;
-use crate::storage::test_fixtures::{PERMISSIVE, live, version};
+use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
 use crate::{
     notification::NotificationConfig,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
@@ -67,12 +68,10 @@ async fn put(
     drop(sender);
     catalog
         .put_object(
-            "test-bucket",
-            name,
-            "text/plain".into(),
-            ExpectedHashes::default(),
-            conditions,
-            10,
+            ObjectUpload {
+                conditions,
+                ..permissive_upload("test-bucket", name, 10)
+            },
             body,
         )
         .await
