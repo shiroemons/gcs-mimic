@@ -8,7 +8,8 @@ use crate::{
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError},
     server::authorize_bucket,
     storage::{
-        DerivedDestination, DerivedRequestGuard, MoveAccess,
+        DerivedDestination, DerivedRequestGuard, MoveAccess, MoveConditions, MoveNames,
+        RestoreAccess,
         rewrite::{RewriteBinding, RewriteError, RewriteStart},
     },
 };
@@ -1100,15 +1101,21 @@ impl Storage {
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         let sc = request_conditions!(strict_conditions, source r)?;
         let dc = request_conditions!(strict_conditions, r)?;
+        let names = MoveNames {
+            bucket: bucket.into(),
+            source: source.into(),
+            destination: r.destination_object.clone(),
+        };
+        let conditions = MoveConditions {
+            source: sc,
+            destination: dc,
+        };
         let record = self
             .state
             .catalog
-            .move_object_authorized(
-                bucket,
-                source,
-                &r.destination_object,
-                sc,
-                dc,
+            .move_object(
+                names,
+                conditions,
                 MoveAccess {
                     source_read: &read,
                     source_delete: &delete,
@@ -1140,10 +1147,15 @@ impl Storage {
         let restore = self.access(caller, bucket, auth::OBJECTS_RESTORE).await?;
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         let c = request_conditions!(strict_conditions, r)?;
+        let target = ObjectTarget::new(bucket, name, r.generation);
+        let access = RestoreAccess {
+            restore: &restore,
+            create: &create,
+        };
         let record = self
             .state
             .catalog
-            .restore_object_authorized(bucket, name, r.generation, c, &restore, &create)
+            .restore_object(target, c, access)
             .await
             .map_err(error)?;
         Ok(Response::new(convert::object(&record)?))

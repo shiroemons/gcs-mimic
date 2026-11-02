@@ -381,14 +381,9 @@ async fn metadata(
         let generation = params
             .generation
             .ok_or_else(|| JsonError::invalid_argument("softDeleted=true requires generation"))?;
+        let object = ObjectTarget::new(target.bucket, target.name, generation);
         catalog
-            .get_soft_deleted_object_authorized(
-                target.bucket,
-                target.name,
-                generation,
-                target.conditions,
-                access,
-            )
+            .get_soft_deleted_object(object, target.conditions, access)
             .await?
     } else {
         let object = ObjectTarget::new(target.bucket, target.name, params.generation);

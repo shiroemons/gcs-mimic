@@ -2,10 +2,17 @@ use super::{Catalog, objects, unix_micros};
 use crate::storage::catalog::sql;
 use crate::{
     bucket::BucketAccess,
-    object::{ObjectConditions, ObjectError, ObjectRecord},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
 };
 use objects::{SELECT_SOFT_DELETED_GENERATION, authorized_bucket, object_unavailable, read_object};
 use rusqlite::{Connection, OptionalExtension, params};
+
+/// The two authorities a restore checks in its publication transaction.
+#[derive(Clone, Copy)]
+pub(crate) struct RestoreAccess<'a> {
+    pub(crate) restore: &'a BucketAccess,
+    pub(crate) create: &'a BucketAccess,
+}
 
 pub(super) fn retention_seconds(connection: &Connection, bucket: &str) -> Result<i64, ObjectError> {
     sql::scalar(connection,
@@ -50,20 +57,18 @@ fn selected(
 }
 
 impl Catalog {
-    pub(crate) async fn get_soft_deleted_object_authorized(
+    pub(crate) async fn get_soft_deleted_object(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: i64,
+        target: ObjectTarget<i64>,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
-        let (bucket, name, access, clock) = (
-            bucket.to_owned(),
-            name.to_owned(),
-            access.clone(),
-            self.0.clock.clone(),
-        );
+        let ObjectTarget {
+            bucket,
+            name,
+            generation,
+        } = target;
+        let (access, clock) = (access.clone(), self.0.clock.clone());
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             let object_acl = objects::object_acl_authority(&transaction, &bucket, &access)?;
@@ -103,17 +108,18 @@ impl Catalog {
     }
 
     /// Both permissions and live conditions are checked in the publication transaction.
-    pub(crate) async fn restore_object_authorized(
+    pub(crate) async fn restore_object(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: i64,
+        target: ObjectTarget<i64>,
         conditions: ObjectConditions,
-        restore_access: &BucketAccess,
-        create_access: &BucketAccess,
+        access: RestoreAccess<'_>,
     ) -> Result<ObjectRecord, ObjectError> {
-        let (bucket, name) = (bucket.to_owned(), name.to_owned());
-        let (restore_access, create_access) = (restore_access.clone(), create_access.clone());
+        let ObjectTarget {
+            bucket,
+            name,
+            generation,
+        } = target;
+        let (restore_access, create_access) = (access.restore.clone(), access.create.clone());
         let (clock, data_dir) = (self.0.clock.clone(), self.0.data_dir.clone());
         let memory = self.0.memory.clone();
         let result = self

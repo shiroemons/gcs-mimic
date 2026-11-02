@@ -13,6 +13,21 @@ use crate::{
 };
 use rusqlite::params;
 
+/// The same-bucket rename: the live source becomes the destination.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MoveNames {
+    pub(crate) bucket: String,
+    pub(crate) source: String,
+    pub(crate) destination: String,
+}
+
+/// Preconditions on the live source and the destination version it replaces.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct MoveConditions {
+    pub(crate) source: ObjectConditions,
+    pub(crate) destination: ObjectConditions,
+}
+
 /// The three authorities a move checks in its single transaction.
 #[derive(Clone, Copy)]
 pub(crate) struct MoveAccess<'a> {
@@ -23,18 +38,17 @@ pub(crate) struct MoveAccess<'a> {
 
 impl Catalog {
     /// Both names and all three authorization decisions are checked in one transaction.
-    pub(crate) async fn move_object_authorized(
+    pub(crate) async fn move_object(
         &self,
-        bucket: &str,
-        source: &str,
-        destination: &str,
-        source_conditions: ObjectConditions,
-        conditions: ObjectConditions,
+        names: MoveNames,
+        conditions: MoveConditions,
         access: MoveAccess<'_>,
     ) -> Result<ObjectRecord, ObjectError> {
-        let bucket = bucket.to_owned();
-        let source = source.to_owned();
-        let destination = destination.to_owned();
+        let MoveNames {
+            bucket,
+            source,
+            destination,
+        } = names;
         let source_read = access.source_read.clone();
         let source_delete = access.source_delete.clone();
         let destination_create = access.destination_create.clone();
@@ -47,7 +61,7 @@ impl Catalog {
                     &bucket,
                     &source,
                     None,
-                    source_conditions,
+                    conditions.source,
                     super::objects::RequestKind::Write,
                     &source_delete,
                 )?;
@@ -64,7 +78,7 @@ impl Catalog {
                 let previous = lookup(&transaction, &bucket, &destination)?;
                 check_publication(
                     previous.as_ref(),
-                    conditions,
+                    conditions.destination,
                     delete_permission,
                     clock.now(),
                 )?;

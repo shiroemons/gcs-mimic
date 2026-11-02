@@ -83,7 +83,7 @@ mod appendable;
 pub(crate) use appendable::{AppendError, AppendWriter};
 
 mod object_move;
-pub(crate) use object_move::MoveAccess;
+pub(crate) use object_move::{MoveAccess, MoveConditions, MoveNames};
 mod object_owner;
 mod objects;
 #[cfg(test)]
@@ -93,6 +93,7 @@ mod soft_delete;
 pub(crate) use objects::{
     ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader, ObjectUpload,
 };
+pub(crate) use soft_delete::RestoreAccess;
 
 mod derived;
 mod transfer_io;

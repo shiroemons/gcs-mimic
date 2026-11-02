@@ -16,7 +16,7 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     json::{self, JsonError, ObjectRequest, UploadRequest},
     object::{ObjectError, retention::UnlockedOverride},
-    storage::{MoveAccess, UploadAclSnapshot},
+    storage::{MoveAccess, MoveConditions, MoveNames, RestoreAccess, UploadAclSnapshot},
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
 use serde_json::Value;
@@ -74,13 +74,10 @@ pub(super) async fn respond(
             generation,
             conditions,
         } => {
-            let target = RestoreTarget {
-                bucket,
-                name,
-                generation,
-                conditions,
-            };
-            restore(request, ctx, &access, &query, target).await?.into()
+            let target = ObjectTarget::new(bucket, name, generation);
+            restore(request, ctx, &access, &query, target, conditions)
+                .await?
+                .into()
         }
         ObjectRequest::Move(params) => move_object(request, ctx, &access, params).await?.into(),
         ObjectRequest::Copy(params) => derived::copy(request, ctx, access, params).await?,
@@ -300,19 +297,13 @@ fn idempotency_token(headers: &HeaderMap) -> Result<Option<String>, JsonError> {
     Ok(json::resumable::single(headers, "x-goog-gcs-idempotency-token")?.map(str::to_owned))
 }
 
-struct RestoreTarget {
-    bucket: String,
-    name: String,
-    generation: i64,
-    conditions: crate::object::ObjectConditions,
-}
-
 async fn restore(
     request: Request<Incoming>,
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
     query: &BTreeMap<String, String>,
-    target: RestoreTarget,
+    target: ObjectTarget<i64>,
+    conditions: crate::object::ObjectConditions,
 ) -> Result<Value, JsonError> {
     json::validate_object_get_headers(request.headers())?;
     validate_bodyless_post(request, query).await?;
@@ -320,13 +311,13 @@ async fn restore(
     let record = ctx
         .state
         .catalog
-        .restore_object_authorized(
-            &target.bucket,
-            &target.name,
-            target.generation,
-            target.conditions,
-            access,
-            &create_access,
+        .restore_object(
+            target,
+            conditions,
+            RestoreAccess {
+                restore: access,
+                create: &create_access,
+            },
         )
         .await?;
     json::object_resource(
@@ -354,15 +345,21 @@ async fn move_object(
     }
     let source_read = ctx.authorize(auth::OBJECTS_GET, &params.bucket).await?;
     let source_delete = ctx.authorize(auth::OBJECTS_DELETE, &params.bucket).await?;
+    let names = MoveNames {
+        bucket: params.bucket.clone(),
+        source: params.source.clone(),
+        destination: params.destination,
+    };
+    let conditions = MoveConditions {
+        source: params.source_conditions,
+        destination: params.conditions,
+    };
     let record = ctx
         .state
         .catalog
-        .move_object_authorized(
-            &params.bucket,
-            &params.source,
-            &params.destination,
-            params.source_conditions,
-            params.conditions,
+        .move_object(
+            names,
+            conditions,
             MoveAccess {
                 source_read: &source_read,
                 source_delete: &source_delete,

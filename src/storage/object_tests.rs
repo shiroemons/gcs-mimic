@@ -6,7 +6,7 @@ use gcs_mimic::{
     bucket::{BucketRecord, CatalogError},
     clock::Clock,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
-    storage::{Catalog, ObjectReader},
+    storage::{Catalog, MoveConditions, MoveNames, ObjectReader},
     test_support::{TestDir, live_len},
 };
 use md5::{Digest, Md5};
@@ -91,29 +91,27 @@ async fn move_reuses_blob_and_preserves_failed_source_conditions() {
         source_delete: &access,
         destination_create: &access,
     };
+    let names = MoveNames {
+        bucket: "bucket".into(),
+        source: "source".into(),
+        destination: "target".into(),
+    };
     let failed = catalog
-        .move_object_authorized(
-            "bucket",
-            "source",
-            "target",
-            ObjectConditions {
-                if_generation_match: Some(0),
+        .move_object(
+            names.clone(),
+            MoveConditions {
+                source: ObjectConditions {
+                    if_generation_match: Some(0),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
-            Default::default(),
             move_access,
         )
         .await;
     assert_eq!(failed, Err(ObjectError::PreconditionFailed));
     let moved = catalog
-        .move_object_authorized(
-            "bucket",
-            "source",
-            "target",
-            Default::default(),
-            Default::default(),
-            move_access,
-        )
+        .move_object(names, Default::default(), move_access)
         .await
         .unwrap();
     assert_ne!(moved.generation, original.generation);
