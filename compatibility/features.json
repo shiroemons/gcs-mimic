@@ -27254,7 +27254,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "SPEC-008/010/011: local mutation/hash rules and missing Content-Type defaults to application/octet-stream.",
-        "Media/multipart upload replay has bounded persistent local retention and current authorization checks; other accepted invocation-token methods still lack replay (SPEC-013). Full ACL effects, advanced encryption/encoding and provider retry-cache/error parity remain outside this scope. Default 1 GiB cap and inspected bounds are not performance measurements. See docs/en/slices/sdk-upload-replay.md.",
+        "Media/multipart upload replay has bounded persistent local retention and current authorization checks; JSON copy has its own bounded replay scope, and other accepted invocation-token methods still lack replay (SPEC-013). Full ACL effects, advanced encryption/encoding and provider retry-cache/error parity remain outside this scope. Default 1 GiB cap and inspected bounds are not performance measurements. See docs/en/slices/sdk-upload-replay.md.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
@@ -27396,7 +27396,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-009-REPLAY",
-          "description": "Establish provider-exact token retention/conflict/error behavior under SPEC-013; media/multipart already replay bounded persistent success snapshots with current authorization and a shared copy/upload capacity limit.",
+          "description": "Establish provider-exact token retention/conflict/error behavior under SPEC-013; media/multipart and JSON copy already replay bounded persistent success snapshots with current authorization and a shared copy/upload capacity limit.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -27528,7 +27528,7 @@
       "known_deviations": [
         "SPEC-016: bounded ordered MIME subset, local cap accounting and malformed/transport error reasons; metadata contentType > media header > application/octet-stream, with null/empty fallback. Header folding/duplicates, non-binary transfer encodings and headers-only parts lacking the additional CRLF are rejected. Direct service edge evidence is absent.",
         "SPEC-016/SPEC-010: third-part CRC32C follows the official example; MD5/empty-object/equal declarations and metadata/header/final checksum conflict and unknown-key rules are local. Content-MD5 remains 501.",
-        "SPEC-013: media/multipart tokens support bounded persistent replay with or without conditions; matching retries return the original resource, empty/duplicate tokens return 400, and conflicting invocations fail without mutation. Exact provider retention/error semantics and replay for other methods remain pending. See docs/en/slices/sdk-upload-replay.md.",
+        "SPEC-013: media/multipart and JSON copy tokens support bounded persistent replay with or without conditions; matching retries return the original resource, empty/duplicate tokens return 400, and conflicting invocations fail without mutation. Exact provider retention/error semantics and replay for other methods remain pending. See docs/en/slices/sdk-upload-replay.md.",
         "SPEC-008/SPEC-015: local mutation/advisory precedence and conservative unsupported/output/unknown metadata 501 rules; query name overrides only string/null metadata name, path bucket overrides string metadata bucket. No IAM/ACL/auth enforcement, advanced metadata, encryption or gzip transcoding.",
         "One live generation and local default 1 GiB media cap (configurable 1 byte..5 TiB). Resumable sessions and XML multipart are separate rows and remain unsupported. Functional carry/deadline/restart checks do not establish CPU/RSS/cgroup benchmarks, every crash boundary or power-loss durability."
       ],
@@ -53476,7 +53476,7 @@
       ],
       "known_deviations": [
         "Single-request multipart and normal nonzero ChunkSize resumable Writer are verified for the scoped metadata/checksum/condition subset. Other transports and unrestricted size/retry guarantees remain unverified; native resource results do not prove constrained-container memory.",
-        "SPEC-013: GET/DELETE/update invocation tokens re-execute without deduplication; media/multipart tokens use bounded persistent replay with or without generation-match (docs/en/slices/sdk-upload-replay.md). Resumable initiation accepts a token without generation-match but does not replay it; session offsets govern chunk retries. Scoped signing/XML/gRPC and local strict grants have separate contracts; unrestricted IAM/ACL, transport and provider parity remain unverified.",
+        "SPEC-013: GET/DELETE/update invocation tokens re-execute without deduplication; media/multipart and JSON copy tokens use bounded persistent replay with or without generation-match (docs/en/slices/sdk-upload-replay.md). Resumable initiation accepts a token without generation-match but does not replay it; session offsets govern chunk retries. Scoped signing/XML/gRPC and local strict grants have separate contracts; unrestricted IAM/ACL, transport and provider parity remain unverified.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. Resumable terminal cleanup additionally has explicit due maintenance and a deadline scheduler.",
         "Lingering close keeps local bounds (one second of client silence, 30 seconds in total); its platform evidence is recorded under AUDIT-010.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged."
@@ -55578,7 +55578,7 @@
       ],
       "known_deviations": [
         "Basic Ruby HTTP/HTTPS methods are verified; Rails and broader SDK workflows remain pending.",
-        "SPEC-013 accepted tokens do not deduplicate; no signing or ACL/IAM workflows.",
+        "SPEC-013: only media/multipart upload and JSON copy tokens replay; other accepted tokens do not deduplicate. No signing or ACL/IAM workflows.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",

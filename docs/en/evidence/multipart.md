@@ -32,6 +32,9 @@ another generation. This is generation protection, without response replay or
 token-keyed deduplication. The Go `ChunkSize=0` Writer passes empty/binary payload,
 fixed/custom metadata, explicit hash, DoesNotExist and conditioned-overwrite cases,
 followed by Attrs and JSON NewReader. Resumable Writer still fails explicitly.
+The current token contract supersedes this recorded behavior: media/multipart
+upload and JSON copy now replay with or without conditions (see the
+[upload replay contract](../slices/sdk-upload-replay.md)).
 
 ## Ledger decisions
 

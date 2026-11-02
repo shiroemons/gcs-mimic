@@ -83,7 +83,7 @@ about undocumented provider limits.
 | Read HTTP validators | Bucket GET and object metadata/media/range GET support If-Match/If-None-Match under [read ETags](json-read-etag-validators.md); fields/range apply after the selected-record checks; local mixed-condition order remains SPEC-008/SPEC-JSON-ETAG-WIRE |
 | Other validators | Write/list ETag conditions and supported-GET If-Range or standalone date validators are 501; RFC date precedence and unrelated-route behavior remain exactly as recorded in the read-ETag contract, without a blanket date-header rejection claim |
 | Other semantic headers | Object encryption, copy-source encryption, X-Goog-User-Project and X-HTTP-Method-Override are explicitly unsupported; X-Goog-Meta-* is supported only in the resumable finalization subset; exact per-route handling remains in the linked contracts |
-| Invocation tokens | One nonempty X-Goog-Gcs-Idempotency-Token; media/multipart use bounded persistent [response replay](sdk-upload-replay.md), with or without conditions; resumable initiation accepts it without replay; other accepted calls re-execute; SPEC-013 |
+| Invocation tokens | One nonempty X-Goog-Gcs-Idempotency-Token; media/multipart upload and JSON copy use bounded persistent [response replay](sdk-upload-replay.md), with or without conditions; resumable initiation accepts it without replay; other accepted calls re-execute; SPEC-013 |
 
 Bucket resources expose `kind`, `id`, `name`, `selfLink`, `projectNumber`,
 `metageneration`, `timeCreated`, `updated`, `etag`, `location`, `locationType`,
