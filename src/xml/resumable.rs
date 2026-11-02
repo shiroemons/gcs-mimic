@@ -63,7 +63,7 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
         let name = key.as_str();
         let goog = name.starts_with("x-goog-")
             && !name.starts_with("x-goog-meta-")
-            && !super::common_object_header(name)
+            && !super::is_common_object_header(name)
             && !(signing == Signing::Signed && auth::signature::authentication_header(name))
             && !matches!(name, "x-goog-resumable" | "x-goog-storage-class");
         let amz = name.starts_with("x-amz-")

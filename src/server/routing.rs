@@ -534,7 +534,7 @@ async fn respond_xml_object(
         .filter(|_| head || delete || request.method() == Method::GET)
         .map(|read| (read.bucket.clone(), read.name.clone()));
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
-    let authentication = xml::Authentication {
+    let auth_inputs = xml::Authentication {
         auth: &ctx.state.auth,
         catalog: &ctx.state.catalog,
         method: request.method(),
@@ -544,9 +544,9 @@ async fn respond_xml_object(
         resource: &resource,
     };
     let authentication = if put && !multipart {
-        xml::authenticate_upload_target(authentication).await
+        xml::authenticate_upload_target(auth_inputs).await
     } else {
-        xml::authenticate_target(authentication)
+        xml::authenticate_target(auth_inputs)
             .await
             .map(|caller| (caller, None))
     };

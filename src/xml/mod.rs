@@ -24,7 +24,8 @@ pub(crate) mod post;
 pub(crate) mod put;
 pub(crate) mod resumable;
 
-/// The caller borrows only auth so the request can be consumed after authentication.
+/// Inputs to XML authentication. The returned Caller borrows only auth, so the request
+/// can be mutated or consumed afterwards.
 pub(crate) struct Authentication<'auth, 'request> {
     pub(crate) auth: &'auth crate::auth::Auth,
     pub(crate) catalog: &'request crate::storage::Catalog,
@@ -36,7 +37,7 @@ pub(crate) struct Authentication<'auth, 'request> {
 }
 
 pub(crate) async fn authenticate_target<'a>(
-    request: Authentication<'a, '_>,
+    authentication: Authentication<'a, '_>,
 ) -> Result<Option<crate::auth::Caller<'a>>, Error> {
     let Authentication {
         auth,
@@ -46,7 +47,7 @@ pub(crate) async fn authenticate_target<'a>(
         headers,
         clock,
         resource,
-    } = request;
+    } = authentication;
     if crate::auth::signature::is_signed(uri.query()) || crate::auth::signature::has_header(headers)
     {
         auth.authenticate_xml_resource(catalog, method, uri, headers, clock, resource)
@@ -124,7 +125,7 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
 }
 
 pub(crate) async fn authenticate_upload_target<'a>(
-    request: Authentication<'a, '_>,
+    authentication: Authentication<'a, '_>,
 ) -> Result<
     (
         Option<crate::auth::Caller<'a>>,
@@ -132,25 +133,26 @@ pub(crate) async fn authenticate_upload_target<'a>(
     ),
     Error,
 > {
-    if request
-        .headers
+    let Authentication {
+        auth,
+        catalog,
+        method,
+        uri,
+        headers,
+        clock,
+        ..
+    } = authentication;
+    if headers
         .get("x-amz-content-sha256")
         .is_some_and(|value| value == crate::auth::signature::STREAMING_PAYLOAD)
     {
-        let (caller, streaming) = request
-            .auth
-            .authenticate_streaming(
-                request.catalog,
-                request.method,
-                request.uri,
-                request.headers,
-                request.clock,
-            )
+        let (caller, streaming) = auth
+            .authenticate_streaming(catalog, method, uri, headers, clock)
             .await
             .map_err(signature_error)?;
         Ok((Some(caller), Some(streaming)))
     } else {
-        authenticate_target(request)
+        authenticate_target(authentication)
             .await
             .map(|caller| (caller, None))
     }
@@ -765,6 +767,7 @@ pub(crate) enum UnknownGoogHeaders {
     Ignore,
 }
 
+// Ignoring these HTTP conditions would serve an object without checking its preconditions.
 const HTTP_PRECONDITION_HEADERS: &[&str] = &[
     "if-match",
     "if-none-match",
@@ -773,7 +776,8 @@ const HTTP_PRECONDITION_HEADERS: &[&str] = &[
     "if-range",
 ];
 
-fn common_object_header(name: &str) -> bool {
+// These headers have the same meaning on XML reads, PUT and resumable initiation.
+fn is_common_object_header(name: &str) -> bool {
     crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)
         || matches!(
             name,
@@ -834,7 +838,7 @@ pub(crate) fn headers(
             && RECOGNIZED_UNSUPPORTED_GOOG_HEADERS.contains(&key))
             || (key.starts_with("x-goog-")
                 && unknown == UnknownGoogHeaders::Reject
-                && !common_object_header(key)
+                && !is_common_object_header(key)
                 && !crate::auth::signature::authentication_header(key)
                 && key != "x-goog-content-sha256")
             || (key.starts_with("x-amz-") && !crate::auth::signature::authentication_header(key))
