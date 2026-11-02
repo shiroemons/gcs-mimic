@@ -130,12 +130,15 @@ pub(crate) fn to_json(recording: &Recording) -> Value {
         .cases
         .iter()
         .map(|case| {
-            json!({
+            let mut value = json!({
                 "id": case.id,
                 "error": case.error,
-                "bucket": case.bucket,
                 "steps": case.steps.iter().map(step_json).collect::<Vec<_>>(),
-            })
+            });
+            if let Some(bucket) = &case.bucket {
+                value["bucket"] = json!(bucket);
+            }
+            value
         })
         .collect();
     let mut value = json!({
@@ -278,6 +281,22 @@ pub(crate) fn from_json(value: &Value) -> Result<Recording> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn legacy_cases_round_trip_without_inventing_bucket_metadata() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap();
+        let value: Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join("compatibility/differential/reference/gcs.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            to_json(&from_json(&value).unwrap())["cases"],
+            value["cases"]
+        );
+    }
 
     fn fixture(ids: &[&str], generated: &str, requests: u64) -> Recording {
         Recording {
