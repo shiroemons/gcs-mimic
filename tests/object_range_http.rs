@@ -4,20 +4,14 @@ mod common;
 mod etag;
 
 use common::TestDir;
+use common::server::{Server, http_command};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
     time::Duration,
 };
-
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
 
 struct Reply {
     status: u16,
@@ -31,17 +25,7 @@ impl Server {
     }
 
     fn start_with_profile(dir: &TestDir, strict: bool, legacy: bool) -> Self {
-        let mut command = common::server_command();
-        command
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(&dir.0);
+        let mut command = http_command(&dir.0);
         if legacy {
             command.args(["--compat-profile", "legacy-emulator"]);
         }
@@ -53,16 +37,7 @@ impl Server {
                 "config/identities.json",
             ]);
         }
-        let mut child = command.stdout(Stdio::piped()).spawn().unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        Self::launch(&mut command)
     }
 
     fn open(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> BufReader<TcpStream> {
@@ -126,15 +101,6 @@ impl Server {
 
     fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
     }
 }
 

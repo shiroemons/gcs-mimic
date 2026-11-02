@@ -1,5 +1,6 @@
 mod object_effects_support;
 
+use common::server::{Server, http_command};
 use gcs_mimic::auth::signature::{encode_query_component, sign_policy, timestamp};
 use object_effects_support::{
     Reply,
@@ -8,8 +9,7 @@ use object_effects_support::{
 use ring::hmac;
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader},
-    process::{Child, ChildStdout, Stdio},
+    io::BufReader,
     time::{Duration, SystemTime},
 };
 
@@ -19,11 +19,6 @@ const ADMIN: &str = "Authorization: Bearer admin\r\n";
 const KEYS: &str = "/storage/v1/projects/local/hmacKeys";
 const BOUNDARY: &str = "policy-boundary";
 
-struct Server {
-    child: Child,
-    stdout: BufReader<ChildStdout>,
-    address: String,
-}
 struct Key {
     id: String,
     secret: String,
@@ -41,36 +36,13 @@ impl Server {
             {"id":"scoped@example.invalid","tokens":[],"public_keys":[PUBLIC]},
             {"id":"stranger@example.invalid","tokens":[],"public_keys":[PUBLIC],"project_roles":{"other":["roles/storage.admin"]}}
         ]}).to_string()).unwrap();
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--backend",
-                backend,
-                "--data-dir",
-            ])
-            .arg(dir.0.join("data"))
-            .args(["--api-base-url", "http://127.0.0.1:4443"])
-            .args(["--auth-mode", "strict", "--identity-file"])
-            .arg(path)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut server = Self {
-            child,
-            stdout,
-            address: String::new(),
-        };
-        let mut line = String::new();
-        server.stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(ready["event"], "ready");
-        server.address = ready["listen"].as_str().unwrap().into();
-        server
+        Self::launch(
+            http_command(&dir.0.join("data"))
+                .args(["--backend", backend])
+                .args(["--api-base-url", "http://127.0.0.1:4443"])
+                .args(["--auth-mode", "strict", "--identity-file"])
+                .arg(path),
+        )
     }
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
         object_effects_support::request(&self.address, method, path, headers, body)
@@ -151,23 +123,6 @@ impl Server {
         common::stop_server(&mut self.child, &mut self.stdout);
     }
 }
-impl Drop for Server {
-    fn drop(&mut self) {
-        match self.child.try_wait() {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                if let Err(error) = self.child.kill() {
-                    eprintln!("fixture kill failed: {error}");
-                }
-                if let Err(error) = self.child.wait() {
-                    eprintln!("fixture wait failed: {error}");
-                }
-            }
-            Err(error) => eprintln!("fixture status failed: {error}"),
-        }
-    }
-}
-
 fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::new();

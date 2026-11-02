@@ -1,14 +1,9 @@
 mod common;
 
 use common::TestDir;
+use common::server::{Reply, Server, http_command};
 use serde_json::{Value, json};
-use std::{
-    collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
-    net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
-    time::Duration,
-};
+use std::{io::Write, net::TcpStream, time::Duration};
 
 const OBJECT_METHODS: [&str; 5] = ["media", "multipart", "PATCH", "PUT", "DELETE"];
 const OLD_BYTES: &[u8] = b"original\0payload\xff";
@@ -18,38 +13,9 @@ const HASH_BYTES: &[u8] = b"123456789";
 const MD5: &str = "JfnnlDI7RTiF9RgfG2JNCw==";
 const CRC32C: &str = "4waSgw==";
 
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
-
 impl Server {
     fn start(dir: &TestDir, args: &[&str]) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args(args)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).expect("ready event");
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        Self::launch(http_command(&dir.0).args(args))
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
@@ -149,67 +115,9 @@ impl Server {
     }
 }
 
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
-    }
-}
-
-struct Reply {
-    status: u16,
-    headers: BTreeMap<String, String>,
-    body: Vec<u8>,
-}
-
 impl Reply {
     fn read(stream: TcpStream) -> Self {
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        let status = line.split_whitespace().nth(1).unwrap().parse().unwrap();
-        let mut headers = BTreeMap::new();
-        loop {
-            line.clear();
-            assert_ne!(reader.read_line(&mut line).unwrap(), 0, "HTTP headers");
-            if line == "\r\n" {
-                break;
-            }
-            let (key, value) = line.trim_end().split_once(':').unwrap();
-            headers.insert(key.to_ascii_lowercase(), value.trim().to_owned());
-        }
-        let mut body = Vec::new();
-        if !matches!(status, 204 | 304) {
-            if headers
-                .get("transfer-encoding")
-                .is_some_and(|v| v == "chunked")
-            {
-                loop {
-                    line.clear();
-                    assert_ne!(reader.read_line(&mut line).unwrap(), 0, "chunk length");
-                    let length = usize::from_str_radix(line.trim(), 16).unwrap();
-                    if length == 0 {
-                        break;
-                    }
-                    let start = body.len();
-                    body.resize(start + length, 0);
-                    reader.read_exact(&mut body[start..]).unwrap();
-                    let mut crlf = [0; 2];
-                    reader.read_exact(&mut crlf).unwrap();
-                    assert_eq!(&crlf, b"\r\n");
-                }
-            } else {
-                body.resize(headers["content-length"].parse().unwrap(), 0);
-                reader.read_exact(&mut body).unwrap();
-            }
-        }
-        Self {
-            status,
-            headers,
-            body,
-        }
+        Self::framed(stream)
     }
 
     fn json(&self) -> Value {

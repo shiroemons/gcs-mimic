@@ -4,6 +4,7 @@ mod admin_reset;
 mod object_effects_support;
 
 use common::TestDir;
+use common::server::{Server, http_command};
 use gcs_mimic::auth::signature::sign_url;
 use gcs_mimic::config::Config;
 use hyper::{HeaderMap, Method, Uri};
@@ -12,19 +13,11 @@ use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
     time::{Duration, SystemTime},
 };
 
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
 const OBJECT: &str = "/storage/v1/b/test-bucket/o/value";
-
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-    ready: Value,
-}
 
 impl Server {
     fn fixture(&self, metadata: Value, body: &[u8], auth: &str) -> Reply {
@@ -63,33 +56,12 @@ impl Server {
         }
     }
     fn start(dir: &TestDir, options: &[&str]) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--seed-project",
-                "local",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args(options)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-            ready,
-        }
+        Self::launch(
+            http_command(&dir.0)
+                .args(["--seed-project", "local"])
+                .args(options),
+        )
+        .graceful()
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
@@ -585,14 +557,6 @@ fn direct_fixture_progress_renews_inactivity_without_disabling_the_deadline() {
             .body,
         b"chunk".repeat(20)
     );
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            common::stop_server(&mut self.child, &mut self.stdout);
-        }
-    }
 }
 
 #[test]

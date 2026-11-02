@@ -1,19 +1,13 @@
 mod common;
 
 use common::TestDir;
+use common::server::{Server, http_command};
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufReader, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
     time::Duration,
 };
-
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
 
 impl Server {
     fn start(dir: &TestDir, options: &[&str]) -> Self {
@@ -26,34 +20,11 @@ impl Server {
     }
 
     fn start_with(dir: &TestDir, options: &[&str], unconfigured: bool) -> Self {
-        let mut command = common::server_command();
+        let mut command = http_command(&dir.0.join("data"));
         if unconfigured {
             command.env_remove("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS");
         }
-        let mut child = command
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(dir.0.join("data"))
-            .args(options)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).expect("ready event");
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        Self::launch(command.args(options))
     }
 
     fn send(&self, token: Option<&str>, method: &str, path: &str, body: &str) -> Reply {
@@ -98,15 +69,6 @@ impl Server {
 
     fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
     }
 }
 

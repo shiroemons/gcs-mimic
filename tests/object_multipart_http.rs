@@ -1,54 +1,28 @@
 mod common;
 
 use common::TestDir;
+use common::server::{Reply, Server, http_command, no_leaks};
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
+    io::{Read, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
     sync::{Arc, Barrier},
     thread,
     time::{Duration, Instant},
 };
 
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
-
 impl Server {
     fn start(dir: &TestDir, limit: u64, deadline: u64) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args(["--api-base-url", "http://127.0.0.1:4443"])
-            .args([
-                "--max-object-bytes",
-                &limit.to_string(),
-                "--object-request-timeout-ms",
-                &deadline.to_string(),
-            ])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        Self::launch(
+            http_command(&dir.0)
+                .args(["--api-base-url", "http://127.0.0.1:4443"])
+                .args([
+                    "--max-object-bytes",
+                    &limit.to_string(),
+                    "--object-request-timeout-ms",
+                    &deadline.to_string(),
+                ]),
+        )
     }
 
     fn bucket(&self) {
@@ -91,69 +65,9 @@ impl Server {
     }
 }
 
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
-    }
-}
-
-struct Reply {
-    status: u16,
-    body: Vec<u8>,
-    headers: BTreeMap<String, String>,
-}
-
 impl Reply {
     fn read(stream: TcpStream) -> Self {
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        let status = line.split_whitespace().nth(1).unwrap().parse().unwrap();
-        let mut headers = BTreeMap::new();
-        loop {
-            line.clear();
-            reader.read_line(&mut line).unwrap();
-            if line == "\r\n" {
-                break;
-            }
-            let (key, value) = line.trim_end().split_once(':').unwrap();
-            headers.insert(key.to_ascii_lowercase(), value.trim().to_owned());
-        }
-        let mut body = Vec::new();
-        if headers
-            .get("transfer-encoding")
-            .is_some_and(|v| v == "chunked")
-        {
-            loop {
-                line.clear();
-                reader.read_line(&mut line).unwrap();
-                let length = usize::from_str_radix(line.trim(), 16).unwrap();
-                if length == 0 {
-                    break;
-                }
-                let start = body.len();
-                body.resize(start + length, 0);
-                reader.read_exact(&mut body[start..]).unwrap();
-                let mut crlf = [0; 2];
-                reader.read_exact(&mut crlf).unwrap();
-                assert_eq!(&crlf, b"\r\n");
-            }
-        } else if let Some(length) = headers.get("content-length") {
-            // A persistent connection stays open after the body, so read only its length.
-            let length = length.parse().unwrap();
-            reader.take(length).read_to_end(&mut body).unwrap();
-            assert_eq!(body.len() as u64, length, "truncated HTTP {status} body");
-        } else {
-            reader.read_to_end(&mut body).unwrap();
-        }
-        Self {
-            status,
-            headers,
-            body,
-        }
+        Self::framed(stream)
     }
 
     fn json(&self) -> Value {
@@ -249,25 +163,6 @@ fn fields_multipart_response_preserves_uploaded_metadata_and_bytes() {
     assert_eq!(media.status, 200);
     assert_eq!(media.body, b"data");
     server.stop();
-}
-
-fn no_leaks(dir: &TestDir, expected: usize) {
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        let staging = std::fs::read_dir(dir.0.join("staging")).unwrap().count();
-        let blobs: usize = std::fs::read_dir(dir.0.join("blobs"))
-            .unwrap()
-            .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
-            .sum();
-        if staging == 0 && blobs == expected {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "staging={staging}, blobs={blobs}, expected={expected}"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
 }
 
 #[test]

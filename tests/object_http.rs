@@ -7,22 +7,16 @@ mod upload_admission;
 #[path = "object_http/upload_replay.rs"]
 mod upload_replay;
 
+use common::server::{Reply, Server, http_command};
 use common::{TestDir, closed_by_server};
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
+    process::Stdio,
     thread,
     time::{Duration, Instant},
 };
-
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
 
 impl Server {
     fn start(dir: &TestDir, limit: u64, timeout: u64) -> Self {
@@ -47,46 +41,25 @@ impl Server {
         catalog_timeout: u64,
         connections: usize,
     ) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args([
-                "--api-base-url",
-                "https://advertised.invalid/api",
-                "--max-object-bytes",
-                &limit.to_string(),
-                "--connection-timeout-ms",
-                &timeout.to_string(),
-                "--object-request-timeout-ms",
-                &object_timeout.to_string(),
-                "--catalog-wait-timeout-ms",
-                &catalog_timeout.to_string(),
-                "--max-connections",
-                &connections.to_string(),
-            ])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).expect("ready after recovery");
-        assert_eq!(ready["event"], "ready");
+        let server = Self::launch(http_command(&dir.0).args([
+            "--api-base-url",
+            "https://advertised.invalid/api",
+            "--max-object-bytes",
+            &limit.to_string(),
+            "--connection-timeout-ms",
+            &timeout.to_string(),
+            "--object-request-timeout-ms",
+            &object_timeout.to_string(),
+            "--catalog-wait-timeout-ms",
+            &catalog_timeout.to_string(),
+            "--max-connections",
+            &connections.to_string(),
+        ]));
+        let ready = &server.ready;
         assert_eq!(ready["max_object_bytes"], limit);
         assert_eq!(ready["object_request_timeout_ms"], object_timeout);
         assert_eq!(ready["catalog_wait_timeout_ms"], catalog_timeout);
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        server
     }
 
     fn stream(&self) -> TcpStream {
@@ -152,15 +125,6 @@ impl Server {
     }
 }
 
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
-    }
-}
-
 /// Creates the test bucket and runs `setup` on a server with the default deadlines,
 /// then stops it. A short connection deadline under test also bounds a whole bucket
 /// insert, which loaded runs exceeded with 503 before the scenario even started.
@@ -172,68 +136,9 @@ fn before_short_deadline<T>(dir: &TestDir, setup: impl FnOnce(&Server) -> T) -> 
     result
 }
 
-struct Reply {
-    status: u16,
-    headers: BTreeMap<String, String>,
-    body: Vec<u8>,
-}
-
 impl Reply {
     fn read(stream: TcpStream) -> Self {
-        let mut reader = BufReader::new(stream);
-        let mut bytes = Vec::new();
-        while !bytes.ends_with(b"\r\n\r\n") {
-            assert_ne!(
-                reader.read_until(b'\n', &mut bytes).unwrap(),
-                0,
-                "HTTP response headers"
-            );
-        }
-        let boundary = bytes
-            .windows(4)
-            .position(|v| v == b"\r\n\r\n")
-            .expect("HTTP response");
-        let text = std::str::from_utf8(&bytes[..boundary]).unwrap();
-        let mut lines = text.split("\r\n");
-        let status = lines
-            .next()
-            .unwrap()
-            .split_whitespace()
-            .nth(1)
-            .unwrap()
-            .parse()
-            .unwrap();
-        let headers: BTreeMap<String, String> = lines
-            .map(|line| {
-                let (key, value) = line.split_once(':').unwrap();
-                (key.to_ascii_lowercase(), value.trim().into())
-            })
-            .collect();
-        // A complete framed response stays valid even if a late request write causes a reset.
-        let length = if matches!(status, 204 | 304) {
-            0
-        } else {
-            headers["content-length"].parse().unwrap()
-        };
-        let mut body = Vec::with_capacity(length);
-        // A short body names the response, so a rare truncation identifies its request.
-        let read = reader.by_ref().take(length as u64).read_to_end(&mut body);
-        assert!(
-            read.is_ok() && body.len() == length,
-            "HTTP {status} body ended after {} of {length} bytes ({read:?}); headers: {headers:?}",
-            body.len()
-        );
-        if headers
-            .get("connection")
-            .is_some_and(|value| value == "close")
-        {
-            common::await_server_close(&mut reader);
-        }
-        Self {
-            status,
-            headers,
-            body,
-        }
+        Self::framed(stream)
     }
 
     fn json(&self) -> Value {
@@ -989,30 +894,8 @@ fn obj_http_trickle_download_stops_at_absolute_deadline() {
 #[test]
 fn obj_http_media_read_failure_after_headers_names_its_cause() {
     let dir = TestDir::new();
-    let mut child = common::server_command()
-        .args([
-            "serve",
-            "--scheme",
-            "http",
-            "--listen",
-            "127.0.0.1:0",
-            "--data-dir",
-        ])
-        .arg(&dir.0)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut stderr = child.stderr.take().unwrap();
-    let mut stdout = BufReader::new(child.stdout.take().unwrap());
-    let mut line = String::new();
-    stdout.read_line(&mut line).unwrap();
-    let ready: Value = serde_json::from_str(&line).unwrap();
-    let server = Server {
-        child,
-        address: ready["listen"].as_str().unwrap().into(),
-        stdout,
-    };
+    let mut server = Server::launch(http_command(&dir.0).stderr(Stdio::piped()));
+    let mut stderr = server.child.stderr.take().unwrap();
     server.bucket();
     let size = 8 * 1024 * 1024;
     assert_eq!(

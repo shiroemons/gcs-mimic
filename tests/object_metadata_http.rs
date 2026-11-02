@@ -1,21 +1,16 @@
 mod common;
 
 use common::TestDir;
+use common::server::{Server, http_command};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
     sync::{Arc, Barrier},
     time::Duration,
 };
 
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
 struct Reply {
     status: u16,
     headers: BTreeMap<String, String>,
@@ -24,29 +19,7 @@ struct Reply {
 
 impl Server {
     fn start(dir: &TestDir) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args(["--api-base-url", "http://127.0.0.1:4443"])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        Self {
-            child,
-            address: ready["listen"].as_str().unwrap().into(),
-            stdout,
-        }
+        Self::launch(http_command(&dir.0).args(["--api-base-url", "http://127.0.0.1:4443"]))
     }
     fn request(&self, method: &str, path: &str, body: &[u8]) -> Reply {
         request(&self.address, method, path, body)
@@ -77,14 +50,6 @@ impl Server {
     }
     fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
-    }
-}
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
     }
 }
 impl Reply {

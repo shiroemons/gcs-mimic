@@ -19,13 +19,14 @@ mod signing;
 mod virtual_host;
 
 use common::TestDir;
+use common::server::{Server, http_command};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
     path::{Path, PathBuf},
-    process::{Child, ChildStdout, Stdio},
+    process::Stdio,
     thread,
     time::{Duration, Instant},
 };
@@ -53,12 +54,6 @@ fn registry() -> Value {
     ]})
 }
 
-struct Server {
-    child: Child,
-    address: String,
-    stdout: BufReader<ChildStdout>,
-}
-
 impl Server {
     fn start(dir: &TestDir, auth: &[&str]) -> (Self, Value) {
         Self::start_with_stderr(dir, auth, Stdio::inherit())
@@ -79,36 +74,15 @@ impl Server {
         } else {
             &["--connection-timeout-ms", "20000"]
         };
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-            ])
-            .arg(&dir.0)
-            .args(timeout_options)
-            .args(api_options)
-            .args(auth)
-            .stdout(Stdio::piped())
-            .stderr(stderr)
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).expect("ready event");
-        assert_eq!(ready["event"], "ready");
-        (
-            Self {
-                child,
-                address: ready["listen"].as_str().unwrap().into(),
-                stdout,
-            },
-            ready,
-        )
+        let server = Self::launch(
+            http_command(&dir.0)
+                .args(timeout_options)
+                .args(api_options)
+                .args(auth)
+                .stderr(stderr),
+        );
+        let ready = server.ready.clone();
+        (server, ready)
     }
 
     fn strict(dir: &TestDir, identities: &Path) -> Self {
@@ -199,15 +173,6 @@ impl Server {
 
     fn stop(&mut self) {
         common::stop_server(&mut self.child, &mut self.stdout);
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
     }
 }
 

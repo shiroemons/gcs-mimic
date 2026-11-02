@@ -1,13 +1,14 @@
 mod common;
 
 use common::TestDir;
+use common::server::Server;
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufReader, Read, Write},
     net::{TcpListener, TcpStream},
     path::Path,
-    process::{Child, ChildStdout, Command, Stdio},
+    process::{Command, Stdio},
     time::Duration,
 };
 
@@ -42,29 +43,9 @@ fn selected(root: &Path) -> Command {
     command
 }
 
-struct Server {
-    child: Child,
-    stdout: BufReader<ChildStdout>,
-    ready: Value,
-}
-
 impl Server {
     fn start(command: &mut Command) -> Self {
-        let mut child = command
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            stdout,
-            ready,
-        }
+        Self::launch(command.stderr(Stdio::piped()))
     }
 
     fn request(
@@ -112,15 +93,6 @@ impl Server {
             .read_to_string(&mut stderr)
             .unwrap();
         stderr
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            self.child.kill().unwrap();
-            self.child.wait().unwrap();
-        }
     }
 }
 

@@ -1,50 +1,27 @@
 mod common;
 
 use common::TestDir;
+use common::server::{Server, http_command};
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufReader, Write},
     net::TcpStream,
-    process::{Child, ChildStdout, Stdio},
     time::Duration,
 };
 
-struct Server {
-    child: Child,
-    stdout: BufReader<ChildStdout>,
-    address: String,
-}
-
 impl Server {
     fn start(data: &TestDir, options: &[&str]) -> Self {
-        let mut child = common::server_command()
-            .args([
-                "serve",
-                "--scheme",
-                "http",
-                "--listen",
-                "127.0.0.1:0",
-                "--connection-timeout-ms",
-                "20000",
-                "--api-base-url",
-                "http://localhost:4443",
-                "--data-dir",
-            ])
-            .arg(&data.0)
-            .args(options)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(ready["event"], "ready");
-        Self {
-            child,
-            stdout,
-            address: ready["listen"].as_str().unwrap().into(),
-        }
+        Self::launch(
+            http_command(&data.0)
+                .args([
+                    "--connection-timeout-ms",
+                    "20000",
+                    "--api-base-url",
+                    "http://localhost:4443",
+                ])
+                .args(options),
+        )
+        .graceful()
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &str) -> (u16, String) {
@@ -121,12 +98,6 @@ impl Server {
         );
         assert_eq!(status, 200, "{body}");
         serde_json::from_str(&body).unwrap()
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        common::stop_server(&mut self.child, &mut self.stdout);
     }
 }
 
