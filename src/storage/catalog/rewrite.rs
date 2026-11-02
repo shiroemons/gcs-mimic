@@ -638,8 +638,7 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::catalog::test_fixtures::bucket;
-    use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
+    use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload};
     use crate::{clock::Clock, object::UploadChunk};
     use std::{
         sync::{

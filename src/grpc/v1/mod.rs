@@ -20,7 +20,6 @@ pub mod pb {
     include!("../generated/google.storage.v1.rs");
 }
 
-use crate::object::ObjectTarget;
 use crate::{
     auth::{BUCKETS_LIST, Caller},
     bucket::{BucketAccess, CatalogError},
@@ -29,7 +28,7 @@ use crate::{
         validate::{self, request_conditions},
     },
     json,
-    object::{ObjectConditions, ObjectError, ObjectMetadataUpdate},
+    object::{ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget},
     server::State,
 };
 use prost::Message;

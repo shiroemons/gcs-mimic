@@ -1,13 +1,11 @@
 //! JSON API object reads: media downloads and metadata.
 
-use crate::object::ObjectRecord;
-use crate::object::ObjectTarget;
 use crate::server::RequestBody as Incoming;
 use crate::storage::ObjectReader;
 use crate::{
     bucket::BucketAccess,
     json::{self, JsonError},
-    object::{ObjectConditions, ObjectError},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     server::{
         ALLOWED_RESOURCES_VARY, JSON_RESOURCE_CACHE_CONTROL, ObjectCtx, QueryPrecondition,
         ResponseBody, acl, boxed, empty_response, gzip, insert_content_range,

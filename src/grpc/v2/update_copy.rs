@@ -1,11 +1,10 @@
 use super::{Storage, access_status, convert, iam, names, pb, status::unsupported};
-use crate::object::ObjectTarget;
 use crate::{
     auth::{self, Caller},
     bucket::{BucketAccess, BucketMetadataUpdate},
     grpc::validate::{self, request_conditions, strict_conditions},
     json::{self, JsonError},
-    object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError},
+    object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectTarget},
     server::authorize_bucket,
     storage::{
         DerivedDestination, DerivedRequestGuard, MoveAccess, MoveConditions, MoveNames,

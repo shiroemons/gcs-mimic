@@ -194,13 +194,10 @@ async fn ram_appendable_aggregate_quota_preserves_prefix_and_finalization_for_re
             .is_err()
     );
     assert_eq!(open(&catalog).await.0.size, 8);
+    let target = live("test-bucket", "growing");
     assert!(matches!(
         catalog
-            .get_object(
-                live("test-bucket", "growing"),
-                Default::default(),
-                PERMISSIVE
-            )
+            .get_object(target.clone(), Default::default(), PERMISSIVE)
             .await,
         Err(ObjectError::ObjectNotFound)
     ));
@@ -212,11 +209,7 @@ async fn ram_appendable_aggregate_quota_preserves_prefix_and_finalization_for_re
     assert_eq!(
         bytes(
             catalog
-                .open_object(
-                    live("test-bucket", "growing"),
-                    Default::default(),
-                    PERMISSIVE
-                )
+                .open_object(target, Default::default(), PERMISSIVE)
                 .await
                 .unwrap()
                 .1

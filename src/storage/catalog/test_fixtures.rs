@@ -6,10 +6,12 @@ use std::time::UNIX_EPOCH;
 /// Spelled out at every call site so a test that skips authorization says so.
 pub(crate) const PERMISSIVE: &BucketAccess = &BucketAccess::Permissive;
 
+/// The live version of bucket/name.
 pub(crate) fn live(bucket: &str, name: &str) -> ObjectTarget {
     ObjectTarget::new(bucket, name, None)
 }
 
+/// A specific generation of bucket/name.
 pub(crate) fn version(bucket: &str, name: &str, generation: i64) -> ObjectTarget {
     ObjectTarget::new(bucket, name, Some(generation))
 }

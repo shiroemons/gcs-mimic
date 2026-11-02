@@ -1,14 +1,13 @@
 use super::{
     Catalog, DerivedDestination, DerivedSource, DerivedSourceSpec, compose_crc32c::combine, objects,
 };
-use crate::object::ObjectTarget;
 use crate::storage::catalog::bucket_incarnation;
-#[cfg(test)]
-use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
 use crate::{
     bucket::BucketAccess,
     clock::Clock,
-    object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord},
+    object::{
+        ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget,
+    },
 };
 use rusqlite::Connection;
 use std::{collections::BTreeSet, sync::Arc};
@@ -289,6 +288,7 @@ impl Catalog {
 mod tests {
     use super::*;
     use crate::object::UploadChunk;
+    use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
     use bytes::Bytes;
     use std::{fs, path::PathBuf, time::UNIX_EPOCH};
     use tokio::sync::mpsc;

@@ -511,6 +511,7 @@ async fn metadata_payload_filters_and_deleted_configuration_use_transaction_time
 #[tokio::test]
 async fn publication_failures_and_crash_snapshots_keep_objects_and_events_atomic() {
     use super::super::fault::{self, Fault, Step};
+    let target = live("test-bucket", "prefix/item");
     for step in [
         Step::BodyWrite,
         Step::BodyFlush,
@@ -532,11 +533,7 @@ async fn publication_failures_and_crash_snapshots_keep_objects_and_events_atomic
         assert!(reopened.next_notification().await.unwrap().is_none());
         assert_eq!(
             reopened
-                .get_object(
-                    live("test-bucket", "prefix/item"),
-                    Default::default(),
-                    PERMISSIVE
-                )
+                .get_object(target.clone(), Default::default(), PERMISSIVE)
                 .await,
             Err(ObjectError::ObjectNotFound)
         );
@@ -555,11 +552,7 @@ async fn publication_failures_and_crash_snapshots_keep_objects_and_events_atomic
         let recovered = Catalog::open(&snapshot.0).await.unwrap();
         assert_eq!(
             recovered
-                .get_object(
-                    live("test-bucket", "prefix/item"),
-                    Default::default(),
-                    PERMISSIVE
-                )
+                .get_object(target.clone(), Default::default(), PERMISSIVE)
                 .await
                 .is_ok(),
             step == Step::AfterCommit

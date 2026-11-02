@@ -1138,13 +1138,10 @@ mod tests {
                 Ok(())
             },
         ));
+        let target = live("acl-permissions", "object");
         for method in ["PATCH", "PUT"] {
             let before = catalog
-                .get_object(
-                    live("acl-permissions", "object"),
-                    Default::default(),
-                    PERMISSIVE,
-                )
+                .get_object(target.clone(), Default::default(), PERMISSIVE)
                 .await
                 .unwrap();
             let mut acl = crate::acl::project_private("project");
@@ -1163,22 +1160,14 @@ mod tests {
             );
             assert_eq!(response["acl"].as_array().unwrap().len(), 3);
             let unchanged = catalog
-                .get_object(
-                    live("acl-permissions", "object"),
-                    Default::default(),
-                    PERMISSIVE,
-                )
+                .get_object(target.clone(), Default::default(), PERMISSIVE)
                 .await
                 .unwrap();
             let (status, response) = request(address, method, serde_json::json!({"acl":[{"entity":"allUsers","role":"READER"}],"contentType":"text/rejected"}), "reader").await;
             assert_eq!(status, 403, "{response}");
             assert_eq!(
                 catalog
-                    .get_object(
-                        live("acl-permissions", "object"),
-                        Default::default(),
-                        PERMISSIVE
-                    )
+                    .get_object(target.clone(), Default::default(), PERMISSIVE)
                     .await
                     .unwrap(),
                 unchanged

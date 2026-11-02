@@ -113,8 +113,7 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::catalog::test_fixtures::bucket;
-    use crate::storage::test_fixtures::{PERMISSIVE, live};
+    use crate::storage::test_fixtures::{PERMISSIVE, bucket, live};
     use crate::{
         csek::CsekError,
         object::{ObjectMetadataUpdate, UploadChunk},

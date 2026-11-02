@@ -1176,8 +1176,7 @@ pub(super) fn recover(
 mod tests {
     use super::*;
     use crate::object::UploadChunk;
-    use crate::storage::catalog::test_fixtures::bucket;
-    use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
+    use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload, version};
     use bytes::Bytes;
     use md5::{Digest, Md5, digest::common::hazmat::SerializableState};
     use std::io::Write;

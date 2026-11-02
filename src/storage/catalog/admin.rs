@@ -23,7 +23,7 @@ use crate::{
     clock::Clock,
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
-        UploadChunk,
+        ObjectTarget, UploadChunk,
     },
 };
 use rusqlite::Connection;
@@ -821,7 +821,7 @@ impl Admin {
         name: &ObjectName,
         generation: Option<Generation>,
     ) -> Result<(ObjectRecord, super::ObjectReader), AdminError> {
-        let target = crate::object::ObjectTarget::new(
+        let target = ObjectTarget::new(
             bucket.0.clone(),
             name.0.clone(),
             generation.map(Generation::get),
@@ -894,7 +894,7 @@ impl Admin {
         condition: GenerationCondition,
         binding: Option<super::sync_state::SyncBinding>,
     ) -> Result<(), AdminError> {
-        let target = crate::object::ObjectTarget::new(bucket.0.clone(), name.0.clone(), None);
+        let target = ObjectTarget::new(bucket.0.clone(), name.0.clone(), None);
         let access = BucketAccess::Admin(self.grant.clone());
         let clock = self.catalog.0.clock.clone();
         self.catalog

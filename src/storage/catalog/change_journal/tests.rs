@@ -464,12 +464,9 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
         .await
         .unwrap();
     publish(&catalog, Origin::Seed, "preserved").await;
+    let target = live("test-bucket", "preserved");
     let mut before = catalog
-        .get_object(
-            live("test-bucket", "preserved"),
-            Default::default(),
-            PERMISSIVE,
-        )
+        .get_object(target.clone(), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     before.owner = None;
@@ -499,11 +496,7 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
         catalog
-            .get_object(
-                live("test-bucket", "preserved"),
-                Default::default(),
-                PERMISSIVE
-            )
+            .get_object(target, Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         before

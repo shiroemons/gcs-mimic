@@ -1,10 +1,9 @@
 use super::{ResponseStream, Storage, append::Finality, names, pb, status::unsupported};
-use crate::object::ObjectTarget;
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
     json::JsonError,
-    object::{ObjectConditions, ObjectRecord},
+    object::{ObjectConditions, ObjectRecord, ObjectTarget},
     server::State,
     storage::ObjectReader,
 };

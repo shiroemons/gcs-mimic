@@ -1,7 +1,5 @@
 use super::{Catalog, UploadGuard, system_time_micros, unavailable, unix_micros};
 use crate::storage::catalog::sql;
-#[cfg(test)]
-use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
@@ -2734,7 +2732,7 @@ fn read_size(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::catalog::test_fixtures::bucket;
+    use crate::storage::test_fixtures::{PERMISSIVE, bucket, live, permissive_upload};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::UNIX_EPOCH;
 

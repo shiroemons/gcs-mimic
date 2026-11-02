@@ -2,7 +2,6 @@
 
 use super::objects::object_unavailable as objects_error;
 use super::*;
-use crate::object::ObjectTarget;
 use crate::storage::catalog::sql;
 use crate::{fsutil, hashing::Hasher, storage::failure::BackendCause};
 use std::{

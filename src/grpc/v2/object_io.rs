@@ -4,14 +4,14 @@ use super::{
     convert, names, pb,
     status::{from_json as json_status, unsupported_for},
 };
-use crate::object::ObjectTarget;
-#[cfg(test)]
-use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
     grpc::validate::{self, request_conditions},
     json,
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, UploadChunk},
+    object::{
+        ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget,
+        UploadChunk,
+    },
     storage::{ObjectUpload, ResumableChunk, ResumableError, ResumableOptions, SessionState},
 };
 use prost::Message;
@@ -1387,6 +1387,7 @@ async fn produce_single_write<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::test_fixtures::{PERMISSIVE, live};
     use crate::{
         auth::{Auth, Registry},
         clock::SystemClock,

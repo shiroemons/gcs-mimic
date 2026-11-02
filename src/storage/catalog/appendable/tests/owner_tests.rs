@@ -1,5 +1,4 @@
 use super::*;
-use crate::storage::test_fixtures::{PERMISSIVE, live, version};
 use crate::{
     auth::{Auth, Registry},
     config::Backend,

@@ -5,10 +5,14 @@ use super::{
     ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, gzip, insert_content_range,
     object_body,
 };
-use crate::object::ObjectTarget;
 use crate::{
-    auth, bucket::BucketAccess, csek::CustomerKey, json, object::ObjectRecord,
-    storage::ObjectReader, xml,
+    auth,
+    bucket::BucketAccess,
+    csek::CustomerKey,
+    json,
+    object::{ObjectRecord, ObjectTarget},
+    storage::ObjectReader,
+    xml,
 };
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValue};
 

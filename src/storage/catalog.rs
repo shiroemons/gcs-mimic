@@ -7,8 +7,6 @@ use crate::bucket::{
 };
 use crate::clock::{Clock, SystemClock};
 use crate::storage::failure::unavailable;
-#[cfg(test)]
-use crate::storage::test_fixtures::PERMISSIVE;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, types::Type};
 use std::{
     path::{Path, PathBuf},
@@ -2165,6 +2163,7 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::test_fixtures::PERMISSIVE;
 
     /// Shutdown must not look like overload: only a full catalog asks the client to retry.
     #[tokio::test]

@@ -1,9 +1,8 @@
 use super::RequestBody as Incoming;
 use super::*;
-use crate::object::ObjectTarget;
 use crate::{
     json::rewrite::{RewriteRequest, RewriteSide},
-    object::ObjectConditions,
+    object::{ObjectConditions, ObjectTarget},
     storage::{
         DerivedDestination,
         rewrite::{RewriteBinding, RewriteError, RewriteStart},
