@@ -1,6 +1,8 @@
 use super::*;
 use crate::storage::catalog::sql;
-use crate::storage::test_fixtures::{PERMISSIVE, live, permissive_upload, version};
+use crate::storage::test_fixtures::{
+    PERMISSIVE, PERMISSIVE_RESTORE, live, permissive_upload, version,
+};
 use crate::{
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectTarget, UploadChunk},
     storage::admin::{AdminError, BucketDefinition, BucketName},
@@ -842,23 +844,13 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
         )
         .await
         .unwrap();
+    let deleted = ObjectTarget::new("test-bucket", "value", first.generation);
     let before = catalog
-        .get_soft_deleted_object(
-            ObjectTarget::new("test-bucket", "value", first.generation),
-            Default::default(),
-            PERMISSIVE,
-        )
+        .get_soft_deleted_object(deleted.clone(), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let restored = catalog
-        .restore_object(
-            ObjectTarget::new("test-bucket", "value", first.generation),
-            Default::default(),
-            RestoreAccess {
-                restore: PERMISSIVE,
-                create: PERMISSIVE,
-            },
-        )
+        .restore_object(deleted.clone(), Default::default(), PERMISSIVE_RESTORE)
         .await
         .unwrap();
     assert!(restored.generation > first.generation);
@@ -885,11 +877,7 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
     );
     assert_eq!(
         catalog
-            .get_soft_deleted_object(
-                ObjectTarget::new("test-bucket", "value", first.generation),
-                Default::default(),
-                PERMISSIVE
-            )
+            .get_soft_deleted_object(deleted, Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         before
@@ -935,6 +923,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
             .delete_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
+        let deleted = ObjectTarget::new("test-bucket", "value", first.generation);
         if budget == 520 {
             catalog.run::<_, ObjectError>(|connection| {
                 connection.execute_batch("CREATE TEMP TRIGGER reject_ram_restore BEFORE INSERT ON objects BEGIN SELECT RAISE(ABORT,'injected restore failure'); END;").unwrap();
@@ -943,14 +932,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
         }
         assert!(
             catalog
-                .restore_object(
-                    ObjectTarget::new("test-bucket", "value", first.generation),
-                    Default::default(),
-                    RestoreAccess {
-                        restore: PERMISSIVE,
-                        create: PERMISSIVE
-                    }
-                )
+                .restore_object(deleted.clone(), Default::default(), PERMISSIVE_RESTORE)
                 .await
                 .is_err()
         );
@@ -961,11 +943,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
             Err(ObjectError::ObjectNotFound)
         ));
         let retained = catalog
-            .get_soft_deleted_object(
-                ObjectTarget::new("test-bucket", "value", first.generation),
-                Default::default(),
-                PERMISSIVE,
-            )
+            .get_soft_deleted_object(deleted.clone(), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(retained.md5, first.md5);
@@ -991,29 +969,19 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
                 .await
                 .unwrap();
             let restored = catalog
-                .restore_object(
-                    ObjectTarget::new("test-bucket", "value", first.generation),
-                    Default::default(),
-                    RestoreAccess {
-                        restore: PERMISSIVE,
-                        create: PERMISSIVE,
-                    },
-                )
+                .restore_object(deleted.clone(), Default::default(), PERMISSIVE_RESTORE)
                 .await
                 .unwrap();
             assert!(restored.generation > first.generation);
             assert!(matches!(
                 catalog
                     .restore_object(
-                        ObjectTarget::new("test-bucket", "value", first.generation),
+                        deleted,
                         ObjectConditions {
                             if_generation_match: Some(0),
                             ..Default::default()
                         },
-                        RestoreAccess {
-                            restore: PERMISSIVE,
-                            create: PERMISSIVE
-                        }
+                        PERMISSIVE_RESTORE
                     )
                     .await,
                 Err(ObjectError::PreconditionFailed)

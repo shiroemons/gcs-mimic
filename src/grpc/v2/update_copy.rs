@@ -633,15 +633,11 @@ impl Storage {
             parameters,
             metadata: body,
         } = new;
-        let target = ObjectTarget::new(
-            sb,
-            sn,
-            (source_generation != 0).then_some(source_generation),
-        );
+        let generation = (source_generation != 0).then_some(source_generation);
         let source = self
             .state
             .catalog
-            .resolve_derived_source(target, sc, read)
+            .resolve_derived_source(ObjectTarget::new(sb, sn, generation), sc, read)
             .await
             .map_err(error)?;
         let bytes = body.as_ref().map(Value::to_string).unwrap_or_default();
@@ -1099,10 +1095,10 @@ impl Storage {
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         let sc = request_conditions!(strict_conditions, source r)?;
         let dc = request_conditions!(strict_conditions, r)?;
-        let names = MoveNames {
+        let object_names = MoveNames {
             bucket: bucket.into(),
             source: source.into(),
-            destination: r.destination_object.clone(),
+            destination: r.destination_object,
         };
         let conditions = MoveConditions {
             source: sc,
@@ -1112,7 +1108,7 @@ impl Storage {
             .state
             .catalog
             .move_object(
-                names,
+                object_names,
                 conditions,
                 MoveAccess {
                     source_read: &read,
@@ -1220,15 +1216,8 @@ mod tests {
             .unwrap();
         tx.send(Ok(UploadChunk::End)).await.unwrap();
         drop(tx);
-        storage
-            .state
-            .catalog
-            .put_object(
-                permissive_upload(bucket, name, storage.max_object_bytes),
-                rx,
-            )
-            .await
-            .unwrap()
+        let upload = permissive_upload(bucket, name, storage.max_object_bytes);
+        storage.state.catalog.put_object(upload, rx).await.unwrap()
     }
 
     #[test]

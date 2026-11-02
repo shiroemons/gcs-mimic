@@ -1784,12 +1784,9 @@ fn stalled_uploads_leave_blocking_workers_available_without_an_upload_limit() {
                 senders.push(sender);
                 let catalog = catalog.clone();
                 tasks.spawn(async move {
-                    catalog
-                        .put_object(
-                            permissive_upload("bucket", &format!("stalled-{index}"), 100),
-                            receiver,
-                        )
-                        .await
+                    let name = format!("stalled-{index}");
+                    let upload = permissive_upload("bucket", &name, 100);
+                    catalog.put_object(upload, receiver).await
                 });
             }
             tokio::time::timeout(Duration::from_secs(5), async {

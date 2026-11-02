@@ -1,10 +1,16 @@
-use super::ObjectUpload;
+use super::{ObjectUpload, RestoreAccess};
 use crate::bucket::{BucketAccess, BucketRecord};
-use crate::object::{ExpectedHashes, ObjectConditions, ObjectTarget};
+use crate::object::ObjectTarget;
 use std::time::UNIX_EPOCH;
 
 /// Spelled out at every call site so a test that skips authorization says so.
 pub(crate) const PERMISSIVE: &BucketAccess = &BucketAccess::Permissive;
+
+/// Names both permissive authorities so tests explicitly skip restore authorization.
+pub(crate) const PERMISSIVE_RESTORE: RestoreAccess<'static> = RestoreAccess {
+    restore: PERMISSIVE,
+    create: PERMISSIVE,
+};
 
 /// The live version of bucket/name.
 pub(crate) fn live(bucket: &str, name: &str) -> ObjectTarget {
@@ -26,8 +32,8 @@ pub(crate) fn permissive_upload<'a>(
         bucket,
         name,
         content_type: "text/plain".into(),
-        expected: ExpectedHashes::default(),
-        conditions: ObjectConditions::default(),
+        expected: Default::default(),
+        conditions: Default::default(),
         max_bytes,
         metadata: Default::default(),
         access: BucketAccess::Permissive,

@@ -14,7 +14,7 @@ use crate::{
     auth,
     bucket::{BucketAccess, CatalogError},
     json::{self, JsonError, ObjectRequest, UploadRequest},
-    object::{ObjectError, ObjectTarget, retention::UnlockedOverride},
+    object::{ObjectConditions, ObjectError, ObjectTarget, retention::UnlockedOverride},
     storage::{MoveAccess, MoveConditions, MoveNames, RestoreAccess, UploadAclSnapshot},
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
@@ -302,7 +302,7 @@ async fn restore(
     access: &BucketAccess,
     query: &BTreeMap<String, String>,
     target: ObjectTarget<i64>,
-    conditions: crate::object::ObjectConditions,
+    conditions: ObjectConditions,
 ) -> Result<Value, JsonError> {
     json::validate_object_get_headers(request.headers())?;
     validate_bodyless_post(request, query).await?;

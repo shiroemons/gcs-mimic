@@ -447,15 +447,7 @@ async fn interrupted_finalization_before_publication_stays_appendable() {
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(open(&catalog, "pending").await.unwrap().size, 4);
-    let mut writer = catalog
-        .take_over_appendable(
-            ObjectTarget::new("append", "pending", generation),
-            None,
-            Default::default(),
-            BucketAccess::Permissive,
-        )
-        .await
-        .unwrap();
+    let mut writer = take_over(&catalog, "pending", generation).await;
     let record = writer
         .finalize(
             Some(crc32c::crc32c(b"kept")),
@@ -577,15 +569,7 @@ async fn writer_slots_are_released_with_their_last_holder() {
         .await
         .unwrap();
     let generation = first.record().generation;
-    let mut second = catalog
-        .take_over_appendable(
-            ObjectTarget::new("append", "shared", generation),
-            None,
-            Default::default(),
-            BucketAccess::Permissive,
-        )
-        .await
-        .unwrap();
+    let mut second = take_over(&catalog, "shared", generation).await;
     assert_eq!(slot_count(&dir.0), 1);
     assert_eq!(
         first.append(0, Bytes::from_static(b"x"), 1024).await,

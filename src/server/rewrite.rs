@@ -179,13 +179,9 @@ async fn resolve_source(
         &operation.path[1],
         operation.number("sourceGeneration"),
     );
+    let conditions = operation.conditions(RewriteSide::Source);
     catalog
-        .resolve_derived_source_keyed(
-            target,
-            operation.conditions(RewriteSide::Source),
-            access,
-            keys.source,
-        )
+        .resolve_derived_source_keyed(target, conditions, access, keys.source)
         .await
         .map_err(|failure| {
             JsonError::from(failure).naming_object(&operation.path[0], &operation.path[1])

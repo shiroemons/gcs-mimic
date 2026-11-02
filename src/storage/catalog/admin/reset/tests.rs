@@ -103,12 +103,9 @@ async fn reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive
     let upload = catalog.admit_object_upload().unwrap();
     assert!(matches!(admin.reset().await, Err(AdminError::Busy { .. })));
     drop(upload);
+    let object = live("reset-bucket", "value");
     let source = catalog
-        .resolve_derived_source(
-            live("reset-bucket", "value"),
-            Default::default(),
-            PERMISSIVE,
-        )
+        .resolve_derived_source(object, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert!(matches!(admin.reset().await, Err(AdminError::Busy { .. })));
@@ -279,12 +276,9 @@ async fn reset_waits_for_staged_files_session_and_appendable_writers_and_clears_
     writer.flush().await.unwrap();
     assert!(matches!(admin.reset().await, Err(AdminError::Busy { .. })));
     drop(writer);
+    let object = live("reset-bucket", "value");
     let source = catalog
-        .resolve_derived_source(
-            live("reset-bucket", "value"),
-            Default::default(),
-            PERMISSIVE,
-        )
+        .resolve_derived_source(object, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let transfer = catalog

@@ -1,6 +1,6 @@
 use super::{Harness, Reply};
-use crate::storage::test_fixtures::PERMISSIVE;
-use crate::{object::ObjectTarget, storage::RestoreAccess};
+use crate::object::ObjectTarget;
+use crate::storage::test_fixtures::{PERMISSIVE, PERMISSIVE_RESTORE};
 use serde_json::{Value, json};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -433,10 +433,7 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
         .restore_object(
             ObjectTarget::new("bucket", "history/item", retained.generation),
             Default::default(),
-            RestoreAccess {
-                restore: PERMISSIVE,
-                create: PERMISSIVE,
-            },
+            PERMISSIVE_RESTORE,
         )
         .await
         .unwrap();

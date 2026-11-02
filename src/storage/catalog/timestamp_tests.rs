@@ -248,12 +248,9 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
             .await
             .unwrap();
         assert_eq!(updated.updated, expected);
+        let target = live("timestamp-bucket", "media");
         let source = catalog
-            .resolve_derived_source(
-                live("timestamp-bucket", "media"),
-                Default::default(),
-                PERMISSIVE,
-            )
+            .resolve_derived_source(target, Default::default(), PERMISSIVE)
             .await
             .unwrap();
         let transfer = catalog
@@ -406,12 +403,9 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
         .await
         .unwrap();
     for nanos in [100, 123_456_789] {
+        let target = live("timestamp-bucket", "source");
         let source = catalog
-            .resolve_derived_source(
-                live("timestamp-bucket", "source"),
-                Default::default(),
-                PERMISSIVE,
-            )
+            .resolve_derived_source(target, Default::default(), PERMISSIVE)
             .await
             .unwrap();
         let transfer = catalog

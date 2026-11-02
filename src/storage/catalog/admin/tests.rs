@@ -93,21 +93,13 @@ async fn reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bod
         let publication = tokio::spawn(async move {
             match route {
                 "media" => {
-                    worker
-                        .put_object(
-                            permissive_upload("test-bucket", "object", 1024),
-                            body(b"new"),
-                        )
-                        .await
-                        .unwrap();
+                    let upload = permissive_upload("test-bucket", "object", 1024);
+                    worker.put_object(upload, body(b"new")).await.unwrap();
                 }
                 "derived" => {
+                    let object = live("test-bucket", "object");
                     let source = worker
-                        .resolve_derived_source(
-                            live("test-bucket", "object"),
-                            Default::default(),
-                            PERMISSIVE,
-                        )
+                        .resolve_derived_source(object, Default::default(), PERMISSIVE)
                         .await
                         .unwrap();
                     let transfer = worker.begin_derived(vec![source.whole()], 3).await.unwrap();
@@ -1265,12 +1257,9 @@ async fn disk_full_during_derived_retirement_preserves_the_same_transfer_and_byt
         )
         .await
         .unwrap();
+    let object = live(bucket.as_str(), "source");
     let source = catalog
-        .resolve_derived_source(
-            live(bucket.as_str(), "source"),
-            Default::default(),
-            PERMISSIVE,
-        )
+        .resolve_derived_source(object, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let transfer = catalog
