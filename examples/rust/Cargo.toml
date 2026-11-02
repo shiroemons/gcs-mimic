@@ -1,0 +1,22 @@
+[package]
+name = "gcs-mimic-rust-example"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+publish = false
+
+# A standalone example: it must not join the gcs-mimic workspace or share its lockfile.
+[workspace]
+
+[dependencies]
+google-cloud-storage = "=1.21.0"
+google-cloud-auth = "=1.18.0"
+tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread"] }
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+too_many_lines = "deny"
