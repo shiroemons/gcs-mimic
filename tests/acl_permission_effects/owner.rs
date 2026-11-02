@@ -180,7 +180,7 @@ fn owner_upgrade_does_not_guess_legacy_uploaders_and_aliasless_uploads_keep_actu
     server.stop();
     {
         let db = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
-        db.execute_batch("DROP TABLE soft_deleted_buckets; DROP TABLE bucket_generation; ALTER TABLE buckets DROP COLUMN generation; ALTER TABLE objects DROP COLUMN temporary_hold_released; ALTER TABLE objects DROP COLUMN event_based_hold_released; ALTER TABLE objects DROP COLUMN retain_until_sub_micro_nanos; ALTER TABLE objects DROP COLUMN owner; PRAGMA user_version=43;")
+        db.execute_batch("ALTER TABLE buckets DROP COLUMN versioning_configured; DROP TABLE soft_deleted_buckets; DROP TABLE bucket_generation; ALTER TABLE buckets DROP COLUMN generation; ALTER TABLE objects DROP COLUMN temporary_hold_released; ALTER TABLE objects DROP COLUMN event_based_hold_released; ALTER TABLE objects DROP COLUMN retain_until_sub_micro_nanos; ALTER TABLE objects DROP COLUMN owner; PRAGMA user_version=43;")
             .unwrap();
     }
     server = Server::start_with_registry(&data, &inputs, "disk", &registry);
@@ -335,6 +335,28 @@ fn actual_owner_id_cannot_be_replaced_by_reusing_its_canonical_alias() {
     );
     assert_eq!(server.request("GET", OBJECT, OTHER, b"").status, 403);
     assert_eq!(server.request("GET", BUCKET, OTHER, b"").status, 403);
+    assert_eq!(
+        server
+            .request(
+                "PATCH",
+                OBJECT,
+                OTHER,
+                br#"{"metadata":{"stolen":"owner"}}"#
+            )
+            .status,
+        403
+    );
+    assert_eq!(
+        server
+            .request(
+                "POST",
+                &format!("{OBJECT}/acl"),
+                OTHER,
+                br#"{"entity":"user-old@example.test","role":"OWNER"}"#
+            )
+            .status,
+        403
+    );
     let view = server
         .request("GET", &format!("{OBJECT}?projection=full"), ADMIN, b"")
         .json();
@@ -370,8 +392,8 @@ fn actual_owner_id_cannot_be_replaced_by_reusing_its_canonical_alias() {
             b"original identity owns bytes"
         );
     }
-    let stored: String = rusqlite::Connection::open(data.0.join("catalog.sqlite3"))
-        .unwrap()
+    let connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+    let stored: String = connection
         .query_row(
             "SELECT entries FROM acl_object_entries WHERE name='value'",
             [],
@@ -384,9 +406,25 @@ fn actual_owner_id_cannot_be_replaced_by_reusing_its_canonical_alias() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|entry| entry["entity"] == "user-old@example.test"
-                || entry["entity"] == "user-new@example.test")
+            .any(|entry| entry["entity"] == "user-old@example.test")
     );
+    let owners: Vec<_> = entries
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["entity"] == "user-new@example.test")
+        .collect();
+    assert_eq!(
+        owners,
+        vec![&json!({"entity":"user-new@example.test","role":"OWNER"})]
+    );
+    let owner: String = connection
+        .query_row("SELECT owner FROM objects WHERE name='value'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let owner: Value = serde_json::from_str(&owner).unwrap();
+    assert_eq!(owner["id"], "local:original-uploader");
     assert!(
         entries
             .as_array()
