@@ -1,6 +1,6 @@
 use super::buckets::validate_bucket_name_for_profile;
 use super::{JsonError, decode_page_token, page_token::hex};
-use crate::config::CompatProfile;
+use crate::{bucket::BucketConditions, config::CompatProfile};
 use hyper::{Method, StatusCode, Uri};
 use std::collections::BTreeMap;
 
@@ -9,12 +9,6 @@ pub(crate) enum Projection {
     #[default]
     NoAcl,
     Full,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Conditions {
-    pub if_metageneration_match: Option<i64>,
-    pub if_metageneration_not_match: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,7 +20,7 @@ pub(crate) struct InsertParams {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GetParams {
-    pub conditions: Conditions,
+    pub conditions: BucketConditions,
     pub projection: Projection,
 }
 
@@ -84,7 +78,7 @@ pub(crate) enum BucketRequest {
     List(ListParams),
     Delete {
         bucket: String,
-        conditions: Conditions,
+        conditions: BucketConditions,
     },
     GetIam {
         bucket: String,
@@ -657,7 +651,7 @@ fn false_only(query: &mut BTreeMap<String, String>, key: &str) -> Result<(), Jso
     }
 }
 
-fn conditions(query: &mut BTreeMap<String, String>) -> Result<Conditions, JsonError> {
+fn conditions(query: &mut BTreeMap<String, String>) -> Result<BucketConditions, JsonError> {
     let mut integer = |key| {
         query
             .remove(key)
@@ -675,7 +669,7 @@ fn conditions(query: &mut BTreeMap<String, String>) -> Result<Conditions, JsonEr
             })
             .transpose()
     };
-    Ok(Conditions {
+    Ok(BucketConditions {
         if_metageneration_match: integer("ifMetagenerationMatch")?,
         if_metageneration_not_match: integer("ifMetagenerationNotMatch")?,
     })

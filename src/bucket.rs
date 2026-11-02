@@ -454,6 +454,14 @@ impl std::error::Error for CatalogError {
     }
 }
 
+/// Bucket metageneration conditions stay separate from object metageneration conditions.
+/// The default carries no condition.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct BucketConditions {
+    pub if_metageneration_match: Option<i64>,
+    pub if_metageneration_not_match: Option<i64>,
+}
+
 /// The adapter's bucket authorization, re-validated by the catalog inside the same transaction
 /// that reads or mutates the bucket.
 ///

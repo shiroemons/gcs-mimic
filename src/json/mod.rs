@@ -97,8 +97,8 @@ pub(crate) use projects::{
 #[cfg(test)]
 pub(crate) use query::route;
 pub(crate) use query::{
-    BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection,
-    SoftDeletedListParams, route_with_profile, validate_project,
+    BucketRequest, GetParams, InsertParams, ListParams, Projection, SoftDeletedListParams,
+    route_with_profile, validate_project,
 };
 pub(crate) use query::{Decoding, decode, parse_query};
 

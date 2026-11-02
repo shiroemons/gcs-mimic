@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     auth::{self, Caller},
-    bucket::{BucketAccess, CatalogError},
+    bucket::{BucketAccess, BucketConditions, CatalogError},
     config::CompatProfile,
     http_conditions::EtagError,
     json::{self, BucketRequest, JsonError, WriteMode},
@@ -681,7 +681,7 @@ async fn delete(
     ctx: BucketCtx<'_>,
     access: &BucketAccess,
     bucket: &str,
-    conditions: json::Conditions,
+    conditions: BucketConditions,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     ctx.state
         .catalog
