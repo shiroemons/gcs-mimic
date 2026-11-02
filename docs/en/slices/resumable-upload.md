@@ -141,8 +141,10 @@ offsets, conflicting totals, wrong body length or an invalid nonfinal chunk
 return 400 without publication. An unparsable JSON Content-Range terminalizes
 the session when its syntax is invalid: later requests repeat the recorded
 plain 400. Duplicate headers and inconsistent offsets/totals remain retryable
-400 errors; their persistence has not been recorded. That terminal error
-and its cleanup journal commit together and survive restart; an undersized
+400 errors; their persistence has not been recorded. A Content-Range value
+rejected by header text decoding, including non-visible-ASCII bytes, is also a
+retryable 400 under an unrecorded local choice. The terminal syntax error and
+its cleanup journal commit together and survive restart; an undersized
 nonfinal chunk alone leaves the session retryable. Other exact error choices
 remain local. Serializing writers per session gives
 one ordered append; a competing writer returns retryable local 503 rather

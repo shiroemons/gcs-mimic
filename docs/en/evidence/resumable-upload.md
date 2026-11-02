@@ -56,10 +56,18 @@ references only; neither was executed as a conformance authority.
 | `cargo +1.99.1 test --locked --offline --test object_http resumable_sigkill -- --nocapture`, 20 consecutive runs | PASS: 20/20 runs, 100 tests, zero failures/ignored or retried runs | [checks](resumable-upload-checks.txt) |
 | `just check-sdk` with cloud credential variables cleared | PASS, exit 0: Go vet, 26 top-level tests and 69 subtests; zero failures/skips | [Go SDK](resumable-upload-sdk-go.txt) |
 | `just check-containers` on final builder input | PASS, exit 0: AMD64/emulated and ARM64/native ordinary and seeded Compose scenarios | [containers](resumable-upload-containers.txt) |
-| Every executable `sh` block in `docs/en/getting-started.md`, in document order | PASS, exit 0: all 41 blocks, host/peer/browser-address resumable journeys, strict/permissive SDK and persistence/reset | [guide](resumable-upload-guide.txt) |
+| Every executable `sh` block in `docs/en/getting-started.md`, in document order | Historical PASS on 2026-10-22, exit 0: all 41 blocks, host/peer/browser-address resumable journeys, strict/permissive SDK and persistence/reset; the current cancellation block is qualified below | [guide](resumable-upload-guide.txt) |
 | `just check-dependencies` at slice start | PASS, exit 0: all 31 inputs CURRENT | [slice-start dependencies](resumable-upload-dependencies.txt) |
 | `just check-dependencies` at slice end, plus independent official registry inspection and native ARM64 Docker build | PASS after adopting refreshed Rust builder index; all 31 inputs CURRENT, no dependency exception | [freshness](resumable-upload-freshness.txt) |
 | `cargo build --release --locked`; syntax/shellcheck; `bash scripts/measure-resumable.sh` | PASS: one complete native measurement run, five workloads, twelve matching SHA-256 downloads, zero transfer errors | [resources](resumable-upload-resources.txt) |
+
+The guide log predates the 2026-11-02 live recording and retains its historical
+subsequent-status 410 observation. The current getting-started cancellation
+block expects the recorded 499 JSON envelope and was not rerun as a guide block.
+That changed behavior was verified by `TestMigrationAppScenarioCancellation`
+and the Rust HTTP tests instead; see the
+[current differential evidence](differential-harness.md). The old guide log is
+not evidence that the changed block was executed.
 
 The container log retains an obsolete-builder attempt intentionally stopped
 before Compose startup (exit 130); only the subsequent final-source exit 0 is
@@ -224,8 +232,10 @@ oldest-first to the 128 most recent, never trims a cancelled record whose
 cleanup is still journaled, and refuses with 503 when nothing can be trimmed.
 The catalog holds at most 256 sessions, which reopen validation enforces. A
 trimmed record answers 404 like an unknown session. The [concept guide](https://docs.cloud.google.com/storage/docs/resumable-uploads)
-gives 404 for a session URI after its one-week lifetime and 410 for a
-cancelled one within it; the [status codes](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes)
+gives 404 for a session URI after its one-week lifetime and 410 for an invalid
+session URI before expiry. The 2026-11-02 live recording confirms the
+499 clientClosedRequest JSON envelope after cancellation. The
+[status codes](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes)
 page defines 404 as a resource that was not found. The emulator keeps no
 tombstone for a trimmed session, so it cannot tell one from a forged token.
 The provider keeps answering for the whole week; the local bound differs only
