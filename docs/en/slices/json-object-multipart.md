@@ -61,7 +61,7 @@ Exact wire and parser test names are listed below.
 | Preconditions and tokens | `json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions`, `obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite`, `obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body`, `obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation`, `obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite`, `obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body` |
 | Concurrency and deadlines | `obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks`, `obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots` |
 | Official Go Writer | `TestObjectMultipartWriter`; `TestObjectMediaLifecycle` retains the resumable rejection |
-| gcloud framing | `json::multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary`, `json::multipart::tests::related_uploads_read_lf_and_mixed_framing_at_every_chunk_split`, `obj_multipart_http_accepts_the_gcloud_request_shape` |
+| gcloud framing | `json::multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary`, `json::multipart::tests::related_uploads_read_lf_framing_at_every_chunk_split`, `json::multipart::tests::related_uploads_keep_lf_boundary_text_in_crlf_media_at_every_chunk_split`, `obj_multipart_http_accepts_the_gcloud_request_shape`, `obj_multipart_http_crlf_media_keeps_lf_boundary_text` |
 
 ## Supported subset
 
@@ -151,7 +151,7 @@ there is no new schema or independent multipart storage backend.
 Google Cloud SDK 591.0.0 (`gcloud storage cp` of a file below its 8 MiB resumable threshold, through apitools and Python's email package) sends `Content-Type: multipart/related; boundary='===============N=='` and frames the body with bare LF line breaks. The JSON multipart/related upload and the local fixture upload therefore also accept:
 
 - a boundary in single quotes when the quoted text is not itself a valid RFC token; a single-quoted token such as `'abc'` keeps its quotes, as RFC 2045 reads it, and an unmatched quote stays invalid;
-- LF or CRLF at the end of each part header line and delimiter line, and a delimiter preceded by LF with an optional CR, as Go's `mime/multipart` reads them. CRLF and LF lines may mix. Under LF framing a media part cannot end in a CR byte, because that CR belongs to the delimiter.
+- bare-LF framing for the whole body, decided per body as Go's `mime/multipart` decides it: when the first line that starts with `--boundary` ends, after optional spaces and tabs, in a bare LF, every delimiter is LF `--boundary` and every part header line and delimiter line ends in a bare LF. Otherwise the body keeps strict CRLF framing, so CRLF media that contains an LF followed by boundary text (such as `AAA\n--b--\nBBB` with boundary `b`) is stored intact. A body never mixes the two: a CRLF line in an LF-framed body, or an LF delimiter in a CRLF-framed body, is not a line break or delimiter and the request fails as malformed. Under LF framing a CR before a delimiter is media, as in Go.
 
 This leniency follows the production gcloud request shape, which Cloud Storage serves; no live Cloud Storage recording of it was made. XML POST Object forms keep strict CRLF framing and RFC quoting. Every existing negative case (missing boundary, missing close delimiter, extra parts, truncation, header and preamble caps) still fails without publishing.
 

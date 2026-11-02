@@ -234,22 +234,26 @@ enum LineEnd {
     CrlfOrEof,
 }
 
-/// Which line breaks frame delimiters and part headers.
+/// Which line breaks frame delimiters and part headers. One body never mixes them.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Framing {
     /// RFC 2046 CRLF only.
     Crlf,
-    /// CRLF or a bare LF, as Go's mime/multipart reads. gcloud storage (apitools) frames
-    /// multipart/related uploads with bare LFs on its production path; no live recording was
-    /// made. A delimiter's CR is optional, so LF-framed media cannot end in a CR byte.
-    CrlfOrLf,
+    /// Bare LF only.
+    Lf,
+    /// Not settled yet: the first boundary line chooses `Lf` when it ends in a bare LF and
+    /// `Crlf` otherwise, as Go's mime/multipart decides. gcloud storage (apitools) frames
+    /// multipart/related uploads with bare LFs throughout on its production path; no live
+    /// recording was made. A CRLF body keeps strict CRLF delimiters, so media containing an
+    /// LF followed by boundary text stays media.
+    Detect,
 }
 
 pub(crate) struct Multipart<B> {
     body: B,
     pending: Bytes,
     buffer: BytesMut,
-    /// `CRLF--boundary`, or `LF--boundary` with an optional preceding CR under `CrlfOrLf`.
+    /// `CRLF--boundary`, or `LF--boundary` once the framing is `Lf`.
     delimiter: Vec<u8>,
     framing: Framing,
     eof: bool,
@@ -262,52 +266,76 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         Self::with_framing(body, boundary, Framing::Crlf)
     }
 
-    /// A JSON multipart/related upload, which also accepts bare-LF framing.
+    /// A JSON multipart/related upload, framed by CRLF or, throughout, by bare LF.
     pub(crate) fn related(body: B, boundary: &str) -> Self {
-        Self::with_framing(body, boundary, Framing::CrlfOrLf)
+        Self::with_framing(body, boundary, Framing::Detect)
     }
 
     fn with_framing(body: B, boundary: &str, framing: Framing) -> Self {
-        let delimiter = match framing {
-            Framing::Crlf => format!("\r\n--{boundary}"),
-            Framing::CrlfOrLf => format!("\n--{boundary}"),
-        };
+        let mut delimiter = format!("\r\n--{boundary}").into_bytes();
+        if framing == Framing::Lf {
+            delimiter.remove(0);
+        }
         Self {
             body,
             pending: Bytes::new(),
             // A synthetic CRLF lets the first boundary use the same search as later boundaries.
             buffer: BytesMut::from(&b"\r\n"[..]),
-            delimiter: delimiter.into_bytes(),
+            delimiter,
             framing,
             eof: false,
             closed: false,
         }
     }
 
-    /// The start and length of the first complete delimiter in the buffer, including an
-    /// optional CR before an LF delimiter.
-    fn find_delimiter(&self) -> Option<(usize, usize)> {
-        let index = self
+    /// Settles a `Detect` framing from the first line that starts with `--boundary`: a bare LF
+    /// after the boundary and any linear white space selects `Lf`, anything else `Crlf`.
+    /// Returns how many leading buffer bytes may be discarded while more input is needed, or
+    /// `None` once the framing is settled. Nothing is consumed, so the delimiter search of
+    /// the settled framing runs over the same bytes.
+    fn detect(&mut self) -> Option<usize> {
+        let pattern = &self.delimiter[1..];
+        let Some(index) = self
             .buffer
-            .windows(self.delimiter.len())
-            .position(|v| v == self.delimiter)?;
-        let length = self.delimiter.len();
-        Some(
-            if self.framing == Framing::CrlfOrLf && index > 0 && self.buffer[index - 1] == b'\r' {
-                (index - 1, length + 1)
-            } else {
-                (index, length)
-            },
-        )
+            .windows(pattern.len())
+            .position(|v| v == pattern)
+        else {
+            if self.eof {
+                self.framing = Framing::Crlf;
+                return None;
+            }
+            // Keep a partial `LF--boundary` and the CR that may precede it.
+            return Some(self.buffer.len().saturating_sub(self.delimiter.len()));
+        };
+        let rest = &self.buffer[index + pattern.len()..];
+        match rest.iter().find(|b| !matches!(b, b' ' | b'\t')) {
+            Some(b'\n') => {
+                self.framing = Framing::Lf;
+                self.delimiter.remove(0);
+            }
+            // The line ending is not known yet; overlong white space fails as a CRLF line.
+            None if !self.eof && rest.len() <= HEADER_CAP => {
+                return Some(index.saturating_sub(1));
+            }
+            _ => self.framing = Framing::Crlf,
+        }
+        None
     }
 
-    /// Bytes kept back while no delimiter is complete: a delimiter prefix, plus the CR that may
-    /// precede an LF delimiter.
+    fn find_delimiter(&self) -> Option<usize> {
+        self.buffer
+            .windows(self.delimiter.len())
+            .position(|v| v == self.delimiter)
+    }
+
+    /// Bytes kept back while no delimiter is complete, as they may start one.
     fn held_back(&self) -> usize {
-        match self.framing {
-            Framing::Crlf => self.delimiter.len() - 1,
-            Framing::CrlfOrLf => self.delimiter.len(),
-        }
+        self.delimiter.len() - 1
+    }
+
+    /// The length of a line break under the settled framing.
+    fn newline_len(&self) -> usize {
+        if self.framing == Framing::Lf { 1 } else { 2 }
     }
 
     async fn fill(&mut self) -> Result<(), JsonError> {
@@ -335,9 +363,12 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 self.buffer.advance(terminator);
                 return Ok(line);
             }
-            // A trailing CR may become the line terminator in the next frame.
+            // Under CRLF framing a trailing CR may become the line terminator in the next frame.
             if self.buffer.len() > cap
-                && (self.eof || self.buffer.len() != cap + 1 || !self.buffer.ends_with(b"\r"))
+                && (self.framing == Framing::Lf
+                    || self.eof
+                    || self.buffer.len() != cap + 1
+                    || !self.buffer.ends_with(b"\r"))
             {
                 return Err(invalid());
             }
@@ -353,27 +384,25 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         }
     }
 
-    /// The end of the first line at or after `from` and its terminator length.
+    /// The end of the first line at or after `from` and its terminator length. Under LF
+    /// framing a CR before the LF stays in the line, so a CRLF line fails as a header.
     fn line_end(&self, from: usize) -> Option<(usize, usize)> {
-        match self.framing {
-            Framing::Crlf => self.buffer[from..]
+        if self.framing == Framing::Lf {
+            self.buffer[from..]
+                .iter()
+                .position(|b| *b == b'\n')
+                .map(|end| (from + end, 1))
+        } else {
+            self.buffer[from..]
                 .windows(2)
                 .position(|v| v == b"\r\n")
-                .map(|end| (from + end, 2)),
-            Framing::CrlfOrLf => {
-                let end = from + self.buffer[from..].iter().position(|b| *b == b'\n')?;
-                Some(if end > 0 && self.buffer[end - 1] == b'\r' {
-                    (end - 1, 2)
-                } else {
-                    (end, 1)
-                })
-            }
+                .map(|end| (from + end, 2))
         }
     }
 
-    /// Consumes a delimiter of `length` bytes at the start of the buffer and the rest of its line.
-    async fn delimiter(&mut self, length: usize) -> Result<(), JsonError> {
-        self.buffer.advance(length);
+    /// Consumes the delimiter at the start of the buffer and the rest of its line.
+    async fn delimiter(&mut self) -> Result<(), JsonError> {
+        self.buffer.advance(self.delimiter.len());
         let line = self.line(HEADER_CAP, LineEnd::CrlfOrEof).await?;
         let tail = if let Some(tail) = line.strip_prefix(b"--") {
             self.closed = true;
@@ -392,13 +421,24 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     pub(crate) async fn start(&mut self) -> Result<(), JsonError> {
         let mut discarded = 0;
         loop {
-            if let Some((index, length)) = self.find_delimiter() {
+            if self.framing == Framing::Detect
+                && let Some(discard) = self.detect()
+            {
+                discarded += discard;
+                if discarded > DISCARD_CAP + 2 {
+                    return Err(invalid());
+                }
+                self.buffer.advance(discard);
+                self.fill().await?;
+                continue;
+            }
+            if let Some(index) = self.find_delimiter() {
                 discarded += index;
                 if discarded > DISCARD_CAP + 2 {
                     return Err(invalid());
                 }
                 self.buffer.advance(index);
-                self.delimiter(length).await?;
+                self.delimiter().await?;
                 return if self.closed { Err(invalid()) } else { Ok(()) };
             }
             let discard = self.buffer.len().saturating_sub(self.held_back());
@@ -453,7 +493,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             let line = self
                 .line(HEADER_CAP.saturating_sub(size), LineEnd::Crlf)
                 .await?;
-            size += line.len() + 2;
+            size += line.len() + self.newline_len();
             if size > HEADER_CAP {
                 return Err(invalid());
             }
@@ -481,11 +521,11 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
 
     pub(crate) async fn next_chunk(&mut self) -> Result<Option<Bytes>, JsonError> {
         loop {
-            if let Some((index, length)) = self.find_delimiter() {
+            if let Some(index) = self.find_delimiter() {
                 if index > 0 {
                     return Ok(Some(self.buffer.split_to(index).freeze()));
                 }
-                self.delimiter(length).await?;
+                self.delimiter().await?;
                 return Ok(None);
             }
             let length = self.buffer.len().saturating_sub(self.held_back());
@@ -698,14 +738,14 @@ mod tests {
         body
     }
 
-    const FRAMINGS: [Framing; 2] = [Framing::Crlf, Framing::CrlfOrLf];
+    const FRAMINGS: [Framing; 2] = [Framing::Crlf, Framing::Detect];
 
-    /// Parses a CRLF-framed body strictly and leniently; both framings must agree on it.
+    /// Parses a CRLF-framed body strictly and with detected framing; both must agree on it.
     async fn parse(body: impl Into<Bytes>) -> Result<(Vec<u8>, Vec<u8>), JsonError> {
         let body = body.into();
         let strict = parse_with(Full::new(body.clone()), Framing::Crlf).await;
-        let lenient = parse_with(Full::new(body), Framing::CrlfOrLf).await;
-        assert_eq!(strict.as_ref().ok(), lenient.as_ref().ok());
+        let detected = parse_with(Full::new(body), Framing::Detect).await;
+        assert_eq!(strict.as_ref().ok(), detected.as_ref().ok());
         strict
     }
 
@@ -713,7 +753,15 @@ mod tests {
         body: B,
         framing: Framing,
     ) -> Result<(Vec<u8>, Vec<u8>), JsonError> {
-        let mut parser = Multipart::with_framing(body, "boundary", framing);
+        parse_bounded(body, "boundary", framing).await
+    }
+
+    async fn parse_bounded<B: Body<Data = Bytes> + Unpin>(
+        body: B,
+        boundary: &str,
+        framing: Framing,
+    ) -> Result<(Vec<u8>, Vec<u8>), JsonError> {
+        let mut parser = Multipart::with_framing(body, boundary, framing);
         let metadata = parser.metadata().await?;
         parser.headers(PartKind::Media).await?;
         let mut media = Vec::new();
@@ -729,7 +777,7 @@ mod tests {
         let payload = b"\x00\xff\r\n--boundar\r\n--\r\n--bound\r\nend\r\n";
         let body = wire(b"{}", payload);
         for framing in FRAMINGS {
-            let (metadata, media) = parse_in_chunks(&body, framing).await;
+            let (metadata, media) = parse_in_chunks(&body, "boundary", framing).await;
             assert_eq!(metadata, b"{}");
             assert_eq!(media, payload);
         }
@@ -737,8 +785,8 @@ mod tests {
 
     /// Parses `body` once per frame width, from one byte to the whole body, and returns the
     /// result every width agreed on.
-    async fn parse_in_chunks(body: &[u8], framing: Framing) -> (Vec<u8>, Vec<u8>) {
-        let whole = parse_with(Full::new(Bytes::copy_from_slice(body)), framing)
+    async fn parse_in_chunks(body: &[u8], boundary: &str, framing: Framing) -> (Vec<u8>, Vec<u8>) {
+        let whole = parse_bounded(Full::new(Bytes::copy_from_slice(body)), boundary, framing)
             .await
             .unwrap();
         for width in 1..=body.len() {
@@ -750,7 +798,7 @@ mod tests {
                 }
             });
             assert_eq!(
-                parse_with(receiver, framing).await.unwrap(),
+                parse_bounded(receiver, boundary, framing).await.unwrap(),
                 whole,
                 "{width}"
             );
@@ -775,69 +823,93 @@ mod tests {
         assert_eq!(multipart_boundary(&headers).unwrap(), GCLOUD_BOUNDARY);
         let mut parser =
             Multipart::related(Full::new(Bytes::from_static(GCLOUD_BODY)), GCLOUD_BOUNDARY);
-        let metadata = parser.metadata().await.unwrap();
-        assert!(metadata.starts_with(b"{\"bucket\"") && metadata.ends_with(b"}"));
+        parser.metadata().await.unwrap();
         assert_eq!(
             parser.headers(PartKind::Media).await.unwrap().as_deref(),
             Some("text/plain")
         );
-        let mut media = Vec::new();
-        while let Some(chunk) = parser.next_chunk().await.unwrap() {
-            media.extend_from_slice(&chunk);
-        }
+        let (metadata, media) =
+            parse_in_chunks(GCLOUD_BODY, GCLOUD_BOUNDARY, Framing::Detect).await;
+        assert!(metadata.starts_with(b"{\"bucket\"") && metadata.ends_with(b"}"));
         // The LF before the delimiter belongs to the delimiter; the one before it is data.
         assert_eq!(media, b"Hello from gcloud!\n");
-        parser.finish().await.unwrap();
         // The strict framing of XML POST Object forms still rejects bare LFs.
         let mut strict =
             Multipart::new(Full::new(Bytes::from_static(GCLOUD_BODY)), GCLOUD_BOUNDARY);
         assert!(strict.metadata().await.is_err());
     }
 
+    fn lf_wire(first_line: &[u8], media: &[u8]) -> Vec<u8> {
+        let mut body = first_line.to_vec();
+        body.extend_from_slice(b"Content-Type: application/json\n\n{}");
+        body.extend_from_slice(b"\n--boundary\nContent-Type: application/octet-stream\n\n");
+        body.extend_from_slice(media);
+        body.extend_from_slice(b"\n--boundary--\n");
+        body
+    }
+
     #[tokio::test]
-    async fn related_uploads_read_lf_and_mixed_framing_at_every_chunk_split() {
+    async fn related_uploads_read_lf_framing_at_every_chunk_split() {
         let payload = b"\x00\xff\n--boundar\r\n--\n--bound\rx\nend\n";
-        let lf = |metadata: &[u8], media: &[u8]| {
-            let mut body = b"--boundary\nContent-Type: application/json\n\n".to_vec();
-            body.extend_from_slice(metadata);
-            body.extend_from_slice(b"\n--boundary\nContent-Type: application/octet-stream\n\n");
-            body.extend_from_slice(media);
-            body.extend_from_slice(b"\n--boundary--\n");
-            body
-        };
-        let (metadata, media) = parse_in_chunks(&lf(b"{}", payload), Framing::CrlfOrLf).await;
-        assert_eq!(metadata, b"{}");
-        assert_eq!(media, payload);
-        // CRLF and LF lines may mix: CRLF delimiters with LF headers, and the reverse.
-        for body in [
-            b"--boundary\nContent-Type: application/json\r\n\n{}\r\n--boundary\r\n\nmedia\r\n--boundary--".as_slice(),
-            b"--boundary\r\nContent-Type: application/json\n\r\n{}\n--boundary\n\r\nmedia\n--boundary--\r\n",
+        // White space after the first boundary and a preamble still select LF framing.
+        for first_line in [
+            b"--boundary\n".as_slice(),
+            b"--boundary \t\n",
+            b"preamble\n--boundary\n",
         ] {
-            assert_eq!(
-                parse_in_chunks(body, Framing::CrlfOrLf).await,
-                (b"{}".to_vec(), b"media".to_vec())
-            );
-            assert!(parse_with(Full::new(Bytes::copy_from_slice(body)), Framing::Crlf).await.is_err());
+            let (metadata, media) =
+                parse_in_chunks(&lf_wire(first_line, payload), "boundary", Framing::Detect).await;
+            assert_eq!(metadata, b"{}");
+            assert_eq!(media, payload);
         }
-        // A CR directly before an LF delimiter is part of the delimiter, not the media.
-        let (_, media) = parse_in_chunks(&lf(b"{}", b"media\r"), Framing::CrlfOrLf).await;
-        assert_eq!(media, b"media");
+        // Under LF framing a CR before a delimiter is media, as Go's mime/multipart reads it.
+        let (_, media) = parse_in_chunks(
+            &lf_wire(b"--boundary\n", b"media\r"),
+            "boundary",
+            Framing::Detect,
+        )
+        .await;
+        assert_eq!(media, b"media\r");
         for body in [
+            // A body never mixes CRLF and LF: the first boundary line fixes the framing.
+            b"--boundary\nContent-Type: application/json\r\n\r\n{}\n--boundary\n\nmedia\n--boundary--\n".as_slice(),
+            b"--boundary\nContent-Type: application/json\n\n{}\r\n--boundary\r\n\r\nmedia\r\n--boundary--\r\n",
+            b"--boundary\r\nContent-Type: application/json\n\n{}\n--boundary\n\nmedia\n--boundary--\n",
+            b"--boundary\r\nContent-Type: application/json\r\n\r\n{}\n--boundary\n\nmedia\n--boundary--\n",
             // A lone CR does not end a header line.
-            b"--boundary\nContent-Type: application/json\r\r\n\n{}\n--boundary--\n".as_slice(),
+            b"--boundary\nContent-Type: application/json\r\r\n\n{}\n--boundary--\n",
             // Missing close delimiter, an unterminated header block and a third part stay invalid.
             b"--boundary\nContent-Type: application/json\n\n{}\n--boundary\n\nmedia\n",
             b"--boundary\nContent-Type: application/json\n",
             b"--boundary\nContent-Type: application/json\n\n{}\n--boundary\n\nmedia\n--boundary\n\nthird\n--boundary--\n",
             b"--boundary\nContent-Type: application/json\n\n{}\n--boundary\n\nmedia\n--boundary-x\n",
+            b"--boundary\nContent-Type: application/json\n\n{}\n--boundary\n\nmedia\n--boundary--\r\n",
         ] {
             assert!(
-                parse_with(Full::new(Bytes::copy_from_slice(body)), Framing::CrlfOrLf)
+                parse_with(Full::new(Bytes::copy_from_slice(body)), Framing::Detect)
                     .await
                     .is_err(),
                 "{}",
                 String::from_utf8_lossy(body)
             );
+        }
+    }
+
+    #[tokio::test]
+    async fn related_uploads_keep_lf_boundary_text_in_crlf_media_at_every_chunk_split() {
+        // A CRLF body uses CRLF delimiters throughout, so LF plus boundary text is media.
+        for payload in [
+            b"AAA\n--boundary--\nBBB".as_slice(),
+            b"AAA\n--boundaryX",
+            b"\n--boundary\n",
+            b"AAA\n--boundary\nContent-Type: text/plain\n\nBBB\n--boundary--\n",
+        ] {
+            let body = wire(b"{}", payload);
+            for framing in FRAMINGS {
+                let (metadata, media) = parse_in_chunks(&body, "boundary", framing).await;
+                assert_eq!(metadata, b"{}");
+                assert_eq!(media, payload, "{}", String::from_utf8_lossy(payload));
+            }
         }
     }
 

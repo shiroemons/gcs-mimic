@@ -14899,7 +14899,7 @@
         },
         {
           "id": "RSM-INSERT-PROTOCOL-PATH",
-          "description": "A path-style POST /resumable/upload/storage/v1/b/{bucket}/o with uploadType=resumable (the Discovery resumable protocol path gcloud storage uses) initiates the same session as /upload/storage/v1, with the same errors and strict authorization; other upload types and upload_id answer as an unsupported upload type; other methods and requests without uploadType keep their XML meaning for a bucket named resumable. No live Cloud Storage recording.",
+          "description": "A path-style POST /resumable/upload/storage/v1/b/{bucket}/o with uploadType=resumable (the Discovery resumable protocol path gcloud storage uses) initiates the same session as /upload/storage/v1, with the same errors and strict authorization; other upload types and upload_id answer as an unsupported upload type, with the upload path's JSON CORS fields; other methods and requests without uploadType keep their XML meaning for a bucket named resumable. No live Cloud Storage recording.",
           "result": "PASS",
           "test_ids": [
             "resumable_protocol_path_initiates_the_same_session_as_the_upload_path",
@@ -15032,12 +15032,14 @@
         },
         {
           "id": "JSON-OBJECTS-007-MULTIPART-GCLOUD-FRAMING",
-          "description": "multipart/related uploads accept gcloud storage's single-quoted boundary (when the quoted text is not a valid token) and bare-LF or mixed CRLF/LF framing at every chunk split, including the exact gcloud 591.0.0 request; XML POST forms stay CRLF-only and unmatched quotes, missing close delimiters and extra parts stay 400. Based on the production gcloud request shape, without a live Cloud Storage recording.",
+          "description": "multipart/related uploads accept gcloud storage's single-quoted boundary (when the quoted text is not a valid token) and bare-LF framing at every chunk split, including the exact gcloud 591.0.0 request. The first boundary line decides the framing for the whole body: a bare LF selects LF framing, anything else strict CRLF, so CRLF media containing an LF followed by boundary text is stored intact and a body that mixes CRLF and LF lines is 400. XML POST forms stay CRLF-only and unmatched quotes, missing close delimiters and extra parts stay 400. Based on the production gcloud request shape, without a live Cloud Storage recording.",
           "result": "PASS",
           "test_ids": [
             "json::multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary",
-            "json::multipart::tests::related_uploads_read_lf_and_mixed_framing_at_every_chunk_split",
-            "obj_multipart_http_accepts_the_gcloud_request_shape"
+            "json::multipart::tests::related_uploads_read_lf_framing_at_every_chunk_split",
+            "json::multipart::tests::related_uploads_keep_lf_boundary_text_in_crlf_media_at_every_chunk_split",
+            "obj_multipart_http_accepts_the_gcloud_request_shape",
+            "obj_multipart_http_crlf_media_keeps_lf_boundary_text"
           ]
         },
         {
@@ -15463,8 +15465,10 @@
         "resumable_protocol_path_keeps_strict_authorization",
         "resumable_protocol_path_leaves_a_bucket_named_resumable_to_the_xml_api",
         "json::multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary",
-        "json::multipart::tests::related_uploads_read_lf_and_mixed_framing_at_every_chunk_split",
+        "json::multipart::tests::related_uploads_read_lf_framing_at_every_chunk_split",
+        "json::multipart::tests::related_uploads_keep_lf_boundary_text_in_crlf_media_at_every_chunk_split",
         "obj_multipart_http_accepts_the_gcloud_request_shape",
+        "obj_multipart_http_crlf_media_keeps_lf_boundary_text",
         "media_upload_stores_computed_hashes_whatever_the_declared_md5",
         "storage::resumable_http_tests::cloud_storage_parity::metadata_writes_ignore_unknown_members_and_release_holds_on_put",
         "storage::resumable_http_tests::cloud_storage_parity::multipart_upload_content_types_must_agree_and_plain_bodies_are_media",
@@ -15601,7 +15605,7 @@
       ],
       "verification": [
         {"command":"cargo +1.99.1 test --locked --offline --test resumable_protocol_path_http","result":"PASS","verified_at":"2026-11-02","artifact":"docs/en/slices/resumable-upload.md","test_ids":["resumable_protocol_path_initiates_the_same_session_as_the_upload_path","resumable_protocol_path_rejects_other_upload_types_like_the_upload_path","resumable_protocol_path_keeps_strict_authorization","resumable_protocol_path_leaves_a_bucket_named_resumable_to_the_xml_api"]},
-        {"command":"cargo +1.99.1 test --locked --offline --lib json::multipart && cargo +1.99.1 test --locked --offline --test object_multipart_http","result":"PASS","verified_at":"2026-11-02","artifact":"docs/en/slices/json-object-multipart.md","test_ids":["json::multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary","json::multipart::tests::related_uploads_read_lf_and_mixed_framing_at_every_chunk_split","obj_multipart_http_accepts_the_gcloud_request_shape"]},
+        {"command":"cargo +1.99.1 test --locked --offline --lib json::multipart && cargo +1.99.1 test --locked --offline --test object_multipart_http","result":"PASS","verified_at":"2026-11-02","artifact":"docs/en/slices/json-object-multipart.md","test_ids":["json::multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary","json::multipart::tests::related_uploads_read_lf_framing_at_every_chunk_split","json::multipart::tests::related_uploads_keep_lf_boundary_text_in_crlf_media_at_every_chunk_split","obj_multipart_http_accepts_the_gcloud_request_shape","obj_multipart_http_crlf_media_keeps_lf_boundary_text"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["storage::resumable_http_tests::cloud_storage_parity::media_upload_ignores_declared_hashes_and_stores_the_computed_ones","storage::resumable_http_tests::cloud_storage_parity::multipart_metadata_hash_mismatch_names_both_digests","storage::resumable_http_tests::cloud_storage_parity::multipart_upload_content_types_must_agree_and_plain_bodies_are_media","storage::resumable_http_tests::cloud_storage_parity::metadata_writes_ignore_unknown_members_and_release_holds_on_put","media_upload_stores_computed_hashes_whatever_the_declared_md5"]},
         {"command":"cargo test --locked --test acl_permission_effects predefined_upload && cargo test --locked --lib acl::tests && cargo test --locked --test auth_http uniform_access","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/upload-predefined-acl.md","test_ids":["acl_permission_effects::predefined_upload::media_upload_predefined_acls_replace_the_default_object_acl","acl_permission_effects::predefined_upload::multipart_and_resumable_uploads_apply_predefined_acl_at_publication","acl_permission_effects::predefined_upload::predefined_acl_uploads_need_only_create_and_respect_access_settings","acl::tests::predefined_object_acls_round_trip_and_exclude_bucket_only_values","xml::uniform_access_metadata_and_predefined_acl_rejections"]},
         {"command":"cargo test --test http_resumable_gzip --test http_ingress --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/http-ingress.md","test_ids":["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_retains_strict_authentication_and_upload_permissions"]},
@@ -16090,7 +16094,7 @@
         }
       ],
       "known_deviations": [
-        "multipart/related accepts gcloud's single-quoted boundary and bare-LF framing from the production gcloud request shape (docs/en/slices/json-object-multipart.md); no live Cloud Storage recording covers either, and under LF framing a media part cannot end in a CR byte.",
+        "multipart/related accepts gcloud's single-quoted boundary and bare-LF framing from the production gcloud request shape (docs/en/slices/json-object-multipart.md); no live Cloud Storage recording covers either. The first boundary line fixes LF or CRLF framing for the whole body, as Go's mime/multipart decides; a body mixing the two is rejected.",
         "Media, scoped multipart and JSON resumable are supported; ACL/object IAM and broader bucket policies, encryption, upload-side encodings other than the contentEncoding query parameter and media/multipart transport gzip, and full field/common-parameter semantics remain unavailable. Strict mode enforces storage.objects.create plus storage.objects.delete for overwrites through project-plus-bucket predefined roles; permissive mode (default) checks nothing. SPEC-017 records local authentication error details, the missing-bucket rule and the 412-before-403 overwrite order.",
         "SPEC-008/010/011/012: local mutation precedence/hash parser/error rules, unsupported Content-MD5, accepted missing Content-Type default and opaque resource/header choices.",
         "Default 1 GiB local cap is configurable (1 byte..5 TiB); no production maximum-size or durability claim.",

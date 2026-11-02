@@ -33,24 +33,15 @@ pub(super) async fn respond(
     mut request: Request<Incoming>,
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
-    let protocol = resumable_protocol_path(&request, ctx);
-    if let Some((uri, _)) = &protocol {
-        *request.uri_mut() = uri.clone();
+    if let Some((uri, kind)) = resumable_protocol_path(&request, ctx) {
+        *request.uri_mut() = uri;
+        request.extensions_mut().insert(kind);
     }
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     let call = json::EnvelopeCall::of_request(&request);
     let mut family = Family::Undecided;
-    let mut response = if let Some((_, ProtocolUpload::Other)) = protocol {
-        family = Family::Json;
-        boxed(
-            authenticate(&request, ctx.state)
-                .and_then(|_| Err(json::unsupported_upload_type()))
-                .unwrap_or_else(JsonError::into_response),
-        )
-    } else {
-        route(request, ctx, &mut family).await
-    };
+    let mut response = route(request, ctx, &mut family).await;
     match family {
         Family::Json => {
             json::apply_envelope(&method, &path, call, ctx.state.clock.now(), &mut response);
@@ -61,7 +52,8 @@ pub(super) async fn respond(
     response
 }
 
-/// What a request on the Discovery resumable protocol path asks for.
+/// What a request on the Discovery resumable protocol path asks for, kept as a request
+/// extension once the path is rewritten.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ProtocolUpload {
     /// `uploadType=resumable` initiation, served as on `/upload/storage/v1`.
@@ -114,6 +106,10 @@ fn resumable_protocol_path(
     Some((hyper::Uri::from_parts(parts).ok()?, kind))
 }
 
+fn is_unsupported_protocol_upload(request: &Request<Incoming>) -> bool {
+    request.extensions().get::<ProtocolUpload>() == Some(&ProtocolUpload::Other)
+}
+
 /// Wraps CORS headers around the routed response. CORS never authorizes a request.
 async fn route(
     mut request: Request<Incoming>,
@@ -154,6 +150,12 @@ async fn route(
     } else {
         Family::Xml
     };
+    // Only resumable initiation is served on the Discovery protocol path. Other upload types
+    // answer before a method override or upload Content-Encoding is read, as JSON with CORS.
+    if is_unsupported_protocol_upload(&request) {
+        *family = Family::Json;
+        return respond_json_cors(request, ctx).await;
+    }
     if (selected.is_some() || xml_bucket)
         && request.headers().contains_key("x-http-method-override")
     {
@@ -363,6 +365,13 @@ async fn respond_routed(
     ctx: RequestCtx<'_>,
     selected: Option<xml::ObjectPath>,
 ) -> Response<ResponseBody> {
+    if is_unsupported_protocol_upload(&request) {
+        return boxed(
+            authenticate(&request, ctx.state)
+                .and_then(|_| Err(json::unsupported_upload_type()))
+                .unwrap_or_else(JsonError::into_response),
+        );
+    }
     let (method, uri, profile) = (request.method(), request.uri(), ctx.config.compat_profile);
     if xml::buckets::matches(method, uri, selected.as_ref()) {
         return xml::buckets::respond(request, selected.as_ref(), ctx).await;

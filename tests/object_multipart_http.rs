@@ -1392,3 +1392,35 @@ fn obj_multipart_http_accepts_the_gcloud_request_shape() {
     assert_eq!(server.get("rejected").status, 404);
     no_leaks(&dir, 1);
 }
+
+/// A CRLF-framed upload keeps CRLF delimiters throughout, so media that contains an LF
+/// followed by boundary text is stored intact rather than cut at a bare-LF delimiter.
+#[test]
+fn obj_multipart_http_crlf_media_keeps_lf_boundary_text() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1_000_000, 30_000);
+    server.bucket();
+    for (name, media) in [
+        ("closing", b"AAA\n--b--\nBBB".as_slice()),
+        ("prefix", b"AAA\n--bX"),
+    ] {
+        let mut body = b"--b\r\nContent-Type: application/json\r\n\r\n{}\r\n--b\r\nContent-Type: application/octet-stream\r\n\r\n".to_vec();
+        body.extend_from_slice(media);
+        body.extend_from_slice(b"\r\n--b--\r\n");
+        let object = server
+            .request(
+                "POST",
+                &format!("/upload/storage/v1/b/test-bucket/o?uploadType=multipart&name={name}"),
+                "Content-Type: multipart/related; boundary=b\r\n",
+                &body,
+            )
+            .json();
+        assert_eq!(object["size"], media.len().to_string(), "{name}");
+        assert_eq!(
+            server.get(&format!("{name}?alt=media")).body,
+            media,
+            "{name}"
+        );
+    }
+    no_leaks(&dir, 2);
+}

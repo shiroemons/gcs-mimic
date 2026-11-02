@@ -112,6 +112,43 @@ fn resumable_protocol_path_rejects_other_upload_types_like_the_upload_path() {
         assert_eq!(reply.body, bogus.body, "{query}");
         assert_eq!(reply.headers["content-type"], bogus.headers["content-type"]);
     }
+    // The rejection carries the JSON API CORS fields, as on the upload path, and is not read
+    // through a method override or an upload Content-Encoding.
+    let origin = "Origin: https://app.example\r\n";
+    let bogus = server.request(
+        "POST",
+        "/upload/storage/v1/b/test-bucket/o?uploadType=bogus&name=x",
+        origin,
+        b"x",
+    );
+    assert_eq!(
+        bogus.headers["access-control-allow-origin"],
+        "https://app.example"
+    );
+    for headers in [
+        origin.to_owned(),
+        format!("{origin}X-HTTP-Method-Override: GET\r\n"),
+        format!("{origin}Content-Encoding: br\r\n"),
+    ] {
+        let reply = server.request(
+            "POST",
+            &format!("{PROTOCOL_PATH}?uploadType=multipart"),
+            &headers,
+            b"x",
+        );
+        assert_eq!(reply.status, bogus.status, "{headers}");
+        assert_eq!(reply.body, bogus.body, "{headers}");
+        for field in [
+            "access-control-allow-origin",
+            "access-control-expose-headers",
+        ] {
+            assert_eq!(
+                reply.headers.get(field),
+                bogus.headers.get(field),
+                "{field} {headers}"
+            );
+        }
+    }
     assert_eq!(server.get("x").status, 404);
 }
 
