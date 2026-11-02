@@ -123,19 +123,62 @@ fn derived_fields(o: &pb::Object) -> Result<Value, Status> {
 }
 
 fn lifecycle(value: &pb::bucket::Lifecycle) -> Value {
-    json!({"rule":value.rule.iter().map(|r| {
-        let mut v=json!({});
-        if let Some(a)=&r.action {v["action"]=json!({"type":a.r#type}); if !a.storage_class.is_empty() {v["action"]["storageClass"]=a.storage_class.clone().into();}}
-        if let Some(c)=&r.condition {
-            let mut conditions=Map::new();
-            for (key,n) in [("age",c.age_days),("numNewerVersions",c.num_newer_versions),("daysSinceCustomTime",c.days_since_custom_time),("daysSinceNoncurrentTime",c.days_since_noncurrent_time)] {if let Some(n)=n {conditions.insert(key.into(),n.into());}}
-            if let Some(live)=c.is_live {conditions.insert("isLive".into(),live.into());}
-            for (key,date) in [("createdBefore",&c.created_before),("customTimeBefore",&c.custom_time_before),("noncurrentTimeBefore",&c.noncurrent_time_before)] {if let Some(d)=date {conditions.insert(key.into(),format!("{:04}-{:02}-{:02}",d.year,d.month,d.day).into());}}
-            for (key,values) in [("matchesStorageClass",&c.matches_storage_class),("matchesPrefix",&c.matches_prefix),("matchesSuffix",&c.matches_suffix)] {if !values.is_empty() {conditions.insert(key.into(),json!(values));}}
-            v["condition"]=conditions.into();
-        }
-        v
-    }).collect::<Vec<_>>()})
+    let rules = value
+        .rule
+        .iter()
+        .map(|rule| {
+            let mut value = json!({});
+            if let Some(action) = &rule.action {
+                value["action"] = json!({"type": action.r#type});
+                if !action.storage_class.is_empty() {
+                    value["action"]["storageClass"] = action.storage_class.clone().into();
+                }
+            }
+            if let Some(condition) = &rule.condition {
+                let mut conditions = Map::new();
+                for (key, number) in [
+                    ("age", condition.age_days),
+                    ("numNewerVersions", condition.num_newer_versions),
+                    ("daysSinceCustomTime", condition.days_since_custom_time),
+                    (
+                        "daysSinceNoncurrentTime",
+                        condition.days_since_noncurrent_time,
+                    ),
+                ] {
+                    if let Some(number) = number {
+                        conditions.insert(key.into(), number.into());
+                    }
+                }
+                if let Some(live) = condition.is_live {
+                    conditions.insert("isLive".into(), live.into());
+                }
+                for (key, date) in [
+                    ("createdBefore", &condition.created_before),
+                    ("customTimeBefore", &condition.custom_time_before),
+                    ("noncurrentTimeBefore", &condition.noncurrent_time_before),
+                ] {
+                    if let Some(date) = date {
+                        conditions.insert(
+                            key.into(),
+                            format!("{:04}-{:02}-{:02}", date.year, date.month, date.day).into(),
+                        );
+                    }
+                }
+                for (key, values) in [
+                    ("matchesStorageClass", &condition.matches_storage_class),
+                    ("matchesPrefix", &condition.matches_prefix),
+                    ("matchesSuffix", &condition.matches_suffix),
+                ] {
+                    if !values.is_empty() {
+                        conditions.insert(key.into(), json!(values));
+                    }
+                }
+                value["condition"] = conditions.into();
+            }
+            value
+        })
+        .collect::<Vec<_>>();
+    json!({"rule": rules})
 }
 
 /// The JSON form of a replacement ACL. Only entity and role are writable; the shared JSON
@@ -169,49 +212,108 @@ fn retention(retention: Option<&pb::object::Retention>) -> Result<Value, Status>
 }
 
 fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
+    let fields = super::buckets::bucket_fields(b);
     let mut body = json!({});
     for path in paths {
         match path.as_str() {
-        "labels"=>body["labels"]=if b.labels.is_empty(){Value::Null}else{json!(b.labels)},
-        p if p.starts_with("labels.") && p.len()>7=>{let key=&p[7..];body["labels"][key]=b.labels.get(key).map_or(Value::Null,|v|v.clone().into());}
-        "storage_class"=>body["storageClass"]=b.storage_class.clone().into(),
-        "autoclass"|"autoclass.enabled"|"autoclass.terminal_storage_class"=>{
-            let a=b.autoclass.clone().unwrap_or_default();
-            if path!="autoclass.terminal_storage_class"{body["autoclass"]["enabled"]=a.enabled.into();}
-            if path!="autoclass.enabled" && let Some(class)=a.terminal_storage_class{body["autoclass"]["terminalStorageClass"]=class.into();}
-        }
-        "versioning"|"versioning.enabled"=>body["versioning"]=json!({"enabled":b.versioning.as_ref().is_some_and(|v|v.enabled)}),
-        "default_event_based_hold"=>body["defaultEventBasedHold"]=b.default_event_based_hold.into(),
-        "cors"=>body["cors"]=json!(b.cors.iter().map(|c|json!({"origin":c.origin,"method":c.method,"responseHeader":c.response_header,"maxAgeSeconds":c.max_age_seconds})).collect::<Vec<_>>()),
-        "lifecycle"|"lifecycle.rule"=>body["lifecycle"]=b.lifecycle.as_ref().map_or(json!({"rule":[]}),lifecycle),
-        "retention_policy"|"retention_policy.retention_duration"=>{
-            body["retentionPolicy"]=b.retention_policy.as_ref().and_then(|p|p.retention_duration).map_or(Value::Null,|d|json!({"retentionPeriod":d.seconds.to_string()}));
-            if b.retention_policy.as_ref().is_some_and(|p|p.is_locked){return Err(unsupported("retention_policy.is_locked; use LockBucketRetentionPolicy"));}
-        }
-        "soft_delete_policy"|"soft_delete_policy.retention_duration"=>{
-            let d=b.soft_delete_policy.as_ref().and_then(|p|p.retention_duration).unwrap_or_default();
-            if d.nanos!=0{return Err(unsupported("fractional soft delete duration; use whole seconds"));}
-            body["softDeletePolicy"]=json!({"retentionDurationSeconds":d.seconds.to_string()});
-        }
-        "iam_config" => {
-            // Go uses this parent mask even when only one IAM setting is present.
-            if let Some(i) = &b.iam_config {
-                if let Some(u) = &i.uniform_bucket_level_access {
-                    body["iamConfiguration"]["uniformBucketLevelAccess"] = json!({"enabled": u.enabled});
+            "labels" => {
+                body["labels"] = if b.labels.is_empty() {
+                    Value::Null
+                } else {
+                    fields["labels"].clone()
+                };
+            }
+            p if p.starts_with("labels.") && p.len() > 7 => {
+                let key = &p[7..];
+                body["labels"][key] = b.labels.get(key).map_or(Value::Null, |v| v.clone().into());
+            }
+            "storage_class" => body["storageClass"] = b.storage_class.clone().into(),
+            "autoclass" | "autoclass.enabled" | "autoclass.terminal_storage_class" => {
+                let autoclass = fields
+                    .get("autoclass")
+                    .cloned()
+                    .unwrap_or_else(|| json!({"enabled": false}));
+                if path != "autoclass.terminal_storage_class" {
+                    body["autoclass"]["enabled"] = autoclass["enabled"].clone();
                 }
-                if !i.public_access_prevention.is_empty() {
-                    body["iamConfiguration"]["publicAccessPrevention"] = i.public_access_prevention.clone().into();
+                if path != "autoclass.enabled"
+                    && let Some(class) = autoclass.get("terminalStorageClass")
+                {
+                    body["autoclass"]["terminalStorageClass"] = class.clone();
                 }
             }
+            "versioning" | "versioning.enabled" => {
+                body["versioning"] = fields
+                    .get("versioning")
+                    .cloned()
+                    .unwrap_or_else(|| json!({"enabled": false}));
+            }
+            "default_event_based_hold" => {
+                body["defaultEventBasedHold"] = fields["defaultEventBasedHold"].clone();
+            }
+            "cors" => body["cors"] = fields["cors"].clone(),
+            "lifecycle" | "lifecycle.rule" => {
+                body["lifecycle"] = b.lifecycle.as_ref().map_or(json!({"rule": []}), lifecycle);
+            }
+            "retention_policy" | "retention_policy.retention_duration" => {
+                body["retentionPolicy"] = fields
+                    .get("retentionPolicy")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                if b.retention_policy.as_ref().is_some_and(|p| p.is_locked) {
+                    return Err(unsupported(
+                        "retention_policy.is_locked; use LockBucketRetentionPolicy",
+                    ));
+                }
+            }
+            "soft_delete_policy" | "soft_delete_policy.retention_duration" => {
+                let duration = b
+                    .soft_delete_policy
+                    .as_ref()
+                    .and_then(|p| p.retention_duration)
+                    .unwrap_or_default();
+                if duration.nanos != 0 {
+                    return Err(unsupported(
+                        "fractional soft delete duration; use whole seconds",
+                    ));
+                }
+                body["softDeletePolicy"] = fields
+                    .get("softDeletePolicy")
+                    .cloned()
+                    .unwrap_or_else(|| json!({"retentionDurationSeconds": "0"}));
+            }
+            "iam_config" => {
+                // Go uses this parent mask even when only one IAM setting is present.
+                if let Some(iam) = fields.get("iamConfiguration").and_then(Value::as_object) {
+                    for (key, value) in iam {
+                        body["iamConfiguration"][key] = value.clone();
+                    }
+                }
+            }
+            "iam_config.uniform_bucket_level_access"
+            | "iam_config.uniform_bucket_level_access.enabled" => {
+                body["iamConfiguration"]["uniformBucketLevelAccess"] = fields
+                    .pointer("/iamConfiguration/uniformBucketLevelAccess")
+                    .cloned()
+                    .unwrap_or_else(|| json!({"enabled": false}));
+            }
+            "acl" => body["acl"] = acl_entries(b.acl.iter().map(|e| (&e.entity, &e.role))),
+            "default_object_acl" => {
+                body["defaultObjectAcl"] =
+                    acl_entries(b.default_object_acl.iter().map(|e| (&e.entity, &e.role)));
+            }
+            "iam_config.public_access_prevention" => {
+                body["iamConfiguration"]["publicAccessPrevention"] = fields
+                    .pointer("/iamConfiguration/publicAccessPrevention")
+                    .cloned()
+                    .unwrap_or_else(|| "inherited".into());
+            }
+            _ => {
+                return Err(unsupported(&format!(
+                    "UpdateBucket update_mask {path}; use labels, versioning, lifecycle or iam_config"
+                )));
+            }
         }
-        "iam_config.uniform_bucket_level_access"|"iam_config.uniform_bucket_level_access.enabled"=>{
-            let i=b.iam_config.as_ref();body["iamConfiguration"]["uniformBucketLevelAccess"]=json!({"enabled":i.and_then(|i|i.uniform_bucket_level_access.as_ref()).is_some_and(|u|u.enabled)});
-        }
-        "acl"=>body["acl"]=acl_entries(b.acl.iter().map(|e|(&e.entity,&e.role))),
-        "default_object_acl"=>body["defaultObjectAcl"]=acl_entries(b.default_object_acl.iter().map(|e|(&e.entity,&e.role))),
-        "iam_config.public_access_prevention"=>body["iamConfiguration"]["publicAccessPrevention"]=b.iam_config.as_ref().map(|i|i.public_access_prevention.as_str()).filter(|s|!s.is_empty()).unwrap_or("inherited").into(),
-        _=>return Err(unsupported(&format!("UpdateBucket update_mask {path}; use labels, versioning, lifecycle or iam_config"))),
-    }
     }
     Ok(body)
 }
@@ -1122,6 +1224,46 @@ mod tests {
             )
             .await
             .unwrap()
+    }
+
+    #[test]
+    fn grpc_bucket_masks_preserve_resets_and_omitted_parent_fields() {
+        let bucket = pb::Bucket::default();
+        let paths = [
+            "autoclass",
+            "versioning",
+            "retention_policy",
+            "soft_delete_policy",
+            "cors",
+            "iam_config.public_access_prevention",
+            "iam_config.uniform_bucket_level_access",
+            "iam_config",
+        ]
+        .map(String::from);
+        assert_eq!(
+            bucket_patch(&bucket, &paths).unwrap(),
+            json!({
+                "autoclass": {"enabled": false},
+                "versioning": {"enabled": false},
+                "retentionPolicy": null,
+                "softDeletePolicy": {"retentionDurationSeconds": "0"},
+                "cors": [],
+                "iamConfiguration": {
+                    "publicAccessPrevention": "inherited",
+                    "uniformBucketLevelAccess": {"enabled": false},
+                },
+            })
+        );
+        let create = super::super::buckets::bucket_fields(&bucket);
+        for omitted in [
+            "autoclass",
+            "versioning",
+            "retentionPolicy",
+            "softDeletePolicy",
+            "iamConfiguration",
+        ] {
+            assert!(create.get(omitted).is_none(), "{omitted}");
+        }
     }
 
     #[test]

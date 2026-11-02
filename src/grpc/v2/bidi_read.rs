@@ -1,15 +1,10 @@
-use super::{
-    ResponseStream, Storage,
-    append::Finality,
-    names, pb,
-    status::{self, unsupported},
-};
+use super::{ResponseStream, Storage, append::Finality, names, pb, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
     json::JsonError,
     object::{ObjectConditions, ObjectRecord},
-    server::{State, anonymous_error},
+    server::State,
     storage::ObjectReader,
 };
 use prost::Message;
@@ -59,7 +54,7 @@ fn handles() -> &'static Mutex<VecDeque<Handle>> {
 }
 
 fn error(error: impl Into<JsonError>, caller: Option<Caller<'_>>) -> Status {
-    status::from_json(anonymous_error(error.into(), caller))
+    super::access_status(error.into(), caller)
 }
 
 #[expect(

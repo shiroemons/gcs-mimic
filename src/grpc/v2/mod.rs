@@ -73,6 +73,7 @@ pub(crate) async fn dispatch(
 }
 
 impl Storage {
+    /// Callers validate resource names before authorization.
     async fn access(
         &self,
         caller: Option<Caller<'_>>,
