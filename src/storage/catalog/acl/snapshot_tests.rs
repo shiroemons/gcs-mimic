@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     auth::{Auth, Registry},
     clock::SystemClock,
@@ -183,7 +183,7 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                 .is_some()
         );
         catalog
-            .delete_object("bucket", "object", None, Default::default())
+            .delete_object(live("bucket", "object"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert!(

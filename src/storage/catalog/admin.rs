@@ -821,8 +821,11 @@ impl Admin {
         name: &ObjectName,
         generation: Option<Generation>,
     ) -> Result<(ObjectRecord, super::ObjectReader), AdminError> {
-        let bucket = bucket.0.clone();
-        let name = name.0.clone();
+        let target = crate::object::ObjectTarget::new(
+            bucket.0.clone(),
+            name.0.clone(),
+            generation.map(Generation::get),
+        );
         let access = BucketAccess::Admin(self.grant.clone());
         let catalog = self.catalog.clone();
         self.catalog
@@ -830,9 +833,7 @@ impl Admin {
                 objects::open_selected(
                     connection,
                     &catalog,
-                    &bucket,
-                    &name,
-                    generation.map(Generation::get),
+                    &target,
                     ObjectConditions::default(),
                     &access,
                 )
@@ -893,8 +894,7 @@ impl Admin {
         condition: GenerationCondition,
         binding: Option<super::sync_state::SyncBinding>,
     ) -> Result<(), AdminError> {
-        let bucket = bucket.0.clone();
-        let name = name.0.clone();
+        let target = crate::object::ObjectTarget::new(bucket.0.clone(), name.0.clone(), None);
         let access = BucketAccess::Admin(self.grant.clone());
         let clock = self.catalog.0.clock.clone();
         self.catalog
@@ -902,12 +902,8 @@ impl Admin {
                 objects::delete_selected(
                     connection,
                     clock.as_ref(),
-                    objects::ObjectSelector {
-                        bucket: &bucket,
-                        name: &name,
-                        generation: None,
-                        conditions: condition.conditions(),
-                    },
+                    &target,
+                    condition.conditions(),
                     &access,
                     binding.as_ref(),
                 )

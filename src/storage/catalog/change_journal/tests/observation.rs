@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use std::{sync::Arc, time::Duration};
 
 async fn setup() -> (TestDir, Catalog) {
@@ -302,10 +302,9 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
                             crate::storage::admin::Generation::new(
                                 catalog
                                     .get_object(
-                                        "test-bucket",
-                                        "object",
-                                        None,
-                                        ObjectConditions::default(),
+                                        live("test-bucket", "object"),
+                                        Default::default(),
+                                        PERMISSIVE,
                                     )
                                     .await
                                     .unwrap()

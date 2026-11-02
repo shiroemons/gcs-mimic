@@ -1,4 +1,5 @@
 use super::{ResponseStream, Storage, append::Finality, names, pb, status::unsupported};
+use crate::object::ObjectTarget;
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
@@ -185,14 +186,13 @@ impl Storage {
                 if_metageneration_match: spec.if_metageneration_match,
                 if_metageneration_not_match: spec.if_metageneration_not_match,
             };
+            let target = ObjectTarget::new(
+                bucket,
+                object,
+                (spec.generation != 0).then_some(spec.generation),
+            );
             let (record, reader, finality) = self
-                .open_readable(
-                    bucket,
-                    object,
-                    (spec.generation != 0).then_some(spec.generation),
-                    conditions,
-                    &access,
-                )
+                .open_readable(target, conditions, &access)
                 .await
                 .map_err(|e| error(JsonError::from(e).naming_object(bucket, object), caller))?;
             let selected = Arc::new(Selected {

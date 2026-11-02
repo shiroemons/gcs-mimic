@@ -10,7 +10,7 @@ use super::{
 use crate::{
     auth::{Caller, OBJECTS_CREATE},
     bucket::BucketAccess,
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord},
+    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     storage::{AppendError, AppendWriter, ObjectReader},
 };
 use tokio::sync::mpsc;
@@ -278,19 +278,17 @@ impl Storage {
     /// appendable generation. The finality reports which one was selected.
     pub(super) async fn open_readable(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(ObjectRecord, ObjectReader, Finality), ObjectError> {
         let catalog = &self.state.catalog;
         match catalog
-            .open_object_authorized(bucket, name, generation, conditions, access)
+            .open_object(target.clone(), conditions, access)
             .await
         {
             Err(ObjectError::ObjectNotFound) => catalog
-                .open_appendable(bucket, name, generation, conditions, access)
+                .open_appendable(target, conditions, access)
                 .await
                 .map(|(record, reader)| (record, reader, Finality::Unfinalized)),
             other => other.map(|(record, reader)| (record, reader, Finality::Finalized)),
@@ -301,19 +299,14 @@ impl Storage {
     /// their blob.
     pub(super) async fn get_readable(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(ObjectRecord, Finality), ObjectError> {
         let catalog = &self.state.catalog;
-        match catalog
-            .get_object_authorized(bucket, name, generation, conditions, access)
-            .await
-        {
+        match catalog.get_object(target.clone(), conditions, access).await {
             Err(ObjectError::ObjectNotFound) => catalog
-                .open_appendable(bucket, name, generation, conditions, access)
+                .open_appendable(target, conditions, access)
                 .await
                 .map(|(record, _)| (record, Finality::Unfinalized)),
             other => other.map(|record| (record, Finality::Finalized)),
@@ -322,21 +315,17 @@ impl Storage {
 
     pub(super) async fn delete_including_appendable(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
         let catalog = &self.state.catalog;
         match catalog
-            .delete_object_authorized(bucket, name, generation, conditions, access)
+            .delete_object(target.clone(), conditions, access)
             .await
         {
             Err(ObjectError::ObjectNotFound) => {
-                catalog
-                    .delete_appendable(bucket, name, generation, conditions, access)
-                    .await
+                catalog.delete_appendable(target, conditions, access).await
             }
             other => other,
         }

@@ -1,4 +1,5 @@
 use super::{Storage, access_status, convert, iam, names, pb, status::unsupported};
+use crate::object::ObjectTarget;
 use crate::{
     auth::{self, Caller},
     bucket::{BucketAccess, BucketMetadataUpdate},
@@ -942,16 +943,12 @@ impl Storage {
         let access = self.access(caller, bucket, auth::OBJECTS_UPDATE).await?;
         let mut c = request_conditions!(strict_conditions, r)?;
         if paths.iter().any(|p| p == "metadata") && !o.metadata.is_empty() {
+            let target =
+                ObjectTarget::new(bucket, name, (o.generation != 0).then_some(o.generation));
             let current = self
                 .state
                 .catalog
-                .get_object_authorized(
-                    bucket,
-                    name,
-                    (o.generation != 0).then_some(o.generation),
-                    c,
-                    &access,
-                )
+                .get_object(target, c, &access)
                 .await
                 .map_err(|e| error(JsonError::from(e).naming_object(bucket, name)))?;
             for key in current
@@ -1160,7 +1157,7 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::test_fixtures::PERMISSIVE;
+    use crate::storage::test_fixtures::{PERMISSIVE, live};
     use crate::{
         auth::Auth, clock::SystemClock, object::UploadChunk, server::State, storage::Catalog,
         test_support::TestDir,
@@ -1634,10 +1631,9 @@ mod tests {
             .state
             .catalog
             .get_object(
-                "retention-objects",
-                "kept",
-                None,
-                ObjectConditions::default(),
+                live("retention-objects", "kept"),
+                Default::default(),
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -2002,10 +1998,9 @@ mod tests {
             s.state
                 .catalog
                 .get_object(
-                    "update-copy-bucket",
-                    "object",
-                    None,
-                    ObjectConditions::default()
+                    live("update-copy-bucket", "object"),
+                    Default::default(),
+                    PERMISSIVE
                 )
                 .await
                 .unwrap()
@@ -2180,7 +2175,11 @@ mod tests {
         let read = s
             .state
             .catalog
-            .get_object("update-copy-bucket", "object", None, Default::default())
+            .get_object(
+                live("update-copy-bucket", "object"),
+                Default::default(),
+                PERMISSIVE,
+            )
             .await
             .unwrap();
         assert_eq!(read.metadata.len(), 1);

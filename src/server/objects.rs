@@ -10,6 +10,7 @@ use super::{
     BUCKET_BODY_LIMIT, JsonCache, ObjectCtx, ResponseBody, acl, boxed, empty_response,
     json_response_selected, resumable, retention_access, validate_bodyless_post,
 };
+use crate::object::ObjectTarget;
 use crate::{
     auth,
     bucket::{BucketAccess, CatalogError},
@@ -138,9 +139,10 @@ pub(super) async fn respond(
             conditions,
         } => {
             json::validate_object_get_headers(request.headers())?;
+            let target = ObjectTarget::new(bucket, name, generation);
             ctx.state
                 .catalog
-                .delete_object_authorized(&bucket, &name, generation, conditions, &access)
+                .delete_object(target, conditions, &access)
                 .await?;
             return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
         }

@@ -1,5 +1,6 @@
 use super::RequestBody as Incoming;
 use super::*;
+use crate::object::ObjectTarget;
 use crate::{
     json::rewrite::{RewriteRequest, RewriteSide},
     object::ObjectConditions,
@@ -48,14 +49,9 @@ async fn authorize_source(
     } else {
         requested
     };
+    let target = ObjectTarget::new(&operation.path[0], &operation.path[1], generation);
     catalog
-        .get_object_authorized(
-            &operation.path[0],
-            &operation.path[1],
-            generation,
-            ObjectConditions::default(),
-            access,
-        )
+        .get_object(target, ObjectConditions::default(), access)
         .await?;
     Ok(())
 }

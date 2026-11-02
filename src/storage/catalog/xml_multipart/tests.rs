@@ -1,6 +1,6 @@
 use super::super::fault::{Fault, Step};
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     clock::{Clock, SystemClock},
     object::UploadChunk,
@@ -91,7 +91,7 @@ async fn complete(catalog: &Catalog, target: &Target, etag: &str) -> Result<Obje
 
 async fn bytes(catalog: &Catalog) -> Vec<u8> {
     let (_, mut reader) = catalog
-        .open_object("bucket", "value", None, Default::default())
+        .open_object(live("bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let mut bytes = Vec::new();

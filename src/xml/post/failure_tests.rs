@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     auth::{Auth, Registry},
     clock::{Clock, SystemClock},
@@ -221,7 +222,7 @@ impl Fixture {
     async fn resource(&self) -> ObjectRecord {
         self.state
             .catalog
-            .get_object("bucket", "object", None, ObjectConditions::default())
+            .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
             .await
             .unwrap()
     }
@@ -231,7 +232,7 @@ impl Fixture {
         let (_, mut reader) = self
             .state
             .catalog
-            .open_object("bucket", "object", None, ObjectConditions::default())
+            .open_object(live("bucket", "object"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(
@@ -295,7 +296,7 @@ async fn policy_variants_keep_old_objects_after_write_flush_and_sync_failures() 
         let reopened = Catalog::open(&fixture.dir.0).await.unwrap();
         assert_eq!(
             reopened
-                .get_object("bucket", "object", None, ObjectConditions::default())
+                .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap(),
             before

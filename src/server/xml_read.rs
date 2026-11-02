@@ -5,6 +5,7 @@ use super::{
     ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, gzip, insert_content_range,
     object_body,
 };
+use crate::object::ObjectTarget;
 use crate::{
     auth, bucket::BucketAccess, csek::CustomerKey, json, object::ObjectRecord,
     storage::ObjectReader, xml,
@@ -48,15 +49,10 @@ pub(super) async fn respond(
     // Reads and DELETE have no payload; consume framing before any mutation or response.
     xml::empty_body(request.body_mut()).await?;
     if delete {
+        let target = ObjectTarget::new(operation.bucket, operation.name, operation.generation);
         ctx.state
             .catalog
-            .delete_object_authorized(
-                &operation.bucket,
-                &operation.name,
-                operation.generation,
-                operation.conditions,
-                &access,
-            )
+            .delete_object(target, operation.conditions, &access)
             .await
             .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
         return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
@@ -73,28 +69,15 @@ async fn read(
 ) -> Result<Response<ResponseBody>, xml::Error> {
     let catalog = &ctx.state.catalog;
     let head = request.method() == Method::HEAD;
+    let target = ObjectTarget::new(operation.bucket, operation.name, operation.generation);
     // HEAD returns only metadata, which an encrypted object exposes without its key.
     let (record, mut reader, reveal) = if head {
         catalog
-            .open_object_metadata_keyed(
-                &operation.bucket,
-                &operation.name,
-                operation.generation,
-                operation.conditions,
-                access,
-                key,
-            )
+            .open_object_metadata_keyed(target, operation.conditions, access, key)
             .await
     } else {
         catalog
-            .open_object_keyed(
-                &operation.bucket,
-                &operation.name,
-                operation.generation,
-                operation.conditions,
-                access,
-                key,
-            )
+            .open_object_keyed(target, operation.conditions, access, key)
             .await
             .map(|(record, reader)| (record, reader, true))
     }

@@ -8,8 +8,8 @@
 //! keep only what the write path synced, so they also fail when an fsync goes missing.
 
 use super::*;
-use crate::object::ObjectConditions;
 use crate::storage::catalog::fault::{Fault, Step};
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use std::{io::ErrorKind, path::Path};
 
 const CORRUPT: &str =
@@ -268,7 +268,7 @@ async fn ambiguous_upload_commit_error_keeps_the_committed_object_readable() {
 
 async fn read_all(catalog: &Catalog, name: &str) -> Option<Vec<u8>> {
     let (_, mut reader) = match catalog
-        .open_object("bucket", name, None, ObjectConditions::default())
+        .open_object(live("bucket", name), Default::default(), PERMISSIVE)
         .await
     {
         Ok(opened) => opened,

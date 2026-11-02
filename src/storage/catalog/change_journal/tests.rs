@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     clock::SystemClock,
     object::{ObjectConditions, ObjectMetadataUpdate, UploadChunk},
@@ -87,7 +87,11 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
         .await
         .unwrap();
     catalog
-        .delete_object("test-bucket", "object", None, ObjectConditions::default())
+        .delete_object(
+            live("test-bucket", "object"),
+            Default::default(),
+            PERMISSIVE,
+        )
         .await
         .unwrap();
     let first = catalog.read_changes(Some(baseline), None, 2).await.unwrap();
@@ -463,10 +467,9 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
     publish(&catalog, Origin::Seed, "preserved").await;
     let mut before = catalog
         .get_object(
-            "test-bucket",
-            "preserved",
-            None,
-            ObjectConditions::default(),
+            live("test-bucket", "preserved"),
+            Default::default(),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -498,10 +501,9 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
     assert_eq!(
         catalog
             .get_object(
-                "test-bucket",
-                "preserved",
-                None,
-                ObjectConditions::default()
+                live("test-bucket", "preserved"),
+                Default::default(),
+                PERMISSIVE
             )
             .await
             .unwrap(),

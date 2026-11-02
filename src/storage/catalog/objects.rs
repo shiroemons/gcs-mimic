@@ -1,7 +1,7 @@
 use super::{Catalog, UploadGuard, system_time_micros, unavailable, unix_micros};
 use crate::storage::catalog::sql;
 #[cfg(test)]
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
@@ -9,7 +9,7 @@ use crate::{
     notification::NotificationMode,
     object::{
         ExpectedHashes, HashAlgorithm, HashMismatch, ObjectConditions, ObjectError,
-        ObjectMetadataUpdate, ObjectRecord, UploadChunk,
+        ObjectMetadataUpdate, ObjectRecord, ObjectTarget, UploadChunk,
     },
 };
 use bytes::{Bytes, BytesMut};
@@ -1254,28 +1254,17 @@ impl Catalog {
         .await
     }
 
-    #[cfg(test)]
     pub(crate) async fn get_object(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
-        conditions: ObjectConditions,
-    ) -> Result<ObjectRecord, ObjectError> {
-        self.get_object_authorized(bucket, name, generation, conditions, PERMISSIVE)
-            .await
-    }
-
-    pub(crate) async fn get_object_authorized(
-        &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
-        let bucket = bucket.to_owned();
-        let name = name.to_owned();
+        let ObjectTarget {
+            bucket,
+            name,
+            generation,
+        } = target;
         let access = access.clone();
         self.run(move |connection| {
             let transaction = connection.transaction()?;
@@ -1313,30 +1302,16 @@ impl Catalog {
         .await
     }
 
-    #[cfg(test)]
-    pub(crate) async fn open_object(
-        &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
-        conditions: ObjectConditions,
-    ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-        self.open_object_authorized(bucket, name, generation, conditions, PERMISSIVE)
-            .await
-    }
-
     /// The bucket's project is verified in the same call that resolves the generation and
     /// opens its blob, so the returned reader never belongs to an unauthorized bucket.
     /// Callers without a customer-supplied key cannot open objects encrypted with one.
-    pub(crate) async fn open_object_authorized(
+    pub(crate) async fn open_object(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-        self.open_object_keyed(bucket, name, generation, conditions, access, None)
+        self.open_object_keyed(target, conditions, access, None)
             .await
     }
 
@@ -1483,40 +1458,20 @@ impl Catalog {
         .await
     }
 
-    #[cfg(test)]
     pub(crate) async fn delete_object(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
-        conditions: ObjectConditions,
-    ) -> Result<(), ObjectError> {
-        self.delete_object_authorized(bucket, name, generation, conditions, PERMISSIVE)
-            .await
-    }
-
-    pub(crate) async fn delete_object_authorized(
-        &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
-        let bucket = bucket.to_owned();
-        let name = name.to_owned();
         let access = access.clone();
         let clock = self.0.clock.clone();
         self.run(move |connection| {
             delete_selected(
                 connection,
                 clock.as_ref(),
-                ObjectSelector {
-                    bucket: &bucket,
-                    name: &name,
-                    generation,
-                    conditions,
-                },
+                &target,
+                conditions,
                 &access,
                 None,
             )
@@ -1531,18 +1486,21 @@ impl Catalog {
 pub(super) fn open_selected(
     connection: &mut Connection,
     catalog: &Catalog,
-    bucket: &str,
-    name: &str,
-    generation: Option<i64>,
+    target: &ObjectTarget,
     conditions: ObjectConditions,
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
+    let ObjectTarget {
+        bucket,
+        name,
+        generation,
+    } = target;
     let transaction = connection.transaction()?;
     let (record, id) = selected(
         &transaction,
         bucket,
         name,
-        generation,
+        *generation,
         conditions,
         RequestKind::Read,
         access,
@@ -1585,15 +1543,15 @@ pub(super) fn open_selected(
 pub(super) fn delete_selected(
     connection: &mut Connection,
     clock: &dyn crate::clock::Clock,
-    target: ObjectSelector<'_>,
+    target: &ObjectTarget,
+    conditions: ObjectConditions,
     access: &BucketAccess,
     sync_binding: Option<&super::sync_state::SyncBinding>,
 ) -> Result<(), ObjectError> {
-    let ObjectSelector {
+    let ObjectTarget {
         bucket,
         name,
         generation,
-        conditions,
     } = target;
     authorized_bucket(connection, bucket, access)?;
     super::soft_delete::purge_expired(connection, bucket, unix_micros(clock.now())?)?;
@@ -1602,7 +1560,7 @@ pub(super) fn delete_selected(
         &transaction,
         bucket,
         name,
-        generation,
+        *generation,
         conditions,
         RequestKind::Write,
         access,
@@ -3396,7 +3354,7 @@ mod tests {
             ObjectError::OverwriteForbidden
         );
         let current = catalog
-            .get_object("bucket", "object", None, Default::default())
+            .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(current, winner);
@@ -3544,7 +3502,7 @@ mod tests {
     async fn recreate_bucket(catalog: &Catalog, project: &str) -> ObjectRecord {
         for name in ["object", "fresh"] {
             let _ = catalog
-                .delete_object("bucket", name, None, Default::default())
+                .delete_object(live("bucket", name), Default::default(), PERMISSIVE)
                 .await;
         }
         let _ = catalog
@@ -3569,13 +3527,13 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .get_object_authorized("bucket", "object", None, conditions, access)
+                .get_object(live("bucket", "object"), conditions, access)
                 .await,
             Err(ObjectError::Forbidden)
         );
         assert_eq!(
             catalog
-                .open_object_authorized("bucket", "object", None, conditions, access)
+                .open_object(live("bucket", "object"), conditions, access)
                 .await
                 .map(|(record, _)| record),
             Err(ObjectError::Forbidden)
@@ -3613,7 +3571,7 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .delete_object_authorized("bucket", "object", None, conditions, access)
+                .delete_object(live("bucket", "object"), conditions, access)
                 .await,
             Err(ObjectError::Forbidden)
         );
@@ -3628,7 +3586,7 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .get_object("bucket", "object", None, conditions)
+                .get_object(live("bucket", "object"), conditions, PERMISSIVE)
                 .await
                 .as_ref(),
             Ok(current)
@@ -3748,7 +3706,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 catalog
-                    .get_object_authorized("bucket", "object", None, Default::default(), &access)
+                    .get_object(live("bucket", "object"), Default::default(), &access)
                     .await,
                 Err(ObjectError::Forbidden)
             );
@@ -3769,7 +3727,7 @@ mod tests {
                 .await
                 .unwrap();
             let (_, reader) = catalog
-                .open_object_authorized("bucket", "object", None, Default::default(), &access)
+                .open_object(live("bucket", "object"), Default::default(), &access)
                 .await
                 .unwrap();
             let revoke = catalog.change_acl(
@@ -3779,13 +3737,7 @@ mod tests {
                 },
                 PERMISSIVE,
             );
-            let read = catalog.get_object_authorized(
-                "bucket",
-                "object",
-                None,
-                Default::default(),
-                &access,
-            );
+            let read = catalog.get_object(live("bucket", "object"), Default::default(), &access);
             let (revoked, concurrent) = tokio::join!(revoke, read);
             revoked.unwrap();
             assert!(
@@ -3796,10 +3748,8 @@ mod tests {
             );
             assert_eq!(
                 catalog
-                    .get_object_authorized(
-                        "bucket",
-                        "object",
-                        None,
+                    .get_object(
+                        live("bucket", "object"),
                         ObjectConditions {
                             if_generation_match: Some(0),
                             ..Default::default()
@@ -3954,7 +3904,7 @@ mod tests {
         let actual = policy_access("other-project", Some("other-project"), false);
         assert_eq!(
             catalog
-                .get_object_authorized("bucket", "object", None, Default::default(), &actual)
+                .get_object(live("bucket", "object"), Default::default(), &actual)
                 .await,
             Ok(current)
         );
@@ -3988,13 +3938,13 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .get_object_authorized("bucket", "object", None, conditions, &access)
+                .get_object(live("bucket", "object"), conditions, &access)
                 .await,
             Err(ObjectError::BucketNotFound)
         );
         assert_eq!(
             catalog
-                .delete_object_authorized("bucket", "object", None, conditions, &access)
+                .delete_object(live("bucket", "object"), conditions, &access)
                 .await,
             Err(ObjectError::BucketNotFound)
         );
@@ -4026,7 +3976,7 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .get_object_authorized("bucket", "object", None, conditions, &access)
+                .get_object(live("bucket", "object"), conditions, &access)
                 .await,
             Ok(current)
         );

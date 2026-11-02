@@ -1,6 +1,6 @@
 use super::appendable::AppendError;
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 
 async fn create(catalog: &Catalog) -> appendable::AppendWriter {
     catalog
@@ -30,9 +30,7 @@ async fn takeover(catalog: &Catalog, generation: i64) -> appendable::AppendWrite
 async fn open(catalog: &Catalog) -> (crate::object::ObjectRecord, objects::ObjectReader) {
     catalog
         .open_appendable(
-            "test-bucket",
-            "growing",
-            None,
+            live("test-bucket", "growing"),
             Default::default(),
             PERMISSIVE,
         )
@@ -143,7 +141,11 @@ async fn ram_appendable_prefix_snapshots_takeover_and_catalogs_are_isolated() {
     assert_eq!(
         bytes(
             catalog
-                .open_object("test-bucket", "growing", None, Default::default())
+                .open_object(
+                    live("test-bucket", "growing"),
+                    Default::default(),
+                    PERMISSIVE
+                )
                 .await
                 .unwrap()
                 .1
@@ -175,7 +177,7 @@ async fn ram_appendable_aggregate_quota_preserves_prefix_and_finalization_for_re
     assert_eq!(open(&catalog).await.0.size, 4);
     assert_eq!(bytes(open(&catalog).await.1).await, b"abcd");
     catalog
-        .delete_object_authorized("test-bucket", "value", None, Default::default(), PERMISSIVE)
+        .delete_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let mut current = takeover(&catalog, writer.record().generation).await;
@@ -200,7 +202,11 @@ async fn ram_appendable_aggregate_quota_preserves_prefix_and_finalization_for_re
     assert_eq!(open(&catalog).await.0.size, 8);
     assert!(matches!(
         catalog
-            .get_object("test-bucket", "growing", None, Default::default())
+            .get_object(
+                live("test-bucket", "growing"),
+                Default::default(),
+                PERMISSIVE
+            )
             .await,
         Err(ObjectError::ObjectNotFound)
     ));
@@ -212,7 +218,11 @@ async fn ram_appendable_aggregate_quota_preserves_prefix_and_finalization_for_re
     assert_eq!(
         bytes(
             catalog
-                .open_object("test-bucket", "growing", None, Default::default())
+                .open_object(
+                    live("test-bucket", "growing"),
+                    Default::default(),
+                    PERMISSIVE
+                )
                 .await
                 .unwrap()
                 .1
@@ -357,9 +367,7 @@ async fn ram_appendable_cancelled_flush_rolls_back_candidate_and_allows_takeover
     assert_eq!(bytes(open(&catalog).await.1).await, b"abcdsafe");
     catalog
         .delete_appendable(
-            "test-bucket",
-            "growing",
-            None,
+            live("test-bucket", "growing"),
             Default::default(),
             PERMISSIVE,
         )

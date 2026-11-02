@@ -639,7 +639,7 @@ impl Catalog {
 mod tests {
     use super::*;
     use crate::storage::catalog::test_fixtures::bucket;
-    use crate::storage::test_fixtures::PERMISSIVE;
+    use crate::storage::test_fixtures::{PERMISSIVE, live};
     use crate::{
         clock::Clock,
         object::{ExpectedHashes, UploadChunk},
@@ -790,7 +790,7 @@ mod tests {
                 .is_none()
         );
         let source = catalog
-            .get_object("bucket", "source", None, ObjectConditions::default())
+            .get_object(live("bucket", "source"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(source.size, 0);
@@ -836,7 +836,11 @@ mod tests {
         let catalog = Catalog::open_with_clock(&directory, clock).await.unwrap();
         assert_eq!(
             catalog
-                .get_object("bucket", "destination", None, ObjectConditions::default())
+                .get_object(
+                    live("bucket", "destination"),
+                    Default::default(),
+                    PERMISSIVE
+                )
                 .await
                 .unwrap()
                 .size,

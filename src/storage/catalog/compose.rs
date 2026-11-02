@@ -2,6 +2,8 @@ use super::{
     Catalog, DerivedDestination, DerivedSource, DerivedSourceSpec, compose_crc32c::combine, objects,
 };
 use crate::storage::catalog::bucket_incarnation;
+#[cfg(test)]
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     bucket::BucketAccess,
     clock::Clock,
@@ -349,7 +351,7 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .get_object("bucket", "source", None, ObjectConditions::default())
+                .get_object(live("bucket", "source"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap()
                 .size,
@@ -357,7 +359,11 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .get_object("bucket", "destination", None, ObjectConditions::default())
+                .get_object(
+                    live("bucket", "destination"),
+                    Default::default(),
+                    PERMISSIVE
+                )
                 .await,
             Err(ObjectError::ObjectNotFound)
         );

@@ -1,6 +1,6 @@
 use super::*;
 use crate::storage::catalog::sql;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live, version};
 use crate::{
     notification::NotificationConfig,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
@@ -282,7 +282,11 @@ async fn initial_publications_suppress_global_and_json_events_without_changing_r
             assert!(drain(&catalog).await.is_empty());
             assert_eq!(
                 catalog
-                    .get_object("test-bucket", "prefix/item", None, Default::default())
+                    .get_object(
+                        live("test-bucket", "prefix/item"),
+                        Default::default(),
+                        PERMISSIVE
+                    )
                     .await
                     .unwrap()
                     .generation,
@@ -326,15 +330,18 @@ async fn finalize_archive_delete_snapshots_survive_restart_and_failed_mutations_
         .await
         .unwrap();
     catalog
-        .delete_object("test-bucket", "prefix/item", None, Default::default())
+        .delete_object(
+            live("test-bucket", "prefix/item"),
+            Default::default(),
+            PERMISSIVE,
+        )
         .await
         .unwrap();
     catalog
         .delete_object(
-            "test-bucket",
-            "prefix/item",
-            Some(first.generation),
+            version("test-bucket", "prefix/item", first.generation),
             Default::default(),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -393,7 +400,11 @@ async fn full_outbox_rolls_back_the_object_mutation() {
     ));
     assert_eq!(
         catalog
-            .get_object("test-bucket", "prefix/item", None, Default::default())
+            .get_object(
+                live("test-bucket", "prefix/item"),
+                Default::default(),
+                PERMISSIVE
+            )
             .await,
         Err(ObjectError::ObjectNotFound)
     );
@@ -524,7 +535,11 @@ async fn publication_failures_and_crash_snapshots_keep_objects_and_events_atomic
         assert!(reopened.next_notification().await.unwrap().is_none());
         assert_eq!(
             reopened
-                .get_object("test-bucket", "prefix/item", None, Default::default())
+                .get_object(
+                    live("test-bucket", "prefix/item"),
+                    Default::default(),
+                    PERMISSIVE
+                )
                 .await,
             Err(ObjectError::ObjectNotFound)
         );
@@ -543,7 +558,11 @@ async fn publication_failures_and_crash_snapshots_keep_objects_and_events_atomic
         let recovered = Catalog::open(&snapshot.0).await.unwrap();
         assert_eq!(
             recovered
-                .get_object("test-bucket", "prefix/item", None, Default::default())
+                .get_object(
+                    live("test-bucket", "prefix/item"),
+                    Default::default(),
+                    PERMISSIVE
+                )
                 .await
                 .is_ok(),
             step == Step::AfterCommit
@@ -579,7 +598,11 @@ async fn power_loss_keeps_publication_and_outbox_in_the_same_commit() {
         let committed = step == Step::AfterCommit;
         assert_eq!(
             recovered
-                .get_object("test-bucket", "prefix/item", None, Default::default())
+                .get_object(
+                    live("test-bucket", "prefix/item"),
+                    Default::default(),
+                    PERMISSIVE
+                )
                 .await
                 .is_ok(),
             committed,
@@ -802,7 +825,11 @@ async fn byte_budget_and_count_budget_both_rollback_the_mutation() {
     );
     assert_eq!(
         catalog
-            .get_object("test-bucket", "prefix/item", None, Default::default())
+            .get_object(
+                live("test-bucket", "prefix/item"),
+                Default::default(),
+                PERMISSIVE
+            )
             .await,
         Err(ObjectError::ObjectNotFound)
     );

@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::storage::{ResumableChunk, ResumableError, ResumableOptions};
 use serde_json::json;
 
@@ -73,7 +74,7 @@ async fn ram_resumable_overlap_preserves_prefix_hashes_and_atomic_completion() {
     );
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, Default::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
@@ -89,7 +90,7 @@ async fn ram_resumable_overlap_preserves_prefix_hashes_and_atomic_completion() {
     assert_eq!(stored.state, crate::storage::SessionState::Complete);
     assert_eq!(stored.completion.as_ref(), Some(&completed));
     let object = catalog
-        .get_object("test-bucket", "value", None, Default::default())
+        .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -98,7 +99,7 @@ async fn ram_resumable_overlap_preserves_prefix_hashes_and_atomic_completion() {
     );
     assert_eq!(object.content_type, "application/test");
     let (_, mut reader) = catalog
-        .open_object("test-bucket", "value", None, Default::default())
+        .open_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let mut bytes = Vec::new();
@@ -142,7 +143,7 @@ async fn ram_resumable_capacity_and_checkpoint_failure_restore_bytes_offset_and_
     );
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, Default::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
@@ -179,7 +180,7 @@ async fn ram_resumable_capacity_and_checkpoint_failure_restore_bytes_offset_and_
         .unwrap()
         .unwrap();
     let result = catalog
-        .get_object("test-bucket", "value", None, Default::default())
+        .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -313,7 +314,7 @@ async fn ram_resumable_cancelled_request_discards_tail_and_keeps_the_previous_ha
         .await
         .unwrap();
     let result = catalog
-        .get_object("test-bucket", "value", None, Default::default())
+        .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -488,7 +489,7 @@ async fn ram_resumable_eof_cancellation_keeps_the_owned_checkpoint_offset_and_ha
         .await
         .unwrap();
     let result = catalog
-        .get_object("test-bucket", "value", None, Default::default())
+        .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(

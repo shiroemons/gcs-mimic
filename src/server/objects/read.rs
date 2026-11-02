@@ -1,6 +1,7 @@
 //! JSON API object reads: media downloads and metadata.
 
 use crate::object::ObjectRecord;
+use crate::object::ObjectTarget;
 use crate::server::RequestBody as Incoming;
 use crate::storage::ObjectReader;
 use crate::{
@@ -67,17 +68,11 @@ async fn media(
 ) -> Result<Response<ResponseBody>, JsonError> {
     let params = target.params;
     let key = json::request_key(request.headers())?;
+    let object = ObjectTarget::new(target.bucket, target.name, params.generation);
     let (record, mut reader) = ctx
         .state
         .catalog
-        .open_object_keyed(
-            target.bucket,
-            target.name,
-            params.generation,
-            target.conditions,
-            access,
-            key,
-        )
+        .open_object_keyed(object, target.conditions, access, key)
         .await?;
     json::validate_read_condition_headers(request.headers(), json::EtagConditions::MediaRead)?;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
@@ -396,14 +391,9 @@ async fn metadata(
             )
             .await?
     } else {
+        let object = ObjectTarget::new(target.bucket, target.name, params.generation);
         catalog
-            .get_object_authorized(
-                target.bucket,
-                target.name,
-                params.generation,
-                target.conditions,
-                access,
-            )
+            .get_object(object, target.conditions, access)
             .await?
     };
     json::validate_read_condition_headers(request.headers(), json::EtagConditions::Supported)?;

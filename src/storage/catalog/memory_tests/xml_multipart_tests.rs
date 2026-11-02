@@ -1,6 +1,6 @@
 use super::super::xml_multipart::{CompletedPart, Error, Options, Part, PartUpload, Target};
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 
 async fn begin(catalog: &Catalog) -> Target {
     catalog
@@ -70,7 +70,7 @@ async fn complete(
 
 async fn bytes(catalog: &Catalog) -> Vec<u8> {
     let (_, mut reader) = catalog
-        .open_object("test-bucket", "value", None, Default::default())
+        .open_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let mut bytes = Vec::new();
@@ -144,7 +144,7 @@ async fn ram_xml_multipart_part_eof_sql_failure_and_replacement_keep_selected_by
     ));
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, Default::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
@@ -178,7 +178,7 @@ async fn ram_xml_multipart_quota_preserves_parts_and_old_destination_for_retry()
     reclaimed(&catalog).await;
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, Default::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
@@ -189,7 +189,7 @@ async fn ram_xml_multipart_quota_preserves_parts_and_old_destination_for_retry()
         .unwrap();
     assert_eq!(listed[0].etag, first.etag);
     catalog
-        .delete_object_authorized("test-bucket", "value", None, Default::default(), PERMISSIVE)
+        .delete_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     complete(&catalog, &target, &first.etag).await.unwrap();
@@ -267,7 +267,7 @@ async fn ram_xml_multipart_publication_failure_rolls_back_session_parts_and_outb
     reclaimed(&catalog).await;
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, Default::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
@@ -432,7 +432,7 @@ async fn ram_xml_multipart_queued_part_checkpoint_rechecks_deadline_without_repl
     assert_eq!(old.size, 5);
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, Default::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original

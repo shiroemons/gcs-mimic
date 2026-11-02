@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::{PERMISSIVE, live, version};
 use crate::{
     auth::{Auth, Registry},
     config::Backend,
@@ -140,10 +141,8 @@ async fn appendable_finalization_preserves_creator_when_a_different_principal_ta
             .unwrap();
         assert_eq!(
             catalog
-                .get_object_authorized(
-                    "append",
-                    "owned",
-                    Some(generation),
+                .get_object(
+                    version("append", "owned", generation),
                     Default::default(),
                     &read
                 )
@@ -170,10 +169,8 @@ async fn appendable_finalization_preserves_creator_when_a_different_principal_ta
                 .unwrap();
             assert_eq!(
                 catalog
-                    .get_object_authorized(
-                        "append",
-                        "owned",
-                        None,
+                    .get_object(
+                        live("append", "owned"),
                         Default::default(),
                         &former_finalizer
                     )
@@ -190,7 +187,7 @@ async fn appendable_finalization_preserves_creator_when_a_different_principal_ta
                 .unwrap();
             assert_eq!(
                 catalog
-                    .get_object_authorized("append", "owned", None, Default::default(), &creator)
+                    .get_object(live("append", "owned"), Default::default(), &creator)
                     .await
                     .unwrap()
                     .owner,
@@ -279,13 +276,13 @@ async fn appendable_owner_survives_power_loss_on_both_sides_of_finalization_comm
                 assert_eq!(persisted_content(&recovered, "power-loss").await, b"data");
             } else {
                 let record = recovered
-                    .get_object("append", "power-loss", None, Default::default())
+                    .get_object(live("append", "power-loss"), Default::default(), PERMISSIVE)
                     .await
                     .unwrap();
                 assert_eq!(record.owner, finalized.owner);
                 assert_eq!(record.generation, generation);
                 let (_, mut reader) = recovered
-                    .open_object("append", "power-loss", None, Default::default())
+                    .open_object(live("append", "power-loss"), Default::default(), PERMISSIVE)
                     .await
                     .unwrap();
                 assert_eq!(

@@ -12,7 +12,7 @@ use super::{
 use crate::{
     bucket::BucketAccess,
     csek::{CustomerKey, check_data},
-    object::{ObjectConditions, ObjectError, ObjectRecord},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
 };
 use rusqlite::Connection;
 
@@ -52,21 +52,16 @@ impl Catalog {
     /// Open object data after verifying `key` against the selected generation.
     pub(crate) async fn open_object_keyed(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
         key: Option<CustomerKey>,
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-        let bucket = bucket.to_owned();
-        let name = name.to_owned();
         let catalog = self.clone();
         let access = access.clone();
         self.run(move |connection| {
-            let (record, reader) = objects::open_selected(
-                connection, &catalog, &bucket, &name, generation, conditions, &access,
-            )?;
+            let (record, reader) =
+                objects::open_selected(connection, &catalog, &target, conditions, &access)?;
             check(&record, key)?;
             Ok((record, reader))
         })
@@ -77,21 +72,16 @@ impl Catalog {
     /// match. The returned flag says whether hashes of the stored bytes may be revealed.
     pub(crate) async fn open_object_metadata_keyed(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
         key: Option<CustomerKey>,
     ) -> Result<(ObjectRecord, ObjectReader, bool), ObjectError> {
-        let bucket = bucket.to_owned();
-        let name = name.to_owned();
         let catalog = self.clone();
         let access = access.clone();
         self.run(move |connection| {
-            let (record, reader) = objects::open_selected(
-                connection, &catalog, &bucket, &name, generation, conditions, &access,
-            )?;
+            let (record, reader) =
+                objects::open_selected(connection, &catalog, &target, conditions, &access)?;
             let reveal = crate::csek::check_metadata(record.customer_key_sha256, key)
                 .map_err(ObjectError::CustomerEncryption)?;
             Ok((record, reader, reveal))
@@ -128,7 +118,7 @@ impl Catalog {
 mod tests {
     use super::*;
     use crate::storage::catalog::test_fixtures::bucket;
-    use crate::storage::test_fixtures::PERMISSIVE;
+    use crate::storage::test_fixtures::{PERMISSIVE, live};
     use crate::{
         csek::CsekError,
         object::{ObjectMetadataUpdate, UploadChunk},
@@ -193,9 +183,7 @@ mod tests {
         // Only the fingerprint is persisted: no catalog column can hold the raw key.
         let (record, _) = catalog
             .open_object_keyed(
-                "bucket",
-                "secret",
-                None,
+                live("bucket", "secret"),
                 Default::default(),
                 PERMISSIVE,
                 Some(CustomerKey::from_sha256(sha256)),
@@ -206,7 +194,7 @@ mod tests {
         // Transports that cannot carry a key (gRPC, legacy v1) use the keyless entry points.
         assert_eq!(
             catalog
-                .open_object_authorized("bucket", "secret", None, Default::default(), PERMISSIVE)
+                .open_object(live("bucket", "secret"), Default::default(), PERMISSIVE)
                 .await
                 .err(),
             Some(ObjectError::CustomerEncryption(
@@ -224,9 +212,7 @@ mod tests {
         );
         let (_, _, reveal) = catalog
             .open_object_metadata_keyed(
-                "bucket",
-                "secret",
-                None,
+                live("bucket", "secret"),
                 Default::default(),
                 PERMISSIVE,
                 None,
@@ -251,7 +237,7 @@ mod tests {
         drop(connection);
         let catalog = Catalog::open(&dir.0).await.unwrap();
         let (record, _) = catalog
-            .open_object_authorized("bucket", "plain", None, Default::default(), PERMISSIVE)
+            .open_object(live("bucket", "plain"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(record.customer_key_sha256, None);

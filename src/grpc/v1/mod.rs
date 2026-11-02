@@ -20,6 +20,7 @@ pub mod pb {
     include!("../generated/google.storage.v1.rs");
 }
 
+use crate::object::ObjectTarget;
 use crate::{
     auth::{BUCKETS_LIST, Caller},
     bucket::{BucketAccess, CatalogError},
@@ -559,16 +560,11 @@ impl pb::storage_server::Storage for Storage {
         let access = self
             .access(caller, &r.bucket, "storage.objects.get")
             .await?;
+        let target = ObjectTarget::new(&r.bucket, &r.object, generation(r.generation)?);
         let record = self
             .state
             .catalog
-            .get_object_authorized(
-                &r.bucket,
-                &r.object,
-                generation(r.generation)?,
-                request_conditions!(conditions, r)?,
-                &access,
-            )
+            .get_object(target, request_conditions!(conditions, r)?, &access)
             .await
             .map_err(|error| object_access_error(error, caller))?;
         Ok(Response::new(convert::object(&record)?))
@@ -588,15 +584,10 @@ impl pb::storage_server::Storage for Storage {
         let access = self
             .access(caller, &r.bucket, "storage.objects.delete")
             .await?;
+        let target = ObjectTarget::new(&r.bucket, &r.object, generation(r.generation)?);
         self.state
             .catalog
-            .delete_object_authorized(
-                &r.bucket,
-                &r.object,
-                generation(r.generation)?,
-                request_conditions!(conditions, r)?,
-                &access,
-            )
+            .delete_object(target, request_conditions!(conditions, r)?, &access)
             .await
             .map_err(|error| object_access_error(error, caller))?;
         Ok(Response::new(()))

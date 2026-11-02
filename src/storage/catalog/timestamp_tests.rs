@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live, version};
 use crate::{
     json::{self, Projection},
     object::{
@@ -341,19 +341,17 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
             .unwrap();
         catalog
             .delete_object(
-                "timestamp-bucket",
-                "media",
-                None,
-                ObjectConditions::default(),
+                live("timestamp-bucket", "media"),
+                Default::default(),
+                PERMISSIVE,
             )
             .await
             .unwrap();
         let retired = catalog
             .get_object(
-                "timestamp-bucket",
-                "media",
-                Some(object.generation),
-                ObjectConditions::default(),
+                version("timestamp-bucket", "media", object.generation),
+                Default::default(),
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -386,10 +384,9 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
         assert_eq!(
             catalog
                 .get_object(
-                    "timestamp-bucket",
-                    "resumable",
-                    None,
-                    ObjectConditions::default()
+                    live("timestamp-bucket", "resumable"),
+                    Default::default(),
+                    PERMISSIVE
                 )
                 .await
                 .unwrap()
@@ -551,10 +548,9 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
     assert_eq!(
         catalog
             .get_object(
-                "timestamp-bucket",
-                "source",
-                None,
-                ObjectConditions::default()
+                live("timestamp-bucket", "source"),
+                Default::default(),
+                PERMISSIVE
             )
             .await
             .unwrap()
@@ -708,7 +704,11 @@ async fn resources(catalog: &Catalog) -> Vec<Vec<u8>> {
         );
     }
     let object = catalog
-        .get_object("timestamp-0", "object", None, ObjectConditions::default())
+        .get_object(
+            live("timestamp-0", "object"),
+            Default::default(),
+            PERMISSIVE,
+        )
         .await
         .unwrap();
     result.push(

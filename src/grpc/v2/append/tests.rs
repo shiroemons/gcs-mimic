@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     auth::{Auth, Registry},
     clock::SystemClock,
@@ -222,7 +222,7 @@ async fn append_creates_flushes_reads_and_finalizes_with_reserved_generation() {
     let record = storage
         .state
         .catalog
-        .get_object_authorized("grpc-append", "log", None, Default::default(), PERMISSIVE)
+        .get_object(live("grpc-append", "log"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!((record.generation, record.size), (generation, 11));

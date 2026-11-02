@@ -1,5 +1,5 @@
 use super::super::{generated::google::storage::v2 as pb, v1, v2};
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     auth::{Auth, Registry},
     clock::SystemClock,
@@ -347,7 +347,11 @@ async fn ram_grpc_v2_framing_shares_io_permissions_history_and_derived_publicati
     assert_eq!(
         state
             .catalog
-            .get_object("memory-grpc", "source", None, Default::default())
+            .get_object(
+                live("memory-grpc", "source"),
+                Default::default(),
+                PERMISSIVE
+            )
             .await
             .unwrap()
             .generation,

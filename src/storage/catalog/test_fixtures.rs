@@ -1,8 +1,17 @@
 use crate::bucket::{BucketAccess, BucketRecord};
+use crate::object::ObjectTarget;
 use std::time::UNIX_EPOCH;
 
 /// Spelled out at every call site so a test that skips authorization says so.
 pub(crate) const PERMISSIVE: &BucketAccess = &BucketAccess::Permissive;
+
+pub(crate) fn live(bucket: &str, name: &str) -> ObjectTarget {
+    ObjectTarget::new(bucket, name, None)
+}
+
+pub(crate) fn version(bucket: &str, name: &str, generation: i64) -> ObjectTarget {
+    ObjectTarget::new(bucket, name, Some(generation))
+}
 
 pub(crate) fn bucket(name: &str, project: &str) -> BucketRecord {
     BucketRecord {

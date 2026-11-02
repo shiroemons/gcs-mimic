@@ -392,6 +392,25 @@ impl ObjectMetadataUpdate {
     }
 }
 
+/// The object version a catalog call addresses: optional for live selection, concrete
+/// for soft-deleted versions, appendable takeovers and newly assigned publications.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ObjectTarget<G = Option<i64>> {
+    pub(crate) bucket: String,
+    pub(crate) name: String,
+    pub(crate) generation: G,
+}
+
+impl<G> ObjectTarget<G> {
+    pub(crate) fn new(bucket: impl Into<String>, name: impl Into<String>, generation: G) -> Self {
+        Self {
+            bucket: bucket.into(),
+            name: name.into(),
+            generation,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ObjectConditions {
     pub if_generation_match: Option<i64>,

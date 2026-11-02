@@ -165,7 +165,7 @@ pub(crate) async fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::test_fixtures::PERMISSIVE;
+    use crate::storage::test_fixtures::{PERMISSIVE, live};
     use crate::{
         bucket::{BucketAccess, BucketRecord},
         object::{ObjectConditions, UploadChunk},
@@ -233,7 +233,7 @@ mod tests {
 
     async fn source(catalog: &Catalog) -> DerivedSource {
         let record = catalog
-            .get_object("bucket", "source", None, Default::default())
+            .get_object(live("bucket", "source"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         catalog
@@ -343,7 +343,7 @@ mod tests {
         assert!(!request.is_finished());
         assert_eq!(
             catalog
-                .get_object("bucket", "copy", None, Default::default())
+                .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
                 .await,
             Err(ObjectError::ObjectNotFound)
         );
@@ -352,7 +352,7 @@ mod tests {
         assert_eq!(response.md5, expected);
         assert_eq!(
             catalog
-                .get_object("bucket", "copy", None, Default::default())
+                .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap(),
             response
@@ -382,7 +382,7 @@ mod tests {
         assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
         assert_eq!(
             catalog
-                .get_object("bucket", "copy", None, Default::default())
+                .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap(),
             existing
@@ -420,7 +420,7 @@ mod tests {
             clean(&catalog, &path, &progress.id).await;
             assert_eq!(
                 catalog
-                    .get_object("bucket", "copy", None, Default::default())
+                    .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
                     .await,
                 Err(ObjectError::ObjectNotFound)
             );
@@ -529,13 +529,13 @@ mod tests {
         assert_eq!(request.await.unwrap(), Err(ObjectError::Forbidden));
         assert_eq!(
             catalog
-                .get_object("bucket", "copy", None, Default::default())
+                .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
                 .await,
             Err(ObjectError::ObjectNotFound)
         );
         assert_eq!(
             catalog
-                .get_object("bucket", "source", None, Default::default())
+                .get_object(live("bucket", "source"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap()
                 .generation,
@@ -604,7 +604,7 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .get_object("bucket", "copy", None, Default::default())
+                .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
                 .await,
             Err(ObjectError::ObjectNotFound)
         );
@@ -642,7 +642,7 @@ mod tests {
         assert_eq!(request.await.unwrap(), Err(ObjectError::PreconditionFailed));
         assert_eq!(
             catalog
-                .get_object("bucket", "copy", None, Default::default())
+                .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap(),
             competing
@@ -732,7 +732,7 @@ mod tests {
         clean(&catalog, &path, &progress.id).await;
         assert_eq!(
             catalog
-                .get_object("bucket", "copy", None, Default::default())
+                .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
                 .await,
             Err(ObjectError::ObjectNotFound)
         );
@@ -764,13 +764,13 @@ mod tests {
         clean(&catalog, &path, &progress.id).await;
         assert_eq!(
             catalog
-                .get_object("bucket", "copy", None, Default::default())
+                .get_object(live("bucket", "copy"), Default::default(), PERMISSIVE)
                 .await,
             Err(ObjectError::ObjectNotFound)
         );
         assert_eq!(
             catalog
-                .get_object("bucket", "source", None, Default::default())
+                .get_object(live("bucket", "source"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap(),
             selected

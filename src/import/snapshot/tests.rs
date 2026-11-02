@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, version};
 use crate::{
     fsutil::test_support::SourceDir,
     import::{self, MetadataMode, SourceFormat, SourcePlatform},
@@ -421,7 +421,11 @@ fn snapshot_retention_remains_enforced_after_restart() {
         );
         assert_eq!(
             catalog
-                .delete_object("bucket-one", "retained", Some(7), Default::default())
+                .delete_object(
+                    version("bucket-one", "retained", 7),
+                    Default::default(),
+                    PERMISSIVE
+                )
                 .await,
             Err(crate::object::ObjectError::ObjectRetentionNotMet(Box::new(
                 crate::object::RetainedObject {

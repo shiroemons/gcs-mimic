@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     auth::{
         Auth, Registry,
@@ -172,7 +173,7 @@ async fn signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resourc
     let before = fixture
         .state
         .catalog
-        .get_object("bucket", "object", None, ObjectConditions::default())
+        .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     for (step, skip) in [
@@ -193,7 +194,7 @@ async fn signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resourc
             fixture
                 .state
                 .catalog
-                .get_object("bucket", "object", None, ObjectConditions::default())
+                .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap(),
             before
@@ -201,7 +202,7 @@ async fn signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resourc
         let (_, mut reader) = fixture
             .state
             .catalog
-            .open_object("bucket", "object", None, ObjectConditions::default())
+            .open_object(live("bucket", "object"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(
@@ -229,7 +230,7 @@ async fn signed_chunk_upload_write_tail_flush_and_sync_failures_preserve_resourc
     let reopened = Catalog::open(&fixture.dir.0).await.unwrap();
     assert_eq!(
         reopened
-            .get_object("bucket", "object", None, ObjectConditions::default())
+            .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         before

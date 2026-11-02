@@ -1,6 +1,6 @@
 use super::*;
 use crate::storage::catalog::sql;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live, version};
 use crate::{
     object::{ExpectedHashes, ObjectConditions, ObjectError, UploadChunk},
     storage::admin::{AdminError, BucketDefinition, BucketName},
@@ -105,7 +105,7 @@ async fn ram_derived_pins_survive_source_delete_and_checkpoints_share_hash_and_p
         2
     );
     catalog
-        .delete_object_authorized("test-bucket", "value", None, Default::default(), PERMISSIVE)
+        .delete_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -129,7 +129,7 @@ async fn ram_derived_pins_survive_source_delete_and_checkpoints_share_hash_and_p
         (source.size, source.md5, source.crc32c)
     );
     let (_, mut reader) = catalog
-        .open_object("test-bucket", "copy", None, Default::default())
+        .open_object(live("test-bucket", "copy"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let mut bytes = Vec::new();
@@ -178,7 +178,7 @@ async fn ram_derived_capacity_and_sql_failure_preserve_acknowledged_offset_and_o
     assert_eq!(catalog.get_derived(&transfer.id).await.unwrap().offset, 2);
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, Default::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
@@ -199,7 +199,7 @@ async fn ram_derived_capacity_and_sql_failure_preserve_acknowledged_offset_and_o
     ));
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, Default::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
@@ -287,7 +287,7 @@ async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination
     assert_eq!(catalog.get_derived(&first.id).await.unwrap().offset, 4);
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, Default::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
@@ -308,10 +308,9 @@ async fn ram_derived_publication_rolls_back_callbacks_and_serializes_destination
     );
     let retained = catalog
         .get_object(
-            "test-bucket",
-            "value",
-            Some(original.generation),
+            version("test-bucket", "value", original.generation),
             Default::default(),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -426,20 +425,17 @@ async fn ram_history_and_readers_hold_capacity_until_the_last_byte_reference_dro
         .unwrap();
     let (_, mut reader) = catalog
         .open_object(
-            "test-bucket",
-            "value",
-            Some(first.generation),
-            ObjectConditions::default(),
+            version("test-bucket", "value", first.generation),
+            Default::default(),
+            PERMISSIVE,
         )
         .await
         .unwrap();
     let response_chunk = reader.next_chunk().await.unwrap().unwrap();
     catalog
-        .delete_object_authorized(
-            "test-bucket",
-            "value",
-            Some(first.generation),
-            ObjectConditions::default(),
+        .delete_object(
+            version("test-bucket", "value", first.generation),
+            Default::default(),
             PERMISSIVE,
         )
         .await
@@ -469,7 +465,7 @@ async fn ram_incomplete_bodies_and_competing_conditions_preserve_committed_state
     ));
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, ObjectConditions::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         first
@@ -488,7 +484,7 @@ async fn ram_incomplete_bodies_and_competing_conditions_preserve_committed_state
         Some(ObjectError::PreconditionFailed)
     ));
     let (_, reader) = catalog
-        .open_object("test-bucket", "value", None, ObjectConditions::default())
+        .open_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(
@@ -515,19 +511,13 @@ async fn ram_catalog_pages_are_bounded_without_limiting_another_catalog() {
     );
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, ObjectConditions::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
     );
     catalog
-        .delete_object_authorized(
-            "test-bucket",
-            "value",
-            None,
-            ObjectConditions::default(),
-            PERMISSIVE,
-        )
+        .delete_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     admin.reset().await.unwrap();
@@ -594,10 +584,9 @@ async fn ram_full_catalog_resets_many_objects_without_growing_a_deletion_journal
     }
     let (_, mut reader) = catalog
         .open_object(
-            "test-bucket",
-            "object-0000",
-            None,
-            ObjectConditions::default(),
+            live("test-bucket", "object-0000"),
+            Default::default(),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -827,7 +816,7 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
         .await
         .unwrap();
     let (_, mut reader) = catalog
-        .open_object("test-bucket", "value", None, ObjectConditions::default())
+        .open_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let id: String = catalog
@@ -848,11 +837,9 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
     ];
     assert!(paths.iter().all(|path| !path.exists()));
     catalog
-        .delete_object_authorized(
-            "test-bucket",
-            "value",
-            Some(first.generation),
-            ObjectConditions::default(),
+        .delete_object(
+            version("test-bucket", "value", first.generation),
+            Default::default(),
             PERMISSIVE,
         )
         .await
@@ -895,7 +882,7 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
     assert_eq!(restored.metadata, first.metadata);
     assert_eq!(
         catalog
-            .get_object("test-bucket", "value", None, Default::default())
+            .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         restored
@@ -951,7 +938,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
             .unwrap();
         let first = put(&catalog, Default::default(), true).await.unwrap();
         catalog
-            .delete_object_authorized("test-bucket", "value", None, Default::default(), PERMISSIVE)
+            .delete_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         if budget == 520 {
@@ -975,7 +962,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
         );
         assert!(matches!(
             catalog
-                .get_object("test-bucket", "value", None, Default::default())
+                .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
                 .await,
             Err(ObjectError::ObjectNotFound)
         ));
@@ -1041,7 +1028,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
             ));
             assert_eq!(
                 catalog
-                    .get_object("test-bucket", "value", None, Default::default())
+                    .get_object(live("test-bucket", "value"), Default::default(), PERMISSIVE)
                     .await
                     .unwrap(),
                 restored

@@ -4,6 +4,9 @@ use super::{
     convert, names, pb,
     status::{from_json as json_status, unsupported_for},
 };
+use crate::object::ObjectTarget;
+#[cfg(test)]
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
     grpc::validate::{self, request_conditions},
@@ -316,15 +319,10 @@ impl Storage {
         common(r.common_object_request_params.as_ref())?;
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
         let access = self.access(caller, bucket, OBJECTS_DELETE).await?;
-        self.delete_including_appendable(
-            bucket,
-            name,
-            generation(r.generation)?,
-            request_conditions!(conditions, r)?,
-            &access,
-        )
-        .await
-        .map_err(named_object_status(bucket, name))?;
+        let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
+        self.delete_including_appendable(target, request_conditions!(conditions, r)?, &access)
+            .await
+            .map_err(named_object_status(bucket, name))?;
         Ok(Response::new(()))
     }
     /// Shares the JSON session-URI cancellation so staged bytes follow one cleanup journal.
@@ -380,14 +378,9 @@ impl Storage {
         }
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
+        let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
         let (record, finality) = self
-            .get_readable(
-                bucket,
-                name,
-                generation(r.generation)?,
-                request_conditions!(conditions, r)?,
-                &access,
-            )
+            .get_readable(target, request_conditions!(conditions, r)?, &access)
             .await
             .map_err(named_object_status(bucket, name))?;
         let mut object = super::append::object(&record, finality)?;
@@ -487,14 +480,9 @@ impl Storage {
         common(r.common_object_request_params.as_ref())?;
         let (bucket, name) = names::object_name(&r.bucket, &r.object)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
+        let target = ObjectTarget::new(bucket, name, generation(r.generation)?);
         let (record, mut reader, finality) = self
-            .open_readable(
-                bucket,
-                name,
-                generation(r.generation)?,
-                request_conditions!(conditions, r)?,
-                &access,
-            )
+            .open_readable(target, request_conditions!(conditions, r)?, &access)
             .await
             .map_err(named_object_status(bucket, name))?;
         check_read_offset(&record, r.read_offset)?;
@@ -1822,7 +1810,7 @@ mod tests {
         let stored = storage
             .state
             .catalog
-            .get_object("grpc-io", "cold", None, Default::default())
+            .get_object(live("grpc-io", "cold"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(stored.storage_class, "COLDLINE");
@@ -1955,7 +1943,7 @@ mod tests {
                 storage
                     .state
                     .catalog
-                    .get_object("grpc-io", "object", None, ObjectConditions::default())
+                    .get_object(live("grpc-io", "object"), Default::default(), PERMISSIVE)
                     .await
                     .unwrap()
                     .generation,
@@ -2190,7 +2178,7 @@ mod tests {
         storage
             .state
             .catalog
-            .get_object("grpc-io", name, None, ObjectConditions::default())
+            .get_object(live("grpc-io", name), Default::default(), PERMISSIVE)
             .await
             .is_err_and(|error| error == ObjectError::ObjectNotFound)
     }
@@ -2425,7 +2413,7 @@ mod tests {
                 storage
                     .state
                     .catalog
-                    .get_object("grpc-io", name, None, ObjectConditions::default())
+                    .get_object(live("grpc-io", name), Default::default(), PERMISSIVE)
                     .await
                     .unwrap_err(),
                 ObjectError::ObjectNotFound
@@ -2484,7 +2472,7 @@ mod tests {
             storage
                 .state
                 .catalog
-                .get_object("grpc-io", "final-crc", None, ObjectConditions::default())
+                .get_object(live("grpc-io", "final-crc"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap_err(),
             ObjectError::ObjectNotFound

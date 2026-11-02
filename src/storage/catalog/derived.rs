@@ -1182,7 +1182,7 @@ mod tests {
     use super::*;
     use crate::object::UploadChunk;
     use crate::storage::catalog::test_fixtures::bucket;
-    use crate::storage::test_fixtures::PERMISSIVE;
+    use crate::storage::test_fixtures::{PERMISSIVE, live, version};
     use bytes::Bytes;
     use md5::{Digest, Md5, digest::common::hazmat::SerializableState};
     use std::io::Write;
@@ -1215,7 +1215,7 @@ mod tests {
         drop(catalog);
         let catalog = Catalog::open(&path).await.unwrap();
         let reopened = catalog
-            .get_object("bucket", "multipart", None, Default::default())
+            .get_object(live("bucket", "multipart"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(reopened, record);
@@ -1282,7 +1282,7 @@ mod tests {
             .unwrap();
         assert!(result.resource.is_some());
         let rewritten = catalog
-            .get_object("bucket", "rewrite", None, Default::default())
+            .get_object(live("bucket", "rewrite"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert!(rewritten.has_md5());
@@ -1290,7 +1290,7 @@ mod tests {
         assert_eq!(rewritten.crc32c, original.crc32c);
         assert_eq!(
             catalog
-                .get_object("bucket", "multipart", None, Default::default())
+                .get_object(live("bucket", "multipart"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap(),
             record
@@ -1358,7 +1358,7 @@ mod tests {
 
     async fn bytes(catalog: &Catalog, name: &str) -> Vec<u8> {
         let (_, mut reader) = catalog
-            .open_object("bucket", name, None, Default::default())
+            .open_object(live("bucket", name), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         let mut bytes = Vec::new();
@@ -1401,10 +1401,9 @@ mod tests {
         );
         catalog
             .delete_object(
-                "bucket",
-                "first",
-                Some(first.generation),
+                version("bucket", "first", first.generation),
                 Default::default(),
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -1539,7 +1538,7 @@ mod tests {
             .unwrap();
         assert_eq!((last_after_failure, pending), (last_generation, 0));
         let current = catalog
-            .get_object("bucket", "target", None, Default::default())
+            .get_object(live("bucket", "target"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(current, target);
@@ -1702,7 +1701,7 @@ mod tests {
         let catalog = Catalog::open(&path).await.unwrap();
         assert_eq!(
             catalog
-                .get_object("bucket", "same", None, Default::default())
+                .get_object(live("bucket", "same"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap(),
             record
@@ -2148,7 +2147,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             catalog
-                .get_object("bucket", "source", None, Default::default())
+                .get_object(live("bucket", "source"), Default::default(), PERMISSIVE)
                 .await,
             Err(ObjectError::ObjectNotFound)
         );
@@ -2326,7 +2325,7 @@ mod tests {
         let catalog = Catalog::open(&path).await.unwrap();
         assert_eq!(
             catalog
-                .get_object("bucket", "source", None, Default::default())
+                .get_object(live("bucket", "source"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap(),
             original

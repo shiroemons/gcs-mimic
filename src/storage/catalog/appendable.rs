@@ -23,7 +23,7 @@ use super::{
 use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
-    object::{ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, UploadChunk},
     storage::blob_id::BlobId,
 };
 use bytes::Bytes;
@@ -1033,13 +1033,16 @@ impl Catalog {
     /// Opens the persisted prefix of an unfinalized generation for reading.
     pub(crate) async fn open_appendable(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
-        let (bucket, name, access) = (bucket.to_owned(), name.to_owned(), access.clone());
+        let ObjectTarget {
+            bucket,
+            name,
+            generation,
+        } = target;
+        let access = access.clone();
         let data_dir = self.0.data_dir.clone();
         let memory = self.0.memory.clone();
         let principals = self.0.principals.get().cloned();
@@ -1082,23 +1085,25 @@ impl Catalog {
 
     pub(crate) async fn delete_appendable(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<(), ObjectError> {
-        let slot = SlotHandle::new(self, bucket, name);
+        let slot = SlotHandle::new(self, &target.bucket, &target.name);
         let mut guard = slot.lock().await;
-        let (owned_bucket, owned_name, access) =
-            (bucket.to_owned(), name.to_owned(), access.clone());
+        let ObjectTarget {
+            bucket,
+            name,
+            generation,
+        } = target;
+        let access = access.clone();
         let catalog = self.clone();
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
         self.run_upload(move |connection| {
             let transaction = sql::immediate(connection)?;
-            let (storage_class, _) = authorized_bucket(&transaction, &owned_bucket, &access)?;
-            let Lookup::Live(row) = select(&transaction, &owned_bucket, &owned_name)? else {
+            let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
+            let Lookup::Live(row) = select(&transaction, &bucket, &name)? else {
                 return Err(ObjectError::ObjectNotFound);
             };
             if generation.is_some_and(|generation| generation != row.generation) {
@@ -1106,8 +1111,8 @@ impl Catalog {
             }
             let record = record(
                 &transaction,
-                &owned_bucket,
-                &owned_name,
+                &bucket,
+                &name,
                 storage_class,
                 &row,
                 principals.as_ref(),
@@ -1121,7 +1126,7 @@ impl Catalog {
             sql::exec(
                 &transaction,
                 "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2",
-                params![owned_bucket, owned_name],
+                params![bucket, name],
             )?;
             transaction.commit()?;
             data::remove(&catalog, &row.blob_id)

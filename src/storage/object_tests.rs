@@ -1,6 +1,6 @@
 use super::catalog::test_fixtures::bucket;
 use crate as gcs_mimic;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live, version};
 use bytes::Bytes;
 use gcs_mimic::{
     bucket::{BucketRecord, CatalogError},
@@ -118,13 +118,13 @@ async fn move_reuses_blob_and_preserves_failed_source_conditions() {
         .unwrap();
     assert_ne!(moved.generation, original.generation);
     let (_, reader) = catalog
-        .open_object("bucket", "target", None, Default::default())
+        .open_object(live("bucket", "target"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(read(reader).await, b"moved bytes");
     assert_eq!(
         catalog
-            .get_object("bucket", "source", None, Default::default())
+            .get_object(live("bucket", "source"), Default::default(), PERMISSIVE)
             .await,
         Err(ObjectError::ObjectNotFound)
     );
@@ -202,17 +202,16 @@ async fn round_trip_exact_hashes_opaque_names_and_restart() {
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
         catalog
-            .get_object("bucket", name, None, ObjectConditions::default())
+            .get_object(live("bucket", name), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         record
     );
     let (selected, reader) = catalog
         .open_object(
-            "bucket",
-            name,
-            Some(record.generation),
-            ObjectConditions::default(),
+            version("bucket", name, record.generation),
+            Default::default(),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -220,17 +219,16 @@ async fn round_trip_exact_hashes_opaque_names_and_restart() {
     assert_eq!(read(reader).await, b"123456789");
     catalog
         .delete_object(
-            "bucket",
-            name,
-            Some(record.generation),
-            ObjectConditions::default(),
+            version("bucket", name, record.generation),
+            Default::default(),
+            PERMISSIVE,
         )
         .await
         .unwrap();
     assert_no_uploads(&dir.0);
     assert_eq!(
         catalog
-            .get_object("bucket", name, None, ObjectConditions::default())
+            .get_object(live("bucket", name), Default::default(), PERMISSIVE)
             .await,
         Err(ObjectError::ObjectNotFound)
     );
@@ -262,7 +260,7 @@ async fn producer_closure_without_eof_never_publishes_partial_bytes() {
     );
     assert_eq!(
         catalog
-            .get_object("bucket", "partial", None, ObjectConditions::default())
+            .get_object(live("bucket", "partial"), Default::default(), PERMISSIVE)
             .await,
         Err(ObjectError::ObjectNotFound)
     );
@@ -316,7 +314,7 @@ async fn upload_precheck_rejects_without_waiting_for_body_or_creating_staging() 
     }
     assert_eq!(
         catalog
-            .get_object("bucket", "exists", None, ObjectConditions::default())
+            .get_object(live("bucket", "exists"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
@@ -354,7 +352,7 @@ async fn empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes() 
             (data.len() as u64, md5, crc32c)
         );
         let (_, reader) = catalog
-            .open_object("bucket", "body", None, ObjectConditions::default())
+            .open_object(live("bucket", "body"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         assert_eq!(read(reader).await, data);
@@ -365,7 +363,11 @@ async fn empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes() 
         .await
         .unwrap();
     let (_, reader) = catalog
-        .open_object("bucket", "large-frame", None, ObjectConditions::default())
+        .open_object(
+            live("bucket", "large-frame"),
+            Default::default(),
+            PERMISSIVE,
+        )
         .await
         .unwrap();
     assert_eq!(read(reader).await, data);
@@ -412,7 +414,7 @@ async fn limits_bad_hashes_and_body_errors_leave_no_generation_or_blob() {
         }
         assert_eq!(
             catalog
-                .get_object("bucket", "bad", None, ObjectConditions::default())
+                .get_object(live("bucket", "bad"), Default::default(), PERMISSIVE)
                 .await,
             Err(ObjectError::ObjectNotFound)
         );
@@ -474,7 +476,7 @@ async fn limits_bad_hashes_and_body_errors_leave_no_generation_or_blob() {
     );
     assert_eq!(
         catalog
-            .get_object("bucket", "preserved", None, ObjectConditions::default())
+            .get_object(live("bucket", "preserved"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
@@ -555,12 +557,14 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
             ObjectError::PreconditionFailed
         };
         assert_eq!(
-            catalog.get_object("bucket", "conditions", None, fail).await,
+            catalog
+                .get_object(live("bucket", "conditions"), fail, PERMISSIVE)
+                .await,
             Err(read_error)
         );
         assert_eq!(
             catalog
-                .open_object("bucket", "conditions", None, fail)
+                .open_object(live("bucket", "conditions"), fail, PERMISSIVE)
                 .await
                 .err(),
             Some(if index % 2 == 1 {
@@ -575,7 +579,7 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
         );
         assert_eq!(
             catalog
-                .delete_object("bucket", "conditions", None, fail)
+                .delete_object(live("bucket", "conditions"), fail, PERMISSIVE)
                 .await,
             Err(ObjectError::PreconditionFailed)
         );
@@ -583,14 +587,14 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
         let pass = conditions(record.generation, index, true);
         assert_eq!(
             catalog
-                .get_object("bucket", "conditions", None, pass)
+                .get_object(live("bucket", "conditions"), pass, PERMISSIVE)
                 .await
                 .unwrap(),
             record
         );
         assert!(
             catalog
-                .open_object("bucket", "conditions", None, pass)
+                .open_object(live("bucket", "conditions"), pass, PERMISSIVE)
                 .await
                 .is_ok()
         );
@@ -603,10 +607,9 @@ async fn all_four_preconditions_apply_to_reads_uploads_and_deletes() {
     for index in 0..4 {
         catalog
             .delete_object(
-                "bucket",
-                "conditions",
-                None,
+                live("bucket", "conditions"),
                 conditions(record.generation, index, true),
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -689,10 +692,9 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
     let old_path = blobs(&dir.0).pop().unwrap();
     let (_, old_reader) = catalog
         .open_object(
-            "bucket",
-            "object",
-            Some(first.generation),
-            ObjectConditions::default(),
+            version("bucket", "object", first.generation),
+            Default::default(),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -710,10 +712,9 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
     assert_eq!(
         catalog
             .get_object(
-                "bucket",
-                "object",
-                Some(first.generation),
-                ObjectConditions::default()
+                version("bucket", "object", first.generation),
+                Default::default(),
+                PERMISSIVE
             )
             .await,
         Err(ObjectError::ObjectNotFound)
@@ -721,10 +722,9 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
     assert_eq!(
         catalog
             .open_object(
-                "bucket",
-                "object",
-                Some(first.generation),
-                ObjectConditions::default()
+                version("bucket", "object", first.generation),
+                Default::default(),
+                PERMISSIVE
             )
             .await
             .err(),
@@ -733,10 +733,9 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
     assert_eq!(
         catalog
             .delete_object(
-                "bucket",
-                "object",
-                Some(first.generation),
-                ObjectConditions::default()
+                version("bucket", "object", first.generation),
+                Default::default(),
+                PERMISSIVE
             )
             .await,
         Err(ObjectError::ObjectNotFound)
@@ -749,19 +748,17 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
     );
     let (_, reader) = catalog
         .open_object(
-            "bucket",
-            "object",
-            Some(second.generation),
-            ObjectConditions::default(),
+            version("bucket", "object", second.generation),
+            Default::default(),
+            PERMISSIVE,
         )
         .await
         .unwrap();
     catalog
         .delete_object(
-            "bucket",
-            "object",
-            Some(second.generation),
-            ObjectConditions::default(),
+            version("bucket", "object", second.generation),
+            Default::default(),
+            PERMISSIVE,
         )
         .await
         .unwrap();
@@ -769,7 +766,7 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
     assert_no_uploads(&dir.0);
     assert_eq!(
         catalog
-            .delete_object("bucket", "object", None, ObjectConditions::default())
+            .delete_object(live("bucket", "object"), Default::default(), PERMISSIVE)
             .await,
         Err(ObjectError::ObjectNotFound)
     );
@@ -779,7 +776,7 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
         .unwrap();
     assert_eq!(
         catalog
-            .get_object("bucket", "object", None, ObjectConditions::default())
+            .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
             .await,
         Err(ObjectError::BucketNotFound)
     );
@@ -798,7 +795,7 @@ async fn deleted_generations_are_never_reused_after_restart_or_backward_clock() 
         .await
         .unwrap();
     catalog
-        .delete_object("bucket", "identity", None, ObjectConditions::default())
+        .delete_object(live("bucket", "identity"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let second = put(&catalog, "identity", b"second", ObjectConditions::default())
@@ -806,7 +803,7 @@ async fn deleted_generations_are_never_reused_after_restart_or_backward_clock() 
         .unwrap();
     assert_ne!(first.generation, second.generation);
     catalog
-        .delete_object("bucket", "identity", None, ObjectConditions::default())
+        .delete_object(live("bucket", "identity"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     catalog.close().await.unwrap();
@@ -822,10 +819,9 @@ async fn deleted_generations_are_never_reused_after_restart_or_backward_clock() 
         assert_eq!(
             catalog
                 .get_object(
-                    "bucket",
-                    "identity",
-                    Some(stale),
-                    ObjectConditions::default()
+                    version("bucket", "identity", stale),
+                    Default::default(),
+                    PERMISSIVE
                 )
                 .await,
             Err(ObjectError::ObjectNotFound)
@@ -833,13 +829,12 @@ async fn deleted_generations_are_never_reused_after_restart_or_backward_clock() 
         assert_eq!(
             catalog
                 .delete_object(
-                    "bucket",
-                    "identity",
-                    None,
+                    live("bucket", "identity"),
                     ObjectConditions {
                         if_generation_match: Some(stale),
                         ..Default::default()
-                    }
+                    },
+                    PERMISSIVE
                 )
                 .await,
             Err(ObjectError::PreconditionFailed)
@@ -847,7 +842,7 @@ async fn deleted_generations_are_never_reused_after_restart_or_backward_clock() 
     }
     assert_eq!(
         catalog
-            .get_object("bucket", "identity", None, ObjectConditions::default())
+            .get_object(live("bucket", "identity"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         third
@@ -905,7 +900,7 @@ async fn conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic(
             conditions,
             async move {
                 deleting
-                    .delete_object("bucket", "race", None, conditions)
+                    .delete_object(live("bucket", "race"), conditions, PERMISSIVE)
                     .await
             },
             iteration,
@@ -916,13 +911,13 @@ async fn conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic(
                 overwrite_wins += 1;
                 assert_eq!(
                     catalog
-                        .get_object("bucket", "race", None, ObjectConditions::default())
+                        .get_object(live("bucket", "race"), Default::default(), PERMISSIVE)
                         .await
                         .unwrap(),
                     next
                 );
                 catalog
-                    .delete_object("bucket", "race", None, ObjectConditions::default())
+                    .delete_object(live("bucket", "race"), Default::default(), PERMISSIVE)
                     .await
                     .unwrap();
             }
@@ -930,7 +925,7 @@ async fn conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic(
                 object_delete_wins += 1;
                 assert_eq!(
                     catalog
-                        .get_object("bucket", "race", None, ObjectConditions::default())
+                        .get_object(live("bucket", "race"), Default::default(), PERMISSIVE)
                         .await,
                     Err(ObjectError::ObjectNotFound)
                 );
@@ -957,13 +952,13 @@ async fn conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic(
                 upload_wins += 1;
                 assert_eq!(
                     catalog
-                        .get_object("bucket", "new", None, ObjectConditions::default())
+                        .get_object(live("bucket", "new"), Default::default(), PERMISSIVE)
                         .await
                         .unwrap(),
                     record
                 );
                 catalog
-                    .delete_object("bucket", "new", None, ObjectConditions::default())
+                    .delete_object(live("bucket", "new"), Default::default(), PERMISSIVE)
                     .await
                     .unwrap();
             }
@@ -971,7 +966,7 @@ async fn conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic(
                 bucket_delete_wins += 1;
                 assert_eq!(
                     catalog
-                        .get_object("bucket", "new", None, ObjectConditions::default())
+                        .get_object(live("bucket", "new"), Default::default(), PERMISSIVE)
                         .await,
                     Err(ObjectError::BucketNotFound)
                 );
@@ -1050,7 +1045,7 @@ async fn race_upload<T: Send + 'static>(
             tokio::time::timeout(Duration::from_secs(5), async {
                 loop {
                     if let Ok(record) = observer
-                        .get_object("bucket", name, None, ObjectConditions::default())
+                        .get_object(live("bucket", name), Default::default(), PERMISSIVE)
                         .await
                         && Some(record.generation) != conditions.if_generation_match
                     {
@@ -1189,7 +1184,7 @@ async fn committed_mutations_succeed_when_reclaim_is_deferred_to_restart() {
     assert!(old_path.exists(), "read-only shard prevented reclaim");
     assert_eq!(
         catalog
-            .get_object("bucket", "object", None, ObjectConditions::default())
+            .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         next
@@ -1211,7 +1206,7 @@ async fn committed_mutations_succeed_when_reclaim_is_deferred_to_restart() {
     fs::set_permissions(old_shard, fs::Permissions::from_mode(0o555)).unwrap();
     fs::set_permissions(new_shard, fs::Permissions::from_mode(0o555)).unwrap();
     let result = catalog
-        .delete_object("bucket", "object", None, ObjectConditions::default())
+        .delete_object(live("bucket", "object"), Default::default(), PERMISSIVE)
         .await;
     fs::set_permissions(new_shard, permissions).unwrap();
     fs::set_permissions(old_shard, old_permissions).unwrap();
@@ -1230,7 +1225,7 @@ async fn committed_mutations_succeed_when_reclaim_is_deferred_to_restart() {
     assert_no_uploads(&dir.0);
     assert_eq!(
         catalog
-            .get_object("bucket", "object", None, ObjectConditions::default())
+            .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
             .await,
         Err(ObjectError::ObjectNotFound)
     );
@@ -1285,7 +1280,7 @@ async fn failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fi
 async fn recovery_ignores_os_metadata_and_names_other_stray_entries() {
     let dir = TestDir::new();
     let catalog = setup(&dir).await;
-    let live = put(&catalog, "live", b"durable", ObjectConditions::default())
+    let published = put(&catalog, "live", b"durable", ObjectConditions::default())
         .await
         .unwrap();
     let shard = blobs(&dir.0).pop().unwrap().parent().unwrap().to_owned();
@@ -1298,10 +1293,10 @@ async fn recovery_ignores_os_metadata_and_names_other_stray_entries() {
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
         catalog
-            .get_object("bucket", "live", None, ObjectConditions::default())
+            .get_object(live("bucket", "live"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
-        live
+        published
     );
     catalog.close().await.unwrap();
     for stray in [
@@ -1338,7 +1333,7 @@ async fn recovery_ignores_os_metadata_and_names_other_stray_entries() {
 async fn recovery_clears_staging_orphans_and_pending_deletions_preserving_live_objects() {
     let dir = TestDir::new();
     let catalog = setup(&dir).await;
-    let live = put(&catalog, "live", b"durable", ObjectConditions::default())
+    let published = put(&catalog, "live", b"durable", ObjectConditions::default())
         .await
         .unwrap();
     catalog.close().await.unwrap();
@@ -1367,10 +1362,10 @@ async fn recovery_clears_staging_orphans_and_pending_deletions_preserving_live_o
     assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
     assert_eq!(
         catalog
-            .get_object("bucket", "live", None, ObjectConditions::default())
+            .get_object(live("bucket", "live"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
-        live
+        published
     );
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
@@ -1420,7 +1415,7 @@ async fn recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry(
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(blobs(&dir.0).len(), 131);
     let (_, reader) = catalog
-        .open_object("bucket", "live-129", None, ObjectConditions::default())
+        .open_object(live("bucket", "live-129"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(read(reader).await, b"orphan");
@@ -1543,7 +1538,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         let catalog = Catalog::open(&dir.0).await.unwrap();
         assert_eq!(
             catalog
-                .get_object("bucket", "migrated", None, ObjectConditions::default())
+                .get_object(live("bucket", "migrated"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap(),
             object
@@ -1644,7 +1639,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
     assert!(!settings.versioning_enabled && !settings.default_event_based_hold);
     assert_eq!(
         catalog
-            .get_object("bucket", "metadata", None, ObjectConditions::default())
+            .get_object(live("bucket", "metadata"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         original
@@ -1672,7 +1667,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
     assert_eq!(changed.md5, original.md5);
     assert_eq!(blobs(&dir.0), original_paths);
     let (_, reader) = catalog
-        .open_object("bucket", "metadata", None, ObjectConditions::default())
+        .open_object(live("bucket", "metadata"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(read(reader).await, b"unchanged");
@@ -1699,7 +1694,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
         catalog
-            .get_object("bucket", "metadata", None, ObjectConditions::default())
+            .get_object(live("bucket", "metadata"), Default::default(), PERMISSIVE)
             .await
             .unwrap(),
         cleared
@@ -1756,7 +1751,7 @@ async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity()
                         .map(|_| ())
                 } else {
                     catalog
-                        .delete_object("bucket", "race", None, conditions)
+                        .delete_object(live("bucket", "race"), conditions, PERMISSIVE)
                         .await
                 }
             })
@@ -1768,7 +1763,7 @@ async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity()
         if updated.is_ok() {
             assert_eq!(mutated, Err(ObjectError::PreconditionFailed));
             let (record, reader) = catalog
-                .open_object("bucket", "race", None, ObjectConditions::default())
+                .open_object(live("bucket", "race"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap();
             assert_eq!(record.generation, original.generation);
@@ -1778,7 +1773,7 @@ async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity()
         } else if overwrite {
             assert_eq!(updated, Err(ObjectError::PreconditionFailed));
             let (record, reader) = catalog
-                .open_object("bucket", "race", None, ObjectConditions::default())
+                .open_object(live("bucket", "race"), Default::default(), PERMISSIVE)
                 .await
                 .unwrap();
             assert_ne!(record.generation, original.generation);
@@ -1789,7 +1784,7 @@ async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity()
             assert_eq!(updated, Err(ObjectError::ObjectNotFound));
             assert_eq!(
                 catalog
-                    .get_object("bucket", "race", None, ObjectConditions::default())
+                    .get_object(live("bucket", "race"), Default::default(), PERMISSIVE)
                     .await,
                 Err(ObjectError::ObjectNotFound)
             );

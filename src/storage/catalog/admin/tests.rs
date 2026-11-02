@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live, version};
 use crate::{
     clock::SystemClock,
     test_support::{TestDir, live_len},
@@ -164,7 +164,11 @@ async fn reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bod
         publication.await.unwrap();
         cleanup.await.unwrap().unwrap();
         let (_, mut reader) = catalog
-            .open_object("test-bucket", "object", None, Default::default())
+            .open_object(
+                live("test-bucket", "object"),
+                Default::default(),
+                PERMISSIVE,
+            )
             .await
             .unwrap();
         let expected: &[u8] = if route == "derived" { b"old" } else { b"new" };
@@ -783,12 +787,10 @@ async fn admin_replace_preserves_conditions_checksums_metadata_and_versions() {
         .unwrap();
     assert!(matches!(
         catalog
-            .get_object_authorized(
-                bucket.as_str(),
-                name.as_str(),
-                Some(first.generation),
+            .get_object(
+                version(bucket.as_str(), name.as_str(), first.generation),
                 Default::default(),
-                &anonymous,
+                &anonymous
             )
             .await,
         Err(crate::object::ObjectError::Forbidden)

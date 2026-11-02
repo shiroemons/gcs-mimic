@@ -805,7 +805,7 @@ fn lenient_decode(raw: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::test_fixtures::PERMISSIVE;
+    use crate::storage::test_fixtures::{PERMISSIVE, live};
 
     #[test]
     fn jwt_detection_requires_three_segments_and_a_json_header() {
@@ -1148,7 +1148,11 @@ mod tests {
         ));
         for method in ["PATCH", "PUT"] {
             let before = catalog
-                .get_object("acl-permissions", "object", None, Default::default())
+                .get_object(
+                    live("acl-permissions", "object"),
+                    Default::default(),
+                    PERMISSIVE,
+                )
                 .await
                 .unwrap();
             let mut acl = crate::acl::project_private("project");
@@ -1167,14 +1171,22 @@ mod tests {
             );
             assert_eq!(response["acl"].as_array().unwrap().len(), 3);
             let unchanged = catalog
-                .get_object("acl-permissions", "object", None, Default::default())
+                .get_object(
+                    live("acl-permissions", "object"),
+                    Default::default(),
+                    PERMISSIVE,
+                )
                 .await
                 .unwrap();
             let (status, response) = request(address, method, serde_json::json!({"acl":[{"entity":"allUsers","role":"READER"}],"contentType":"text/rejected"}), "reader").await;
             assert_eq!(status, 403, "{response}");
             assert_eq!(
                 catalog
-                    .get_object("acl-permissions", "object", None, Default::default())
+                    .get_object(
+                        live("acl-permissions", "object"),
+                        Default::default(),
+                        PERMISSIVE
+                    )
                     .await
                     .unwrap(),
                 unchanged
