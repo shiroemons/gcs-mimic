@@ -136,15 +136,21 @@ for jobs in 0 -1 x; do
   test "$status" = 2
 done
 
-# The RAM disk wrapper preserves the command's arguments and status when it is disabled.
-status=0
-GCSM_TEST_RAMDISK=0 TMPDIR="$work/tmp" bash scripts/with-test-tmpdir.sh \
-  bash -c 'test "$TMPDIR|$1|${GCSM_TEST_JOBS:-unset}" = "$0|two words|unset"; exit 7' "$work/tmp" 'two words' ||
-  status=$?
-test "$status" = 7
-for setting in 'GCSM_TEST_RAMDISK=2' 'GCSM_TEST_RAMDISK_MB=0'; do
+# The RAM disk is opt-in: by default, and when disabled, the wrapper preserves the command's
+# environment, arguments and status, and ignores the size setting.
+for setting in '' 'GCSM_TEST_RAMDISK=0'; do
   status=0
-  env "$setting" bash scripts/with-test-tmpdir.sh true >"$work/output" 2>&1 || status=$?
+  # shellcheck disable=SC2086 # The empty setting leaves GCSM_TEST_RAMDISK unset.
+  env -u GCSM_TEST_RAMDISK -u GCSM_TEST_JOBS GCSM_TEST_RAMDISK_MB=0 TMPDIR="$work/tmp" \
+    $setting bash scripts/with-test-tmpdir.sh \
+    bash -c 'test "$TMPDIR|$1|${GCSM_TEST_JOBS:-unset}" = "$0|two words|unset"; exit 7' "$work/tmp" 'two words' ||
+    status=$?
+  test "$status" = 7
+done
+for setting in 'GCSM_TEST_RAMDISK=2' 'GCSM_TEST_RAMDISK=1 GCSM_TEST_RAMDISK_MB=0'; do
+  status=0
+  # shellcheck disable=SC2086 # Each setting lists one or two assignments for env.
+  env $setting bash scripts/with-test-tmpdir.sh true >"$work/output" 2>&1 || status=$?
   if [[ $(uname -s) == Darwin || $setting == GCSM_TEST_RAMDISK=2 ]]; then test "$status" = 2; fi
 done
 status=0

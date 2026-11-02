@@ -105,18 +105,25 @@ separate native container jobs.
 the SDK server binary first: that build and the test build both re-link
 `target/debug/gcs-mimic`, which the integration tests start, so the two must
 not overlap with running tests. `just check` and `just check-sdk` run through
-`scripts/with-test-tmpdir.sh`. On macOS, that wrapper attaches a temporary RAM
-disk (`GCSM_TEST_RAMDISK_MB`, default 4096), uses it as `TMPDIR`, raises
-the default pool to 4, and detaches the disk on exit. Tests keep their real file
+`scripts/with-test-tmpdir.sh`. By default the tests use the normal `TMPDIR`
+with a serial pool, the same conditions as CI. Tests keep their real file
 synchronization. macOS implements it with `F_FULLFSYNC`, which flushes the
-system disk and otherwise dominates test time. Concurrent tests on the system
-disk delay processes enough to break wall-clock deadline tests, so the pool
-stays serial there. Set `GCSM_TEST_RAMDISK=0` to use the normal `TMPDIR`.
+system disk and dominates test time there; concurrent tests on the system disk
+delay processes enough to break wall-clock deadline tests, so the pool stays
+serial. On macOS, `GCSM_TEST_RAMDISK=1` opts in to a temporary RAM disk
+(`GCSM_TEST_RAMDISK_MB`, default 4096) used as `TMPDIR`, with the default pool
+raised to 4. The RAM disk is not the default because it pins memory: a disk
+that fails to detach keeps that memory until it is detached by hand and can
+destabilize the whole machine, while the default only costs time. On exit the
+wrapper stops processes that still hold files on the disk (with `SIGTERM`, then
+`SIGKILL`, listing each one) before detaching it: a busy disk fails a plain
+detach, and `-force`, kept as the fallback, would unmount files still in use.
+Every macOS run also releases test RAM
+disks left by a run that was killed before its cleanup, identified by the
+wrapper PID in the volume name; a disk whose PID is still alive is left alone.
 If the RAM disk cannot be created, the wrapper warns and continues serially. On
-other platforms the wrapper changes nothing, and CI runs the binaries serially
-on its disk. Local macOS checks and CI therefore run tests under different
-timing, so a timing-sensitive failure can appear in only one of them; treat it
-as a test defect in either place. These settings use the `GCSM_TEST_` prefix
+other platforms the wrapper changes nothing. A timing-sensitive failure can
+appear with or without the RAM disk; treat it as a test defect either way. These settings use the `GCSM_TEST_` prefix
 because the server reads every `GCS_MIMIC_` and `FAKE_GCS_` variable as its own
 setting and rejects unknown names.
 
