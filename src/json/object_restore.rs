@@ -3,7 +3,10 @@ use super::{
     objects::integer,
     query::{Decoding, decode, finish, parse_query, projection},
 };
-use crate::{config::CompatProfile, object::ObjectConditions};
+use crate::{
+    config::CompatProfile,
+    object::{ObjectConditions, ObjectTarget},
+};
 use hyper::{Method, Uri};
 
 pub(super) fn route(
@@ -82,9 +85,7 @@ pub(super) fn route(
         }
         finish(&query)?;
         Ok(ObjectRequest::Restore {
-            bucket,
-            name,
-            generation,
+            target: ObjectTarget::new(bucket, name, generation),
             conditions,
         })
     })())

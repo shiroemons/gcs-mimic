@@ -40,9 +40,7 @@ pub(crate) struct UploadRequest<N> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ObjectRequest {
     Restore {
-        bucket: String,
-        name: String,
-        generation: i64,
+        target: ObjectTarget<i64>,
         conditions: ObjectConditions,
     },
     Move(super::ObjectMoveParams),

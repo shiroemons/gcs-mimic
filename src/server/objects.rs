@@ -67,13 +67,7 @@ pub(super) async fn respond(
     // Cloud Storage sends no ETag header with a move response, though the body has an etag.
     let validator_header = !matches!(operation, ObjectRequest::Move(_));
     let written = match operation {
-        ObjectRequest::Restore {
-            bucket,
-            name,
-            generation,
-            conditions,
-        } => {
-            let target = ObjectTarget::new(bucket, name, generation);
+        ObjectRequest::Restore { target, conditions } => {
             restore(request, ctx, &access, &query, target, conditions)
                 .await?
                 .into()
@@ -161,7 +155,7 @@ fn response_fields(uri: &Uri, operation: &ObjectRequest) -> Result<json::Fields,
 /// The permission an operation needs on the bucket its request names.
 fn required_permission(operation: &ObjectRequest) -> (&'static str, &str) {
     match operation {
-        ObjectRequest::Restore { bucket, .. } => (auth::OBJECTS_RESTORE, bucket),
+        ObjectRequest::Restore { target, .. } => (auth::OBJECTS_RESTORE, &target.bucket),
         ObjectRequest::Move(params) => (auth::OBJECTS_CREATE, &params.names.bucket),
         ObjectRequest::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
