@@ -13,7 +13,6 @@ use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
-    process::Stdio,
     thread,
     time::{Duration, Instant},
 };
@@ -814,7 +813,7 @@ fn obj_http_trickle_download_stops_at_absolute_deadline() {
 #[test]
 fn obj_http_media_read_failure_after_headers_names_its_cause() {
     let dir = TestDir::new();
-    let mut server = Server::launch(http_command(&dir.0).stderr(Stdio::piped()));
+    let mut server = Server::launch(http_command(&dir.0).stderr(std::process::Stdio::piped()));
     let mut stderr = server.child.stderr.take().unwrap();
     server.bucket();
     let size = 8 * 1024 * 1024;
