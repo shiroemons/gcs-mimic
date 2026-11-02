@@ -454,8 +454,8 @@ impl std::error::Error for CatalogError {
     }
 }
 
-/// Bucket metageneration conditions stay separate from object metageneration conditions.
-/// The default carries no condition.
+/// Optional metageneration preconditions for a bucket request, separate from
+/// [`crate::object::ObjectConditions`]. The default carries no condition.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct BucketConditions {
     pub if_metageneration_match: Option<i64>,
@@ -463,7 +463,9 @@ pub(crate) struct BucketConditions {
 }
 
 impl BucketConditions {
-    /// Callers that return 304 for a matching not-match condition read the fields instead.
+    /// Return `true` when both optional preconditions hold for `metageneration`.
+    /// Callers answering a matching `if_metageneration_not_match` with 304 rather than 412
+    /// read the fields instead.
     pub(crate) fn hold(self, metageneration: i64) -> bool {
         self.if_metageneration_match
             .is_none_or(|value| value == metageneration)

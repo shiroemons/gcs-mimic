@@ -702,7 +702,10 @@ impl Catalog {
         .await
     }
 
-    /// Read effective entries; bucket metageneration conditions apply to default object ACL lists.
+    /// Read effective entries, checking conditions against the target's metageneration.
+    /// Bucket and default object ACL targets use the bucket's metageneration; object ACL
+    /// targets use the selected object's metageneration, so pass default conditions for them.
+    /// JSON defines bucket metageneration conditions only for default object ACL lists.
     pub(crate) async fn read_acl(
         &self,
         target: AclTarget,
