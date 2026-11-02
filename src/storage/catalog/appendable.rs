@@ -14,8 +14,8 @@
 use super::{
     Catalog,
     objects::{
-        ObjectReader, ObjectUpload, authorized_bucket, check_conditions, lookup,
-        object_unavailable, unlink,
+        ObjectReader, ObjectUpload, PublicationDefaults, authorized_bucket, check_conditions,
+        lookup, object_unavailable, unlink,
     },
     resumable::{ResumableOptions, decode_options, encode_options},
     system_time_micros, unix_micros,
@@ -413,42 +413,30 @@ fn record(
         bucket_class,
     )
     .map_err(object_unavailable)?;
-    let mut record = ObjectRecord {
-        bucket: bucket.to_owned(),
-        name: name.to_owned(),
-        generation: row.generation,
-        metageneration: 1,
+    let defaults = PublicationDefaults {
+        storage_class,
+        event_based_hold: false,
+        time: row.time_created,
         owner: Some(super::object_owner::for_publication(
             connection,
             bucket,
             &row.options.access,
             profile,
         )?),
-        content_type: row.options.content_type.clone(),
-        content_encoding: None,
-        content_disposition: None,
-        content_language: None,
-        cache_control: None,
-        metadata: Default::default(),
-        size: row.size,
-        md5: [0; 16],
-        md5_availability: crate::object::Md5Availability::Unavailable,
-        crc32c: row.crc32c,
-        component_count: None,
-        storage_class,
-        time_created: row.time_created,
-        updated: row.updated,
-        time_deleted: None,
-        soft_delete_time: None,
-        hard_delete_time: None,
-        event_based_hold: None,
-        temporary_hold: None,
-        custom_time: None,
-        retention_expiration_time: None,
-        // Creation rejects object retention and customer-supplied keys.
-        retention: None,
-        customer_key_sha256: None,
     };
+    let mut record = defaults.record(
+        bucket.to_owned(),
+        name.to_owned(),
+        row.generation,
+        row.options.content_type.clone(),
+        row.size,
+        crate::hashing::Hashes {
+            md5: [0; 16],
+            crc32c: row.crc32c,
+        },
+    );
+    record.updated = row.updated;
+    record.md5_availability = crate::object::Md5Availability::Unavailable;
     row.options.metadata.clone().apply(&mut record)?;
     Ok(record)
 }

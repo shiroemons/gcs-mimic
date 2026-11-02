@@ -872,17 +872,12 @@ impl Catalog {
                 let version = objects::NewVersion { blob_id: &query, assignment: objects::GenerationAssignment::Automatic, micros, origin: super::change_journal::origin(&destination.access), notification_mode: crate::notification::NotificationMode::Emit, owner_profile: principals.as_ref(), acl: super::acl::PublicationAcl::InheritDefault };
                 let (record, _retired, ()) = objects::publish_in_transaction(&transaction, previous.as_ref(), versioning, version, |generation| {
                 crate::bucket::validate_storage_class(&storage_class).map_err(|error| match error { crate::bucket::CatalogError::InvalidMetadata(reason) | crate::bucket::CatalogError::UnsupportedMetadata(reason) => ObjectError::UnsupportedMetadata(reason), error => ObjectError::from(error) })?;
-                let mut record = ObjectRecord {
+                let defaults = objects::PublicationDefaults {
                     owner: Some(super::object_owner::for_publication(&transaction, &destination.bucket, &destination.access, principals.as_ref())?),
-                    bucket: destination.bucket, name: destination.name, generation, metageneration: 1,
-                    content_type: destination.content_type, size: progress.total, md5, crc32c, storage_class,
-                    md5_availability: Default::default(),
-                    component_count: destination.component_count,
-                    content_encoding: None, content_disposition: None, content_language: None,
-                    cache_control: None, metadata: Default::default(), time_created: time, updated: time,
-                    time_deleted: None, soft_delete_time: None, hard_delete_time: None, event_based_hold: default_hold.then_some(true),
-                    temporary_hold: None, custom_time: None, retention_expiration_time: None, retention: None, customer_key_sha256: None,
+                    storage_class, time, event_based_hold: default_hold,
                 };
+                let mut record = defaults.record(destination.bucket, destination.name, generation, destination.content_type, progress.total, Hashes {md5, crc32c});
+                record.component_count = destination.component_count;
                 destination.metadata.apply(&mut record)?;
                 sql::exec(&transaction, "UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query])?;
                 prepare(&transaction, &mut record)?;

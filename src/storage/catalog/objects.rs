@@ -105,6 +105,49 @@ pub(super) struct PublicationDefaults {
     pub(super) owner: Option<crate::object::owner::ObjectOwner>,
 }
 
+impl PublicationDefaults {
+    pub(super) fn record(
+        self,
+        bucket: String,
+        name: String,
+        generation: i64,
+        content_type: String,
+        size: u64,
+        hashes: Hashes,
+    ) -> ObjectRecord {
+        ObjectRecord {
+            bucket,
+            name,
+            generation,
+            metageneration: 1,
+            owner: self.owner,
+            content_type,
+            size,
+            md5: hashes.md5,
+            md5_availability: Default::default(),
+            crc32c: hashes.crc32c,
+            component_count: None,
+            storage_class: self.storage_class,
+            content_encoding: None,
+            content_disposition: None,
+            content_language: None,
+            cache_control: None,
+            metadata: Default::default(),
+            time_created: self.time,
+            updated: self.time,
+            time_deleted: None,
+            soft_delete_time: None,
+            hard_delete_time: None,
+            event_based_hold: self.event_based_hold.then_some(true),
+            temporary_hold: None,
+            custom_time: None,
+            retention_expiration_time: None,
+            retention: None,
+            customer_key_sha256: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectListCursor {
     pub name: String,
@@ -761,38 +804,20 @@ impl UploadCommit {
         generation: i64,
         defaults: PublicationDefaults,
     ) -> Result<ObjectRecord, ObjectError> {
-        let mut record = ObjectRecord {
-            bucket: self.bucket.clone(),
-            name: self.name.clone(),
+        let time = defaults.time;
+        let mut record = defaults.record(
+            self.bucket.clone(),
+            self.name.clone(),
             generation,
-            metageneration: 1,
-            owner: defaults.owner,
-            content_type: self.content_type.clone(),
-            size: self.body.size,
-            md5: self.body.md5,
-            md5_availability: Default::default(),
-            crc32c: self.body.crc32c,
-            component_count: None,
-            storage_class: defaults.storage_class,
-            content_encoding: None,
-            content_disposition: None,
-            content_language: None,
-            cache_control: None,
-            metadata: Default::default(),
-            time_created: defaults.time,
-            updated: defaults.time,
-            time_deleted: None,
-            soft_delete_time: None,
-            hard_delete_time: None,
-            event_based_hold: defaults.event_based_hold.then_some(true),
-            temporary_hold: None,
-            custom_time: None,
-            retention_expiration_time: None,
-            retention: None,
-            customer_key_sha256: None,
-        };
+            self.content_type.clone(),
+            self.body.size,
+            Hashes {
+                md5: self.body.md5,
+                crc32c: self.body.crc32c,
+            },
+        );
         if self.identity.is_none() {
-            self.metadata.reject_past_retention(defaults.time)?;
+            self.metadata.reject_past_retention(time)?;
         }
         self.metadata.clone().apply(&mut record)?;
         if let Some(identity) = self.identity {

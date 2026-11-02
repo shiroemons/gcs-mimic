@@ -141,37 +141,16 @@ fn publication_record(
     hashes: Hashes,
     length: u64,
 ) -> Result<ObjectRecord, ObjectError> {
-    let mut record = ObjectRecord {
-        owner: defaults.owner,
-        bucket: session.bucket.clone(),
-        name: session.name.clone(),
+    let time = defaults.time;
+    let mut record = defaults.record(
+        session.bucket.clone(),
+        session.name.clone(),
         generation,
-        metageneration: 1,
-        content_type: options.content_type,
-        content_encoding: None,
-        content_disposition: None,
-        content_language: None,
-        cache_control: None,
-        metadata: Default::default(),
-        size: length,
-        md5: hashes.md5,
-        md5_availability: Default::default(),
-        crc32c: hashes.crc32c,
-        component_count: None,
-        storage_class: defaults.storage_class,
-        time_created: defaults.time,
-        updated: defaults.time,
-        time_deleted: None,
-        soft_delete_time: None,
-        hard_delete_time: None,
-        event_based_hold: defaults.event_based_hold.then_some(true),
-        temporary_hold: None,
-        custom_time: None,
-        retention_expiration_time: None,
-        retention: None,
-        customer_key_sha256: None,
-    };
-    options.metadata.reject_past_retention(defaults.time)?;
+        options.content_type,
+        length,
+        hashes,
+    );
+    options.metadata.reject_past_retention(time)?;
     options.metadata.apply(&mut record)?;
     let period: Option<i64> = sql::scalar(
         connection,
@@ -180,7 +159,7 @@ fn publication_record(
     )
     .map_err(object_unavailable)?;
     record.retention_expiration_time =
-        period.map(|period| defaults.time + std::time::Duration::from_secs(period as u64));
+        period.map(|period| time + std::time::Duration::from_secs(period as u64));
     Ok(record)
 }
 

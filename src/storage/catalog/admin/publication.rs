@@ -850,36 +850,14 @@ fn publication_record(
     generation: i64,
     defaults: objects::PublicationDefaults,
 ) -> Result<ObjectRecord, ObjectError> {
-    let mut record = ObjectRecord {
-        bucket: entry.bucket.as_str().into(),
-        name: entry.name.as_str().into(),
+    let mut record = defaults.record(
+        entry.bucket.as_str().into(),
+        entry.name.as_str().into(),
         generation,
-        metageneration: 1,
-        owner: defaults.owner,
-        content_type: entry.request.content_type.clone(),
-        size: entry.staged.size,
-        md5: entry.staged.hashes.md5,
-        md5_availability: Default::default(),
-        crc32c: entry.staged.hashes.crc32c,
-        component_count: None,
-        storage_class: defaults.storage_class,
-        content_encoding: None,
-        content_disposition: None,
-        content_language: None,
-        cache_control: None,
-        metadata: Default::default(),
-        time_created: defaults.time,
-        updated: defaults.time,
-        time_deleted: None,
-        soft_delete_time: None,
-        hard_delete_time: None,
-        event_based_hold: defaults.event_based_hold.then_some(true),
-        temporary_hold: None,
-        custom_time: None,
-        retention_expiration_time: None,
-        retention: None,
-        customer_key_sha256: None,
-    };
+        entry.request.content_type.clone(),
+        entry.staged.size,
+        entry.staged.hashes,
+    );
     entry.request.metadata.clone().apply(&mut record)?;
     if let Some(identity) = entry.staged.import_identity {
         record.time_created = identity.time_created();
