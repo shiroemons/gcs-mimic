@@ -43,9 +43,9 @@ impl Catalog {
         self.set_principal_profile(profile.clone())?;
         let clock = self.0.clock.clone();
         self.run(move |connection| {
-            let (buckets, objects): (bool, bool) = sql::row(connection,
-                    // Objects retained with a soft-deleted bucket version have no live bucket.
-                    "SELECT EXISTS(SELECT 1 FROM buckets), EXISTS(SELECT 1 FROM objects WHERE NOT EXISTS(SELECT 1 FROM soft_deleted_buckets s WHERE objects.bucket = s.name || '#' || s.generation))", [], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            // Objects retained with a soft-deleted bucket version have no live bucket.
+            const SELECT: &str = "SELECT EXISTS(SELECT 1 FROM buckets), EXISTS(SELECT 1 FROM objects WHERE NOT EXISTS(SELECT 1 FROM soft_deleted_buckets s WHERE objects.bucket = s.name || '#' || s.generation))";
+            let (buckets, objects): (bool, bool) = sql::row(connection, SELECT, [], |row| Ok((row.get(0)?, row.get(1)?)))?;
             if !buckets {
                 if objects {
                     return Err(CatalogError::Corrupt(

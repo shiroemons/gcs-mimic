@@ -409,28 +409,25 @@ impl Catalog {
         let now = unix_micros(self.0.clock.now()).map_err(objects::object_unavailable)?;
         let (source_incarnation, source_generation): (String, Option<i64>) = self
             .run_waiting(move |connection| {
-                Ok((|| {
-                    let transaction = connection
-                        .transaction()
-                        .map_err(objects::object_unavailable)?;
-                    let generation = copy_source_generation(
-                        &transaction,
-                        CopyReplaySource {
-                            bucket: &source_query,
-                            name: &source_object,
-                            generation: source_requested_generation,
-                            access: &source_authority,
-                        },
-                        &token,
-                        now,
-                    )?;
-                    let incarnation = bucket_incarnation(&transaction, &source_query)
-                        .map_err(objects::object_unavailable)?;
-                    Ok::<_, ObjectError>((incarnation, generation))
-                })())
+                let transaction = connection
+                    .transaction()
+                    .map_err(objects::object_unavailable)?;
+                let generation = copy_source_generation(
+                    &transaction,
+                    CopyReplaySource {
+                        bucket: &source_query,
+                        name: &source_object,
+                        generation: source_requested_generation,
+                        access: &source_authority,
+                    },
+                    &token,
+                    now,
+                )?;
+                let incarnation = bucket_incarnation(&transaction, &source_query)
+                    .map_err(objects::object_unavailable)?;
+                Ok::<_, ObjectError>((incarnation, generation))
             })
-            .await
-            .map_err(objects::object_unavailable)??;
+            .await?;
         let request = serde_json::to_string(&(invocation.request, &source_incarnation))
             .map_err(objects::object_unavailable)?;
         let mut permit = self.admit_object_upload()?;
@@ -470,18 +467,15 @@ impl Catalog {
         let replay = replay.clone();
         let clock = self.0.clock.clone();
         self.run_waiting(move |connection| {
-            Ok((|| {
-                let transaction = connection
-                    .transaction()
-                    .map_err(objects::object_unavailable)?;
-                replay.cached(
-                    &transaction,
-                    unix_micros(clock.now()).map_err(objects::object_unavailable)?,
-                )
-            })())
+            let transaction = connection
+                .transaction()
+                .map_err(objects::object_unavailable)?;
+            replay.cached(
+                &transaction,
+                unix_micros(clock.now()).map_err(objects::object_unavailable)?,
+            )
         })
         .await
-        .map_err(objects::object_unavailable)?
     }
 
     /// Upload advisory checks also bind the invocation and its admission permit.
@@ -521,43 +515,40 @@ impl Catalog {
         let principals = self.0.principals.get().cloned();
         let replay = self
             .run_waiting(move |connection| {
-                Ok((|| {
-                    let transaction = connection
-                        .transaction()
-                        .map_err(objects::object_unavailable)?;
-                    let (_, delete_permission) =
-                        objects::authorized_bucket(&transaction, &bucket, &access)?;
-                    let incarnation = bucket_incarnation(&transaction, &bucket)
-                        .map_err(objects::object_unavailable)?;
-                    if expected_incarnation
-                        .as_ref()
-                        .is_some_and(|expected| expected != &incarnation)
-                    {
-                        return Err(ObjectError::PreconditionFailed);
-                    }
-                    let replay = UploadReplay {
-                        token,
-                        request,
-                        incarnation,
-                        snapshot: Arc::new(OnceLock::new()),
-                        principals,
-                    };
-                    let now = unix_micros(clock.now()).map_err(objects::object_unavailable)?;
-                    if replay.cached(&transaction, now)?.is_none() {
-                        capacity(&transaction, now)?;
-                        let previous = objects::lookup(&transaction, &bucket, &name)?;
-                        objects::check_publication(
-                            previous.as_ref(),
-                            conditions,
-                            delete_permission,
-                            clock.now(),
-                        )?;
-                    }
-                    Ok::<_, ObjectError>(replay)
-                })())
+                let transaction = connection
+                    .transaction()
+                    .map_err(objects::object_unavailable)?;
+                let (_, delete_permission) =
+                    objects::authorized_bucket(&transaction, &bucket, &access)?;
+                let incarnation = bucket_incarnation(&transaction, &bucket)
+                    .map_err(objects::object_unavailable)?;
+                if expected_incarnation
+                    .as_ref()
+                    .is_some_and(|expected| expected != &incarnation)
+                {
+                    return Err(ObjectError::PreconditionFailed);
+                }
+                let replay = UploadReplay {
+                    token,
+                    request,
+                    incarnation,
+                    snapshot: Arc::new(OnceLock::new()),
+                    principals,
+                };
+                let now = unix_micros(clock.now()).map_err(objects::object_unavailable)?;
+                if replay.cached(&transaction, now)?.is_none() {
+                    capacity(&transaction, now)?;
+                    let previous = objects::lookup(&transaction, &bucket, &name)?;
+                    objects::check_publication(
+                        previous.as_ref(),
+                        conditions,
+                        delete_permission,
+                        clock.now(),
+                    )?;
+                }
+                Ok::<_, ObjectError>(replay)
             })
-            .await
-            .map_err(objects::object_unavailable)??;
+            .await?;
         permit.replay = Some(replay);
         Ok(())
     }

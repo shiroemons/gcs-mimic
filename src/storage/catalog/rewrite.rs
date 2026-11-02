@@ -436,7 +436,7 @@ impl Catalog {
             .to_owned();
         let now = unix_millis(self.0.clock.now())?;
         let session = self
-            .run_object(move |connection| {
+            .run(move |connection| {
                 sql::row(
                     connection,
                     "SELECT * FROM rewrite_sessions WHERE token = ?1 OR previous_token = ?1",
@@ -469,7 +469,7 @@ impl Catalog {
         let source_check = source_access.clone();
         let destination_check = destination_access.clone();
         let source_result = self
-            .run_object(move |connection| {
+            .run(move |connection| {
                 let transaction = connection.transaction()?;
                 if replay {
                     check_incarnations(&transaction, &checked)?;
@@ -569,7 +569,7 @@ impl Catalog {
         let saved = response.to_string();
         let id = session.id.clone();
         let now = unix_millis(self.0.clock.now())?;
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             let changed=sql::exec(connection, "UPDATE rewrite_sessions SET previous_token=token, token=?2, offset=?3, response=?4 WHERE id=?1 AND deadline>?5", params![id,next,current.offset as i64,saved,now])?;
             if changed!=1 {return Err(ObjectError::PreconditionFailed);}Ok(())
         }).await?;

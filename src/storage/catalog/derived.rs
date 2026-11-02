@@ -311,10 +311,19 @@ fn transfer(
     id: &str,
     now: i64,
 ) -> Result<(DerivedTransfer, Hasher), ObjectError> {
-    let (total, offset, state, crc, created, deadline): (i64, i64, Vec<u8>, u32, i64, i64) = sql::row(connection,
-            "SELECT total, offset, md5_state, crc32c, created, deadline FROM derived_transfers WHERE id = ?1", [id], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
-            }).optional()?
+    const SELECT: &str = "SELECT total, offset, md5_state, crc32c, created, deadline FROM derived_transfers WHERE id = ?1";
+    let (total, offset, state, crc, created, deadline): (i64, i64, Vec<u8>, u32, i64, i64) =
+        sql::row(connection, SELECT, [id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
+        })
+        .optional()?
         .ok_or(ObjectError::DerivedTransferNotFound)?;
     if now >= deadline {
         return Err(ObjectError::DerivedTransferExpired);
@@ -488,7 +497,7 @@ impl Catalog {
         let activity = std::sync::Arc::new(self.activity()?);
         let data_dir = self.0.data_dir.clone();
         let memory = self.0.memory.clone();
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             let transaction = connection.transaction()?;
             sources
                 .into_iter()
@@ -595,7 +604,7 @@ impl Catalog {
         let writer = self.derived_guard(&id)?;
         let mut owner = ephemeral.then(|| self.guard_derived_request(&id));
         let result = self
-            .run_object(move |connection| {
+            .run(move |connection| {
                 let (_permit, _writer) = (permit, writer);
                 let count: i64 = sql::scalar(
                     connection,
@@ -701,7 +710,7 @@ impl Catalog {
     pub(crate) async fn get_derived(&self, id: &str) -> Result<DerivedTransfer, ObjectError> {
         let id = id.to_owned();
         let now = unix_millis(self.0.clock.now())?;
-        self.run_object(move |connection| transfer(connection, &id, now).map(|value| value.0))
+        self.run(move |connection| transfer(connection, &id, now).map(|value| value.0))
             .await
     }
 
@@ -876,7 +885,7 @@ impl Catalog {
                     owner: Some(super::object_owner::for_publication(&transaction, &destination.bucket, &destination.access, principals.as_ref())?),
                     storage_class, time, event_based_hold: default_hold,
                 };
-                let mut record = defaults.record(destination.bucket, destination.name, generation, destination.content_type, progress.total, Hashes {md5, crc32c});
+                let mut record = defaults.record(destination.bucket, destination.name, generation, destination.content_type, progress.total, Hashes { md5, crc32c });
                 record.component_count = destination.component_count;
                 destination.metadata.apply(&mut record)?;
                 sql::exec(&transaction, "UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query])?;
@@ -949,7 +958,7 @@ impl Catalog {
         now: i64,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
         let mut failure = self.reclaim_pending().await.err();
-        let due = self.run_object(move |connection| {
+        let due = self.run(move |connection| {
             connection.prepare_cached("SELECT id FROM derived_transfers WHERE deadline <= ?1 ORDER BY id LIMIT 128")?
                 .query_map([now], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>().map_err(object_unavailable)
         }).await.map_err(super::unavailable)?;
@@ -2199,8 +2208,8 @@ mod tests {
         let (catalog, path) = setup().await;
         let original = put(&catalog, "source", b"bytes").await;
         let id = catalog
-            .run_object(|connection| {
-                Ok(objects::lookup(connection, "bucket", "source")?.unwrap().1)
+            .run(|connection| {
+                Ok::<_, ObjectError>(objects::lookup(connection, "bucket", "source")?.unwrap().1)
             })
             .await
             .unwrap();
@@ -2229,7 +2238,7 @@ mod tests {
         fs::remove_dir(&blob).unwrap();
         assert_eq!(catalog.maintain_derived_transfers().await.unwrap(), None);
         let tagged = catalog
-            .run_object(|connection| {
+            .run(|connection| {
                 connection
                     .query_row("SELECT count(*) FROM derived_deletions", [], |row| {
                         row.get::<_, i64>(0)
@@ -2362,7 +2371,7 @@ mod tests {
             original
         );
         catalog
-            .run_object(|connection| {
+            .run(|connection| {
                 assert_eq!(
                     connection
                         .pragma_query_value(None, "foreign_keys", |row| row.get::<_, i64>(0))
@@ -2376,7 +2385,7 @@ mod tests {
                         .exists([])
                         .unwrap()
                 );
-                Ok(())
+                Ok::<_, ObjectError>(())
             })
             .await
             .unwrap();

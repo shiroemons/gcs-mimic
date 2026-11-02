@@ -63,7 +63,7 @@ impl Catalog {
         let name = name.to_owned();
         let catalog = self.clone();
         let access = access.clone();
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             let (record, reader) = objects::open_selected(
                 connection, &catalog, &bucket, &name, generation, conditions, &access,
             )?;
@@ -88,7 +88,7 @@ impl Catalog {
         let name = name.to_owned();
         let catalog = self.clone();
         let access = access.clone();
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             let (record, reader) = objects::open_selected(
                 connection, &catalog, &bucket, &name, generation, conditions, &access,
             )?;

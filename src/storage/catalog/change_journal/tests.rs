@@ -126,7 +126,7 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
         .await
         .unwrap()
         .fence;
-    catalog.run(|connection| {
+    catalog.run::<_, CatalogError>(|connection| {
         connection.execute_batch("CREATE TEMP TRIGGER reject_change BEFORE INSERT ON change_journal BEGIN SELECT RAISE(ABORT, 'injected journal failure'); END;").map_err(unavailable)
     }).await.unwrap();
     assert!(
@@ -161,7 +161,7 @@ async fn journal_retention_activation_restart_and_pap_require_rescan() {
         .unwrap();
     let baseline = catalog.enable_change_journal().await.unwrap();
     catalog
-        .run(|connection| {
+        .run::<_, CatalogError>(|connection| {
             let tx = connection.transaction().map_err(unavailable)?;
             // Real retention boundary with fixed metadata, without staging 65,537 blobs.
             for _ in 0..=MAX_RECORDS {
@@ -195,7 +195,7 @@ async fn journal_retention_activation_restart_and_pap_require_rescan() {
         256
     );
     catalog
-        .run(|connection| {
+        .run::<_, CatalogError>(|connection| {
             validate(connection)?;
             Ok(())
         })
@@ -429,7 +429,7 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
     assert_eq!(page.items[7].object.as_deref(), Some("source"));
     assert_eq!(page.items[8].object.as_deref(), Some("resumable"));
     catalog
-        .run(|connection| {
+        .run::<_, CatalogError>(|connection| {
             for index in 0..40 {
                 connection
                     .execute_batch(&format!("CREATE TABLE zz_extra_{index}(value);"))

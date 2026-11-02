@@ -358,7 +358,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
             .unwrap();
         assert_eq!(retired.time_deleted, Some(expected));
         catalog
-            .run(move |connection| {
+            .run::<_, CatalogError>(move |connection| {
                 assert_eq!(
                     connection
                         .query_row(

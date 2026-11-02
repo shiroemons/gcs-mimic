@@ -300,7 +300,7 @@ async fn prepare_entry(
             .file_workers
             .run(move || {
                 objects::publish_blob(&source, &destination)?;
-                Ok(())
+                Ok::<_, AdminError>(())
             })
             .await?;
         #[cfg(test)]

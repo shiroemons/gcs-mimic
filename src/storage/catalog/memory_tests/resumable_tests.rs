@@ -148,7 +148,7 @@ async fn ram_resumable_capacity_and_checkpoint_failure_restore_bytes_offset_and_
         original
     );
     drop(reservations);
-    catalog.run_object(|connection| {
+    catalog.run::<_, ObjectError>(|connection| {
         connection.execute_batch("CREATE TEMP TRIGGER reject_ram_resumable BEFORE UPDATE OF offset ON resumable_sessions BEGIN SELECT RAISE(ABORT, 'injected checkpoint failure'); END;").unwrap();
         Ok(())
     }).await.unwrap();
@@ -166,7 +166,7 @@ async fn ram_resumable_capacity_and_checkpoint_failure_restore_bytes_offset_and_
         4
     );
     catalog
-        .run_object(|connection| {
+        .run::<_, ObjectError>(|connection| {
             connection
                 .execute_batch("DROP TRIGGER reject_ram_resumable")
                 .unwrap();
@@ -222,7 +222,7 @@ async fn ram_resumable_cancel_expiry_reset_and_close_release_session_leases() {
     let expired = session(&catalog).await;
     let id = expired.id.clone();
     catalog
-        .run_object(move |connection| {
+        .run::<_, ObjectError>(move |connection| {
             connection
                 .prepare_cached(
                     "UPDATE resumable_sessions SET created=0,deadline=604800000 WHERE id=?1",
@@ -338,7 +338,7 @@ async fn ram_resumable_session_limit_and_expiry_recycle_all_staging_capacity() {
             .is_err()
     );
     catalog
-        .run_object(|connection| {
+        .run::<_, ObjectError>(|connection| {
             connection
                 .prepare_cached("UPDATE resumable_sessions SET created=0,deadline=604800000")
                 .unwrap()
@@ -423,7 +423,7 @@ async fn ram_resumable_eof_cancellation_keeps_the_owned_checkpoint_offset_and_ha
     let worker = catalog.clone();
     let gate = tokio::spawn(async move {
         worker
-            .run_object(move |_| {
+            .run::<_, ObjectError>(move |_| {
                 entered.send(()).unwrap();
                 blocked.recv().unwrap();
                 Ok(())

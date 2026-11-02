@@ -129,7 +129,7 @@ async fn a_panicking_file_job_fails_its_caller_and_keeps_both_workers() {
     let meet = |barrier: Arc<std::sync::Barrier>| {
         move || {
             barrier.wait();
-            Ok(())
+            Ok::<_, AdminError>(())
         }
     };
     let (first, second) = tokio::time::timeout(Duration::from_secs(10), async {

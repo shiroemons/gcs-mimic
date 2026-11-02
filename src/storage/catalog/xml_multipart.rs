@@ -222,7 +222,7 @@ impl Catalog {
             .checked_add(LIFETIME_MILLIS)
             .ok_or_else(|| object_unavailable("multipart deadline overflow"))?;
         let upload = self
-            .run_object(move |connection| {
+            .run(move |connection| {
                 let transaction = sql::immediate(connection).map_err(object_unavailable)?;
                 let (storage_class, _) =
                     objects::authorized_bucket(&transaction, &target.bucket, &access)?;
@@ -302,11 +302,11 @@ impl Catalog {
         let checked = access.clone();
         let now = unix_millis(self.0.clock.now())?;
         let upload = self
-            .run_object(move |connection| {
+            .run(move |connection| {
                 let transaction = connection.transaction().map_err(object_unavailable)?;
-                Ok(active(&transaction, &target, &checked, now))
+                active(&transaction, &target, &checked, now)
             })
-            .await??;
+            .await?;
         Ok(Lease {
             upload,
             access,
@@ -322,22 +322,19 @@ impl Catalog {
         limit: usize,
     ) -> Result<(Upload, Vec<Part>, bool), Error> {
         let now = unix_millis(self.0.clock.now())?;
-        self.run_object(move |connection| {
+        self.run(move |connection| -> Result<_, Error> {
             let transaction=connection.transaction().map_err(object_unavailable)?;
-            let result=(|| -> Result<_,Error> {
-                let upload=active(&transaction,&target,&access,now)?;
-                let mut parts=transaction.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number>?2 ORDER BY number LIMIT ?3")
-                    .and_then(|mut s|s.query_map(params![target.id,marker,(limit.clamp(1,1000)+1) as i64],read_part)?.collect::<rusqlite::Result<Vec<_>>>()).map_err(object_unavailable)?;
-                let more=parts.len()>limit.clamp(1,1000); if more {parts.pop();}
-                Ok((upload,parts,more))
-            })();
-            Ok(result)
-        }).await?
+            let upload=active(&transaction,&target,&access,now)?;
+            let mut parts=transaction.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number>?2 ORDER BY number LIMIT ?3")
+                .and_then(|mut s|s.query_map(params![target.id,marker,(limit.clamp(1,1000)+1) as i64],read_part)?.collect::<rusqlite::Result<Vec<_>>>()).map_err(object_unavailable)?;
+            let more=parts.len()>limit.clamp(1,1000); if more {parts.pop();}
+            Ok((upload,parts,more))
+        }).await
     }
 
     pub(crate) async fn abort_xml_multipart(&self, lease: Lease) -> Result<(), Error> {
         let catalog = self.clone();
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             let transaction = sql::immediate(connection).map_err(object_unavailable)?;
             let result = (|| -> Result<(), Error> {
                 active(
@@ -357,9 +354,9 @@ impl Catalog {
             ) {
                 catalog.multipart_cleanup_failed(&error);
             }
-            Ok(result)
+            result
         })
-        .await?
+        .await
     }
 
     fn multipart_cleanup_failed(&self, error: &ObjectError) {

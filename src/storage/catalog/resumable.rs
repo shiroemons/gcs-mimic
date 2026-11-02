@@ -328,7 +328,7 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let catalog = self.clone();
-        let session = self.run_waiting(move |connection| Ok((|| -> Result<_,ResumableError> {
+        let session = self.run_waiting(move |connection| -> Result<_,ResumableError> {
             let transaction = sql::immediate(connection).map_err(unavailable)?;
             let (_,delete_permission)=super::objects::authorized_bucket(&transaction,&bucket,&options.access)?;
             let previous=super::objects::lookup(&transaction,&bucket,&name)?;
@@ -354,7 +354,7 @@ impl Catalog {
                 return Err(unavailable(error).into());
             }
             sql::row(connection, "SELECT * FROM resumable_sessions WHERE id = ?1", [&id], read_session).map_err(|e|unavailable(e).into())
-        })())).await??;
+        }).await?;
         self.0.maintenance_wake.notify_one();
         Ok(session)
     }
@@ -498,7 +498,7 @@ impl Catalog {
                 "Upload options exceed 64 KiB".into(),
             ));
         }
-        let (changed, output) = self.run_waiting(move |connection| {
+        let (changed, output) = self.run_waiting::<_, CatalogError>(move |connection| {
             let offset = i64::try_from(offset).map_err(unavailable)?;
             let total = total.map(i64::try_from).transpose().map_err(unavailable)?;
             let old = i64::try_from(old).map_err(unavailable)?;

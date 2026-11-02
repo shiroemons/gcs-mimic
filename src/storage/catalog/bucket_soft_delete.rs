@@ -407,7 +407,7 @@ impl Catalog {
             .checked_mul(1000)
             .ok_or_else(|| unavailable("maintenance time overflow"))?;
         let (purged, next) = self
-            .run(move |connection| {
+            .run::<_, CatalogError>(move |connection| {
                 // Every maintenance pass reaches this sweep, including passes that requests
                 // wake. Taking the write lock only when a version is due keeps a pass with
                 // nothing to purge from waiting on another writer and holding the connection.

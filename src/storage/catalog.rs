@@ -38,7 +38,7 @@ pub(super) async fn replace_resumable_cleanup_obstacle(catalog: &Catalog, stage:
             // Maintenance must not clear the deletion journal while this path is temporarily absent.
             std::fs::remove_dir(&stage).unwrap();
             std::fs::write(stage, b"uncommitted tail").unwrap();
-            Ok(())
+            Ok::<_, CatalogError>(())
         })
         .await
         .unwrap();
@@ -1198,10 +1198,10 @@ impl Catalog {
         }
     }
 
-    async fn run<T: Send + 'static>(
+    async fn run<T: Send + 'static, E: From<CatalogError> + Send + 'static>(
         &self,
-        operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
-    ) -> Result<T, CatalogError> {
+        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
         let admission = self
             .0
             .admission
@@ -1219,10 +1219,10 @@ impl Catalog {
         self.run_admitted(admission, operation).await
     }
 
-    async fn run_waiting<T: Send + 'static>(
+    async fn run_waiting<T: Send + 'static, E: From<CatalogError> + Send + 'static>(
         &self,
-        operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
-    ) -> Result<T, CatalogError> {
+        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
         let admission = self
             .0
             .admission
@@ -1233,11 +1233,11 @@ impl Catalog {
         self.run_admitted(admission, operation).await
     }
 
-    async fn run_admitted<T: Send + 'static>(
+    async fn run_admitted<T: Send + 'static, E: From<CatalogError> + Send + 'static>(
         &self,
         admission: tokio::sync::OwnedSemaphorePermit,
-        operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
-    ) -> Result<T, CatalogError> {
+        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
         let activity = self.activity()?;
         let execution = self
             .0
@@ -1254,9 +1254,9 @@ impl Catalog {
                 let result = match inner.with_connection(operation) {
                     Ok(result) => result,
                     Err(ConnectionUnavailable::Closed) => {
-                        Err(CatalogError::Unavailable("catalog is closed".into()))
+                        Err(CatalogError::Unavailable("catalog is closed".into()).into())
                     }
-                    Err(error) => Err(unavailable(error)),
+                    Err(error) => Err(unavailable(error).into()),
                 };
                 // Release ownership before the reply publishes completion to an immediate reopen.
                 drop(inner);
@@ -1601,16 +1601,22 @@ impl Catalog {
         let clock = self.0.clock.clone();
         self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
-            let (metageneration, project): (i64, String) = sql::row(&transaction, "SELECT metageneration, project FROM buckets WHERE name = ?1", [&name], |r| Ok((r.get(0)?, r.get(1)?))).optional()?
-                .ok_or(CatalogError::NotFound)?;
+            let (metageneration, project): (i64, String) = sql::row(
+                &transaction,
+                "SELECT metageneration, project FROM buckets WHERE name = ?1",
+                [&name],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?
+            .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &project, &access)?;
             if if_metageneration_match.is_some_and(|value| value != metageneration)
                 || if_metageneration_not_match == Some(metageneration)
             {
                 return Err(CatalogError::PreconditionFailed);
             }
-            let nonempty: bool = sql::scalar(&transaction,
-                    "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL)", [&name])?;
+            const NONEMPTY: &str = "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL)";
+            let nonempty: bool = sql::scalar(&transaction, NONEMPTY, [&name])?;
             if nonempty {
                 return Err(CatalogError::NotEmpty);
             }
@@ -2181,8 +2187,17 @@ mod tests {
     /// Shutdown must not look like overload: only a full catalog asks the client to retry.
     #[tokio::test]
     async fn a_closed_catalog_reports_closed_and_a_full_one_reports_its_limit() {
+        use crate::object::ObjectError;
+
         let dir = crate::test_support::TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
+        assert_eq!(
+            catalog
+                .run::<(), ObjectError>(|_| Err(ObjectError::ObjectNotFound))
+                .await
+                .unwrap_err(),
+            ObjectError::ObjectNotFound
+        );
         let record =
             crate::json::parse_insert(br#"{"name":"admission"}"#, "project", UNIX_EPOCH).unwrap();
         let held = catalog
@@ -2202,6 +2217,14 @@ mod tests {
         assert!(
             matches!(&closed, CatalogError::Unavailable(cause) if *cause == "catalog is closed"),
             "{closed}"
+        );
+        let closed_object = catalog
+            .run::<(), ObjectError>(|_| Ok(()))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            closed_object,
+            ObjectError::from(CatalogError::Unavailable("catalog is closed".into()))
         );
     }
 
@@ -2456,7 +2479,7 @@ mod tests {
                 .run(move |_| {
                     started.send(()).unwrap();
                     finish.recv().unwrap();
-                    Ok(())
+                    Ok::<_, CatalogError>(())
                 })
                 .await
         });
@@ -2517,7 +2540,7 @@ mod tests {
     /// Opens a raw transaction that rusqlite will not roll back on unwind, then panics.
     async fn panic_inside_transaction(catalog: &Catalog) -> CatalogError {
         catalog
-            .run::<()>(|connection| {
+            .run::<(), CatalogError>(|connection| {
                 connection
                     .execute_batch("BEGIN IMMEDIATE; CREATE TABLE panic_probe (x INTEGER);")
                     .unwrap();
@@ -2645,7 +2668,7 @@ mod tests {
                         .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))?,
                     "wal"
                 );
-                Ok(())
+                Ok::<_, CatalogError>(())
             })
             .await
             .unwrap();

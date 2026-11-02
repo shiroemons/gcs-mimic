@@ -237,7 +237,7 @@ impl Catalog {
         disposal: SourceDisposal,
     ) -> Result<String, ObjectError> {
         let clock = self.0.clock.clone();
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             let transaction = connection.transaction()?;
             let (_, destination_delete) =
                 objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
@@ -255,7 +255,7 @@ impl Catalog {
                 destination_delete,
                 clock.now(),
             )?;
-            Ok(bucket_incarnation(&transaction, &destination.bucket)?)
+            bucket_incarnation(&transaction, &destination.bucket).map_err(Into::into)
         })
         .await
     }

@@ -69,10 +69,10 @@ impl FileWorkers {
         })
     }
 
-    pub(crate) async fn run<T: Send + 'static>(
+    pub(crate) async fn run<T: Send + 'static, E: From<AdminError> + Send + 'static>(
         &self,
-        job: impl FnOnce() -> Result<T, AdminError> + Send + 'static,
-    ) -> Result<T, AdminError> {
+        job: impl FnOnce() -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
         let permit = self
             .slots
             .clone()
@@ -86,7 +86,7 @@ impl FileWorkers {
                 // A panicking job must neither end its worker, which would shrink the pool for
                 // every later job, nor leave its caller without a reply.
                 let result = crate::task::catch_job(FILE_WORKER, job)
-                    .unwrap_or_else(|panicked| Err(AdminError::backend(panicked)));
+                    .unwrap_or_else(|panicked| Err(AdminError::backend(panicked).into()));
                 let _ = sender.send(result);
             }))
             .map_err(|error| AdminError::backend(without_job(&error)))?;
@@ -691,7 +691,7 @@ async fn run_batch(
                 .file_workers
                 .run(move || {
                     objects::publish_blob(&stage, &blob)?;
-                    Ok(())
+                    Ok::<_, AdminError>(())
                 })
                 .await?;
             entry.staged.published = true;

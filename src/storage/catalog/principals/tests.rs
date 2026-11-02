@@ -54,7 +54,7 @@ async fn an_orphan_object_cannot_take_the_empty_catalog_authentication_path() {
         .await
         .unwrap();
     catalog
-        .run(|connection| {
+        .run::<_, CatalogError>(|connection| {
             connection.execute_batch("PRAGMA foreign_keys=OFF; INSERT INTO objects(bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id) VALUES ('missing-bucket','orphan',1,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,'00000000000000000000000000000001'); PRAGMA foreign_keys=ON;").unwrap();
             Ok(())
         })
@@ -75,7 +75,7 @@ async fn partial_startup_reconciliation_does_not_union_an_already_bound_bucket_a
         .unwrap();
     bucket(&catalog, "first-bucket", "project").await;
     bucket(&catalog, "second-bucket", "project").await;
-    let before = catalog.run(|connection| {
+    let before = catalog.run::<_, CatalogError>(|connection| {
         let transaction = connection.transaction().unwrap();
         let mut policy = crate::auth::Policy { bindings:vec![crate::auth::Binding { role:"roles/storage.legacyBucketReader".into(), members:vec!["user:local:reader-user".into()] }],etag:None };
         crate::storage::catalog::policies::store_policy(&transaction, "first-bucket", &mut policy).unwrap();
@@ -89,7 +89,7 @@ async fn partial_startup_reconciliation_does_not_union_an_already_bound_bucket_a
     let original = Auth::strict(Registry::parse(br#"{"identities":[{"id":"local:reader-user","tokens":[],"acl_entity":"user-reader@example.test"},{"id":"other@example.test","tokens":[]}]}"#).unwrap());
     assert!(catalog.configure_authentication(&original).await.is_err());
     catalog
-        .run(|connection| {
+        .run::<_, CatalogError>(|connection| {
             let flags: Vec<i64> = connection
                 .prepare("SELECT acl_policy_bound FROM buckets ORDER BY name")
                 .unwrap()
@@ -153,7 +153,7 @@ async fn new_and_recreated_buckets_start_bound_without_inheriting_old_grants() {
         .await
         .unwrap();
     bucket(&catalog, "bucket", "project").await;
-    let original = catalog.run(|connection| {
+    let original = catalog.run::<_, CatalogError>(|connection| {
         let bound: bool = connection.query_row("SELECT acl_policy_bound FROM buckets WHERE name='bucket'", [], |row| row.get(0)).unwrap();
         assert!(bound);
         let absent: bool = connection.query_row("SELECT NOT EXISTS(SELECT 1 FROM acl_bucket_entries WHERE bucket='bucket' AND scope='bucket')", [], |row| row.get(0)).unwrap();
@@ -164,7 +164,7 @@ async fn new_and_recreated_buckets_start_bound_without_inheriting_old_grants() {
     }).await.unwrap();
     catalog.delete_bucket("bucket", None, None).await.unwrap();
     bucket(&catalog, "bucket", "another-project").await;
-    catalog.run(move |connection| {
+    catalog.run::<_, CatalogError>(move |connection| {
         let (bound, incarnation): (bool, String) = connection.query_row("SELECT acl_policy_bound,incarnation FROM buckets JOIN bucket_incarnations ON name=bucket WHERE name='bucket'", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
         assert!(bound);
         assert_ne!(incarnation, original);
@@ -192,7 +192,7 @@ async fn old_bucket_without_stored_acl_does_not_invent_virtual_default_grants() 
         .unwrap();
     bucket(&catalog, "bucket", "project").await;
     let before = catalog
-        .run(|connection| {
+        .run::<_, CatalogError>(|connection| {
             let transaction = connection.transaction().unwrap();
             let mut policy = crate::auth::Policy {
                 bindings: vec![],

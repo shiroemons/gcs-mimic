@@ -725,12 +725,12 @@ impl Writeback {
         let lease = self.lease.clone();
         self.lease
             .catalog()
-            .run_admin(move |connection| {
+            .run_admin_with_error(move |connection| {
                 lease.control_scope().authorize(connection)?;
                 let _lease = lease;
-                Ok(job(connection))
+                job(connection)
             })
-            .await?
+            .await
     }
     async fn fs<T: Send + 'static>(
         &self,

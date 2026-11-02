@@ -335,21 +335,22 @@ enum Lookup {
 }
 
 fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, ObjectError> {
-    let row = sql::row(connection,
-            "SELECT generation, incarnation, blob_id, options, size, crc32c, time_created, updated, write_handle FROM appendable_objects WHERE bucket = ?1 AND name = ?2", params![bucket, name], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, u32>(5)?,
-                    row.get::<_, i64>(6)?,
-                    row.get::<_, i64>(7)?,
-                    row.get::<_, String>(8)?,
-                ))
-            }).optional()
-        .map_err(object_unavailable)?;
+    const SELECT: &str = "SELECT generation, incarnation, blob_id, options, size, crc32c, time_created, updated, write_handle FROM appendable_objects WHERE bucket = ?1 AND name = ?2";
+    let row = sql::row(connection, SELECT, params![bucket, name], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, i64>(4)?,
+            row.get::<_, u32>(5)?,
+            row.get::<_, i64>(6)?,
+            row.get::<_, i64>(7)?,
+            row.get::<_, String>(8)?,
+        ))
+    })
+    .optional()
+    .map_err(object_unavailable)?;
     let Some((generation, stored, blob_id, options, size, crc32c, created, updated, handle)) = row
     else {
         return Ok(Lookup::Absent);
@@ -424,6 +425,7 @@ fn record(
             profile,
         )?),
     };
+    // Creation rejects object retention and customer-supplied keys.
     let mut record = defaults.record(
         bucket.to_owned(),
         name.to_owned(),
@@ -929,7 +931,7 @@ impl Catalog {
             let checkpoint = memory.as_ref().map(|store| store.create_draft_checkpoint(&blob_id)).transpose().map_err(object_unavailable)?;
             let committed = transaction.commit().map_err(object_unavailable);
             if let Some(checkpoint) = checkpoint {
-                let referenced = sql::row(connection, "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE blob_id=?1)", [&blob_id], |row| row.get::<_,bool>(0));
+                let referenced = sql::scalar::<bool>(connection, "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE blob_id=?1)", [&blob_id]);
                 // An ambiguous commit or failed probe must never discard possibly committed bytes.
                 if committed.is_ok() || !matches!(referenced, Ok(false)) { checkpoint.commit(); }
             }
@@ -1049,7 +1051,7 @@ impl Catalog {
         let memory = self.0.memory.clone();
         let principals = self.0.principals.get().cloned();
         let (record, file) = self
-            .run_object(move |connection| {
+            .run(move |connection| {
                 let transaction = connection.transaction().map_err(object_unavailable)?;
                 let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
                 let Lookup::Live(row) = select(&transaction, &bucket, &name)? else {

@@ -217,7 +217,7 @@ impl Catalog {
         access_id: &str,
     ) -> Result<Option<(String, String)>, CatalogError> {
         let access_id = access_id.to_owned();
-        self.run(move |connection| {
+        self.run::<_, CatalogError>(move |connection| {
             sql::row(connection, "SELECT service_account_email, secret FROM hmac_keys WHERE access_id = ?1 AND state = 'ACTIVE'", [access_id], |row| Ok((row.get(0)?, row.get(1)?))).optional()
                 .map_err(unavailable)
         }).await
@@ -230,7 +230,7 @@ impl Catalog {
         let project = project.to_owned();
         let email = service_account_email.to_owned();
         let now = unix_millis(self.0.clock.now())?;
-        self.run(move |connection| {
+        self.run::<_, CatalogError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let live: i64 = sql::scalar(
                 &transaction,
@@ -242,14 +242,15 @@ impl Catalog {
             }
             // A collision among 275 random bits is not expected; retrying keeps IDs unique anyway.
             let mut access_id = generate_access_id()?;
-            while sql::row(&transaction, "SELECT EXISTS(SELECT 1 FROM hmac_keys WHERE access_id = ?1)", [&access_id], |row| row.get::<_, bool>(0))?
+            const EXISTS: &str = "SELECT EXISTS(SELECT 1 FROM hmac_keys WHERE access_id = ?1)";
+            while sql::scalar::<bool>(&transaction, EXISTS, [&access_id])?
             {
                 access_id = generate_access_id()?;
             }
             let secret = generate_secret()?;
-            sql::exec(&transaction,
-                    "INSERT INTO hmac_keys (access_id, project, service_account_email, secret, state, time_created, updated, revision)
-                     VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?5, 1)", params![access_id, project, email, secret, now])?;
+            const INSERT: &str = "INSERT INTO hmac_keys (access_id, project, service_account_email, secret, state, time_created, updated, revision)
+                     VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?5, 1)";
+            sql::exec(&transaction, INSERT, params![access_id, project, email, secret, now])?;
             let record = select(&transaction, &project, &access_id)?
                 .ok_or_else(|| unavailable("inserted HMAC key is missing"))?;
             transaction.commit()?;
@@ -265,7 +266,7 @@ impl Catalog {
     ) -> Result<HmacKeyRecord, HmacKeyError> {
         let project = project.to_owned();
         let access_id = access_id.to_owned();
-        self.run(move |connection| select(connection, &project, &access_id))
+        self.run::<_, CatalogError>(move |connection| select(connection, &project, &access_id))
             .await?
             .ok_or(HmacKeyError::NotFound)
     }
@@ -278,7 +279,7 @@ impl Catalog {
             return Err(CatalogError::InvalidMetadata("invalid HMAC key page size".into()).into());
         }
         Ok(self
-            .run(move |connection| {
+            .run::<_, CatalogError>(move |connection| {
                 let mut statement = connection.prepare_cached(LIST_KEYS)?;
                 let mut items = statement
                     .query_map(
@@ -318,7 +319,7 @@ impl Catalog {
         let project = project.to_owned();
         let access_id = access_id.to_owned();
         let now = unix_millis(self.0.clock.now())?;
-        self.run(move |connection| {
+        self.run::<_, CatalogError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let Some(current) = select(&transaction, &project, &access_id)? else {
                 return Ok(Err(HmacKeyError::NotFound));
@@ -348,7 +349,7 @@ impl Catalog {
         let project = project.to_owned();
         let access_id = access_id.to_owned();
         let now = unix_millis(self.0.clock.now())?;
-        self.run(move |connection| {
+        self.run::<_, CatalogError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let Some(current) = select(&transaction, &project, &access_id)? else {
                 return Ok(Err(HmacKeyError::NotFound));

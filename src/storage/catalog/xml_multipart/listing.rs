@@ -25,7 +25,7 @@ impl Catalog {
         access: BucketAccess,
     ) -> Result<UploadPage, Error> {
         let now = unix_millis(self.0.clock.now())?;
-        self.run_object(move |connection| {
+        self.run::<_, ObjectError>(move |connection| {
             let transaction=connection.transaction().map_err(object_unavailable)?;
             objects::authorized_bucket(&transaction,&query.bucket,&access)?;
             let mut page=UploadPage {uploads:Vec::new(),prefixes:Vec::new(),next_key:query.key_marker.clone(),next_upload:query.upload_marker.clone().unwrap_or_default(),more:false};

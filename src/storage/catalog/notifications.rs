@@ -406,7 +406,7 @@ mod tests {
         catalog
             .run(|connection| {
                 connection.execute("UPDATE bucket_notifications SET config = '{}'", [])?;
-                Ok(())
+                Ok::<_, CatalogError>(())
             })
             .await
             .unwrap();
@@ -422,7 +422,7 @@ mod tests {
                     .execute_batch(
                         "UPDATE bucket_notifications SET config = (SELECT config FROM bucket_notifications), id = 2",
                     )?;
-                Ok(())
+                Ok::<_, CatalogError>(())
             })
             .await
             .unwrap();

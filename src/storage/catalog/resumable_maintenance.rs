@@ -125,7 +125,7 @@ impl Catalog {
         let id = lease.session.id.clone();
         let now = unix_millis(self.0.clock.now())?;
         let blob_id = lease.session.blob_id.clone();
-        let changed = self.run(move |connection| {
+        let changed = self.run::<_, CatalogError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2", params![id, now])?;
             if changed == 1 {
@@ -201,7 +201,7 @@ impl Catalog {
         loop {
             let catalog = self.clone();
             let (last, error) = self
-                .run(move |connection| {
+                .run::<_, CatalogError>(move |connection| {
                     let rows = cleanup_page(connection, now, &after)?;
                     let mut last = None;
                     let mut failure = None;

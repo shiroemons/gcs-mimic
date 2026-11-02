@@ -324,27 +324,24 @@ impl SyncState {
     ) -> Result<(), AdminError> {
         let name = name.as_str().to_owned();
         self.0
-            .run_admin(move |connection| {
-                Ok((|| {
-                    let transaction = connection
-                        .transaction()
-                        .map_err(super::objects::object_unavailable)?;
-                    matching(&transaction, &update.binding, &update.binding.bucket)?;
-                    let record =
-                        super::objects::lookup(&transaction, &update.binding.bucket, &name)?
-                            .ok_or(ObjectError::ObjectNotFound)?
-                            .0;
-                    if record.generation != generation.get() {
-                        return Err(ObjectError::PreconditionFailed);
-                    }
-                    record_in_transaction(&transaction, &update, &record)?;
-                    transaction
-                        .commit()
-                        .map_err(super::objects::object_unavailable)
-                })())
+            .run_admin_with_error(move |connection| {
+                let transaction = connection
+                    .transaction()
+                    .map_err(super::objects::object_unavailable)?;
+                matching(&transaction, &update.binding, &update.binding.bucket)?;
+                let record = super::objects::lookup(&transaction, &update.binding.bucket, &name)?
+                    .ok_or(ObjectError::ObjectNotFound)?
+                    .0;
+                if record.generation != generation.get() {
+                    return Err(ObjectError::PreconditionFailed.into());
+                }
+                record_in_transaction(&transaction, &update, &record)?;
+                transaction
+                    .commit()
+                    .map_err(super::objects::object_unavailable)
+                    .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 
     pub async fn get_path(
@@ -356,21 +353,19 @@ impl SyncState {
             return Err(AdminError::Invalid("invalid synchronization path".into()));
         }
         self.0
-            .run_admin(move |connection| {
-                Ok((|| {
-                    matching(connection, &binding, &binding.bucket)?;
-                    sql::row(
-                        connection,
-                        SELECT_BY_PATH,
-                        params![path, binding.bucket, binding.incarnation],
-                        read_record,
-                    )
-                    .optional()
-                    .map_err(super::objects::object_unavailable)
-                })())
+            .run_admin_with_error(move |connection| {
+                matching(connection, &binding, &binding.bucket)?;
+                sql::row(
+                    connection,
+                    SELECT_BY_PATH,
+                    params![path, binding.bucket, binding.incarnation],
+                    read_record,
+                )
+                .optional()
+                .map_err(super::objects::object_unavailable)
+                .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 
     /// Continue after the last returned path; an empty page terminates traversal.
@@ -384,22 +379,20 @@ impl SyncState {
             return Err(AdminError::Invalid("invalid synchronization page".into()));
         }
         self.0
-            .run_admin(move |connection| {
-                Ok((|| {
-                    matching(connection, &binding, &binding.bucket)?;
-                    connection
-                        .prepare_cached(SELECT_PAGE)
-                        .map_err(super::objects::object_unavailable)?
-                        .query_map(
-                            params![after, binding.bucket, binding.incarnation, limit as i64],
-                            read_record,
-                        )
-                        .map_err(super::objects::object_unavailable)?
-                        .collect::<rusqlite::Result<Vec<_>>>()
-                        .map_err(super::objects::object_unavailable)
-                })())
+            .run_admin_with_error(move |connection| {
+                matching(connection, &binding, &binding.bucket)?;
+                connection
+                    .prepare_cached(SELECT_PAGE)
+                    .map_err(super::objects::object_unavailable)?
+                    .query_map(
+                        params![after, binding.bucket, binding.incarnation, limit as i64],
+                        read_record,
+                    )
+                    .map_err(super::objects::object_unavailable)?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(super::objects::object_unavailable)
+                    .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 }

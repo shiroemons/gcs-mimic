@@ -977,7 +977,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let soft_deleted = query.soft_deleted;
         let result = self
-            .run_object(move |connection| {
+            .run(move |connection| {
                 // The catalog worker serializes mutations; each seek ends before glob matching.
                 authorized_bucket(connection, &query.bucket, &access)?;
                 let now = unix_micros(clock.now())?;
@@ -1033,15 +1033,6 @@ impl Catalog {
             .map_err(object_unavailable)?
     }
 
-    pub(super) async fn run_object<T: Send + 'static>(
-        &self,
-        operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
-    ) -> Result<T, ObjectError> {
-        self.run(move |connection| Ok(operation(connection)))
-            .await
-            .map_err(object_unavailable)?
-    }
-
     /// Advisory check that also rejects a bucket or an overwrite the caller is not authorized
     /// for. Publication repeats every part of it inside its own transaction.
     pub(crate) async fn check_upload(
@@ -1056,20 +1047,17 @@ impl Catalog {
         let access = access.clone();
         let clock = self.0.clock.clone();
         self.run_waiting(move |connection| {
-            Ok((|| {
-                let transaction = connection.transaction()?;
-                let (_, delete_permission) = authorized_bucket(&transaction, &bucket, &access)?;
-                let previous = lookup(&transaction, &bucket, &name)?;
-                check_publication(
-                    previous.as_ref(),
-                    conditions,
-                    delete_permission,
-                    clock.now(),
-                )
-            })())
+            let transaction = connection.transaction()?;
+            let (_, delete_permission) = authorized_bucket(&transaction, &bucket, &access)?;
+            let previous = lookup(&transaction, &bucket, &name)?;
+            check_publication(
+                previous.as_ref(),
+                conditions,
+                delete_permission,
+                clock.now(),
+            )
         })
         .await
-        .map_err(object_unavailable)?
     }
 
     /// HTTP connection admission bounds streaming uploads.
@@ -1303,7 +1291,7 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let access = access.clone();
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             let transaction = connection.transaction()?;
             selected(
                 &transaction,
@@ -1326,7 +1314,7 @@ impl Catalog {
     ) -> Result<(), ObjectError> {
         let record = record.clone();
         let access = access.clone();
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             let transaction = connection.transaction()?;
             authorize_generation(
                 &transaction,
@@ -1415,7 +1403,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let access = access.clone();
         let principals = self.0.principals.get().cloned();
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             let transaction = sql::immediate(connection)?;
             let (mut record, _) = selected(
                 &transaction,
@@ -1545,7 +1533,7 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         let clock = self.0.clock.clone();
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             delete_selected(
                 connection,
                 clock.as_ref(),

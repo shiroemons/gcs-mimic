@@ -40,7 +40,7 @@ impl Catalog {
         let destination_create = access.destination_create.clone();
         let clock = self.0.clock.clone();
         let record = self
-            .run_object(move |connection| {
+            .run(move |connection| {
                 let transaction = sql::immediate(connection).map_err(object_unavailable)?;
                 let (mut record, blob_id) = selected(
                     &transaction,

@@ -64,7 +64,7 @@ impl Catalog {
             access.clone(),
             self.0.clock.clone(),
         );
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             let transaction = connection.transaction()?;
             let object_acl = objects::object_acl_authority(&transaction, &bucket, &access)?;
             let (record, _) = selected(
@@ -117,7 +117,7 @@ impl Catalog {
         let (clock, data_dir) = (self.0.clock.clone(), self.0.data_dir.clone());
         let memory = self.0.memory.clone();
         let result = self
-            .run_object(move |connection| {
+            .run(move |connection| {
                 authorized_bucket(connection, &bucket, &restore_access)?;
                 let now = clock.now();
                 let micros = unix_micros(now)?;

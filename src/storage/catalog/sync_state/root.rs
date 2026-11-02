@@ -396,14 +396,12 @@ impl RootLease {
             .0
             .file_workers
             .run(move || {
-                Ok((|| {
-                    lease.validate()?;
-                    let result = job(lease.ownership.lock.file()).map_err(RootError::from)?;
-                    lease.validate()?;
-                    Ok(result)
-                })())
+                lease.validate()?;
+                let result = job(lease.ownership.lock.file()).map_err(RootError::from)?;
+                lease.validate()?;
+                Ok(result)
             })
-            .await?
+            .await
     }
 
     /// The adapter calls this only after its complete durable initial merge.
@@ -459,27 +457,25 @@ impl SyncState {
                 .0
                 .file_workers
                 .run(move || {
-                    Ok((|| {
-                        let selected_path = std::path::absolute(&path)?;
-                        let lock = lock::acquire_directory(&selected_path)?;
-                        let canonical = selected_path.canonicalize()?;
-                        if crate::source_tree::paths_overlap(&canonical, &data_dir)? {
-                            return Err(RootError::RootChanged);
-                        }
-                        let identity = fsutil::stat_identity(lock.file())?;
-                        let ownership = Ownership {
-                            lock,
-                            path: canonical,
-                            selected_path,
-                            identity,
-                            _catalog_permit: permit,
-                        };
-                        ownership.validate()?;
-                        let marker = read_marker(ownership.lock.file())?;
-                        Ok((Arc::new(ownership), marker))
-                    })())
+                    let selected_path = std::path::absolute(&path)?;
+                    let lock = lock::acquire_directory(&selected_path)?;
+                    let canonical = selected_path.canonicalize()?;
+                    if crate::source_tree::paths_overlap(&canonical, &data_dir)? {
+                        return Err(RootError::RootChanged);
+                    }
+                    let identity = fsutil::stat_identity(lock.file())?;
+                    let ownership = Ownership {
+                        lock,
+                        path: canonical,
+                        selected_path,
+                        identity,
+                        _catalog_permit: permit,
+                    };
+                    ownership.validate()?;
+                    let marker = read_marker(ownership.lock.file())?;
+                    Ok((Arc::new(ownership), marker))
                 })
-                .await??;
+                .await?;
             state
                 .activate_owned(ownership.0, ownership.1, catalog, activation)
                 .await
@@ -502,59 +498,56 @@ impl SyncState {
             .map(|(m, _)| (m.catalog_id.clone(), m.root_id.clone()));
         let status = self
             .0
-            .run_admin(move |connection| {
-                Ok(reserve(
+            .run_admin_with_error(move |connection| {
+                reserve(
                     connection, &location, identity, marker_ids, catalog, activation,
-                ))
+                )
             })
-            .await??;
+            .await?;
         let owns = ownership.clone();
         let marker_identity = self
             .0
             .0
             .file_workers
             .run(move || {
-                Ok((|| {
-                    owns.validate()?;
+                owns.validate()?;
+                #[cfg(test)]
+                failure_boundary(&owns.path, "reserved")?;
+                if marker.is_none() {
+                    let bytes = serde_json::to_vec(&Marker {
+                        version: 1,
+                        catalog_id: catalog.to_string(),
+                        root_id: status.root_id.to_string(),
+                    })
+                    .map_err(|_| RootError::InvalidMarker)?;
+                    let mut file = fsutil::create_regular_at(owns.lock.file(), MARKER.as_ref())?;
                     #[cfg(test)]
-                    failure_boundary(&owns.path, "reserved")?;
-                    if marker.is_none() {
-                        let bytes = serde_json::to_vec(&Marker {
-                            version: 1,
-                            catalog_id: catalog.to_string(),
-                            root_id: status.root_id.to_string(),
-                        })
-                        .map_err(|_| RootError::InvalidMarker)?;
-                        let mut file =
-                            fsutil::create_regular_at(owns.lock.file(), MARKER.as_ref())?;
-                        #[cfg(test)]
-                        failure_boundary(&owns.path, "created")?;
-                        file.write_all(&bytes)?;
-                        file.sync_all()?;
-                        #[cfg(test)]
-                        failure_boundary(&owns.path, "file_synced")?;
-                        owns.lock.file().sync_all()?;
-                        #[cfg(test)]
-                        failure_boundary(&owns.path, "directory_synced")?;
-                    }
-                    let (current, identity) =
-                        read_marker(owns.lock.file())?.ok_or(RootError::MissingMarker)?;
-                    if current.catalog_id != catalog.to_string()
-                        || current.root_id != status.root_id.to_string()
-                    {
-                        return Err(RootError::ForeignMarker);
-                    }
-                    if marker
-                        .as_ref()
-                        .is_some_and(|(_, previous)| *previous != identity)
-                    {
-                        return Err(RootError::InvalidMarker);
-                    }
-                    owns.validate()?;
-                    Ok(identity)
-                })())
+                    failure_boundary(&owns.path, "created")?;
+                    file.write_all(&bytes)?;
+                    file.sync_all()?;
+                    #[cfg(test)]
+                    failure_boundary(&owns.path, "file_synced")?;
+                    owns.lock.file().sync_all()?;
+                    #[cfg(test)]
+                    failure_boundary(&owns.path, "directory_synced")?;
+                }
+                let (current, identity) =
+                    read_marker(owns.lock.file())?.ok_or(RootError::MissingMarker)?;
+                if current.catalog_id != catalog.to_string()
+                    || current.root_id != status.root_id.to_string()
+                {
+                    return Err(RootError::ForeignMarker);
+                }
+                if marker
+                    .as_ref()
+                    .is_some_and(|(_, previous)| *previous != identity)
+                {
+                    return Err(RootError::InvalidMarker);
+                }
+                owns.validate()?;
+                Ok(identity)
             })
-            .await??;
+            .await?;
         Ok(RootLease {
             ownership,
             state: self.clone(),

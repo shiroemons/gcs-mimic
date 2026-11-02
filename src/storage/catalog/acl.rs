@@ -275,16 +275,17 @@ struct BucketRow {
 }
 
 fn bucket_row(connection: &Connection, bucket: &str) -> Result<Option<BucketRow>, CatalogError> {
-    sql::row(connection,
-            "SELECT project, metageneration, uniform_bucket_level_access_locked_time IS NOT NULL, acl_policy_bound FROM buckets WHERE name = ?1", [bucket], |row| {
-                Ok(BucketRow {
-                    project: row.get(0)?,
-                    metageneration: row.get(1)?,
-                    uniform_access: row.get(2)?,
-                    policy_bound: row.get(3)?,
-                })
-            }).optional()
-        .map_err(unavailable)
+    const SELECT: &str = "SELECT project, metageneration, uniform_bucket_level_access_locked_time IS NOT NULL, acl_policy_bound FROM buckets WHERE name = ?1";
+    sql::row(connection, SELECT, [bucket], |row| {
+        Ok(BucketRow {
+            project: row.get(0)?,
+            metageneration: row.get(1)?,
+            uniform_access: row.get(2)?,
+            policy_bound: row.get(3)?,
+        })
+    })
+    .optional()
+    .map_err(unavailable)
 }
 
 fn decode(entries: &str) -> Result<Vec<AclEntry>, CatalogError> {
@@ -385,11 +386,8 @@ fn stored_object_entries(
     name: &str,
     generation: i64,
 ) -> Result<Option<Vec<AclEntry>>, CatalogError> {
-    sql::row(connection,
-            "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![bucket, name, generation], |row| {
-                row.get::<_, String>(0)
-            }).optional()
-        .map_err(unavailable)?
+    const SELECT: &str = "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3";
+    sql::optional_scalar::<String>(connection, SELECT, params![bucket, name, generation])?
         .map(|entries| decode(&entries))
         .transpose()
 }
@@ -723,19 +721,17 @@ impl Catalog {
     ) -> Result<AclState, AclError> {
         let access = access.clone();
         self.run(move |connection| {
-            Ok((|| {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                let (state, _) = load(&transaction, &target, &access)?;
-                if if_metageneration_match.is_some_and(|value| value != state.metageneration) {
-                    return Err(CatalogError::PreconditionFailed.into());
-                }
-                if if_metageneration_not_match == Some(state.metageneration) {
-                    return Err(AclError::NotModified);
-                }
-                Ok(state)
-            })())
+            let transaction = connection.transaction().map_err(unavailable)?;
+            let (state, _) = load(&transaction, &target, &access)?;
+            if if_metageneration_match.is_some_and(|value| value != state.metageneration) {
+                return Err(CatalogError::PreconditionFailed.into());
+            }
+            if if_metageneration_not_match == Some(state.metageneration) {
+                return Err(AclError::NotModified);
+            }
+            Ok(state)
         })
-        .await?
+        .await
     }
 
     /// Apply one entry change and advance the containing resource metageneration atomically.
@@ -749,95 +745,92 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
-            Ok((|| {
-                let transaction = sql::immediate(connection)
-                    .map_err(unavailable)?;
-                let (mut state, record) = load(&transaction, &target, &access)?;
-                let bucket = target.bucket();
-                let mut changed = match change {
-                    AclChange::Upsert { entity, role } => {
-                        // Public access prevention blocks new public grants, as it does for IAM.
-                        if Entity::parse(&entity).is_ok_and(Entity::is_public)
-                            && public_access_prevention(&transaction, bucket)?
-                        {
-                            return Err(CatalogError::PublicAccessPrevention.into());
-                        }
-                        let position = state.entries.iter().position(|entry| entry.entity == entity);
-                        let role = match (role, position) {
-                            (Some(role), _) => role,
-                            (None, Some(index)) => state.entries[index].role.clone(),
-                            (None, None) => return Err(AclError::RoleRequired),
-                        };
-                        let entry = AclEntry { entity, role };
-                        match position {
-                            Some(index) => state.entries[index] = entry.clone(),
-                            None => {
-                                if state.entries.len() >= MAX_ENTRIES {
-                                    return Err(AclError::TooManyEntries);
-                                }
-                                state.entries.push(entry.clone());
+            let transaction = sql::immediate(connection).map_err(unavailable)?;
+            let (mut state, record) = load(&transaction, &target, &access)?;
+            let bucket = target.bucket();
+            let mut changed = match change {
+                AclChange::Upsert { entity, role } => {
+                    // Public access prevention blocks new public grants, as it does for IAM.
+                    if Entity::parse(&entity).is_ok_and(Entity::is_public)
+                        && public_access_prevention(&transaction, bucket)?
+                    {
+                        return Err(CatalogError::PublicAccessPrevention.into());
+                    }
+                    let position = state.entries.iter().position(|entry| entry.entity == entity);
+                    let role = match (role, position) {
+                        (Some(role), _) => role,
+                        (None, Some(index)) => state.entries[index].role.clone(),
+                        (None, None) => return Err(AclError::RoleRequired),
+                    };
+                    let entry = AclEntry { entity, role };
+                    match position {
+                        Some(index) => state.entries[index] = entry.clone(),
+                        None => {
+                            if state.entries.len() >= MAX_ENTRIES {
+                                return Err(AclError::TooManyEntries);
                             }
+                            state.entries.push(entry.clone());
                         }
-                        Some(entry)
                     }
-                    AclChange::Delete { entity } => {
-                        let index = state
-                            .entries
-                            .iter()
-                            .position(|entry| entry.entity == entity)
-                            .ok_or_else(|| AclError::EntityNotFound {
-                                entity: entity.clone(),
-                                project_number: state.project_number.clone(),
-                            })?;
-                        state.entries.remove(index);
-                        None
-                    }
-                };
-                let entries = encode_changed_entries(&mut state, record.as_ref().and_then(|record| record.owner.as_ref()), &mut changed, target.kind())?;
-                let micros = unix_micros(clock.now())?;
-                state.metageneration = state
-                    .metageneration
-                    .checked_add(1)
-                    .ok_or_else(|| unavailable("metageneration exhausted"))?;
-                match record {
-                    None => {
-                        if target.kind() == AclKind::Bucket {
-                            bucket_policy::replace_policy(&transaction, bucket, &state.entries, principals.as_ref())?;
-                        }
-                        sql::exec(&transaction, UPSERT_BUCKET_ENTRIES, params![bucket, scope(target.kind()), entries])
-                            .map_err(unavailable)?;
-                        sql::exec(&transaction,
-                                "UPDATE buckets SET metageneration = ?2, updated = ?3, updated_nanos = 0 WHERE name = ?1", params![bucket, state.metageneration, micros])
-                            .map_err(unavailable)?;
-                        change_journal::append(
-                            &transaction,
-                            change_journal::origin(&access),
-                            change_journal::ChangeKind::BucketUpdate,
-                            bucket,
-                            None,
-                        )?;
-                    }
-                    Some(mut record) => {
-                        sql::exec(&transaction, UPSERT_OBJECT_ENTRIES, params![bucket, record.name, record.generation, entries])
-                            .map_err(unavailable)?;
-                        sql::exec(&transaction,
-                                "UPDATE objects SET metageneration = ?4, updated = ?5 WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![bucket, record.name, record.generation, state.metageneration, micros])
-                            .map_err(unavailable)?;
-                        record.metageneration = state.metageneration;
-                        record.updated = super::system_time_micros(micros).map_err(unavailable)?;
-                        change_journal::object(
-                            &transaction,
-                            change_journal::origin(&access),
-                            change_journal::ChangeKind::Metadata,
-                            &record,
-                        )?;
-                    }
+                    Some(entry)
                 }
-                transaction.commit().map_err(unavailable)?;
-                Ok((state, changed))
-            })())
+                AclChange::Delete { entity } => {
+                    let index = state
+                        .entries
+                        .iter()
+                        .position(|entry| entry.entity == entity)
+                        .ok_or_else(|| AclError::EntityNotFound {
+                            entity: entity.clone(),
+                            project_number: state.project_number.clone(),
+                        })?;
+                    state.entries.remove(index);
+                    None
+                }
+            };
+            let entries = encode_changed_entries(&mut state, record.as_ref().and_then(|record| record.owner.as_ref()), &mut changed, target.kind())?;
+            let micros = unix_micros(clock.now())?;
+            state.metageneration = state
+                .metageneration
+                .checked_add(1)
+                .ok_or_else(|| unavailable("metageneration exhausted"))?;
+            match record {
+                None => {
+                    if target.kind() == AclKind::Bucket {
+                        bucket_policy::replace_policy(&transaction, bucket, &state.entries, principals.as_ref())?;
+                    }
+                    sql::exec(&transaction, UPSERT_BUCKET_ENTRIES, params![bucket, scope(target.kind()), entries])
+                        .map_err(unavailable)?;
+                    sql::exec(&transaction,
+                            "UPDATE buckets SET metageneration = ?2, updated = ?3, updated_nanos = 0 WHERE name = ?1", params![bucket, state.metageneration, micros])
+                        .map_err(unavailable)?;
+                    change_journal::append(
+                        &transaction,
+                        change_journal::origin(&access),
+                        change_journal::ChangeKind::BucketUpdate,
+                        bucket,
+                        None,
+                    )?;
+                }
+                Some(mut record) => {
+                    sql::exec(&transaction, UPSERT_OBJECT_ENTRIES, params![bucket, record.name, record.generation, entries])
+                        .map_err(unavailable)?;
+                    sql::exec(&transaction,
+                            "UPDATE objects SET metageneration = ?4, updated = ?5 WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![bucket, record.name, record.generation, state.metageneration, micros])
+                        .map_err(unavailable)?;
+                    record.metageneration = state.metageneration;
+                    record.updated = super::system_time_micros(micros).map_err(unavailable)?;
+                    change_journal::object(
+                        &transaction,
+                        change_journal::origin(&access),
+                        change_journal::ChangeKind::Metadata,
+                        &record,
+                    )?;
+                }
+            }
+            transaction.commit().map_err(unavailable)?;
+            Ok((state, changed))
         })
-        .await?
+        .await
     }
 
     /// Effective ACLs for rendering; `None` when the bucket no longer exists.
