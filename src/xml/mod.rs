@@ -765,6 +765,25 @@ pub(crate) enum UnknownGoogHeaders {
     Ignore,
 }
 
+const HTTP_PRECONDITION_HEADERS: &[&str] = &[
+    "if-match",
+    "if-none-match",
+    "if-modified-since",
+    "if-unmodified-since",
+    "if-range",
+];
+
+fn common_object_header(name: &str) -> bool {
+    crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)
+        || matches!(
+            name,
+            "x-goog-if-generation-match"
+                | "x-goog-if-metageneration-match"
+                | "x-goog-api-client"
+                | "x-goog-gcs-idempotency-token"
+        )
+}
+
 pub(crate) fn headers(
     headers: &HeaderMap,
     request: &mut ReadRequest,
@@ -815,25 +834,11 @@ pub(crate) fn headers(
             && RECOGNIZED_UNSUPPORTED_GOOG_HEADERS.contains(&key))
             || (key.starts_with("x-goog-")
                 && unknown == UnknownGoogHeaders::Reject
-                && !crate::csek::is_key_header(key, crate::csek::DESTINATION_PREFIX)
+                && !common_object_header(key)
                 && !crate::auth::signature::authentication_header(key)
-                && !matches!(
-                    key,
-                    "x-goog-if-generation-match"
-                        | "x-goog-if-metageneration-match"
-                        | "x-goog-api-client"
-                        | "x-goog-gcs-idempotency-token"
-                        | "x-goog-content-sha256"
-                ))
+                && key != "x-goog-content-sha256")
             || (key.starts_with("x-amz-") && !crate::auth::signature::authentication_header(key))
-            || matches!(
-                key,
-                "if-match"
-                    | "if-none-match"
-                    | "if-modified-since"
-                    | "if-unmodified-since"
-                    | "if-range"
-            )
+            || HTTP_PRECONDITION_HEADERS.contains(&key)
         {
             return Err(Error::unsupported(key));
         }

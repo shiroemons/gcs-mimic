@@ -93,32 +93,15 @@ fn reject_unsupported_headers(headers: &HeaderMap, signing: Signing) -> Result<(
         let name = key.as_str();
         if (name.starts_with("x-goog-")
             && !name.starts_with("x-goog-meta-")
-            && !crate::csek::is_key_header(name, crate::csek::DESTINATION_PREFIX)
+            && !super::common_object_header(name)
             && !(signing != Signing::Header && auth::signature::authentication_header(name))
-            && !matches!(
-                name,
-                "x-goog-hash"
-                    | "x-goog-if-generation-match"
-                    | "x-goog-if-metageneration-match"
-                    | "x-goog-api-client"
-                    | "x-goog-gcs-idempotency-token"
-                    | "x-goog-storage-class"
-            ))
+            && !matches!(name, "x-goog-hash" | "x-goog-storage-class"))
             || (name.starts_with("x-amz-")
                 && !(signing != Signing::Header
                     && (auth::signature::authentication_header(name)
                         || name == "x-amz-decoded-content-length")))
-            || matches!(
-                name,
-                "content-range"
-                    | "range"
-                    | "if-match"
-                    | "if-none-match"
-                    | "if-modified-since"
-                    | "if-unmodified-since"
-                    | "if-range"
-                    | "trailer"
-            )
+            || super::HTTP_PRECONDITION_HEADERS.contains(&name)
+            || matches!(name, "content-range" | "range" | "trailer")
         {
             return Err(Error::unsupported(name));
         }
