@@ -27,7 +27,7 @@ PUT/PATCH/DELETE on the collection return 405 `methodNotAllowed` with `Allow: GE
 | `includeTrailingDelimiter` | Default false. True includes a marker ending in exactly one delimiter in `items` as well as its common prefix. Repeated terminal delimiters do not become marker items. |
 | `projection` | `noAcl` default and `full` use the existing object renderer. Full omits unimplemented ACL/owner fields, exactly as existing metadata GET does. |
 | `versions` | Omitted/false selects the sole live generation; true returns 501 `notImplemented`. No version-history claim. |
-| `softDeleted` | Omitted/false supported; true returns 501. Invalid booleans return 400 `invalidParameter`. |
+| `softDeleted` | Omitted/false lists live objects; true lists soft-deleted generations (an empty listing, with a server log explaining why, when the bucket has no soft-delete policy) and cannot be combined with `versions=true` (400 `invalidArgument`). Invalid booleans return 400 `invalidParameter`. |
 | `includeFoldersAsPrefixes` | Omitted/false supported. True with `delimiter=/` returns the listing without it, because local buckets hold no folders or managed folders ([storage layout slice](bucket-storage-layout.md)); true with any other or no delimiter returns 400 `invalidParameter`. |
 | `matchGlob` | Omitted/empty means no glob filter. The pinned Go SDK always sends the empty value. Every nonempty pattern returns 501, including patterns that happen to match all objects. |
 | `filter` | Omitted/empty means no context filter; nonempty values return 501. |
