@@ -351,6 +351,24 @@ fn object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages() {
     let (items, prefixes) = server.pages("delimiter=%2F&includeTrailingDelimiter=true", 1);
     assert_eq!(items, ["a", "a/", "b", "z", "雪"]);
     assert_eq!(prefixes, ["a/", "c/", "é/", "雪/"]);
+    // includeFoldersAsPrefixes adds only folders and managed folders, which no local bucket
+    // holds, so the listing and its page tokens match the plain delimiter listing. This is
+    // the request gcloud storage ls sends.
+    assert_eq!(
+        server.list("delimiter=%2F&includeFoldersAsPrefixes=True&projection=noAcl"),
+        server.list("delimiter=%2F&projection=noAcl")
+    );
+    assert_eq!(
+        server.pages("delimiter=%2F&includeFoldersAsPrefixes=true", 1),
+        server.pages("delimiter=%2F", 1)
+    );
+    assert_eq!(
+        server.pages(
+            "prefix=a%2F&delimiter=%2F&includeFoldersAsPrefixes=true&includeTrailingDelimiter=true",
+            1
+        ),
+        server.pages("prefix=a%2F&delimiter=%2F&includeTrailingDelimiter=true", 1)
+    );
     assert_eq!(
         server.pages("prefix=a%2F&delimiter=%2F&includeTrailingDelimiter=true", 1),
         (
@@ -425,6 +443,11 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         "softDeleted=bad",
         "includeTrailingDelimiter=bad",
         "includeFoldersAsPrefixes=bad",
+        // The reference requires delimiter=/ with includeFoldersAsPrefixes.
+        "includeFoldersAsPrefixes=true",
+        "includeFoldersAsPrefixes=true&delimiter=",
+        "includeFoldersAsPrefixes=true&delimiter=-",
+        "includeFoldersAsPrefixes=True&delimiter=%2F%2F",
         "unknown=1",
         "prefix=%FF",
         "prefix=%",
@@ -448,7 +471,7 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         "filter=context-filter",
         "fields=",
         "userProject=local",
-        "includeFoldersAsPrefixes=true",
+        "delimiter=%2F&userProject=local",
         "alt=media",
         "key=x",
         "oauth_token=x",

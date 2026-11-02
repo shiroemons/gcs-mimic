@@ -680,9 +680,30 @@
         "required": true,
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "STORAGE-LAYOUT-BUCKET",
+          "description": "getStorageLayout parameter bucket: an existing bucket returns its layout, a missing one 404 notFound and an invalid name 400 invalidParameter; see docs/en/slices/bucket-storage-layout.md. Provider error parity remains pending.",
+          "result": "PASS",
+          "test_ids": [
+            "storage_layout_reports_the_bucket_location_without_namespace_or_placement",
+            "storage_layout_rejects_missing_buckets_bodies_and_other_methods"
+          ]
+        }
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --locked --offline --test bucket_storage_layout_http",
+          "result": "PASS",
+          "verified_at": "2026-11-02",
+          "artifact": "docs/en/slices/bucket-storage-layout.md",
+          "test_ids": [
+            "storage_layout_reports_the_bucket_location_without_namespace_or_placement",
+            "storage_layout_rejects_missing_buckets_bodies_and_other_methods"
+          ]
+        }
+      ]
     },
     {
       "id": "PARAM:storage.buckets.getStorageLayout:prefix",
@@ -692,9 +713,30 @@
         "location": "query",
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "STORAGE-LAYOUT-PREFIX",
+          "description": "getStorageLayout parameter prefix: accepted without changing the response; the bucket-level storage.objects.list check decides every prefix because local IAM has no conditions. Prefix-scoped conditional grants remain unsupported.",
+          "result": "PASS",
+          "test_ids": [
+            "storage_layout_parameters_select_fields_and_scope_the_permission_check",
+            "storage_layout_requires_object_list_permission_in_strict_mode"
+          ]
+        }
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --locked --offline --test bucket_storage_layout_http",
+          "result": "PASS",
+          "verified_at": "2026-11-02",
+          "artifact": "docs/en/slices/bucket-storage-layout.md",
+          "test_ids": [
+            "storage_layout_parameters_select_fields_and_scope_the_permission_check",
+            "storage_layout_requires_object_list_permission_in_strict_mode"
+          ]
+        }
+      ]
     },
     {
       "id": "PARAM:storage.buckets.insert:enableObjectRetention",
@@ -3751,9 +3793,30 @@
         "location": "query",
         "type": "boolean"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "FOLDERS-AS-PREFIXES-SUBSET",
+          "description": "objects.list parameter includeFoldersAsPrefixes: true with delimiter=/ lists exactly as without it because local buckets hold no folders or managed folders; any other delimiter returns 400 invalidParameter (BEHAVIOR-OBJECT-020, docs/en/slices/bucket-storage-layout.md). Managed folders and hierarchical namespace remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
+            "object_list_invalid_unsupported_and_missing_bucket_errors"
+          ]
+        }
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --locked --offline --test object_list_http",
+          "result": "PASS",
+          "verified_at": "2026-11-02",
+          "artifact": "docs/en/slices/bucket-storage-layout.md",
+          "test_ids": [
+            "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
+            "object_list_invalid_unsupported_and_missing_bucket_errors"
+          ]
+        }
+      ]
     },
     {
       "id": "PARAM:storage.objects.list:includeTrailingDelimiter",

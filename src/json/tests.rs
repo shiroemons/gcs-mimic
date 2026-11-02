@@ -111,8 +111,8 @@ fn object_and_project_query_booleans_use_the_same_parser() {
         ),
         (
             Method::GET,
-            "/storage/v1/b/abc/o?includeFoldersAsPrefixes=",
-            false,
+            "/storage/v1/b/abc/o?delimiter=%2F&includeFoldersAsPrefixes=",
+            true,
         ),
         (Method::GET, "/storage/v1/b/abc/o?prettyPrint=", true),
         (

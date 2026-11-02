@@ -3,7 +3,6 @@ use hyper::{Method, Uri};
 // Storage v1 Discovery revision 20261020; keep explicit methods so object names remain opaque.
 const ROUTES: &[(&str, &str)] = &[
     ("POST", "b/{bucket}/relocate"),
-    ("GET", "b/{bucket}/storageLayout"),
     ("POST", "b/{bucket}/o"),
     ("POST", "b/{bucket}/o/bulkRestore"),
     ("GET|PUT", "b/{bucket}/o/{object}/iam"),
@@ -94,6 +93,7 @@ mod tests {
             "storage.buckets.delete",
             "storage.buckets.get",
             "storage.buckets.getIamPolicy",
+            "storage.buckets.getStorageLayout",
             "storage.buckets.insert",
             "storage.buckets.list",
             "storage.buckets.lockRetentionPolicy",

@@ -1765,6 +1765,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn grpc_list_folders_as_prefixes_follows_the_json_rule() {
+        let (s, _dir) = setup().await;
+        upload(&s, "top", 3).await;
+        upload(&s, "dir/nested", 3).await;
+        let list = |include_folders_as_prefixes: bool, delimiter: &str| pb::ListObjectsRequest {
+            parent: "projects/_/buckets/update-copy-bucket".into(),
+            delimiter: delimiter.into(),
+            include_folders_as_prefixes,
+            ..Default::default()
+        };
+        // No local bucket holds folders or managed folders, so the flag changes nothing.
+        let plain = s
+            .list_objects(Request::new(list(false, "/")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        let folders = s
+            .list_objects(Request::new(list(true, "/")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(folders, plain);
+        assert_eq!(folders.prefixes, ["dir/"]);
+        assert_eq!(folders.objects.len(), 1);
+        for delimiter in ["", "-"] {
+            let error = s
+                .list_objects(Request::new(list(true, delimiter)), None)
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), Code::InvalidArgument, "{delimiter:?}");
+            assert!(error.message().contains("delimiter=/"), "{error:?}");
+        }
+        assert_eq!(
+            s.list_objects(
+                Request::new(pb::ListObjectsRequest {
+                    filter: "contexts.\"k\"=\"v\"".into(),
+                    ..list(false, "/")
+                }),
+                None
+            )
+            .await
+            .unwrap_err()
+            .code(),
+            Code::Unimplemented
+        );
+        s.state.catalog.close().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn grpc_list_soft_deleted_objects_strict() {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();

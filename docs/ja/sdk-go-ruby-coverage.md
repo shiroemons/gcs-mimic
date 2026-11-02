@@ -120,7 +120,7 @@ SDK スイートに加えて、スイート外の SDK メソッドを呼ぶ一�
 | matchGlob | ✅ | ✅ | |
 | start・end offset | ✅ | — | Ruby 1.62.1 には引数がない |
 | includeTrailingDelimiter・fields 指定 | ✅ | — | Ruby は未確認 |
-| includeFoldersAsPrefixes | 501⏳ | 501 | |
+| includeFoldersAsPrefixes | — | — | delimiter=/ のときだけ受け付ける。ローカルのバケットはフォルダーを持たないため、一覧は指定なしと同じ。gcloud storage ls が送る。Go・Ruby の SDK テストでは未確認 |
 
 ### 署名・認証・通信
 

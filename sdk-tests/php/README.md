@@ -121,7 +121,7 @@ where noted:
   `rewrite` and default `compose`; `downloadToFile` with the SDK's checksum
   validation and SHA-256 comparison; a ranged read; temporary hold with
   custom time; `objects.move`.
-- `includeFoldersAsPrefixes` fails fast with 400 badRequest and gcs-mimic
+- Requester Pays `userProject` fails fast with 400 badRequest and gcs-mimic
   diagnostics instead of a retried or silent success.
 - Strict only: anonymous 401, objectViewer denied bucket and object creation,
   and the signed-URL cases below.

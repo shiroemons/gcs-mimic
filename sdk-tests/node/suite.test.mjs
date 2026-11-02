@@ -111,11 +111,12 @@ test('node-regional-location', async () => {
 test('node-unsupported-fails-fast', async () => {
   // The SDK's default retry policy must not turn an unsupported query into a slow failure.
   const retrying = createStorage(origin, {token, retries: true});
+  // Requester Pays billing (userProject) is recognized but not modeled locally.
+  const billed = retrying.bucket(bucket.name, {userProject: 'local-billing-project'});
   const started = performance.now();
-  await rejectsWith(400, () => retrying.bucket(bucket.name).getFiles({delimiter: '/', includeFoldersAsPrefixes: true}),
-    'badRequest');
+  await rejectsWith(400, () => billed.getFiles({delimiter: '/'}), 'badRequest');
   assert(performance.now() - started < 3000, 'unsupported call waited for retries');
-  await assert.rejects(() => retrying.bucket(bucket.name).getFiles({delimiter: '/', includeFoldersAsPrefixes: true}),
+  await assert.rejects(() => billed.getFiles({delimiter: '/'}),
     /gcs-mimic/, 'unsupported call lacks actionable diagnostics');
 });
 

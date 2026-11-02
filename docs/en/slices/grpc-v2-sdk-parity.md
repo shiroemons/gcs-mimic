@@ -96,6 +96,6 @@ ListObjects `soft_deleted=true` returned UNIMPLEMENTED. The adapter already buil
 | grpc_list_soft_deleted_versions | Combining `soft_deleted` with `versions` returns INVALID_ARGUMENT, as JSON rejects `softDeleted=true&versions=true`. |
 | grpc_list_soft_deleted_strict | Strict mode uses the same `storage.objects.list` check as JSON: a caller with the permission lists, a registered caller without it receives PERMISSION_DENIED and an anonymous caller UNAUTHENTICATED. |
 
-Prefix, delimiter, offsets, glob and page tokens combine with `soft_deleted` exactly as in the JSON listing. `include_folders_as_prefixes` and `filter` remain UNIMPLEMENTED; GetObject `soft_deleted` is outside this change.
+Prefix, delimiter, offsets, glob and page tokens combine with `soft_deleted` exactly as in the JSON listing. `filter` remains UNIMPLEMENTED; `include_folders_as_prefixes` follows the JSON rule of the [storage layout slice](bucket-storage-layout.md); GetObject `soft_deleted` is outside this change.
 
 Tests: `grpc_list_soft_deleted_objects` and `grpc_list_soft_deleted_objects_strict` failed on the previous source with UNIMPLEMENTED and pass after the change.

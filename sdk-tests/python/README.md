@@ -81,7 +81,7 @@ holds the public key from `fixtures/signing/test-only-public.pem`.
 | Default bucket create, get, list, PATCH labels, replacement PUT, delete | `Client.create_bucket`, `get_bucket`, `list_buckets`, `Bucket.patch`, `Bucket.update` |
 | PUT keeps unrelated settings (versioning, labels) while enforcing PAP | `Bucket.update` |
 | Regional location `ASIA-NORTHEAST1` | `create_bucket(location=)` |
-| Unsupported `includeFoldersAsPrefixes` fails fast with 400 `badRequest` and gcs-mimic diagnostics under the default retry policy | `list_blobs(include_folders_as_prefixes=True)` |
+| Unsupported Requester Pays `userProject` fails fast with 400 `badRequest` and gcs-mimic diagnostics under the default retry policy | `bucket(name, user_project=).list_blobs()` |
 | Pub/Sub notification create, get, list, delete | `Bucket.notification`, `get_notification`, `list_notifications` |
 | Bucket, default object and object ACL entries | `acl`, `default_object_acl`, `Blob.acl` |
 | Autoclass with toggle time, NEARLINE terminal class and STANDARD storage | `autoclass_enabled` |

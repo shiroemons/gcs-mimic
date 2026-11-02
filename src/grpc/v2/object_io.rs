@@ -725,11 +725,11 @@ impl Storage {
                 "page_size must be nonnegative; use 1000",
             ));
         }
-        if r.include_folders_as_prefixes || !r.filter.is_empty() {
-            return Err(unsupported(
-                "ListObjects include_folders_as_prefixes/filter",
-                caller,
-            ));
+        if !r.filter.is_empty() {
+            return Err(unsupported("ListObjects filter", caller));
+        }
+        if r.include_folders_as_prefixes {
+            json::check_folders_as_prefixes(&r.delimiter).map_err(json_status)?;
         }
         let encode = crate::auth::signature::encode_query_component;
         let query = [

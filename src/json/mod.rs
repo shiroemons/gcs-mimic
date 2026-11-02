@@ -47,7 +47,8 @@ pub(crate) use buckets::{BucketPredefinedAcls, bucket_list, bucket_resource};
 pub(crate) use buckets::{
     bucket_list_with_profile, bucket_resource_with_profile, parse_bucket_patch,
     parse_bucket_replacement, parse_insert_with_profile, require_matching_bucket_name,
-    soft_deleted_bucket_list, soft_deleted_bucket_resource, validate_bucket_name,
+    soft_deleted_bucket_list, soft_deleted_bucket_resource, storage_layout_resource,
+    validate_bucket_name,
 };
 pub(crate) use csek::{insert_response_headers, object_resource_keyed, request_key, source_key};
 pub(crate) use derived_metadata::{DestinationLocation, derived_component_count, derived_metadata};
@@ -68,7 +69,7 @@ pub(crate) use multipart::{
     is_multipart_content_type, multipart_boundary, multipart_metadata,
 };
 pub(crate) use object_copy::ObjectCopyParams;
-pub(crate) use object_list::{ObjectListParams, object_list};
+pub(crate) use object_list::{ObjectListParams, check_folders_as_prefixes, object_list};
 pub(crate) use object_metadata::parse_object_metadata_mutation;
 pub(crate) use object_metadata::{ObjectMetadataRequest, WriteMode, parse_object_metadata};
 pub(crate) use object_metadata::{declare_content_encoding, validate_fixed_metadata};

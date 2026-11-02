@@ -32,6 +32,7 @@ fn unsupported_google_routes_and_inputs() {
         "storage.buckets.delete",
         "storage.buckets.get",
         "storage.buckets.getIamPolicy",
+        "storage.buckets.getStorageLayout",
         "storage.buckets.insert",
         "storage.buckets.list",
         "storage.buckets.lockRetentionPolicy",
@@ -106,7 +107,7 @@ fn unsupported_google_routes_and_inputs() {
     server
         .request(
             "GET",
-            "/storage/v1/b/test-bucket/o?includeFoldersAsPrefixes=true",
+            "/storage/v1/b/test-bucket/o?delimiter=%2F&userProject=billing-project",
             "",
             b"",
         )

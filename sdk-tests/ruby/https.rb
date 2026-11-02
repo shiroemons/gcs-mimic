@@ -171,8 +171,10 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     begin
       # Use the SDK's default retry count for unsupported calls, independent of the transfer suite.
       api.request_options.retries = 3
+      # Requester Pays billing (userProject) is recognized but not modeled locally.
+      billed = storage.bucket(bucket.name, skip_lookup: true, user_project: "local-billing-project")
       {
-        "includeFoldersAsPrefixes" => -> { bucket.files(delimiter: "/", include_folders_as_prefixes: true) }
+        "userProject" => -> { billed.files(delimiter: "/") }
       }.each do |name, call|
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         begin

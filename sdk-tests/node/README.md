@@ -91,7 +91,7 @@ Any failing case makes `run.sh` exit nonzero, which fails the runner.
 | --- | --- | --- |
 | Bucket PATCH preserves versioning and labels | `createBucket`, `setMetadata` | both |
 | Default bucket creation and regional location | `createBucket(name)`, `createBucket(name, {location})` | both |
-| Unsupported query fails fast with default retries | `getFiles({includeFoldersAsPrefixes})`: 400 badRequest under 3 s, diagnostic names gcs-mimic | both |
+| Unsupported query fails fast with default retries | `bucket(name, {userProject}).getFiles()`: 400 badRequest under 3 s, diagnostic names gcs-mimic | both |
 | Notifications | `createNotification`, `notification().getMetadata`, `getNotifications`, `delete` | both |
 | JSON ACL and default object ACL | `acl.add/get/delete`, `acl.default.*`, inherited object ACL | both |
 | Autoclass | `createBucket({autoclass})`, COLDLINE upload stored as STANDARD | both |

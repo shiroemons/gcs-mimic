@@ -126,19 +126,20 @@ try {
 
     $runner->run('php-unsupported-fails-fast', function () use ($h, $bucket) {
         // The SDK's default retry policy, independent of the no-retry transfer client.
-        $defaultRetries = $h->client($h->token, null)->bucket($bucket->name());
+        // Requester Pays billing (userProject) is recognized but not modeled locally.
+        $defaultRetries = $h->client($h->token, null)->bucket($bucket->name(), 'local-billing-project');
         $started = hrtime(true);
         try {
-            iterator_to_array($defaultRetries->objects(['delimiter' => '/', 'includeFoldersAsPrefixes' => true]));
+            iterator_to_array($defaultRetries->objects(['delimiter' => '/']));
         } catch (BadRequestException $e) {
             $elapsed = (hrtime(true) - $started) / 1e9;
-            check($elapsed < 3, "includeFoldersAsPrefixes waited for retries: $elapsed");
+            check($elapsed < 3, "userProject waited for retries: $elapsed");
             $body = json_decode($e->getMessage(), true);
             check(($body['error']['errors'][0]['reason'] ?? null) === 'badRequest', 'differs from 400 badRequest: ' . detail($e));
             check(str_contains($e->getMessage(), 'gcs-mimic'), 'lacks actionable diagnostics: ' . detail($e));
-            return 'includeFoldersAsPrefixes: 400 badRequest without retries';
+            return 'userProject: 400 badRequest without retries';
         }
-        throw new RuntimeException('includeFoldersAsPrefixes unexpectedly succeeded');
+        throw new RuntimeException('userProject unexpectedly succeeded');
     });
 
     $runner->run('php-bucket-notifications', function () use ($bucket) {

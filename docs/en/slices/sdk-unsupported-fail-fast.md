@@ -8,7 +8,7 @@ Scope: DESIGN-082 and DESIGN-083. This changes rejection behavior, not support f
 
 | Case | Required behavior |
 | --- | --- |
-| unsupported-fails-fast-json | Recognized unsupported fields/options, including objectRetention, softDeleted=true and includeFoldersAsPrefixes=true, return 400 badRequest before mutation. No-op/default normalization is unchanged. |
+| unsupported-fails-fast-json | Recognized unsupported fields/options, including objectRetention, softDeleted=true and userProject, return 400 badRequest before mutation. No-op/default normalization is unchanged. |
 | unimplemented-google-route-not-404 | The pinned method/path combinations below return the same 400 badRequest. No resource lookup or mutation occurs. Retention policies and locking now have their own [contract](sdk-retention-policy.md); notification configurations have theirs in [bucket-notifications.md](bucket-notifications.md). |
 | real-not-found-unchanged | Implemented operations on absent buckets/objects still return 404 notFound. |
 | unknown-path-unchanged | Unknown paths remain 404; this is not a catch-all for the Google namespace. |
@@ -28,7 +28,7 @@ Storage v1 [Discovery](https://www.googleapis.com/discovery/v1/apis/storage/v1/r
 
 ## Pinned unsupported routes
 
-These 46 method/path combinations are rejected. Variables occupy one nonempty raw path segment, including percent-encoded slashes. Metadata-only objects.insert is included; media/multipart/resumable upload routes remain implemented. Atomic objects.move is now covered by the [move slice](sdk-object-move.md); retention locking by the [retention slice](sdk-retention-policy.md).
+These 45 method/path combinations are rejected. Variables occupy one nonempty raw path segment, including percent-encoded slashes. Metadata-only objects.insert is included; media/multipart/resumable upload routes remain implemented. Atomic objects.move is now covered by the [move slice](sdk-object-move.md); retention locking by the [retention slice](sdk-retention-policy.md).
 
 | Method | Path |
 | --- | --- |
@@ -39,7 +39,6 @@ These 46 method/path combinations are rejected. Variables occupy one nonempty ra
 | `POST` | `/storage/v1/b/{bucket}/anywhereCaches/{anywhereCacheId}/pause` |
 | `POST` | `/storage/v1/b/{bucket}/anywhereCaches/{anywhereCacheId}/resume` |
 | `PATCH` | `/storage/v1/b/{bucket}/anywhereCaches/{anywhereCacheId}` |
-| `GET` | `/storage/v1/b/{bucket}/storageLayout` |
 | `POST` | `/storage/v1/b/{bucket}/relocate` |
 | `POST` | `/storage/v1/b/{bucket}/restore` |
 | `DELETE` | `/storage/v1/b/{bucket}/folders/{folder}` |
@@ -80,6 +79,8 @@ These 46 method/path combinations are rejected. Variables occupy one nonempty ra
 | `PATCH` | `/storage/v1/b/{bucket}/rapidCaches/{rapidCacheId}` |
 
 ## Verification
+
+On 2026-11-02 `buckets.getStorageLayout` and `includeFoldersAsPrefixes=true` with `delimiter=/` became supported ([storage layout slice](bucket-storage-layout.md)), because gcloud storage sends both on every copy and bucket listing. The storage layout route left the table above. The Go, Python, Node.js, PHP and Ruby fail-fast probes that listed objects with `includeFoldersAsPrefixes` now list them with Requester Pays `userProject`, still a recognized unsupported parameter, and keep their 400 badRequest, no-retry and diagnostic assertions. `scripts/sdk-go.sh --with-ruby --with-node --with-python --with-php` passed with every suite, permissive and strict.
 
 Acceptance was recorded before implementation. On the unchanged server, Go retention creation, softDeleted and includeFoldersAsPrefixes each exhausted a ten-second context after retrying 501; the nine other new calls returned ambiguous 404s. Ruby's new high-level unsupported call raised UnimplementedError after default retry handling. No negative case was removed or skipped.
 

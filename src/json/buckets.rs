@@ -964,6 +964,23 @@ pub(crate) fn bucket_resource(
     bucket_resource_with_profile(bucket, base_url, projection, CompatProfile::Native)
 }
 
+/// The `BucketStorageLayout` resource. Its location fields match the profile's bucket resource,
+/// so a client comparing the two sees one location. `customPlacementConfig` is never stored
+/// (insert accepts only an empty one) and hierarchical namespace is not supported, so both
+/// stay absent; clients read an absent `hierarchicalNamespace` as disabled.
+pub(crate) fn storage_layout_resource(bucket: &BucketRecord, profile: CompatProfile) -> Value {
+    let (location, location_type) = match profile {
+        CompatProfile::Native => (bucket.location.as_str(), bucket.location_type.as_str()),
+        CompatProfile::LegacyEmulator => (LEGACY_LOCATION, "region"),
+    };
+    json!({
+        "kind": "storage#storageLayout",
+        "bucket": bucket.name,
+        "location": location,
+        "locationType": location_type,
+    })
+}
+
 pub(crate) fn bucket_resource_with_profile(
     bucket: &BucketRecord,
     base_url: &str,

@@ -34,8 +34,9 @@ func TestUnsupportedFailsFast(t *testing.T) {
 		name string
 		call func(context.Context) error
 	}{
-		{"IncludeFoldersAsPrefixes", func(ctx context.Context) error {
-			_, err := bucket.Objects(ctx, &storage.Query{Delimiter: "/", IncludeFoldersAsPrefixes: true}).Next()
+		// Requester Pays billing (userProject) is recognized but not modeled locally.
+		{"UserProject", func(ctx context.Context) error {
+			_, err := bucket.UserProject("local-billing-project").Objects(ctx, &storage.Query{Delimiter: "/"}).Next()
 			return err
 		}},
 		{"CopySourceACL", func(ctx context.Context) error {

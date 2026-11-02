@@ -92,10 +92,12 @@ class BucketJourneys(Journey):
 
     def test_unsupported_call_fails_fast(self):
         bucket = self.new_bucket("sdk-python-unsupported")
+        # Requester Pays billing (userProject) is recognized but not modeled locally.
+        billed = self.client.bucket(bucket.name, user_project="local-billing-project")
         started = time.monotonic()
         # The SDK's default retry policy stays in place: a 400 must not be retried.
         with self.assertRaises(exceptions.BadRequest) as raised:
-            list(bucket.list_blobs(delimiter="/", include_folders_as_prefixes=True))
+            list(billed.list_blobs(delimiter="/"))
         self.assertLess(time.monotonic() - started, 3)
         self.assertEqual(raised.exception.code, 400)
         self.assertEqual(raised.exception.errors[0]["reason"], "badRequest")

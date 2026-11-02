@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 310 | 204 | 0 | 105 | 1 | 0 | 0 |
-| behavior | 201 | 90 | 0 | 72 | 39 | 0 | 0 |
+| api_operation | 310 | 203 | 0 | 106 | 1 | 0 | 0 |
+| behavior | 201 | 89 | 0 | 73 | 39 | 0 | 0 |
 | project_requirement | 95 | 25 | 0 | 40 | 30 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 204 | 49 | 39 | 18 | 0 | 0 |
-| behavior | 91 | 68 | 38 | 4 | 0 | 0 |
+| api_operation | 203 | 49 | 40 | 18 | 0 | 0 |
+| behavior | 90 | 68 | 39 | 4 | 0 | 0 |
 | project_requirement | 25 | 0 | 0 | 0 | 1 | 69 |
 
 ## api_operation
@@ -95,7 +95,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-BUCKETS-001 | buckets.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
 | JSON-BUCKETS-002 | buckets.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 6 |
 | JSON-BUCKETS-003 | buckets.getIamPolicy | PARTIAL | P2 | EXACT | EXACT | 3 |
-| JSON-BUCKETS-004 | buckets.getStorageLayout | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| JSON-BUCKETS-004 | buckets.getStorageLayout | PARTIAL | P5 | EXACT | LOCAL_SIMULATION | 0 |
 | JSON-BUCKETS-005 | buckets.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
 | JSON-BUCKETS-006 | buckets.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-BUCKETS-007 | buckets.lockRetentionPolicy | PARTIAL | P4 | EXACT | EXACT | 2 |
@@ -718,7 +718,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-017 | コンテンツエンコードと変換 | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-018 | prefix・delimiterによる一覧 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-019 | 一覧の範囲・glob条件 | PARTIAL | P1 | EXACT | EXACT | 2 |
-| BEHAVIOR-OBJECT-020 | フォルダーをprefixに含める一覧 | NOT_STARTED | P5 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-020 | フォルダーをprefixに含める一覧 | PARTIAL | P5 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-021 | 世代・Soft deleteの一覧 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-022 | contextsによるオブジェクト一覧検索 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-023 | コピー時の意味論 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |

@@ -96,6 +96,10 @@ pub(crate) enum BucketRequest {
         bucket: String,
         permissions: Vec<String>,
     },
+    /// `buckets.getStorageLayout`; `prefix` only scopes the permission check (see the parser).
+    GetStorageLayout {
+        bucket: String,
+    },
 }
 
 /// Match the raw URI before decoding any bucket path segment.
@@ -250,6 +254,36 @@ fn soft_deleted_get(
     }))
 }
 
+/// `GET /storage/v1/b/BUCKET/storageLayout`; `segment` is the raw bucket segment.
+///
+/// The reference checks `storage.objects.list` for `prefix` when it is set. Local IAM has no
+/// conditions (bindings with one are rejected), so a grant always covers the whole bucket and
+/// the bucket-level check already decides every prefix; the value is accepted and not stored.
+fn parse_storage_layout(
+    method: &Method,
+    segment: &str,
+    uri: &Uri,
+    profile: CompatProfile,
+) -> Result<BucketRequest, JsonError> {
+    if *method != Method::GET {
+        let mut error = JsonError::new(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "methodNotAllowed",
+            "Use GET to read a bucket storage layout",
+        );
+        error.allow = Some("GET");
+        return Err(error);
+    }
+    let bucket = decode(segment, Decoding::Path)?;
+    validate_bucket_name_for_profile(&bucket, profile)?;
+    let mut query = parse_query(uri.query().unwrap_or_default())?;
+    super::Fields::take(&mut query, "BucketStorageLayout")?;
+    common(&mut query)?;
+    query.remove("prefix");
+    finish(&query)?;
+    Ok(BucketRequest::GetStorageLayout { bucket })
+}
+
 /// `GET` or `PUT /storage/v1/b/BUCKET/iam`; `segment` is the raw bucket segment.
 fn parse_iam(
     method: &Method,
@@ -318,6 +352,15 @@ pub(crate) fn route_with_profile(
         && !segment.contains('/')
     {
         return Some(parse_restore(method, segment, uri, profile));
+    }
+    if let Some(segment) = uri
+        .path()
+        .strip_prefix("/storage/v1/b/")
+        .and_then(|path| path.strip_suffix("/storageLayout"))
+        && !segment.is_empty()
+        && !segment.contains('/')
+    {
+        return Some(parse_storage_layout(method, segment, uri, profile));
     }
     if let Some(result) = super::iam::route_test_permissions(method, uri, profile) {
         return Some(result);

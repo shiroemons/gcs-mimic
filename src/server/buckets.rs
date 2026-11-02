@@ -53,7 +53,9 @@ pub(super) async fn respond<'a>(
     let acl_full = acl::bucket_full_projection(request.method(), request.uri().query(), profile)
         && !matches!(
             operation,
-            BucketRequest::GetSoftDeleted { .. } | BucketRequest::ListSoftDeleted(_)
+            BucketRequest::GetSoftDeleted { .. }
+                | BucketRequest::ListSoftDeleted(_)
+                | BucketRequest::GetStorageLayout { .. }
         );
     // A write that turns uniform bucket-level access off answers without ACL fields, as one that
     // turns it on does (recorded 2026-10-31), so the state before the write matters too.
@@ -90,6 +92,14 @@ pub(super) async fn respond<'a>(
             return get(&request, ctx, &access, &bucket, params, &fields).await;
         }
         BucketRequest::List(params) => list(ctx, params).await?,
+        BucketRequest::GetStorageLayout { bucket } => {
+            let record = state
+                .catalog
+                .get_bucket_authorized(&bucket, &access)
+                .await?
+                .ok_or_else(|| bucket_catalog_error(CatalogError::NotFound, profile, None))?;
+            json::storage_layout_resource(&record, profile)
+        }
         BucketRequest::Delete { bucket, conditions } => {
             return delete(ctx, &access, &bucket, conditions).await;
         }
@@ -190,6 +200,10 @@ async fn authorize(
             authorize_bucket(state, caller, auth::BUCKETS_SET_IAM, bucket).await?
         }
         BucketRequest::TestIam { .. } => BucketAccess::Permissive,
+        // The reference requires `storage.objects.list`, not a `storage.buckets.*` permission.
+        BucketRequest::GetStorageLayout { bucket } => {
+            authorize_bucket(state, caller, auth::OBJECTS_LIST, bucket).await?
+        }
         BucketRequest::ListSoftDeleted(params) => {
             authorize_project(caller, auth::BUCKETS_LIST, &params.project)?;
             BucketAccess::Permissive
@@ -269,6 +283,7 @@ fn response_fields(
     let schema = match operation {
         BucketRequest::List(_) | BucketRequest::ListSoftDeleted(_) => "Buckets",
         BucketRequest::GetIam { .. } | BucketRequest::SetIam { .. } => "Policy",
+        BucketRequest::GetStorageLayout { .. } => "BucketStorageLayout",
         _ => "Bucket",
     };
     json::Fields::from_query(request.uri().query(), schema)
