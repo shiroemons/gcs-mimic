@@ -119,6 +119,9 @@ jobs:
       - name: Keep Windows test files on the workspace volume
         if: runner.os == 'Windows'
         run: printf '%s\n' "TMP=$RUNNER_TEMP" "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Use the static CRT for Windows tests
+        if: runner.os == 'Windows'
+        run: echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
       - run: cargo fetch --locked
       - run: cargo test --workspace --target "$TARGET" --locked --offline
         # Deadline tests still use wall-clock budgets; fewer concurrent tests keep
