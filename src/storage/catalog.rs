@@ -25,6 +25,7 @@ mod memory_tests;
 #[cfg(test)]
 mod timestamp_tests;
 
+// Keep crate-local fixtures separate from schema helpers included by integration tests.
 #[cfg(test)]
 pub(super) mod test_fixtures;
 #[cfg(test)]

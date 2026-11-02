@@ -231,11 +231,11 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bucket::BucketRecord;
+    use crate::{bucket::BucketRecord, storage::catalog::test_fixtures::bucket as bucket_record};
     use std::collections::BTreeMap;
 
     fn bucket(name: &str) -> BucketRecord {
-        super::super::test_fixtures::bucket(name, "project")
+        bucket_record(name, "project")
     }
 
     fn config(prefix: &str) -> NotificationConfig {

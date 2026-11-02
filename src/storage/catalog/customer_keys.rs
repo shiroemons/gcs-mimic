@@ -127,6 +127,7 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::catalog::test_fixtures::bucket;
     use crate::{
         csek::CsekError,
         object::{ObjectMetadataUpdate, UploadChunk},
@@ -136,9 +137,7 @@ mod tests {
     async fn setup(dir: &TestDir) -> Catalog {
         let catalog = Catalog::open(&dir.0).await.unwrap();
         catalog
-            .insert_bucket(crate::storage::catalog::test_fixtures::bucket(
-                "bucket", "project",
-            ))
+            .insert_bucket(bucket("bucket", "project"))
             .await
             .unwrap();
         catalog

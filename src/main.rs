@@ -9,6 +9,7 @@ use std::{collections::BTreeMap, io, path::Path, process::ExitCode, time::Durati
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 mod startup;
 mod sync_cli;
+// Binary tests cannot access the library's cfg(test) module.
 #[cfg(test)]
 mod test_support;
 use startup::phase;

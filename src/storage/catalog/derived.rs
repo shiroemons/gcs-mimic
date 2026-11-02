@@ -1188,6 +1188,7 @@ pub(super) fn recover(
 mod tests {
     use super::*;
     use crate::object::UploadChunk;
+    use crate::storage::catalog::test_fixtures::bucket;
     use bytes::Bytes;
     use md5::{Digest, Md5, digest::common::hazmat::SerializableState};
     use std::io::Write;
@@ -1308,9 +1309,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("gcs-mimic-derived-{}", random_id().unwrap()));
         let catalog = Catalog::open(&path).await.unwrap();
         catalog
-            .insert_bucket(crate::storage::catalog::test_fixtures::bucket(
-                "bucket", "project",
-            ))
+            .insert_bucket(bucket("bucket", "project"))
             .await
             .unwrap();
         (catalog, path)

@@ -1,3 +1,4 @@
+use super::catalog::test_fixtures::bucket;
 use crate as gcs_mimic;
 use bytes::Bytes;
 use gcs_mimic::{
@@ -36,7 +37,7 @@ async fn setup(dir: &TestDir) -> Catalog {
     catalog
         .insert_bucket(BucketRecord {
             storage_class: "NEARLINE".into(),
-            ..super::catalog::test_fixtures::bucket("bucket", "project")
+            ..bucket("bucket", "project")
         })
         .await
         .unwrap();

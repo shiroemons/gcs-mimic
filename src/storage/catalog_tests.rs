@@ -1,3 +1,4 @@
+use super::catalog::test_fixtures::bucket as bucket_record;
 use super::catalog::{CATALOG_SCHEMA_VERSION, test_support as common};
 use crate as gcs_mimic;
 use gcs_mimic::{
@@ -24,7 +25,7 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
         metageneration: 3,
         time_created: UNIX_EPOCH + Duration::from_millis(42_123),
         updated: UNIX_EPOCH + Duration::from_millis(43_987),
-        ..super::catalog::test_fixtures::bucket(name, project)
+        ..bucket_record(name, project)
     }
 }
 

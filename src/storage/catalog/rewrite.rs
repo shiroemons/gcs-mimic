@@ -638,6 +638,7 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::catalog::test_fixtures::bucket;
     use crate::{
         clock::Clock,
         object::{ExpectedHashes, UploadChunk},
@@ -667,9 +668,7 @@ mod tests {
             .await
             .unwrap();
         catalog
-            .insert_bucket(crate::storage::catalog::test_fixtures::bucket(
-                "bucket", "project",
-            ))
+            .insert_bucket(bucket("bucket", "project"))
             .await
             .unwrap();
         let (sender, receiver) = tokio::sync::mpsc::channel(1);

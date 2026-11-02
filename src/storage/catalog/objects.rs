@@ -2856,6 +2856,7 @@ fn read_size(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::catalog::test_fixtures::bucket;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::UNIX_EPOCH;
 
@@ -3311,9 +3312,7 @@ mod tests {
         let catalog = Catalog::open(&directory).await.unwrap();
         for checksum_mismatch in [true, false] {
             catalog
-                .insert_bucket(crate::storage::catalog::test_fixtures::bucket(
-                    "bucket", "project",
-                ))
+                .insert_bucket(bucket("bucket", "project"))
                 .await
                 .unwrap();
             let conditions = ObjectConditions::default();
@@ -3373,9 +3372,7 @@ mod tests {
         ));
         let catalog = Catalog::open(&directory).await.unwrap();
         catalog
-            .insert_bucket(crate::storage::catalog::test_fixtures::bucket(
-                "bucket", "project",
-            ))
+            .insert_bucket(bucket("bucket", "project"))
             .await
             .unwrap();
         let upload = |allow_overwrite, bytes: &'static [u8]| {
@@ -3514,9 +3511,7 @@ mod tests {
 
     async fn create_bucket(catalog: &Catalog, project: &str) {
         catalog
-            .insert_bucket(crate::storage::catalog::test_fixtures::bucket(
-                "bucket", project,
-            ))
+            .insert_bucket(bucket("bucket", project))
             .await
             .unwrap();
     }
