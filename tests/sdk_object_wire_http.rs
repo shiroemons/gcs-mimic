@@ -46,6 +46,8 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
     assert_eq!(raw.status, 200);
     assert_eq!(raw.body, compressed);
     assert_eq!(raw.headers["content-encoding"], "gzip");
+    assert!(!raw.headers.contains_key("content-length"));
+    assert_eq!(raw.headers["transfer-encoding"], "chunked");
     assert_eq!(raw.headers["vary"], "Origin, X-Origin, Accept-Encoding");
     assert!(
         !raw.headers
@@ -118,6 +120,12 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
         .json();
     let fixed = server.request("GET", path, ADMIN, b"");
     assert_eq!(fixed.body, compressed);
+    assert!(!fixed.headers.contains_key("content-length"));
+    assert_eq!(fixed.headers["transfer-encoding"], "chunked");
+    assert_eq!(
+        fixed.headers["cache-control"],
+        "no-cache, no-store, max-age=0, must-revalidate, no-transform"
+    );
     // no-transform fixes the representation, so it no longer varies by Accept-Encoding.
     assert_eq!(fixed.headers["vary"], "Origin, X-Origin");
 }
@@ -655,13 +663,19 @@ fn head_with_range_answers_206_and_content_range_on_json_and_xml() {
             length,
             "{path} {extra}"
         );
-        // GET states the range length even when HEAD of a compressed object does not.
+        // JSON stored-gzip GET streams chunked; other representations keep their length.
         let get = server.request("GET", &path, &headers, b"");
         assert_eq!(get.status, 206, "{path} {extra}");
         assert_eq!(
             get.headers["content-range"], content_range,
             "{path} {extra}"
         );
+        if path.starts_with("/storage/") && path.contains("/gzip?") {
+            assert!(!get.headers.contains_key("content-length"));
+            assert_eq!(get.headers["transfer-encoding"], "chunked");
+        } else {
+            assert_eq!(get.headers["content-length"], get.body.len().to_string());
+        }
     }
     for path in [json("plain"), xml("plain"), json("gzip"), xml("gzip")] {
         let head = server.request(

@@ -178,6 +178,7 @@ async fn media(
         insert_content_range(&mut headers, offset, length, record.size);
         range_hashes(&mut headers, &record, offset, length)?;
     }
+    compressed_headers(&record, &mut headers);
     let mut response = if head {
         boxed(Response::new(Full::new(Bytes::new())))
     } else {
@@ -188,6 +189,28 @@ async fn media(
     }
     *response.headers_mut() = headers;
     Ok(response)
+}
+
+fn compressed_headers(record: &ObjectRecord, headers: &mut HeaderMap) {
+    if !record
+        .content_encoding
+        .as_deref()
+        .is_some_and(|value| value.eq_ignore_ascii_case("gzip"))
+    {
+        return;
+    }
+    // Cloud Storage streams stored gzip without a length, including partial ranges.
+    headers.remove("content-length");
+    if !json::object_media_negotiable(record)
+        && headers["cache-control"] == crate::json::NO_STORE_CACHE_CONTROL
+    {
+        headers.insert(
+            "cache-control",
+            HeaderValue::from_static(
+                "no-cache, no-store, max-age=0, must-revalidate, no-transform",
+            ),
+        );
+    }
 }
 
 /// A gunzipped media response: Range is ignored and the whole expanded object is sent with
