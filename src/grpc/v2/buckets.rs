@@ -162,9 +162,10 @@ fn clear_default<T: Default + PartialEq>(field: &mut Option<T>) {
 
 /// Adds the retention, soft-delete and IAM settings of a CreateBucket request to `body`.
 fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<(), Status> {
-    for (field, policy) in [
+    for (field, key, policy) in [
         (
             "retentionPolicy",
+            "retentionPeriod",
             bucket.retention_policy.as_ref().map(|p| {
                 (
                     p.retention_duration.as_ref(),
@@ -174,6 +175,7 @@ fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<
         ),
         (
             "softDeletePolicy",
+            "retentionDurationSeconds",
             bucket
                 .soft_delete_policy
                 .as_ref()
@@ -192,11 +194,6 @@ fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<
                         "fractional bucket retention duration",
                     ));
                 }
-                let key = if field == "retentionPolicy" {
-                    "retentionPeriod"
-                } else {
-                    "retentionDurationSeconds"
-                };
                 body[field] = json!({key: duration.seconds.to_string()});
             }
         }
@@ -619,6 +616,59 @@ mod tests {
                 }),
             },
         )
+    }
+
+    #[test]
+    fn create_rejects_output_fields_and_fractional_durations_in_order() {
+        type InvalidCase = (&'static str, fn(&mut pb::Bucket));
+        const FRACTIONAL: prost_types::Duration = prost_types::Duration {
+            seconds: 1,
+            nanos: 1,
+        };
+        let cases: [InvalidCase; 7] = [
+            ("create bucket autoclass output fields", |b| {
+                b.autoclass
+                    .get_or_insert_default()
+                    .terminal_storage_class_update_time = Some(Default::default())
+            }),
+            ("create bucket IAM lock_time", |b| {
+                b.iam_config
+                    .get_or_insert_default()
+                    .uniform_bucket_level_access
+                    .get_or_insert_default()
+                    .lock_time = Some(Default::default())
+            }),
+            ("fractional bucket retention duration", |b| {
+                b.soft_delete_policy
+                    .get_or_insert_default()
+                    .retention_duration = Some(FRACTIONAL)
+            }),
+            ("create bucket policy output fields", |b| {
+                b.soft_delete_policy.get_or_insert_default().effective_time =
+                    Some(Default::default())
+            }),
+            ("fractional bucket retention duration", |b| {
+                b.retention_policy
+                    .get_or_insert_default()
+                    .retention_duration = Some(FRACTIONAL)
+            }),
+            ("create bucket policy output fields", |b| {
+                b.retention_policy.get_or_insert_default().is_locked = true
+            }),
+            ("create bucket policy output fields", |b| {
+                let policy = b.retention_policy.get_or_insert_default();
+                policy.is_locked = false;
+                policy.effective_time = Some(Default::default());
+            }),
+        ];
+        let mut bucket = pb::Bucket::default();
+        for (reason, invalidate) in cases {
+            // Each higher-priority rejection must supersede the invalid fields already set.
+            invalidate(&mut bucket);
+            let status = create_fields(&bucket, "test-bucket").unwrap_err();
+            assert_eq!(status.code(), tonic::Code::Unimplemented, "{reason}");
+            assert!(status.message().contains(reason), "{reason}: {status}");
+        }
     }
 
     fn create(name: &str) -> pb::CreateBucketRequest {
