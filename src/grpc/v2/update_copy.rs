@@ -634,16 +634,15 @@ impl Storage {
             parameters,
             metadata: body,
         } = new;
+        let target = ObjectTarget::new(
+            sb,
+            sn,
+            (source_generation != 0).then_some(source_generation),
+        );
         let source = self
             .state
             .catalog
-            .resolve_derived_source(
-                sb,
-                sn,
-                (source_generation != 0).then_some(source_generation),
-                sc,
-                read,
-            )
+            .resolve_derived_source(target, sc, read)
             .await
             .map_err(error)?;
         let bytes = body.as_ref().map(Value::to_string).unwrap_or_default();

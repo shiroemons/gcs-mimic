@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     clock::SystemClock,
     object::{ExpectedHashes, ObjectRecord, UploadChunk},
@@ -105,9 +105,7 @@ async fn reset_busy_keeps_existing_state_and_closes_new_activity_under_exclusive
     drop(upload);
     let source = catalog
         .resolve_derived_source(
-            "reset-bucket",
-            "value",
-            None,
+            live("reset-bucket", "value"),
             Default::default(),
             PERMISSIVE,
         )
@@ -283,9 +281,7 @@ async fn reset_waits_for_staged_files_session_and_appendable_writers_and_clears_
     drop(writer);
     let source = catalog
         .resolve_derived_source(
-            "reset-bucket",
-            "value",
-            None,
+            live("reset-bucket", "value"),
             Default::default(),
             PERMISSIVE,
         )

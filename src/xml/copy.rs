@@ -5,7 +5,7 @@ use crate::{
     auth,
     bucket::BucketAccess,
     json,
-    object::{ObjectConditions, ObjectRecord},
+    object::{ObjectConditions, ObjectRecord, ObjectTarget},
     server::{
         ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed,
         copy::{self, CopyBudget, CopyJob},
@@ -176,11 +176,10 @@ pub(super) async fn respond(
     };
     let options = options(request.headers(), signing)?;
     let key = json::source_key(request.headers())?;
+    let target = ObjectTarget::new(source.bucket, source.name, source.generation);
     let source = ctx
         .await_catalog(ctx.state.catalog.resolve_derived_source_keyed(
-            &source.bucket,
-            &source.name,
-            source.generation,
+            target,
             source.conditions,
             &source_access,
             key,

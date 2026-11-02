@@ -73,7 +73,7 @@ async fn put(
 
 async fn ram_transfer(catalog: &Catalog) -> derived::DerivedTransfer {
     let source = catalog
-        .resolve_derived_source("test-bucket", "value", None, Default::default(), PERMISSIVE)
+        .resolve_derived_source(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     catalog
@@ -366,7 +366,7 @@ async fn ram_derived_cancel_expiry_and_abandoned_begin_reclaim_their_owned_state
         Err(ObjectError::DerivedTransferNotFound)
     );
     let source = catalog
-        .resolve_derived_source("test-bucket", "value", None, Default::default(), PERMISSIVE)
+        .resolve_derived_source(live("test-bucket", "value"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     let worker = catalog.clone();

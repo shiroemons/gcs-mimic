@@ -161,13 +161,12 @@ impl Storage {
                     spec.if_metageneration_match,
                     spec.if_metageneration_not_match,
                 )?;
+                let target = ObjectTarget::new(bucket, name, spec.generation);
                 let writer = self
                     .state
                     .catalog
                     .take_over_appendable(
-                        bucket,
-                        name,
-                        spec.generation,
+                        target,
                         spec.write_handle.as_ref().map(|h| h.handle.as_slice()),
                         conditions,
                         access.clone(),

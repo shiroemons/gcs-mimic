@@ -1,6 +1,7 @@
 use super::{
     Catalog, DerivedDestination, DerivedSource, DerivedSourceSpec, compose_crc32c::combine, objects,
 };
+use crate::object::ObjectTarget;
 use crate::storage::catalog::bucket_incarnation;
 #[cfg(test)]
 use crate::storage::test_fixtures::{PERMISSIVE, live};
@@ -186,9 +187,11 @@ impl Catalog {
         let specs = sources
             .into_iter()
             .map(|source| DerivedSourceSpec {
-                bucket: destination.bucket.clone(),
-                name: source.name,
-                generation: source.generation,
+                target: ObjectTarget::new(
+                    destination.bucket.clone(),
+                    source.name,
+                    source.generation,
+                ),
                 conditions: ObjectConditions {
                     if_generation_match: source.if_generation_match,
                     ..Default::default()

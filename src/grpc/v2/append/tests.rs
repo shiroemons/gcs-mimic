@@ -367,9 +367,7 @@ async fn append_takeover_supersedes_the_previous_writer() {
     let first_handle = first.write_handle().to_vec();
     let mut second = catalog
         .take_over_appendable(
-            "grpc-append",
-            "single",
-            generation,
+            ObjectTarget::new("grpc-append", "single", generation),
             None,
             Default::default(),
             BucketAccess::Permissive,
@@ -386,12 +384,10 @@ async fn append_takeover_supersedes_the_previous_writer() {
     assert_eq!(
         catalog
             .take_over_appendable(
-                "grpc-append",
-                "single",
-                generation,
+                ObjectTarget::new("grpc-append", "single", generation),
                 Some(&first_handle),
                 Default::default(),
-                BucketAccess::Permissive,
+                BucketAccess::Permissive
             )
             .await
             .err(),
@@ -406,15 +402,13 @@ async fn append_takeover_supersedes_the_previous_writer() {
     assert_eq!(
         catalog
             .take_over_appendable(
-                "grpc-append",
-                "single",
-                generation,
+                ObjectTarget::new("grpc-append", "single", generation),
                 None,
                 ObjectConditions {
                     if_metageneration_match: Some(2),
                     ..Default::default()
                 },
-                BucketAccess::Permissive,
+                BucketAccess::Permissive
             )
             .await
             .err(),

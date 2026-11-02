@@ -175,11 +175,14 @@ async fn resolve_source(
     access: &BucketAccess,
     keys: Keys,
 ) -> Result<crate::storage::DerivedSource, JsonError> {
+    let target = ObjectTarget::new(
+        &operation.path[0],
+        &operation.path[1],
+        operation.number("sourceGeneration"),
+    );
     catalog
         .resolve_derived_source_keyed(
-            &operation.path[0],
-            &operation.path[1],
-            operation.number("sourceGeneration"),
+            target,
             operation.conditions(RewriteSide::Source),
             access,
             keys.source,

@@ -99,9 +99,7 @@ async fn appendable_finalization_preserves_creator_when_a_different_principal_ta
             .unwrap();
         let mut writer = catalog
             .take_over_appendable(
-                "append",
-                "owned",
-                generation,
+                ObjectTarget::new("append", "owned", generation),
                 None,
                 Default::default(),
                 finisher_access.clone(),

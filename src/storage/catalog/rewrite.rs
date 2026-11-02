@@ -694,13 +694,7 @@ mod tests {
         catalog: &Catalog,
     ) -> Result<(String, super::super::derived::DerivedRequestGuard), RewriteError> {
         let source = catalog
-            .resolve_derived_source(
-                "bucket",
-                "source",
-                None,
-                ObjectConditions::default(),
-                PERMISSIVE,
-            )
+            .resolve_derived_source(live("bucket", "source"), Default::default(), PERMISSIVE)
             .await
             .unwrap();
         let start = RewriteStart {

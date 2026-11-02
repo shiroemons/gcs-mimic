@@ -165,7 +165,7 @@ pub(crate) async fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::test_fixtures::{PERMISSIVE, live};
+    use crate::storage::test_fixtures::{PERMISSIVE, live, version};
     use crate::{
         bucket::{BucketAccess, BucketRecord},
         object::{ObjectConditions, UploadChunk},
@@ -238,9 +238,7 @@ mod tests {
             .unwrap();
         catalog
             .resolve_derived_source(
-                "bucket",
-                "source",
-                None,
+                live("bucket", "source"),
                 ObjectConditions {
                     if_generation_match: Some(record.generation),
                     ..Default::default()
@@ -502,9 +500,7 @@ mod tests {
             .unwrap();
         let source = catalog
             .resolve_derived_source(
-                "bucket",
-                "source",
-                Some(selected.generation),
+                version("bucket", "source", selected.generation),
                 Default::default(),
                 &access,
             )
@@ -576,7 +572,7 @@ mod tests {
             .await
             .unwrap();
         let source = catalog
-            .resolve_derived_source("bucket", "source", None, Default::default(), &access)
+            .resolve_derived_source(live("bucket", "source"), Default::default(), &access)
             .await
             .unwrap();
         let target = destination(&source, "copy", b"");

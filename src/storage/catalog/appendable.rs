@@ -945,30 +945,32 @@ impl Catalog {
     /// stream; a stale handle means another writer has taken over since, so it is rejected.
     pub(crate) async fn take_over_appendable(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: i64,
+        target: ObjectTarget<i64>,
         write_handle: Option<&[u8]>,
         conditions: ObjectConditions,
         access: BucketAccess,
     ) -> Result<AppendWriter, AppendError> {
         let activity = Arc::new(self.activity().map_err(object_unavailable)?);
         let new_handle = BlobId::generate().map_err(object_unavailable)?.to_hex();
-        let slot = SlotHandle::new(self, bucket, name);
+        let slot = SlotHandle::new(self, &target.bucket, &target.name);
         let guard = slot.slot.clone().lock_owned().await;
-        let (owned_bucket, owned_name, handle) =
-            (bucket.to_owned(), name.to_owned(), new_handle.clone());
+        let ObjectTarget {
+            bucket,
+            name,
+            generation,
+        } = target;
+        let handle = new_handle.clone();
         let presented = write_handle.map(<[u8]>::to_vec);
         let principals = self.0.principals.get().cloned();
         let selected = self
             .run_upload(move |connection| {
                 let transaction = sql::immediate(connection)?;
-                let (storage_class, _) = authorized_bucket(&transaction, &owned_bucket, &access)?;
-                let row = match select(&transaction, &owned_bucket, &owned_name)? {
+                let (storage_class, _) = authorized_bucket(&transaction, &bucket, &access)?;
+                let row = match select(&transaction, &bucket, &name)? {
                     Lookup::Live(row) if row.generation == generation => row,
                     _ => {
                         return Ok(Err(
-                            if published_generation(&transaction, &owned_bucket, &owned_name, generation)? {
+                            if published_generation(&transaction, &bucket, &name, generation)? {
                                 AppendError::Finalized
                             } else {
                                 AppendError::Object(ObjectError::ObjectNotFound)
@@ -976,7 +978,7 @@ impl Catalog {
                         ));
                     }
                 };
-                let record = record(&transaction, &owned_bucket, &owned_name, storage_class, &row, principals.as_ref())?;
+                let record = record(&transaction, &bucket, &name, storage_class, &row, principals.as_ref())?;
                 match presented {
                     Some(presented) if presented != row.write_handle.as_bytes() => {
                         return Ok(Err(AppendError::Superseded));
@@ -989,7 +991,7 @@ impl Catalog {
                     }
                 }
                 sql::exec(&transaction,
-                        "UPDATE appendable_objects SET write_handle = ?1 WHERE bucket = ?2 AND name = ?3", params![handle, owned_bucket, owned_name])?;
+                        "UPDATE appendable_objects SET write_handle = ?1 WHERE bucket = ?2 AND name = ?3", params![handle, bucket, name])?;
                 transaction.commit()?;
                 Ok(Ok((row.blob_id, record)))
             })
@@ -1017,8 +1019,8 @@ impl Catalog {
         Ok(AppendWriter {
             catalog: self.clone(),
             activity,
-            bucket: bucket.to_owned(),
-            name: name.to_owned(),
+            bucket: record.bucket.clone(),
+            name: record.name.clone(),
             path,
             blob_id,
             file,

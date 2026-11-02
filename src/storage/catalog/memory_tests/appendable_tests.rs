@@ -16,9 +16,7 @@ async fn create(catalog: &Catalog) -> appendable::AppendWriter {
 async fn takeover(catalog: &Catalog, generation: i64) -> appendable::AppendWriter {
     catalog
         .take_over_appendable(
-            "test-bucket",
-            "growing",
-            generation,
+            ObjectTarget::new("test-bucket", "growing", generation),
             None,
             Default::default(),
             BucketAccess::Permissive,
@@ -79,9 +77,7 @@ async fn ram_appendable_prefix_snapshots_takeover_and_catalogs_are_isolated() {
     assert!(matches!(
         catalog
             .take_over_appendable(
-                "test-bucket",
-                "growing",
-                generation,
+                ObjectTarget::new("test-bucket", "growing", generation),
                 Some(&handle),
                 Default::default(),
                 BucketAccess::Permissive
@@ -128,9 +124,7 @@ async fn ram_appendable_prefix_snapshots_takeover_and_catalogs_are_isolated() {
     assert!(matches!(
         catalog
             .take_over_appendable(
-                "test-bucket",
-                "growing",
-                generation,
+                ObjectTarget::new("test-bucket", "growing", generation),
                 None,
                 Default::default(),
                 BucketAccess::Permissive

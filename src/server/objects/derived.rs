@@ -7,7 +7,7 @@ use crate::{
     bucket::BucketAccess,
     csek::CustomerKey,
     json::{self, JsonError},
-    object::{ObjectConditions, ObjectError, ObjectRecord},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     server::{
         BUCKET_BODY_LIMIT, ObjectCtx,
         copy::{self, CopyBudget, CopyJob},
@@ -137,15 +137,13 @@ async fn copy_object(
         replay,
     } = request;
     let catalog = &ctx.state.catalog;
+    let target = ObjectTarget::new(
+        &params.source_bucket,
+        &params.source_name,
+        params.source_generation,
+    );
     let source = catalog
-        .resolve_derived_source_keyed(
-            &params.source_bucket,
-            &params.source_name,
-            params.source_generation,
-            params.source_conditions,
-            &source_access,
-            source_key,
-        )
+        .resolve_derived_source_keyed(target, params.source_conditions, &source_access, source_key)
         .await
         .map_err(|failure| {
             JsonError::from(failure).naming_object(&params.source_bucket, &params.source_name)

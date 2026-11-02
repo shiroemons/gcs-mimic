@@ -108,9 +108,7 @@ async fn reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bod
                 "derived" => {
                     let source = worker
                         .resolve_derived_source(
-                            "test-bucket",
-                            "object",
-                            None,
+                            live("test-bucket", "object"),
                             Default::default(),
                             PERMISSIVE,
                         )
@@ -1275,9 +1273,7 @@ async fn disk_full_during_derived_retirement_preserves_the_same_transfer_and_byt
         .unwrap();
     let source = catalog
         .resolve_derived_source(
-            bucket.as_str(),
-            "source",
-            None,
+            live(bucket.as_str(), "source"),
             Default::default(),
             PERMISSIVE,
         )

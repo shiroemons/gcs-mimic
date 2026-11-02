@@ -92,18 +92,14 @@ impl Catalog {
     /// Resolve a copy/rewrite source whose bytes require `key`.
     pub(crate) async fn resolve_derived_source_keyed(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
         key: Option<CustomerKey>,
     ) -> Result<DerivedSource, ObjectError> {
         self.resolve_derived_sources_keyed(
             vec![DerivedSourceSpec {
-                bucket: bucket.into(),
-                name: name.into(),
-                generation,
+                target,
                 conditions,
                 access: access.clone(),
             }],
@@ -203,7 +199,7 @@ mod tests {
         );
         assert_eq!(
             catalog
-                .resolve_derived_source("bucket", "secret", None, Default::default(), PERMISSIVE)
+                .resolve_derived_source(live("bucket", "secret"), Default::default(), PERMISSIVE)
                 .await
                 .err(),
             Some(ObjectError::CustomerEncryption(

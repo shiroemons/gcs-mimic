@@ -149,9 +149,7 @@ async fn ram_appendable_cancelled_finalizer_finishes_owned_publication_and_recla
     assert!(matches!(
         catalog
             .take_over_appendable(
-                "append",
-                "cancelled",
-                generation,
+                ObjectTarget::new("append", "cancelled", generation),
                 None,
                 Default::default(),
                 BucketAccess::Permissive
@@ -405,12 +403,10 @@ async fn appendable_row_left_by_crash_after_publication_is_stale() {
     assert_eq!(
         catalog
             .take_over_appendable(
-                "append",
-                "crash",
-                generation,
+                ObjectTarget::new("append", "crash", generation),
                 None,
                 Default::default(),
-                BucketAccess::Permissive,
+                BucketAccess::Permissive
             )
             .await
             .err(),
@@ -453,9 +449,7 @@ async fn interrupted_finalization_before_publication_stays_appendable() {
     assert_eq!(open(&catalog, "pending").await.unwrap().size, 4);
     let mut writer = catalog
         .take_over_appendable(
-            "append",
-            "pending",
-            generation,
+            ObjectTarget::new("append", "pending", generation),
             None,
             Default::default(),
             BucketAccess::Permissive,
@@ -585,9 +579,7 @@ async fn writer_slots_are_released_with_their_last_holder() {
     let generation = first.record().generation;
     let mut second = catalog
         .take_over_appendable(
-            "append",
-            "shared",
-            generation,
+            ObjectTarget::new("append", "shared", generation),
             None,
             Default::default(),
             BucketAccess::Permissive,
@@ -723,9 +715,7 @@ async fn persisted_content(catalog: &Catalog, name: &str) -> Vec<u8> {
 async fn take_over(catalog: &Catalog, name: &str, generation: i64) -> AppendWriter {
     catalog
         .take_over_appendable(
-            "append",
-            name,
-            generation,
+            ObjectTarget::new("append", name, generation),
             None,
             Default::default(),
             BucketAccess::Permissive,
@@ -970,12 +960,10 @@ async fn finalize_failure_and_crashes_recover_appendable_or_finalized() {
     assert_eq!(
         recovered
             .take_over_appendable(
-                "append",
-                "final",
-                generation,
+                ObjectTarget::new("append", "final", generation),
                 None,
                 Default::default(),
-                BucketAccess::Permissive,
+                BucketAccess::Permissive
             )
             .await
             .err(),

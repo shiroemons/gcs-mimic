@@ -261,10 +261,8 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
         assert_eq!(updated.updated, expected);
         let source = catalog
             .resolve_derived_source(
-                "timestamp-bucket",
-                "media",
-                None,
-                ObjectConditions::default(),
+                live("timestamp-bucket", "media"),
+                Default::default(),
                 PERMISSIVE,
             )
             .await
@@ -429,10 +427,8 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
     for nanos in [100, 123_456_789] {
         let source = catalog
             .resolve_derived_source(
-                "timestamp-bucket",
-                "source",
-                None,
-                ObjectConditions::default(),
+                live("timestamp-bucket", "source"),
+                Default::default(),
                 PERMISSIVE,
             )
             .await

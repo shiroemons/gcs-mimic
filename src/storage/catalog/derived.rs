@@ -13,7 +13,7 @@ use crate::{
     hashing::{Hasher, Hashes},
     object::{
         ComponentFailure, ComponentFailureKind, ExpectedHashes, ObjectConditions, ObjectError,
-        ObjectMetadataUpdate, ObjectRecord,
+        ObjectMetadataUpdate, ObjectRecord, ObjectTarget,
     },
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -127,7 +127,7 @@ fn name_component(
     let kind = match (&error, source.conditions.if_generation_match) {
         (ObjectError::ObjectNotFound, _) => ComponentFailureKind::NotFound,
         (ObjectError::PreconditionFailed, Some(required)) => {
-            match objects::lookup(connection, &source.bucket, &source.name) {
+            match objects::lookup(connection, &source.target.bucket, &source.target.name) {
                 Ok(Some(live)) => ComponentFailureKind::GenerationMismatch {
                     required,
                     actual: live.0.generation,
@@ -138,19 +138,17 @@ fn name_component(
         _ => return error,
     };
     ObjectError::Component(Box::new(ComponentFailure {
-        bucket: source.bucket.clone(),
-        name: source.name.clone(),
+        bucket: source.target.bucket.clone(),
+        name: source.target.name.clone(),
         kind,
     }))
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct DerivedSourceSpec {
-    pub bucket: String,
-    pub name: String,
-    pub generation: Option<i64>,
-    pub conditions: ObjectConditions,
-    pub access: BucketAccess,
+    pub(crate) target: ObjectTarget,
+    pub(crate) conditions: ObjectConditions,
+    pub(crate) access: BucketAccess,
 }
 
 impl DerivedSource {
@@ -437,16 +435,12 @@ impl Catalog {
     /// Source NotMatch conditions are mutation conditions (412), not conditional GETs (304).
     pub(crate) async fn resolve_derived_source(
         &self,
-        bucket: &str,
-        name: &str,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
     ) -> Result<DerivedSource, ObjectError> {
         self.resolve_derived_sources(vec![DerivedSourceSpec {
-            bucket: bucket.into(),
-            name: name.into(),
-            generation,
+            target,
             conditions,
             access: access.clone(),
         }])
@@ -504,9 +498,9 @@ impl Catalog {
                 .map(|source| {
                     let (object, original) = objects::selected(
                         &transaction,
-                        &source.bucket,
-                        &source.name,
-                        source.generation,
+                        &source.target.bucket,
+                        &source.target.name,
+                        source.target.generation,
                         source.conditions,
                         super::objects::RequestKind::Write,
                         &source.access,
@@ -1331,7 +1325,7 @@ mod tests {
 
     async fn source(catalog: &Catalog, name: &str) -> DerivedSource {
         catalog
-            .resolve_derived_source("bucket", name, None, Default::default(), PERMISSIVE)
+            .resolve_derived_source(live("bucket", name), Default::default(), PERMISSIVE)
             .await
             .unwrap()
     }
@@ -1600,7 +1594,7 @@ mod tests {
         ] {
             assert!(matches!(
                 catalog
-                    .resolve_derived_source("bucket", "source", None, conditions, PERMISSIVE)
+                    .resolve_derived_source(live("bucket", "source"), conditions, PERMISSIVE)
                     .await,
                 Err(ObjectError::PreconditionFailed)
             ));
@@ -1612,7 +1606,7 @@ mod tests {
         };
         assert!(matches!(
             catalog
-                .resolve_derived_source("bucket", "source", None, Default::default(), &denied)
+                .resolve_derived_source(live("bucket", "source"), Default::default(), &denied)
                 .await,
             Err(ObjectError::Forbidden)
         ));
@@ -1804,14 +1798,12 @@ mod tests {
         let (catalog, path) = setup().await;
         let original = put(&catalog, "source", b"bytes").await;
         let spec = DerivedSourceSpec {
-            bucket: "bucket".into(),
-            name: "source".into(),
-            generation: Some(original.generation),
+            target: version("bucket", "source", original.generation),
             conditions: Default::default(),
             access: BucketAccess::Permissive,
         };
         let mut missing = spec.clone();
-        missing.name = "missing".into();
+        missing.target.name = "missing".into();
         assert!(matches!(
             catalog
                 .resolve_derived_sources(vec![spec.clone(), missing])
