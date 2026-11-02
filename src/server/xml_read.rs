@@ -1,10 +1,10 @@
 //! XML API object GET, HEAD and DELETE.
 
-use super::RequestBody as Incoming;
 use super::{
     ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, gzip, insert_content_range,
     object_body,
 };
+use super::{RequestBody as Incoming, objects::gunzipped_response};
 use crate::{
     auth, bucket::BucketAccess, csek::CustomerKey, json, object::ObjectRecord,
     storage::ObjectReader, xml,
@@ -212,18 +212,7 @@ async fn gunzipped(
     }
     gzip::insert_transcoded_headers(&mut headers);
     headers.extend(overrides);
-    let mut response = if head {
-        boxed(empty_response(StatusCode::OK))
-    } else {
-        Response::new(gzip::body(
-            reader,
-            record.size,
-            ctx.config.max_object_bytes,
-            ctx.activity,
-        ))
-    };
-    *response.headers_mut() = headers;
-    Ok(response)
+    Ok(gunzipped_response(ctx, method, reader, headers, record))
 }
 
 /// A refused Range keeps the object's validators, generation, hashes and `accept-ranges`, with
