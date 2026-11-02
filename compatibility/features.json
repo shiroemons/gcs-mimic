@@ -4052,7 +4052,9 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "bucket_patch_conditions_and_query_contract",
@@ -4206,7 +4208,7 @@
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
@@ -4284,8 +4286,18 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
             "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http",
+          "result": "PASS",
+          "verified_at": "2026-11-03",
+          "artifact": "tests/evidence/upload-token-checks.txt",
+          "test_ids": [
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
       ],
@@ -4852,7 +4864,9 @@
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
@@ -5061,7 +5075,7 @@
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
@@ -5207,6 +5221,16 @@
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
             "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http",
+          "result": "PASS",
+          "verified_at": "2026-11-03",
+          "artifact": "tests/evidence/upload-token-checks.txt",
+          "test_ids": [
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
@@ -7611,7 +7635,9 @@
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
@@ -7768,7 +7794,7 @@
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
@@ -7899,6 +7925,16 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http",
+          "result": "PASS",
+          "verified_at": "2026-11-03",
+          "artifact": "tests/evidence/upload-token-checks.txt",
+          "test_ids": [
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
@@ -9175,7 +9211,9 @@
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
@@ -9327,7 +9365,7 @@
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
@@ -9456,6 +9494,16 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http",
+          "result": "PASS",
+          "verified_at": "2026-11-03",
+          "artifact": "tests/evidence/upload-token-checks.txt",
+          "test_ids": [
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
@@ -13408,7 +13456,9 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "bucket_patch_conditions_and_query_contract",
@@ -13566,7 +13616,7 @@
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
@@ -13645,6 +13695,16 @@
           "test_ids": [
             "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http",
+          "result": "PASS",
+          "verified_at": "2026-11-03",
+          "artifact": "tests/evidence/upload-token-checks.txt",
+          "test_ids": [
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
@@ -14280,7 +14340,9 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "bucket_patch_conditions_and_query_contract",
@@ -14517,7 +14579,7 @@
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
@@ -14615,6 +14677,16 @@
           "test_ids": [
             "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay",
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http",
+          "result": "PASS",
+          "verified_at": "2026-11-03",
+          "artifact": "tests/evidence/upload-token-checks.txt",
+          "test_ids": [
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
@@ -15522,7 +15594,9 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
         "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
         "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
@@ -15726,7 +15800,7 @@
             "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
             "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
             "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
@@ -15873,7 +15947,7 @@
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
@@ -15978,8 +16052,18 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
-            "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
             "obj_http_idempotency_token_local_read_delete_rule_and_upload_replay"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http",
+          "result": "PASS",
+          "verified_at": "2026-11-03",
+          "artifact": "tests/evidence/upload-token-checks.txt",
+          "test_ids": [
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
       ],
@@ -17072,7 +17156,9 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "TestObjectMediaLifecycle",
@@ -17222,7 +17308,7 @@
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
@@ -17277,6 +17363,16 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http",
+          "result": "PASS",
+          "verified_at": "2026-11-03",
+          "artifact": "tests/evidence/upload-token-checks.txt",
+          "test_ids": [
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
@@ -18255,7 +18351,9 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "TestObjectMultipartWriter",
         "TestObjectMediaLifecycle",
@@ -18395,7 +18493,7 @@
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
             "TestObjectMultipartWriter",
@@ -18449,6 +18547,16 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http",
+          "result": "PASS",
+          "verified_at": "2026-11-03",
+          "artifact": "tests/evidence/upload-token-checks.txt",
+          "test_ids": [
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }
@@ -27360,6 +27468,16 @@
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http",
+          "result": "PASS",
+          "verified_at": "2026-11-03",
+          "artifact": "tests/evidence/upload-token-checks.txt",
+          "test_ids": [
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -27535,7 +27653,9 @@
         "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
+        "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
         "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
         "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
@@ -27569,7 +27689,7 @@
             "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
             "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
             "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
             "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
@@ -27598,6 +27718,16 @@
           "artifact": "docs/en/slices/sdk-scorecard-integration.md",
           "test_ids": [
             "json::object_tests::obj_headers_upload_tokens_require_one_nonempty_value_with_or_without_conditions",
+            "obj_multipart_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
+          ]
+        },
+        {
+          "command": "bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http",
+          "result": "PASS",
+          "verified_at": "2026-11-03",
+          "artifact": "tests/evidence/upload-token-checks.txt",
+          "test_ids": [
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
             "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body"
           ]
         }

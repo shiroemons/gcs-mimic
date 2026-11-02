@@ -1,0 +1,19 @@
+Verified on 2026-11-03 (Asia/Tokyo).
+
+Command:
+bash scripts/with-test-tmpdir.sh cargo test --locked --offline --test object_multipart_http --test object_http --test admin_http
+
+Result: PASS (exit 0); 86 passed, 0 failed, 0 ignored.
+Per-binary results:
+admin_http: 25 passed, 0 failed, 0 ignored.
+object_http: 37 passed, 0 failed, 0 ignored.
+object_multipart_http: 24 passed, 0 failed, 0 ignored.
+
+The object_multipart_http run included:
+test obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body ... ok
+test obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite ... ok
+
+These merged tests exercise media and multipart variants. The media generation-match
+variant sends Host: untrusted.invalid and X-Forwarded-Host: evil.invalid.
+Historical verification retains the test names used on its original execution date;
+row test_ids retain both historical multipart names and the current merged names.
