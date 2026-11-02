@@ -49,12 +49,24 @@ impl Drop for Stub {
 pub(super) fn serve() -> io::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     println!("{}", listener.local_addr()?);
-    for connection in listener.incoming() {
-        if let Err(error) = answer(connection?) {
+    serve_connections(listener.incoming());
+    Ok(())
+}
+
+fn serve_connections(connections: impl IntoIterator<Item = io::Result<TcpStream>>) {
+    for connection in connections {
+        let connection = match connection {
+            Ok(connection) => connection,
+            Err(error) => {
+                eprintln!("Pub/Sub stub accept: {error}");
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+        };
+        if let Err(error) = answer(connection) {
             eprintln!("Pub/Sub stub connection: {error}");
         }
     }
-    Ok(())
 }
 
 fn answer(mut stream: TcpStream) -> io::Result<()> {
@@ -92,6 +104,21 @@ fn lookup_status(request: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accept_failure_does_not_stop_the_next_lookup() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        client.write_all(b"GET /v1/projects/local-project/topics/gcs-mimic-diff-no-such-topic HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+        let (server, _) = listener.accept().unwrap();
+        serve_connections([Err(io::Error::from(io::ErrorKind::Other)), Ok(server)]);
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
+    }
 
     #[test]
     fn only_the_declared_missing_topic_is_not_found() {

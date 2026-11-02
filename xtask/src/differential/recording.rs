@@ -29,7 +29,11 @@ pub(crate) struct Recording {
 /// Replace complete cases, retaining base order and counting all reference
 /// requests spent on both recordings, including superseded observations.
 pub(crate) fn merge(mut base: Recording, partial: Recording) -> Result<Recording> {
-    if base.source == Source::SelfCheck || partial.source != Source::Live || partial.requests == 0 {
+    if base.source == Source::SelfCheck
+        || base.requests == 0
+        || partial.source != Source::Live
+        || partial.requests == 0
+    {
         return Err("merge requires a live reference and a partial with live provenance and nonzero requests".into());
     }
     if !crate::date(&base.generated)
@@ -344,6 +348,15 @@ mod tests {
         let mut unknown = base_json;
         unknown["source"] = json!("unknown");
         assert!(from_json(&unknown).is_err());
+    }
+
+    #[test]
+    fn merge_refuses_zero_request_bases_including_unmarked_self_checks() {
+        for source in [Source::Live, Source::SelfCheck, Source::Legacy] {
+            let mut base = fixture(&["b"], "2026-11-01", 0);
+            base.source = source;
+            assert!(merge(base, fixture(&["b"], "2026-11-02", 12)).is_err());
+        }
     }
 
     #[test]

@@ -120,19 +120,26 @@ impl Step {
     fn fingerprint_text(&self) -> String {
         let body = match &self.body {
             Body::None => String::new(),
-            Body::Json(value) => format!("json:{value}"),
+            Body::Json(value) => {
+                let mut value = value.clone();
+                value.sort_all_objects();
+                format!("json:{value}")
+            }
             Body::Text(text) => format!("text:{text}"),
             Body::Bytes(bytes) => format!("bytes:{}", super::base64::encode(bytes)),
         };
+        // Cargo feature unification can enable serde_json's insertion-order maps.
+        let (mut query, mut headers, mut capture) = (
+            self.query.clone(),
+            self.headers.clone(),
+            self.capture.clone(),
+        );
+        for pairs in [&mut query, &mut headers, &mut capture] {
+            pairs.sort_unstable();
+        }
         format!(
             "{:?}|{}|{}|{:?}|{:?}|{body}|{}|{:?}",
-            self.protocol,
-            self.method,
-            self.path,
-            self.query,
-            self.headers,
-            self.always,
-            self.capture
+            self.protocol, self.method, self.path, query, headers, self.always, capture
         )
     }
 }
@@ -559,6 +566,61 @@ pub(crate) fn load_cases(dir: &Path) -> Result<Vec<Case>> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn committed_reference_fingerprints_match_unchanged_case_requests() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let cases = load_cases(&root.join("compatibility/differential/cases")).unwrap();
+        let reference: Value = serde_json::from_str(
+            &fs::read_to_string(root.join("compatibility/differential/reference/gcs.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        for case in cases {
+            // The isolated resumable probes await a live refresh of their changed requests.
+            if case.id == "obj-resumable" {
+                continue;
+            }
+            let recorded = reference["cases"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|recorded| recorded["id"] == case.id)
+                .unwrap();
+            assert_eq!(
+                case.steps.len(),
+                recorded["steps"].as_array().unwrap().len(),
+                "{}",
+                case.id
+            );
+            for (step, recorded) in case.steps.iter().zip(recorded["steps"].as_array().unwrap()) {
+                assert_eq!(
+                    fingerprint(step),
+                    recorded["fingerprint"],
+                    "{} / {}",
+                    case.id,
+                    step.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fingerprint_ignores_json_and_parameter_map_insertion_order() {
+        let mut first = parse_case(&case_with(json!({"name":"s","method":"POST","path":"/storage/v1/b","query":{"z":"1","a":"2"},"body":{"z":{"d":1,"b":2},"a":3}})), "x").unwrap().steps.remove(0);
+        let expected = fingerprint(&first);
+        first.query.reverse();
+        first.headers = vec![("z".into(), "1".into()), ("a".into(), "2".into())];
+        let mut other = first.clone();
+        other.headers.reverse();
+        first.capture = vec![("z".into(), "/z".into()), ("a".into(), "/a".into())];
+        other.capture = first.capture.iter().rev().cloned().collect();
+        assert_eq!(fingerprint(&first), fingerprint(&other));
+        other.headers.clear();
+        other.capture.clear();
+        other.body = Body::Json(serde_json::from_str(r#"{"a":3,"z":{"b":2,"d":1}}"#).unwrap());
+        assert_eq!(expected, fingerprint(&other));
+    }
 
     fn case_with(step: Value) -> Value {
         json!({"id": "x", "description": "d", "steps": [step]})
