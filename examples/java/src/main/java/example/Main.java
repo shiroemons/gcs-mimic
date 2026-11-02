@@ -11,39 +11,34 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 public final class Main {
-  private Main() {}
-
   public static void main(String[] args) throws Exception {
     String endpoint = System.getenv().getOrDefault("GCS_MIMIC_ENDPOINT", "http://localhost:4443");
 
-    try (Storage storage = HttpStorageOptions.newBuilder()
-        .setHost(endpoint)
-        .setProjectId("local-project")
-        .setCredentials(NoCredentials.getInstance())
+    Storage storage = HttpStorageOptions.newBuilder()
+        .setHost(endpoint) // the local gcs-mimic instead of storage.googleapis.com
+        .setProjectId("local-project") // any project ID works with the emulator
+        .setCredentials(NoCredentials.getInstance()) // anonymous: no Google credentials needed
         .build()
-        .getService()) {
-      String bucket = "example-java-" + UUID.randomUUID().toString().substring(0, 8);
-      BlobId object = BlobId.of(bucket, "hello.txt");
+        .getService();
 
-      storage.create(BucketInfo.of(bucket));
-      System.out.println("created bucket " + bucket);
-      try {
-        BlobInfo info = BlobInfo.newBuilder(object).setContentType("text/plain").build();
-        storage.create(info, "Hello from gcs-mimic!".getBytes(StandardCharsets.UTF_8));
-        System.out.println("uploaded " + object.getName());
+    String bucket = "example-java-" + UUID.randomUUID().toString().substring(0, 8);
+    storage.create(BucketInfo.of(bucket));
+    System.out.println("created bucket " + bucket);
 
-        for (Blob blob : storage.list(bucket).iterateAll()) {
-          System.out.println("listed " + blob.getName() + " (" + blob.getSize() + " bytes)");
-        }
+    BlobId object = BlobId.of(bucket, "hello.txt");
+    byte[] data = "Hello from gcs-mimic!".getBytes(StandardCharsets.UTF_8);
+    storage.create(BlobInfo.newBuilder(object).build(), data);
+    System.out.println("uploaded " + object.getName());
 
-        String content = new String(storage.readAllBytes(object), StandardCharsets.UTF_8);
-        System.out.println("downloaded: " + content);
-      } finally {
-        // Clean up even when a step above failed, so reruns start from an empty emulator.
-        storage.delete(object);
-        storage.delete(bucket);
-        System.out.println("deleted " + object.getName() + " and bucket " + bucket);
-      }
+    for (Blob blob : storage.list(bucket).iterateAll()) {
+      System.out.println("listed " + blob.getName());
     }
+
+    String content = new String(storage.readAllBytes(object), StandardCharsets.UTF_8);
+    System.out.println("downloaded: " + content);
+
+    storage.delete(object);
+    storage.delete(bucket);
+    System.out.println("deleted " + object.getName() + " and bucket " + bucket);
   }
 }
