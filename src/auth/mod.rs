@@ -22,15 +22,16 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     path::Path,
-    str::FromStr,
     sync::atomic::{AtomicBool, Ordering},
 };
 
 /// The documented 401 body cannot explain JWT setup failures, so log guidance once.
 static WARNED_SELF_SIGNED_JWT: AtomicBool = AtomicBool::new(false);
 
+// Keeping this outside Permission preserves testIamPermissions and IAM-policy acceptance.
 pub(crate) const BUCKETS_ENABLE_OBJECT_RETENTION: &str = "storage.buckets.enableObjectRetention";
 
+// Optional constants serve call sites that authorize by permission name.
 macro_rules! permissions {
     ($($variant:ident $(($constant:ident))? => $name:literal),+ $(,)?) => {
         $($(pub(crate) const $constant: &str = $name;)?)+
@@ -116,32 +117,13 @@ const CREDENTIAL_QUERY_PARAMETERS: &[&str] = &[
     "X-Amz-Signature",
 ];
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum AuthMode {
-    #[default]
-    Permissive,
-    Strict,
-}
-
-impl AuthMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Permissive => "permissive",
-            Self::Strict => "strict",
-        }
+crate::config::string_enum! {
+    pub enum AuthMode {
+        #[default]
+        Permissive => "permissive",
+        Strict => "strict",
     }
-}
-
-impl FromStr for AuthMode {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "permissive" => Ok(Self::Permissive),
-            "strict" => Ok(Self::Strict),
-            _ => Err("auth_mode must be permissive or strict".into()),
-        }
-    }
+    "auth_mode must be permissive or strict"
 }
 
 /// Transport-independent authentication or authorization failure; adapters render it.

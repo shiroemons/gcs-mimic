@@ -28,84 +28,64 @@ pub const DEFAULT_LOCAL_CREATOR_EMAIL: &str = "local-user@gcs-mimic.invalid";
 const CONFIG_VALUE_FIX: &str =
     "Expected a string or unsigned integer; use the documented flat JSON setting type.";
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum CompatProfile {
-    #[default]
-    Native,
-    LegacyEmulator,
-}
-
-impl std::str::FromStr for CompatProfile {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "native" => Ok(Self::Native),
-            "legacy-emulator" => Ok(Self::LegacyEmulator),
-            _ => Err("compat_profile must be native or legacy-emulator".into()),
+macro_rules! string_enum {
+    ($(#[$meta:meta])* pub enum $name:ident {
+        $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
+    } $error:literal) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+        pub enum $name {
+            $($(#[$variant_meta])* $variant),+
         }
-    }
-}
 
-/// How XML/public CORS treats a bucket without stored rules. Cloud Storage has no server-wide
-/// rules, so `AllowAll` exists only as a fake-gcs-server migration aid.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum CorsFallback {
-    #[default]
-    None,
-    AllowAll,
-}
-
-impl CorsFallback {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::AllowAll => "allow-all",
+        impl $name {
+            pub fn as_str(self) -> &'static str {
+                match self { $(Self::$variant => $value),+ }
+            }
         }
-    }
-}
 
-impl std::str::FromStr for CorsFallback {
-    type Err = String;
+        impl std::str::FromStr for $name {
+            type Err = String;
 
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "none" => Ok(Self::None),
-            "allow-all" => Ok(Self::AllowAll),
-            _ => Err("cors_fallback must be none or allow-all".into()),
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                match value {
+                    $($value => Ok(Self::$variant),)+
+                    _ => Err($error.into()),
+                }
+            }
         }
+    };
+}
+pub(crate) use string_enum;
+
+string_enum! {
+    pub enum CompatProfile {
+        #[default]
+        Native => "native",
+        LegacyEmulator => "legacy-emulator",
     }
+    "compat_profile must be native or legacy-emulator"
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Scheme {
-    Http,
-    #[default]
-    Https,
-    Both,
+string_enum! {
+    /// How XML/public CORS treats a bucket without stored rules. Cloud Storage has no server-wide
+    /// rules, so `AllowAll` exists only as a fake-gcs-server migration aid.
+    pub enum CorsFallback {
+        #[default]
+        None => "none",
+        AllowAll => "allow-all",
+    }
+    "cors_fallback must be none or allow-all"
 }
 
-impl Scheme {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Http => "http",
-            Self::Https => "https",
-            Self::Both => "both",
-        }
+string_enum! {
+    pub enum Scheme {
+        Http => "http",
+        #[default]
+        Https => "https",
+        Both => "both",
     }
-}
-
-impl std::str::FromStr for Scheme {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "http" => Ok(Self::Http),
-            "https" => Ok(Self::Https),
-            "both" => Ok(Self::Both),
-            _ => Err("scheme must be http, https or both".into()),
-        }
-    }
+    "scheme must be http, https or both"
 }
 
 #[derive(Clone, Debug)]
@@ -501,54 +481,36 @@ impl From<&str> for SettingFix {
 /// caller applies it to a candidate copy and keeps the copy only on success.
 fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
     match key {
-        "log_level"
-        | "scheme"
-        | "listen"
-        | "listen_http"
-        | "grpc_listen"
-        | "unix_socket"
-        | "tls_cert"
-        | "tls_key"
-        | "tls_handshake_timeout_ms" => apply_network_setting(config, key, value),
-        "api_base_url" | "public_base_url" | "xml_virtual_host_domains" => {
-            apply_url_setting(config, key, &value)
-        }
         "backend" | "memory_max_bytes" | "memory_catalog_max_bytes" => {
-            storage::apply(config, key, &value)
+            return storage::apply(config, key, &value);
         }
-        "data_dir"
-        | "seed_dir"
-        | "default_seed_dir"
-        | "sync_dir"
-        | "sync_delete_guard"
-        | "sync_reinitialize"
-        | "seed_project"
-        | "seed_content_type"
-        | "default_location"
-        | "default_soft_delete_retention_seconds"
-        | "buckets_file" => apply_storage_setting(config, key, value),
-        "auth_mode"
-        | "compat_profile"
-        | "cors_fallback"
-        | "identity_file"
-        | "admin_enabled"
-        | "local_creator_email"
-        | "admin_principal" => apply_access_setting(config, key, value),
         "pubsub_emulator_host"
         | "event_pubsub_project_id"
         | "event_pubsub_topic"
         | "event_bucket"
         | "event_object_prefix"
-        | "event_list" => notifications::apply(config, key, value),
-        _ => apply_limit_setting(config, key, &value),
+        | "event_list" => return notifications::apply(config, key, value),
+        _ => {}
     }
+    for apply in [
+        apply_network_setting,
+        apply_url_setting,
+        apply_storage_setting,
+        apply_access_setting,
+        apply_limit_setting,
+    ] {
+        if apply(config, key, &value)? {
+            return Ok(());
+        }
+    }
+    Err(unknown_setting())
 }
 
 fn unknown_setting() -> SettingFix {
     "Unknown setting; remove it and use --help.".into()
 }
 
-fn apply_network_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
+fn apply_network_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
     match key {
         "log_level" => config.log_level = value.parse()?,
         "scheme" => config.scheme = value.parse()?,
@@ -579,14 +541,14 @@ fn apply_network_setting(config: &mut Config, key: &str, value: String) -> Resul
             }
         }
         "tls_handshake_timeout_ms" => {
-            config.tls_handshake_timeout_ms = bounded(key, &value, 1, 60_000)?
+            config.tls_handshake_timeout_ms = bounded(key, value, 1, 60_000)?
         }
-        _ => return Err(unknown_setting()),
+        _ => return Ok(false),
     }
-    Ok(())
+    Ok(true)
 }
 
-fn apply_url_setting(config: &mut Config, key: &str, value: &str) -> Result<(), SettingFix> {
+fn apply_url_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
     match key {
         "api_base_url" => {
             config.api_base_url = Some(
@@ -623,12 +585,12 @@ fn apply_url_setting(config: &mut Config, key: &str, value: &str) -> Result<(), 
                     .sort_by_key(|d| std::cmp::Reverse(d.len()));
             }
         }
-        _ => return Err(unknown_setting()),
+        _ => return Ok(false),
     }
-    Ok(())
+    Ok(true)
 }
 
-fn apply_storage_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
+fn apply_storage_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
     match key {
         "data_dir" => config.data_dir = PathBuf::from(non_empty(key, value)?),
         "seed_dir" => config.seed_dir = Some(PathBuf::from(non_empty(key, value)?)),
@@ -650,16 +612,16 @@ fn apply_storage_setting(config: &mut Config, key: &str, value: String) -> Resul
         }
         "sync_reinitialize" => {
             config.sync_reinitialize =
-                Some(crate::sync::parse_catalog_id(&value).map_err(|error| error.to_string())?)
+                Some(crate::sync::parse_catalog_id(value).map_err(|error| error.to_string())?)
         }
         "seed_project" => {
-            crate::json::validate_project(&value)
+            crate::json::validate_project(value)
                 .map_err(|error| format!("seed_project: {}", error.message))?;
-            config.seed_project = value;
+            config.seed_project = value.to_owned();
         }
         "seed_content_type" => config.seed_content_type = value.parse()?,
         "default_location" => {
-            let value = if value.is_empty() { "US" } else { &value };
+            let value = if value.is_empty() { "US" } else { value };
             config.default_location = bucket_location(value)
                 .map_err(|_| "default_location must be a supported bucket location; use US or ASIA-NORTHEAST1")?
                 .0
@@ -681,12 +643,12 @@ fn apply_storage_setting(config: &mut Config, key: &str, value: String) -> Resul
             }
             config.buckets_file = Some(PathBuf::from(value));
         }
-        _ => return Err(unknown_setting()),
+        _ => return Ok(false),
     }
-    Ok(())
+    Ok(true)
 }
 
-fn apply_access_setting(config: &mut Config, key: &str, value: String) -> Result<(), SettingFix> {
+fn apply_access_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
     match key {
         "admin_principal" => {
             if value.is_empty() || value.len() > 254 || value.chars().any(char::is_control) {
@@ -695,18 +657,18 @@ fn apply_access_setting(config: &mut Config, key: &str, value: String) -> Result
                         .into(),
                 );
             }
-            config.admin_principal = Some(value);
+            config.admin_principal = Some(value.to_owned());
         }
         "local_creator_email" => {
             if !value.is_empty() {
-                crate::auth::validate_local_creator_email(&value).map_err(|reason| {
+                crate::auth::validate_local_creator_email(value).map_err(|reason| {
                     format!(
                         "local_creator_email {reason}; use an address such as \
                          local-user@gcs-mimic.invalid or an empty value to disable it"
                     )
                 })?;
             }
-            config.local_creator_email = value;
+            config.local_creator_email = value.to_owned();
         }
         "admin_enabled" => {
             config.admin_enabled = value
@@ -717,12 +679,12 @@ fn apply_access_setting(config: &mut Config, key: &str, value: String) -> Result
         "compat_profile" => config.compat_profile = value.parse()?,
         "cors_fallback" => config.cors_fallback = value.parse()?,
         "identity_file" => config.identity_file = Some(PathBuf::from(non_empty(key, value)?)),
-        _ => return Err(unknown_setting()),
+        _ => return Ok(false),
     }
-    Ok(())
+    Ok(true)
 }
 
-fn apply_limit_setting(config: &mut Config, key: &str, value: &str) -> Result<(), SettingFix> {
+fn apply_limit_setting(config: &mut Config, key: &str, value: &str) -> Result<bool, SettingFix> {
     match key {
         "max_connections" => config.max_connections = bounded(key, value, 1, 1024)? as usize,
         "max_object_bytes" => {
@@ -741,12 +703,12 @@ fn apply_limit_setting(config: &mut Config, key: &str, value: &str) -> Result<()
             config.catalog_wait_timeout_ms = bounded(key, value, 1, 60_000)?
         }
         "shutdown_timeout_ms" => config.shutdown_timeout_ms = bounded(key, value, 1, 60_000)?,
-        _ => return Err(unknown_setting()),
+        _ => return Ok(false),
     }
-    Ok(())
+    Ok(true)
 }
 
-fn non_empty(key: &str, value: String) -> Result<String, SettingFix> {
+fn non_empty<'a>(key: &str, value: &'a str) -> Result<&'a str, SettingFix> {
     if value.is_empty() {
         return Err(format!("{key} must not be empty").into());
     }
