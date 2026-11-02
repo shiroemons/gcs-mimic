@@ -267,7 +267,7 @@ impl Catalog {
                     target,
                     incarnation,
                     options,
-                    created: system_time_millis(now).map_err(object_unavailable)?,
+                    created: system_time_millis(now)?,
                 })
             })
             .await?;

@@ -520,9 +520,7 @@ impl Catalog {
                     super::customer_keys::check(&object, key)?;
                     let id = random_id()?;
                     let path = if let Some(memory) = &memory {
-                        memory
-                            .pin(&original, id.clone())
-                            .map_err(object_unavailable)?;
+                        memory.pin(&original, id.clone())?;
                         None
                     } else {
                         let path = stage_path(&data_dir, &id)?;
@@ -1134,11 +1132,7 @@ pub(super) fn recover(
                 return Err(object_unavailable("invalid derived sources"));
             }
             let stage = restore_stage(data_dir, &id)?;
-            let mut output = fs::OpenOptions::new()
-                .write(true)
-                .read(true)
-                .open(stage)
-                .map_err(object_unavailable)?;
+            let mut output = fs::OpenOptions::new().write(true).read(true).open(stage)?;
             if output.metadata()?.len() < progress.offset {
                 return Err(object_unavailable(
                     "derived prefix is shorter than its checkpoint",
@@ -1154,8 +1148,7 @@ pub(super) fn recover(
             let mut buffer = [0; BUFFER_SIZE];
             while remaining > 0 {
                 let length = remaining.min(BUFFER_SIZE as u64) as usize;
-                std::io::Read::read_exact(&mut output, &mut buffer[..length])
-                    .map_err(object_unavailable)?;
+                std::io::Read::read_exact(&mut output, &mut buffer[..length])?;
                 hasher.update(&buffer[..length]);
                 remaining -= length as u64;
             }

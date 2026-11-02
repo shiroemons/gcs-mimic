@@ -184,10 +184,8 @@ pub(super) fn matching(
             error => ObjectError::from(error),
         })?;
     }
-    let incarnation: Option<String> = bucket_incarnation(connection, bucket)
-        .optional()
-        .map_err(super::objects::object_unavailable)?;
-    if binding.catalog != catalog_id(connection).map_err(super::objects::object_unavailable)?
+    let incarnation: Option<String> = bucket_incarnation(connection, bucket).optional()?;
+    if binding.catalog != catalog_id(connection)?
         || binding.bucket != bucket
         || incarnation.as_ref() != Some(&binding.incarnation)
     {

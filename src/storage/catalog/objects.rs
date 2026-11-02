@@ -475,7 +475,7 @@ pub(super) fn recover(
             // A pre-crash shard creator may have stopped before making its parent durable.
             sync_dir(&data_dir.join("blobs"))?;
         }
-        super::resumable_recovery::recover(connection, data_dir).map_err(object_unavailable)?;
+        super::resumable_recovery::recover(connection, data_dir)?;
         super::derived::recover(connection, data_dir, now)?;
         remove_unretained_staging(connection, data_dir)?;
         drain_deletion_journal(connection, data_dir)?;
@@ -495,7 +495,7 @@ pub(super) fn recover(
 )]
 fn remove_unretained_staging(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
     for entry in fs::read_dir(data_dir.join("staging"))? {
-        let entry = entry.map_err(object_unavailable)?;
+        let entry = entry?;
         if os_metadata(&entry) {
             continue;
         }
@@ -572,7 +572,7 @@ fn verify_referenced_blobs(connection: &Connection, data_dir: &Path) -> Result<(
 fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), ObjectError> {
     // Directory iterators and indexed single-ID probes also keep orphan scans bounded.
     for shard in fs::read_dir(data_dir.join("blobs"))? {
-        let shard = shard.map_err(object_unavailable)?;
+        let shard = shard?;
         if os_metadata(&shard) {
             continue;
         }
@@ -583,7 +583,7 @@ fn remove_orphan_blobs(connection: &Connection, data_dir: &Path) -> Result<(), O
             )));
         }
         for blob in fs::read_dir(shard.path())? {
-            let blob = blob.map_err(object_unavailable)?;
+            let blob = blob?;
             if os_metadata(&blob) {
                 continue;
             }
@@ -2151,8 +2151,7 @@ fn list_page_at(
             ],
             read_object,
         )
-        .optional()
-        .map_err(object_unavailable)?;
+        .optional()?;
         let Some((record, _)) = record else { break };
         let group = group_prefix(&record.name, query);
         let is_prefix = group.is_some_and(|_| {

@@ -167,9 +167,7 @@ impl Catalog {
                     let (versioning, _) =
                         Catalog::bucket_settings_in_transaction(&transaction, &bucket)?;
                     if let Some(memory) = &memory {
-                        memory
-                            .pin(&original, text.clone())
-                            .map_err(object_unavailable)?;
+                        memory.pin(&original, text.clone())?;
                     } else {
                         std::fs::hard_link(objects::blob_path(&data_dir, &original)?, &stage)?;
                         objects::publish_blob(&stage, &id.blob_path(&data_dir))?;

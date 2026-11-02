@@ -387,7 +387,7 @@ impl Catalog {
                 let now = clock.now();
                 now.duration_since(std::time::UNIX_EPOCH)
                     .map_err(object_unavailable)?;
-                let micros = unix_micros(now).map_err(object_unavailable)?;
+                let micros = unix_micros(now)?;
                 let time = system_time_micros(micros).map_err(object_unavailable)?;
                 let defaults = objects::PublicationDefaults {
                     storage_class,

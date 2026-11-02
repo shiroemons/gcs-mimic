@@ -2,7 +2,7 @@ use super::{
     Catalog,
     objects::{
         GenerationAssignment, NewVersion, authorized_bucket, check_publication, lookup,
-        object_unavailable, publish_in_transaction, selected,
+        publish_in_transaction, selected,
     },
     unix_micros,
 };
@@ -58,8 +58,7 @@ impl Catalog {
                     record.generation,
                     &source_read,
                 )?;
-                let source_acl = super::acl::effective_object_entries(&transaction, &record)
-                    .map_err(object_unavailable)?;
+                let source_acl = super::acl::effective_object_entries(&transaction, &record)?;
                 let (_, delete_permission) =
                     authorized_bucket(&transaction, &bucket, &destination_create)?;
                 let previous = lookup(&transaction, &bucket, &destination)?;
@@ -73,10 +72,9 @@ impl Catalog {
                 if source == destination {
                     return Err(ObjectError::InvalidMetadata);
                 }
-                let (versioning, _) = Self::bucket_settings_in_transaction(&transaction, &bucket)
-                    .map_err(object_unavailable)?;
+                let (versioning, _) = Self::bucket_settings_in_transaction(&transaction, &bucket)?;
                 let now = clock.now();
-                let micros = unix_micros(now).map_err(object_unavailable)?;
+                let micros = unix_micros(now)?;
                 let origin = super::change_journal::origin(&destination_create);
                 super::notification_outbox::enqueue(
                     &transaction,
@@ -86,15 +84,13 @@ impl Catalog {
                         time: now,
                         replacement: None,
                     },
-                )
-                .map_err(object_unavailable)?;
+                )?;
                 super::change_journal::object(
                     &transaction,
                     origin,
                     super::change_journal::ChangeKind::Delete,
                     &record,
-                )
-                .map_err(object_unavailable)?;
+                )?;
                 // Remove only the live source generation; its blob becomes the destination's blob.
                 sql::exec(
                     &transaction,

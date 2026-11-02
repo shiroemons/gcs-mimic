@@ -375,8 +375,8 @@ fn select(connection: &Connection, bucket: &str, name: &str) -> Result<Lookup, O
         options,
         size: u64::try_from(size).map_err(object_unavailable)?,
         crc32c,
-        time_created: system_time_micros(created).map_err(object_unavailable)?,
-        updated: system_time_micros(updated).map_err(object_unavailable)?,
+        time_created: system_time_micros(created)?,
+        updated: system_time_micros(updated)?,
         write_handle: handle,
     })))
 }
@@ -411,8 +411,7 @@ fn record(
         bucket,
         row.options.metadata.storage_class.clone(),
         bucket_class,
-    )
-    .map_err(object_unavailable)?;
+    )?;
     let defaults = PublicationDefaults {
         storage_class,
         event_based_hold: false,
@@ -589,7 +588,7 @@ impl AppendWriter {
             .catalog
             .run_upload(move |connection| {
                 let _guard = guard;
-                let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
+                let micros = unix_micros(clock.now())?;
                 let changed = sql::exec(connection,
                         // A deleted or recreated bucket invalidates the writer as well.
                         "UPDATE appendable_objects SET size = ?1, crc32c = ?2, updated = ?3 WHERE bucket = ?4 AND name = ?5 AND generation = ?6 AND write_handle = ?7 AND incarnation = (SELECT incarnation FROM bucket_incarnations WHERE bucket = ?4)", params![size, crc32c, micros, bucket, name, generation, handle])?;
@@ -902,7 +901,7 @@ impl Catalog {
                 return Ok(Err(AppendError::ReplaceUnsupported));
             }
             let incarnation = bucket_incarnation(&transaction, &bucket).optional()?.ok_or(ObjectError::BucketNotFound)?;
-            let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
+            let micros = unix_micros(clock.now())?;
             let last: i64 = sql::scalar(&transaction, "SELECT last_generation FROM object_generation WHERE singleton = 1", [])?;
             let generation = micros.max(
                 last.checked_add(1)
@@ -912,7 +911,7 @@ impl Catalog {
             let encoded = encode_options(&options).to_string();
             sql::exec(&transaction,
                     "INSERT INTO appendable_objects VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, ?7, ?8, 0)", params![bucket, name, generation, incarnation, blob_id, encoded, micros, handle])?;
-            let time = system_time_micros(micros).map_err(object_unavailable)?;
+            let time = system_time_micros(micros)?;
             let row = Row {
                 generation,
                 blob_id: blob_id.clone(),
@@ -924,7 +923,7 @@ impl Catalog {
                 write_handle: handle.clone(),
             };
             let created = record(&transaction, &bucket, &name, storage_class, &row, principals.as_ref())?;
-            let checkpoint = memory.as_ref().map(|store| store.create_draft_checkpoint(&blob_id)).transpose().map_err(object_unavailable)?;
+            let checkpoint = memory.as_ref().map(|store| store.create_draft_checkpoint(&blob_id)).transpose()?;
             let committed = transaction.commit().map_err(object_unavailable);
             if let Some(checkpoint) = checkpoint {
                 let referenced = sql::scalar::<bool>(connection, "SELECT EXISTS(SELECT 1 FROM appendable_objects WHERE blob_id=?1)", [&blob_id]);
@@ -933,8 +932,8 @@ impl Catalog {
             }
             committed?;
             if let Some(memory) = memory && let Some(stale) = &stale {
-                memory.remove_draft(stale).map_err(object_unavailable)?;
-                memory.remove(stale).map_err(object_unavailable)?;
+                memory.remove_draft(stale)?;
+                memory.remove(stale)?;
             }
             Ok(Ok((stale, created)))
         })
@@ -1065,16 +1064,13 @@ impl Catalog {
                 check_conditions(Some(&record), conditions, super::objects::RequestKind::Read)?;
                 // Opened inside the transaction so finalization cannot unlink it first.
                 let file = if let Some(memory) = memory {
-                    ObjectReader::bounded_memory(
-                        memory.open(&row.blob_id).map_err(object_unavailable)?,
-                        record.size,
-                    )
+                    ObjectReader::bounded_memory(memory.open(&row.blob_id)?, record.size)
                 } else {
                     ObjectReader::bounded(
-                        tokio::fs::File::from_std(
-                            fs::File::open(data_path(&data_dir, &row.blob_id)?)
-                                .map_err(object_unavailable)?,
-                        ),
+                        tokio::fs::File::from_std(fs::File::open(data_path(
+                            &data_dir,
+                            &row.blob_id,
+                        )?)?),
                         record.size,
                     )
                 };

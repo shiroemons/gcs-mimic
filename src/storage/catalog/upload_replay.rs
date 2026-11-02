@@ -123,8 +123,7 @@ impl CopyReplay {
         )?;
         self.replay
             .check_incarnation(connection, &self.destination_bucket)?;
-        let incarnation: String = bucket_incarnation(connection, &self.source_bucket)
-            .map_err(objects::object_unavailable)?;
+        let incarnation: String = bucket_incarnation(connection, &self.source_bucket)?;
         if incarnation != self.source_incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
@@ -407,12 +406,10 @@ impl Catalog {
         let source_object = source_name.clone();
         let source_authority = source_access.clone();
         let token = hash(invocation.token.unwrap_or_default().as_bytes());
-        let now = unix_micros(self.0.clock.now()).map_err(objects::object_unavailable)?;
+        let now = unix_micros(self.0.clock.now())?;
         let (source_incarnation, source_generation): (String, Option<i64>) = self
             .run_waiting(move |connection| {
-                let transaction = connection
-                    .transaction()
-                    .map_err(objects::object_unavailable)?;
+                let transaction = connection.transaction()?;
                 let generation = copy_source_generation(
                     &transaction,
                     CopyReplaySource {
@@ -424,8 +421,7 @@ impl Catalog {
                     &token,
                     now,
                 )?;
-                let incarnation = bucket_incarnation(&transaction, &source_query)
-                    .map_err(objects::object_unavailable)?;
+                let incarnation = bucket_incarnation(&transaction, &source_query)?;
                 Ok::<_, ObjectError>((incarnation, generation))
             })
             .await?;
@@ -468,13 +464,8 @@ impl Catalog {
         let replay = replay.clone();
         let clock = self.0.clock.clone();
         self.run_waiting(move |connection| {
-            let transaction = connection
-                .transaction()
-                .map_err(objects::object_unavailable)?;
-            replay.cached(
-                &transaction,
-                unix_micros(clock.now()).map_err(objects::object_unavailable)?,
-            )
+            let transaction = connection.transaction()?;
+            replay.cached(&transaction, unix_micros(clock.now())?)
         })
         .await
     }
@@ -516,13 +507,10 @@ impl Catalog {
         let principals = self.0.principals.get().cloned();
         let replay = self
             .run_waiting(move |connection| {
-                let transaction = connection
-                    .transaction()
-                    .map_err(objects::object_unavailable)?;
+                let transaction = connection.transaction()?;
                 let (_, delete_permission) =
                     objects::authorized_bucket(&transaction, &bucket, &access)?;
-                let incarnation = bucket_incarnation(&transaction, &bucket)
-                    .map_err(objects::object_unavailable)?;
+                let incarnation = bucket_incarnation(&transaction, &bucket)?;
                 if expected_incarnation
                     .as_ref()
                     .is_some_and(|expected| expected != &incarnation)
@@ -536,7 +524,7 @@ impl Catalog {
                     snapshot: Arc::new(OnceLock::new()),
                     principals,
                 };
-                let now = unix_micros(clock.now()).map_err(objects::object_unavailable)?;
+                let now = unix_micros(clock.now())?;
                 if replay.cached(&transaction, now)?.is_none() {
                     capacity(&transaction, now)?;
                     let previous = objects::lookup(&transaction, &bucket, &name)?;

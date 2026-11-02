@@ -173,13 +173,9 @@ impl Catalog {
                     destination,
                     move |connection, record| {
                         record.md5_availability = crate::object::Md5Availability::Unavailable;
-                        let upload = active(
-                            connection,
-                            &target,
-                            &access,
-                            unix_millis(clock.now()).map_err(object_unavailable)?,
-                        )
-                        .map_err(publication_error)?;
+                        let upload =
+                            active(connection, &target, &access, unix_millis(clock.now())?)
+                                .map_err(publication_error)?;
                         if upload.incarnation != incarnation {
                             return Err(ObjectError::DerivedTransferNotFound);
                         }
