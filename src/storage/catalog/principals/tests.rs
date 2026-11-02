@@ -222,8 +222,7 @@ async fn old_bucket_without_stored_acl_does_not_invent_virtual_default_grants() 
     let acl = catalog
         .read_acl(
             crate::acl::AclTarget::Bucket("bucket".into()),
-            None,
-            None,
+            Default::default(),
             PERMISSIVE,
         )
         .await
@@ -244,8 +243,7 @@ async fn old_bucket_without_stored_acl_does_not_invent_virtual_default_grants() 
     let acl = reopened
         .read_acl(
             crate::acl::AclTarget::Bucket("bucket".into()),
-            None,
-            None,
+            Default::default(),
             PERMISSIVE,
         )
         .await

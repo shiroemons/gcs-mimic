@@ -220,7 +220,7 @@ async fn acl_schema_migration_keeps_buckets_on_the_project_private_default() {
     );
     let target = gcs_mimic::acl::AclTarget::Bucket("acl-migration".into());
     let state = catalog
-        .read_acl(target.clone(), None, None, PERMISSIVE)
+        .read_acl(target.clone(), Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(state.entries, gcs_mimic::acl::project_private("123"));
@@ -238,7 +238,7 @@ async fn acl_schema_migration_keeps_buckets_on_the_project_private_default() {
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let state = catalog
-        .read_acl(target, None, None, PERMISSIVE)
+        .read_acl(target, Default::default(), PERMISSIVE)
         .await
         .unwrap();
     assert_eq!(state.entries.len(), 4);
@@ -278,12 +278,15 @@ async fn default_object_acl_reads_apply_bucket_metageneration_conditions() {
         ),
         (Some(m), Some(m + 1), Ok(())),
     ] {
+        let conditions = BucketConditions {
+            if_metageneration_match: matching,
+            if_metageneration_not_match: not_matching,
+        };
         assert_eq!(
             catalog
                 .read_acl(
                     AclTarget::DefaultObject(record.name.clone()),
-                    matching,
-                    not_matching,
+                    conditions,
                     PERMISSIVE,
                 )
                 .await

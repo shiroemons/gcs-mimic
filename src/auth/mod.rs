@@ -1186,8 +1186,7 @@ mod tests {
                         name: "object".into(),
                         generation: None,
                     },
-                    None,
-                    None,
+                    Default::default(),
                     PERMISSIVE,
                 )
                 .await

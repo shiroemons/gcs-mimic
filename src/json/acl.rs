@@ -12,6 +12,7 @@ use super::{
 };
 use crate::{
     acl::{AclEntry, AclKind, AclTarget, Entity, project_number, validate_role},
+    bucket::BucketConditions,
     config::CompatProfile,
 };
 use hyper::{Method, Uri};
@@ -50,8 +51,7 @@ pub(crate) struct AclRequest {
     pub target: AclTarget,
     pub operation: AclOperation,
     /// Bucket metageneration conditions; Discovery defines them only for default object ACL lists.
-    pub if_metageneration_match: Option<i64>,
-    pub if_metageneration_not_match: Option<i64>,
+    pub conditions: BucketConditions,
     pub fields: Fields,
 }
 
@@ -140,15 +140,14 @@ fn parse_route(
             })
             .transpose()
     };
-    let (if_metageneration_match, if_metageneration_not_match) =
-        if kind == AclKind::DefaultObject && operation == AclOperation::List {
-            (
-                integer("ifMetagenerationMatch")?,
-                integer("ifMetagenerationNotMatch")?,
-            )
-        } else {
-            (None, None)
-        };
+    let conditions = if kind == AclKind::DefaultObject && operation == AclOperation::List {
+        BucketConditions {
+            if_metageneration_match: integer("ifMetagenerationMatch")?,
+            if_metageneration_not_match: integer("ifMetagenerationNotMatch")?,
+        }
+    } else {
+        BucketConditions::default()
+    };
     let target = match object {
         None if kind == AclKind::Bucket => AclTarget::Bucket(bucket),
         None => AclTarget::DefaultObject(bucket),
@@ -166,8 +165,7 @@ fn parse_route(
     Ok(AclRequest {
         target,
         operation,
-        if_metageneration_match,
-        if_metageneration_not_match,
+        conditions,
         fields,
     })
 }
@@ -435,11 +433,11 @@ mod tests {
         .unwrap();
         assert_eq!(request.target, AclTarget::DefaultObject("bucket".into()));
         assert_eq!(
-            (
-                request.if_metageneration_match,
-                request.if_metageneration_not_match
-            ),
-            (Some(3), Some(2))
+            request.conditions,
+            BucketConditions {
+                if_metageneration_match: Some(3),
+                if_metageneration_not_match: Some(2),
+            }
         );
         let request = route(
             Method::DELETE,

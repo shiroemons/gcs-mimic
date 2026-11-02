@@ -15,7 +15,7 @@ use super::{
 use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     acl::{AclEntry, AclKind, AclTarget, Entity, MAX_ENTRIES, project_private},
-    bucket::{BucketAccess, CatalogError},
+    bucket::{BucketAccess, BucketConditions, CatalogError},
     object::{ObjectConditions, ObjectError},
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -706,18 +706,20 @@ impl Catalog {
     pub(crate) async fn read_acl(
         &self,
         target: AclTarget,
-        if_metageneration_match: Option<i64>,
-        if_metageneration_not_match: Option<i64>,
+        conditions: BucketConditions,
         access: &BucketAccess,
     ) -> Result<AclState, AclError> {
         let access = access.clone();
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
             let (state, _) = load(&transaction, &target, &access)?;
-            if if_metageneration_match.is_some_and(|value| value != state.metageneration) {
+            if conditions
+                .if_metageneration_match
+                .is_some_and(|value| value != state.metageneration)
+            {
                 return Err(CatalogError::PreconditionFailed.into());
             }
-            if if_metageneration_not_match == Some(state.metageneration) {
+            if conditions.if_metageneration_not_match == Some(state.metageneration) {
                 return Err(AclError::NotModified);
             }
             Ok(state)

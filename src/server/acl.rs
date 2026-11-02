@@ -130,8 +130,7 @@ pub(super) async fn respond(
     let AclRequest {
         target,
         operation,
-        if_metageneration_match,
-        if_metageneration_not_match,
+        conditions,
         fields,
     } = operation;
     let acl_access = match operation {
@@ -165,12 +164,7 @@ pub(super) async fn respond(
         AclOperation::List | AclOperation::Get(_) => {
             let acl = state
                 .catalog
-                .read_acl(
-                    target.clone(),
-                    if_metageneration_match,
-                    if_metageneration_not_match,
-                    &access,
-                )
+                .read_acl(target.clone(), conditions, &access)
                 .await
                 .map_err(|error| naming_object(acl_error(error, acl_access), &target))?;
             etag = Some(json::revision_etag(
