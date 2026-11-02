@@ -106,16 +106,16 @@ pub(super) async fn respond(
         }
         ObjectRequest::List(params) => list(request.headers(), ctx, &access, &params).await?.into(),
         ObjectRequest::Update {
-            bucket,
-            name,
-            params,
+            target,
+            conditions,
+            projection,
             mode,
             retention_override,
         } => {
             let target = UpdateTarget {
-                bucket,
-                name,
-                params,
+                object: target,
+                conditions,
+                projection,
                 mode,
                 retention_override,
             };
@@ -124,18 +124,14 @@ pub(super) async fn respond(
         ObjectRequest::Multipart(target) => upload::multipart(request, ctx, access, target).await?,
         ObjectRequest::Insert(target) => upload::insert(request, ctx, access, target).await?,
         ObjectRequest::Get {
-            bucket,
-            name,
-            params,
-        } => return read::get(&request, ctx, &access, &bucket, &name, &params, &fields).await,
-        ObjectRequest::Delete {
-            bucket,
-            name,
-            generation,
+            target,
             conditions,
+            params,
         } => {
+            return read::get(&request, ctx, &access, target, conditions, params, &fields).await;
+        }
+        ObjectRequest::Delete { target, conditions } => {
             json::validate_object_get_headers(request.headers())?;
-            let target = ObjectTarget::new(bucket, name, generation);
             ctx.state
                 .catalog
                 .delete_object(target, conditions, &access)
@@ -169,13 +165,13 @@ fn required_permission(operation: &ObjectRequest) -> (&'static str, &str) {
         ObjectRequest::Move(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
-        ObjectRequest::Update { bucket, .. } => (auth::OBJECTS_UPDATE, bucket),
+        ObjectRequest::Update { target, .. } => (auth::OBJECTS_UPDATE, &target.bucket),
         ObjectRequest::Compose { bucket, .. }
         | ObjectRequest::Insert(UploadRequest { bucket, .. })
         | ObjectRequest::Multipart(UploadRequest { bucket, .. })
         | ObjectRequest::Resumable { bucket, .. } => (auth::OBJECTS_CREATE, bucket),
-        ObjectRequest::Get { bucket, .. } => (auth::OBJECTS_GET, bucket),
-        ObjectRequest::Delete { bucket, .. } => (auth::OBJECTS_DELETE, bucket),
+        ObjectRequest::Get { target, .. } => (auth::OBJECTS_GET, &target.bucket),
+        ObjectRequest::Delete { target, .. } => (auth::OBJECTS_DELETE, &target.bucket),
     }
 }
 
@@ -456,9 +452,9 @@ async fn log_empty_soft_deleted_listing(
 }
 
 struct UpdateTarget {
-    bucket: String,
-    name: String,
-    params: json::ObjectGetParams,
+    object: ObjectTarget,
+    conditions: ObjectConditions,
+    projection: json::Projection,
     mode: json::WriteMode,
     retention_override: UnlockedOverride,
 }
@@ -470,9 +466,9 @@ async fn update(
     target: UpdateTarget,
 ) -> Result<Value, JsonError> {
     let UpdateTarget {
-        bucket,
-        name,
-        params,
+        object,
+        conditions,
+        projection,
         mode,
         retention_override,
     } = target;
@@ -485,7 +481,7 @@ async fn update(
     retention_access::authorize_update(
         ctx.state,
         access,
-        &bucket,
+        &object.bucket,
         &mut update.update,
         retention_override,
     )
@@ -495,8 +491,8 @@ async fn update(
         .state
         .catalog
         .update_object_metadata(
-            ObjectTarget::new(bucket, name, params.generation),
-            params.conditions,
+            object,
+            conditions,
             update.update,
             move |record| {
                 // A wrong key fails before the metadata change commits.
@@ -518,5 +514,5 @@ async fn update(
             access,
         )
         .await?;
-    json::object_resource_keyed(&record, &ctx.endpoints.api_base_url, params.projection, key)
+    json::object_resource_keyed(&record, &ctx.endpoints.api_base_url, projection, key)
 }

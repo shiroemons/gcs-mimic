@@ -1,5 +1,5 @@
 use super::*;
-use crate::object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord};
+use crate::object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget};
 use hyper::{HeaderMap, Method, StatusCode, header::HeaderValue};
 use serde_json::json;
 use std::time::{Duration, UNIX_EPOCH};
@@ -118,19 +118,19 @@ fn obj_route_001_media_upload_metadata_download_delete() {
         assert_eq!(
             request(Method::GET, &format!("{prefix}/storage/v1/b/abc/o/dir%2F%E7%8C%AB+%252F?alt=media&generation=7&{query}")).unwrap(),
             ObjectRequest::Get {
-                bucket: "abc".to_owned(), name: "dir/猫+%2F".to_owned(),
-                params: ObjectGetParams { generation: Some(7), conditions, projection: Projection::NoAcl, media: true, soft_deleted: false },
+                target: ObjectTarget::new("abc", "dir/猫+%2F", Some(7)), conditions,
+                params: ObjectGetParams { projection: Projection::NoAcl, media: true, soft_deleted: false },
             }
         );
     }
     assert!(matches!(
         request(Method::GET, "/storage/v1/b/abc/o/file?alt=json").unwrap(),
         ObjectRequest::Get {
-            params: ObjectGetParams {
-                media: false,
+            target: ObjectTarget {
                 generation: None,
                 ..
             },
+            params: ObjectGetParams { media: false, .. },
             ..
         }
     ));
@@ -141,9 +141,7 @@ fn obj_route_001_media_upload_metadata_download_delete() {
         )
         .unwrap(),
         ObjectRequest::Delete {
-            bucket: "abc".to_owned(),
-            name: "file".to_owned(),
-            generation: Some(7),
+            target: ObjectTarget::new("abc", "file", Some(7)),
             conditions
         }
     );
@@ -234,7 +232,7 @@ fn obj_name_001_exactly_once_decoding_and_utf8_boundaries() {
         ("a%2F..%2Fb", "a/../b"),
     ] {
         assert!(
-            matches!(request(Method::GET, &format!("/storage/v1/b/abc/o/{raw}")).unwrap(), ObjectRequest::Get { name: decoded, .. } if decoded == name)
+            matches!(request(Method::GET, &format!("/storage/v1/b/abc/o/{raw}")).unwrap(), ObjectRequest::Get { target, .. } if target.name == name)
         );
     }
     for name in ["a".repeat(1024), "猫".repeat(341) + "a"] {

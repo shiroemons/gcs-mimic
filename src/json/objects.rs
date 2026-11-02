@@ -5,7 +5,9 @@ use super::{
 };
 use crate::{
     config::CompatProfile,
-    object::{ExpectedHashes, ObjectConditions, ObjectRecord, retention::UnlockedOverride},
+    object::{
+        ExpectedHashes, ObjectConditions, ObjectRecord, ObjectTarget, retention::UnlockedOverride,
+    },
 };
 use hyper::{HeaderMap, Method, StatusCode, Uri, header::HeaderValue};
 use serde_json::{Value, json};
@@ -20,8 +22,6 @@ pub(crate) struct ObjectInsertParams {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectGetParams {
-    pub generation: Option<i64>,
-    pub conditions: ObjectConditions,
     pub projection: Projection,
     pub media: bool,
     pub soft_deleted: bool,
@@ -54,9 +54,9 @@ pub(crate) enum ObjectRequest {
     },
     List(super::ObjectListParams),
     Update {
-        bucket: String,
-        name: String,
-        params: ObjectGetParams,
+        target: ObjectTarget,
+        conditions: ObjectConditions,
+        projection: Projection,
         mode: WriteMode,
         retention_override: UnlockedOverride,
     },
@@ -69,14 +69,12 @@ pub(crate) enum ObjectRequest {
         content_encoding: Option<String>,
     },
     Get {
-        bucket: String,
-        name: String,
+        target: ObjectTarget,
+        conditions: ObjectConditions,
         params: ObjectGetParams,
     },
     Delete {
-        bucket: String,
-        name: String,
-        generation: Option<i64>,
+        target: ObjectTarget,
         conditions: ObjectConditions,
     },
 }
@@ -435,7 +433,7 @@ fn parse_named_object_query(
         conditions,
         media,
     } = target;
-    let generation = integer(&mut query, "generation")?;
+    let target = ObjectTarget::new(bucket, name, integer(&mut query, "generation")?);
     if method == Method::PATCH || method == Method::PUT {
         // A PUT without `projection` answered without `acl` and `owner` (recorded), although
         // the reference documents `full` as its default.
@@ -447,26 +445,20 @@ fn parse_named_object_query(
         };
         finish(&query)?;
         return Ok(ObjectRequest::Update {
-            bucket,
-            name,
+            target,
+            conditions,
+            projection,
             retention_override,
             mode: if method == Method::PUT {
                 WriteMode::Replace
             } else {
                 WriteMode::Patch
             },
-            params: ObjectGetParams {
-                generation,
-                conditions,
-                projection,
-                media: false,
-                soft_deleted: false,
-            },
         });
     }
     if matches!(*method, Method::GET | Method::HEAD) {
         let soft_deleted = boolean(&mut query, "softDeleted")?;
-        if soft_deleted && (generation.is_none() || media) {
+        if soft_deleted && (target.generation.is_none() || media) {
             return Err(JsonError::invalid_argument(
                 "softDeleted=true requires generation and forbids alt=media; use generation=123&softDeleted=true",
             ));
@@ -474,11 +466,9 @@ fn parse_named_object_query(
         let projection = projection(&mut query)?;
         finish(&query)?;
         return Ok(ObjectRequest::Get {
-            bucket,
-            name,
+            target,
+            conditions,
             params: ObjectGetParams {
-                generation,
-                conditions,
                 projection,
                 media,
                 soft_deleted,
@@ -489,12 +479,7 @@ fn parse_named_object_query(
     // stayed protected (observed 2026-10-31). Only PATCH and PUT honour the override.
     boolean(&mut query, "overrideUnlockedRetention")?;
     finish(&query)?;
-    Ok(ObjectRequest::Delete {
-        bucket,
-        name,
-        generation,
-        conditions,
-    })
+    Ok(ObjectRequest::Delete { target, conditions })
 }
 
 pub(super) fn integer(

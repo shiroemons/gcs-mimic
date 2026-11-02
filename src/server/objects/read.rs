@@ -20,9 +20,9 @@ pub(super) async fn get(
     request: &Request<Incoming>,
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
-    bucket: &str,
-    name: &str,
-    params: &json::ObjectGetParams,
+    object: ObjectTarget,
+    requested: ObjectConditions,
+    params: json::ObjectGetParams,
     fields: &json::Fields,
 ) -> Result<Response<ResponseBody>, JsonError> {
     // Match failures precede both query and HTTP cache validators on one snapshot.
@@ -32,28 +32,29 @@ pub(super) async fn get(
         ObjectConditions {
             if_generation_not_match: None,
             if_metageneration_not_match: None,
-            ..params.conditions
+            ..requested
         }
     } else {
-        params.conditions
+        requested
     };
     let target = ReadTarget {
-        bucket,
-        name,
+        object,
         params,
+        requested,
         conditions,
     };
     if params.media {
-        return media(request, ctx, access, &target).await;
+        return media(request, ctx, access, target).await;
     }
-    metadata(request, ctx, access, &target, fields).await
+    metadata(request, ctx, access, target, fields).await
 }
 
 /// The object a read selects, with its HTTP validators already reconciled.
-struct ReadTarget<'a> {
-    bucket: &'a str,
-    name: &'a str,
-    params: &'a json::ObjectGetParams,
+struct ReadTarget {
+    object: ObjectTarget,
+    params: json::ObjectGetParams,
+    /// The query conditions as sent; a NotMatch naming the selected version answers 304.
+    requested: ObjectConditions,
     /// The query conditions the catalog checks on the read snapshot.
     conditions: ObjectConditions,
 }
@@ -62,15 +63,19 @@ async fn media(
     request: &Request<Incoming>,
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
-    target: &ReadTarget<'_>,
+    target: ReadTarget,
 ) -> Result<Response<ResponseBody>, JsonError> {
-    let params = target.params;
+    let ReadTarget {
+        object,
+        requested,
+        conditions,
+        ..
+    } = target;
     let key = json::request_key(request.headers())?;
-    let object = ObjectTarget::new(target.bucket, target.name, params.generation);
     let (record, mut reader) = ctx
         .state
         .catalog
-        .open_object_keyed(object, target.conditions, access, key)
+        .open_object_keyed(object, conditions, access, key)
         .await?;
     json::validate_read_condition_headers(request.headers(), json::EtagConditions::MediaRead)?;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
@@ -111,8 +116,8 @@ async fn media(
         Ok(not_modified) => not_modified,
     };
     if conditional
-        || params.conditions.if_generation_not_match == Some(record.generation)
-        || params.conditions.if_metageneration_not_match == Some(record.metageneration)
+        || requested.if_generation_not_match == Some(record.generation)
+        || requested.if_metageneration_not_match == Some(record.metageneration)
     {
         let mut response = not_modified_response(&headers["etag"], &headers["cache-control"]);
         copy_representation_headers(&headers, response.headers_mut());
@@ -369,25 +374,31 @@ async fn metadata(
     request: &Request<Incoming>,
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
-    target: &ReadTarget<'_>,
+    target: ReadTarget,
     fields: &json::Fields,
 ) -> Result<Response<ResponseBody>, JsonError> {
-    let params = target.params;
+    let ReadTarget {
+        object,
+        params,
+        requested,
+        conditions,
+    } = target;
     let key = json::request_key(request.headers())?;
     let catalog = &ctx.state.catalog;
     let record = if params.soft_deleted {
-        let generation = params
-            .generation
+        let ObjectTarget {
+            bucket,
+            name,
+            generation,
+        } = object;
+        let generation = generation
             .ok_or_else(|| JsonError::invalid_argument("softDeleted=true requires generation"))?;
-        let object = ObjectTarget::new(target.bucket, target.name, generation);
+        let object = ObjectTarget::new(bucket, name, generation);
         catalog
-            .get_soft_deleted_object(object, target.conditions, access)
+            .get_soft_deleted_object(object, conditions, access)
             .await?
     } else {
-        let object = ObjectTarget::new(target.bucket, target.name, params.generation);
-        catalog
-            .get_object(object, target.conditions, access)
-            .await?
+        catalog.get_object(object, conditions, access).await?
     };
     json::validate_read_condition_headers(request.headers(), json::EtagConditions::Supported)?;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
@@ -405,8 +416,8 @@ async fn metadata(
         )
         .await?;
     }
-    let query = if params.conditions.if_generation_not_match == Some(record.generation)
-        || params.conditions.if_metageneration_not_match == Some(record.metageneration)
+    let query = if requested.if_generation_not_match == Some(record.generation)
+        || requested.if_metageneration_not_match == Some(record.metageneration)
     {
         QueryPrecondition::NotModified
     } else {

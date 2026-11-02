@@ -652,11 +652,11 @@ async fn respond_json_object(
     // The object a missing-object error names: only operations whose path selects one.
     let target = match &parsed {
         Ok((
-            ObjectRequest::Get { bucket, name, .. }
-            | ObjectRequest::Update { bucket, name, .. }
-            | ObjectRequest::Delete { bucket, name, .. },
+            ObjectRequest::Get { target, .. }
+            | ObjectRequest::Update { target, .. }
+            | ObjectRequest::Delete { target, .. },
             _,
-        )) => Some((bucket.clone(), name.clone())),
+        )) => Some((target.bucket.clone(), target.name.clone())),
         _ => None,
     };
     let transfer = media
