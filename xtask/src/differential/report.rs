@@ -270,13 +270,15 @@ pub(crate) fn markdown(header: &Header<'_>, reports: &[CaseReport]) -> String {
         out.push_str("\nNo differences or errors.\n");
     }
     for report in reports {
-        if report.outcome == Outcome::Match && report.errors.is_empty() {
-            continue;
+        out.push_str(&format!("\n### {}\n\n{}\n", report.id, report.description));
+        if !report.errors.is_empty()
+            || report
+                .steps
+                .iter()
+                .any(|step| !step.differences.is_empty() || !step.notes.is_empty())
+        {
+            out.push('\n');
         }
-        out.push_str(&format!(
-            "\n### {}\n\n{}\n\n",
-            report.id, report.description
-        ));
         for error in &report.errors {
             out.push_str(&format!("- error: {}\n", error.replace('`', "'")));
         }
@@ -751,7 +753,7 @@ mod tests {
 
     #[test]
     fn renders_differences_with_paths() {
-        let report = CaseReport {
+        let mut report = CaseReport {
             id: "c".into(),
             description: "d".into(),
             outcome: Outcome::Differs,
@@ -791,7 +793,14 @@ mod tests {
             diff: true,
             note: false,
         };
-        assert!(has_failures(&[report], fail_on_diff));
+        assert!(has_failures(std::slice::from_ref(&report), fail_on_diff));
+        report.outcome = Outcome::Match;
+        report.steps.clear();
+        let matched = markdown(&header, &[report]);
+        assert!(matched.contains("| c | match | 0 |"));
+        assert!(matched.contains("No differences or errors."));
+        assert!(matched.contains("### c\n\nd\n"));
+        assert!(!matched.contains("\n\n\n"));
     }
 
     #[test]
