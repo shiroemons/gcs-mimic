@@ -203,7 +203,7 @@ async fn compressed_headers(
         .as_deref()
         .is_some_and(|value| value.eq_ignore_ascii_case("gzip"))
         || record.size < 2
-        || headers["cache-control"] != crate::json::NO_STORE_CACHE_CONTROL
+        || reader.publicly_readable
         || gzip::is_plain(reader, record.size).await?
     {
         return Ok(());

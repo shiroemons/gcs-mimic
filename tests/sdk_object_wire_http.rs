@@ -134,6 +134,29 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
         head.headers["cache-control"],
         "no-cache, no-store, max-age=0, must-revalidate"
     );
+    // A public object's explicit private-looking cache policy must not select this rule.
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/test-bucket/o/gzip",
+            ADMIN,
+            br#"{"cacheControl":"no-cache, no-store, max-age=0, must-revalidate"}"#,
+        )
+        .json();
+    server
+        .request(
+            "POST",
+            "/storage/v1/b/test-bucket/o/gzip/acl",
+            ADMIN,
+            br#"{"entity":"allUsers","role":"READER"}"#,
+        )
+        .json();
+    let public = server.request("GET", path, "Accept-Encoding: gzip\r\n", b"");
+    assert_eq!(public.body, compressed);
+    assert_eq!(
+        public.headers["content-length"],
+        compressed.len().to_string()
+    );
 }
 
 #[test]
