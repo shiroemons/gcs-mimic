@@ -1260,7 +1260,7 @@ fn json_response_selected(
     response
 }
 
-fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
+pub(crate) fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
     let mut response = Response::new(Full::new(Bytes::new()));
     *response.status_mut() = status;
     response

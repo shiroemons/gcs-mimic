@@ -7,10 +7,9 @@ use crate::{
         ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectMetadataUpdate,
         UploadChunk,
     },
-    server::{ObjectCtx, ResponseBody, anonymous_error, boxed, stream_upload},
+    server::{ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, stream_upload},
     storage::ObjectUpload,
 };
-use http_body_util::Full;
 use hyper::{HeaderMap, Request, Response, StatusCode, body::Bytes};
 use std::{collections::BTreeMap, io};
 use tokio::sync::mpsc;
@@ -470,7 +469,7 @@ pub(crate) async fn respond(
     }
     .map_err(|error| upload_error(error, caller, &operation, &expected))?;
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
-    let mut response = boxed(Response::new(Full::new(Bytes::new())));
+    let mut response = boxed(empty_response(StatusCode::OK));
     json::insert_response_headers(&record, response.headers_mut());
     super::move_headers(
         &mut headers,

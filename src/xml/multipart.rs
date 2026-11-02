@@ -7,8 +7,7 @@ use crate::{
     server::{ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed, stream_upload},
     storage::xml_multipart as storage,
 };
-use http_body_util::Full;
-use hyper::{Method, Request, Response, StatusCode, Uri, body::Bytes, header::HeaderValue};
+use hyper::{Method, Request, Response, StatusCode, Uri, header::HeaderValue};
 use std::{collections::BTreeMap, io};
 use tokio::sync::mpsc;
 
@@ -186,12 +185,7 @@ fn storage_error(error: storage::Error, ctx: ObjectCtx<'_>) -> Error {
 }
 
 fn response(body: String) -> Response<ResponseBody> {
-    let mut response = Response::new(Full::new(Bytes::from(body)));
-    response.headers_mut().insert(
-        "content-type",
-        HeaderValue::from_static("application/xml; charset=UTF-8"),
-    );
-    boxed(response)
+    boxed(super::document_response(body))
 }
 
 pub(crate) async fn respond(

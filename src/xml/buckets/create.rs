@@ -96,7 +96,7 @@ pub(super) async fn respond(
         .insert_bucket(record)
         .await
         .map_err(|error| catalog_error(error, caller))?;
-    Ok(boxed(Response::new(Full::new(Bytes::new()))))
+    Ok(boxed(empty_response(StatusCode::OK)))
 }
 
 fn parse(

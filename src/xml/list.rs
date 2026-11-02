@@ -7,9 +7,8 @@ use crate::{
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed},
     storage::{ObjectListCursor, ObjectListPage, ObjectListQuery},
 };
-use http_body_util::Full;
 use hyper::header::HeaderValue;
-use hyper::{HeaderMap, Request, Response, StatusCode, body::Bytes};
+use hyper::{HeaderMap, Request, Response, StatusCode};
 use std::collections::BTreeMap;
 
 struct Params {
@@ -209,7 +208,7 @@ pub(crate) async fn respond(
         .await
         .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
     let body = render(&params, &page)?;
-    let mut response = Response::new(Full::new(Bytes::from(body)));
+    let mut response = super::document_response(body);
     // The catalog read that produced the page also reports the bucket's metageneration, so the
     // header and the listing describe one moment of the bucket.
     if let Some(metageneration) = page.bucket_metageneration {
@@ -217,10 +216,6 @@ pub(crate) async fn respond(
             .headers_mut()
             .insert("x-goog-metageneration", HeaderValue::from(metageneration));
     }
-    response.headers_mut().insert(
-        "content-type",
-        HeaderValue::from_static("application/xml; charset=UTF-8"),
-    );
     response.headers_mut().insert(
         "cache-control",
         HeaderValue::from_static(super::PRIVATE_CACHE_CONTROL),

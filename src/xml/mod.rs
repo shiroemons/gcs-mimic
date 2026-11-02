@@ -330,16 +330,12 @@ impl Error {
         }
         body.push_str("</Error>");
         let content_length = HeaderValue::from(body.len());
-        let mut response = Response::new(Full::new(match body_mode {
+        let mut response = document_response(match body_mode {
             ErrorBody::Omit => Bytes::new(),
             ErrorBody::Include => Bytes::from(body),
-        }));
+        });
         *response.status_mut() = self.status;
         let headers = response.headers_mut();
-        headers.insert(
-            "content-type",
-            HeaderValue::from_static("application/xml; charset=UTF-8"),
-        );
         headers.insert("content-length", content_length);
         headers.insert(
             "cache-control",
@@ -347,6 +343,15 @@ impl Error {
         );
         response
     }
+}
+
+fn document_response(body: impl Into<Bytes>) -> Response<Full<Bytes>> {
+    let mut response = Response::new(Full::new(body.into()));
+    response.headers_mut().insert(
+        "content-type",
+        HeaderValue::from_static("application/xml; charset=UTF-8"),
+    );
+    response
 }
 
 /// The `Cache-Control` Cloud Storage sends with XML API lists, errors and private objects.

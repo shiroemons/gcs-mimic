@@ -4,10 +4,12 @@ use super::{Error, ErrorBody, ObjectPath, ReadRequest, element, signing_paramete
 use crate::{
     auth, json,
     object::ObjectConditions,
-    server::{RequestBody, RequestCtx, ResponseBody, anonymous_error, authorize_bucket, boxed},
+    server::{
+        RequestBody, RequestCtx, ResponseBody, anonymous_error, authorize_bucket, boxed,
+        empty_response,
+    },
 };
-use http_body_util::Full;
-use hyper::{HeaderMap, Method, Request, Response, StatusCode, Uri, body::Bytes};
+use hyper::{HeaderMap, Method, Request, Response, StatusCode, Uri};
 
 mod create;
 
@@ -88,9 +90,7 @@ async fn execute(
                 .delete_bucket_authorized(&path.bucket, None, None, &access)
                 .await
                 .map_err(|error| catalog_error(error, caller))?;
-            let mut response = Response::new(Full::new(Bytes::new()));
-            *response.status_mut() = StatusCode::NO_CONTENT;
-            return Ok(boxed(response));
+            return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
         }
         ctx.state
             .catalog
@@ -99,7 +99,7 @@ async fn execute(
             .map_err(json::JsonError::from)
             .map_err(|error| anonymous_error(error, caller))?
             .ok_or_else(|| Error::new(StatusCode::NOT_FOUND, "NoSuchBucket", "Bucket not found"))?;
-        return Ok(boxed(Response::new(Full::new(Bytes::new()))));
+        return Ok(boxed(empty_response(StatusCode::OK)));
     }
     let project = project(request.headers())?;
     authorize_project(caller, auth::BUCKETS_LIST, project)?;
@@ -234,10 +234,5 @@ async fn list(ctx: RequestCtx<'_>, project: &str) -> Result<Response<ResponseBod
         }
     }
     body.push_str("</Buckets></ListAllMyBucketsResult>");
-    let mut response = Response::new(Full::new(Bytes::from(body)));
-    response.headers_mut().insert(
-        "content-type",
-        hyper::header::HeaderValue::from_static("application/xml; charset=UTF-8"),
-    );
-    Ok(boxed(response))
+    Ok(boxed(super::document_response(body)))
 }

@@ -12,8 +12,7 @@ use crate::{
     },
     storage::DerivedDestination,
 };
-use http_body_util::Full;
-use hyper::{HeaderMap, Request, Response, StatusCode, body::Bytes, header::HeaderValue};
+use hyper::{HeaderMap, Request, Response, StatusCode};
 
 const SOURCE_FIELDS: &[&str] = &[
     "x-goog-copy-source",
@@ -287,7 +286,7 @@ fn response(
     element(&mut body, "LastModified", &json::timestamp(modified)?);
     element(&mut body, "ETag", &super::object_etag(record));
     body.push_str("</CopyObjectResult>");
-    let mut response = Response::new(Full::new(Bytes::from(body)));
+    let mut response = super::document_response(body);
     let mut headers = super::media_headers(record, super::CacheScope::Private)?;
     super::move_headers(
         &mut headers,
@@ -303,9 +302,5 @@ fn response(
         ],
     );
     json::insert_response_headers(record, response.headers_mut());
-    response.headers_mut().insert(
-        "content-type",
-        HeaderValue::from_static("application/xml; charset=UTF-8"),
-    );
     Ok(boxed(response))
 }

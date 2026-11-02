@@ -6,8 +6,8 @@
 use super::RequestBody as Incoming;
 use super::{
     DeadlineWatch, RequestCtx, ResponseBody, State, acl, anonymous_error, boxed, buckets,
-    notifications, objects, probe_or_unknown, project_resources, resumable, rewrite, unsupported,
-    xml_read,
+    empty_response, notifications, objects, probe_or_unknown, project_resources, resumable,
+    rewrite, unsupported, xml_read,
 };
 use crate::{
     auth::Caller,
@@ -214,7 +214,7 @@ async fn respond_json_cors(
                 .into_response(),
             )
         } else {
-            boxed(Response::new(Full::new(Bytes::new())))
+            boxed(empty_response(StatusCode::OK))
         }
     } else {
         respond_routed(request, ctx, None).await
@@ -298,7 +298,7 @@ async fn respond_xml_cors(
     let varies_by_origin = has_rules || config.cors_fallback != CorsFallback::None;
     let (mut response, vary) = match kind {
         CorsRequest::Preflight => (
-            boxed(Response::new(Full::new(Bytes::new()))),
+            boxed(empty_response(StatusCode::OK)),
             "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
         ),
         CorsRequest::Actual => (respond_routed(request, ctx, selected).await, "Origin"),

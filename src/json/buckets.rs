@@ -1178,20 +1178,7 @@ pub(crate) fn soft_deleted_bucket_list(
     Ok(value)
 }
 
-pub(super) fn encode_segment(segment: &str) -> String {
-    let mut encoded = String::with_capacity(segment.len());
-    for byte in segment.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            const HEX: &[u8; 16] = b"0123456789ABCDEF";
-            encoded.push('%');
-            encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-            encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-        }
-    }
-    encoded
-}
+pub(super) use crate::auth::signature::encode_query_component as encode_segment;
 
 fn timestamp_error() -> JsonError {
     JsonError::new(

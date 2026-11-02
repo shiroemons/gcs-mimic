@@ -224,7 +224,7 @@ mod tests {
         assert_eq!(length, body.len() - 2);
         assert!(body.contains("responseTooLarge"));
         assert!(body.contains("operation may have completed"));
-        let mut response = Response::new(Full::new(Bytes::new()));
+        let mut response = crate::server::empty_response(StatusCode::OK);
         response.headers_mut().insert(
             "x-header",
             hyper::header::HeaderValue::from_static("header-only"),

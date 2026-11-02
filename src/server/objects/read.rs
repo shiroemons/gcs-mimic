@@ -9,8 +9,9 @@ use crate::{
     object::{ObjectConditions, ObjectError},
     server::{
         ALLOWED_RESOURCES_VARY, JSON_RESOURCE_CACHE_CONTROL, ObjectCtx, QueryPrecondition,
-        ResponseBody, acl, boxed, gzip, insert_content_range, insert_unsatisfied_content_range,
-        not_modified_response, object_body, read_metadata_response,
+        ResponseBody, acl, boxed, empty_response, gzip, insert_content_range,
+        insert_unsatisfied_content_range, not_modified_response, object_body,
+        read_metadata_response,
     },
 };
 use http_body_util::{BodyExt, Full};
@@ -182,7 +183,7 @@ async fn media(
         range_hashes(&mut headers, &record, offset, length)?;
     }
     let mut response = if head {
-        boxed(Response::new(Full::new(Bytes::new())))
+        boxed(empty_response(StatusCode::OK))
     } else {
         Response::new(object_body(reader, ctx.activity))
     };
@@ -236,7 +237,7 @@ async fn gunzipped(
     }
     gzip::insert_transcoded_headers(&mut headers);
     let mut response = if head {
-        boxed(Response::new(Full::new(Bytes::new())))
+        boxed(empty_response(StatusCode::OK))
     } else {
         Response::new(gzip::body(
             reader,

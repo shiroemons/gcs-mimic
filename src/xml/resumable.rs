@@ -7,15 +7,13 @@ use crate::server::RequestBody as Incoming;
 use crate::{
     auth, json,
     server::{
-        ObjectCtx, ResponseBody, anonymous_error, boxed,
+        ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response,
         resumable::{self, SessionTarget, Transfer},
     },
     storage::{ResumableError, ResumableOptions},
 };
-use http_body_util::Full;
 use hyper::{
     HeaderMap, Method, Request, Response, StatusCode, Uri,
-    body::Bytes,
     header::{HeaderValue, LOCATION},
 };
 
@@ -167,8 +165,7 @@ pub(crate) async fn start(
     );
     let location =
         HeaderValue::try_from(location).map_err(|_| invalid("Invalid session endpoint."))?;
-    let mut response = Response::new(Full::new(Bytes::new()));
-    *response.status_mut() = StatusCode::CREATED;
+    let mut response = empty_response(StatusCode::CREATED);
     let headers = response.headers_mut();
     headers.insert(LOCATION, location);
     headers.insert("cache-control", HeaderValue::from_static("no-store"));
@@ -241,8 +238,7 @@ async fn cancel(
 }
 
 fn no_content() -> Response<ResponseBody> {
-    let mut response = Response::new(Full::new(Bytes::new()));
-    *response.status_mut() = StatusCode::NO_CONTENT;
+    let mut response = empty_response(StatusCode::NO_CONTENT);
     response
         .headers_mut()
         .insert("cache-control", HeaderValue::from_static("no-store"));
@@ -282,7 +278,7 @@ fn completed(value: &serde_json::Value) -> Result<Response<ResponseBody>, Error>
         || format!("crc32c={crc32c}"),
         |md5| format!("crc32c={crc32c},md5={md5}"),
     );
-    let mut response = Response::new(Full::new(Bytes::new()));
+    let mut response = empty_response(StatusCode::OK);
     let headers = response.headers_mut();
     for (name, value) in [
         ("etag", etag.as_str()),
