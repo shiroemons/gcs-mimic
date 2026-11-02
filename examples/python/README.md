@@ -1,8 +1,6 @@
 # Python example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with
-`google-cloud-storage` 3.17.1. Needs uv 0.13.6 or newer (it installs Python
-3.15.2).
+Creates a bucket, uploads, lists, downloads and deletes an object with `google-cloud-storage` 3.17.1. Needs uv 0.13.6 or newer (it installs Python 3.15.2).
 
 ## Start gcs-mimic
 
@@ -17,8 +15,7 @@ docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
 ./run.sh
 ```
 
-Set `GCS_MIMIC_ENDPOINT` to use another address (default
-`http://localhost:4443`).
+Set `GCS_MIMIC_ENDPOINT` to use another address (default `http://localhost:4443`).
 
 ## Client setup
 

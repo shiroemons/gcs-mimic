@@ -9,13 +9,17 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/iterator"
 )
 
 func main() {
-	ctx := context.Background()
+	// The client retries without limit, so fail instead of waiting forever
+	// when the emulator is not running.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	endpoint := os.Getenv("GCS_MIMIC_ENDPOINT")
 	if endpoint == "" {
 		endpoint = "http://localhost:4443"
@@ -40,7 +44,7 @@ func main() {
 
 	object := bucket.Object("hello.txt")
 	writer := object.NewWriter(ctx)
-	if _, err := io.WriteString(writer, "Hello from the Go client!\n"); err != nil {
+	if _, err := io.WriteString(writer, "Hello from gcs-mimic!"); err != nil {
 		log.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {
@@ -57,7 +61,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Println("listed", attrs.Name)
+		fmt.Printf("listed %s (%d bytes)\n", attrs.Name, attrs.Size)
 	}
 
 	reader, err := object.NewReader(ctx)
@@ -69,7 +73,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("downloaded: %s", content)
+	fmt.Printf("downloaded: %s\n", content)
 
 	if err := object.Delete(ctx); err != nil {
 		log.Fatal(err)

@@ -15,18 +15,18 @@ $storage = new StorageClient([
 ]);
 
 $bucket = $storage->createBucket('example-php-' . bin2hex(random_bytes(4)));
-echo "Created bucket {$bucket->name()}\n";
+echo "created bucket {$bucket->name()}\n";
 
-$object = $bucket->upload('Hello from PHP!', ['name' => 'hello.txt']);
-echo "Uploaded {$object->name()}\n";
+$object = $bucket->upload('Hello from gcs-mimic!', ['name' => 'hello.txt']);
+echo "uploaded {$object->name()}\n";
 
 foreach ($bucket->objects() as $listed) {
-    echo "Listed {$listed->name()}\n";
+    echo "listed {$listed->name()} ({$listed->info()['size']} bytes)\n";
 }
 
-$content = $object->downloadAsString();
-echo "Downloaded {$object->name()}: {$content}\n";
+echo "downloaded: {$object->downloadAsString()}\n";
 
 $object->delete();
+echo "deleted {$object->name()}\n";
 $bucket->delete();
-echo "Deleted bucket {$bucket->name()}\n";
+echo "deleted bucket {$bucket->name()}\n";

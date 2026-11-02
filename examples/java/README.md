@@ -1,7 +1,6 @@
 # Java example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with the
-official `google-cloud-storage` 2.76.0 client. Requires Java 17+ and Maven 3.10.0.
+Creates a bucket, uploads, lists, downloads and deletes an object with the official `google-cloud-storage` 2.76.0 client. Requires Java 17+ and Maven 3.10.0.
 
 ## Start gcs-mimic
 
@@ -13,10 +12,10 @@ docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
 ## Run
 
 ```sh
-GCS_MIMIC_ENDPOINT=http://localhost:4443 bash run.sh
+./run.sh
 ```
 
-`run.sh` fails if the resolved dependencies differ from `dependencies.lock`.
+Set `GCS_MIMIC_ENDPOINT` to use another address (default `http://localhost:4443`).
 
 ## Client setup
 

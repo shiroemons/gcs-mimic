@@ -14,18 +14,18 @@ client = storage.Client(
 )
 
 bucket = client.create_bucket(f"example-python-{secrets.token_hex(4)}")
-print(f"Created bucket {bucket.name}")
+print(f"created bucket {bucket.name}")
 
 blob = bucket.blob("hello.txt")
-blob.upload_from_string("Hello from Python!")
-print(f"Uploaded {blob.name}")
+blob.upload_from_string("Hello from gcs-mimic!")
+print(f"uploaded {blob.name}")
 
 for b in client.list_blobs(bucket):
-    print(f"Listed {b.name}")
+    print(f"listed {b.name} ({b.size} bytes)")
 
-content = blob.download_as_text()
-print(f"Downloaded {blob.name}: {content}")
+print(f"downloaded: {blob.download_as_text()}")
 
 blob.delete()
+print(f"deleted {blob.name}")
 bucket.delete()
-print(f"Deleted bucket {bucket.name}")
+print(f"deleted bucket {bucket.name}")

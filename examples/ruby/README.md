@@ -1,7 +1,6 @@
 # Ruby example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with
-`google-cloud-storage` 1.62.1. Needs Ruby 4.0.9 and Bundler 4.0.23.
+Creates a bucket, uploads, lists, downloads and deletes an object with `google-cloud-storage` 1.62.1. Needs Ruby 4.0.9 and Bundler 4.0.23.
 
 ## Start gcs-mimic
 
@@ -16,12 +15,12 @@ docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
 ./run.sh
 ```
 
-Set `GCS_MIMIC_ENDPOINT` to use another address (default
-`http://localhost:4443`).
+Set `GCS_MIMIC_ENDPOINT` to use another address (default `http://localhost:4443`).
 
 ## Client setup
 
 ```ruby
 storage = Google::Cloud::Storage.anonymous(endpoint: "http://localhost:4443/")
+# The anonymous client has no public API to set the project buckets need.
 storage.service.project = "local-project"
 ```

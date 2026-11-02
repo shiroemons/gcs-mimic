@@ -20,7 +20,7 @@ Console.WriteLine($"uploaded {objectName}");
 
 await foreach (var obj in storage.ListObjectsAsync(bucket))
 {
-    Console.WriteLine($"listed {obj.Name}");
+    Console.WriteLine($"listed {obj.Name} ({obj.Size} bytes)");
 }
 
 var download = new MemoryStream();
@@ -28,5 +28,6 @@ await storage.DownloadObjectAsync(bucket, objectName, download);
 Console.WriteLine($"downloaded: {Encoding.UTF8.GetString(download.ToArray())}");
 
 await storage.DeleteObjectAsync(bucket, objectName);
+Console.WriteLine($"deleted {objectName}");
 await storage.DeleteBucketAsync(bucket);
-Console.WriteLine($"deleted {objectName} and bucket {bucket}");
+Console.WriteLine($"deleted bucket {bucket}");

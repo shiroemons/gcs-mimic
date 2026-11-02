@@ -1,9 +1,11 @@
 //! Uses the official Rust client against a local gcs-mimic.
 
 use google_cloud_auth::credentials::anonymous;
+use google_cloud_gax::retry_policy::RetryPolicyExt;
 use google_cloud_storage::client::{Storage, StorageControl};
 use google_cloud_storage::model::Bucket;
-use std::time::{SystemTime, UNIX_EPOCH};
+use google_cloud_storage::retry_policy::RetryableErrors;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,15 +16,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // `Storage` reads and writes objects over HTTP. `StorageControl` manages buckets
     // and lists and deletes objects over gRPC, which gcs-mimic serves on its own port.
-    // Anonymous credentials keep both clients away from Google sign-in.
+    // Anonymous credentials keep both clients away from Google sign-in. The default
+    // retry policy keeps retrying for 5 minutes, so stop after 30 seconds instead
+    // when the emulator is not running.
     let storage = Storage::builder()
         .with_endpoint(endpoint)
         .with_credentials(anonymous::Builder::new().build())
+        .with_retry_policy(RetryableErrors.with_time_limit(Duration::from_secs(30)))
         .build()
         .await?;
     let control = StorageControl::builder()
         .with_endpoint(grpc_endpoint)
         .with_credentials(anonymous::Builder::new().build())
+        .with_retry_policy(RetryableErrors.with_time_limit(Duration::from_secs(30)))
         .build()
         .await?;
 
@@ -39,14 +45,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bucket = format!("projects/_/buckets/{bucket_id}");
 
     storage
-        .write_object(&bucket, "hello.txt", "Hello from the Rust client!\n")
+        .write_object(&bucket, "hello.txt", "Hello from gcs-mimic!")
         .send_buffered()
         .await?;
     println!("uploaded hello.txt");
 
     let listed = control.list_objects().set_parent(&bucket).send().await?;
     for object in listed.objects {
-        println!("listed {}", object.name);
+        println!("listed {} ({} bytes)", object.name, object.size);
     }
 
     let mut reader = storage.read_object(&bucket, "hello.txt").send().await?;
@@ -54,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(chunk) = reader.next().await.transpose()? {
         content.extend_from_slice(&chunk);
     }
-    print!("downloaded: {}", String::from_utf8(content)?);
+    println!("downloaded: {}", String::from_utf8(content)?);
 
     control
         .delete_object()

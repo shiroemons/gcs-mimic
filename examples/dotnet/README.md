@@ -1,8 +1,6 @@
 # .NET example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with the
-official `Google.Cloud.Storage.V1` 5.0.0 client.
-Requires .NET SDK 10.0.403 (`global.json`).
+Creates a bucket, uploads, lists, downloads and deletes an object with the official `Google.Cloud.Storage.V1` 5.0.0 client. Requires .NET SDK 10.0.403 (`global.json`).
 
 ## Start gcs-mimic
 
@@ -14,11 +12,10 @@ docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
 ## Run
 
 ```sh
-GCS_MIMIC_ENDPOINT=http://localhost:4443 bash run.sh
+./run.sh
 ```
 
-`run.sh` restores packages with `--locked-mode`, so `packages.lock.json` is
-never rewritten.
+Set `GCS_MIMIC_ENDPOINT` to use another address (default `http://localhost:4443`).
 
 ## Client setup
 

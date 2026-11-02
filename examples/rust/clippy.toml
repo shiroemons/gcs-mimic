@@ -1,3 +1,4 @@
-# This standalone example does not depend on the production application's API set.
+# Without this file, Clippy would use the repository root's clippy.toml, whose
+# disallowed-methods rules are for the gcs-mimic server, not for this example.
 # Keep functions within the repository's function length limit.
 too-many-lines-threshold = 120

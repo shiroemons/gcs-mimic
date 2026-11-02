@@ -493,6 +493,7 @@ name = "gcs-mimic-rust-example"
 version = "0.1.0"
 dependencies = [
  "google-cloud-auth",
+ "google-cloud-gax",
  "google-cloud-storage",
  "tokio",
 ]

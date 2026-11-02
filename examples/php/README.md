@@ -1,7 +1,6 @@
 # PHP example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with
-`google/cloud-storage` 2.6.1. Needs PHP 8.5 and Composer, or only Docker.
+Creates a bucket, uploads, lists, downloads and deletes an object with `google/cloud-storage` 2.6.1. Needs PHP 8.5 and Composer, or only Docker.
 
 ## Start gcs-mimic
 
@@ -16,16 +15,14 @@ docker run -d --name gcs-mimic -p 127.0.0.1:4443:4443 \
 ./run.sh
 ```
 
-Without a local PHP, run it in the official Composer image. The container
-joins the emulator container's network, so `localhost:4443` reaches it:
+Set `GCS_MIMIC_ENDPOINT` to use another address (default `http://localhost:4443`).
+
+Without a local PHP, run it in the official Composer image. The container joins the emulator container's network, so `localhost:4443` reaches it:
 
 ```sh
 docker run --rm --network container:gcs-mimic --user "$(id -u):$(id -g)" \
   -v "$PWD:/app" -w /app composer:2.11.1 bash run.sh
 ```
-
-Set `GCS_MIMIC_ENDPOINT` to use another address (default
-`http://localhost:4443`).
 
 ## Client setup
 

@@ -7,18 +7,19 @@ const endpoint = process.env.GCS_MIMIC_ENDPOINT ?? 'http://localhost:4443';
 const storage = new Storage({projectId: 'local-project', apiEndpoint: endpoint});
 
 const [bucket] = await storage.createBucket(`example-node-${randomBytes(4).toString('hex')}`);
-console.log(`Created bucket ${bucket.name}`);
+console.log(`created bucket ${bucket.name}`);
 
 const file = bucket.file('hello.txt');
-await file.save('Hello from Node.js!');
-console.log(`Uploaded ${file.name}`);
+await file.save('Hello from gcs-mimic!');
+console.log(`uploaded ${file.name}`);
 
 const [files] = await bucket.getFiles();
-for (const f of files) console.log(`Listed ${f.name}`);
+for (const f of files) console.log(`listed ${f.name} (${f.metadata.size} bytes)`);
 
 const [content] = await file.download();
-console.log(`Downloaded ${file.name}: ${content}`);
+console.log(`downloaded: ${content}`);
 
 await file.delete();
+console.log(`deleted ${file.name}`);
 await bucket.delete();
-console.log(`Deleted bucket ${bucket.name}`);
+console.log(`deleted bucket ${bucket.name}`);

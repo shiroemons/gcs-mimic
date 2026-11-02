@@ -1,13 +1,10 @@
 # Rust example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with
-`google-cloud-storage` 1.21.0. Requires Rust 1.99.1 (selected by the
-repository's `rust-toolchain.toml`).
+Creates a bucket, uploads, lists, downloads and deletes an object with `google-cloud-storage` 1.21.0. Requires Rust 1.99.1 (selected by the repository's `rust-toolchain.toml`).
 
 ## Start gcs-mimic
 
-The crate's `StorageControl` client speaks gRPC, so also start the gRPC
-listener:
+The crate's `StorageControl` client speaks gRPC, so also start the gRPC listener:
 
 ```sh
 docker run -d --name gcs-mimic \
@@ -22,23 +19,23 @@ docker run -d --name gcs-mimic \
 ./run.sh
 ```
 
-Set `GCS_MIMIC_ENDPOINT` and `GCS_MIMIC_GRPC_ENDPOINT` to use endpoints other
-than `http://localhost:4443` and `http://localhost:4444`.
+Set `GCS_MIMIC_ENDPOINT` and `GCS_MIMIC_GRPC_ENDPOINT` to use other addresses (defaults `http://localhost:4443` and `http://localhost:4444`).
 
 ## Client setup
 
-`Storage` reads and writes objects over HTTP; `StorageControl` manages buckets
-over gRPC:
+`Storage` reads and writes objects over HTTP; `StorageControl` manages buckets over gRPC. The retry policy makes a client give up after 30 seconds instead of the default 5 minutes when the emulator is not running:
 
 ```rust
 let storage = Storage::builder()
     .with_endpoint("http://localhost:4443")
     .with_credentials(anonymous::Builder::new().build())
+    .with_retry_policy(RetryableErrors.with_time_limit(Duration::from_secs(30)))
     .build()
     .await?;
 let control = StorageControl::builder()
     .with_endpoint("http://localhost:4444")
     .with_credentials(anonymous::Builder::new().build())
+    .with_retry_policy(RetryableErrors.with_time_limit(Duration::from_secs(30)))
     .build()
     .await?;
 ```

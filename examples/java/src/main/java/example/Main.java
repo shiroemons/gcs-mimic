@@ -31,14 +31,15 @@ public final class Main {
     System.out.println("uploaded " + object.getName());
 
     for (Blob blob : storage.list(bucket).iterateAll()) {
-      System.out.println("listed " + blob.getName());
+      System.out.println("listed " + blob.getName() + " (" + blob.getSize() + " bytes)");
     }
 
     String content = new String(storage.readAllBytes(object), StandardCharsets.UTF_8);
     System.out.println("downloaded: " + content);
 
     storage.delete(object);
+    System.out.println("deleted " + object.getName());
     storage.delete(bucket);
-    System.out.println("deleted " + object.getName() + " and bucket " + bucket);
+    System.out.println("deleted bucket " + bucket);
   }
 }

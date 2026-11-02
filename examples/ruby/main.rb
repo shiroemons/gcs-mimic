@@ -4,21 +4,23 @@ require "stringio"
 
 endpoint = ENV.fetch("GCS_MIMIC_ENDPOINT", "http://localhost:4443")
 
-# Anonymous client for the emulator endpoint; buckets need a project.
+# Anonymous client for the emulator endpoint. Creating a bucket needs a
+# project, and the anonymous client has no public API to set one, so this sets
+# it on the underlying service.
 storage = Google::Cloud::Storage.anonymous(endpoint: "#{endpoint}/")
 storage.service.project = "local-project"
 
 bucket = storage.create_bucket("example-ruby-#{SecureRandom.hex(4)}")
-puts "Created bucket #{bucket.name}"
+puts "created bucket #{bucket.name}"
 
-file = bucket.create_file(StringIO.new("Hello from Ruby!"), "hello.txt")
-puts "Uploaded #{file.name}"
+file = bucket.create_file(StringIO.new("Hello from gcs-mimic!"), "hello.txt")
+puts "uploaded #{file.name}"
 
-bucket.files.each { |f| puts "Listed #{f.name}" }
+bucket.files.each { |f| puts "listed #{f.name} (#{f.size} bytes)" }
 
-content = file.download.read
-puts "Downloaded #{file.name}: #{content}"
+puts "downloaded: #{file.download.read}"
 
 file.delete
+puts "deleted #{file.name}"
 bucket.delete
-puts "Deleted bucket #{bucket.name}"
+puts "deleted bucket #{bucket.name}"
