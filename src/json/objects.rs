@@ -330,6 +330,14 @@ struct UploadQuery {
     predefined_acl: Option<String>,
 }
 
+/// The upload front end's answer to an upload type it does not serve: a bare text page.
+pub(crate) fn unsupported_upload_type() -> JsonError {
+    let mut error =
+        JsonError::invalid_parameter("uploadType must be media, multipart or resumable");
+    error.plain = Some(&super::error::BAD_REQUEST_TEXT);
+    error
+}
+
 fn parse_upload_query(
     bucket: String,
     mut query: BTreeMap<String, String>,
@@ -360,12 +368,7 @@ fn parse_upload_query(
         Some("resumable") => (true, true),
         // An upload that names no type was stored as a media upload (recorded 200).
         None => (false, false),
-        Some(_) => {
-            let mut error =
-                JsonError::invalid_parameter("uploadType must be media, multipart or resumable");
-            error.plain = Some(&super::error::BAD_REQUEST_TEXT);
-            return Err(error);
-        }
+        Some(_) => return Err(unsupported_upload_type()),
     };
     let name = query.remove("name");
     if let Some(name) = &name {

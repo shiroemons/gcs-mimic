@@ -82,7 +82,7 @@ pub(crate) use objects::{
 pub(crate) use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, UploadRequest, add_derived_owner,
     declared_hashes, object_media_headers, object_media_range, object_resource,
-    parse_object_upload_headers, route_object, route_object_with_profile,
+    parse_object_upload_headers, route_object, route_object_with_profile, unsupported_upload_type,
     validate_keyed_object_headers, validate_object_get_headers, validate_object_name,
 };
 pub(crate) use page_token::{

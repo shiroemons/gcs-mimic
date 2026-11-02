@@ -14897,6 +14897,17 @@
           ]
         },
         {
+          "id": "RSM-INSERT-PROTOCOL-PATH",
+          "description": "A path-style POST /resumable/upload/storage/v1/b/{bucket}/o with uploadType=resumable (the Discovery resumable protocol path gcloud storage uses) initiates the same session as /upload/storage/v1, with the same errors and strict authorization; other upload types and upload_id answer as an unsupported upload type; other methods and requests without uploadType keep their XML meaning for a bucket named resumable. No live Cloud Storage recording.",
+          "result": "PASS",
+          "test_ids": [
+            "resumable_protocol_path_initiates_the_same_session_as_the_upload_path",
+            "resumable_protocol_path_rejects_other_upload_types_like_the_upload_path",
+            "resumable_protocol_path_keeps_strict_authorization",
+            "resumable_protocol_path_leaves_a_bucket_named_resumable_to_the_xml_api"
+          ]
+        },
+        {
           "id": "JSON-OBJECTS-007-MEDIA",
           "description": "OBJ-MEDIA-001/003..020/024..030/033..035/042/045..046/049: scoped media defaults, framing/cap, hashes, interrupted overwrite preservation, explicit EOF, commit waiting, eager-body rejection and conditional publication.",
           "result": "PASS",
@@ -15446,6 +15457,10 @@
         }
       ],
       "test_ids": [
+        "resumable_protocol_path_initiates_the_same_session_as_the_upload_path",
+        "resumable_protocol_path_rejects_other_upload_types_like_the_upload_path",
+        "resumable_protocol_path_keeps_strict_authorization",
+        "resumable_protocol_path_leaves_a_bucket_named_resumable_to_the_xml_api",
         "json::multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary",
         "json::multipart::tests::related_uploads_read_lf_and_mixed_framing_at_every_chunk_split",
         "obj_multipart_http_accepts_the_gcloud_request_shape",
@@ -15584,6 +15599,7 @@
         "xml::uniform_access_metadata_and_predefined_acl_rejections"
       ],
       "verification": [
+        {"command":"cargo +1.99.1 test --locked --offline --test resumable_protocol_path_http","result":"PASS","verified_at":"2026-11-02","artifact":"docs/en/slices/resumable-upload.md","test_ids":["resumable_protocol_path_initiates_the_same_session_as_the_upload_path","resumable_protocol_path_rejects_other_upload_types_like_the_upload_path","resumable_protocol_path_keeps_strict_authorization","resumable_protocol_path_leaves_a_bucket_named_resumable_to_the_xml_api"]},
         {"command":"cargo +1.99.1 test --locked --offline --lib json::multipart && cargo +1.99.1 test --locked --offline --test object_multipart_http","result":"PASS","verified_at":"2026-11-02","artifact":"docs/en/slices/json-object-multipart.md","test_ids":["json::multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary","json::multipart::tests::related_uploads_read_lf_and_mixed_framing_at_every_chunk_split","obj_multipart_http_accepts_the_gcloud_request_shape"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["storage::resumable_http_tests::cloud_storage_parity::media_upload_ignores_declared_hashes_and_stores_the_computed_ones","storage::resumable_http_tests::cloud_storage_parity::multipart_metadata_hash_mismatch_names_both_digests","storage::resumable_http_tests::cloud_storage_parity::multipart_upload_content_types_must_agree_and_plain_bodies_are_media","storage::resumable_http_tests::cloud_storage_parity::metadata_writes_ignore_unknown_members_and_release_holds_on_put","media_upload_stores_computed_hashes_whatever_the_declared_md5"]},
         {"command":"cargo test --locked --test acl_permission_effects predefined_upload && cargo test --locked --lib acl::tests && cargo test --locked --test auth_http uniform_access","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/upload-predefined-acl.md","test_ids":["acl_permission_effects::predefined_upload::media_upload_predefined_acls_replace_the_default_object_acl","acl_permission_effects::predefined_upload::multipart_and_resumable_uploads_apply_predefined_acl_at_publication","acl_permission_effects::predefined_upload::predefined_acl_uploads_need_only_create_and_respect_access_settings","acl::tests::predefined_object_acls_round_trip_and_exclude_bucket_only_values","xml::uniform_access_metadata_and_predefined_acl_rejections"]},

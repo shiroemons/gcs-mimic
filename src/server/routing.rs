@@ -30,14 +30,27 @@ enum Family {
 /// The JSON API fields apply only to requests the JSON router claimed: a virtual-host or
 /// path-style XML request can share the `/storage/v1/` path prefix with an object name.
 pub(super) async fn respond(
-    request: Request<Incoming>,
+    mut request: Request<Incoming>,
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
+    let protocol = resumable_protocol_path(&request, ctx);
+    if let Some((uri, _)) = &protocol {
+        *request.uri_mut() = uri.clone();
+    }
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     let call = json::EnvelopeCall::of_request(&request);
     let mut family = Family::Undecided;
-    let mut response = route(request, ctx, &mut family).await;
+    let mut response = if let Some((_, ProtocolUpload::Other)) = protocol {
+        family = Family::Json;
+        boxed(
+            authenticate(&request, ctx.state)
+                .and_then(|_| Err(json::unsupported_upload_type()))
+                .unwrap_or_else(JsonError::into_response),
+        )
+    } else {
+        route(request, ctx, &mut family).await
+    };
     match family {
         Family::Json => {
             json::apply_envelope(&method, &path, call, ctx.state.clock.now(), &mut response);
@@ -46,6 +59,59 @@ pub(super) async fn respond(
         Family::Undecided => {}
     }
     response
+}
+
+/// What a request on the Discovery resumable protocol path asks for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProtocolUpload {
+    /// `uploadType=resumable` initiation, served as on `/upload/storage/v1`.
+    Resumable,
+    /// Any other upload type, or a session request, which only `/upload/storage/v1` serves.
+    Other,
+}
+
+/// `storage.objects.insert` defines its resumable protocol at
+/// `POST /resumable/upload/storage/v1/b/{bucket}/o`, and gcloud storage (apitools) initiates
+/// resumable uploads there. Path-style, that path would otherwise name the XML object
+/// `upload/storage/v1/b/{bucket}/o` in a bucket called `resumable`, so only a path-style POST of
+/// exactly that shape with an `uploadType` query parameter, which XML requests never send, is
+/// taken; it is rewritten to `/upload/storage/v1/b/{bucket}/o` with the same query.
+fn resumable_protocol_path(
+    request: &Request<Incoming>,
+    ctx: RequestCtx<'_>,
+) -> Option<(hyper::Uri, ProtocolUpload)> {
+    const PREFIX: &str = "/resumable/upload/storage/v1/b/";
+    let uri = request.uri();
+    if request.method() != Method::POST {
+        return None;
+    }
+    let bucket = uri.path().strip_prefix(PREFIX)?.strip_suffix("/o")?;
+    if bucket.is_empty() || bucket.contains('/') {
+        return None;
+    }
+    // A virtual-hosted request names an object; only the path-style reading is the JSON path.
+    let selected =
+        xml::select_object_with_endpoints(uri, request.headers(), ctx.config, ctx.endpoints)
+            .ok()
+            .flatten();
+    if selected.is_some_and(|object| {
+        object.bucket != "resumable" || object.name() != &uri.path()["/resumable/".len()..]
+    }) {
+        return None;
+    }
+    let query = json::parse_query(uri.query().unwrap_or_default()).ok()?;
+    let kind = if query.get("uploadType")? == "resumable" && !query.contains_key("upload_id") {
+        ProtocolUpload::Resumable
+    } else {
+        ProtocolUpload::Other
+    };
+    let mut parts = uri.clone().into_parts();
+    let path_and_query = match uri.query() {
+        Some(query) => format!("/upload/storage/v1/b/{bucket}/o?{query}"),
+        None => format!("/upload/storage/v1/b/{bucket}/o"),
+    };
+    parts.path_and_query = Some(path_and_query.parse().ok()?);
+    Some((hyper::Uri::from_parts(parts).ok()?, kind))
 }
 
 /// Wraps CORS headers around the routed response. CORS never authorizes a request.

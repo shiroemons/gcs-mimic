@@ -94,6 +94,10 @@ metadata handling remains SPEC-015. Conflicting duplicate request fields fail
 validation before session creation. Persist initiation conditions and metadata;
 query parameters on subsequent writes cannot retarget or relax them.
 
+#### Discovery resumable protocol path
+
+The pinned Discovery `storage.objects.insert` defines its resumable protocol at `/resumable/upload/storage/v1/b/{bucket}/o`, and Google Cloud SDK 591.0.0 (`gcloud storage cp` from stdin or of a file of 8 MiB or more, through apitools) initiates there. A path-style `POST` of exactly that shape with an `uploadType` query parameter is served as the same initiation on `/upload/storage/v1/b/{bucket}/o` with the same query: the same validation, strict authorization, limits and session, and a `Location` on `/upload/storage/v1`, which gcloud follows for the chunk writes. Any other `uploadType`, or an `upload_id`, answers as an unsupported upload type does on the upload path, after the same authentication. Other methods, a request without `uploadType` (XML requests never send one) and a virtual-hosted request keep their XML meaning, so a bucket literally named `resumable` still serves the object `upload/storage/v1/b/{bucket}/o`. No live Cloud Storage recording covers this path. Tests: `tests/resumable_protocol_path_http.rs`.
+
 ### Chunk writes and status
 
 The guide uses **PUT** to the returned URI. Also accept **POST** on that same
