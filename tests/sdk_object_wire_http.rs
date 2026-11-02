@@ -128,6 +128,12 @@ fn json_gzip_negotiation_range_and_conditions_preserve_stored_representation() {
     );
     // no-transform fixes the representation, so it no longer varies by Accept-Encoding.
     assert_eq!(fixed.headers["vary"], "Origin, X-Origin");
+    let head = server.request("HEAD", path, ADMIN, b"");
+    assert_eq!(head.headers["content-length"], compressed.len().to_string());
+    assert_eq!(
+        head.headers["cache-control"],
+        "no-cache, no-store, max-age=0, must-revalidate"
+    );
 }
 
 #[test]
@@ -604,6 +610,7 @@ fn gunzipping_a_plain_body_fails_400_before_the_headers_are_sent() {
         assert_eq!(reply.status, 200, "{path}");
         assert_eq!(reply.body, b"hello gzip transcoding world\n");
         assert_eq!(reply.headers["content-encoding"], "gzip");
+        assert_eq!(reply.headers["content-length"], "29");
     }
 }
 

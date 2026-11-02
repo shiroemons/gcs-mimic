@@ -148,6 +148,9 @@ async fn media(
             headers.remove("content-length");
         }
     }
+    if !head {
+        compressed_headers(&record, &mut reader, &mut headers).await?;
+    }
     let range = match json::object_media_range(request.headers(), record.size) {
         Ok(range) => range,
         Err(error) => {
@@ -172,13 +175,12 @@ async fn media(
                 )
             })?;
         }
-        if !(head && negotiable) {
+        if headers.contains_key("content-length") {
             headers.insert("content-length", length.into());
         }
         insert_content_range(&mut headers, offset, length, record.size);
         range_hashes(&mut headers, &record, offset, length)?;
     }
-    compressed_headers(&record, &mut headers);
     let mut response = if head {
         boxed(Response::new(Full::new(Bytes::new())))
     } else {
@@ -191,19 +193,24 @@ async fn media(
     Ok(response)
 }
 
-fn compressed_headers(record: &ObjectRecord, headers: &mut HeaderMap) {
+async fn compressed_headers(
+    record: &ObjectRecord,
+    reader: &mut ObjectReader,
+    headers: &mut HeaderMap,
+) -> Result<(), JsonError> {
     if !record
         .content_encoding
         .as_deref()
         .is_some_and(|value| value.eq_ignore_ascii_case("gzip"))
+        || record.size < 2
+        || headers["cache-control"] != crate::json::NO_STORE_CACHE_CONTROL
+        || gzip::is_plain(reader, record.size).await?
     {
-        return;
+        return Ok(());
     }
-    // Cloud Storage streams stored gzip without a length, including partial ranges.
+    // The HTTP/1.1 recording streams private gzip bytes, including partial ranges.
     headers.remove("content-length");
-    if !json::object_media_negotiable(record)
-        && headers["cache-control"] == crate::json::NO_STORE_CACHE_CONTROL
-    {
+    if !json::object_media_negotiable(record) {
         headers.insert(
             "cache-control",
             HeaderValue::from_static(
@@ -211,6 +218,7 @@ fn compressed_headers(record: &ObjectRecord, headers: &mut HeaderMap) {
             ),
         );
     }
+    Ok(())
 }
 
 /// A gunzipped media response: Range is ignored and the whole expanded object is sent with

@@ -46,20 +46,38 @@ Object: a 35-byte gzip member stored with `Content-Encoding: gzip`.
 | Request | Status | Notable headers |
 | --- | --- | --- |
 | JSON, no `Accept-Encoding` or `Accept-Encoding: identity` | 200, expanded body | `x-guploader-response-body-transformations: gunzipped`, `warning: 214 UploadServer gunzipped`, stored-object `x-goog-hash`, no Content-Length or Content-Encoding, `vary: Origin` and `vary: X-Origin` |
-| JSON, `Accept-Encoding: gzip` | 200, stored bytes | `content-encoding: gzip`, no Content-Length, `vary: Origin`, `vary: X-Origin`, `vary: Accept-Encoding` |
+| JSON, `Accept-Encoding: gzip` | 200, stored bytes | `content-encoding: gzip`, `content-length: 35`, `vary: Origin`, `vary: X-Origin`, `vary: Accept-Encoding` |
 | JSON identity with `Range: bytes=0-4` | 200, whole expanded body | Range ignored while transcoding |
 | XML, `Accept-Encoding: identity` | 200, expanded body | the same two transformation fields and two `x-goog-hash` fields |
 
 The **2026-11-01** `obj-download-gzip` recording in
-`compatibility/differential/reference/gcs.json` supersedes the earlier compressed
-JSON GET length observations: HTTP/1.1 uses chunked framing for stored gzip,
-including a 206 range and a download with object `Cache-Control: no-transform`.
-Private JSON downloads retain the default
-`no-cache, no-store, max-age=0, must-revalidate` cache policy and append
-`no-transform` when that directive is present in the object's metadata.
-`Accept-Encoding: gzip` alone does not add that directive. Stored-content length
-and range headers still describe the compressed bytes. This is a JSON media
-response rule; XML framing is unchanged.
+`compatibility/differential/reference/gcs.json` instead records chunked framing.
+It uses curl with explicit `--http1.1` and a private object containing 28 gzip
+bytes of `hello hello hello`, with `Content-Type: text/plain`. The GETs send
+`Accept-Encoding: gzip`, first without Range and then with `bytes=1-2`; object
+Cache-Control is initially unset. After patching object Cache-Control to
+`no-transform`, a GET without Accept-Encoding also returns the stored bytes
+chunked. Its cache policy is
+`no-cache, no-store, max-age=0, must-revalidate, no-transform`.
+
+Known limitation: the 2026-10-31 observations above and below used curl but did
+not retain its version, negotiated HTTP version or complete object metadata.
+The old valid-gzip size is 35 bytes here and 49 bytes in the HEAD observation;
+the separate 29-byte plain body declared as gzip is a different representation.
+The initial valid-gzip Cache-Control and MIME type were not recorded, and no
+Range was mentioned. The framing conflict cannot be reconciled offline; HTTP
+version is a possible explanation, not an established cause. Both observations
+remain evidence, and broader provider framing parity remains unverified.
+
+gcs-mimic applies the newer observation only to private JSON media GETs whose
+stored encoding is gzip and whose nonempty body starts with gzip magic. A
+bounded prefix peek precedes range selection; it does not validate the entire
+archive. Empty objects, plain bodies declared as gzip, public objects and HEAD
+retain their previous framing. Object `no-transform` appends the directive to
+the private default cache policy only on those GETs; accepting gzip alone does
+not add it. Stored length and range headers describe compressed bytes, and XML
+framing is unchanged. Cache policy on a conditional 304 or a `no-transform`
+HEAD is unobserved and unchanged, so neither adds the directive locally.
 
 The [transcoding contract](https://docs.cloud.google.com/storage/docs/transcoding)
 documents that accepting gzip or setting object `no-transform` prevents
@@ -75,6 +93,7 @@ cover these framing and cache-policy rules.
 | --- | --- | --- |
 | Gunzipped responses carry the two transformation fields | Sent on JSON media GET and XML GET/HEAD | `json_gzip_negotiation_range_and_conditions_preserve_stored_representation`, `xml_gzip_gunzips_whole_object_and_keeps_stored_hashes` |
 | Range is ignored while transcoding | Full 200 on JSON and XML | the same tests |
+| Private gzip GET | Chunked with Range and no-transform | the same tests |
 | XML expansion keeps one hash field per algorithm | Unchanged stored-object hashes | `xml_gzip_gunzips_whole_object_and_keeps_stored_hashes` |
 | A compressed response adds `vary: Accept-Encoding` | Appended after the CORS `vary: Origin` (and, on JSON, `vary: X-Origin`); on JSON omitted on gunzipped and `no-transform` responses, on XML sent on every stored-gzip representation (see below) | the same tests |
 
@@ -131,7 +150,7 @@ identity object, on `/storage/v1/b/{bucket}/o/{object}?alt=media` and
 | Request | Status | Notable headers |
 | --- | --- | --- |
 | gzip object, no `Accept-Encoding` or `identity`, either endpoint | 200, no body | the GET headers: weak `etag: W/...`, both transformation fields, stored-object `x-goog-hash`, no Content-Length |
-| gzip object, `Accept-Encoding: gzip` | 200, no body | strong ETag, `content-encoding: gzip`, `vary: Origin`, `vary: X-Origin`, `vary: Accept-Encoding`, no Content-Length |
+| gzip object, `Accept-Encoding: gzip` | 200, no body | strong ETag, `content-encoding: gzip`, `vary: Origin`, `vary: X-Origin`, `vary: Accept-Encoding`, no Content-Length (the matching GET sends `content-length: 49`) |
 | identity object | 200, no body | the GET headers including `content-length: 16` |
 
 gcs-mimic previously returned 400 on `/storage/v1` and 405 on `/download`.
