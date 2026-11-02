@@ -256,6 +256,47 @@ async fn acl_schema_migration_keeps_buckets_on_the_project_private_default() {
 }
 
 #[tokio::test]
+async fn default_object_acl_reads_apply_bucket_metageneration_conditions() {
+    use gcs_mimic::{acl::AclTarget, storage::AclError};
+
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let record = catalog
+        .insert_bucket(bucket("acl-conditions", "project"))
+        .await
+        .unwrap();
+    let m = record.metageneration;
+    for (matching, not_matching, expected) in [
+        (
+            Some(m + 1),
+            None,
+            Err(AclError::Bucket(CatalogError::PreconditionFailed)),
+        ),
+        (None, Some(m), Err(AclError::NotModified)),
+        (
+            Some(m + 1),
+            Some(m),
+            Err(AclError::Bucket(CatalogError::PreconditionFailed)),
+        ),
+        (Some(m), Some(m + 1), Ok(())),
+    ] {
+        assert_eq!(
+            catalog
+                .read_acl(
+                    AclTarget::DefaultObject(record.name.clone()),
+                    matching,
+                    not_matching,
+                    PERMISSIVE,
+                )
+                .await
+                .map(|_| ()),
+            expected
+        );
+    }
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn retention_schema_migration_preserves_existing_buckets() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();

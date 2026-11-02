@@ -87,6 +87,112 @@ fn names(response: &pb::ListBucketsResponse) -> Vec<&str> {
 }
 
 #[tokio::test]
+async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
+    let dir = TestDir::new();
+    let storage = storage(&dir, Auth::permissive()).await;
+    for (matching, not_matching, succeeds) in [
+        (Some(1), None, true),
+        (Some(2), None, false),
+        (None, Some(1), false),
+        (None, Some(2), true),
+    ] {
+        let result = storage
+            .get_bucket(Request::new(pb::GetBucketRequest {
+                bucket: "list-a".into(),
+                if_metageneration_match: matching,
+                if_metageneration_not_match: not_matching,
+                ..Default::default()
+            }))
+            .await;
+        if succeeds {
+            assert_eq!(result.unwrap().into_inner().metageneration, 1);
+        } else {
+            let error = result.unwrap_err();
+            assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+            assert_eq!(
+                error.message(),
+                "Bucket metageneration condition failed; read current metadata"
+            );
+        }
+    }
+    for (matching, not_matching) in [(Some(2), None), (None, Some(1))] {
+        let error = storage
+            .update_bucket(Request::new(pb::UpdateBucketRequest {
+                bucket: "list-a".into(),
+                metadata: Some(pb::Bucket::default()),
+                if_metageneration_match: matching,
+                if_metageneration_not_match: not_matching,
+                ..Default::default()
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+        assert_eq!(
+            storage
+                .state
+                .catalog
+                .get_bucket("list-a", crate::storage::test_fixtures::PERMISSIVE)
+                .await
+                .unwrap()
+                .unwrap()
+                .metageneration,
+            1
+        );
+    }
+    let updated = storage
+        .update_bucket(Request::new(pb::UpdateBucketRequest {
+            bucket: "list-a".into(),
+            metadata: Some(pb::Bucket::default()),
+            if_metageneration_match: Some(1),
+            if_metageneration_not_match: Some(2),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(updated.metageneration, 2);
+    for (matching, not_matching) in [(Some(1), None), (None, Some(2))] {
+        let error = storage
+            .delete_bucket(Request::new(pb::DeleteBucketRequest {
+                bucket: "list-a".into(),
+                if_metageneration_match: matching,
+                if_metageneration_not_match: not_matching,
+                ..Default::default()
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+        assert!(
+            storage
+                .state
+                .catalog
+                .get_bucket("list-a", crate::storage::test_fixtures::PERMISSIVE)
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+    storage
+        .delete_bucket(Request::new(pb::DeleteBucketRequest {
+            bucket: "list-a".into(),
+            if_metageneration_match: Some(2),
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
+    assert!(
+        storage
+            .state
+            .catalog
+            .get_bucket("list-a", crate::storage::test_fixtures::PERMISSIVE)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    storage.state.catalog.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn list_buckets_without_project_spans_projects_with_paging() {
     let dir = TestDir::new();
     let storage = storage(&dir, Auth::permissive()).await;
