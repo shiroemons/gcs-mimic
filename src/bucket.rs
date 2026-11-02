@@ -462,6 +462,15 @@ pub(crate) struct BucketConditions {
     pub if_metageneration_not_match: Option<i64>,
 }
 
+impl BucketConditions {
+    /// Callers that return 304 for a matching not-match condition read the fields instead.
+    pub(crate) fn hold(self, metageneration: i64) -> bool {
+        self.if_metageneration_match
+            .is_none_or(|value| value == metageneration)
+            && self.if_metageneration_not_match != Some(metageneration)
+    }
+}
+
 /// The adapter's bucket authorization, re-validated by the catalog inside the same transaction
 /// that reads or mutates the bucket.
 ///

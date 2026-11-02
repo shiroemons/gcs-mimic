@@ -1353,9 +1353,7 @@ impl Catalog {
                     identity: identity.clone(), project: project.clone(), permission: crate::auth::Permission::BucketsSetIam,
                 })?;
             }
-            if conditions.if_metageneration_match.is_some_and(|value| value != record.metageneration)
-                || conditions.if_metageneration_not_match == Some(record.metageneration)
-            {
+            if !conditions.hold(record.metageneration) {
                 return Err(CatalogError::PreconditionFailed);
             }
             // Cloud Storage answered a PATCH carrying only ignored members with the unchanged
@@ -1571,9 +1569,7 @@ impl Catalog {
             .optional()?
             .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &project, &access)?;
-            if conditions.if_metageneration_match.is_some_and(|value| value != metageneration)
-                || conditions.if_metageneration_not_match == Some(metageneration)
-            {
+            if !conditions.hold(metageneration) {
                 return Err(CatalogError::PreconditionFailed);
             }
             const NONEMPTY: &str = "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL)";

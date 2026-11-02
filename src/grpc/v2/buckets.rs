@@ -401,11 +401,7 @@ impl Storage {
             .await
             .map_err(|error| catalog_error(error, caller))?
             .ok_or_else(|| catalog_error(CatalogError::NotFound, caller))?;
-        if request
-            .if_metageneration_match
-            .is_some_and(|v| v != record.metageneration)
-            || request.if_metageneration_not_match == Some(record.metageneration)
-        {
+        if !bucket_conditions!(request).hold(record.metageneration) {
             return Err(catalog_error(CatalogError::PreconditionFailed, caller));
         }
         let mut bucket = convert::bucket(&record);

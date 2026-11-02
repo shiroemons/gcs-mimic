@@ -338,10 +338,7 @@ impl pb::storage_server::Storage for Storage {
             .ok_or_else(|| {
                 Status::not_found("Bucket not found; create it with InsertBucket or JSON")
             })?;
-        if r.if_metageneration_match
-            .is_some_and(|v| v != record.metageneration)
-            || r.if_metageneration_not_match == Some(record.metageneration)
-        {
+        if !bucket_conditions!(r).hold(record.metageneration) {
             return Err(Status::failed_precondition(
                 "Bucket metageneration condition failed; read current metadata",
             ));
@@ -423,6 +420,7 @@ impl pb::storage_server::Storage for Storage {
             r.if_metageneration_match,
             r.if_metageneration_not_match,
         )?;
+        let requested = bucket_conditions!(r);
         let access = self
             .access(caller, &r.bucket, "storage.buckets.update")
             .await?;
@@ -439,10 +437,7 @@ impl pb::storage_server::Storage for Storage {
             .await
             .map_err(catalog_error)?
             .ok_or_else(|| catalog_error(CatalogError::NotFound))?;
-        if r.if_metageneration_match
-            .is_some_and(|v| v != current.metageneration)
-            || r.if_metageneration_not_match == Some(current.metageneration)
-        {
+        if !requested.hold(current.metageneration) {
             return Err(catalog_error(CatalogError::PreconditionFailed));
         }
         let body = convert::bucket_metadata(&mut bucket, Some(&convert::bucket(&current)))?;
@@ -457,7 +452,7 @@ impl pb::storage_server::Storage for Storage {
                 // Fence output-only validation against concurrent metadata changes.
                 BucketConditions {
                     if_metageneration_match: Some(current.metageneration),
-                    ..bucket_conditions!(r)
+                    ..requested
                 },
                 &access,
             )
