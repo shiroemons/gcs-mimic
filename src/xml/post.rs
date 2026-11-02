@@ -204,37 +204,14 @@ async fn read_form<B: Body<Data = Bytes> + Unpin>(
 }
 
 fn decode_base64(raw: &str) -> Option<Vec<u8>> {
-    let bytes = raw.as_bytes();
-    if bytes.is_empty() || !bytes.len().is_multiple_of(4) {
+    if raw.is_empty() {
         return None;
     }
-    let digit = |byte: u8| match byte {
-        b'A'..=b'Z' => Some(byte - b'A'),
-        b'a'..=b'z' => Some(byte - b'a' + 26),
-        b'0'..=b'9' => Some(byte - b'0' + 52),
-        b'+' => Some(62),
-        b'/' => Some(63),
-        _ => None,
-    };
-    let chunks = bytes.len() / 4;
-    let mut decoded = Vec::with_capacity(chunks * 3);
-    for (index, chunk) in bytes.chunks(4).enumerate() {
-        let padding = chunk.iter().rev().take_while(|byte| **byte == b'=').count();
-        if padding > 2 || (padding > 0 && index + 1 != chunks) {
-            return None;
-        }
-        let mut value = 0u32;
-        for (offset, byte) in chunk.iter().enumerate() {
-            let bits = if offset >= 4 - padding {
-                0
-            } else {
-                digit(*byte)?
-            };
-            value = value << 6 | u32::from(bits);
-        }
-        decoded.extend_from_slice(&value.to_be_bytes()[1..4 - padding]);
-    }
-    Some(decoded)
+    crate::base64::decode(
+        raw,
+        crate::base64::Alphabet::Standard,
+        crate::base64::Padding::RequiredUncheckedBits,
+    )
 }
 
 /// The documented format is ISO 8601 basic; the official SDKs send RFC 3339 instead.
@@ -878,23 +855,7 @@ mod tests {
     use super::*;
     use http_body_util::Full;
 
-    fn base64(bytes: &[u8]) -> String {
-        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut result = String::new();
-        for chunk in bytes.chunks(3) {
-            let value = chunk.iter().enumerate().fold(0u32, |value, (index, byte)| {
-                value | u32::from(*byte) << (16 - 8 * index)
-            });
-            for index in 0..4 {
-                result.push(if index <= chunk.len() {
-                    ALPHABET[(value >> (18 - 6 * index) & 63) as usize] as char
-                } else {
-                    '='
-                });
-            }
-        }
-        result
-    }
+    use crate::base64::encode as base64;
 
     fn encode(value: &serde_json::Value) -> String {
         base64(value.to_string().as_bytes())

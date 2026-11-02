@@ -296,31 +296,11 @@ pub(super) fn decode_signature(raw: &str) -> Result<Vec<u8>, Failure> {
     if raw.is_empty() || raw.len() > 1368 || !raw.len().is_multiple_of(4) {
         return Err(Failure::Malformed);
     }
-    let padding = raw.bytes().rev().take_while(|byte| *byte == b'=').count();
-    if padding > 2 {
-        return Err(Failure::Malformed);
-    }
-    let mut output = Vec::with_capacity(raw.len() / 4 * 3);
-    let mut bits = 0u32;
-    let mut count = 0;
-    for byte in raw[..raw.len() - padding].bytes() {
-        let digit = match byte {
-            b'A'..=b'Z' => byte - b'A',
-            b'a'..=b'z' => byte - b'a' + 26,
-            b'0'..=b'9' => byte - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            _ => return Err(Failure::Malformed),
-        };
-        bits = (bits << 6) | u32::from(digit);
-        count += 6;
-        if count >= 8 {
-            count -= 8;
-            output.push((bits >> count) as u8);
-        }
-    }
-    if bits & ((1 << count) - 1) != 0 || output.len() > 1024 {
-        return Err(Failure::Malformed);
-    }
-    Ok(output)
+    crate::base64::decode(
+        raw,
+        crate::base64::Alphabet::Standard,
+        crate::base64::Padding::Required,
+    )
+    .filter(|output| output.len() <= 1024)
+    .ok_or(Failure::Malformed)
 }
