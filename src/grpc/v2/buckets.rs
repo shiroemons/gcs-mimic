@@ -160,54 +160,45 @@ fn clear_default<T: Default + PartialEq>(field: &mut Option<T>) {
     }
 }
 
-/// Shared JSON field values; create and update retain their own validation and mask semantics.
-pub(super) fn bucket_fields(bucket: &pb::Bucket) -> serde_json::Value {
-    let cors = bucket
-        .cors
-        .iter()
-        .map(|cors| {
-            json!({
-                "origin": cors.origin,
-                "method": cors.method,
-                "responseHeader": cors.response_header,
-                "maxAgeSeconds": cors.max_age_seconds,
-            })
-        })
-        .collect::<Vec<_>>();
-    let mut body = json!({
-        "labels": bucket.labels,
-        "cors": cors,
-        "defaultEventBasedHold": bucket.default_event_based_hold,
-    });
-    if let Some(versioning) = &bucket.versioning {
-        body["versioning"] = json!({"enabled": versioning.enabled});
-    }
-    if let Some(autoclass) = &bucket.autoclass {
-        body["autoclass"] = json!({"enabled": autoclass.enabled});
-        if let Some(class) = &autoclass.terminal_storage_class {
-            body["autoclass"]["terminalStorageClass"] = class.clone().into();
-        }
-    }
-    for (field, key, duration) in [
+/// Adds the retention, soft-delete and IAM settings of a CreateBucket request to `body`.
+fn create_policies(bucket: &pb::Bucket, body: &mut serde_json::Value) -> Result<(), Status> {
+    for (field, policy) in [
         (
             "retentionPolicy",
-            "retentionPeriod",
-            bucket
-                .retention_policy
-                .as_ref()
-                .and_then(|p| p.retention_duration),
+            bucket.retention_policy.as_ref().map(|p| {
+                (
+                    p.retention_duration.as_ref(),
+                    p.effective_time.is_some() || p.is_locked,
+                )
+            }),
         ),
         (
             "softDeletePolicy",
-            "retentionDurationSeconds",
             bucket
                 .soft_delete_policy
                 .as_ref()
-                .and_then(|p| p.retention_duration),
+                .map(|p| (p.retention_duration.as_ref(), p.effective_time.is_some())),
         ),
     ] {
-        if let Some(duration) = duration {
-            body[field] = json!({key: duration.seconds.to_string()});
+        if let Some((duration, output_fields)) = policy {
+            if output_fields {
+                return Err(super::status::unsupported(
+                    "create bucket policy output fields",
+                ));
+            }
+            if let Some(duration) = duration {
+                if duration.nanos != 0 {
+                    return Err(super::status::unsupported(
+                        "fractional bucket retention duration",
+                    ));
+                }
+                let key = if field == "retentionPolicy" {
+                    "retentionPeriod"
+                } else {
+                    "retentionDurationSeconds"
+                };
+                body[field] = json!({key: duration.seconds.to_string()});
+            }
         }
     }
     if let Some(iam) = &bucket.iam_config {
@@ -216,50 +207,59 @@ pub(super) fn bucket_fields(bucket: &pb::Bucket) -> serde_json::Value {
                 json!(iam.public_access_prevention);
         }
         if let Some(uniform) = &iam.uniform_bucket_level_access {
+            if uniform.lock_time.is_some() {
+                return Err(super::status::unsupported("create bucket IAM lock_time"));
+            }
             body["iamConfiguration"]["uniformBucketLevelAccess"] =
                 json!({"enabled": uniform.enabled});
         }
     }
-    body
+    Ok(())
 }
 
-/// Rejects output-only and fractional policy settings on a CreateBucket request.
-fn create_policies(bucket: &pb::Bucket) -> Result<(), Status> {
-    for (duration, output_fields) in [
-        bucket.retention_policy.as_ref().map(|p| {
-            (
-                p.retention_duration.as_ref(),
-                p.effective_time.is_some() || p.is_locked,
-            )
-        }),
-        bucket
-            .soft_delete_policy
-            .as_ref()
-            .map(|p| (p.retention_duration.as_ref(), p.effective_time.is_some())),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if output_fields {
-            return Err(super::status::unsupported(
-                "create bucket policy output fields",
-            ));
-        }
-        if duration.is_some_and(|duration| duration.nanos != 0) {
-            return Err(super::status::unsupported(
-                "fractional bucket retention duration",
-            ));
+pub(super) fn cors_json(cors: &[pb::bucket::Cors]) -> serde_json::Value {
+    cors.iter()
+        .map(|cors| {
+            json!({
+                "origin": cors.origin,
+                "method": cors.method,
+                "responseHeader": cors.response_header,
+                "maxAgeSeconds": cors.max_age_seconds,
+            })
+        })
+        .collect()
+}
+
+/// Builds create-only JSON metadata without introducing update-mask reset defaults.
+pub(super) fn create_fields(bucket: &pb::Bucket, name: &str) -> Result<serde_json::Value, Status> {
+    let mut body = json!({"name": name, "defaultEventBasedHold": bucket.default_event_based_hold});
+    for (field, value) in [
+        ("location", &bucket.location),
+        ("storageClass", &bucket.storage_class),
+    ] {
+        if !value.is_empty() {
+            body[field] = json!(value);
         }
     }
-    if bucket
-        .iam_config
-        .as_ref()
-        .and_then(|iam| iam.uniform_bucket_level_access.as_ref())
-        .is_some_and(|uniform| uniform.lock_time.is_some())
-    {
-        return Err(super::status::unsupported("create bucket IAM lock_time"));
+    body["labels"] = json!(bucket.labels);
+    body["cors"] = cors_json(&bucket.cors);
+    if let Some(versioning) = &bucket.versioning {
+        body["versioning"] = json!({"enabled": versioning.enabled});
     }
-    Ok(())
+    create_policies(bucket, &mut body)?;
+    if let Some(autoclass) = bucket.autoclass.as_ref() {
+        if autoclass.toggle_time.is_some() || autoclass.terminal_storage_class_update_time.is_some()
+        {
+            return Err(super::status::unsupported(
+                "create bucket autoclass output fields",
+            ));
+        }
+        body["autoclass"] = json!({"enabled": autoclass.enabled});
+        if let Some(class) = &autoclass.terminal_storage_class {
+            body["autoclass"]["terminalStorageClass"] = class.clone().into();
+        }
+    }
+    Ok(body)
 }
 
 fn create_metadata(
@@ -269,17 +269,7 @@ fn create_metadata(
     state: &crate::server::State,
 ) -> Result<crate::bucket::BucketRecord, Status> {
     let mut remaining = bucket.clone();
-    let mut body = bucket_fields(bucket);
-    body["name"] = name.into();
-    for (field, value) in [
-        ("location", &bucket.location),
-        ("storageClass", &bucket.storage_class),
-    ] {
-        if !value.is_empty() {
-            body[field] = json!(value);
-        }
-    }
-    create_policies(bucket)?;
+    let body = create_fields(bucket, name)?;
     remaining.project.clear();
     remaining.location.clear();
     remaining.storage_class.clear();
@@ -293,14 +283,7 @@ fn create_metadata(
     if remaining.rpo == "DEFAULT" {
         remaining.rpo.clear();
     }
-    if let Some(autoclass) = remaining.autoclass.take()
-        && (autoclass.toggle_time.is_some()
-            || autoclass.terminal_storage_class_update_time.is_some())
-    {
-        return Err(super::status::unsupported(
-            "create bucket autoclass output fields",
-        ));
-    }
+    remaining.autoclass = None;
     clear_default(&mut remaining.billing);
     clear_default(&mut remaining.hierarchical_namespace);
     clear_default(&mut remaining.custom_placement_config);

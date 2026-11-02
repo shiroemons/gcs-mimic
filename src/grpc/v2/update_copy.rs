@@ -212,7 +212,6 @@ fn retention(retention: Option<&pb::object::Retention>) -> Result<Value, Status>
 }
 
 fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
-    let fields = super::buckets::bucket_fields(b);
     let mut body = json!({});
     for path in paths {
         match path.as_str() {
@@ -220,7 +219,7 @@ fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
                 body["labels"] = if b.labels.is_empty() {
                     Value::Null
                 } else {
-                    fields["labels"].clone()
+                    json!(b.labels)
                 };
             }
             p if p.starts_with("labels.") && p.len() > 7 => {
@@ -229,37 +228,36 @@ fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
             }
             "storage_class" => body["storageClass"] = b.storage_class.clone().into(),
             "autoclass" | "autoclass.enabled" | "autoclass.terminal_storage_class" => {
-                let autoclass = fields
-                    .get("autoclass")
-                    .cloned()
-                    .unwrap_or_else(|| json!({"enabled": false}));
+                let autoclass = b.autoclass.clone().unwrap_or_default();
                 if path != "autoclass.terminal_storage_class" {
-                    body["autoclass"]["enabled"] = autoclass["enabled"].clone();
+                    body["autoclass"]["enabled"] = autoclass.enabled.into();
                 }
                 if path != "autoclass.enabled"
-                    && let Some(class) = autoclass.get("terminalStorageClass")
+                    && let Some(class) = autoclass.terminal_storage_class
                 {
-                    body["autoclass"]["terminalStorageClass"] = class.clone();
+                    body["autoclass"]["terminalStorageClass"] = class.into();
                 }
             }
             "versioning" | "versioning.enabled" => {
-                body["versioning"] = fields
-                    .get("versioning")
-                    .cloned()
-                    .unwrap_or_else(|| json!({"enabled": false}));
+                body["versioning"] =
+                    json!({"enabled": b.versioning.as_ref().is_some_and(|v| v.enabled)});
             }
             "default_event_based_hold" => {
-                body["defaultEventBasedHold"] = fields["defaultEventBasedHold"].clone();
+                body["defaultEventBasedHold"] = b.default_event_based_hold.into();
             }
-            "cors" => body["cors"] = fields["cors"].clone(),
+            "cors" => body["cors"] = super::buckets::cors_json(&b.cors),
             "lifecycle" | "lifecycle.rule" => {
                 body["lifecycle"] = b.lifecycle.as_ref().map_or(json!({"rule": []}), lifecycle);
             }
             "retention_policy" | "retention_policy.retention_duration" => {
-                body["retentionPolicy"] = fields
-                    .get("retentionPolicy")
-                    .cloned()
-                    .unwrap_or(Value::Null);
+                body["retentionPolicy"] = b
+                    .retention_policy
+                    .as_ref()
+                    .and_then(|p| p.retention_duration)
+                    .map_or(
+                        Value::Null,
+                        |d| json!({"retentionPeriod": d.seconds.to_string()}),
+                    );
                 if b.retention_policy.as_ref().is_some_and(|p| p.is_locked) {
                     return Err(unsupported(
                         "retention_policy.is_locked; use LockBucketRetentionPolicy",
@@ -277,25 +275,30 @@ fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
                         "fractional soft delete duration; use whole seconds",
                     ));
                 }
-                body["softDeletePolicy"] = fields
-                    .get("softDeletePolicy")
-                    .cloned()
-                    .unwrap_or_else(|| json!({"retentionDurationSeconds": "0"}));
+                body["softDeletePolicy"] =
+                    json!({"retentionDurationSeconds": duration.seconds.to_string()});
             }
             "iam_config" => {
                 // Go uses this parent mask even when only one IAM setting is present.
-                if let Some(iam) = fields.get("iamConfiguration").and_then(Value::as_object) {
-                    for (key, value) in iam {
-                        body["iamConfiguration"][key] = value.clone();
+                if let Some(iam) = &b.iam_config {
+                    if let Some(uniform) = &iam.uniform_bucket_level_access {
+                        body["iamConfiguration"]["uniformBucketLevelAccess"] =
+                            json!({"enabled": uniform.enabled});
+                    }
+                    if !iam.public_access_prevention.is_empty() {
+                        body["iamConfiguration"]["publicAccessPrevention"] =
+                            iam.public_access_prevention.clone().into();
                     }
                 }
             }
             "iam_config.uniform_bucket_level_access"
             | "iam_config.uniform_bucket_level_access.enabled" => {
-                body["iamConfiguration"]["uniformBucketLevelAccess"] = fields
-                    .pointer("/iamConfiguration/uniformBucketLevelAccess")
-                    .cloned()
-                    .unwrap_or_else(|| json!({"enabled": false}));
+                let enabled = b
+                    .iam_config
+                    .as_ref()
+                    .and_then(|iam| iam.uniform_bucket_level_access.as_ref())
+                    .is_some_and(|uniform| uniform.enabled);
+                body["iamConfiguration"]["uniformBucketLevelAccess"] = json!({"enabled": enabled});
             }
             "acl" => body["acl"] = acl_entries(b.acl.iter().map(|e| (&e.entity, &e.role))),
             "default_object_acl" => {
@@ -303,10 +306,13 @@ fn bucket_patch(b: &pb::Bucket, paths: &[String]) -> Result<Value, Status> {
                     acl_entries(b.default_object_acl.iter().map(|e| (&e.entity, &e.role)));
             }
             "iam_config.public_access_prevention" => {
-                body["iamConfiguration"]["publicAccessPrevention"] = fields
-                    .pointer("/iamConfiguration/publicAccessPrevention")
-                    .cloned()
-                    .unwrap_or_else(|| "inherited".into());
+                body["iamConfiguration"]["publicAccessPrevention"] = b
+                    .iam_config
+                    .as_ref()
+                    .map(|i| i.public_access_prevention.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("inherited")
+                    .into();
             }
             _ => {
                 return Err(unsupported(&format!(
@@ -1254,7 +1260,7 @@ mod tests {
                 },
             })
         );
-        let create = super::super::buckets::bucket_fields(&bucket);
+        let create = super::super::buckets::create_fields(&bucket, "").unwrap();
         for omitted in [
             "autoclass",
             "versioning",
