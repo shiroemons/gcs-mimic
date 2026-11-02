@@ -126,6 +126,12 @@ impl From<CatalogError> for HmacKeyError {
     }
 }
 
+impl From<rusqlite::Error> for HmacKeyError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Catalog(error.into())
+    }
+}
+
 // A literal macro keeps the statements below static for the prepared statement cache.
 macro_rules! hmac_columns {
     () => {
@@ -230,7 +236,7 @@ impl Catalog {
         let project = project.to_owned();
         let email = service_account_email.to_owned();
         let now = unix_millis(self.0.clock.now())?;
-        self.run::<_, CatalogError>(move |connection| {
+        self.run::<_, HmacKeyError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let live: i64 = sql::scalar(
                 &transaction,
@@ -238,7 +244,7 @@ impl Catalog {
                 [&project, &email],
             )?;
             if live >= MAX_KEYS_PER_SERVICE_ACCOUNT {
-                return Ok(Err(HmacKeyError::LimitReached));
+                return Err(HmacKeyError::LimitReached);
             }
             // A collision among 275 random bits is not expected; retrying keeps IDs unique anyway.
             let mut access_id = generate_access_id()?;
@@ -254,9 +260,9 @@ impl Catalog {
             let record = select(&transaction, &project, &access_id)?
                 .ok_or_else(|| unavailable("inserted HMAC key is missing"))?;
             transaction.commit()?;
-            Ok(Ok(CreatedHmacKey { record, secret }))
+            Ok(CreatedHmacKey { record, secret })
         })
-        .await?
+        .await
     }
 
     pub(crate) async fn get_hmac_key(
@@ -319,25 +325,25 @@ impl Catalog {
         let project = project.to_owned();
         let access_id = access_id.to_owned();
         let now = unix_millis(self.0.clock.now())?;
-        self.run::<_, CatalogError>(move |connection| {
+        self.run::<_, HmacKeyError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let Some(current) = select(&transaction, &project, &access_id)? else {
-                return Ok(Err(HmacKeyError::NotFound));
+                return Err(HmacKeyError::NotFound);
             };
             if etag.is_some_and(|etag| etag != current.etag()) {
-                return Ok(Err(HmacKeyError::PreconditionFailed));
+                return Err(HmacKeyError::PreconditionFailed);
             }
             if current.state == HmacKeyState::Deleted {
-                return Ok(Err(HmacKeyError::Deleted));
+                return Err(HmacKeyError::Deleted);
             }
             sql::exec(&transaction,
                     "UPDATE hmac_keys SET state = ?1, updated = max(?2, time_created), revision = revision + 1 WHERE access_id = ?3", params![state.as_str(), now, access_id])?;
             let record = select(&transaction, &project, &access_id)?
                 .ok_or_else(|| unavailable("updated HMAC key is missing"))?;
             transaction.commit()?;
-            Ok(Ok(record))
+            Ok(record)
         })
-        .await?
+        .await
     }
 
     /// Mark an INACTIVE key DELETED and erase its secret.
@@ -349,22 +355,22 @@ impl Catalog {
         let project = project.to_owned();
         let access_id = access_id.to_owned();
         let now = unix_millis(self.0.clock.now())?;
-        self.run::<_, CatalogError>(move |connection| {
+        self.run::<_, HmacKeyError>(move |connection| {
             let transaction = sql::immediate(connection)?;
             let Some(current) = select(&transaction, &project, &access_id)? else {
-                return Ok(Err(HmacKeyError::NotFound));
+                return Err(HmacKeyError::NotFound);
             };
             match current.state {
-                HmacKeyState::Active => return Ok(Err(HmacKeyError::DeleteActive)),
-                HmacKeyState::Deleted => return Ok(Err(HmacKeyError::Deleted)),
+                HmacKeyState::Active => return Err(HmacKeyError::DeleteActive),
+                HmacKeyState::Deleted => return Err(HmacKeyError::Deleted),
                 HmacKeyState::Inactive => {}
             }
             sql::exec(&transaction,
                     "UPDATE hmac_keys SET state = 'DELETED', secret = NULL, updated = max(?1, time_created), revision = revision + 1 WHERE access_id = ?2", params![now, access_id])?;
             transaction.commit()?;
-            Ok(Ok(()))
+            Ok(())
         })
-        .await?
+        .await
     }
 }
 

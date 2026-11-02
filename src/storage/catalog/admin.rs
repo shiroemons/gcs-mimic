@@ -429,6 +429,7 @@ impl Catalog {
             .await
     }
 
+    /// Unlike `run_admin`, accepts a job that already selects its domain error.
     pub(super) async fn run_admin_with_error<
         T: Send + 'static,
         E: From<AdminError> + Send + 'static,
@@ -797,9 +798,9 @@ impl Admin {
         let name = name.0.clone();
         let access = BucketAccess::Admin(self.grant.clone());
         self.catalog
-            .run_admin(move |connection| {
+            .run_admin_with_error(move |connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
-                Ok(objects::selected(
+                objects::selected(
                     &transaction,
                     &bucket,
                     &name,
@@ -808,10 +809,10 @@ impl Admin {
                     super::objects::RequestKind::Read,
                     &access,
                 )
-                .map(|(record, _)| record))
+                .map(|(record, _)| record)
+                .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 
     pub async fn open_object(
@@ -825,8 +826,8 @@ impl Admin {
         let access = BucketAccess::Admin(self.grant.clone());
         let catalog = self.catalog.clone();
         self.catalog
-            .run_admin(move |connection| {
-                Ok(objects::open_selected(
+            .run_admin_with_error(move |connection| {
+                objects::open_selected(
                     connection,
                     &catalog,
                     &bucket,
@@ -834,10 +835,10 @@ impl Admin {
                     generation.map(Generation::get),
                     ObjectConditions::default(),
                     &access,
-                ))
+                )
+                .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 
     pub async fn list_objects(
@@ -897,8 +898,8 @@ impl Admin {
         let access = BucketAccess::Admin(self.grant.clone());
         let clock = self.catalog.0.clock.clone();
         self.catalog
-            .run_admin(move |connection| {
-                Ok(objects::delete_selected(
+            .run_admin_with_error(move |connection| {
+                objects::delete_selected(
                     connection,
                     clock.as_ref(),
                     objects::ObjectSelector {
@@ -909,10 +910,10 @@ impl Admin {
                     },
                     &access,
                     binding.as_ref(),
-                ))
+                )
+                .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)?;
+            .await?;
         self.catalog.reclaim_after_commit().await;
         Ok(())
     }
