@@ -6,6 +6,7 @@ use super::{
     SyncBinding,
     root::{RootError, RootLease},
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     object::{ObjectError, ObjectRecord},
@@ -143,8 +144,7 @@ fn fence(connection: &Connection) -> Result<JournalFence, CatalogError> {
 }
 
 fn matching(connection: &Connection, root: [u8; 16], revision: &str) -> Result<(), CatalogError> {
-    let valid:bool=connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d JOIN sync_roots r ON r.root_id=d.root_id JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND d.revision=?2 AND d.valid=1 AND d.complete=1 AND r.complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence)")
-        .and_then(|mut statement|statement.query_row(params![root,revision],|row|row.get(0))).map_err(unavailable)?;
+    let valid:bool=sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d JOIN sync_roots r ON r.root_id=d.root_id JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND d.revision=?2 AND d.valid=1 AND d.complete=1 AND r.complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence)", params![root,revision]).map_err(unavailable)?;
     if valid {
         Ok(())
     } else {
@@ -179,10 +179,11 @@ impl RootLease {
             .run_admin(move |connection| {
                 let tx = connection.transaction().map_err(unavailable)?;
                 scope.authorize(&tx)?;
-                tx.prepare_cached(
+                sql::exec(
+                    &tx,
                     "UPDATE sync_deletion_sets SET valid=0,authorization=0 WHERE root_id=?1",
+                    [root],
                 )
-                .and_then(|mut statement| statement.execute([root]))
                 .map_err(unavailable)?;
                 tx.commit().map_err(unavailable)
             })
@@ -250,8 +251,7 @@ impl RootLease {
             let transaction=connection.transaction().map_err(unavailable)?;
             scope.authorize(&transaction)?;
             matching(&transaction,root,&revision)?;
-            let count=transaction.prepare_cached("UPDATE sync_deletion_sets SET authorization=1 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1")
-                .and_then(|mut statement|statement.execute(params![root,revision])).map_err(unavailable)?;
+            let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET authorization=1 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision]).map_err(unavailable)?;
             if count!=1 {return Err(CatalogError::PreconditionFailed)}
             let snapshot=read_set(&transaction,root)?.ok_or(CatalogError::PreconditionFailed)?;
             transaction.commit().map_err(unavailable)?;
@@ -283,12 +283,10 @@ pub(super) fn consume(
         CatalogError::PreconditionFailed => ObjectError::PreconditionFailed,
         error => super::super::objects::object_unavailable(error),
     })?;
-    let count=transaction.prepare_cached("UPDATE sync_deletion_members SET done=1 WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND generation=?5 AND done=0 AND EXISTS(SELECT 1 FROM sync_deletion_sets d WHERE d.root_id=?1 AND d.authorization=1)")
-        .and_then(|mut statement|statement.execute(params![permit.root,permit.ordinal,record.bucket,record.name,record.generation])).map_err(super::super::objects::object_unavailable)?;
+    let count=sql::exec(transaction, "UPDATE sync_deletion_members SET done=1 WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND generation=?5 AND done=0 AND EXISTS(SELECT 1 FROM sync_deletion_sets d WHERE d.root_id=?1 AND d.authorization=1)", params![permit.root,permit.ordinal,record.bucket,record.name,record.generation]).map_err(super::super::objects::object_unavailable)?;
     if count != 1 {
         return Err(ObjectError::PreconditionFailed);
     }
-    transaction.prepare_cached("UPDATE sync_deletion_sets SET execution_sequence=execution_sequence+1 WHERE root_id=?1 AND execution_sequence<9223372036854775807")
-        .and_then(|mut statement|statement.execute([permit.root])).map_err(super::super::objects::object_unavailable)?;
+    sql::exec(transaction, "UPDATE sync_deletion_sets SET execution_sequence=execution_sequence+1 WHERE root_id=?1 AND execution_sequence<9223372036854775807", [permit.root]).map_err(super::super::objects::object_unavailable)?;
     Ok(())
 }

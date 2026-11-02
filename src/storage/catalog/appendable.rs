@@ -20,13 +20,14 @@ use super::{
     resumable::{ResumableOptions, decode_options, encode_options},
     system_time_micros, unix_micros,
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
     storage::blob_id::BlobId,
 };
 use bytes::Bytes;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::{
     collections::HashMap,
     fmt, fs,
@@ -120,14 +121,6 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
         }
     }
     Ok(())
-}
-
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(super::unavailable)?;
-    transaction
-        .execute_batch(SCHEMA)
-        .map_err(super::unavailable)?;
-    transaction.commit().map_err(super::unavailable)
 }
 
 /// Whether finalization of an appendable generation started or was abandoned before publishing.
@@ -335,11 +328,12 @@ fn data_path(data_dir: &Path, blob_id: &str) -> Result<PathBuf, ObjectError> {
 }
 
 fn incarnation(connection: &Connection, bucket: &str) -> Result<Option<String>, ObjectError> {
-    connection
-        .prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1")
-        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
-        .optional()
-        .map_err(object_unavailable)
+    sql::optional_scalar(
+        connection,
+        "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
+        [bucket],
+    )
+    .map_err(object_unavailable)
 }
 
 enum Lookup {
@@ -806,8 +800,7 @@ pub(super) fn retire_published(
     backend: crate::config::Backend,
 ) -> Result<(), ObjectError> {
     if backend == crate::config::Backend::Memory {
-        connection.prepare_cached("INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM appendable_objects WHERE bucket=?1 AND name=?2 AND generation=?3")
-            .and_then(|mut statement| statement.execute(params![record.bucket, record.name, record.generation])).map_err(object_unavailable)?;
+        sql::exec(connection, "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM appendable_objects WHERE bucket=?1 AND name=?2 AND generation=?3", params![record.bucket, record.name, record.generation]).map_err(object_unavailable)?;
     }
     connection
         .prepare_cached(
@@ -925,8 +918,7 @@ impl Catalog {
         let memory = self.0.memory.clone();
         let principals = self.0.principals.get().cloned();
         self.run_upload(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
+            let transaction = sql::immediate(connection)
                 .map_err(object_unavailable)?;
             let (storage_class, _) = authorized_bucket(&transaction, &bucket, &options.access)?;
             let (current, stale) = match select(&transaction, &bucket, &name)? {
@@ -935,9 +927,7 @@ impl Catalog {
                 Lookup::Absent => (None, None),
             };
             if let Some(id) = &stale {
-                transaction
-                    .prepare_cached("DELETE FROM appendable_objects WHERE blob_id = ?1")
-                    .and_then(|mut statement| statement.execute([id]))
+                sql::exec(&transaction, "DELETE FROM appendable_objects WHERE blob_id = ?1", [id])
                     .map_err(object_unavailable)?;
             }
             let current = match current {
@@ -950,17 +940,13 @@ impl Catalog {
             }
             let incarnation = incarnation(&transaction, &bucket)?.ok_or(ObjectError::BucketNotFound)?;
             let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
-            let last: i64 = transaction
-                .prepare_cached("SELECT last_generation FROM object_generation WHERE singleton = 1")
-                .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
+            let last: i64 = sql::scalar(&transaction, "SELECT last_generation FROM object_generation WHERE singleton = 1", [])
                 .map_err(object_unavailable)?;
             let generation = micros.max(
                 last.checked_add(1)
                     .ok_or_else(|| object_unavailable("generation exhausted"))?,
             );
-            transaction
-                .prepare_cached("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1")
-                .and_then(|mut statement| statement.execute([generation]))
+            sql::exec(&transaction, "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation])
                 .map_err(object_unavailable)?;
             let encoded = encode_options(&options).to_string();
             transaction
@@ -1023,8 +1009,7 @@ impl Catalog {
         let principals = self.0.principals.get().cloned();
         let selected = self
             .run_upload(move |connection| {
-                let transaction = connection
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                let transaction = sql::immediate(connection)
                     .map_err(object_unavailable)?;
                 let (storage_class, _) = authorized_bucket(&transaction, &owned_bucket, &access)?;
                 let row = match select(&transaction, &owned_bucket, &owned_name)? {
@@ -1051,11 +1036,8 @@ impl Catalog {
                         }
                     }
                 }
-                transaction
-                    .prepare_cached(
-                        "UPDATE appendable_objects SET write_handle = ?1 WHERE bucket = ?2 AND name = ?3",
-                    )
-                    .and_then(|mut statement| statement.execute(params![handle, owned_bucket, owned_name]))
+                sql::exec(&transaction,
+                        "UPDATE appendable_objects SET write_handle = ?1 WHERE bucket = ?2 AND name = ?3", params![handle, owned_bucket, owned_name])
                     .map_err(object_unavailable)?;
                 transaction.commit().map_err(object_unavailable)?;
                 Ok(Ok((row.blob_id, record)))
@@ -1166,9 +1148,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
         self.run_upload(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(object_unavailable)?;
+            let transaction = sql::immediate(connection).map_err(object_unavailable)?;
             let (storage_class, _) = authorized_bucket(&transaction, &owned_bucket, &access)?;
             let Lookup::Live(row) = select(&transaction, &owned_bucket, &owned_name)? else {
                 return Err(ObjectError::ObjectNotFound);
@@ -1190,10 +1170,12 @@ impl Catalog {
                 super::objects::RequestKind::Write,
             )?;
             record.check_retention(clock.now())?;
-            transaction
-                .prepare_cached("DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2")
-                .and_then(|mut statement| statement.execute(params![owned_bucket, owned_name]))
-                .map_err(object_unavailable)?;
+            sql::exec(
+                &transaction,
+                "DELETE FROM appendable_objects WHERE bucket = ?1 AND name = ?2",
+                params![owned_bucket, owned_name],
+            )
+            .map_err(object_unavailable)?;
             transaction.commit().map_err(object_unavailable)?;
             data::remove(&catalog, &row.blob_id)
         })

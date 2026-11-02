@@ -7,6 +7,7 @@ use super::{
     transfer_io::{self, stage_path},
     unix_micros, unix_millis,
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::BucketAccess,
     hashing::{Hasher, Hashes},
@@ -15,7 +16,7 @@ use crate::{
         ObjectMetadataUpdate, ObjectRecord,
     },
 };
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -417,15 +418,15 @@ impl Catalog {
             },
         )
         .map_err(object_unavailable)?;
-        connection
-            .prepare_cached("DELETE FROM objects WHERE blob_id = ?1")
-            .and_then(|mut statement| statement.execute([&id]))
+        sql::exec(connection, "DELETE FROM objects WHERE blob_id = ?1", [&id])
             .map_err(object_unavailable)?;
-        connection
-            .prepare_cached("INSERT INTO pending_blob_deletions VALUES (?1)")
-            .and_then(|mut statement| statement.execute([&id]))
-            .map_err(object_unavailable)?;
-        connection.prepare_cached("INSERT INTO derived_deletions SELECT ?1, id FROM derived_transfers WHERE publishing = 1").and_then(|mut statement| statement.execute([&id])).map_err(object_unavailable)?;
+        sql::exec(
+            connection,
+            "INSERT INTO pending_blob_deletions VALUES (?1)",
+            [&id],
+        )
+        .map_err(object_unavailable)?;
+        sql::exec(connection, "INSERT INTO derived_deletions SELECT ?1, id FROM derived_transfers WHERE publishing = 1", [&id]).map_err(object_unavailable)?;
         super::change_journal::object(
             connection,
             super::change_journal::origin(access),
@@ -609,9 +610,7 @@ impl Catalog {
         let result = self
             .run_object(move |connection| {
                 let (_permit, _writer) = (permit, writer);
-                let count: i64 = connection
-                    .prepare_cached("SELECT count(*) FROM derived_transfers WHERE ephemeral = ?1")
-                    .and_then(|mut statement| statement.query_row([ephemeral], |row| row.get(0)))
+                let count: i64 = sql::scalar(connection, "SELECT count(*) FROM derived_transfers WHERE ephemeral = ?1", [ephemeral])
                     .map_err(object_unavailable)?;
                 if count >= MAX_TRANSFERS_PER_KIND as i64 {
                     return Err(object_unavailable("derived transfer limit reached"));
@@ -623,8 +622,7 @@ impl Catalog {
                     if memory.is_none() {
                     objects::sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?;
                     }
-                    let transaction = connection
-                        .transaction_with_behavior(TransactionBehavior::Immediate)
+                    let transaction = sql::immediate(connection)
                         .map_err(object_unavailable)?;
                     transaction
                         .prepare_cached(
@@ -653,11 +651,8 @@ impl Catalog {
                     if let Err(error) = transaction.commit() {
                         // A failed commit can be ambiguous; retain every confirmed reference.
                         preserve = true;
-                        let committed: bool = connection
-                            .prepare_cached(
-                                "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)",
-                            )
-                            .and_then(|mut statement| statement.query_row([&id], |row| row.get(0)))
+                        let committed: bool = sql::scalar(connection,
+                                "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)", [&id])
                             .map_err(object_unavailable)?;
                         if !committed {
                             preserve = false;
@@ -771,7 +766,7 @@ impl Catalog {
             output.finish(&catalog).await?;
             catalog.run_upload(move |connection| {
                 let (md5_state, crc) = hasher.md5_state();
-                connection.prepare_cached("UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4 WHERE id = ?1").and_then(|mut statement| statement.execute(params![id, progress.offset as i64, md5_state.as_slice(), crc])).map_err(object_unavailable)?;
+                sql::exec(connection, "UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4 WHERE id = ?1", params![id, progress.offset as i64, md5_state.as_slice(), crc]).map_err(object_unavailable)?;
                 // The queued SQL job owns the draft until its acknowledged prefix is updated.
                 output.acknowledge(progress.offset);
                 Ok(progress)
@@ -868,12 +863,12 @@ impl Catalog {
                 #[cfg(test)]
                 fault::hit(&data_dir, Step::AfterPublish).map_err(object_unavailable)?;
                 }
-                let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(object_unavailable)?;
+                let transaction = sql::immediate(connection).map_err(object_unavailable)?;
                 let (default_class, delete_permission) = objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
                 let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
                 let cached = replay.as_ref().map(|replay| replay.cached(&transaction, micros)).transpose()?.flatten();
                 let record = if let Some(record) = cached {
-                    transaction.prepare_cached("INSERT INTO pending_blob_deletions(blob_id) VALUES (?1)").and_then(|mut statement| statement.execute([&query])).map_err(object_unavailable)?;
+                    sql::exec(&transaction, "INSERT INTO pending_blob_deletions(blob_id) VALUES (?1)", [&query]).map_err(object_unavailable)?;
                     record
                 } else {
                 if replay.is_some() { super::upload_replay::capacity(&transaction, micros)?; }
@@ -901,7 +896,7 @@ impl Catalog {
                     temporary_hold: None, custom_time: None, retention_expiration_time: None, retention: None, customer_key_sha256: None,
                 };
                 destination.metadata.apply(&mut record)?;
-                transaction.prepare_cached("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1").and_then(|mut statement| statement.execute([&query])).map_err(object_unavailable)?;
+                sql::exec(&transaction, "UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query]).map_err(object_unavailable)?;
                 prepare(&transaction, &mut record)?;
                 Ok((record, ()))
                 })?;
@@ -909,12 +904,12 @@ impl Catalog {
                 if let Some(replay) = &replay { replay.store(&transaction, micros, &record)?; }
                 record
                 };
-                transaction.prepare_cached("DELETE FROM derived_inputs WHERE transfer_id = ?1").and_then(|mut statement| statement.execute([&query])).map_err(object_unavailable)?;
-                transaction.prepare_cached("DELETE FROM derived_transfers WHERE id = ?1").and_then(|mut statement| statement.execute([&query])).map_err(object_unavailable)?;
+                sql::exec(&transaction, "DELETE FROM derived_inputs WHERE transfer_id = ?1", [&query]).map_err(object_unavailable)?;
+                sql::exec(&transaction, "DELETE FROM derived_transfers WHERE id = ?1", [&query]).map_err(object_unavailable)?;
                 let committed = objects::commit_publication(transaction);
                 if let Some(memory) = &memory {
                     // An ambiguous SQL commit must not discard a published blob or leak its pins.
-                    let retained: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)").and_then(|mut statement| statement.query_row([&query], |row| row.get(0))).map_err(object_unavailable)?;
+                    let retained: bool = sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)", [&query]).map_err(object_unavailable)?;
                     if !retained {
                         for source in &sources { memory.remove(&source.id).map_err(object_unavailable)?; }
                         memory.remove_draft(&query).map_err(object_unavailable)?;
@@ -995,14 +990,18 @@ impl Catalog {
         }
         self.run(move |connection| {
             // Derived transfers wake the maintenance sweep, so these run per request.
-            let deadline: Option<i64> = connection
-                .prepare_cached("SELECT min(deadline) FROM derived_transfers WHERE deadline > ?1")
-                .and_then(|mut statement| statement.query_row([now], |row| row.get(0)))
-                .map_err(super::unavailable)?;
-            let pending: bool = connection
-                .prepare_cached("SELECT EXISTS(SELECT 1 FROM derived_deletions)")
-                .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-                .map_err(super::unavailable)?;
+            let deadline: Option<i64> = sql::scalar(
+                connection,
+                "SELECT min(deadline) FROM derived_transfers WHERE deadline > ?1",
+                [now],
+            )
+            .map_err(super::unavailable)?;
+            let pending: bool = sql::scalar(
+                connection,
+                "SELECT EXISTS(SELECT 1 FROM derived_deletions)",
+                [],
+            )
+            .map_err(super::unavailable)?;
             let deadline = if pending {
                 Some(deadline.map_or(now, |deadline| deadline.min(now)))
             } else {
@@ -1053,10 +1052,12 @@ fn cleanup_record_with_memory(
     memory: Option<&crate::storage::memory::Store>,
     id: &str,
 ) -> Result<(), ObjectError> {
-    let exists: bool = connection
-        .prepare_cached("SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)")
-        .and_then(|mut statement| statement.query_row([id], |row| row.get(0)))
-        .map_err(object_unavailable)?;
+    let exists: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)",
+        [id],
+    )
+    .map_err(object_unavailable)?;
     if !exists {
         return Err(ObjectError::DerivedTransferNotFound);
     }
@@ -1072,10 +1073,12 @@ fn cleanup_record_with_memory(
     } else {
         objects::unlink(&stage_path(data_dir, id)?).map_err(object_unavailable)?;
     }
-    let referenced: bool = connection
-        .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
-        .and_then(|mut statement| statement.query_row([id], |row| row.get(0)))
-        .map_err(object_unavailable)?;
+    let referenced: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
+        [id],
+    )
+    .map_err(object_unavailable)?;
     if !referenced {
         if let Some(memory) = memory {
             memory.remove(id).map_err(object_unavailable)?;
@@ -1090,14 +1093,18 @@ fn discard_record(connection: &Connection, id: &str) -> Result<(), ObjectError> 
     let transaction = connection
         .unchecked_transaction()
         .map_err(object_unavailable)?;
-    transaction
-        .prepare_cached("DELETE FROM derived_inputs WHERE transfer_id = ?1")
-        .and_then(|mut statement| statement.execute([id]))
-        .map_err(object_unavailable)?;
-    transaction
-        .prepare_cached("DELETE FROM derived_transfers WHERE id = ?1")
-        .and_then(|mut statement| statement.execute([id]))
-        .map_err(object_unavailable)?;
+    sql::exec(
+        &transaction,
+        "DELETE FROM derived_inputs WHERE transfer_id = ?1",
+        [id],
+    )
+    .map_err(object_unavailable)?;
+    sql::exec(
+        &transaction,
+        "DELETE FROM derived_transfers WHERE id = ?1",
+        [id],
+    )
+    .map_err(object_unavailable)?;
     transaction.commit().map_err(object_unavailable)
 }
 

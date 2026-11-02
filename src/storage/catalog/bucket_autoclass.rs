@@ -5,17 +5,12 @@ use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CatalogError,
     autoclass::{self, AUTOCLASS_STORAGE_CLASS, Autoclass},
 };
+use crate::storage::catalog::sql;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, types::Type};
 use std::time::SystemTime;
 
 pub(super) const SCHEMA: &str =
     "ALTER TABLE buckets ADD COLUMN autoclass TEXT; PRAGMA user_version = 31;";
-
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
 
 /// Read by column name so the bucket column list can grow independently.
 pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Option<Autoclass>> {
@@ -38,10 +33,12 @@ fn store(
         .map(serde_json::to_string)
         .transpose()
         .map_err(unavailable)?;
-    transaction
-        .prepare_cached("UPDATE buckets SET autoclass = ?2 WHERE name = ?1")
-        .and_then(|mut statement| statement.execute(rusqlite::params![bucket, value]))
-        .map_err(unavailable)?;
+    sql::exec(
+        transaction,
+        "UPDATE buckets SET autoclass = ?2 WHERE name = ?1",
+        rusqlite::params![bucket, value],
+    )
+    .map_err(unavailable)?;
     Ok(())
 }
 

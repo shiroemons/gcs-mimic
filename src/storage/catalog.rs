@@ -7,9 +7,7 @@ use crate::bucket::{
 };
 use crate::clock::{Clock, SystemClock};
 use crate::storage::failure::unavailable;
-use rusqlite::{
-    Connection, OpenFlags, OptionalExtension, Row, TransactionBehavior, params, types::Type,
-};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, types::Type};
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -62,6 +60,7 @@ pub(crate) mod xml_multipart;
 
 mod executor;
 mod principals;
+mod sql;
 
 mod resumable_recovery;
 
@@ -199,14 +198,6 @@ const BUCKET_SCHEMA: &str = "CREATE TABLE buckets (
 pub(crate) struct BucketListPage {
     pub items: Vec<BucketRecord>,
     pub has_more: bool,
-}
-
-fn migrate_bucket_settings(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction
-        .execute_batch(BUCKET_SETTINGS_SCHEMA)
-        .map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
 }
 
 #[expect(
@@ -857,7 +848,7 @@ const MIGRATIONS: &[(i64, Migration)] = &[
     (5, Migration::Function(migrate_seed)),
     (6, Migration::Function(policies::migrate)),
     (7, Migration::Function(resumable::migrate)),
-    (8, Migration::Function(migrate_bucket_settings)),
+    (8, Migration::Statements(BUCKET_SETTINGS_SCHEMA)),
     (9, Migration::Function(objects::migrate_versioning)),
     (10, Migration::Statements(derived::SCHEMA)),
     (11, Migration::Statements(rewrite::SCHEMA)),
@@ -867,27 +858,27 @@ const MIGRATIONS: &[(i64, Migration)] = &[
         TIMESTAMP_MICROS_SCHEMA_VERSION,
         Migration::Function(migrate_timestamp_precision),
     ),
-    (15, Migration::Function(change_journal::migrate)),
-    (16, Migration::Function(import_journal::migrate)),
+    (15, Migration::Statements(change_journal::SCHEMA)),
+    (16, Migration::Statements(import_journal::SCHEMA)),
     (17, Migration::Function(sync_state::migrate)),
-    (18, Migration::Function(import_journal::migrate_failure)),
-    (19, Migration::Function(sync_state::root::migrate)),
-    (20, Migration::Function(sync_state::writeback::migrate)),
-    (21, Migration::Function(sync_state::findings::migrate)),
+    (18, Migration::Statements(import_journal::FAILURE_SCHEMA)),
+    (19, Migration::Statements(sync_state::root::SCHEMA)),
+    (20, Migration::Statements(sync_state::writeback::SCHEMA)),
+    (21, Migration::Statements(sync_state::findings::SCHEMA)),
     (22, Migration::Statements(OBJECT_HOLDS_CUSTOM_TIME_SCHEMA)),
     (23, Migration::Statements(BUCKET_UNIFORM_ACCESS_SCHEMA)),
     (24, Migration::Statements(BUCKET_LIFECYCLE_SCHEMA)),
     (25, Migration::Statements(BUCKET_RETENTION_SCHEMA)),
     (26, Migration::Statements(SOFT_DELETE_SCHEMA)),
-    (27, Migration::Function(sync_state::buckets::migrate)),
-    (28, Migration::Function(notifications::migrate)),
+    (27, Migration::Statements(sync_state::buckets::SCHEMA)),
+    (28, Migration::Statements(notifications::SCHEMA)),
     (29, Migration::Function(objects::retention::migrate)),
     (30, Migration::Function(customer_keys::migrate)),
-    (31, Migration::Function(bucket_autoclass::migrate)),
-    (32, Migration::Function(hmac_keys::migrate)),
-    (33, Migration::Function(acl::migrate)),
-    (34, Migration::Function(appendable::migrate)),
-    (35, Migration::Function(upload_replay::migrate)),
+    (31, Migration::Statements(bucket_autoclass::SCHEMA)),
+    (32, Migration::Statements(hmac_keys::SCHEMA)),
+    (33, Migration::Statements(acl::SCHEMA)),
+    (34, Migration::Statements(appendable::SCHEMA)),
+    (35, Migration::Statements(upload_replay::SCHEMA)),
     (36, Migration::Statements(md5_availability::SCHEMA)),
     (37, Migration::Statements(xml_multipart::SCHEMA)),
     (38, Migration::Statements(notification_outbox::SCHEMA)),
@@ -948,17 +939,16 @@ fn recover_on_open(
     }
     connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(unavailable)?;
     notification_outbox::open(connection)?;
-    let has_deletion_revision: bool = connection
-        .prepare_cached(
-            "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets WHERE valid=1 OR authorization!=0)",
-        )
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .map_err(unavailable)?;
+    let has_deletion_revision: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets WHERE valid=1 OR authorization!=0)",
+        [],
+    )
+    .map_err(unavailable)?;
     if has_deletion_revision {
         connection.execute_batch("UPDATE sync_deletion_sets SET valid=0,authorization=0 WHERE valid=1 OR authorization!=0;").map_err(unavailable)?;
     }
-    let has_conflict_revision:bool=connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_conflict_roots UNION ALL SELECT 1 FROM sync_recovery_workspaces)")
-        .and_then(|mut statement|statement.query_row([],|row|row.get(0))).map_err(unavailable)?;
+    let has_conflict_revision:bool=sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM sync_conflict_roots UNION ALL SELECT 1 FROM sync_recovery_workspaces)", []).map_err(unavailable)?;
     if has_conflict_revision {
         connection.execute_batch("UPDATE sync_conflict_roots SET revision=lower(hex(randomblob(16))); UPDATE sync_recovery_workspaces SET revision=lower(hex(randomblob(16)));").map_err(unavailable)?;
     }
@@ -1340,9 +1330,7 @@ impl Catalog {
         let default_retention = self.default_soft_delete_retention();
         self.run(move |connection| {
             validate_cors(&record.cors)?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(unavailable)?;
+            let transaction = sql::immediate(connection).map_err(unavailable)?;
             insert_bucket_in_transaction(&transaction, &mut record, default_retention)?;
             change_journal::append(
                 &transaction,
@@ -1417,8 +1405,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
+            let transaction = sql::immediate(connection)
                 .map_err(unavailable)?;
             let mut record = select_bucket(&transaction, &name)
                 .map_err(unavailable)?
@@ -1661,8 +1648,7 @@ impl Catalog {
         let maintenance_wake = self.0.maintenance_wake.clone();
         let clock = self.0.clock.clone();
         self.run(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
+            let transaction = sql::immediate(connection)
                 .map_err(unavailable)?;
             let (metageneration, project): (i64, String) = transaction
                 .prepare_cached("SELECT metageneration, project FROM buckets WHERE name = ?1")
@@ -1678,11 +1664,8 @@ impl Catalog {
             {
                 return Err(CatalogError::PreconditionFailed);
             }
-            let nonempty: bool = transaction
-                .prepare_cached(
-                    "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL)",
-                )
-                .and_then(|mut statement| statement.query_row([&name], |r| r.get(0)))
+            let nonempty: bool = sql::scalar(&transaction,
+                    "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL)", [&name])
                 .map_err(unavailable)?;
             if nonempty {
                 return Err(CatalogError::NotEmpty);
@@ -1691,9 +1674,7 @@ impl Catalog {
             // so the permanent deletions below no longer find them.
             bucket_soft_delete::retire(&transaction, &name, unix_micros(clock.now())?)?;
             let execute = |sql: &'static str| {
-                transaction
-                    .prepare_cached(sql)
-                    .and_then(|mut statement| statement.execute([&name]))
+                sql::exec(&transaction, sql, [&name])
                     .map_err(unavailable)
             };
             execute(
@@ -2095,10 +2076,12 @@ fn insert_bucket_in_transaction(
     // Cloud Storage bucket generations are 19-digit nanosecond values. A dedicated allocator
     // keeps them unique and increasing even under a frozen injected clock, and across a
     // recreated name's soft-deleted versions, without disturbing object generations.
-    let last: i64 = transaction
-        .prepare_cached("SELECT last_generation FROM bucket_generation WHERE singleton = 1")
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .map_err(unavailable)?;
+    let last: i64 = sql::scalar(
+        transaction,
+        "SELECT last_generation FROM bucket_generation WHERE singleton = 1",
+        [],
+    )
+    .map_err(unavailable)?;
     record.generation = created_nanos.max(
         last.checked_add(1)
             .ok_or_else(|| unavailable("generation exhausted"))?,
@@ -2145,20 +2128,24 @@ fn insert_bucket_in_transaction(
     if changed == 0 {
         return Err(CatalogError::AlreadyExists);
     }
-    transaction
-        .prepare_cached("UPDATE bucket_generation SET last_generation = ?1 WHERE singleton = 1")
-        .and_then(|mut statement| statement.execute([record.generation]))
-        .map_err(unavailable)?;
+    sql::exec(
+        transaction,
+        "UPDATE bucket_generation SET last_generation = ?1 WHERE singleton = 1",
+        [record.generation],
+    )
+    .map_err(unavailable)?;
     bucket_autoclass::insert(transaction, record)?;
     insert_policy(
         transaction,
         &record.name,
         &Policy::default_for(&record.project),
     )?;
-    transaction
-        .prepare_cached("INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))")
-        .and_then(|mut statement| statement.execute([&record.name]))
-        .map_err(unavailable)?;
+    sql::exec(
+        transaction,
+        "INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))",
+        [&record.name],
+    )
+    .map_err(unavailable)?;
     Ok(())
 }
 
@@ -2430,7 +2417,9 @@ mod tests {
                 10,
             );
         }
-        let error = migrate_bucket_settings(&mut connection).unwrap_err();
+        let error = Migration::Statements(BUCKET_SETTINGS_SCHEMA)
+            .apply(&mut connection)
+            .unwrap_err();
         assert!(error.to_string().contains("too many columns"), "{error}");
         assert_eq!(
             connection
@@ -2459,7 +2448,9 @@ mod tests {
                 2000,
             );
         }
-        migrate_bucket_settings(&mut connection).unwrap();
+        Migration::Statements(BUCKET_SETTINGS_SCHEMA)
+            .apply(&mut connection)
+            .unwrap();
         assert_eq!(
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))

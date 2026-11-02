@@ -2,7 +2,7 @@
 
 use super::{Catalog, CatalogError, acl, unavailable, unix_micros};
 use crate::auth::{Auth, Identity};
-use rusqlite::{OptionalExtension, TransactionBehavior};
+use crate::storage::catalog::sql;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -62,18 +62,14 @@ impl Catalog {
             }
             let mut after: Option<String> = None;
             loop {
-                let transaction = connection
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                let transaction = sql::immediate(connection)
                     .map_err(unavailable)?;
                 let query = if after.is_some() {
                     "SELECT name FROM buckets WHERE name>?1 ORDER BY name LIMIT 1"
                 } else {
                     "SELECT name FROM buckets WHERE ?1 IS NULL ORDER BY name LIMIT 1"
                 };
-                let bucket: Option<String> = transaction
-                    .prepare_cached(query)
-                    .and_then(|mut statement| statement.query_row([&after], |row| row.get(0)))
-                    .optional()
+                let bucket: Option<String> = sql::optional_scalar(&transaction, query, [&after])
                     .map_err(unavailable)?;
                 let Some(bucket) = bucket else { break };
                 acl::reconcile_bucket_policy(

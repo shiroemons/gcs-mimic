@@ -6,11 +6,12 @@ use super::{
     },
     unix_micros,
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::BucketAccess,
     object::{ObjectConditions, ObjectError, ObjectRecord},
 };
-use rusqlite::{TransactionBehavior, params};
+use rusqlite::params;
 
 /// The three authorities a move checks in its single transaction.
 #[derive(Clone, Copy)]
@@ -40,9 +41,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let record = self
             .run_object(move |connection| {
-                let transaction = connection
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(object_unavailable)?;
+                let transaction = sql::immediate(connection).map_err(object_unavailable)?;
                 let (mut record, blob_id) = selected(
                     &transaction,
                     &bucket,

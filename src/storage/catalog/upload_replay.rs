@@ -1,4 +1,5 @@
 use super::{Catalog, UploadGuard, objects, unavailable, unix_micros};
+use crate::storage::catalog::sql;
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{ObjectConditions, ObjectError, ObjectRecord},
@@ -56,18 +57,10 @@ pub(crate) struct CopyReplaySource<'a> {
     pub(crate) access: &'a BucketAccess,
 }
 
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
-
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     // The same statement as the per-upload `capacity` check, so validation reuses its entry.
-    let count: i64 = connection
-        .prepare_cached("SELECT count(*) FROM upload_replays")
-        .and_then(|mut statement| statement.query_row([], |r| r.get(0)))
-        .map_err(unavailable)?;
+    let count: i64 =
+        sql::scalar(connection, "SELECT count(*) FROM upload_replays", []).map_err(unavailable)?;
     if count > CAPACITY {
         return Err(unavailable("upload replay capacity exceeded"));
     }
@@ -132,10 +125,9 @@ impl CopyReplay {
         )?;
         self.replay
             .check_incarnation(connection, &self.destination_bucket)?;
-        let incarnation: String = connection
-            .prepare_cached(SELECT_INCARNATION)
-            .and_then(|mut statement| statement.query_row([&self.source_bucket], |row| row.get(0)))
-            .map_err(objects::object_unavailable)?;
+        let incarnation: String =
+            sql::scalar(connection, SELECT_INCARNATION, [&self.source_bucket])
+                .map_err(objects::object_unavailable)?;
         if incarnation != self.source_incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
@@ -271,10 +263,7 @@ impl UploadReplay {
             .and_then(|mut statement| statement.query_row([&record.bucket], |r| Ok((r.get(0)?, r.get(1)?))))
             .map_err(objects::object_unavailable)?;
         let acl = if visible && !uniform {
-            let entries: Option<String> = connection
-                .prepare_cached("SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3")
-                .and_then(|mut statement| statement.query_row(params![record.bucket, record.name, record.generation], |r| r.get(0)))
-                .optional()
+            let entries: Option<String> = sql::optional_scalar(connection, "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3", params![record.bucket, record.name, record.generation])
                 .map_err(objects::object_unavailable)?;
             Some(
                 entries
@@ -322,9 +311,7 @@ impl UploadReplay {
         connection: &Connection,
         bucket: &str,
     ) -> Result<(), ObjectError> {
-        let incarnation: String = connection
-            .prepare_cached(SELECT_INCARNATION)
-            .and_then(|mut statement| statement.query_row([bucket], |r| r.get(0)))
+        let incarnation: String = sql::scalar(connection, SELECT_INCARNATION, [bucket])
             .map_err(objects::object_unavailable)?;
         if incarnation != self.incarnation {
             return Err(ObjectError::PreconditionFailed);
@@ -334,13 +321,13 @@ impl UploadReplay {
 }
 
 pub(super) fn capacity(connection: &Connection, now: i64) -> Result<(), ObjectError> {
-    connection
-        .prepare_cached("DELETE FROM upload_replays WHERE deadline <= ?1")
-        .and_then(|mut statement| statement.execute([now]))
-        .map_err(objects::object_unavailable)?;
-    let count: i64 = connection
-        .prepare_cached("SELECT count(*) FROM upload_replays")
-        .and_then(|mut statement| statement.query_row([], |r| r.get(0)))
+    sql::exec(
+        connection,
+        "DELETE FROM upload_replays WHERE deadline <= ?1",
+        [now],
+    )
+    .map_err(objects::object_unavailable)?;
+    let count: i64 = sql::scalar(connection, "SELECT count(*) FROM upload_replays", [])
         .map_err(objects::object_unavailable)?;
     if count >= CAPACITY {
         return Err(objects::object_unavailable(
@@ -363,11 +350,12 @@ fn copy_source_generation(
     if objects::object_acl_authority(connection, source.bucket, source.access)?.is_none() {
         return Ok(source.generation);
     }
-    let stored: Option<String> = connection
-        .prepare_cached("SELECT completion FROM upload_replays WHERE token=?1 AND deadline>?2")
-        .and_then(|mut statement| statement.query_row(params![token, now], |row| row.get(0)))
-        .optional()
-        .map_err(objects::object_unavailable)?;
+    let stored: Option<String> = sql::optional_scalar(
+        connection,
+        "SELECT completion FROM upload_replays WHERE token=?1 AND deadline>?2",
+        params![token, now],
+    )
+    .map_err(objects::object_unavailable)?;
     let generation = match stored {
         Some(stored) => {
             let completion: Completion =
@@ -548,9 +536,7 @@ impl Catalog {
                         .map_err(objects::object_unavailable)?;
                     let (_, delete_permission) =
                         objects::authorized_bucket(&transaction, &bucket, &access)?;
-                    let incarnation = transaction
-                        .prepare_cached(SELECT_INCARNATION)
-                        .and_then(|mut statement| statement.query_row([&bucket], |r| r.get(0)))
+                    let incarnation = sql::scalar(&transaction, SELECT_INCARNATION, [&bucket])
                         .map_err(objects::object_unavailable)?;
                     if expected_incarnation
                         .as_ref()

@@ -6,6 +6,7 @@ use super::{
     admin::{AdminError, Origin},
     unavailable,
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::ObjectRecord,
@@ -160,12 +161,6 @@ fn valid_cursor(cursor: JournalFence, current: JournalFence, floor: i64) -> bool
         && cursor.sequence <= current.sequence
 }
 
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
-
 #[expect(
     clippy::disallowed_methods,
     reason = "validates catalog state once at open"
@@ -224,29 +219,33 @@ pub(super) fn append(
     bucket: &str,
     object: Option<&ObjectRecord>,
 ) -> Result<(), CatalogError> {
-    let enabled: bool = connection
-        .prepare_cached("SELECT enabled FROM change_journal_state WHERE singleton = 1")
-        .and_then(|mut statement| statement.query_row([], |r| r.get(0)))
-        .map_err(unavailable)?;
+    let enabled: bool = sql::scalar(
+        connection,
+        "SELECT enabled FROM change_journal_state WHERE singleton = 1",
+        [],
+    )
+    .map_err(unavailable)?;
     if !enabled {
         return Ok(());
     }
-    connection
-        .prepare_cached(
-            "UPDATE change_journal_state SET sequence = sequence + 1 WHERE singleton = 1",
-        )
-        .and_then(|mut statement| statement.execute([]))
-        .map_err(unavailable)?;
-    let inserted = connection.prepare_cached("INSERT INTO change_journal SELECT s.sequence, ?1, ?2, b.name, b.project, i.incarnation, ?4, ?5, coalesce(?6, b.metageneration) FROM change_journal_state s, buckets b JOIN bucket_incarnations i ON i.bucket = b.name WHERE b.name = ?3")
-        .and_then(|mut statement| statement.execute(params![origin_name(origin), kind.as_str(), bucket, object.map(|o| &o.name), object.map(|o| o.generation), object.map(|o| o.metageneration)])).map_err(unavailable)?;
+    sql::exec(
+        connection,
+        "UPDATE change_journal_state SET sequence = sequence + 1 WHERE singleton = 1",
+        [],
+    )
+    .map_err(unavailable)?;
+    let inserted = sql::exec(connection, "INSERT INTO change_journal SELECT s.sequence, ?1, ?2, b.name, b.project, i.incarnation, ?4, ?5, coalesce(?6, b.metageneration) FROM change_journal_state s, buckets b JOIN bucket_incarnations i ON i.bucket = b.name WHERE b.name = ?3", params![origin_name(origin), kind.as_str(), bucket, object.map(|o| &o.name), object.map(|o| o.generation), object.map(|o| o.metageneration)]).map_err(unavailable)?;
     if inserted != 1 {
         return Err(unavailable("missing change journal bucket identity"));
     }
     // Each append evicts at most one record, even inside a larger mutation batch.
-    connection.prepare_cached("DELETE FROM change_journal WHERE sequence <= (SELECT sequence - 65536 FROM change_journal_state) AND sequence IN (SELECT sequence FROM change_journal ORDER BY sequence LIMIT 256)")
-        .and_then(|mut statement| statement.execute([])).map_err(unavailable)?;
-    connection.prepare_cached("UPDATE change_journal_state SET floor = max(floor, sequence - 65536) WHERE singleton = 1")
-        .and_then(|mut statement| statement.execute([])).map_err(unavailable)?;
+    sql::exec(connection, "DELETE FROM change_journal WHERE sequence <= (SELECT sequence - 65536 FROM change_journal_state) AND sequence IN (SELECT sequence FROM change_journal ORDER BY sequence LIMIT 256)", []).map_err(unavailable)?;
+    sql::exec(
+        connection,
+        "UPDATE change_journal_state SET floor = max(floor, sequence - 65536) WHERE singleton = 1",
+        [],
+    )
+    .map_err(unavailable)?;
     Ok(())
 }
 
@@ -351,7 +350,7 @@ impl Catalog {
     )]
     async fn set_change_journal(&self, enabled: bool) -> Result<JournalFence, AdminError> {
         self.run_admin(move |connection| {
-            connection.prepare_cached("UPDATE change_journal_state SET enabled = ?1, epoch = epoch + (enabled != ?1) WHERE singleton = 1").and_then(|mut statement|statement.execute([enabled])).map_err(unavailable)?;
+            sql::exec(connection, "UPDATE change_journal_state SET enabled = ?1, epoch = epoch + (enabled != ?1) WHERE singleton = 1", [enabled]).map_err(unavailable)?;
             Ok(state(connection)?.0)
         }).await
     }

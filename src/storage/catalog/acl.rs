@@ -12,12 +12,13 @@ use super::{
     policies::{check_access, public_access_prevention},
     unavailable, unix_micros,
 };
+use crate::storage::catalog::sql;
 use crate::{
     acl::{AclEntry, AclKind, AclTarget, Entity, MAX_ENTRIES, project_private},
     bucket::{BucketAccess, CatalogError},
     object::{ObjectConditions, ObjectError},
 };
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 mod bucket_policy;
 #[cfg(test)]
@@ -50,12 +51,6 @@ const UPSERT_BUCKET_ENTRIES: &str =
 const UPSERT_OBJECT_ENTRIES: &str =
     "INSERT INTO acl_object_entries (bucket, name, generation, entries) VALUES (?1, ?2, ?3, ?4)
      ON CONFLICT(bucket, name, generation) DO UPDATE SET entries = excluded.entries";
-
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
 
 /// An owner without a canonical alias still consumes one logical ACL grant.
 fn validate_effective_entries(
@@ -695,10 +690,12 @@ impl Catalog {
             {
                 return Ok(None);
             }
-            let incarnation: String = transaction
-                .prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket=?1")
-                .and_then(|mut statement| statement.query_row([&snapshot.bucket], |row| row.get(0)))
-                .map_err(unavailable)?;
+            let incarnation: String = sql::scalar(
+                &transaction,
+                "SELECT incarnation FROM bucket_incarnations WHERE bucket=?1",
+                [&snapshot.bucket],
+            )
+            .map_err(unavailable)?;
             if snapshot.incarnation != incarnation {
                 return Ok(None);
             }
@@ -770,8 +767,7 @@ impl Catalog {
         let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
             Ok((|| {
-                let transaction = connection
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                let transaction = sql::immediate(connection)
                     .map_err(unavailable)?;
                 let (mut state, record) = load(&transaction, &target, &access)?;
                 let bucket = target.bucket();

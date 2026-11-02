@@ -538,7 +538,11 @@ async fn sync_root_schema_migration_rolls_back_retries_and_preserves_state() {
             "ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; PRAGMA user_version = 18; CREATE TABLE sync_roots(collision);",
         )
         .unwrap();
-    assert!(migrate(&mut connection).is_err());
+    assert!(
+        crate::storage::catalog::Migration::Statements(SCHEMA)
+            .apply(&mut connection)
+            .is_err()
+    );
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
@@ -559,7 +563,11 @@ async fn sync_root_schema_migration_rolls_back_retries_and_preserves_state() {
         .execute("INSERT INTO filler VALUES(zeroblob(4096))", [])
         .is_ok()
     {}
-    assert!(migrate(&mut connection).is_err());
+    assert!(
+        crate::storage::catalog::Migration::Statements(SCHEMA)
+            .apply(&mut connection)
+            .is_err()
+    );
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))

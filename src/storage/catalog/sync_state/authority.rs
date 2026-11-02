@@ -4,6 +4,7 @@ use super::{
     super::unavailable,
     root::{RootError, RootLease},
 };
+use crate::storage::catalog::sql;
 use crate::{auth::Identity, bucket::CatalogError};
 use rusqlite::Connection;
 
@@ -56,8 +57,7 @@ impl ControlAuthority {
         if !identity.has_explicit_storage_admin(seed) {
             return Err(CatalogError::Forbidden);
         }
-        let missing:bool=connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_findings f LEFT JOIN sync_finding_owners o ON o.ordinal=f.ordinal WHERE f.root_id=?1 AND (o.ordinal IS NULL OR o.owner_project IS NULL))")
-            .and_then(|mut statement|statement.query_row([root],|row|row.get(0))).map_err(unavailable)?;
+        let missing:bool=sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM sync_findings f LEFT JOIN sync_finding_owners o ON o.ordinal=f.ordinal WHERE f.root_id=?1 AND (o.ordinal IS NULL OR o.owner_project IS NULL))", [root]).map_err(unavailable)?;
         if missing {
             return Err(CatalogError::Forbidden);
         }

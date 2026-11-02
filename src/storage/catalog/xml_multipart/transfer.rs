@@ -1,5 +1,6 @@
 use super::super::transfer_io::{InputReader, Output};
 use super::*;
+use crate::storage::catalog::sql;
 use crate::{
     hashing::Hasher,
     object::{ExpectedHashes, UploadChunk},
@@ -78,15 +79,13 @@ impl Catalog {
                     if let objects::UploadSink::Memory(stage)=file { stage.publish(id.clone()).map_err(object_unavailable)?; }
                     #[cfg(unix)] if memory.is_none() { objects::sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?; }
                     #[cfg(test)] super::super::fault::hit(&data_dir,super::super::fault::Step::Checkpoint).map_err(object_unavailable)?;
-                    let transaction=connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(object_unavailable)?;
+                    let transaction=sql::immediate(connection).map_err(object_unavailable)?;
                     let result=(|| -> Result<_,Error> {
                         let now=unix_millis(clock.now())?;
                         active(&transaction,&target,&access,now)?;
                         objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
-                        transaction.prepare_cached("INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2")
-                            .and_then(|mut s|s.execute(params![target.id,request.number])).map_err(object_unavailable)?;
-                        transaction.prepare_cached("INSERT INTO xml_multipart_parts VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated")
-                            .and_then(|mut s|s.execute(params![target.id,request.number,id,size as i64,md5.as_slice(),crc32c,now])).map_err(object_unavailable)?;
+                        sql::exec(&transaction, "INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![target.id,request.number]).map_err(object_unavailable)?;
+                        sql::exec(&transaction, "INSERT INTO xml_multipart_parts VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated", params![target.id,request.number,id,size as i64,md5.as_slice(),crc32c,now]).map_err(object_unavailable)?;
                         let stored=part(&transaction,&target.id,request.number)?;
                         objects::commit_publication(transaction)?;
                         Ok(stored)
@@ -98,9 +97,9 @@ impl Catalog {
             let data_dir=catalog.0.data_dir.clone();
             let memory=catalog.0.memory.clone();
             if let Err(error)=catalog.run_object(move |connection| {
-                let referenced:bool=connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1)").and_then(|mut s|s.query_row([&id],|r|r.get(0))).map_err(object_unavailable)?;
+                let referenced:bool=sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1)", [&id]).map_err(object_unavailable)?;
                 if !referenced {
-                    connection.prepare_cached("INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)").and_then(|mut s|s.execute([id])).map_err(object_unavailable)?;
+                    sql::exec(connection, "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)", [id]).map_err(object_unavailable)?;
                 }
                 maintenance::drain_storage(connection,&data_dir,memory.as_deref())?;
                 Ok(())
@@ -146,12 +145,12 @@ impl Catalog {
                 let memory = catalog.0.memory.clone();
                 if let Err(cleanup) = catalog
                     .run_object(move |connection| {
-                        connection
-                            .prepare_cached(
-                                "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)",
-                            )
-                            .and_then(|mut s| s.execute([orphan]))
-                            .map_err(object_unavailable)?;
+                        sql::exec(
+                            connection,
+                            "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)",
+                            [orphan],
+                        )
+                        .map_err(object_unavailable)?;
                         maintenance::drain_storage(connection, &data_dir, memory.as_deref())?;
                         Ok(())
                     })
@@ -324,10 +323,12 @@ impl Catalog {
             if memory.is_none() {
                 objects::sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?;
             }
-            let count: i64 = connection
-                .prepare_cached("SELECT count(*) FROM derived_transfers WHERE ephemeral=1")
-                .and_then(|mut s| s.query_row([], |r| r.get(0)))
-                .map_err(object_unavailable)?;
+            let count: i64 = sql::scalar(
+                connection,
+                "SELECT count(*) FROM derived_transfers WHERE ephemeral=1",
+                [],
+            )
+            .map_err(object_unavailable)?;
             if count >= 128 {
                 return Err(object_unavailable("derived transfer limit reached"));
             }

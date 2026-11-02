@@ -6,6 +6,7 @@ use super::{
     authority::ControlAuthority,
     root::{RootError, RootLease},
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     fsutil::{self, FileIdentity},
@@ -152,8 +153,7 @@ impl CapturedConflict {
             return Err(ObjectError::PreconditionFailed);
         }
         super::matching(tx, binding, &binding.bucket)?;
-        let valid: bool = tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_conflicts WHERE root_id=?1 AND id=?2 AND revision=?3 AND state=1)")
-            .and_then(|mut statement| statement.query_row(params![self.root,self.id,self.revision], |row| row.get(0)))
+        let valid: bool = sql::scalar(tx, "SELECT EXISTS(SELECT 1 FROM sync_conflicts WHERE root_id=?1 AND id=?2 AND revision=?3 AND state=1)", params![self.root,self.id,self.revision])
             .map_err(objects::object_unavailable)?;
         if !valid {
             return Err(ObjectError::PreconditionFailed);

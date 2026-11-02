@@ -1,6 +1,7 @@
 //! Payload snapshots belong to the object mutation transaction, independently of sync replay.
 
 use super::{Catalog, unavailable, unix_micros};
+use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     notification::{GlobalConfig, Message, Runtime},
@@ -134,20 +135,21 @@ fn insert(
     message: &Message<'_>,
 ) -> Result<(), CatalogError> {
     let bytes = i64::try_from(topic.len() + encoded.len()).map_err(unavailable)?;
-    let full: bool = connection.prepare_cached("SELECT pending_count >= 4096 OR pending_bytes + ?1 > 16777216 FROM notification_outbox_state WHERE singleton = 1")
-        .and_then(|mut statement| statement.query_row([bytes], |row| row.get(0))).map_err(unavailable)?;
+    let full: bool = sql::scalar(connection, "SELECT pending_count >= 4096 OR pending_bytes + ?1 > 16777216 FROM notification_outbox_state WHERE singleton = 1", [bytes]).map_err(unavailable)?;
     if full {
         return Err(unavailable(OutboxFull));
     }
-    let id: i64 = connection.prepare_cached(
+    let id: i64 = sql::optional_scalar(connection,
         "UPDATE notification_outbox_state SET last_id = last_id + 1 WHERE singleton = 1 AND last_id < 9223372036854775807 RETURNING last_id"
-    ).and_then(|mut statement| statement.query_row([], |row| row.get(0))).optional().map_err(unavailable)?
+    , []).map_err(unavailable)?
         .ok_or_else(|| unavailable("notification outbox ID exhausted"))?;
     let due = unix_micros(message.time)?;
-    connection
-        .prepare_cached("INSERT INTO notification_outbox VALUES (?1, ?2, ?3, ?4, 0)")
-        .and_then(|mut statement| statement.execute(params![id, topic, encoded, due]))
-        .map_err(unavailable)?;
+    sql::exec(
+        connection,
+        "INSERT INTO notification_outbox VALUES (?1, ?2, ?3, ?4, 0)",
+        params![id, topic, encoded, due],
+    )
+    .map_err(unavailable)?;
     Ok(())
 }
 
@@ -167,10 +169,7 @@ impl Catalog {
         let global: Option<GlobalConfig> = runtime.global.clone();
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
-            transaction
-                .prepare_cached("DELETE FROM notification_runtime")
-                .and_then(|mut statement| statement.execute([]))
-                .map_err(unavailable)?;
+            sql::exec(&transaction, "DELETE FROM notification_runtime", []).map_err(unavailable)?;
             if let Some(global) = global {
                 transaction
                     .prepare_cached("INSERT INTO notification_runtime VALUES (1, ?1, ?2)")
@@ -195,10 +194,12 @@ impl Catalog {
 
     pub(crate) async fn acknowledge_notification(&self, id: i64) -> Result<(), CatalogError> {
         self.run(move |connection| {
-            connection
-                .prepare_cached("DELETE FROM notification_outbox WHERE id = ?1")
-                .and_then(|mut statement| statement.execute([id]))
-                .map_err(unavailable)?;
+            sql::exec(
+                connection,
+                "DELETE FROM notification_outbox WHERE id = ?1",
+                [id],
+            )
+            .map_err(unavailable)?;
             Ok(())
         })
         .await
@@ -206,8 +207,7 @@ impl Catalog {
 
     pub(crate) async fn retry_notification(&self, id: i64, due: i64) -> Result<(), CatalogError> {
         self.run(move |connection| {
-            connection.prepare_cached("UPDATE notification_outbox SET due = ?2, attempts = min(attempts + 1, 63) WHERE id = ?1")
-                .and_then(|mut statement| statement.execute(params![id, due])).map_err(unavailable)?;
+            sql::exec(connection, "UPDATE notification_outbox SET due = ?2, attempts = min(attempts + 1, 63) WHERE id = ?1", params![id, due]).map_err(unavailable)?;
             Ok(())
         }).await
     }

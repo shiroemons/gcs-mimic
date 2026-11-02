@@ -1,6 +1,7 @@
 use super::{
     Catalog, DerivedDestination, DerivedSource, DerivedSourceSpec, compose_crc32c::combine, objects,
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::BucketAccess,
     clock::Clock,
@@ -19,10 +20,12 @@ pub(crate) enum SourceDisposal {
 }
 
 fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectError> {
-    connection
-        .prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1")
-        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
-        .map_err(object_unavailable)
+    sql::scalar(
+        connection,
+        "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
+        [bucket],
+    )
+    .map_err(object_unavailable)
 }
 
 /// The source identities a compose read, re-checked when it publishes.

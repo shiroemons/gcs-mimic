@@ -1,5 +1,6 @@
 use super::{Catalog, CatalogError, ResumableError, SessionState, unavailable, unix_millis};
-use rusqlite::{Connection, TransactionBehavior, params};
+use crate::storage::catalog::sql;
+use rusqlite::{Connection, params};
 use std::{
     fs, io,
     path::Path,
@@ -31,10 +32,12 @@ fn clean_record(
     clean_session_storage(connection, data_dir, memory, blob_id)?;
     if deadline <= now {
         // Resumable session requests wake the maintenance sweep, so this runs per request.
-        connection
-            .prepare_cached("DELETE FROM resumable_sessions WHERE id = ?1 AND deadline <= ?2")
-            .and_then(|mut statement| statement.execute(params![id, now]))
-            .map_err(unavailable)?;
+        sql::exec(
+            connection,
+            "DELETE FROM resumable_sessions WHERE id = ?1 AND deadline <= ?2",
+            params![id, now],
+        )
+        .map_err(unavailable)?;
     }
     Ok(())
 }
@@ -90,10 +93,12 @@ pub(super) fn clean_session_storage(
 ) -> Result<(), CatalogError> {
     let blob = super::super::blob_id::BlobId::parse(blob_id)
         .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
-    let live: bool = connection
-        .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
-        .and_then(|mut statement| statement.query_row([blob_id], |row| row.get(0)))
-        .map_err(unavailable)?;
+    let live: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
+        [blob_id],
+    )
+    .map_err(unavailable)?;
     if let Some(memory) = memory {
         memory.remove_draft(blob_id).map_err(unavailable)?;
     } else {
@@ -107,10 +112,12 @@ pub(super) fn clean_session_storage(
             unlink(&blob.blob_path(data_dir))?;
         }
     }
-    connection
-        .prepare_cached("DELETE FROM pending_blob_deletions WHERE blob_id = ?1")
-        .and_then(|mut statement| statement.execute([blob_id]))
-        .map_err(unavailable)?;
+    sql::exec(
+        connection,
+        "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
+        [blob_id],
+    )
+    .map_err(unavailable)?;
     Ok(())
 }
 
@@ -128,10 +135,10 @@ impl Catalog {
         let now = unix_millis(self.0.clock.now())?;
         let blob_id = lease.session.blob_id.clone();
         let changed = self.run(move |connection| {
-            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
-            let changed = transaction.prepare_cached("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2").and_then(|mut statement| statement.execute(params![id, now])).map_err(unavailable)?;
+            let transaction = sql::immediate(connection).map_err(unavailable)?;
+            let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2", params![id, now]).map_err(unavailable)?;
             if changed == 1 {
-                transaction.prepare_cached("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)").and_then(|mut statement| statement.execute([blob_id])).map_err(unavailable)?;
+                sql::exec(&transaction, "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [blob_id]).map_err(unavailable)?;
             }
             transaction.commit().map_err(unavailable)?;
             Ok(changed)
@@ -240,10 +247,12 @@ impl Catalog {
         }
         let resumable_deadline = self
             .run(|connection| {
-                let deadline: Option<i64> = connection
-                    .prepare_cached("SELECT min(deadline) FROM resumable_sessions")
-                    .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-                    .map_err(unavailable)?;
+                let deadline: Option<i64> = sql::scalar(
+                    connection,
+                    "SELECT min(deadline) FROM resumable_sessions",
+                    [],
+                )
+                .map_err(unavailable)?;
                 deadline
                     .map(super::system_time_millis)
                     .transpose()

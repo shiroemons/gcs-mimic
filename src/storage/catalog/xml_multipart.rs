@@ -1,13 +1,14 @@
 //! Persistent XML multipart state; ordinary objects appear only at completion.
 
 use super::{Catalog, objects, resumable, system_time_millis, unix_millis};
+use crate::storage::catalog::sql;
 use crate::{
     auth::Permission,
     bucket::{BucketAccess, CatalogError},
     object::{ObjectError, ObjectRecord},
     storage::failure::object_unavailable,
 };
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::{fmt, path::Path, time::SystemTime};
 
 mod listing;
@@ -226,9 +227,7 @@ impl Catalog {
             .ok_or_else(|| object_unavailable("multipart deadline overflow"))?;
         let upload = self
             .run_object(move |connection| {
-                let transaction = connection
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(object_unavailable)?;
+                let transaction = sql::immediate(connection).map_err(object_unavailable)?;
                 let (storage_class, _) =
                     objects::authorized_bucket(&transaction, &target.bucket, &access)?;
                 objects::authorized_bucket(
@@ -243,19 +242,23 @@ impl Catalog {
                 if encoded.len() > 65536 {
                     return Err(ObjectError::TooLarge);
                 }
-                let count: i64 = transaction
-                    .prepare_cached("SELECT count(*) FROM xml_multipart_uploads")
-                    .and_then(|mut s| s.query_row([], |r| r.get(0)))
-                    .map_err(object_unavailable)?;
+                let count: i64 = sql::scalar(
+                    &transaction,
+                    "SELECT count(*) FROM xml_multipart_uploads",
+                    [],
+                )
+                .map_err(object_unavailable)?;
                 if count >= 128 {
                     return Err(object_unavailable(
                         "retained multipart session limit reached",
                     ));
                 }
-                let incarnation: String = transaction
-                    .prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket=?1")
-                    .and_then(|mut s| s.query_row([&target.bucket], |r| r.get(0)))
-                    .map_err(object_unavailable)?;
+                let incarnation: String = sql::scalar(
+                    &transaction,
+                    "SELECT incarnation FROM bucket_incarnations WHERE bucket=?1",
+                    [&target.bucket],
+                )
+                .map_err(object_unavailable)?;
                 transaction
                     .prepare_cached(
                         "INSERT INTO xml_multipart_uploads VALUES (?1,?2,?3,?4,?5,?6,?7)",
@@ -345,9 +348,7 @@ impl Catalog {
     pub(crate) async fn abort_xml_multipart(&self, lease: Lease) -> Result<(), Error> {
         let catalog = self.clone();
         self.run_object(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(object_unavailable)?;
+            let transaction = sql::immediate(connection).map_err(object_unavailable)?;
             let result = (|| -> Result<(), Error> {
                 active(
                     &transaction,
@@ -395,8 +396,7 @@ pub(super) fn recover(
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let bounded:bool=connection.prepare_cached("SELECT (SELECT count(*) FROM xml_multipart_uploads)<=128 AND NOT EXISTS(SELECT 1 FROM xml_multipart_parts p LEFT JOIN xml_multipart_uploads u ON u.id=p.upload_id WHERE u.id IS NULL)")
-        .and_then(|mut s|s.query_row([],|r|r.get(0))).map_err(super::unavailable)?;
+    let bounded:bool=sql::scalar(connection, "SELECT (SELECT count(*) FROM xml_multipart_uploads)<=128 AND NOT EXISTS(SELECT 1 FROM xml_multipart_parts p LEFT JOIN xml_multipart_uploads u ON u.id=p.upload_id WHERE u.id IS NULL)", []).map_err(super::unavailable)?;
     if !bounded {
         return Err(super::unavailable("invalid multipart catalog state"));
     }

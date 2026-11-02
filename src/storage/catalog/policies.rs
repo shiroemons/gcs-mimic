@@ -2,7 +2,8 @@ use super::{
     BucketAccess, Catalog, CatalogError, Identity, OBJECTS_DELETE, Policy,
     objects::DeletePermission, unavailable,
 };
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use crate::storage::catalog::sql;
+use rusqlite::{Connection, OptionalExtension, params};
 
 pub(super) const SCHEMA: &str = "CREATE TABLE bucket_policies (
     bucket TEXT PRIMARY KEY COLLATE BINARY,
@@ -60,9 +61,7 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
 }
 
 pub(super) fn next_revision(connection: &Connection) -> Result<i64, CatalogError> {
-    connection
-        .prepare_cached("UPDATE policy_revision SET last_revision = last_revision + 1 WHERE singleton = 1 AND last_revision < 9223372036854775807 RETURNING last_revision")
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
+    sql::scalar(connection, "UPDATE policy_revision SET last_revision = last_revision + 1 WHERE singleton = 1 AND last_revision < 9223372036854775807 RETURNING last_revision", [])
         .map_err(unavailable)
 }
 
@@ -121,9 +120,7 @@ pub(super) fn advance_acl_revision(
     bucket: &str,
     updated: i64,
 ) -> Result<(), CatalogError> {
-    let changed = connection
-        .prepare_cached("UPDATE buckets SET metageneration=metageneration+1,updated=?2,updated_nanos=0 WHERE name=?1 AND metageneration<9223372036854775807")
-        .and_then(|mut statement| statement.execute(params![bucket, updated]))
+    let changed = sql::exec(connection, "UPDATE buckets SET metageneration=metageneration+1,updated=?2,updated_nanos=0 WHERE name=?1 AND metageneration<9223372036854775807", params![bucket, updated])
         .map_err(unavailable)?;
     if changed != 1 {
         return Err(unavailable("bucket metageneration exhausted"));
@@ -235,11 +232,9 @@ impl Catalog {
             .map_err(|error| CatalogError::InvalidMetadata(error.into()))?;
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
-            let project: Option<String> = transaction
-                .prepare_cached(SELECT_BUCKET_PROJECT)
-                .and_then(|mut statement| statement.query_row([&bucket], |row| row.get(0)))
-                .optional()
-                .map_err(unavailable)?;
+            let project: Option<String> =
+                sql::optional_scalar(&transaction, SELECT_BUCKET_PROJECT, [&bucket])
+                    .map_err(unavailable)?;
             if project.is_none()
                 && !identity
                     .as_ref()
@@ -272,12 +267,10 @@ impl Catalog {
         let access = access.clone();
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
-            let project: String = transaction
-                .prepare_cached(SELECT_BUCKET_PROJECT)
-                .and_then(|mut statement| statement.query_row([&bucket], |row| row.get(0)))
-                .optional()
-                .map_err(unavailable)?
-                .ok_or(CatalogError::NotFound)?;
+            let project: String =
+                sql::optional_scalar(&transaction, SELECT_BUCKET_PROJECT, [&bucket])
+                    .map_err(unavailable)?
+                    .ok_or(CatalogError::NotFound)?;
             match check_access(&transaction, &bucket, &project, &access) {
                 Ok(_) => Ok(true),
                 Err(CatalogError::Forbidden) => Ok(false),
@@ -326,9 +319,7 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(unavailable)?;
+            let transaction = sql::immediate(connection).map_err(unavailable)?;
             authorize_policy(&transaction, &bucket, &access)?;
             let current = read_policy(&transaction, &bucket)?;
             check(&current)?;
@@ -368,9 +359,7 @@ pub(super) fn public_access_prevention(
     connection: &Connection,
     bucket: &str,
 ) -> Result<bool, CatalogError> {
-    connection
-        .prepare_cached("SELECT public_access_prevention_enforced OR EXISTS(SELECT 1 FROM parent_public_access_prevention WHERE project = buckets.project) FROM buckets WHERE name = ?1")
-        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
+    sql::scalar(connection, "SELECT public_access_prevention_enforced OR EXISTS(SELECT 1 FROM parent_public_access_prevention WHERE project = buckets.project) FROM buckets WHERE name = ?1", [bucket])
         .map_err(unavailable)
 }
 
@@ -392,10 +381,7 @@ fn authorize_policy(
     bucket: &str,
     access: &BucketAccess,
 ) -> Result<(), CatalogError> {
-    let project: String = connection
-        .prepare_cached(SELECT_BUCKET_PROJECT)
-        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
-        .optional()
+    let project: String = sql::optional_scalar(connection, SELECT_BUCKET_PROJECT, [bucket])
         .map_err(unavailable)?
         .ok_or(CatalogError::NotFound)?;
     check_access(connection, bucket, &project, access)?;

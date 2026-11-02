@@ -1,4 +1,5 @@
 use super::{CatalogError, unavailable};
+use crate::storage::catalog::sql;
 use rusqlite::Connection;
 use std::{fs, io, path::Path};
 
@@ -35,10 +36,12 @@ pub(super) fn recover_prefix(
     let stage = id.staging_path(data_dir);
     let blob = id.blob_path(data_dir);
     // Also runs after a failed resumable finalization request, so the statement is cached.
-    let live: bool = connection
-        .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
-        .and_then(|mut statement| statement.query_row([blob_id], |row| row.get(0)))
-        .map_err(unavailable)?;
+    let live: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
+        [blob_id],
+    )
+    .map_err(unavailable)?;
     if live {
         return Err(unavailable(format!(
             "active upload blob {blob_id} is already published"

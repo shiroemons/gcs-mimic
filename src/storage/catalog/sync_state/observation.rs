@@ -4,6 +4,7 @@ use super::{
     root::{RootError, RootLease},
     writeback,
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     storage::{admin::AdminError, failure::unavailable},
@@ -126,10 +127,12 @@ fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
 }
 
 fn revision(connection: &Connection, root: [u8; 16]) -> Result<i64, CatalogError> {
-    connection
-        .prepare_cached("SELECT revision FROM sync_observations WHERE root_id=?1")
-        .and_then(|mut statement| statement.query_row([root], |row| row.get(0)))
-        .map_err(unavailable)
+    sql::scalar(
+        connection,
+        "SELECT revision FROM sync_observations WHERE root_id=?1",
+        [root],
+    )
+    .map_err(unavailable)
 }
 
 impl RootLease {
@@ -148,7 +151,7 @@ impl RootLease {
             let revision=revision(&tx,root.as_bytes())?;
             let (baseline_complete,tracked_objects,mapping_findings,pending_writeback,paused_reason,path_stops,unresolved_conflicts,scan_stop)=tx.prepare_cached("SELECT (SELECT complete FROM sync_roots WHERE root_id=?1),(SELECT count(*) FROM sync_objects),(SELECT count(*) FROM sync_findings WHERE root_id=?1),(SELECT count(*) FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4),paused_reason,(SELECT count(*) FROM sync_path_stops WHERE root_id=?1),(SELECT count(*) FROM sync_conflicts WHERE root_id=?1 AND state!=2),scan_stop FROM sync_observations WHERE root_id=?1")
                 .and_then(|mut statement|statement.query_row([root.as_bytes()],|row|Ok((row.get(0)?,row.get::<_,i64>(1)? as u64,row.get::<_,i64>(2)? as u64,row.get::<_,i64>(3)? as u64,row.get(4)?,row.get::<_,i64>(5)? as u64,row.get::<_,i64>(6)? as u64,row.get(7)?)))).map_err(unavailable)?;
-            let exists:bool=tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_writeback_roots WHERE root_id=?1)").and_then(|mut statement|statement.query_row([root.as_bytes()],|row|row.get(0))).map_err(unavailable)?;
+            let exists:bool=sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_writeback_roots WHERE root_id=?1)", [root.as_bytes()]).map_err(unavailable)?;
             let writeback=if exists {Some(writeback::observation(&tx,root).map_err(|error|unavailable(std::io::Error::other(error)))?)} else {None};
             Ok(Summary {revision,baseline_complete,tracked_objects,mapping_findings,pending_writeback,path_stops,unresolved_conflicts,paused_reason,scan_stop,writeback})
         }).await.map_err(RootError::from)
@@ -203,7 +206,7 @@ impl RootLease {
         }
         let root = self.status().root_id.as_bytes();
         self.catalog().run_admin(move |connection| {
-            let updated=connection.prepare_cached("UPDATE sync_observations SET revision=revision+1,paused_reason=?2 WHERE root_id=?1 AND paused_reason IS NOT ?2").and_then(|mut statement|statement.execute(params![root,reason])).map_err(unavailable)?;
+            let updated=sql::exec(connection, "UPDATE sync_observations SET revision=revision+1,paused_reason=?2 WHERE root_id=?1 AND paused_reason IS NOT ?2", params![root,reason]).map_err(unavailable)?;
             if updated==0 && connection.prepare_cached("SELECT 1 FROM sync_observations WHERE root_id=?1").and_then(|mut statement|statement.query_row([root],|row|row.get::<_,i64>(0))).optional().map_err(unavailable)?.is_none() {return Err(CatalogError::PreconditionFailed)}
             Ok(())
         }).await.map_err(RootError::from)
@@ -226,8 +229,7 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx = connection.transaction().map_err(unavailable)?;
             scope.authorize(&tx)?;
-            tx.prepare_cached("UPDATE sync_observations SET revision=revision+1,scan_stop=?2 WHERE root_id=?1 AND scan_stop IS NOT ?2")
-                .and_then(|mut statement|statement.execute(params![root,reason])).map_err(unavailable)?;
+            sql::exec(&tx, "UPDATE sync_observations SET revision=revision+1,scan_stop=?2 WHERE root_id=?1 AND scan_stop IS NOT ?2", params![root,reason]).map_err(unavailable)?;
             tx.commit().map_err(unavailable)
         }).await.map_err(RootError::from)
     }

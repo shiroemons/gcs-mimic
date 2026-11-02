@@ -2,8 +2,9 @@
 
 use super::super::{ConnectionUnavailable, objects};
 use super::{Admin, AdminError};
+use crate::storage::catalog::sql;
 use crate::{bucket::CatalogError, storage::failure::unavailable};
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::Connection;
 use std::{path::Path, time::Duration};
 
 #[derive(serde::Serialize)]
@@ -64,9 +65,7 @@ fn reset(
     data_dir: &Path,
     memory: Option<&crate::storage::memory::Store>,
 ) -> Result<ResetOutcome, CatalogError> {
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(unavailable)?;
+    let transaction = sql::immediate(connection).map_err(unavailable)?;
     let mode = if memory.is_some() {
         Reclamation::ClearMemory
     } else {
@@ -75,10 +74,12 @@ fn reset(
     let (buckets, objects, next) = clear_in_transaction(&transaction, mode)?;
     if let Err(error) = objects::commit_publication(transaction) {
         // A commit can succeed before reporting an I/O error. The durable epoch resolves it.
-        let committed: i64 = connection
-            .prepare_cached("SELECT epoch FROM change_journal_state WHERE singleton = 1")
-            .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-            .map_err(unavailable)?;
+        let committed: i64 = sql::scalar(
+            connection,
+            "SELECT epoch FROM change_journal_state WHERE singleton = 1",
+            [],
+        )
+        .map_err(unavailable)?;
         if committed != next {
             return Err(unavailable(error));
         }
@@ -115,17 +116,21 @@ pub(super) fn clear_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
     mode: Reclamation,
 ) -> Result<(i64, i64, i64), CatalogError> {
-    let importing: bool = transaction
-        .prepare_cached("SELECT EXISTS(SELECT 1 FROM import_journal WHERE active = 1)")
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .map_err(unavailable)?;
+    let importing: bool = sql::scalar(
+        transaction,
+        "SELECT EXISTS(SELECT 1 FROM import_journal WHERE active = 1)",
+        [],
+    )
+    .map_err(unavailable)?;
     if importing {
         return Err(CatalogError::PreconditionFailed);
     }
-    let epoch: i64 = transaction
-        .prepare_cached("SELECT epoch FROM change_journal_state WHERE singleton = 1")
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .map_err(unavailable)?;
+    let epoch: i64 = sql::scalar(
+        transaction,
+        "SELECT epoch FROM change_journal_state WHERE singleton = 1",
+        [],
+    )
+    .map_err(unavailable)?;
     let next = epoch
         .checked_add(1)
         .ok_or_else(|| unavailable("reset epoch exhausted"))?;
@@ -134,23 +139,15 @@ pub(super) fn clear_in_transaction(
         .and_then(|mut statement| statement.query_row([], |row| Ok((row.get(0)?, row.get(1)?))))
         .map_err(unavailable)?;
     if matches!(mode, Reclamation::Journal) {
-        transaction.prepare_cached("INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects UNION SELECT blob_id FROM resumable_sessions UNION SELECT blob_id FROM derived_inputs UNION SELECT id FROM derived_transfers UNION SELECT blob_id FROM derived_deletions UNION SELECT blob_id FROM appendable_objects UNION SELECT blob_id FROM xml_multipart_parts UNION SELECT blob_id FROM xml_multipart_deletions")
-            .and_then(|mut statement| statement.execute([])).map_err(unavailable)?;
+        sql::exec(transaction, "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects UNION SELECT blob_id FROM resumable_sessions UNION SELECT blob_id FROM derived_inputs UNION SELECT id FROM derived_transfers UNION SELECT blob_id FROM derived_deletions UNION SELECT blob_id FROM appendable_objects UNION SELECT blob_id FROM xml_multipart_parts UNION SELECT blob_id FROM xml_multipart_deletions", []).map_err(unavailable)?;
     } else {
         // RAM can drop its whole registry after commit; growing a disk recovery journal would block a full catalog's reset.
-        transaction
-            .prepare_cached("DELETE FROM pending_blob_deletions")
-            .and_then(|mut statement| statement.execute([]))
-            .map_err(unavailable)?;
+        sql::exec(transaction, "DELETE FROM pending_blob_deletions", []).map_err(unavailable)?;
     }
     for sql in CLEAR {
-        transaction
-            .prepare_cached(sql)
-            .and_then(|mut statement| statement.execute([]))
-            .map_err(unavailable)?;
+        sql::exec(transaction, sql, []).map_err(unavailable)?;
     }
-    transaction.prepare_cached("UPDATE change_journal_state SET epoch = ?1, floor = sequence, enabled = 0 WHERE singleton = 1")
-        .and_then(|mut statement| statement.execute([next])).map_err(unavailable)?;
+    sql::exec(transaction, "UPDATE change_journal_state SET epoch = ?1, floor = sequence, enabled = 0 WHERE singleton = 1", [next]).map_err(unavailable)?;
     Ok((buckets, objects, next))
 }
 
@@ -228,10 +225,12 @@ fn reclaim(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError>
                     objects::sync_dir(parent).map_err(unavailable)?;
                 }
             }
-            connection
-                .prepare_cached("DELETE FROM pending_blob_deletions WHERE blob_id = ?1")
-                .and_then(|mut statement| statement.execute([id]))
-                .map_err(unavailable)?;
+            sql::exec(
+                connection,
+                "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
+                [id],
+            )
+            .map_err(unavailable)?;
         }
     }
 }

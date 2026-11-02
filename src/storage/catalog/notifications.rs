@@ -5,7 +5,8 @@
 
 use super::{BucketAccess, Catalog, CatalogError, check_access, unavailable};
 use crate::notification::{NotificationConfig, NotificationRecord, check_limits};
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use crate::storage::catalog::sql;
+use rusqlite::{Connection, OptionalExtension, params};
 
 /// A configuration over a bucket or event-type limit is invalid metadata whose message names
 /// the limit; the validation error has no cause to keep.
@@ -26,12 +27,6 @@ CREATE TABLE bucket_notifications (
     PRIMARY KEY (bucket, id)
 ) WITHOUT ROWID;
 PRAGMA user_version = 28;";
-
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
 
 #[expect(
     clippy::disallowed_methods,
@@ -57,12 +52,13 @@ fn authorize(
     bucket: &str,
     access: &BucketAccess,
 ) -> Result<(), CatalogError> {
-    let project: String = connection
-        .prepare_cached("SELECT project FROM buckets WHERE name = ?1")
-        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
-        .optional()
-        .map_err(unavailable)?
-        .ok_or(CatalogError::NotFound)?;
+    let project: String = sql::optional_scalar(
+        connection,
+        "SELECT project FROM buckets WHERE name = ?1",
+        [bucket],
+    )
+    .map_err(unavailable)?
+    .ok_or(CatalogError::NotFound)?;
     check_access(connection, bucket, &project, access)?;
     Ok(())
 }
@@ -104,13 +100,13 @@ fn touch_bucket(
     access: &BucketAccess,
     now_micros: i64,
 ) -> Result<(), CatalogError> {
-    let updated = transaction
-        .prepare_cached(
-            "UPDATE buckets SET metageneration = metageneration + 1, updated = ?2, updated_nanos = 0
+    let updated = sql::exec(
+        transaction,
+        "UPDATE buckets SET metageneration = metageneration + 1, updated = ?2, updated_nanos = 0
              WHERE name = ?1 AND metageneration < 9223372036854775807",
-        )
-        .and_then(|mut statement| statement.execute(params![bucket, now_micros]))
-        .map_err(unavailable)?;
+        params![bucket, now_micros],
+    )
+    .map_err(unavailable)?;
     if updated != 1 {
         return Err(unavailable("bucket metageneration exhausted"));
     }
@@ -142,25 +138,22 @@ impl Catalog {
         let access = access.clone();
         let clock = self.0.clock.clone();
         self.run(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(unavailable)?;
+            let transaction = sql::immediate(connection).map_err(unavailable)?;
             authorize(&transaction, &bucket, &access)?;
             let existing: Vec<_> = read_all(&transaction, &bucket)?
                 .into_iter()
                 .map(|record| record.config)
                 .collect();
             check_limits(&existing, &config).map_err(CatalogError::from)?;
-            let id: i64 = transaction
-                .prepare_cached(
-                    "INSERT INTO bucket_notification_ids VALUES (?1, 1)
+            let id: i64 = sql::optional_scalar(
+                &transaction,
+                "INSERT INTO bucket_notification_ids VALUES (?1, 1)
                      ON CONFLICT(bucket) DO UPDATE SET last_id = last_id + 1
                      WHERE last_id < 9223372036854775807 RETURNING last_id",
-                )
-                .and_then(|mut statement| statement.query_row([&bucket], |row| row.get(0)))
-                .optional()
-                .map_err(unavailable)?
-                .ok_or_else(|| unavailable("notification ID exhausted"))?;
+                [&bucket],
+            )
+            .map_err(unavailable)?
+            .ok_or_else(|| unavailable("notification ID exhausted"))?;
             transaction
                 .prepare_cached("INSERT INTO bucket_notifications VALUES (?1, ?2, ?3)")
                 .and_then(|mut statement| {
@@ -233,15 +226,15 @@ impl Catalog {
         let access = access.clone();
         let clock = self.0.clock.clone();
         self.run(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(unavailable)?;
+            let transaction = sql::immediate(connection).map_err(unavailable)?;
             authorize(&transaction, &bucket, &access)?;
             let Some(id) = id else { return Ok(false) };
-            let deleted = transaction
-                .prepare_cached("DELETE FROM bucket_notifications WHERE bucket = ?1 AND id = ?2")
-                .and_then(|mut statement| statement.execute(params![bucket, id]))
-                .map_err(unavailable)?;
+            let deleted = sql::exec(
+                &transaction,
+                "DELETE FROM bucket_notifications WHERE bucket = ?1 AND id = ?2",
+                params![bucket, id],
+            )
+            .map_err(unavailable)?;
             if deleted == 0 {
                 return Ok(false);
             }

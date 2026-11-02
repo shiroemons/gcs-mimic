@@ -6,12 +6,13 @@ use super::{
     CatalogId, SyncBinding, matching,
     root::{RootError, RootId, RootLease},
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     storage::admin::{AdminError, Generation, ObjectName},
     sync::mapping::Reason,
 };
-use rusqlite::{Connection, params};
+use rusqlite::params;
 
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_findings (
     ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,12 +26,6 @@ pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_findings (
 );
 CREATE INDEX sync_findings_page ON sync_findings(root_id,ordinal);
 PRAGMA user_version = 21;";
-
-pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let tx = connection.transaction().map_err(unavailable)?;
-    tx.execute_batch(SCHEMA).map_err(unavailable)?;
-    tx.commit().map_err(unavailable)
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Finding {
@@ -74,8 +69,7 @@ fn remember_owner(
     name: &str,
 ) -> Result<(), CatalogError> {
     // One logical finding may survive several bucket incarnations; replacement cannot erase earlier authority.
-    transaction.prepare_cached("INSERT INTO sync_finding_owners(ordinal,incarnation,owner_project) SELECT ordinal,incarnation,owner_project FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 ON CONFLICT(ordinal,incarnation) DO UPDATE SET owner_project=excluded.owner_project")
-        .and_then(|mut statement|statement.execute(params![root,bucket,name])).map_err(unavailable)?;
+    sql::exec(transaction, "INSERT INTO sync_finding_owners(ordinal,incarnation,owner_project) SELECT ordinal,incarnation,owner_project FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 ON CONFLICT(ordinal,incarnation) DO UPDATE SET owner_project=excluded.owner_project", params![root,bucket,name]).map_err(unavailable)?;
     Ok(())
 }
 
@@ -95,10 +89,10 @@ impl RootLease {
             lease.control_scope().authorize(&tx)?;
             matching(&tx,&binding,&binding.bucket).map_err(unavailable)?;
             let live = objects::lookup(&tx,&binding.bucket,name.as_str()).map_err(unavailable)?.is_some_and(|(record,_)| record.generation == generation.get());
-            let tracked: bool = tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?4 AND generation=?3)").and_then(|mut statement|statement.query_row(params![binding.bucket,name.as_str(),generation.get(),binding.incarnation],|r| r.get(0))).map_err(unavailable)?;
+            let tracked: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?4 AND generation=?3)", params![binding.bucket,name.as_str(),generation.get(),binding.incarnation]).map_err(unavailable)?;
             let valid = live || tracked;
             if valid {
-                tx.prepare_cached("INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,'collision',(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4)) ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project").and_then(|mut statement|statement.execute(params![root,binding.bucket,name.as_str(),binding.incarnation,generation.get()])).map_err(unavailable)?;
+                sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,'collision',(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4)) ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project", params![root,binding.bucket,name.as_str(),binding.incarnation,generation.get()]).map_err(unavailable)?;
                 remember_owner(&tx,root,&binding.bucket,name.as_str())?;
             }
             tx.commit().map_err(unavailable)
@@ -127,10 +121,9 @@ impl RootLease {
                 if record.generation != generation.get() {
                     return Err(AdminError::Precondition);
                 }
-                tx.prepare_cached("INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,?6,(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4))
+                sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,?6,(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4))
                     ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project
-                    WHERE incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project")
-                    .and_then(|mut statement|statement.execute(params![root,binding.bucket,name.as_str(),binding.incarnation,generation.get(),reason_text(reason)])).map_err(unavailable)?;
+                    WHERE incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project", params![root,binding.bucket,name.as_str(),binding.incarnation,generation.get(),reason_text(reason)]).map_err(unavailable)?;
                 remember_owner(&tx,root,&binding.bucket,name.as_str())?;
                 Ok(())
             })();
@@ -170,8 +163,7 @@ impl RootLease {
         let lease = self.clone();
         self.catalog().run_admin(move |c| {
             let _lease = lease;
-            c.prepare_cached("DELETE FROM sync_findings WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND incarnation=?5 AND generation=?6 AND reason=?7")
-                .and_then(|mut statement|statement.execute(params![finding.root_id.as_bytes(),finding.ordinal,finding.bucket,finding.name,finding.incarnation,finding.generation.get(),reason_text(finding.reason)]))
+            sql::exec(c, "DELETE FROM sync_findings WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND incarnation=?5 AND generation=?6 AND reason=?7", params![finding.root_id.as_bytes(),finding.ordinal,finding.bucket,finding.name,finding.incarnation,finding.generation.get(),reason_text(finding.reason)])
                 .map(|count|count == 1).map_err(unavailable)
         }).await.map_err(RootError::from)
     }

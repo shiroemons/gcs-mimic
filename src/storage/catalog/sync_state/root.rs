@@ -2,6 +2,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::{CatalogId, SyncState, catalog_id};
+use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     fsutil::{self, FileIdentity, FsError},
@@ -30,16 +31,6 @@ pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_roots (
     UNIQUE(device, inode)
 ) WITHOUT ROWID;
 PRAGMA user_version = 19;";
-
-pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection
-        .transaction()
-        .map_err(super::super::unavailable)?;
-    transaction
-        .execute_batch(SCHEMA)
-        .map_err(super::super::unavailable)?;
-    transaction.commit().map_err(super::super::unavailable)
-}
 
 #[cfg(test)]
 static FAILURE: std::sync::Mutex<Option<(PathBuf, &'static str)>> = std::sync::Mutex::new(None);
@@ -252,10 +243,12 @@ fn reserve(
             }
             (Activation::Open, None) => return Err(RootError::MissingMarker),
             (Activation::Reinitialize { catalog_id }, None) if catalog_id == catalog => {
-                transaction
-                    .prepare_cached("UPDATE sync_roots SET complete = 0 WHERE root_id = ?1")
-                    .and_then(|mut statement| statement.execute([id.0]))
-                    .map_err(super::super::unavailable)?;
+                sql::exec(
+                    &transaction,
+                    "UPDATE sync_roots SET complete = 0 WHERE root_id = ?1",
+                    [id.0],
+                )
+                .map_err(super::super::unavailable)?;
                 Baseline::Activating
             }
             (Activation::Reinitialize { .. }, _) => return Err(RootError::ReinitializeDenied),
@@ -427,10 +420,12 @@ impl RootLease {
             .run_admin(move |connection| {
                 lease.control_scope().authorize(connection)?;
                 let _lease = lease;
-                let changed = connection
-                    .prepare_cached("UPDATE sync_roots SET complete = 1 WHERE root_id = ?1")
-                    .and_then(|mut statement| statement.execute([id.0]))
-                    .map_err(super::super::unavailable)?;
+                let changed = sql::exec(
+                    connection,
+                    "UPDATE sync_roots SET complete = 1 WHERE root_id = ?1",
+                    [id.0],
+                )
+                .map_err(super::super::unavailable)?;
                 if changed != 1 {
                     return Err(CatalogError::Corrupt("missing root association".into()));
                 }

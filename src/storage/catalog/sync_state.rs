@@ -6,6 +6,7 @@ use super::{
     admin::{AdminError, BucketName, Generation, ObjectName},
     unavailable,
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     object::{ObjectError, ObjectRecord},
@@ -172,11 +173,13 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
 }
 
 fn catalog_id(connection: &Connection) -> Result<CatalogId, CatalogError> {
-    connection
-        .prepare_cached("SELECT id FROM catalog_identity WHERE singleton = 1")
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .map(CatalogId)
-        .map_err(unavailable)
+    sql::scalar(
+        connection,
+        "SELECT id FROM catalog_identity WHERE singleton = 1",
+        [],
+    )
+    .map(CatalogId)
+    .map_err(unavailable)
 }
 
 pub(super) fn matching(
@@ -190,11 +193,9 @@ pub(super) fn matching(
             error => ObjectError::from(error),
         })?;
     }
-    let incarnation: Option<String> = connection
-        .prepare_cached(SELECT_INCARNATION)
-        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
-        .optional()
-        .map_err(super::objects::object_unavailable)?;
+    let incarnation: Option<String> =
+        sql::optional_scalar(connection, SELECT_INCARNATION, [bucket])
+            .map_err(super::objects::object_unavailable)?;
     if binding.catalog != catalog_id(connection).map_err(super::objects::object_unavailable)?
         || binding.bucket != bucket
         || incarnation.as_ref() != Some(&binding.incarnation)
@@ -214,26 +215,23 @@ pub(super) fn record_in_transaction(
     if fp.size != record.size || fp.md5 != record.md5 || fp.crc32c != record.crc32c {
         return Err(ObjectError::ChecksumMismatch);
     }
-    let occupied: bool = transaction.prepare_cached(
-        "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE path = ?1 AND (bucket != ?2 OR name != ?3))",
-    ).and_then(|mut statement| statement.query_row(params![update.path,record.bucket,record.name], |row| row.get(0)))
+    let occupied: bool = sql::scalar(transaction,
+        "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE path = ?1 AND (bucket != ?2 OR name != ?3))", params![update.path,record.bucket,record.name])
     .map_err(super::objects::object_unavailable)?;
     if occupied {
         return Err(ObjectError::PreconditionFailed);
     }
-    transaction.prepare_cached(
+    sql::exec(transaction,
         "INSERT INTO sync_objects (bucket,name,incarnation,path,generation,size,mtime_ns,ctime_ns,inode,md5,crc32c,racy)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
          ON CONFLICT(bucket,name) DO UPDATE SET incarnation=excluded.incarnation,path=excluded.path,
          generation=excluded.generation,size=excluded.size,mtime_ns=excluded.mtime_ns,ctime_ns=excluded.ctime_ns,
          inode=excluded.inode,md5=excluded.md5,crc32c=excluded.crc32c,racy=excluded.racy",
-    ).and_then(|mut statement| statement.execute(
         params![record.bucket,record.name,update.binding.incarnation,update.path,record.generation,fp.size as i64,
             fp.mtime_ns.to_be_bytes(),fp.ctime_ns.to_be_bytes(),fp.inode.to_be_bytes(),fp.md5,fp.crc32c,fp.racy],
-    )).map_err(super::objects::object_unavailable)?;
+    ).map_err(super::objects::object_unavailable)?;
     if let Some(scope) = &update.binding.control {
-        transaction.prepare_cached("DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4")
-            .and_then(|mut statement|statement.execute(params![scope.root_id().as_bytes(),record.bucket,record.name,update.binding.incarnation])).map_err(super::objects::object_unavailable)?;
+        sql::exec(transaction, "DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4", params![scope.root_id().as_bytes(),record.bucket,record.name,update.binding.incarnation]).map_err(super::objects::object_unavailable)?;
     }
     Ok(())
 }
@@ -247,11 +245,10 @@ pub(super) fn delete_in_transaction(
     if let Some(permit) = &binding.deletion {
         deletions::consume(transaction, permit, record)?;
     }
-    let count = transaction.prepare_cached(
+    let count = sql::exec(transaction,
         "DELETE FROM sync_objects WHERE bucket = ?1 AND name = ?2 AND incarnation = ?3 AND generation = ?4",
-    ).and_then(|mut statement| statement.execute(
         params![record.bucket,record.name,binding.incarnation,record.generation],
-    )).map_err(super::objects::object_unavailable)?;
+    ).map_err(super::objects::object_unavailable)?;
     if count != 1 {
         return Err(ObjectError::PreconditionFailed);
     }
@@ -314,10 +311,7 @@ impl SyncState {
         let bucket = bucket.as_str().to_owned();
         self.0
             .run_admin(move |connection| {
-                let incarnation = connection
-                    .prepare_cached(SELECT_INCARNATION)
-                    .and_then(|mut statement| statement.query_row([&bucket], |row| row.get(0)))
-                    .optional()
+                let incarnation = sql::optional_scalar(connection, SELECT_INCARNATION, [&bucket])
                     .map_err(unavailable)?
                     .ok_or(CatalogError::NotFound)?;
                 Ok(SyncBinding {

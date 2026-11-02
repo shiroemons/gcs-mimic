@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::catalog::sql;
 use crate::storage::{admin::ObjectName, sync_state::SyncBinding};
 
 #[derive(Clone, Copy)]
@@ -44,8 +45,7 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction().map_err(unavailable)?;
             super::super::matching(&tx,&binding,&binding.bucket).map_err(unavailable)?;
-            tx.prepare_cached("INSERT INTO sync_path_stops(root_id,bucket,name,owner_project,incarnation,generation,reason) SELECT ?1,?2,?3,b.project,?4,coalesce((SELECT generation FROM objects WHERE bucket=?2 AND name=?3 AND time_deleted IS NULL),(SELECT generation FROM sync_objects WHERE bucket=?2 AND name=?3 AND incarnation=?4),0),?5 FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4 ON CONFLICT(root_id,bucket,name,incarnation,reason) DO UPDATE SET generation=excluded.generation WHERE generation!=excluded.generation")
-                .and_then(|mut statement|statement.execute(params![root,binding.bucket,name.as_str(),binding.incarnation,reason.as_str()])).map_err(unavailable)?;
+            sql::exec(&tx, "INSERT INTO sync_path_stops(root_id,bucket,name,owner_project,incarnation,generation,reason) SELECT ?1,?2,?3,b.project,?4,coalesce((SELECT generation FROM objects WHERE bucket=?2 AND name=?3 AND time_deleted IS NULL),(SELECT generation FROM sync_objects WHERE bucket=?2 AND name=?3 AND incarnation=?4),0),?5 FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4 ON CONFLICT(root_id,bucket,name,incarnation,reason) DO UPDATE SET generation=excluded.generation WHERE generation!=excluded.generation", params![root,binding.bucket,name.as_str(),binding.incarnation,reason.as_str()]).map_err(unavailable)?;
             tx.commit().map_err(unavailable)
         }).await.map_err(RootError::from)
     }
@@ -61,8 +61,7 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction().map_err(unavailable)?;
             scope.authorize(&tx)?;
-            tx.prepare_cached("DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5")
-                .and_then(|mut statement|statement.execute(params![root,binding.bucket,name.as_str(),binding.incarnation,reason.as_str()])).map_err(unavailable)?;
+            sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5", params![root,binding.bucket,name.as_str(),binding.incarnation,reason.as_str()]).map_err(unavailable)?;
             tx.commit().map_err(unavailable)
         }).await.map_err(RootError::from)
     }

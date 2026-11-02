@@ -3,14 +3,15 @@ use super::{
     MAX_PAGE,
     root::{RootError, RootLease},
 };
+use crate::storage::catalog::sql;
 use crate::{
-    bucket::{BucketRecord, CatalogError},
+    bucket::BucketRecord,
     storage::{
         admin::{AdminError, BucketDefinition, BucketName, Origin},
         catalog::{change_journal, insert_bucket_in_transaction, unavailable},
     },
 };
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::params;
 
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_buckets (
     root_id BLOB NOT NULL REFERENCES sync_roots(root_id),
@@ -19,12 +20,6 @@ pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_buckets (
     PRIMARY KEY(root_id,bucket)
 ) WITHOUT ROWID;
 PRAGMA user_version = 27;";
-
-pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let tx = connection.transaction().map_err(unavailable)?;
-    tx.execute_batch(SCHEMA).map_err(unavailable)?;
-    tx.commit().map_err(unavailable)
-}
 
 impl RootLease {
     pub(crate) async fn ensure_sync_bucket(
@@ -53,17 +48,17 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx = connection.transaction().map_err(unavailable)?;
             lease.control_scope().authorize(&tx)?;
-            let mut incarnation: Option<String> = tx.prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket=?1").and_then(|mut statement|statement.query_row([&name], |r|r.get(0))).optional().map_err(unavailable)?;
+            let mut incarnation: Option<String> = sql::optional_scalar(&tx, "SELECT incarnation FROM bucket_incarnations WHERE bucket=?1", [&name]).map_err(unavailable)?;
             if incarnation.is_none() {
-                let known: bool = tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)").and_then(|mut statement|statement.query_row(params![root,name], |r|r.get(0))).map_err(unavailable)?;
+                let known: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)", params![root,name]).map_err(unavailable)?;
                 if known || create.is_none() { return Ok(false); }
                 let record = create.as_mut().ok_or_else(|| unavailable("missing default bucket"))?;
                 // A bucket mirroring a working tree keeps no deletion history on disk.
                 insert_bucket_in_transaction(&tx, record, 0)?;
                 change_journal::append(&tx, Origin::SyncIngest, change_journal::ChangeKind::BucketCreate, &name, None)?;
-                incarnation = Some(tx.prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket=?1").and_then(|mut statement|statement.query_row([&name], |r|r.get(0))).map_err(unavailable)?);
+                incarnation = Some(sql::scalar(&tx, "SELECT incarnation FROM bucket_incarnations WHERE bucket=?1", [&name]).map_err(unavailable)?);
             }
-            tx.prepare_cached("INSERT INTO sync_buckets(root_id,bucket,incarnation) VALUES(?1,?2,?3) ON CONFLICT(root_id,bucket) DO UPDATE SET incarnation=excluded.incarnation").and_then(|mut statement|statement.execute(params![root,name,incarnation])).map_err(unavailable)?;
+            sql::exec(&tx, "INSERT INTO sync_buckets(root_id,bucket,incarnation) VALUES(?1,?2,?3) ON CONFLICT(root_id,bucket) DO UPDATE SET incarnation=excluded.incarnation", params![root,name,incarnation]).map_err(unavailable)?;
             tx.commit().map_err(unavailable)?;
             Ok(true)
         }).await.map_err(RootError::from)
@@ -100,10 +95,11 @@ impl RootLease {
             .run_admin(move |connection| {
                 let tx = connection.transaction().map_err(unavailable)?;
                 lease.control_scope().authorize(&tx)?;
-                tx.prepare_cached(
+                sql::exec(
+                    &tx,
                     "DELETE FROM sync_buckets WHERE root_id=?1 AND bucket=?2 AND incarnation=?3",
+                    params![root, name, incarnation],
                 )
-                .and_then(|mut statement| statement.execute(params![root, name, incarnation]))
                 .map_err(unavailable)?;
                 tx.commit().map_err(unavailable)
             })

@@ -29,14 +29,6 @@ PRAGMA user_version = 16;";
 pub(super) const FAILURE_SCHEMA: &str = "ALTER TABLE import_journal ADD COLUMN failure TEXT CHECK(failure IS NULL OR length(CAST(failure AS BLOB)) BETWEEN 1 AND 1024);
 PRAGMA user_version = 18;";
 
-pub(super) fn migrate_failure(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction
-        .execute_batch(FAILURE_SCHEMA)
-        .map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
-
 #[cfg(test)]
 mod tests;
 
@@ -65,12 +57,6 @@ pub struct ImportProgress {
 
 #[derive(Clone)]
 pub struct ImportJournal(Catalog);
-
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     let valid: bool = connection.query_row(

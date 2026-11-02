@@ -3,6 +3,7 @@
 use super::{
     AclEntry, CatalogError, Entity, UPSERT_BUCKET_ENTRIES, bucket_row, stored_bucket_entries,
 };
+use crate::storage::catalog::sql;
 use crate::{
     acl::{AclKind, bucket_iam_role, project_number, project_private, validate_entries},
     auth::{Binding, Policy},
@@ -111,12 +112,12 @@ fn policy_entries(policy: &Policy, project: &str, principals: Option<&Profile>) 
 }
 
 fn mark_bound(connection: &Connection, bucket: &str) -> Result<(), CatalogError> {
-    connection
-        .prepare_cached(
-            "UPDATE buckets SET acl_policy_bound=1 WHERE name=?1 AND acl_policy_bound=0",
-        )
-        .and_then(|mut statement| statement.execute([bucket]))
-        .map_err(unavailable)?;
+    sql::exec(
+        connection,
+        "UPDATE buckets SET acl_policy_bound=1 WHERE name=?1 AND acl_policy_bound=0",
+        [bucket],
+    )
+    .map_err(unavailable)?;
     Ok(())
 }
 
@@ -256,10 +257,12 @@ pub(in super::super) fn replace_from_policy(
         return Ok(false);
     }
     let encoded = serde_json::to_string(&entries).map_err(unavailable)?;
-    connection
-        .prepare_cached(UPSERT_BUCKET_ENTRIES)
-        .and_then(|mut statement| statement.execute(params![bucket, "bucket", encoded]))
-        .map_err(unavailable)?;
+    sql::exec(
+        connection,
+        UPSERT_BUCKET_ENTRIES,
+        params![bucket, "bucket", encoded],
+    )
+    .map_err(unavailable)?;
     mark_bound(connection, bucket)?;
     Ok(changed)
 }

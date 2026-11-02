@@ -271,7 +271,11 @@ fn import_journal_migration_rolls_back_and_retries_without_seed_changes() {
     connection
         .execute_batch("PRAGMA user_version = 15; CREATE TABLE import_observations(collision);")
         .unwrap();
-    assert!(migrate(&mut connection).is_err());
+    assert!(
+        crate::storage::catalog::Migration::Statements(SCHEMA)
+            .apply(&mut connection)
+            .is_err()
+    );
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
@@ -289,7 +293,9 @@ fn import_journal_migration_rolls_back_and_retries_without_seed_changes() {
         0
     );
     connection.execute_batch("DROP TABLE import_observations; CREATE TABLE startup_seed(singleton, complete); INSERT INTO startup_seed VALUES(1, 0);").unwrap();
-    migrate(&mut connection).unwrap();
+    crate::storage::catalog::Migration::Statements(SCHEMA)
+        .apply(&mut connection)
+        .unwrap();
     validate(&connection).unwrap();
     assert_eq!(
         connection

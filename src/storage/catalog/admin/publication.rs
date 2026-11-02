@@ -2,6 +2,7 @@
 
 use super::objects::object_unavailable as objects_error;
 use super::*;
+use crate::storage::catalog::sql;
 use crate::{fsutil, hashing::Hasher, storage::failure::BackendCause};
 use std::{
     fs::{File, OpenOptions},
@@ -757,9 +758,7 @@ fn commit_batch(
     budget: Duration,
     import: Option<&ImportBatch>,
 ) -> Result<CommittedBatch, ObjectError> {
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(objects_error)?;
+    let transaction = sql::immediate(connection).map_err(objects_error)?;
     let started = std::time::Instant::now();
     if let Some(import) = import {
         import_journal::check_publication(&transaction, &import.binding, import.cursor).map_err(
@@ -1014,8 +1013,7 @@ fn record_publication_metadata(
         .and_then(ImportedIdentity::time_deleted)
     {
         let micros = super::super::unix_micros(deleted).map_err(objects_error)?;
-        transaction.prepare_cached("UPDATE objects SET time_deleted = ?4 WHERE bucket = ?1 AND name = ?2 AND generation = ?3")
-            .and_then(|mut statement| statement.execute(rusqlite::params![record.bucket, record.name, record.generation, micros]))
+        sql::exec(transaction, "UPDATE objects SET time_deleted = ?4 WHERE bucket = ?1 AND name = ?2 AND generation = ?3", rusqlite::params![record.bucket, record.name, record.generation, micros])
             .map_err(objects_error)?;
         record.time_deleted = Some(deleted);
     }

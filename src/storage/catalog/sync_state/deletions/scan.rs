@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::catalog::sql;
 
 #[derive(Clone)]
 pub(crate) struct Inventory {
@@ -20,20 +21,24 @@ impl RootLease {
             .run_admin(move |connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
                 scope.authorize(&transaction)?;
-                let complete: bool = transaction
-                    .prepare_cached("SELECT complete FROM sync_roots WHERE root_id=?1")
-                    .and_then(|mut statement| statement.query_row([root], |row| row.get(0)))
-                    .map_err(unavailable)?;
+                let complete: bool = sql::scalar(
+                    &transaction,
+                    "SELECT complete FROM sync_roots WHERE root_id=?1",
+                    [root],
+                )
+                .map_err(unavailable)?;
                 if !complete {
                     return Err(CatalogError::PreconditionFailed);
                 }
                 let current = fence(&transaction)?;
                 let revision = new_revision()?;
                 let scan_revision = new_revision()?;
-                transaction
-                    .prepare_cached("DELETE FROM sync_deletion_sets WHERE root_id=?1")
-                    .and_then(|mut statement| statement.execute([root]))
-                    .map_err(unavailable)?;
+                sql::exec(
+                    &transaction,
+                    "DELETE FROM sync_deletion_sets WHERE root_id=?1",
+                    [root],
+                )
+                .map_err(unavailable)?;
                 transaction
                     .prepare_cached(
                         "INSERT INTO sync_deletion_sets VALUES(?1,?2,?3,?4,?5,?4,0,0,?6,0,0,0,0)",
@@ -87,14 +92,11 @@ impl RootLease {
             let transaction=connection.transaction().map_err(unavailable)?;
             scope.authorize(&transaction)?;
             if fence(&transaction)?!=inventory.fence {return Err(CatalogError::PreconditionFailed)}
-            let ordinal:i64=transaction.prepare_cached("SELECT candidate_count FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2 AND complete=0")
-                .and_then(|mut statement|statement.query_row(params![inventory.root,inventory.revision],|row|row.get(0))).map_err(unavailable)?;
+            let ordinal:i64=sql::scalar(&transaction, "SELECT candidate_count FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2 AND complete=0", params![inventory.root,inventory.revision]).map_err(unavailable)?;
             for (index,candidate) in candidates.iter().enumerate() {
-                transaction.prepare_cached("INSERT INTO sync_deletion_members VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0)")
-                    .and_then(|mut statement|statement.execute(params![inventory.root,ordinal+index as i64+1,candidate.bucket,candidate.name,candidate.owner_project,candidate.bucket_incarnation,candidate.generation,candidate.path])).map_err(unavailable)?;
+                sql::exec(&transaction, "INSERT INTO sync_deletion_members VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0)", params![inventory.root,ordinal+index as i64+1,candidate.bucket,candidate.name,candidate.owner_project,candidate.bucket_incarnation,candidate.generation,candidate.path]).map_err(unavailable)?;
             }
-            transaction.prepare_cached("UPDATE sync_deletion_sets SET baseline_count=baseline_count+?3,candidate_count=candidate_count+?4 WHERE root_id=?1 AND revision=?2 AND complete=0")
-                .and_then(|mut statement|statement.execute(params![inventory.root,inventory.revision,baseline as i64,candidates.len() as i64])).map_err(unavailable)?;
+            sql::exec(&transaction, "UPDATE sync_deletion_sets SET baseline_count=baseline_count+?3,candidate_count=candidate_count+?4 WHERE root_id=?1 AND revision=?2 AND complete=0", params![inventory.root,inventory.revision,baseline as i64,candidates.len() as i64]).map_err(unavailable)?;
             transaction.commit().map_err(unavailable)?;
             Ok(())
         }).await?)
@@ -113,8 +115,7 @@ impl RootLease {
             let (baseline,candidates,enabled):(i64,i64,bool)=transaction.prepare_cached("SELECT baseline_count,candidate_count,guard_enabled FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2 AND complete=0")
                 .and_then(|mut statement|statement.query_row(params![inventory.root,inventory.revision],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?)))).map_err(unavailable)?;
             let guard=guarded(Guard::from(enabled),baseline as u64,candidates as u64);
-            transaction.prepare_cached("UPDATE sync_deletion_sets SET complete=1,valid=1,guarded=?3,authorization=?4 WHERE root_id=?1 AND revision=?2")
-                .and_then(|mut statement|statement.execute(params![inventory.root,inventory.revision,guard,i64::from(!guard)])).map_err(unavailable)?;
+            sql::exec(&transaction, "UPDATE sync_deletion_sets SET complete=1,valid=1,guarded=?3,authorization=?4 WHERE root_id=?1 AND revision=?2", params![inventory.root,inventory.revision,guard,i64::from(!guard)]).map_err(unavailable)?;
             let snapshot=read_set(&transaction,inventory.root)?.ok_or(CatalogError::PreconditionFailed)?;
             transaction.commit().map_err(unavailable)?;
             Ok(snapshot)

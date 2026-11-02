@@ -16,6 +16,7 @@
 //! ```
 
 use super::{Catalog, objects, read_bucket, select_bucket, unavailable};
+use crate::storage::catalog::sql;
 use crate::storage::failure::BackendCause;
 use crate::{
     bucket::{BucketAccess, BucketRecord, CatalogError},
@@ -25,7 +26,7 @@ use crate::{
         UploadChunk,
     },
 };
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::Connection;
 use std::{fmt, io, num::NonZeroI64, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
@@ -537,9 +538,7 @@ impl Admin {
         let default_retention = self.catalog.default_soft_delete_retention();
         self.catalog
             .run_admin(move |connection| {
-                let transaction = connection
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(unavailable)?;
+                let transaction = sql::immediate(connection).map_err(unavailable)?;
                 grant.authorize(&transaction)?;
                 let mut results = Vec::with_capacity(records.len());
                 // The names are bound as one JSON array so the statement text stays static.

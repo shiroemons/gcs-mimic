@@ -1,17 +1,15 @@
 use super::{Catalog, objects, unix_micros};
+use crate::storage::catalog::sql;
 use crate::{
     bucket::BucketAccess,
     object::{ObjectConditions, ObjectError, ObjectRecord},
 };
 use objects::{SELECT_SOFT_DELETED_GENERATION, authorized_bucket, object_unavailable, read_object};
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 pub(super) fn retention_seconds(connection: &Connection, bucket: &str) -> Result<i64, ObjectError> {
-    connection
-        .prepare_cached(
-            "SELECT COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0) FROM buckets WHERE name = ?1",
-        )
-        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
+    sql::scalar(connection,
+            "SELECT COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0) FROM buckets WHERE name = ?1", [bucket])
         .map_err(object_unavailable)
 }
 
@@ -20,20 +18,12 @@ pub(super) fn purge_expired(
     bucket: &str,
     now: i64,
 ) -> Result<(), ObjectError> {
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+    let transaction = sql::immediate(connection).map_err(object_unavailable)?;
+    sql::exec(&transaction,
+            "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100", params![bucket, now])
         .map_err(object_unavailable)?;
-    transaction
-        .prepare_cached(
-            "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100",
-        )
-        .and_then(|mut statement| statement.execute(params![bucket, now]))
-        .map_err(object_unavailable)?;
-    transaction
-        .prepare_cached(
-            "DELETE FROM objects WHERE blob_id IN (SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100)",
-        )
-        .and_then(|mut statement| statement.execute(params![bucket, now]))
+    sql::exec(&transaction,
+            "DELETE FROM objects WHERE blob_id IN (SELECT blob_id FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL AND hard_delete_time <= ?2 ORDER BY hard_delete_time LIMIT 100)", params![bucket, now])
         .map_err(object_unavailable)?;
     transaction.commit().map_err(object_unavailable)
 }
@@ -132,15 +122,15 @@ impl Catalog {
                 let id = super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
                 let text = id.to_hex();
                 // Durable ownership precedes linking; recovery reclaims uncommitted output.
-                connection
-                    .prepare_cached("INSERT INTO pending_blob_deletions VALUES (?1)")
-                    .and_then(|mut statement| statement.execute([&text]))
-                    .map_err(object_unavailable)?;
+                sql::exec(
+                    connection,
+                    "INSERT INTO pending_blob_deletions VALUES (?1)",
+                    [&text],
+                )
+                .map_err(object_unavailable)?;
                 let stage = id.staging_path(&data_dir);
                 let result = (|| {
-                    let transaction = connection
-                        .transaction_with_behavior(TransactionBehavior::Immediate)
-                        .map_err(object_unavailable)?;
+                    let transaction = sql::immediate(connection).map_err(object_unavailable)?;
                     authorized_bucket(&transaction, &bucket, &restore_access)?;
                     let (_, delete_permission) =
                         authorized_bucket(&transaction, &bucket, &create_access)?;
@@ -212,10 +202,12 @@ impl Catalog {
                             Ok((record, ()))
                         },
                     )?;
-                    transaction
-                        .prepare_cached("DELETE FROM pending_blob_deletions WHERE blob_id = ?1")
-                        .and_then(|mut statement| statement.execute([&text]))
-                        .map_err(object_unavailable)?;
+                    sql::exec(
+                        &transaction,
+                        "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
+                        [&text],
+                    )
+                    .map_err(object_unavailable)?;
                     transaction.commit().map_err(object_unavailable)?;
                     Ok(record)
                 })();

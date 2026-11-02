@@ -13,7 +13,8 @@ use super::{
     unavailable, unix_micros,
 };
 use crate::bucket::{BucketAccess, BucketRecord, CatalogError, SoftDeletedBucket};
-use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
+use crate::storage::catalog::sql;
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use std::time::SystemTime;
 
 pub(super) const SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;
@@ -145,10 +146,7 @@ fn rekey_objects(connection: &Connection, from: &str, to: &str) -> Result<(), Ca
         "UPDATE acl_object_entries SET bucket = ?2 WHERE bucket = ?1",
         "UPDATE objects SET bucket = ?2 WHERE bucket = ?1",
     ] {
-        connection
-            .prepare_cached(sql)
-            .and_then(|mut statement| statement.execute(params![from, to]))
-            .map_err(unavailable)?;
+        sql::exec(connection, sql, params![from, to]).map_err(unavailable)?;
     }
     Ok(())
 }
@@ -165,21 +163,15 @@ pub(super) fn retire(connection: &Connection, name: &str, now: i64) -> Result<()
     if retention <= 0 {
         return Ok(());
     }
-    let latest_object: Option<i64> = connection
-        .prepare_cached(
-            "SELECT max(hard_delete_time) FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL",
-        )
-        .and_then(|mut statement| statement.query_row([name], |row| row.get(0)))
+    let latest_object: Option<i64> = sql::scalar(connection,
+            "SELECT max(hard_delete_time) FROM objects WHERE bucket = ?1 AND soft_delete_time IS NOT NULL", [name])
         .map_err(unavailable)?;
     let hard_delete = retention
         .checked_mul(1_000_000)
         .and_then(|retention| now.checked_add(retention))
         .ok_or_else(|| unavailable("soft delete time overflow"))?
         .max(latest_object.unwrap_or(i64::MIN));
-    connection
-        .prepare_cached(RETIRE_BUCKET)
-        .and_then(|mut statement| statement.execute(params![name, now, hard_delete]))
-        .map_err(unavailable)?;
+    sql::exec(connection, RETIRE_BUCKET, params![name, now, hard_delete]).map_err(unavailable)?;
     rekey_objects(connection, name, &retained_key(name, generation))
 }
 
@@ -245,26 +237,22 @@ fn restore_in_transaction(
     }
     // The restored policy is a new IAM revision so stale policy etags cannot overwrite it.
     let revision = next_revision(connection)?;
-    connection
-        .prepare_cached(
-            "INSERT INTO bucket_policies SELECT name, bindings, ?3 FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2",
-        )
-        .and_then(|mut statement| statement.execute(params![name, generation, revision]))
+    sql::exec(connection,
+            "INSERT INTO bucket_policies SELECT name, bindings, ?3 FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2", params![name, generation, revision])
         .map_err(unavailable)?;
     for sql in [
         RESTORE_BUCKET,
         "INSERT INTO acl_bucket_entries (bucket, scope, entries) SELECT ?1, json_extract(value, '$.scope'), json_extract(value, '$.entries') FROM soft_deleted_buckets, json_each(acl) WHERE name = ?1 AND generation = ?2",
     ] {
-        connection
-            .prepare_cached(sql)
-            .and_then(|mut statement| statement.execute(params![name, generation]))
-            .map_err(unavailable)?;
+        sql::exec(connection, sql, params![name, generation]).map_err(unavailable)?;
     }
     // Sessions bound to the deleted incarnation must not resume against the restored bucket.
-    connection
-        .prepare_cached("INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))")
-        .and_then(|mut statement| statement.execute([name]))
-        .map_err(unavailable)?;
+    sql::exec(
+        connection,
+        "INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))",
+        [name],
+    )
+    .map_err(unavailable)?;
     // Startup reconciliation visits only live buckets, so the saved ACL still names the
     // entities of the principals trusted when the version was deleted. Re-derive it from
     // the restored policy under the current principals before the bucket is visible.
@@ -272,10 +260,12 @@ fn restore_in_transaction(
         reconcile_bucket_policy(connection, name, principals, now)?;
     }
     rekey_objects(connection, &retained_key(name, generation), name)?;
-    connection
-        .prepare_cached("DELETE FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2")
-        .and_then(|mut statement| statement.execute(params![name, generation]))
-        .map_err(unavailable)?;
+    sql::exec(
+        connection,
+        "DELETE FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2",
+        params![name, generation],
+    )
+    .map_err(unavailable)?;
     change_journal::append(
         connection,
         change_journal::origin(access),
@@ -291,9 +281,7 @@ fn restore_in_transaction(
 /// Permanently removes up to `PURGE_BATCH` expired versions with their retained objects and
 /// returns how many it removed. Blob files are reclaimed through the deletion journal.
 fn purge_batch(connection: &mut Connection, now: i64) -> Result<i64, CatalogError> {
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(unavailable)?;
+    let transaction = sql::immediate(connection).map_err(unavailable)?;
     let expired = transaction
         .prepare_cached(
             "SELECT name, generation FROM soft_deleted_buckets WHERE hard_delete_time <= ?1 ORDER BY hard_delete_time LIMIT ?2",
@@ -311,25 +299,26 @@ fn purge_batch(connection: &mut Connection, now: i64) -> Result<i64, CatalogErro
             "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1",
             "DELETE FROM objects WHERE bucket = ?1",
         ] {
-            transaction
-                .prepare_cached(sql)
-                .and_then(|mut statement| statement.execute([&key]))
-                .map_err(unavailable)?;
+            sql::exec(&transaction, sql, [&key]).map_err(unavailable)?;
         }
-        transaction
-            .prepare_cached("DELETE FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2")
-            .and_then(|mut statement| statement.execute(params![name, generation]))
-            .map_err(unavailable)?;
+        sql::exec(
+            &transaction,
+            "DELETE FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2",
+            params![name, generation],
+        )
+        .map_err(unavailable)?;
     }
     transaction.commit().map_err(unavailable)?;
     Ok(expired.len() as i64)
 }
 
 fn earliest_hard_delete(connection: &Connection) -> Result<Option<i64>, CatalogError> {
-    connection
-        .prepare_cached("SELECT min(hard_delete_time) FROM soft_deleted_buckets")
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .map_err(unavailable)
+    sql::scalar(
+        connection,
+        "SELECT min(hard_delete_time) FROM soft_deleted_buckets",
+        [],
+    )
+    .map_err(unavailable)
 }
 
 impl Catalog {
@@ -412,9 +401,7 @@ impl Catalog {
         let (name, access, clock) = (name.to_owned(), access.clone(), self.0.clock.clone());
         let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(unavailable)?;
+            let transaction = sql::immediate(connection).map_err(unavailable)?;
             let now = unix_micros(clock.now())?;
             let record = restore_in_transaction(
                 &transaction,
