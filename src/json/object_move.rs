@@ -2,16 +2,17 @@ use super::{
     JsonError, ObjectRequest, Projection,
     query::{Decoding, decode, finish, parse_query, projection},
 };
-use crate::{config::CompatProfile, object::ObjectConditions};
+use crate::{
+    config::CompatProfile,
+    object::ObjectConditions,
+    storage::{MoveConditions, MoveNames},
+};
 use hyper::{Method, Uri};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectMoveParams {
-    pub bucket: String,
-    pub source: String,
-    pub destination: String,
-    pub source_conditions: ObjectConditions,
-    pub conditions: ObjectConditions,
+    pub names: MoveNames,
+    pub conditions: MoveConditions,
     pub projection: Projection,
 }
 
@@ -108,14 +109,18 @@ pub(super) fn route(
             Ok(conditions)
         };
         let source_conditions = conditions("Source")?;
-        let conditions = conditions("")?;
+        let destination_conditions = conditions("")?;
         finish(&query)?;
         Ok(ObjectRequest::Move(ObjectMoveParams {
-            bucket,
-            source,
-            destination,
-            source_conditions,
-            conditions,
+            names: MoveNames {
+                bucket,
+                source,
+                destination,
+            },
+            conditions: MoveConditions {
+                source: source_conditions,
+                destination: destination_conditions,
+            },
             projection,
         }))
     })())
@@ -135,10 +140,10 @@ mod tests {
         else {
             panic!("expected move route")
         };
-        assert_eq!(params.source, "source/%2F");
-        assert_eq!(params.destination, "target/%2F");
-        assert_eq!(params.source_conditions.if_generation_match, Some(7));
-        assert_eq!(params.conditions.if_generation_match, Some(0));
+        assert_eq!(params.names.source, "source/%2F");
+        assert_eq!(params.names.destination, "target/%2F");
+        assert_eq!(params.conditions.source.if_generation_match, Some(7));
+        assert_eq!(params.conditions.destination.if_generation_match, Some(0));
         let error = route(&Method::GET, &uri, CompatProfile::Native)
             .unwrap()
             .unwrap_err();

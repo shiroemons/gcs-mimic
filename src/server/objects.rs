@@ -15,7 +15,7 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     json::{self, JsonError, ObjectRequest, UploadRequest},
     object::{ObjectConditions, ObjectError, ObjectTarget, retention::UnlockedOverride},
-    storage::{MoveAccess, MoveConditions, MoveNames, RestoreAccess, UploadAclSnapshot},
+    storage::{MoveAccess, RestoreAccess, UploadAclSnapshot},
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
 use serde_json::Value;
@@ -162,7 +162,7 @@ fn response_fields(uri: &Uri, operation: &ObjectRequest) -> Result<json::Fields,
 fn required_permission(operation: &ObjectRequest) -> (&'static str, &str) {
     match operation {
         ObjectRequest::Restore { bucket, .. } => (auth::OBJECTS_RESTORE, bucket),
-        ObjectRequest::Move(params) => (auth::OBJECTS_CREATE, &params.bucket),
+        ObjectRequest::Move(params) => (auth::OBJECTS_CREATE, &params.names.bucket),
         ObjectRequest::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
         ObjectRequest::Update { target, .. } => (auth::OBJECTS_UPDATE, &target.bucket),
@@ -328,6 +328,11 @@ async fn move_object(
     access: &BucketAccess,
     params: json::ObjectMoveParams,
 ) -> Result<Value, JsonError> {
+    let json::ObjectMoveParams {
+        names,
+        conditions,
+        projection,
+    } = params;
     json::validate_object_get_headers(request.headers())?;
     let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
     // The Node SDK serializes empty options as {}, without move semantics.
@@ -338,17 +343,9 @@ async fn move_object(
             "Move requires an empty body or an empty JSON object",
         ));
     }
-    let source_read = ctx.authorize(auth::OBJECTS_GET, &params.bucket).await?;
-    let source_delete = ctx.authorize(auth::OBJECTS_DELETE, &params.bucket).await?;
-    let names = MoveNames {
-        bucket: params.bucket.clone(),
-        source: params.source.clone(),
-        destination: params.destination,
-    };
-    let conditions = MoveConditions {
-        source: params.source_conditions,
-        destination: params.conditions,
-    };
+    let source_read = ctx.authorize(auth::OBJECTS_GET, &names.bucket).await?;
+    let source_delete = ctx.authorize(auth::OBJECTS_DELETE, &names.bucket).await?;
+    let (bucket, source) = (names.bucket.clone(), names.source.clone());
     let record = ctx
         .state
         .catalog
@@ -384,13 +381,13 @@ async fn move_object(
                     "forbidden",
                     format!(
                         "{principal} does not have storage.objects.move access to the Google Cloud Storage object. Permission 'storage.objects.move' denied on resource '//{}/projects/_/buckets/{}/objects/{}' (or it may not exist).",
-                        host.trim_end_matches('/'), params.bucket, params.source
+                        host.trim_end_matches('/'), bucket, source
                     ),
                 )
             }
             error => error.into(),
         })?;
-    json::object_resource(&record, &ctx.endpoints.api_base_url, params.projection)
+    json::object_resource(&record, &ctx.endpoints.api_base_url, projection)
 }
 
 async fn list(
