@@ -123,6 +123,29 @@ fn names(body: &str) -> Vec<&str> {
 }
 
 #[test]
+fn xml_bucket_requests_reject_object_preconditions() {
+    let data = TestDir::new();
+    let server = strict(&data);
+    server.create("project-a", "condition-bucket");
+    for (method, header, message) in [
+        (
+            "GET",
+            "x-goog-if-generation-match: 0\r\n",
+            "object conditions or encryption on bucket listing",
+        ),
+        (
+            "DELETE",
+            "x-goog-if-metageneration-match: 1\r\n",
+            "object conditions, ranges or encryption on a bucket",
+        ),
+    ] {
+        let reply = server.request(method, "/condition-bucket", &format!("{ADMIN}{header}"), "");
+        assert_eq!(reply.status, 400, "{}", reply.body);
+        assert!(reply.body.contains(message), "{}", reply.body);
+    }
+}
+
+#[test]
 fn xml_service_lists_only_selected_project_in_order_with_persisted_creation_dates() {
     let data = TestDir::new();
     let server = Server::start(&data, &[]);
