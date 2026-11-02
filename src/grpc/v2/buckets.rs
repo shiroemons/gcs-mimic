@@ -377,7 +377,7 @@ impl Storage {
         let access = self.access(caller, name, "storage.buckets.delete").await?;
         self.state
             .catalog
-            .delete_bucket_authorized(
+            .delete_bucket(
                 name,
                 request.if_metageneration_match,
                 request.if_metageneration_not_match,
@@ -401,7 +401,7 @@ impl Storage {
         let record = self
             .state
             .catalog
-            .get_bucket_authorized(name, &access)
+            .get_bucket(name, &access)
             .await
             .map_err(|error| catalog_error(error, caller))?
             .ok_or_else(|| catalog_error(CatalogError::NotFound, caller))?;
@@ -776,7 +776,7 @@ mod tests {
                 storage
                     .state
                     .catalog
-                    .get_bucket("test-bucket")
+                    .get_bucket("test-bucket", PERMISSIVE)
                     .await
                     .unwrap()
                     .is_some()
@@ -1063,7 +1063,7 @@ mod tests {
             storage
                 .state
                 .catalog
-                .get_bucket("unsupported-bucket")
+                .get_bucket("unsupported-bucket", PERMISSIVE)
                 .await
                 .unwrap()
                 .is_none()
@@ -1473,7 +1473,7 @@ mod tests {
             storage
                 .state
                 .catalog
-                .get_bucket("retention-bucket")
+                .get_bucket("retention-bucket", PERMISSIVE)
                 .await
                 .unwrap()
                 .is_none()
@@ -1490,7 +1490,7 @@ mod tests {
         let stored = storage
             .state
             .catalog
-            .get_bucket("retention-bucket")
+            .get_bucket("retention-bucket", PERMISSIVE)
             .await
             .unwrap()
             .unwrap();
@@ -1551,7 +1551,7 @@ mod tests {
                 storage
                     .state
                     .catalog
-                    .get_bucket(bucket)
+                    .get_bucket(bucket, PERMISSIVE)
                     .await
                     .unwrap()
                     .is_none()

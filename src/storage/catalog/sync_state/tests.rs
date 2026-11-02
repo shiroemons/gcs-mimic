@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     clock::SystemClock,
     storage::admin::{
@@ -275,7 +276,7 @@ async fn sync_state_publication_skip_rollback_and_conditional_delete_are_atomic(
         Err(AdminError::NotFound)
     );
     catalog
-        .delete_bucket("test-bucket", None, None)
+        .delete_bucket("test-bucket", None, None, PERMISSIVE)
         .await
         .unwrap();
     admin

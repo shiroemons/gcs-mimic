@@ -137,7 +137,13 @@ async fn journal_records_atomic_origins_mutations_and_stable_pages() {
             .await
             .is_err()
     );
-    assert!(catalog.get_bucket("rolled-back").await.unwrap().is_none());
+    assert!(
+        catalog
+            .get_bucket("rolled-back", PERMISSIVE)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
         catalog
             .read_changes(Some(before), None, 256)
@@ -349,7 +355,7 @@ async fn journal_bucket_iam_compose_and_resumable_share_mutation_transactions() 
         .await
         .unwrap();
     catalog
-        .delete_bucket("empty-bucket", None, None)
+        .delete_bucket("empty-bucket", None, None, PERMISSIVE)
         .await
         .unwrap();
     publish(&catalog, Origin::Seed, "source").await;

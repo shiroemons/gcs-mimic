@@ -87,14 +87,14 @@ async fn execute(
         if delete {
             ctx.state
                 .catalog
-                .delete_bucket_authorized(&path.bucket, None, None, &access)
+                .delete_bucket(&path.bucket, None, None, &access)
                 .await
                 .map_err(|error| catalog_error(error, caller))?;
             return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
         }
         ctx.state
             .catalog
-            .get_bucket_authorized(&path.bucket, &access)
+            .get_bucket(&path.bucket, &access)
             .await
             .map_err(json::JsonError::from)
             .map_err(|error| anonymous_error(error, caller))?

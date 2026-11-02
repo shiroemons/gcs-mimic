@@ -95,7 +95,7 @@ pub(super) async fn respond<'a>(
         BucketRequest::GetStorageLayout { bucket } => {
             let record = state
                 .catalog
-                .get_bucket_authorized(&bucket, &access)
+                .get_bucket(&bucket, &access)
                 .await?
                 .ok_or_else(|| bucket_catalog_error(CatalogError::NotFound, profile, None))?;
             json::storage_layout_resource(&record, profile)
@@ -156,7 +156,7 @@ async fn leaves_uniform_access(
     };
     Ok(state
         .catalog
-        .get_bucket_authorized(bucket, access)
+        .get_bucket(bucket, access)
         .await?
         .is_some_and(|record| record.uniform_bucket_level_access_locked_time.is_some()))
 }
@@ -369,7 +369,7 @@ async fn write(
     };
     let record = state
         .catalog
-        .get_bucket_authorized(bucket, access)
+        .get_bucket(bucket, access)
         .await?
         .ok_or(CatalogError::NotFound)?;
     let predefined = json::bucket_predefined_acls(
@@ -578,7 +578,7 @@ async fn get(
     } = ctx;
     let record = state
         .catalog
-        .get_bucket_authorized(bucket, access)
+        .get_bucket(bucket, access)
         .await?
         .ok_or_else(|| bucket_catalog_error(CatalogError::NotFound, profile, None))?;
     let conditions = params.conditions;
@@ -685,7 +685,7 @@ async fn delete(
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     ctx.state
         .catalog
-        .delete_bucket_authorized(
+        .delete_bucket(
             bucket,
             conditions.if_metageneration_match,
             conditions.if_metageneration_not_match,

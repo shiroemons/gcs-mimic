@@ -1,5 +1,6 @@
 use super::catalog::test_fixtures::bucket;
 use crate as gcs_mimic;
+use crate::storage::test_fixtures::PERMISSIVE;
 use bytes::Bytes;
 use gcs_mimic::{
     bucket::{BucketRecord, CatalogError},
@@ -741,7 +742,9 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
         Err(ObjectError::ObjectNotFound)
     );
     assert_eq!(
-        catalog.delete_bucket("bucket", None, None).await,
+        catalog
+            .delete_bucket("bucket", None, None, PERMISSIVE)
+            .await,
         Err(CatalogError::NotEmpty)
     );
     let (_, reader) = catalog
@@ -770,7 +773,10 @@ async fn generation_selection_nonempty_bucket_and_open_readers_survive_unlink() 
             .await,
         Err(ObjectError::ObjectNotFound)
     );
-    catalog.delete_bucket("bucket", None, None).await.unwrap();
+    catalog
+        .delete_bucket("bucket", None, None, PERMISSIVE)
+        .await
+        .unwrap();
     assert_eq!(
         catalog
             .get_object("bucket", "object", None, ObjectConditions::default())
@@ -938,7 +944,11 @@ async fn conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic(
             &dir.0,
             "new",
             ObjectConditions::default(),
-            async move { deleting.delete_bucket("bucket", None, None).await },
+            async move {
+                deleting
+                    .delete_bucket("bucket", None, None, PERMISSIVE)
+                    .await
+            },
             iteration,
         )
         .await;
@@ -1466,7 +1476,7 @@ async fn missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock
 async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently() {
     let dir = TestDir::new();
     let catalog = setup(&dir).await;
-    let mut bucket = catalog.get_bucket("bucket").await.unwrap();
+    let mut bucket = catalog.get_bucket("bucket", PERMISSIVE).await.unwrap();
     // The migration backfills the generation from the creation time (zero here, so 1 in
     // microseconds) and schema 46 scales it to nanoseconds.
     bucket.as_mut().unwrap().generation = 1000;
@@ -1515,8 +1525,15 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         .unwrap();
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    assert_eq!(catalog.get_bucket("bucket").await.unwrap(), bucket);
-    let settings = catalog.get_bucket("bucket").await.unwrap().unwrap();
+    assert_eq!(
+        catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
+        bucket
+    );
+    let settings = catalog
+        .get_bucket("bucket", PERMISSIVE)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!settings.versioning_enabled && !settings.default_event_based_hold);
     let object = put(&catalog, "migrated", b"body", ObjectConditions::default())
         .await
@@ -1619,7 +1636,11 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
         .await
         .unwrap();
-    let settings = catalog.get_bucket("bucket").await.unwrap().unwrap();
+    let settings = catalog
+        .get_bucket("bucket", PERMISSIVE)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!settings.versioning_enabled && !settings.default_event_based_hold);
     assert_eq!(
         catalog
@@ -1820,10 +1841,13 @@ fn stalled_uploads_leave_blocking_workers_available_without_an_upload_limit() {
             })
             .await
             .unwrap();
-            tokio::time::timeout(Duration::from_secs(5), catalog.get_bucket("bucket"))
-                .await
-                .unwrap()
-                .unwrap();
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                catalog.get_bucket("bucket", PERMISSIVE),
+            )
+            .await
+            .unwrap()
+            .unwrap();
             put(&catalog, "additional", b"ok", ObjectConditions::default())
                 .await
                 .unwrap();

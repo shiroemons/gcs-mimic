@@ -92,7 +92,7 @@ async fn check_topic(
 ) -> Result<(), JsonError> {
     let record = state
         .catalog
-        .get_bucket_authorized(bucket, access)
+        .get_bucket(bucket, access)
         .await?
         .ok_or(CatalogError::NotFound)?;
     match state.catalog.check_notification_topic(topic).await {

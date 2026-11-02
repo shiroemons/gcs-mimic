@@ -894,7 +894,10 @@ mod tests {
             };
             assert_eq!(result, Err(CatalogError::Forbidden));
             assert_eq!(
-                catalog.get_bucket("pap-permissions").await.unwrap(),
+                catalog
+                    .get_bucket("pap-permissions", PERMISSIVE)
+                    .await
+                    .unwrap(),
                 Some(record.clone())
             );
         }
@@ -915,7 +918,7 @@ mod tests {
             for replace in [false, true] {
                 for value in [None, Some(enforced), Some(!enforced)] {
                     let before = catalog
-                        .get_bucket("pap-permissions")
+                        .get_bucket("pap-permissions", PERMISSIVE)
                         .await
                         .unwrap()
                         .unwrap();
@@ -945,7 +948,10 @@ mod tests {
                     } else {
                         assert_eq!(result, Err(CatalogError::Forbidden));
                         assert_eq!(
-                            catalog.get_bucket("pap-permissions").await.unwrap(),
+                            catalog
+                                .get_bucket("pap-permissions", PERMISSIVE)
+                                .await
+                                .unwrap(),
                             Some(before)
                         );
                     }
@@ -991,7 +997,7 @@ mod tests {
                 for replace in [false, true] {
                     for same in [false, true] {
                         let before = catalog
-                            .get_bucket("acl-permissions")
+                            .get_bucket("acl-permissions", PERMISSIVE)
                             .await
                             .unwrap()
                             .unwrap();
@@ -1029,7 +1035,7 @@ mod tests {
                             assert_eq!(result, Err(CatalogError::Forbidden));
                             assert_eq!(
                                 catalog
-                                    .get_bucket("acl-permissions")
+                                    .get_bucket("acl-permissions", PERMISSIVE)
                                     .await
                                     .unwrap()
                                     .unwrap(),

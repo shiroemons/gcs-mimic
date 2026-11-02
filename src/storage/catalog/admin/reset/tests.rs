@@ -85,7 +85,13 @@ async fn reset_preserves_high_water_identity_and_open_readers_and_survives_resta
     admin.reset().await.unwrap();
     catalog.close().await.unwrap();
     let reopened = Catalog::open(&dir.0).await.unwrap();
-    assert!(reopened.get_bucket("reset-bucket").await.unwrap().is_none());
+    assert!(
+        reopened
+            .get_bucket("reset-bucket", PERMISSIVE)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(reopened.sync_state().catalog_id().await.unwrap(), identity);
     reopened.close().await.unwrap();
 }
@@ -162,7 +168,13 @@ async fn reset_failed_commit_preserves_state_and_deferred_cleanup_recovers() {
     assert_eq!(catalog.pending_faults(), 0);
     catalog.close().await.unwrap();
     let reopened = Catalog::open(&dir.0).await.unwrap();
-    assert!(reopened.get_bucket("reset-bucket").await.unwrap().is_none());
+    assert!(
+        reopened
+            .get_bucket("reset-bucket", PERMISSIVE)
+            .await
+            .unwrap()
+            .is_none()
+    );
     reopened.close().await.unwrap();
 }
 
@@ -210,7 +222,13 @@ async fn reset_refuses_incomplete_import_and_resolves_post_commit_error() {
     publish(&admin).await;
     catalog.inject(Step::AfterCommit, 0, Fault::Io(io::ErrorKind::Other));
     assert!(!admin.reset().await.unwrap().cleanup_pending);
-    assert!(catalog.get_bucket("reset-bucket").await.unwrap().is_none());
+    assert!(
+        catalog
+            .get_bucket("reset-bucket", PERMISSIVE)
+            .await
+            .unwrap()
+            .is_none()
+    );
     catalog.close().await.unwrap();
 }
 
@@ -330,7 +348,7 @@ async fn reset_crash_and_power_loss_snapshots_recover_on_each_commit_and_cleanup
             let recovered = Catalog::open(&snapshot.0).await.unwrap();
             assert_eq!(
                 recovered
-                    .get_bucket("reset-bucket")
+                    .get_bucket("reset-bucket", PERMISSIVE)
                     .await
                     .unwrap()
                     .is_some(),

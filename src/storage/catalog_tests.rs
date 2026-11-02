@@ -53,7 +53,7 @@ async fn versioning_presence_migration_preserves_existing_bucket_states() {
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     for (name, expected) in [("plain", false), ("enabled", true)] {
-        let record = catalog.get_bucket(name).await.unwrap().unwrap();
+        let record = catalog.get_bucket(name, PERMISSIVE).await.unwrap().unwrap();
         assert_eq!(record.versioning_enabled, expected);
         assert!(!record.versioning_configured);
     }
@@ -75,7 +75,10 @@ async fn soft_delete_schema_migration_preserves_existing_buckets() {
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("soft-delete-migration").await.unwrap(),
+        catalog
+            .get_bucket("soft-delete-migration", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(original)
     );
     catalog.close().await.unwrap();
@@ -98,7 +101,10 @@ async fn sync_bucket_schema_migration_preserves_existing_catalog() {
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("sync-migration").await.unwrap(),
+        catalog
+            .get_bucket("sync-migration", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(original)
     );
     catalog.close().await.unwrap();
@@ -134,7 +140,10 @@ async fn autoclass_schema_migration_preserves_buckets_and_persists_configuration
 
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("autoclass-migration").await.unwrap(),
+        catalog
+            .get_bucket("autoclass-migration", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(original.clone())
     );
     let enabled = catalog
@@ -180,7 +189,10 @@ async fn autoclass_schema_migration_preserves_buckets_and_persists_configuration
 
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("autoclass-migration").await.unwrap(),
+        catalog
+            .get_bucket("autoclass-migration", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(enabled)
     );
     catalog.close().await.unwrap();
@@ -202,7 +214,10 @@ async fn acl_schema_migration_keeps_buckets_on_the_project_private_default() {
 
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("acl-migration").await.unwrap(),
+        catalog
+            .get_bucket("acl-migration", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(original.clone())
     );
     let target = gcs_mimic::acl::AclTarget::Bucket("acl-migration".into());
@@ -257,7 +272,10 @@ async fn retention_schema_migration_preserves_existing_buckets() {
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("retention-migration").await.unwrap(),
+        catalog
+            .get_bucket("retention-migration", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(original)
     );
     catalog.close().await.unwrap();
@@ -280,7 +298,10 @@ async fn lifecycle_schema_migration_and_restart() {
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("lifecycle-bucket").await.unwrap(),
+        catalog
+            .get_bucket("lifecycle-bucket", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(original.clone())
     );
     let rules = vec![serde_json::json!({"action":{"type":"Delete"},"condition":{"age":30}})];
@@ -302,7 +323,10 @@ async fn lifecycle_schema_migration_and_restart() {
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("lifecycle-bucket").await.unwrap(),
+        catalog
+            .get_bucket("lifecycle-bucket", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(updated)
     );
     catalog.close().await.unwrap();
@@ -332,7 +356,10 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
         .await
         .unwrap();
     assert_eq!(
-        catalog.get_bucket("uniform-bucket").await.unwrap(),
+        catalog
+            .get_bucket("uniform-bucket", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(original.clone())
     );
     let update = |enabled| BucketMetadataUpdate {
@@ -400,7 +427,10 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
         .await
         .unwrap();
     assert_eq!(
-        catalog.get_bucket("uniform-bucket").await.unwrap(),
+        catalog
+            .get_bucket("uniform-bucket", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(enabled.clone())
     );
     clock.0.store(2000 + 90 * 24 * 60 * 60, Ordering::Relaxed);
@@ -416,7 +446,10 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
         };
         assert!(matches!(result, Err(CatalogError::InvalidMetadata(_))));
         assert_eq!(
-            catalog.get_bucket("uniform-bucket").await.unwrap(),
+            catalog
+                .get_bucket("uniform-bucket", PERMISSIVE)
+                .await
+                .unwrap(),
             Some(enabled.clone())
         );
     }
@@ -442,7 +475,10 @@ async fn timestamp_version_fourteen_reopen_preserves_timestamps() {
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("timestamp-reopen").await.unwrap(),
+        catalog
+            .get_bucket("timestamp-reopen", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(original)
     );
     catalog.close().await.unwrap();
@@ -463,7 +499,10 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("pap-migration").await.unwrap(),
+        catalog
+            .get_bucket("pap-migration", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(original.clone())
     );
     let enforced = catalog
@@ -498,7 +537,10 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("pap-migration").await.unwrap(),
+        catalog
+            .get_bucket("pap-migration", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(enforced)
     );
 }
@@ -521,7 +563,10 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("cors-migration").await.unwrap(),
+        catalog
+            .get_bucket("cors-migration", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(original.clone())
     );
     let rule = CorsRule {
@@ -559,7 +604,10 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
         .await;
     assert!(matches!(result, Err(CatalogError::InvalidMetadata(_))));
     assert_eq!(
-        catalog.get_bucket("cors-migration").await.unwrap(),
+        catalog
+            .get_bucket("cors-migration", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(stored.clone())
     );
     let mut invalid_bucket = bucket("invalid-cors", "project");
@@ -568,7 +616,13 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
         catalog.insert_bucket(invalid_bucket).await,
         Err(CatalogError::InvalidMetadata(_))
     ));
-    assert!(catalog.get_bucket("invalid-cors").await.unwrap().is_none());
+    assert!(
+        catalog
+            .get_bucket("invalid-cors", PERMISSIVE)
+            .await
+            .unwrap()
+            .is_none()
+    );
     for rules in [
         vec![CorsRule {
             origin: vec!["a".repeat(65_536)],
@@ -588,7 +642,7 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
         ));
         assert!(
             catalog
-                .get_bucket("oversized-cors")
+                .get_bucket("oversized-cors", PERMISSIVE)
                 .await
                 .unwrap()
                 .is_none()
@@ -597,7 +651,10 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("cors-migration").await.unwrap(),
+        catalog
+            .get_bucket("cors-migration", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(stored)
     );
     catalog.close().await.unwrap();
@@ -697,7 +754,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
             Err(CatalogError::InvalidMetadata(_))
         ));
         assert_eq!(
-            catalog.get_bucket("put-clock").await.unwrap(),
+            catalog.get_bucket("put-clock", PERMISSIVE).await.unwrap(),
             Some(full.clone())
         );
     }
@@ -717,7 +774,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
         Err(CatalogError::UnsupportedMetadata(_))
     ));
     assert_eq!(
-        catalog.get_bucket("put-clock").await.unwrap(),
+        catalog.get_bucket("put-clock", PERMISSIVE).await.unwrap(),
         Some(full.clone())
     );
     let next = catalog
@@ -738,7 +795,10 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
         Err(CatalogError::Unavailable(_))
     ));
     assert_eq!(
-        catalog.get_bucket("put-exhausted").await.unwrap(),
+        catalog
+            .get_bucket("put-exhausted", PERMISSIVE)
+            .await
+            .unwrap(),
         Some(exhausted)
     );
 }
@@ -820,7 +880,10 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
             Err(CatalogError::InvalidMetadata(_))
         ));
     }
-    assert_eq!(catalog.get_bucket("patch-clock").await.unwrap(), Some(next));
+    assert_eq!(
+        catalog.get_bucket("patch-clock", PERMISSIVE).await.unwrap(),
+        Some(next)
+    );
     let mut exhausted = bucket("exhausted", "project");
     exhausted.metageneration = i64::MAX;
     let exhausted = catalog.insert_bucket(exhausted).await.unwrap();
@@ -831,7 +894,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
         Err(CatalogError::Unavailable(_))
     ));
     assert_eq!(
-        catalog.get_bucket("exhausted").await.unwrap(),
+        catalog.get_bucket("exhausted", PERMISSIVE).await.unwrap(),
         Some(exhausted)
     );
 }
@@ -862,7 +925,10 @@ async fn bucket_generations_stay_allocatable_when_the_creation_time_exceeds_the_
 async fn create_get_delete_and_restart_preserve_every_field() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    assert_eq!(catalog.get_bucket("missing").await.unwrap(), None);
+    assert_eq!(
+        catalog.get_bucket("missing", PERMISSIVE).await.unwrap(),
+        None
+    );
     let mut expected = bucket("bucket", "project");
     expected.versioning_enabled = true;
     expected.default_event_based_hold = true;
@@ -873,7 +939,7 @@ async fn create_get_delete_and_restart_preserve_every_field() {
     expected.generation = 42_123_000_000;
     assert_eq!(created, expected);
     assert_eq!(
-        catalog.get_bucket("bucket").await.unwrap(),
+        catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
         Some(expected.clone())
     );
     assert_eq!(
@@ -884,16 +950,30 @@ async fn create_get_delete_and_restart_preserve_every_field() {
     );
     drop(catalog);
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    assert_eq!(catalog.get_bucket("bucket").await.unwrap(), Some(expected));
-    catalog.delete_bucket("bucket", None, None).await.unwrap();
-    assert_eq!(catalog.get_bucket("bucket").await.unwrap(), None);
     assert_eq!(
-        catalog.delete_bucket("bucket", Some(9), None).await,
+        catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
+        Some(expected)
+    );
+    catalog
+        .delete_bucket("bucket", None, None, PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(
+        catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
+        None
+    );
+    assert_eq!(
+        catalog
+            .delete_bucket("bucket", Some(9), None, PERMISSIVE)
+            .await,
         Err(CatalogError::NotFound)
     );
     drop(catalog);
     let catalog = Catalog::open(&dir.0).await.unwrap();
-    assert_eq!(catalog.get_bucket("bucket").await.unwrap(), None);
+    assert_eq!(
+        catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
+        None
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1101,14 +1181,20 @@ async fn delete_preconditions_are_atomic_and_preserve_failed_records() {
     for (matching, not_matching) in [(Some(2), None), (None, Some(3)), (Some(3), Some(3))] {
         assert_eq!(
             catalog
-                .delete_bucket("conditional", matching, not_matching)
+                .delete_bucket("conditional", matching, not_matching, PERMISSIVE)
                 .await,
             Err(CatalogError::PreconditionFailed)
         );
-        assert!(catalog.get_bucket("conditional").await.unwrap().is_some());
+        assert!(
+            catalog
+                .get_bucket("conditional", PERMISSIVE)
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
     catalog
-        .delete_bucket("conditional", Some(3), Some(2))
+        .delete_bucket("conditional", Some(3), Some(2), PERMISSIVE)
         .await
         .unwrap();
     catalog
@@ -1116,7 +1202,7 @@ async fn delete_preconditions_are_atomic_and_preserve_failed_records() {
         .await
         .unwrap();
     catalog
-        .delete_bucket("conditional", None, Some(4))
+        .delete_bucket("conditional", None, Some(4), PERMISSIVE)
         .await
         .unwrap();
     catalog
@@ -1124,7 +1210,7 @@ async fn delete_preconditions_are_atomic_and_preserve_failed_records() {
         .await
         .unwrap();
     catalog
-        .delete_bucket("conditional", Some(3), None)
+        .delete_bucket("conditional", Some(3), None, PERMISSIVE)
         .await
         .unwrap();
 }
@@ -1169,7 +1255,7 @@ async fn repeated_concurrent_use_close_and_reopen_preserves_data() {
         let mut tasks = tokio::task::JoinSet::new();
         for _ in 0..16 {
             let catalog = catalog.clone();
-            tasks.spawn(async move { catalog.get_bucket("persisted").await });
+            tasks.spawn(async move { catalog.get_bucket("persisted", PERMISSIVE).await });
         }
         while let Some(result) = tasks.join_next().await {
             assert_eq!(result.unwrap().unwrap(), Some(expected.clone()));
@@ -1177,7 +1263,7 @@ async fn repeated_concurrent_use_close_and_reopen_preserves_data() {
         catalog.close().await.unwrap();
         let reopened = Catalog::open(&dir.0).await.unwrap();
         assert_eq!(
-            reopened.get_bucket("persisted").await.unwrap(),
+            reopened.get_bucket("persisted", PERMISSIVE).await.unwrap(),
             Some(expected.clone())
         );
         catalog.close().await.unwrap();
@@ -1268,7 +1354,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
         drop(connection);
         let catalog = Catalog::open(&dir.0).await.unwrap();
         assert_eq!(
-            catalog.get_bucket("bucket").await.unwrap(),
+            catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
             Some(expected),
             "version {version}"
         );
@@ -1289,7 +1375,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
             .enumerate()
         {
             let record = catalog
-                .get_bucket(&format!("settings-{index}"))
+                .get_bucket(&format!("settings-{index}"), PERMISSIVE)
                 .await
                 .unwrap()
                 .unwrap();
@@ -1613,7 +1699,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
         // microseconds and schema 46 scales it to nanoseconds.
         record.generation = 42_123_000_000;
         assert_eq!(
-            catalog.get_bucket(&record.name).await.unwrap(),
+            catalog.get_bucket(&record.name, PERMISSIVE).await.unwrap(),
             Some(record)
         );
     }
@@ -1782,7 +1868,12 @@ async fn recovers_committed_wal_after_process_exit_without_drop() {
     assert!(dir.0.join("catalog.sqlite3-wal").exists());
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("committed").await.unwrap().unwrap().name,
+        catalog
+            .get_bucket("committed", PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap()
+            .name,
         "committed"
     );
     catalog

@@ -1,6 +1,7 @@
 //! Object Retention Lock wire contract over the strict JSON API with an injected clock.
 
 use super::{Harness, Reply};
+use crate::storage::test_fixtures::PERMISSIVE;
 use serde_json::{Value, json};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -175,7 +176,7 @@ async fn object_retention_bucket_enablement_is_create_only_and_persists() {
         .unwrap();
     assert!(
         reopened
-            .get_bucket("locked-bucket")
+            .get_bucket("locked-bucket", PERMISSIVE)
             .await
             .unwrap()
             .unwrap()
@@ -183,7 +184,7 @@ async fn object_retention_bucket_enablement_is_create_only_and_persists() {
     );
     assert!(
         !reopened
-            .get_bucket("bucket")
+            .get_bucket("bucket", PERMISSIVE)
             .await
             .unwrap()
             .unwrap()
@@ -252,7 +253,7 @@ async fn object_retention_schema_migration_and_restart() {
         assert_eq!(record.retention, None);
         assert!(
             !catalog
-                .get_bucket(bucket_name)
+                .get_bucket(bucket_name, PERMISSIVE)
                 .await
                 .unwrap()
                 .unwrap()

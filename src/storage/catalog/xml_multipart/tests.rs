@@ -1,5 +1,6 @@
 use super::super::fault::{Fault, Step};
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     clock::{Clock, SystemClock},
     object::UploadChunk,
@@ -507,7 +508,10 @@ async fn bucket_delete_wakes_cleanup_and_releases_full_multipart_session_capacit
     let changed = catalog.0.maintenance_wake.notified();
     tokio::pin!(changed);
     changed.as_mut().enable();
-    catalog.delete_bucket("bucket", None, None).await.unwrap();
+    catalog
+        .delete_bucket("bucket", None, None, PERMISSIVE)
+        .await
+        .unwrap();
     tokio::time::timeout(Duration::from_secs(5), changed)
         .await
         .unwrap();

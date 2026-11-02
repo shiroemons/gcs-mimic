@@ -289,7 +289,11 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
     }
     runtime.block_on(async {
         let catalog = Catalog::open(&options.destination).await.unwrap();
-        let before = catalog.get_bucket("bucket-one").await.unwrap().unwrap();
+        let before = catalog
+            .get_bucket("bucket-one", PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap();
         let patched = catalog
             .patch_bucket(
                 "bucket-one",
@@ -314,7 +318,11 @@ fn snapshot_preserves_original_names_history_and_archive_only_after_resume_and_r
             0
         );
         assert_eq!(
-            catalog.get_bucket("bucket-one").await.unwrap().unwrap(),
+            catalog
+                .get_bucket("bucket-one", PERMISSIVE)
+                .await
+                .unwrap()
+                .unwrap(),
             patched
         );
         let next = catalog

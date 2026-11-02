@@ -1308,14 +1308,6 @@ impl Catalog {
         .await
     }
 
-    pub(crate) async fn get_bucket(
-        &self,
-        name: &str,
-    ) -> Result<Option<BucketRecord>, CatalogError> {
-        self.get_bucket_authorized(name, &BucketAccess::Permissive)
-            .await
-    }
-
     pub(crate) async fn patch_bucket(
         &self,
         name: &str,
@@ -1486,7 +1478,7 @@ impl Catalog {
     }
 
     /// Reads the bucket and checks `access` against the owner observed by the same read.
-    pub(crate) async fn get_bucket_authorized(
+    pub(crate) async fn get_bucket(
         &self,
         name: &str,
         access: &BucketAccess,
@@ -1576,24 +1568,8 @@ impl Catalog {
         .await
     }
 
-    #[cfg(test)]
-    pub(crate) async fn delete_bucket(
-        &self,
-        name: &str,
-        if_metageneration_match: Option<i64>,
-        if_metageneration_not_match: Option<i64>,
-    ) -> Result<(), CatalogError> {
-        self.delete_bucket_authorized(
-            name,
-            if_metageneration_match,
-            if_metageneration_not_match,
-            PERMISSIVE,
-        )
-        .await
-    }
-
     /// Deletes the bucket only if `access` holds for the owner observed under the write lock.
-    pub(crate) async fn delete_bucket_authorized(
+    pub(crate) async fn delete_bucket(
         &self,
         name: &str,
         if_metageneration_match: Option<i64>,
@@ -2285,7 +2261,10 @@ mod tests {
             labels: Some(None),
             ..Default::default()
         };
-        let before = catalog.get_bucket("patch-policy").await.unwrap();
+        let before = catalog
+            .get_bucket("patch-policy", PERMISSIVE)
+            .await
+            .unwrap();
         assert_eq!(
             catalog
                 .update_bucket(
@@ -2299,7 +2278,13 @@ mod tests {
                 .await,
             Err(CatalogError::Forbidden)
         );
-        assert_eq!(catalog.get_bucket("patch-policy").await.unwrap(), before);
+        assert_eq!(
+            catalog
+                .get_bucket("patch-policy", PERMISSIVE)
+                .await
+                .unwrap(),
+            before
+        );
         let invalid = BucketMetadataUpdate {
             labels: Some(Some(std::collections::BTreeMap::from([(
                 "Bad".into(),
@@ -2320,9 +2305,15 @@ mod tests {
                 .await,
             Err(CatalogError::Forbidden)
         );
-        assert_eq!(catalog.get_bucket("patch-policy").await.unwrap(), before);
+        assert_eq!(
+            catalog
+                .get_bucket("patch-policy", PERMISSIVE)
+                .await
+                .unwrap(),
+            before
+        );
         catalog
-            .delete_bucket("patch-policy", None, None)
+            .delete_bucket("patch-policy", None, None, PERMISSIVE)
             .await
             .unwrap();
         let mut replacement = record;
@@ -2335,7 +2326,10 @@ mod tests {
             Err(CatalogError::Forbidden)
         );
         assert_eq!(
-            catalog.get_bucket("patch-policy").await.unwrap(),
+            catalog
+                .get_bucket("patch-policy", PERMISSIVE)
+                .await
+                .unwrap(),
             Some(replacement.clone())
         );
         assert_eq!(
@@ -2345,7 +2339,10 @@ mod tests {
             Err(CatalogError::Forbidden)
         );
         assert_eq!(
-            catalog.get_bucket("patch-policy").await.unwrap(),
+            catalog
+                .get_bucket("patch-policy", PERMISSIVE)
+                .await
+                .unwrap(),
             Some(replacement)
         );
         catalog.close().await.unwrap();
@@ -2500,7 +2497,7 @@ mod tests {
             );
             assert!(!catalog.is_healthy());
             assert!(matches!(
-                catalog.get_bucket("missing").await,
+                catalog.get_bucket("missing", PERMISSIVE).await,
                 Err(CatalogError::Unavailable(_))
             ));
             assert!(Catalog::open(&dir).await.is_err());
@@ -2533,8 +2530,11 @@ mod tests {
                 held.recv()
             });
             blocked.await.unwrap();
-            let lookup =
-                tokio::time::timeout(Duration::from_secs(5), catalog.get_bucket("missing")).await;
+            let lookup = tokio::time::timeout(
+                Duration::from_secs(5),
+                catalog.get_bucket("missing", PERMISSIVE),
+            )
+            .await;
             release.send(()).unwrap();
             blocker.await.unwrap().unwrap();
             assert!(lookup.unwrap().unwrap().is_none());
@@ -2592,7 +2592,13 @@ mod tests {
         ));
         assert!(state.is_ready());
         assert!(!probe_exists(&catalog).await.unwrap());
-        assert!(catalog.get_bucket("abc").await.unwrap().is_none());
+        assert!(
+            catalog
+                .get_bucket("abc", PERMISSIVE)
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         // When the rollback cannot be confirmed the catalog fails closed and
         // readiness is revoked for good, even after a later call recovers.
@@ -2604,7 +2610,7 @@ mod tests {
         assert!(!state.is_ready());
         assert!(!state.ready.load(Ordering::Acquire));
         assert!(matches!(
-            catalog.get_bucket("abc").await,
+            catalog.get_bucket("abc", PERMISSIVE).await,
             Err(CatalogError::Unavailable(_))
         ));
         catalog.0.fail_rollback.store(false, Ordering::Release);
@@ -2648,7 +2654,7 @@ mod tests {
             .try_acquire_many_owned(MAX_IN_FLIGHT as u32)
             .unwrap();
         assert!(matches!(
-            catalog.get_bucket("bucket").await,
+            catalog.get_bucket("bucket", PERMISSIVE).await,
             Err(CatalogError::Unavailable(_))
         ));
         drop(permits);

@@ -155,7 +155,7 @@ async fn copy_object(
     let source_location = if source.object.component_count.is_some() {
         Some(
             catalog
-                .get_bucket(&params.source_bucket)
+                .get_bucket(&params.source_bucket, &BucketAccess::Permissive)
                 .await?
                 .ok_or(ObjectError::BucketNotFound)?
                 .location,

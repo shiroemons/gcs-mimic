@@ -209,7 +209,7 @@ async fn check_predefined_acl(
     let record = ctx
         .state
         .catalog
-        .get_bucket(bucket)
+        .get_bucket(bucket, &BucketAccess::Permissive)
         .await?
         .ok_or(CatalogError::NotFound)?;
     json::reject_predefined_acl(
@@ -409,7 +409,7 @@ async fn list(
     let page = ctx
         .state
         .catalog
-        .list_objects_authorized(params.query.clone(), params.max_results, access)
+        .list_objects(params.query.clone(), params.max_results, access)
         .await?;
     if ctx.config.log_level == crate::diagnostics::LogLevel::Debug
         && params.empty_soft_deleted_message(&page, None).is_some()
@@ -434,7 +434,7 @@ async fn log_empty_soft_deleted_listing(
     match ctx
         .state
         .catalog
-        .get_bucket_authorized(&params.query.bucket, access)
+        .get_bucket(&params.query.bucket, access)
         .await
     {
         Ok(Some(bucket)) => {

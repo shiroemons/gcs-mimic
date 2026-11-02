@@ -736,7 +736,7 @@ impl Storage {
         let page = self
             .state
             .catalog
-            .list_objects_authorized(params.query.clone(), params.max_results, &access)
+            .list_objects(params.query.clone(), params.max_results, &access)
             .await
             .map_err(object_status)?;
         let value =
@@ -806,7 +806,7 @@ impl Storage {
             .map_err(session_status)?;
         self.state
             .catalog
-            .list_objects_authorized(
+            .list_objects(
                 crate::storage::ObjectListQuery {
                     bucket: bucket.to_owned(),
                     prefix: session.name.clone(),

@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     clock::SystemClock,
     object::UploadChunk,
@@ -698,7 +699,7 @@ async fn live_export_bucket_incarnation_races_keep_other_buckets_progressing() {
                 .await
                 .unwrap();
             catalog
-                .delete_bucket(bucket.as_str(), None, None)
+                .delete_bucket(bucket.as_str(), None, None, PERMISSIVE)
                 .await
                 .unwrap();
             if recreate {

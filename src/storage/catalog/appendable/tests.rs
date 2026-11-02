@@ -625,7 +625,10 @@ async fn appendable_objects_do_not_survive_bucket_recreation() {
         .unwrap();
     writer.flush().await.unwrap();
     assert_eq!(open(&catalog, "old").await.unwrap().size, 3);
-    catalog.delete_bucket("append", None, None).await.unwrap();
+    catalog
+        .delete_bucket("append", None, None, PERMISSIVE)
+        .await
+        .unwrap();
     insert_bucket(&catalog).await;
     assert_eq!(
         open(&catalog, "old").await.err(),

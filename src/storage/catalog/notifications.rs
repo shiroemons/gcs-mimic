@@ -321,7 +321,7 @@ mod tests {
         ));
 
         catalog
-            .delete_bucket_authorized("bucket", None, None, &access)
+            .delete_bucket("bucket", None, None, &access)
             .await
             .unwrap();
         catalog.insert_bucket(bucket("bucket")).await.unwrap();
@@ -429,7 +429,10 @@ mod tests {
             .unwrap();
         drop(connection);
         let catalog = Catalog::open(&dir.0).await.unwrap();
-        assert_eq!(catalog.get_bucket("bucket").await.unwrap(), Some(original));
+        assert_eq!(
+            catalog.get_bucket("bucket", PERMISSIVE).await.unwrap(),
+            Some(original)
+        );
         let access = BucketAccess::Permissive;
         assert!(
             catalog

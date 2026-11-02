@@ -410,7 +410,7 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
         .unwrap();
     assert_eq!(
         reopened
-            .get_bucket("bucket")
+            .get_bucket("bucket", PERMISSIVE)
             .await
             .unwrap()
             .unwrap()
@@ -712,7 +712,7 @@ async fn soft_delete_filters_paging_expiry_holds_and_bucket_delete() {
     assert!(
         h.state
             .catalog
-            .get_bucket("bucket")
+            .get_bucket("bucket", PERMISSIVE)
             .await
             .unwrap()
             .is_none()

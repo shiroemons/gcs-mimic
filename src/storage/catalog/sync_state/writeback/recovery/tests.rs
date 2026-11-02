@@ -4,6 +4,7 @@
 )]
 
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     clock::SystemClock,
     storage::{
@@ -444,7 +445,7 @@ async fn recovery_keeps_the_original_owner_after_api_change_delete_and_bucket_re
         .unwrap();
     fixture
         .catalog
-        .delete_bucket(fixture.bucket.as_str(), None, None)
+        .delete_bucket(fixture.bucket.as_str(), None, None, PERMISSIVE)
         .await
         .unwrap();
     fixture

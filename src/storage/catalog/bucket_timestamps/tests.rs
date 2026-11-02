@@ -36,7 +36,11 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
     catalog.close().await.unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     for writer in ["acl", "notification"] {
-        let record = catalog.get_bucket("time-bucket").await.unwrap().unwrap();
+        let record = catalog
+            .get_bucket("time-bucket", PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(record.time_created, created);
         if writer == "acl" {
             let resource = crate::json::bucket_resource(
@@ -75,7 +79,11 @@ async fn imported_negative_nanoseconds_survive_restart_and_native_metadata_write
                 .await
                 .unwrap();
         }
-        let record = catalog.get_bucket("time-bucket").await.unwrap().unwrap();
+        let record = catalog
+            .get_bucket("time-bucket", PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(record.time_created, created);
         assert_eq!(
             record
@@ -138,7 +146,11 @@ async fn previous_schema_upgrades_without_changing_microsecond_instants() {
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(
-        catalog.get_bucket("time-bucket").await.unwrap().unwrap(),
+        catalog
+            .get_bucket("time-bucket", PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap(),
         bucket
     );
     catalog.close().await.unwrap();

@@ -82,7 +82,7 @@ pub(super) async fn respond(
     {
         let record = state
             .catalog
-            .get_bucket(&operation.path[2])
+            .get_bucket(&operation.path[2], &BucketAccess::Permissive)
             .await?
             .ok_or(CatalogError::NotFound)?;
         json::reject_predefined_acl(
@@ -243,11 +243,11 @@ async fn execute(
             )
             .await?;
         let source_bucket = catalog
-            .get_bucket(&operation.path[0])
+            .get_bucket(&operation.path[0], &BucketAccess::Permissive)
             .await?
             .ok_or(ObjectError::BucketNotFound)?;
         let destination_bucket = catalog
-            .get_bucket(&operation.path[2])
+            .get_bucket(&operation.path[2], &BucketAccess::Permissive)
             .await?
             .ok_or(ObjectError::BucketNotFound)?;
         let multiple = source_bucket.location != destination_bucket.location

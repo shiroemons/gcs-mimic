@@ -133,7 +133,10 @@ async fn sync_observation_owner_inventory_recreation_preserves_keyset_and_incarn
     let first = admin.list_all_buckets(None, 1).await.unwrap();
     let old = &first.items[0];
     assert_eq!(old.bucket.name, "page-a");
-    catalog.delete_bucket("page-a", None, None).await.unwrap();
+    catalog
+        .delete_bucket("page-a", None, None, PERMISSIVE)
+        .await
+        .unwrap();
     admin
         .ensure_bucket(
             BucketDefinition::default_for(
@@ -348,7 +351,7 @@ async fn sync_observation_every_committed_mutation_wakes_all_waiters() {
             }
             ChangeKind::BucketDelete => {
                 catalog
-                    .delete_bucket("other-bucket", None, None)
+                    .delete_bucket("other-bucket", None, None, PERMISSIVE)
                     .await
                     .unwrap();
             }
@@ -471,7 +474,7 @@ async fn sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permit
     let uploads: Vec<_> = (0..64)
         .map(|_| catalog.admit_object_upload().unwrap())
         .collect();
-    assert!(catalog.get_bucket("test-bucket").await.is_err());
+    assert!(catalog.get_bucket("test-bucket", PERMISSIVE).await.is_err());
     catalog
         .run_admin(|connection| {
             let transaction = connection.transaction().map_err(unavailable)?;

@@ -162,7 +162,10 @@ async fn new_and_recreated_buckets_start_bound_without_inheriting_old_grants() {
         connection.execute("UPDATE buckets SET acl_policy_bound=0 WHERE name='bucket'", []).unwrap();
         Ok(incarnation)
     }).await.unwrap();
-    catalog.delete_bucket("bucket", None, None).await.unwrap();
+    catalog
+        .delete_bucket("bucket", None, None, PERMISSIVE)
+        .await
+        .unwrap();
     bucket(&catalog, "bucket", "another-project").await;
     catalog.run::<_, CatalogError>(move |connection| {
         let (bound, incarnation): (bool, String) = connection.query_row("SELECT acl_policy_bound,incarnation FROM buckets JOIN bucket_incarnations ON name=bucket WHERE name='bucket'", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();

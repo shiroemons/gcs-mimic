@@ -506,7 +506,13 @@ async fn ram_catalog_pages_are_bounded_without_limiting_another_catalog() {
         .unwrap();
     let admin = catalog.admin(admin::Origin::Seed);
     exhaust_catalog_pages(&admin).await;
-    assert!(catalog.get_bucket("test-bucket").await.unwrap().is_some());
+    assert!(
+        catalog
+            .get_bucket("test-bucket", PERMISSIVE)
+            .await
+            .unwrap()
+            .is_some()
+    );
     assert_eq!(
         catalog
             .get_object("test-bucket", "value", None, ObjectConditions::default())
@@ -598,7 +604,13 @@ async fn ram_full_catalog_resets_many_objects_without_growing_a_deletion_journal
     exhaust_catalog_pages(&admin).await;
     admin.reset().await.unwrap();
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"data"[..]);
-    assert!(catalog.get_bucket("test-bucket").await.unwrap().is_none());
+    assert!(
+        catalog
+            .get_bucket("test-bucket", PERMISSIVE)
+            .await
+            .unwrap()
+            .is_none()
+    );
     admin
         .ensure_bucket(BucketDefinition::default_for(&bucket, "local", &SystemClock).unwrap())
         .await

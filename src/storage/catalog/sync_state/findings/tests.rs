@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     clock::SystemClock,
     storage::{
@@ -224,7 +225,7 @@ async fn sync_findings_reject_foreign_bindings_and_stale_incarnations() {
         .await
         .unwrap();
     catalog
-        .delete_bucket(bucket.as_str(), None, None)
+        .delete_bucket(bucket.as_str(), None, None, PERMISSIVE)
         .await
         .unwrap();
     assert!(matches!(
@@ -352,7 +353,10 @@ async fn finding_owner_migration_backfills_only_proven_incarnations_and_rolls_ba
                 )
                 .await
                 .unwrap();
-            catalog.delete_bucket(name, None, None).await.unwrap();
+            catalog
+                .delete_bucket(name, None, None, PERMISSIVE)
+                .await
+                .unwrap();
             if name == "reused-bucket" {
                 catalog
                     .admin(Origin::Api)

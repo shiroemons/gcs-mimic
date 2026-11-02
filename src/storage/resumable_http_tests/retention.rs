@@ -1,4 +1,5 @@
 use super::{Harness, Reply};
+use crate::storage::test_fixtures::PERMISSIVE;
 use serde_json::{Value, json};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -167,7 +168,11 @@ async fn retention_configuration_lock_permissions_and_restart() {
     let reopened = crate::storage::Catalog::open_with_clock(&dir, clock)
         .await
         .unwrap();
-    let saved = reopened.get_bucket("bucket").await.unwrap().unwrap();
+    let saved = reopened
+        .get_bucket("bucket", PERMISSIVE)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         saved.retention_policy.as_ref().unwrap().retention_period,
         7200

@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::catalog::fault::{Fault, Step};
+use crate::storage::test_fixtures::PERMISSIVE;
 
 #[tokio::test]
 async fn protected_transfer_crosses_keyset_pages_without_skipping_completed_rows() {
@@ -133,7 +134,7 @@ async fn protected_transfer_retains_original_owner_incarnation_and_generation_af
             .unwrap();
         fixture
             .catalog
-            .delete_bucket(fixture.bucket.as_str(), None, None)
+            .delete_bucket(fixture.bucket.as_str(), None, None, PERMISSIVE)
             .await
             .unwrap();
         if recreate {

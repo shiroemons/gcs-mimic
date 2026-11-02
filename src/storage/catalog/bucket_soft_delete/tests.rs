@@ -110,9 +110,7 @@ async fn count(catalog: &Catalog, sql: &'static str) -> i64 {
 }
 
 async fn delete(catalog: &Catalog, name: &str) -> Result<(), CatalogError> {
-    catalog
-        .delete_bucket_authorized(name, None, None, PERMISSIVE)
-        .await
+    catalog.delete_bucket(name, None, None, PERMISSIVE).await
 }
 
 #[tokio::test]
@@ -245,7 +243,7 @@ async fn failed_transitions_leave_the_catalog_unchanged() {
         Err(CatalogError::Unavailable(_))
     ));
     assert_eq!(
-        catalog.get_bucket("atomic").await.unwrap(),
+        catalog.get_bucket("atomic", PERMISSIVE).await.unwrap(),
         Some(live.clone())
     );
     assert_eq!(
@@ -271,7 +269,10 @@ async fn failed_transitions_leave_the_catalog_unchanged() {
             .await,
         Err(CatalogError::Unavailable(_))
     ));
-    assert_eq!(catalog.get_bucket("atomic").await.unwrap(), None);
+    assert_eq!(
+        catalog.get_bucket("atomic", PERMISSIVE).await.unwrap(),
+        None
+    );
     assert_eq!(
         count(
             &catalog,
@@ -325,7 +326,11 @@ async fn restore_brings_back_iam_and_acl_with_a_new_policy_revision() {
         )
         .await
         .unwrap();
-    let live = catalog.get_bucket("policy").await.unwrap().unwrap_or(live);
+    let live = catalog
+        .get_bucket("policy", PERMISSIVE)
+        .await
+        .unwrap()
+        .unwrap_or(live);
     let acl = count(
         &catalog,
         "SELECT count(*) FROM acl_bucket_entries WHERE bucket = 'policy'",
@@ -426,7 +431,7 @@ async fn restore_rebinds_policy_acl_entities_to_the_current_principals() {
             .contains("user-old@example.test")
     );
     let generation = catalog
-        .get_bucket("rebound")
+        .get_bucket("rebound", PERMISSIVE)
         .await
         .unwrap()
         .unwrap()
@@ -466,7 +471,11 @@ async fn schema_45_backfills_generations_and_keeps_new_ones_unique() {
         .unwrap();
     drop(connection);
     let (catalog, _clock) = open(&dir).await;
-    let migrated = catalog.get_bucket("legacy").await.unwrap().unwrap();
+    let migrated = catalog
+        .get_bucket("legacy", PERMISSIVE)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(migrated, original);
     // Schema 45 backfills microseconds and schema 46 scales them to the nanosecond scale.
     assert_eq!(
@@ -529,7 +538,11 @@ async fn schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds() 
     drop(connection);
 
     let (catalog, _clock) = open(&dir).await;
-    let kept = catalog.get_bucket("kept").await.unwrap().unwrap();
+    let kept = catalog
+        .get_bucket("kept", PERMISSIVE)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(kept.generation, 1_000_000_100_000);
     let page = catalog
         .list_soft_deleted_buckets("project", "", None, 10)

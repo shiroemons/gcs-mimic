@@ -655,14 +655,14 @@ impl Storage {
         let source_bucket = self
             .state
             .catalog
-            .get_bucket(sb)
+            .get_bucket(sb, &BucketAccess::Permissive)
             .await
             .map_err(error)?
             .ok_or_else(|| Status::not_found("Source bucket not found"))?;
         let destination_bucket = self
             .state
             .catalog
-            .get_bucket(db)
+            .get_bucket(db, &BucketAccess::Permissive)
             .await
             .map_err(error)?
             .ok_or_else(|| Status::not_found("Destination bucket not found"))?;
@@ -887,7 +887,7 @@ impl Storage {
             let current = self
                 .state
                 .catalog
-                .get_bucket_authorized(bucket, &access)
+                .get_bucket(bucket, &access)
                 .await
                 .map_err(error)?
                 .ok_or_else(|| Status::not_found("Bucket not found"))?;

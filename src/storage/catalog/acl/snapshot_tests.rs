@@ -209,7 +209,10 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
                 .unwrap()
                 .is_none()
         );
-        catalog.delete_bucket("bucket", None, None).await.unwrap();
+        catalog
+            .delete_bucket("bucket", None, None, PERMISSIVE)
+            .await
+            .unwrap();
         catalog
             .insert_bucket(
                 crate::json::parse_insert(

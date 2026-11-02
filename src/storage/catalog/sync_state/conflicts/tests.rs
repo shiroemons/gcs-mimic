@@ -4,6 +4,7 @@
 )]
 
 use super::*;
+use crate::storage::test_fixtures::PERMISSIVE;
 use crate::{
     clock::SystemClock,
     storage::{
@@ -413,7 +414,7 @@ async fn conflict_original_owner_survives_bucket_recreation_and_completed_retry(
         .unwrap();
     fixture
         .catalog
-        .delete_bucket("test-bucket", None, None)
+        .delete_bucket("test-bucket", None, None, PERMISSIVE)
         .await
         .unwrap();
     fixture

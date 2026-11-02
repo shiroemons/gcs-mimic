@@ -336,7 +336,7 @@ impl pb::storage_server::Storage for Storage {
         let record = self
             .state
             .catalog
-            .get_bucket_authorized(&r.bucket, &access)
+            .get_bucket(&r.bucket, &access)
             .await
             .map_err(catalog_error)?
             .ok_or_else(|| {
@@ -371,7 +371,7 @@ impl pb::storage_server::Storage for Storage {
             .await?;
         self.state
             .catalog
-            .delete_bucket_authorized(
+            .delete_bucket(
                 &r.bucket,
                 r.if_metageneration_match,
                 r.if_metageneration_not_match,
@@ -444,7 +444,7 @@ impl pb::storage_server::Storage for Storage {
         let current = self
             .state
             .catalog
-            .get_bucket_authorized(&r.bucket, &access)
+            .get_bucket(&r.bucket, &access)
             .await
             .map_err(catalog_error)?
             .ok_or_else(|| catalog_error(CatalogError::NotFound))?;
@@ -676,7 +676,7 @@ impl pb::storage_server::Storage for Storage {
         let page = self
             .state
             .catalog
-            .list_objects_authorized(params.query.clone(), params.max_results, &access)
+            .list_objects(params.query.clone(), params.max_results, &access)
             .await
             .map_err(object_error)?;
         let rendered =

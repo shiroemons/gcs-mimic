@@ -199,7 +199,7 @@ pub(crate) async fn respond(
     }
     super::empty_body(request.into_body()).await?;
     let page = ctx
-        .await_catalog(ctx.state.catalog.list_objects_authorized(
+        .await_catalog(ctx.state.catalog.list_objects(
             params.query.clone(),
             params.limit.min(1000),
             &access,

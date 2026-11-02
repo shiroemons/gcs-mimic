@@ -954,16 +954,7 @@ impl UploadCommit {
 
 impl Catalog {
     /// Each emitted entry requires one indexed seek, independent of a grouped prefix's size.
-    #[cfg(test)]
     pub(crate) async fn list_objects(
-        &self,
-        query: ObjectListQuery,
-        limit: usize,
-    ) -> Result<ObjectListPage, ObjectError> {
-        self.list_objects_authorized(query, limit, PERMISSIVE).await
-    }
-
-    pub(crate) async fn list_objects_authorized(
         &self,
         query: ObjectListQuery,
         limit: usize,
@@ -3302,7 +3293,10 @@ mod tests {
                 .prepare_object_upload("bucket", "object", conditions, PERMISSIVE)
                 .await
                 .unwrap();
-            catalog.delete_bucket("bucket", None, None).await.unwrap();
+            catalog
+                .delete_bucket("bucket", None, None, PERMISSIVE)
+                .await
+                .unwrap();
             let (sender, body) = mpsc::channel(2);
             sender
                 .send(Ok(UploadChunk::Data(Bytes::from_static(b"new"))))
@@ -3553,7 +3547,9 @@ mod tests {
                 .delete_object("bucket", name, None, Default::default())
                 .await;
         }
-        let _ = catalog.delete_bucket("bucket", None, None).await;
+        let _ = catalog
+            .delete_bucket("bucket", None, None, PERMISSIVE)
+            .await;
         create_bucket(catalog, project).await;
         put(catalog, "object", b"other project").await
     }
@@ -3590,7 +3586,7 @@ mod tests {
         };
         assert_eq!(
             catalog
-                .list_objects_authorized(query, 10, access)
+                .list_objects(query, 10, access)
                 .await
                 .map(|page| page.items),
             Err(ObjectError::Forbidden)
@@ -3622,14 +3618,12 @@ mod tests {
             Err(ObjectError::Forbidden)
         );
         assert_eq!(
-            catalog.get_bucket_authorized("bucket", access).await,
+            catalog.get_bucket("bucket", access).await,
             Err(CatalogError::Forbidden)
         );
         // Authorization precedes the non-empty check, so a non-empty bucket also reports 403.
         assert_eq!(
-            catalog
-                .delete_bucket_authorized("bucket", None, None, access)
-                .await,
+            catalog.delete_bucket("bucket", None, None, access).await,
             Err(CatalogError::Forbidden)
         );
         assert_eq!(
@@ -3639,7 +3633,13 @@ mod tests {
                 .as_ref(),
             Ok(current)
         );
-        assert!(catalog.get_bucket("bucket").await.unwrap().is_some());
+        assert!(
+            catalog
+                .get_bucket("bucket", PERMISSIVE)
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[tokio::test]
@@ -3945,6 +3945,7 @@ mod tests {
                     ..Default::default()
                 },
                 10,
+                PERMISSIVE,
             )
             .await
             .unwrap();
@@ -3997,14 +3998,9 @@ mod tests {
                 .await,
             Err(ObjectError::BucketNotFound)
         );
+        assert_eq!(catalog.get_bucket("bucket", &access).await, Ok(None));
         assert_eq!(
-            catalog.get_bucket_authorized("bucket", &access).await,
-            Ok(None)
-        );
-        assert_eq!(
-            catalog
-                .delete_bucket_authorized("bucket", None, None, &access)
-                .await,
+            catalog.delete_bucket("bucket", None, None, &access).await,
             Err(CatalogError::NotFound)
         );
         // Created later in a project where the caller lacks the permission.

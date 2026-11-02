@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     auth::Caller,
-    bucket::CatalogError,
+    bucket::{BucketAccess, CatalogError},
     config::{CompatProfile, CorsFallback},
     json::{self, JsonError, ObjectRequest, cors::CorsRequest},
     xml,
@@ -250,7 +250,11 @@ async fn respond_xml_cors(
     // the fallback lets browsers read the 404.
     let mut lookup_failed = false;
     let (rules, found, has_rules) = if has_origin {
-        match state.catalog.get_bucket(&object.bucket).await {
+        match state
+            .catalog
+            .get_bucket(&object.bucket, &BucketAccess::Permissive)
+            .await
+        {
             Ok(Some(bucket)) => {
                 let has_rules = !bucket.cors.is_empty();
                 (bucket.cors, true, has_rules)

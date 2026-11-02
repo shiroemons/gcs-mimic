@@ -197,7 +197,7 @@ pub(super) async fn respond(
         Some(
             ctx.state
                 .catalog
-                .get_bucket(&source.object.bucket)
+                .get_bucket(&source.object.bucket, &BucketAccess::Permissive)
                 .await
                 .map_err(json::JsonError::from)?
                 .ok_or_else(|| {
