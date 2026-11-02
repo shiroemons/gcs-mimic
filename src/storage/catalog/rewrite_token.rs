@@ -55,18 +55,17 @@ impl RewriteBinding {
     /// Continuations may omit optional fields, but cannot replace stored conditions or metadata.
     pub(crate) fn accepts(
         &self,
-        path: [&str; 4],
+        names: &RewriteNames,
         supplied_parameters: &Map<String, Value>,
         supplied_metadata: Option<&Value>,
     ) -> bool {
-        path == [
-            self.source_bucket.as_str(),
-            self.source_object.as_str(),
-            self.destination_bucket.as_str(),
-            self.destination_object.as_str(),
-        ] && supplied_parameters
-            .iter()
-            .all(|(key, value)| self.parameters.get(key) == Some(value))
+        names.source.bucket == self.source_bucket
+            && names.source.name == self.source_object
+            && names.destination.bucket == self.destination_bucket
+            && names.destination.name == self.destination_object
+            && supplied_parameters
+                .iter()
+                .all(|(key, value)| self.parameters.get(key) == Some(value))
             && supplied_metadata.is_none_or(|value| self.metadata.as_ref() == Some(value))
     }
 }
@@ -126,22 +125,31 @@ mod tests {
             parameters: parameters.clone(),
             metadata: Some(body.clone()),
         };
-        let path = ["source", "a/b%日本", "destination", "c/d"];
-        assert!(binding.accepts(path, &parameters, Some(&body)));
-        assert!(binding.accepts(path, &Map::new(), None));
+        let names = RewriteNames {
+            source: ObjectTarget::new("source", "a/b%日本", ()),
+            destination: ObjectTarget::new("destination", "c/d", ()),
+        };
+        assert!(binding.accepts(&names, &parameters, Some(&body)));
+        assert!(binding.accepts(&names, &Map::new(), None));
         for key in parameters.keys() {
             let mut changed = parameters.clone();
             changed.insert(key.clone(), json!("different"));
-            assert!(!binding.accepts(path, &changed, None), "{key}");
+            assert!(!binding.accepts(&names, &changed, None), "{key}");
         }
-        for index in 0..4 {
-            let mut changed = path;
-            changed[index] = "different";
-            assert!(!binding.accepts(changed, &Map::new(), None));
+        let edits: [fn(&mut RewriteNames); 4] = [
+            |names| names.source.bucket = "different".into(),
+            |names| names.source.name = "different".into(),
+            |names| names.destination.bucket = "different".into(),
+            |names| names.destination.name = "different".into(),
+        ];
+        for edit in edits {
+            let mut changed = names.clone();
+            edit(&mut changed);
+            assert!(!binding.accepts(&changed, &Map::new(), None));
         }
-        assert!(!binding.accepts(path, &Map::new(), Some(&json!({}))));
+        assert!(!binding.accepts(&names, &Map::new(), Some(&json!({}))));
         assert!(!binding.accepts(
-            path,
+            &names,
             &json!({"new":"value"}).as_object().unwrap().clone(),
             None
         ));

@@ -213,16 +213,10 @@ async fn execute(
     let mut owner = None;
     let token = if let Some(token) = &operation.token {
         let session = catalog.rewrite_session(token).await.map_err(error)?;
-        if !session.binding.accepts(
-            [
-                &names.source.bucket,
-                &names.source.name,
-                &names.destination.bucket,
-                &names.destination.name,
-            ],
-            &operation.parameters,
-            body.as_ref(),
-        ) {
+        if !session
+            .binding
+            .accepts(&operation.names, &operation.parameters, body.as_ref())
+        {
             return Err(error(RewriteError::Invalid));
         }
         // Each call must carry the keys the session started with.
