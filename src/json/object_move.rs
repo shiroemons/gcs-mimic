@@ -133,17 +133,26 @@ mod tests {
 
     #[test]
     fn move_route_decodes_names_once_and_keeps_conditions_separate() {
-        let uri = "/storage/v1/b/bucket/o/source%2F%252F/moveTo/o/target%2F%252F?ifSourceGenerationMatch=7&ifGenerationMatch=0&prettyPrint=false&alt=json".parse().unwrap();
+        let uri = "/storage/v1/b/bucket/o/source%2F%252F/moveTo/o/target%2F%252F?ifSourceGenerationMatch=7&ifGenerationMatch=0&ifSourceMetagenerationNotMatch=3&ifMetagenerationMatch=4&prettyPrint=false&alt=json".parse().unwrap();
         let ObjectRequest::Move(params) = route(&Method::POST, &uri, CompatProfile::Native)
             .unwrap()
             .unwrap()
         else {
             panic!("expected move route")
         };
+        assert_eq!(params.names.bucket, "bucket");
         assert_eq!(params.names.source, "source/%2F");
         assert_eq!(params.names.destination, "target/%2F");
         assert_eq!(params.conditions.source.if_generation_match, Some(7));
         assert_eq!(params.conditions.destination.if_generation_match, Some(0));
+        assert_eq!(
+            params.conditions.source.if_metageneration_not_match,
+            Some(3)
+        );
+        assert_eq!(
+            params.conditions.destination.if_metageneration_match,
+            Some(4)
+        );
         let error = route(&Method::GET, &uri, CompatProfile::Native)
             .unwrap()
             .unwrap_err();

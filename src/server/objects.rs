@@ -14,7 +14,7 @@ use crate::{
     auth,
     bucket::{BucketAccess, CatalogError},
     json::{self, JsonError, ObjectRequest, UploadRequest},
-    object::{ObjectConditions, ObjectError, ObjectTarget, retention::UnlockedOverride},
+    object::{ObjectConditions, ObjectError, ObjectTarget},
     storage::{MoveAccess, RestoreAccess, UploadAclSnapshot},
 };
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
@@ -99,22 +99,7 @@ pub(super) async fn respond(
             .await;
         }
         ObjectRequest::List(params) => list(request.headers(), ctx, &access, &params).await?.into(),
-        ObjectRequest::Update {
-            target,
-            conditions,
-            projection,
-            mode,
-            retention_override,
-        } => {
-            let target = UpdateTarget {
-                object: target,
-                conditions,
-                projection,
-                mode,
-                retention_override,
-            };
-            update(request, ctx, &access, target).await?.into()
-        }
+        ObjectRequest::Update(params) => update(request, ctx, &access, params).await?.into(),
         ObjectRequest::Multipart(target) => upload::multipart(request, ctx, access, target).await?,
         ObjectRequest::Insert(target) => upload::insert(request, ctx, access, target).await?,
         ObjectRequest::Get {
@@ -159,7 +144,7 @@ fn required_permission(operation: &ObjectRequest) -> (&'static str, &str) {
         ObjectRequest::Move(params) => (auth::OBJECTS_CREATE, &params.names.bucket),
         ObjectRequest::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
-        ObjectRequest::Update { target, .. } => (auth::OBJECTS_UPDATE, &target.bucket),
+        ObjectRequest::Update(params) => (auth::OBJECTS_UPDATE, &params.target.bucket),
         ObjectRequest::Compose { bucket, .. }
         | ObjectRequest::Insert(UploadRequest { bucket, .. })
         | ObjectRequest::Multipart(UploadRequest { bucket, .. })
@@ -211,7 +196,7 @@ async fn check_predefined_acl(
 fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<(), JsonError> {
     if !matches!(operation, ObjectRequest::Get { .. }) {
         let etags = match operation {
-            ObjectRequest::Update { .. } => json::EtagConditions::MatchOnly,
+            ObjectRequest::Update(_) => json::EtagConditions::MatchOnly,
             _ => json::EtagConditions::Unsupported,
         };
         json::validate_read_condition_headers(headers, etags)?;
@@ -222,7 +207,7 @@ fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<()
             | ObjectRequest::Compose { .. }
             | ObjectRequest::Multipart(_)
             | ObjectRequest::Resumable { .. }
-            | ObjectRequest::Update { .. }
+            | ObjectRequest::Update(_)
             | ObjectRequest::Copy(_)
             | ObjectRequest::Restore { .. }
             | ObjectRequest::Move(_)
@@ -442,27 +427,19 @@ async fn log_empty_soft_deleted_listing(
     }
 }
 
-struct UpdateTarget {
-    object: ObjectTarget,
-    conditions: ObjectConditions,
-    projection: json::Projection,
-    mode: json::WriteMode,
-    retention_override: UnlockedOverride,
-}
-
 async fn update(
     request: Request<Incoming>,
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
-    target: UpdateTarget,
+    params: json::ObjectUpdateParams,
 ) -> Result<Value, JsonError> {
-    let UpdateTarget {
-        object,
+    let json::ObjectUpdateParams {
+        target,
         conditions,
         projection,
         mode,
         retention_override,
-    } = target;
+    } = params;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     let key = json::request_key(request.headers())?;
     let etags = request.headers().clone();
@@ -472,7 +449,7 @@ async fn update(
     retention_access::authorize_update(
         ctx.state,
         access,
-        &object.bucket,
+        &target.bucket,
         &mut update.update,
         retention_override,
     )
@@ -482,7 +459,7 @@ async fn update(
         .state
         .catalog
         .update_object_metadata(
-            object,
+            target,
             conditions,
             update.update,
             move |record| {

@@ -27,6 +27,15 @@ pub(crate) struct ObjectGetParams {
     pub soft_deleted: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ObjectUpdateParams {
+    pub target: ObjectTarget,
+    pub conditions: ObjectConditions,
+    pub projection: Projection,
+    pub mode: WriteMode,
+    pub retention_override: UnlockedOverride,
+}
+
 /// A media or multipart upload: the object it names and the options its query declares. A
 /// multipart upload can leave the name to its metadata part, so `N` is `Option<String>` there.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,13 +60,7 @@ pub(crate) enum ObjectRequest {
         conditions: ObjectConditions,
     },
     List(super::ObjectListParams),
-    Update {
-        target: ObjectTarget,
-        conditions: ObjectConditions,
-        projection: Projection,
-        mode: WriteMode,
-        retention_override: UnlockedOverride,
-    },
+    Update(ObjectUpdateParams),
     Insert(UploadRequest<String>),
     Multipart(UploadRequest<Option<String>>),
     Resumable {
@@ -442,7 +445,7 @@ fn parse_named_object_query(
             UnlockedOverride::NotRequested
         };
         finish(&query)?;
-        return Ok(ObjectRequest::Update {
+        return Ok(ObjectRequest::Update(ObjectUpdateParams {
             target,
             conditions,
             projection,
@@ -452,7 +455,7 @@ fn parse_named_object_query(
             } else {
                 WriteMode::Patch
             },
-        });
+        }));
     }
     if matches!(*method, Method::GET | Method::HEAD) {
         let soft_deleted = boolean(&mut query, "softDeleted")?;

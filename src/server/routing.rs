@@ -653,7 +653,7 @@ async fn respond_json_object(
     let target = match &parsed {
         Ok((
             ObjectRequest::Get { target, .. }
-            | ObjectRequest::Update { target, .. }
+            | ObjectRequest::Update(json::ObjectUpdateParams { target, .. })
             | ObjectRequest::Delete { target, .. },
             _,
         )) => Some((target.bucket.clone(), target.name.clone())),
