@@ -1,5 +1,7 @@
 //! Builds and runs the local gcs-mimic under test.
 
+mod pubsub;
+
 use std::{
     fs::{self, File},
     io::{BufRead, BufReader},
@@ -36,6 +38,7 @@ pub(crate) fn build(root: &Path) -> Result<PathBuf> {
 
 pub(crate) struct LocalServer {
     child: Child,
+    _pubsub: pubsub::Stub,
     pub(crate) endpoint: String,
     /// The plaintext gRPC `host:port`.
     pub(crate) grpc: Option<String>,
@@ -46,10 +49,12 @@ impl LocalServer {
     /// plaintext gRPC), with the default soft-delete retention off, and waits
     /// for its ready event.
     pub(crate) fn start(binary: &Path, work: &Path) -> Result<Self> {
+        let pubsub = pubsub::Stub::start().map_err(|e| format!("Pub/Sub stub: {e}"))?;
         let log = work.join("server.log");
         let child = Command::new(binary)
             .env_clear()
             .env("GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS", "0")
+            .env("PUBSUB_EMULATOR_HOST", &pubsub.endpoint)
             .args(["serve", "--scheme", "http", "--listen", "127.0.0.1:0"])
             .args(["--grpc-listen", "127.0.0.1:0"])
             .args(["--compat-profile", "native", "--data-dir"])
@@ -60,6 +65,7 @@ impl LocalServer {
             .map_err(|e| format!("start {}: {e}", binary.display()))?;
         let mut server = Self {
             child,
+            _pubsub: pubsub,
             endpoint: String::new(),
             grpc: None,
         };
@@ -91,6 +97,10 @@ impl LocalServer {
         }
         Err("gcs-mimic did not report ready within 30 seconds".into())
     }
+}
+
+pub(crate) fn pubsub_stub() -> std::io::Result<()> {
+    pubsub::serve()
 }
 
 impl Drop for LocalServer {

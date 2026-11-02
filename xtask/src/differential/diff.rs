@@ -289,6 +289,18 @@ mod tests {
             NormBody::Json(json!({"selfLink": "<host>/storage/v1/b/y"})),
         );
         assert_eq!(compare(&r, &other, &CompareOpts::default()).len(), 1);
+        let acl = |host: &str, email: &str| json!({"acl": [{"selfLink": format!("{host}/storage/v1/b/x/o/y/acl/user-{email}")}]});
+        let reference = acl("<www-host>", "<email>");
+        assert!(diff_json(Some(&reference), Some(&acl("<host>", "<email>")), &[]).is_empty());
+        assert_eq!(
+            diff_json(
+                Some(&reference),
+                Some(&acl("<host>", "<email:percent-encoded>")),
+                &[]
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]

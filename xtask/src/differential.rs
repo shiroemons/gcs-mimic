@@ -40,7 +40,7 @@ const LOCAL_PROJECT: &str = "local-project";
 const PROTO_ROOT: &str = "src/grpc/proto";
 const LIVE_GRPC_PORT: &str = "443";
 
-pub const USAGE: &str = "Usage: cargo xtask differential validate [--cases DIR] | differential run [--cases DIR] [--filter TEXT] [--out DIR] [--record FILE] [--reference FILE] [--evidence FILE] [--binary PATH] [--fail-on-diff] [--fail-on-note] | differential sweep";
+pub const USAGE: &str = "Usage: cargo xtask differential validate [--cases DIR] | differential run [--cases DIR] [--filter TEXT] [--out DIR] [--record FILE] [--reference FILE] [--evidence FILE] [--binary PATH] [--fail-on-diff] [--fail-on-note] | differential merge BASE PARTIAL --out FILE | differential sweep";
 
 #[derive(Default)]
 struct Options {
@@ -156,6 +156,29 @@ pub fn validate(root: &Path, args: &[String]) -> Result<()> {
     let dir = root.join(options.cases.unwrap_or_else(|| DEFAULT_CASES.into()));
     let cases = case::load_cases(&dir)?;
     println!("{} differential cases are valid", cases.len());
+    Ok(())
+}
+
+/// Internal subprocess entry point; the parent owns and stops this loopback stub.
+pub fn pubsub_stub() -> std::io::Result<()> {
+    server::pubsub_stub()
+}
+
+/// Merges a filtered re-recording without making any network requests.
+pub fn merge(args: &[String]) -> Result<()> {
+    let [base, partial, flag, out] = args else {
+        return Err("differential merge needs BASE PARTIAL --out FILE".into());
+    };
+    if flag != "--out" {
+        return Err("differential merge needs BASE PARTIAL --out FILE".into());
+    }
+    let base = recording::from_json(&crate::read_json(Path::new(base))?)?;
+    let partial = recording::from_json(&crate::read_json(Path::new(partial))?)?;
+    let merged = recording::merge(base, partial)?;
+    let text =
+        serde_json::to_string_pretty(&recording::to_json(&merged)).map_err(|e| e.to_string())?;
+    write_checked(Path::new(out), &(text + "\n"), &[])?;
+    println!("merged recording: {} cases", merged.cases.len());
     Ok(())
 }
 

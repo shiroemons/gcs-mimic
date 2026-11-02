@@ -199,17 +199,22 @@ pub(crate) fn contains_email(text: &str) -> bool {
 }
 
 /// Replaces email addresses (service accounts, callers in ACL entries) with
-/// `<email>`; a caller's address must not reach a recording or a report.
+/// `<email>`; encoded separators retain their shape so URL encoding differences
+/// remain visible without exposing a caller's address.
 pub(crate) fn scrub_emails(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = String::new();
     let mut copied = 0;
     let mut at = 0;
     while at < bytes.len() {
-        if bytes[at] != b'@' {
+        let (separator_len, placeholder) = if bytes[at] == b'@' {
+            (1, "<email>")
+        } else if bytes[at..].starts_with(b"%40") {
+            (3, "<email:percent-encoded>")
+        } else {
             at += 1;
             continue;
-        }
+        };
         let mut start = at;
         while start > copied && is_email_local(bytes[start - 1]) {
             start -= 1;
@@ -229,17 +234,25 @@ pub(crate) fn scrub_emails(text: &str) -> String {
                 break;
             }
         }
-        let mut end = at + 1;
+        let domain_start = at + separator_len;
+        let mut end = domain_start;
         while end < bytes.len() && is_email_domain(bytes[end]) {
             end += 1;
         }
-        while end > at + 1 && matches!(bytes[end - 1], b'.' | b'-') {
+        while end > domain_start && matches!(bytes[end - 1], b'.' | b'-') {
             end -= 1;
         }
-        let domain = &text[at + 1..end];
+        let domain = &text[domain_start..end];
         if start < at && domain.contains('.') && !domain.starts_with('.') {
             out.push_str(&text[copied..start]);
-            out.push_str("<email>");
+            // Live project-number substitution already preserves this service-agent shape.
+            out.push_str(
+                if &text[start..end] == "service-0@gs-project-accounts.iam.gserviceaccount.com" {
+                    "service-<project-number>@gs-project-accounts.iam.gserviceaccount.com"
+                } else {
+                    placeholder
+                },
+            );
             copied = end;
             at = end;
         } else {
@@ -590,6 +603,51 @@ mod tests {
             n.json(&json!({"generation": "1"})),
             n.json(&json!({"generation": 1}))
         );
+    }
+
+    #[test]
+    fn encoded_emails_are_secret_but_keep_the_url_encoding_difference() {
+        let encoded = "<host>/storage/v1/b/b/o/o/acl/user-local-user%40gcs-mimic.invalid";
+        let raw = "<host>/storage/v1/b/b/o/o/acl/user-caller@example.com";
+        assert!(contains_email(encoded));
+        assert_eq!(
+            scrub_emails(encoded),
+            "<host>/storage/v1/b/b/o/o/acl/user-<email:percent-encoded>"
+        );
+        assert_eq!(
+            scrub_emails(raw),
+            "<host>/storage/v1/b/b/o/o/acl/user-<email>"
+        );
+        assert_ne!(scrub_emails(encoded), scrub_emails(raw));
+        assert!(!contains_email(&scrub_emails(encoded)));
+        assert_eq!(
+            scrub_emails("user-a%40example.com a@b.org"),
+            "user-<email:percent-encoded> <email>"
+        );
+    }
+
+    #[test]
+    fn local_service_agent_matches_the_recorded_project_number_placeholder() {
+        let n = normalizer();
+        let shape = "service-<project-number>@gs-project-accounts.iam.gserviceaccount.com";
+        assert_eq!(
+            n.text("service-0@gs-project-accounts.iam.gserviceaccount.com"),
+            shape
+        );
+        assert_eq!(
+            n.text("service-123456789@gs-project-accounts.iam.gserviceaccount.com"),
+            shape
+        );
+        assert_eq!(n.text("service-0@example.com"), "<email>");
+        assert_eq!(
+            n.text("service-0@gs-project-accounts.iam.gserviceaccount.com.evil"),
+            "<email>"
+        );
+        assert_eq!(
+            n.text("another-service-0@gs-project-accounts.iam.gserviceaccount.com"),
+            "<email>"
+        );
+        assert_eq!(n.text("service-0"), "service-0");
     }
 
     #[test]

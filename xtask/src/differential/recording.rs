@@ -4,6 +4,7 @@
 use super::normalize::{NormBody, NormResponse};
 use super::runner::{CaseOutcome, StepOutcome};
 use serde_json::{Map, Value, json};
+use std::collections::BTreeSet;
 
 type Result<T> = std::result::Result<T, String>;
 const FORMAT: u64 = 2;
@@ -14,6 +15,50 @@ pub(crate) struct Recording {
     /// Tool versions behind the gRPC bodies; see `differential::tools_note`.
     pub(crate) tools: String,
     pub(crate) cases: Vec<CaseOutcome>,
+}
+
+/// Replace complete cases, retaining base order and counting all reference
+/// requests spent on both recordings, including superseded observations.
+pub(crate) fn merge(mut base: Recording, partial: Recording) -> Result<Recording> {
+    let revision = base
+        .tools
+        .strip_prefix("storage.proto ")
+        .and_then(|note| note.split_once(';'));
+    if !revision
+        .is_some_and(|(hash, _)| hash.len() == 40 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+        || base.tools != partial.tools
+    {
+        return Err(
+            "recordings must have identical storage.proto revision and tools metadata".into(),
+        );
+    }
+    let mut ids = BTreeSet::new();
+    if !base.cases.iter().all(|case| ids.insert(case.id.clone())) {
+        return Err("base recording has duplicate case ids".into());
+    }
+    let mut replacements = BTreeSet::new();
+    if partial.cases.is_empty() {
+        return Err("partial recording has no cases".into());
+    }
+    for case in &partial.cases {
+        if !ids.contains(&case.id) || !replacements.insert(case.id.clone()) {
+            return Err("partial recording has unknown or duplicate case ids".into());
+        }
+    }
+    base.requests = base
+        .requests
+        .checked_add(partial.requests)
+        .ok_or("recording request count overflow")?;
+    base.generated = partial.generated;
+    for case in partial.cases {
+        let slot = base
+            .cases
+            .iter_mut()
+            .find(|existing| existing.id == case.id)
+            .ok_or("partial case not found in base")?;
+        *slot = case;
+    }
+    Ok(base)
 }
 
 fn body_json(body: &NormBody) -> Value {
@@ -164,6 +209,80 @@ pub(crate) fn from_json(value: &Value) -> Result<Recording> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    fn fixture(ids: &[&str], generated: &str, requests: u64) -> Recording {
+        Recording {
+            generated: generated.into(),
+            requests,
+            tools: format!("storage.proto {}; grpcurl 1.9.4", "a".repeat(40)),
+            cases: ids
+                .iter()
+                .map(|id| CaseOutcome {
+                    id: (*id).into(),
+                    error: None,
+                    bucket: Some("own".into()),
+                    steps: vec![],
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn merge_replaces_only_selected_cases_and_preserves_order_and_metadata() {
+        let mut base = fixture(&["a", "b", "c"], "2026-11-01", 100);
+        base.cases[1].bucket = Some("shared".into());
+        let untouched = [base.cases[0].clone(), base.cases[2].clone()];
+        let partial = fixture(&["b"], "2026-11-02", 12);
+        let replacement = partial.cases[0].clone();
+        let merged = merge(base, partial).unwrap();
+        assert_eq!(
+            merged.cases,
+            [untouched[0].clone(), replacement, untouched[1].clone()]
+        );
+        assert_eq!(merged.generated, "2026-11-02");
+        assert_eq!(merged.requests, 112);
+        assert_eq!(to_json(&merged)["format"], FORMAT);
+        assert_eq!(from_json(&to_json(&merged)).unwrap().tools, merged.tools);
+    }
+
+    #[test]
+    fn merge_refuses_incompatible_metadata_and_ambiguous_cases() {
+        for tools in [
+            format!("storage.proto {}; grpcurl 1.9.4", "b".repeat(40)),
+            format!("storage.proto {}; grpcurl 1.9.5", "a".repeat(40)),
+            String::new(),
+        ] {
+            let mut partial = fixture(&["b"], "2026-11-02", 12);
+            partial.tools = tools;
+            assert!(merge(fixture(&["a", "b"], "2026-11-01", 100), partial).is_err());
+        }
+        for ids in [&[][..], &["unknown"][..], &["b", "b"][..]] {
+            assert!(
+                merge(
+                    fixture(&["a", "b"], "2026-11-01", 100),
+                    fixture(ids, "2026-11-02", 12)
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            merge(
+                fixture(&["b", "b"], "2026-11-01", 100),
+                fixture(&["b"], "2026-11-02", 12)
+            )
+            .is_err()
+        );
+        assert!(
+            merge(
+                fixture(&["b"], "2026-11-01", u64::MAX),
+                fixture(&["b"], "2026-11-02", 1)
+            )
+            .is_err()
+        );
+        let mut incompatible = to_json(&fixture(&["b"], "2026-11-02", 12));
+        incompatible["format"] = json!(FORMAT + 1);
+        assert!(from_json(&incompatible).is_err());
+    }
 
     #[test]
     fn round_trips_responses_errors_and_expectations() {
