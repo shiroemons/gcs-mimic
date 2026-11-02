@@ -9,6 +9,8 @@ use std::{collections::BTreeMap, io, path::Path, process::ExitCode, time::Durati
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 mod startup;
 mod sync_cli;
+#[cfg(test)]
+mod test_support;
 use startup::phase;
 
 const HELP: &str = "gcs-mimic — local Cloud Storage emulator foundation

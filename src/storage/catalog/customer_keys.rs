@@ -128,39 +128,17 @@ impl Catalog {
 mod tests {
     use super::*;
     use crate::{
-        bucket::BucketRecord,
         csek::CsekError,
         object::{ObjectMetadataUpdate, UploadChunk},
         test_support::TestDir,
     };
-    use std::time::UNIX_EPOCH;
 
     async fn setup(dir: &TestDir) -> Catalog {
         let catalog = Catalog::open(&dir.0).await.unwrap();
         catalog
-            .insert_bucket(BucketRecord {
-                name: "bucket".into(),
-                project: "project".into(),
-                location: "US".into(),
-                location_type: "multi-region".into(),
-                storage_class: "STANDARD".into(),
-                autoclass: None,
-                labels: Default::default(),
-                versioning_enabled: false,
-                versioning_configured: false,
-                default_event_based_hold: false,
-                public_access_prevention_enforced: false,
-                uniform_bucket_level_access_locked_time: None,
-                lifecycle: Vec::new(),
-                retention_policy: None,
-                soft_delete_policy: None,
-                object_retention_enabled: false,
-                cors: Vec::new(),
-                metageneration: 1,
-                generation: 0,
-                time_created: UNIX_EPOCH,
-                updated: UNIX_EPOCH,
-            })
+            .insert_bucket(crate::storage::catalog::test_fixtures::bucket(
+                "bucket", "project",
+            ))
             .await
             .unwrap();
         catalog

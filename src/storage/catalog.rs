@@ -26,6 +26,8 @@ mod memory_tests;
 mod timestamp_tests;
 
 #[cfg(test)]
+pub(super) mod test_fixtures;
+#[cfg(test)]
 pub(super) mod test_support;
 
 #[cfg(test)]

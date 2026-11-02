@@ -5,7 +5,7 @@ use gcs_mimic::{
     clock::Clock,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
     storage::{Catalog, ObjectReader},
-    test_support::live_len,
+    test_support::{TestDir, live_len},
 };
 use md5::{Digest, Md5};
 use rusqlite::Connection;
@@ -30,57 +30,13 @@ impl Clock for FixedClock {
     }
 }
 
-struct TestDir(PathBuf);
-
-impl TestDir {
-    fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        Self(std::env::temp_dir().join(format!(
-            "gcs-mimic-objects-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        )))
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        // A failing test may still hold catalog files open, which blocks removal on
-        // Windows; a second panic during unwinding would abort the whole test binary.
-        if self.0.exists()
-            && let Err(error) = fs::remove_dir_all(&self.0)
-        {
-            assert!(std::thread::panicking(), "fixture cleanup failed: {error}");
-        }
-    }
-}
-
 async fn setup(dir: &TestDir) -> Catalog {
     let clock = Arc::new(FixedClock(AtomicU64::new(1_234_567)));
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     catalog
         .insert_bucket(BucketRecord {
-            name: "bucket".into(),
-            project: "project".into(),
-            location: "US".into(),
-            location_type: "multi-region".into(),
             storage_class: "NEARLINE".into(),
-            autoclass: None,
-            labels: BTreeMap::new(),
-            versioning_enabled: false,
-            versioning_configured: false,
-            default_event_based_hold: false,
-            public_access_prevention_enforced: false,
-            uniform_bucket_level_access_locked_time: None,
-            lifecycle: Vec::new(),
-            retention_policy: None,
-            soft_delete_policy: None,
-            object_retention_enabled: false,
-            cors: Vec::new(),
-            metageneration: 1,
-            generation: 0,
-            time_created: UNIX_EPOCH,
-            updated: UNIX_EPOCH,
+            ..super::catalog::test_fixtures::bucket("bucket", "project")
         })
         .await
         .unwrap();

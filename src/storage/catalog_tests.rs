@@ -3,6 +3,7 @@ use crate as gcs_mimic;
 use gcs_mimic::{
     bucket::{BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError},
     storage::Catalog,
+    test_support::TestDir,
 };
 use rusqlite::Connection;
 use std::{
@@ -17,54 +18,13 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-struct TestDir(PathBuf);
-
-impl TestDir {
-    fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        Self(std::env::temp_dir().join(format!(
-            "gcs-mimic-catalog-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        )))
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        // Removal fails on Windows while a failing test still holds catalog files;
-        // panicking again during unwinding would abort the whole test binary.
-        if self.0.exists()
-            && let Err(error) = fs::remove_dir_all(&self.0)
-        {
-            assert!(std::thread::panicking(), "fixture cleanup failed: {error}");
-        }
-    }
-}
-
 fn bucket(name: &str, project: &str) -> BucketRecord {
     BucketRecord {
-        name: name.into(),
-        project: project.into(),
-        location: "US".into(),
-        location_type: "multi-region".into(),
-        storage_class: "STANDARD".into(),
-        autoclass: None,
         labels: BTreeMap::from([("team".into(), "storage".into())]),
-        versioning_enabled: false,
-        versioning_configured: false,
-        default_event_based_hold: false,
-        public_access_prevention_enforced: false,
-        uniform_bucket_level_access_locked_time: None,
-        lifecycle: Vec::new(),
-        retention_policy: None,
-        soft_delete_policy: None,
-        object_retention_enabled: false,
-        cors: Vec::new(),
         metageneration: 3,
-        generation: 0,
         time_created: UNIX_EPOCH + Duration::from_millis(42_123),
         updated: UNIX_EPOCH + Duration::from_millis(43_987),
+        ..super::catalog::test_fixtures::bucket(name, project)
     }
 }
 
