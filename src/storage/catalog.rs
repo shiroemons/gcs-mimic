@@ -120,7 +120,10 @@ pub(crate) mod acl;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = 48;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = 49;
+const BUCKET_VERSIONING_PRESENCE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN versioning_configured INTEGER NOT NULL DEFAULT 0 CHECK(versioning_configured IN (0, 1));
+ALTER TABLE soft_deleted_buckets ADD COLUMN versioning_configured INTEGER NOT NULL DEFAULT 0 CHECK(versioning_configured IN (0, 1));
+PRAGMA user_version = 49;";
 const SOFT_DELETE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN soft_delete_policy TEXT;
 ALTER TABLE objects ADD COLUMN soft_delete_time INTEGER;
 ALTER TABLE objects ADD COLUMN hard_delete_time INTEGER;
@@ -146,14 +149,14 @@ macro_rules! bucket_columns {
                       metageneration, time_created, updated, versioning_enabled,
                       default_event_based_hold, cors, public_access_prevention_enforced,
                       uniform_bucket_level_access_locked_time, lifecycle, retention_policy, soft_delete_policy,
-                      object_retention_enabled, autoclass, time_created_nanos, updated_nanos, generation"
+                      object_retention_enabled, autoclass, time_created_nanos, updated_nanos, generation, versioning_configured"
     };
 }
 use bucket_columns;
 const INSERT_BUCKET: &str = concat!(
     "INSERT INTO buckets (",
     bucket_columns!(),
-    ", acl_policy_bound) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, 0, 0, ?19, 1)
+    ", acl_policy_bound) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, 0, 0, ?19, ?20, 1)
          ON CONFLICT(name) DO NOTHING"
 );
 const SELECT_BUCKET: &str = concat!(
@@ -162,7 +165,7 @@ const SELECT_BUCKET: &str = concat!(
     " FROM buckets WHERE name = ?1"
 );
 const UPDATE_BUCKET: &str = "UPDATE buckets SET labels = ?2, storage_class = ?3,
-                     versioning_enabled = ?4, default_event_based_hold = ?5,
+                     versioning_enabled = ?4, versioning_configured = ?14, default_event_based_hold = ?5,
                      metageneration = ?6, updated = ?7, updated_nanos = 0, cors = ?8, public_access_prevention_enforced = ?9,
                      uniform_bucket_level_access_locked_time = ?10, lifecycle = ?11, retention_policy = ?12, soft_delete_policy = ?13 WHERE name = ?1";
 /// Bounds the parsed statements the catalog's single connection keeps. Request paths prepare
@@ -364,6 +367,7 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
     (46, bucket_soft_delete::GENERATION_SCHEMA, None),
     (47, objects::retention::SUB_MICRO_SCHEMA, None),
     (48, object_hold::SCHEMA, None),
+    (49, BUCKET_VERSIONING_PRESENCE_SCHEMA, None),
 ];
 
 #[expect(
@@ -903,6 +907,7 @@ const MIGRATIONS: &[(i64, Migration)] = &[
         Migration::Statements(objects::retention::SUB_MICRO_SCHEMA),
     ),
     (48, Migration::Statements(object_hold::SCHEMA)),
+    (49, Migration::Statements(BUCKET_VERSIONING_PRESENCE_SCHEMA)),
 ];
 
 /// Resets volatile state and completes crash recovery before the catalog serves requests.
@@ -1493,6 +1498,7 @@ impl Catalog {
                         serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
                         record.retention_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
                         record.soft_delete_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
+                        record.versioning_configured,
                     ],
                 )
                 .map_err(unavailable)?;
@@ -1884,6 +1890,9 @@ fn apply_plain_settings(
     if let Some(enabled) = update.versioning_enabled {
         record.versioning_enabled = enabled;
     }
+    if let Some(configured) = update.versioning_configured {
+        record.versioning_configured = configured;
+    }
     if let Some(hold) = update.default_event_based_hold {
         record.default_event_based_hold = hold;
     }
@@ -2130,6 +2139,7 @@ fn insert_bucket_in_transaction(
                 .map_err(unavailable)?,
             record.object_retention_enabled,
             record.generation,
+            record.versioning_configured,
         ])
         .map_err(unavailable)?;
     if changed == 0 {
@@ -2239,6 +2249,7 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         updated: bucket_timestamps::read(row, row.get(8)?, "updated_nanos")?,
         object_retention_enabled: row.get(17)?,
         versioning_enabled: row.get(9)?,
+        versioning_configured: row.get("versioning_configured")?,
         default_event_based_hold: row.get(10)?,
         public_access_prevention_enforced: row.get(12)?,
         uniform_bucket_level_access_locked_time: row

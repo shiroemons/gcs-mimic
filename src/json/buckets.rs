@@ -341,6 +341,10 @@ pub(crate) fn parse_insert_with_profile(
         cors: parse_cors(body.get("cors"))?.unwrap_or_default(),
         lifecycle: parse_lifecycle(body.get("lifecycle"), profile)?.unwrap_or_default(),
         versioning_enabled,
+        versioning_configured: body
+            .get("versioning")
+            .and_then(|value| value.get("enabled"))
+            .is_some_and(Value::is_boolean),
         default_event_based_hold,
         public_access_prevention_enforced: parse_public_access_prevention(
             body.get("iamConfiguration"),
@@ -553,6 +557,11 @@ fn parse_bucket_update(
             .map(crate::bucket::autoclass::parse_json)
             .transpose()?,
         versioning_enabled,
+        versioning_configured: match body.get("versioning") {
+            Some(Value::Null) => Some(false),
+            Some(value) if value.get("enabled").is_some_and(Value::is_boolean) => Some(true),
+            _ => omitted_clears.then_some(false),
+        },
         default_event_based_hold: boolean(
             body.get("defaultEventBasedHold"),
             "defaultEventBasedHold",
@@ -874,8 +883,10 @@ pub(crate) fn bucket_predefined_acls(
     let acl = query
         .get("predefinedAcl")
         .map(|value| {
-            crate::acl::PredefinedBucketAcl::parse(value)
-                .ok_or_else(|| invalid_value(value, crate::acl::PredefinedBucketAcl::ALLOWED))
+            crate::acl::PredefinedBucketAcl::parse(value).ok_or_else(|| {
+                invalid_value(value, crate::acl::PredefinedBucketAcl::ALLOWED)
+                    .at_parameter("predefinedAcl")
+            })
         })
         .transpose()?;
     let default_object_acl = query
@@ -1034,7 +1045,10 @@ pub(crate) fn bucket_resource_with_profile(
     if !bucket.lifecycle.is_empty() {
         value["lifecycle"] = json!({"rule": bucket.lifecycle});
     }
-    if bucket.versioning_enabled || profile == CompatProfile::LegacyEmulator {
+    if bucket.versioning_enabled
+        || bucket.versioning_configured
+        || profile == CompatProfile::LegacyEmulator
+    {
         value["versioning"] = json!({"enabled": bucket.versioning_enabled});
     }
     if let Some(policy) = &bucket.retention_policy {

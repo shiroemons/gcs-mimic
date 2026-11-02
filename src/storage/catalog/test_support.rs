@@ -92,6 +92,22 @@ pub(crate) fn downgrade_observation_schema(connection: &rusqlite::Connection) {
 
 /// Drops the schema 48 hold-state columns when present; their CHECKs name the hold columns.
 pub(crate) fn drop_hold_state_columns(connection: &rusqlite::Connection) {
+    for table in ["buckets", "soft_deleted_buckets"] {
+        let present: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name = 'versioning_configured')",
+                [table],
+                |row| row.get(0),
+            )
+            .unwrap();
+        if present {
+            connection
+                .execute_batch(&format!(
+                    "ALTER TABLE {table} DROP COLUMN versioning_configured;"
+                ))
+                .unwrap();
+        }
+    }
     for column in ["temporary_hold_released", "event_based_hold_released"] {
         let present: bool = connection
             .query_row(

@@ -90,6 +90,40 @@ fn owner<'a>(target: &'a AclTarget, state: &'a AclState) -> AclOwner<'a> {
     }
 }
 
+fn read_resource(
+    base: &str,
+    target: &AclTarget,
+    acl: &AclState,
+    operation: &AclOperation,
+) -> Result<Value, JsonError> {
+    if let AclOperation::Get(entity) = operation {
+        let entry = acl
+            .entries
+            .iter()
+            .find(|entry| &entry.entity == entity)
+            .ok_or_else(|| {
+                acl_error(
+                    AclError::EntityNotFound {
+                        entity: entity.clone(),
+                        project_number: acl.project_number.clone(),
+                    },
+                    AclAccess::Read,
+                )
+            })?;
+        Ok(json::acl::acl_entry_resource(
+            base,
+            owner(target, acl),
+            entry,
+        ))
+    } else {
+        Ok(json::acl::acl_list_resource(
+            base,
+            owner(target, acl),
+            &acl.entries,
+        ))
+    }
+}
+
 pub(super) async fn respond(
     request: Request<Incoming>,
     operation: AclRequest,
@@ -130,6 +164,7 @@ pub(super) async fn respond(
             "This method requires an empty body",
         ));
     }
+    let mut etag = None;
     let mut value = match &operation {
         AclOperation::List | AclOperation::Get(_) => {
             let acl = state
@@ -142,28 +177,14 @@ pub(super) async fn respond(
                 )
                 .await
                 .map_err(|error| naming_object(acl_error(error, acl_access), &target))?;
-            match &operation {
-                AclOperation::Get(entity) => {
-                    let entry = acl
-                        .entries
-                        .iter()
-                        .find(|entry| &entry.entity == entity)
-                        .ok_or_else(|| {
-                            acl_error(
-                                AclError::EntityNotFound {
-                                    entity: entity.clone(),
-                                    project_number: acl.project_number.clone(),
-                                },
-                                acl_access,
-                            )
-                        })?;
-                    json::acl::acl_entry_resource(base, owner(&target, &acl), entry)
-                }
-                _ => json::acl::acl_list_resource(base, owner(&target, &acl), &acl.entries),
-            }
+            etag = Some(json::revision_etag(
+                acl.object.as_ref().map(|(_, generation)| *generation),
+                acl.metageneration,
+            ));
+            read_resource(base, &target, &acl, &operation)?
         }
         AclOperation::Delete(entity) => {
-            state
+            let (acl, _) = state
                 .catalog
                 .change_acl(
                     target.clone(),
@@ -174,7 +195,16 @@ pub(super) async fn respond(
                 )
                 .await
                 .map_err(|error| naming_object(acl_error(error, acl_access), &target))?;
-            return Ok(empty_response(StatusCode::NO_CONTENT));
+            let mut response = empty_response(StatusCode::NO_CONTENT);
+            if let Ok(etag) = json::revision_etag(
+                acl.object.as_ref().map(|(_, generation)| *generation),
+                acl.metageneration,
+            )
+            .parse()
+            {
+                response.headers_mut().insert("etag", etag);
+            }
+            return Ok(response);
         }
         AclOperation::Insert | AclOperation::Patch(_) | AclOperation::Update(_) => {
             let bytes = json::read_body(request.into_body(), super::BUCKET_BODY_LIMIT).await?;
@@ -202,11 +232,11 @@ pub(super) async fn respond(
             json::acl::acl_entry_resource(base, owner(&target, &acl), &entry)
         }
     };
-    Ok(json_response_selected(
-        &mut value,
-        &fields,
-        JsonCache::Unrecorded,
-    ))
+    let mut response = json_response_selected(&mut value, &fields, JsonCache::Unrecorded);
+    if let Some(etag) = etag.and_then(|etag| etag.parse().ok()) {
+        response.headers_mut().insert("etag", etag);
+    }
+    Ok(response)
 }
 
 /// Whether a bucket request renders `projection=full` before the body is read. Recorded on
@@ -219,7 +249,7 @@ pub(super) fn bucket_full_projection(
 ) -> bool {
     // The legacy profile keeps the earlier rule: only PUT defaults to full.
     if profile == crate::config::CompatProfile::LegacyEmulator {
-        return full_projection(method, query);
+        return full_projection_or(method, query, &[Method::PUT]);
     }
     let predefined = json::parse_query(query.unwrap_or_default()).is_ok_and(|query| {
         query.contains_key("predefinedAcl") || query.contains_key("predefinedDefaultObjectAcl")
@@ -235,9 +265,9 @@ pub(super) fn bucket_full_projection(
     )
 }
 
-/// Whether an object request renders `projection=full`; PUT defaults to full.
+/// Whether an object request explicitly asks for ACL and owner fields.
 pub(super) fn full_projection(method: &Method, query: Option<&str>) -> bool {
-    full_projection_or(method, query, &[Method::PUT])
+    full_projection_or(method, query, &[])
 }
 
 fn full_projection_or(method: &Method, query: Option<&str>, default_full: &[Method]) -> bool {

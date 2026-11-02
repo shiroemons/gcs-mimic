@@ -346,6 +346,7 @@ mod tests {
             }),
             object_retention_enabled: false,
             versioning_enabled: true,
+            versioning_configured: true,
             default_event_based_hold: true,
             public_access_prevention_enforced: false,
             uniform_bucket_level_access_locked_time: Some(now),

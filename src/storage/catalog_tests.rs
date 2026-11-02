@@ -52,6 +52,7 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
         autoclass: None,
         labels: BTreeMap::from([("team".into(), "storage".into())]),
         versioning_enabled: false,
+        versioning_configured: false,
         default_event_based_hold: false,
         public_access_prevention_enforced: false,
         uniform_bucket_level_access_locked_time: None,
@@ -65,6 +66,36 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
         time_created: UNIX_EPOCH + Duration::from_millis(42_123),
         updated: UNIX_EPOCH + Duration::from_millis(43_987),
     }
+}
+
+#[tokio::test]
+async fn versioning_presence_migration_preserves_existing_bucket_states() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    catalog
+        .insert_bucket(bucket("plain", "project"))
+        .await
+        .unwrap();
+    let mut enabled = bucket("enabled", "project");
+    enabled.versioning_enabled = true;
+    catalog.insert_bucket(enabled).await.unwrap();
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "ALTER TABLE buckets DROP COLUMN versioning_configured;
+        ALTER TABLE soft_deleted_buckets DROP COLUMN versioning_configured;
+        PRAGMA user_version = 48;",
+        )
+        .unwrap();
+    drop(connection);
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    for (name, expected) in [("plain", false), ("enabled", true)] {
+        let record = catalog.get_bucket(name).await.unwrap().unwrap();
+        assert_eq!(record.versioning_enabled, expected);
+        assert!(!record.versioning_configured);
+    }
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]

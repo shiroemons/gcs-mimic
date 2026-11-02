@@ -663,11 +663,8 @@ fn encode_changed_entries(
         }
     }
     validate_effective_entries(kind, &state.entries, owner)?;
-    let mut stored = state.entries.clone();
-    if let Some(owner) = owner {
-        owner.remove_implicit_grant(&mut stored);
-    }
-    serde_json::to_string(&stored).map_err(unavailable)
+    // Persist the owner position so later inserts follow every existing grant.
+    serde_json::to_string(&state.entries).map_err(unavailable)
 }
 
 impl Catalog {

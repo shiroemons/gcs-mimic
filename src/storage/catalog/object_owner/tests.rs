@@ -105,6 +105,7 @@ fn interrupted_owner_reconciliation_retries_with_new_registry_without_changing_i
  {
     let mut connection = Connection::open_in_memory().unwrap();
     connection.execute_batch("CREATE TABLE objects(bucket TEXT,name TEXT,generation INTEGER,metageneration INTEGER,updated INTEGER,bytes BLOB,owner TEXT,PRIMARY KEY(bucket,name,generation)); CREATE TABLE changes(name TEXT); CREATE TEMP TRIGGER changed AFTER UPDATE OF owner ON objects BEGIN INSERT INTO changes VALUES(NEW.name); END; CREATE TEMP TRIGGER fail_second BEFORE UPDATE OF owner ON objects WHEN OLD.name='second' BEGIN SELECT RAISE(ABORT,'injected owner update failure'); END;").unwrap();
+    connection.execute_batch("CREATE TABLE acl_object_entries(bucket TEXT,name TEXT,generation INTEGER,entries TEXT,PRIMARY KEY(bucket,name,generation));").unwrap();
     for name in ["first", "second"] {
         let owner = ObjectOwner::Principal {
             id: "local:owner".into(),
@@ -116,6 +117,8 @@ fn interrupted_owner_reconciliation_retries_with_new_registry_without_changing_i
                 params![name, serde_json::to_string(&owner).unwrap()],
             )
             .unwrap();
+        connection.execute("INSERT INTO acl_object_entries VALUES ('bucket',?1,7,?2)", params![name,
+            json!([{"entity":"project-owners-0","role":"OWNER"},{"entity":"user-old@example.test","role":"OWNER"},{"entity":"allUsers","role":"READER"}]).to_string()]).unwrap();
     }
     let first =
         strict(json!([{"id":"local:owner","tokens":[],"acl_entity":"user-first@example.test"}]));
@@ -136,6 +139,15 @@ fn interrupted_owner_reconciliation_retries_with_new_registry_without_changing_i
             .as_deref(),
         Some("user-old@example.test")
     );
+    let stale: String = connection
+        .query_row(
+            "SELECT entries FROM acl_object_entries WHERE name='second'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(stale.contains("user-old@example.test"));
+    assert!(!stale.contains("user-first@example.test"));
     connection
         .execute_batch("DROP TRIGGER fail_second;")
         .unwrap();
@@ -157,6 +169,18 @@ fn interrupted_owner_reconciliation_retries_with_new_registry_without_changing_i
         changes
     );
     for name in ["first", "second"] {
+        let entries: String = connection
+            .query_row(
+                "SELECT entries FROM acl_object_entries WHERE name=?1",
+                [name],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let entries: serde_json::Value = serde_json::from_str(&entries).unwrap();
+        assert_eq!(
+            entries,
+            json!([{"entity":"project-owners-0","role":"OWNER"},{"entity":"user-current@example.test","role":"OWNER"},{"entity":"allUsers","role":"READER"}])
+        );
         assert_eq!(
             selected(&connection, "bucket", name, 7).unwrap(),
             Some(ObjectOwner::Principal {
@@ -254,6 +278,7 @@ fn permissive_canonicalize_follows_the_configured_address_only_for_the_local_cre
 fn permissive_reconcile_renames_the_creator_and_leaves_project_owner_rows() {
     let mut connection = Connection::open_in_memory().unwrap();
     connection.execute_batch("CREATE TABLE objects(bucket TEXT,name TEXT,generation INTEGER,owner TEXT,PRIMARY KEY(bucket,name,generation));").unwrap();
+    connection.execute_batch("CREATE TABLE acl_object_entries(bucket TEXT,name TEXT,generation INTEGER,entries TEXT,PRIMARY KEY(bucket,name,generation));").unwrap();
     for (name, owner) in [
         ("created", local_creator("user-old@example.test")),
         (

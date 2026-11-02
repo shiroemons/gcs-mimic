@@ -73,6 +73,7 @@ pub(crate) use object_metadata::parse_object_metadata_mutation;
 pub(crate) use object_metadata::{ObjectMetadataRequest, WriteMode, parse_object_metadata};
 pub(crate) use object_metadata::{declare_content_encoding, validate_fixed_metadata};
 pub(crate) use object_move::ObjectMoveParams;
+pub(crate) use objects::revision_etag;
 pub(crate) use objects::{
     EtagConditions, base64, decode_hash, object_etag, object_media_negotiable,
     object_media_transcoding, validate_read_condition_headers,

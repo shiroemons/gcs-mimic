@@ -2909,7 +2909,12 @@ fn bucket_core_settings_round_trip() {
             let name = format!("settings-{index}");
             let create = server.request("POST", "/storage/v1/b?project=project", &json!({"name":name,"versioning":{"enabled":versioning},"defaultEventBasedHold":hold}).to_string());
             assert_eq!(create.status, 200, "{}", create.body);
-            assert_settings(&create.json(), profile, versioning, hold);
+            assert_eq!(create.json()["versioning"], json!({"enabled":versioning}));
+            if profile == "native" && !hold {
+                assert!(create.json().get("defaultEventBasedHold").is_none());
+            } else {
+                assert_eq!(create.json()["defaultEventBasedHold"], hold);
+            }
             assert_eq!(
                 server
                     .request("GET", &format!("/storage/v1/b/{name}"), "")

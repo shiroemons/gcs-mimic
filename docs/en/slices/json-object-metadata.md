@@ -59,9 +59,14 @@ Successful calls, including empty updates, increment metageneration exactly once
 set `updated` from the injected clock, and change the opaque local ETag. Generation,
 creation time, size, hashes, storage class and the blob reference stay unchanged.
 
-Projection accepts `full` and `noAcl`; PUT defaults to full, PATCH to noAcl. Both expose
-only modeled fields because authentication, permissions, ACLs and owner are not
-implemented. `userProject`, `predefinedAcl`, `overrideUnlockedRetention`, partial fields,
+Projection accepts `full` and `noAcl`; both PUT and PATCH omit `acl` and `owner`
+unless `projection=full` is explicit. The 2026-11-01 Cloud Storage recording
+(`obj-metadata-write` and `obj-holds-customtime`) returned neither field for PUT
+requests without query parameters or ACL body fields, although the
+[objects.update reference](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update)
+documents `full` as the default. The JSON adapter follows the recorded response;
+explicit `projection=full` still includes authorized ACL and owner fields.
+`userProject`, `predefinedAcl`, `overrideUnlockedRetention`, partial fields,
 encryption/conditional headers and method override remain explicit 501 rejections.
 Recognized writable fields `acl`, holds, retention, contexts, customTime and encryption
 settings are rejected even when null. Custom time is not stored; its monotonicity is

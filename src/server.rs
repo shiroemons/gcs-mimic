@@ -1173,8 +1173,19 @@ fn read_metadata_response(
     query: QueryPrecondition,
     cache_control: &'static str,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    let not_modified =
-        read_etag_not_modified(headers, etag)? || query == QueryPrecondition::NotModified;
+    let not_modified = match read_etag_not_modified(headers, etag) {
+        Err(error)
+            if error.status == StatusCode::PRECONDITION_FAILED
+                && value["kind"] == "storage#object" =>
+        {
+            let mut response = error.at_if_match().into_response();
+            if let Ok(etag) = etag.parse() {
+                response.headers_mut().insert("etag", etag);
+            }
+            return Ok(response);
+        }
+        result => result? || query == QueryPrecondition::NotModified,
+    };
     // ETags are rendered locally from base64 (JSON) or a quoted policy revision, so the
     // conversion always succeeds; omitting the validator is safer than panicking if that ever
     // changes.

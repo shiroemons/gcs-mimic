@@ -45,6 +45,13 @@ when it is live, through the existing deletion journal. Disabling versioning
 preserves history while subsequent unqualified replacements/deletions reclaim
 their old live blobs. No older version is automatically promoted.
 
+The 2026-11-01 recording (`obj-versioning`) returns `versioning.enabled=false`
+after an explicit disable. JSON bucket resources preserve this configured state
+across restart; buckets without a versioning setting omit it. A null versioning
+member or a native PUT that omits versioning clears the configuration. Catalog
+schema 49 records presence for live and soft-deleted buckets; older disabled rows
+remain unset because their previous boolean storage cannot establish presence.
+
 `versions=true` includes all retained generations and the live generation, ordered
 by binary object name then increasing generation. Tokens include the generation
 cursor and are bound to the versions flag and existing filters. Prefix, delimiter,

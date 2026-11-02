@@ -114,6 +114,8 @@ pub struct BucketRecord {
     /// Set only at creation (`enableObjectRetention=true`); it can never be disabled.
     pub object_retention_enabled: bool,
     pub versioning_enabled: bool,
+    /// Explicit false is observable; an unset versioning configuration has no JSON field.
+    pub(crate) versioning_configured: bool,
     pub default_event_based_hold: bool,
     pub public_access_prevention_enforced: bool,
     pub uniform_bucket_level_access_locked_time: Option<SystemTime>,
@@ -150,6 +152,7 @@ pub(crate) struct BucketMetadataUpdate {
     pub storage_class: Option<String>,
     pub autoclass: Option<autoclass::AutoclassUpdate>,
     pub versioning_enabled: Option<bool>,
+    pub(crate) versioning_configured: Option<bool>,
     pub default_event_based_hold: Option<bool>,
     pub public_access_prevention_enforced: Option<bool>,
     pub uniform_bucket_level_access_enabled: Option<bool>,
@@ -178,6 +181,7 @@ impl BucketMetadataUpdate {
             storage_class,
             autoclass,
             versioning_enabled,
+            versioning_configured,
             default_event_based_hold,
             public_access_prevention_enforced,
             uniform_bucket_level_access_enabled,
@@ -199,6 +203,7 @@ impl BucketMetadataUpdate {
                 .as_ref()
                 .is_none_or(|update| *update == autoclass::AutoclassUpdate::default())
             && versioning_enabled.is_none()
+            && versioning_configured.is_none()
             && default_event_based_hold.is_none()
             && public_access_prevention_enforced.is_none()
             && uniform_bucket_level_access_enabled.is_none()

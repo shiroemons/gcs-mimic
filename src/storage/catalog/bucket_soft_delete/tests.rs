@@ -32,6 +32,7 @@ fn record(name: &str) -> BucketRecord {
         autoclass: None,
         labels: [("team".to_owned(), "storage".to_owned())].into(),
         versioning_enabled: false,
+        versioning_configured: false,
         default_event_based_hold: false,
         public_access_prevention_enforced: false,
         uniform_bucket_level_access_locked_time: None,
@@ -509,6 +510,8 @@ async fn schema_46_scales_bucket_generations_and_retained_keys_to_nanoseconds() 
     connection
         .execute_batch(
             "DROP TABLE bucket_generation;
+             ALTER TABLE buckets DROP COLUMN versioning_configured;
+             ALTER TABLE soft_deleted_buckets DROP COLUMN versioning_configured;
              ALTER TABLE objects DROP COLUMN temporary_hold_released;
              ALTER TABLE objects DROP COLUMN event_based_hold_released;
              ALTER TABLE objects DROP COLUMN retain_until_sub_micro_nanos;

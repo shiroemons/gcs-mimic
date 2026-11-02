@@ -372,11 +372,20 @@ async fn move_object(
             // Cloud Storage cannot tell a missing source from a denied one for a move.
             ObjectError::ObjectNotFound => {
                 let host = ctx.endpoints.api_base_url.split("://").last().unwrap_or_default();
+                let principal = match ctx.caller {
+                    Some(auth::Caller::Principal(identity)) => identity.acl_entity()
+                        .and_then(|entity| entity.strip_prefix("user-").map(str::to_owned))
+                        .unwrap_or_else(|| identity.id().to_owned()),
+                    Some(auth::Caller::Anonymous) => "Anonymous caller".into(),
+                    None => ctx.state.auth.local_creator_entity()
+                        .and_then(|entity| entity.strip_prefix("user-"))
+                        .unwrap_or("Caller").to_owned(),
+                };
                 JsonError::new(
                     StatusCode::FORBIDDEN,
                     "forbidden",
                     format!(
-                        "Caller does not have storage.objects.move access to the Google Cloud Storage object. Permission 'storage.objects.move' denied on resource '//{}/projects/_/buckets/{}/objects/{}' (or it may not exist).",
+                        "{principal} does not have storage.objects.move access to the Google Cloud Storage object. Permission 'storage.objects.move' denied on resource '//{}/projects/_/buckets/{}/objects/{}' (or it may not exist).",
                         host.trim_end_matches('/'), params.bucket, params.source
                     ),
                 )

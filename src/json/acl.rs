@@ -299,7 +299,7 @@ pub(crate) fn acl_entry_resource(base_url: &str, owner: AclOwner<'_>, entry: &Ac
                 format!(
                     "{base}/storage/v1/b/{}/acl/{}",
                     encode_segment(owner.bucket),
-                    encode_segment(&entry.entity)
+                    encode_segment(&entry.entity).replace("%40", "@")
                 )
                 .into(),
             );
@@ -316,7 +316,7 @@ pub(crate) fn acl_entry_resource(base_url: &str, owner: AclOwner<'_>, entry: &Ac
                     "{base}/storage/v1/b/{}/o/{}/acl/{}",
                     encode_segment(owner.bucket),
                     encode_segment(name),
-                    encode_segment(&entry.entity)
+                    encode_segment(&entry.entity).replace("%40", "@")
                 )
                 .into(),
             );
@@ -626,7 +626,7 @@ mod tests {
             json!({
                 "kind": "storage#objectAccessControl",
                 "id": "bucket/dir/a b/1700000000000000/user-liz@example.com",
-                "selfLink": "http://host/storage/v1/b/bucket/o/dir%2Fa%20b/acl/user-liz%40example.com",
+                "selfLink": "http://host/storage/v1/b/bucket/o/dir%2Fa%20b/acl/user-liz@example.com",
                 "bucket": "bucket", "object": "dir/a b", "generation": "1700000000000000",
                 "entity": "user-liz@example.com", "role": "OWNER", "email": "liz@example.com",
                 "etag": "CICA+cDBxIIDEAI="

@@ -234,6 +234,7 @@ impl Harness {
                     autoclass: None,
                     labels: Default::default(),
                     versioning_enabled: false,
+                    versioning_configured: false,
                     default_event_based_hold: false,
                     public_access_prevention_enforced: false,
                     uniform_bucket_level_access_locked_time: None,

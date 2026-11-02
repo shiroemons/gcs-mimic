@@ -243,7 +243,15 @@ pub(super) async fn compose(
             },
             ctx.config.max_object_bytes,
         )
-        .await?;
+        .await
+        .map_err(|error| {
+            let error = JsonError::from(error);
+            if error.status == hyper::StatusCode::PRECONDITION_FAILED {
+                error.at_if_match()
+            } else {
+                error
+            }
+        })?;
     json::object_resource_keyed(
         &record,
         &ctx.endpoints.api_base_url,

@@ -514,6 +514,11 @@ impl JsonError {
         let mut text = super::render_body(&self.value());
         // The upload front end ended its `text/html` envelopes with a newline (recorded).
         if self.html_typed {
+            // The upload front end sends no nosniff header; JSON escapes keep request input out of HTML markup.
+            text = text
+                .replace('&', "\\u0026")
+                .replace('<', "\\u003c")
+                .replace('>', "\\u003e");
             text.push('\n');
         }
         let mut response = Response::new(Full::new(Bytes::from(text)));
@@ -527,13 +532,6 @@ impl JsonError {
                 "application/json; charset=UTF-8"
             }),
         );
-        // A text/html body that quotes request input must not be sniffed into script.
-        if self.html_typed {
-            headers.insert(
-                "x-content-type-options",
-                header::HeaderValue::from_static("nosniff"),
-            );
-        }
         // Recorded Cloud Storage JSON errors forbid every cache, HTTP/1.0 ones included.
         headers.insert(
             header::CACHE_CONTROL,

@@ -87,6 +87,7 @@ pub(super) fn reconcile(
         let before = owner.clone();
         canonicalize(&mut owner, Some(profile));
         if owner != before {
+            reconcile_grant(&transaction, (&bucket, &name, generation), &before, &owner)?;
             let owner = serde_json::to_string(&owner).map_err(unavailable)?;
             transaction
                 .prepare_cached(
@@ -100,6 +101,47 @@ pub(super) fn reconcile(
         transaction.commit().map_err(unavailable)?;
         after = Some((bucket, name, generation));
     }
+}
+
+fn reconcile_grant(
+    connection: &Connection,
+    key: (&str, &str, i64),
+    before: &ObjectOwner,
+    after: &ObjectOwner,
+) -> Result<(), CatalogError> {
+    let Some(previous) = before.entity() else {
+        return Ok(());
+    };
+    let stored: Option<String> = connection.prepare_cached(
+        "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
+    ).and_then(|mut statement| statement.query_row(params![key.0, key.1, key.2], |row| row.get(0)))
+        .optional().map_err(unavailable)?;
+    let Some(stored) = stored else { return Ok(()) };
+    let mut entries: Vec<crate::acl::AclEntry> =
+        serde_json::from_str(&stored).map_err(unavailable)?;
+    let Some(index) = entries.iter().position(|entry| entry.entity == previous) else {
+        return Ok(());
+    };
+    // An implicit grant follows the stable principal identity without leaving its old alias access.
+    entries.remove(index);
+    if let Some(entity) = after.entity() {
+        if let Some(existing) = entries.iter_mut().find(|entry| entry.entity == entity) {
+            existing.role = "OWNER".into();
+        } else {
+            entries.insert(
+                index,
+                crate::acl::AclEntry {
+                    entity,
+                    role: "OWNER".into(),
+                },
+            );
+        }
+    }
+    let stored = serde_json::to_string(&entries).map_err(unavailable)?;
+    connection.prepare_cached(
+        "UPDATE acl_object_entries SET entries = ?4 WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
+    ).and_then(|mut statement| statement.execute(params![key.0, key.1, key.2, stored])).map_err(unavailable)?;
+    Ok(())
 }
 
 pub(super) fn for_publication(

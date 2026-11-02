@@ -539,7 +539,13 @@ fn metadata_updates_replace_and_clear_acls() {
     let full = call(&server, "GET", &format!("{object}?projection=full")).json();
     let mut body = full;
     body["contentType"] = json!("text/plain");
-    let replaced = send(&server, "PUT", &object, body.clone()).json();
+    let replaced = send(
+        &server,
+        "PUT",
+        &format!("{object}?projection=full"),
+        body.clone(),
+    )
+    .json();
     assert_eq!(replaced["contentType"], "text/plain");
     assert_eq!(replaced["acl"].as_array().unwrap().len(), 4);
     // Reordered entries still describe the same ACL.
@@ -605,7 +611,13 @@ fn metadata_updates_replace_and_clear_acls() {
         assert_eq!(updated["contentType"], "application/json");
         assert_eq!(metageneration(&updated), before + 1);
         // An omitted ACL stays unchanged even when PUT resets ordinary content metadata.
-        let omitted = send(&server, "PUT", &object, json!({})).json();
+        let omitted = send(
+            &server,
+            "PUT",
+            &format!("{object}?projection=full"),
+            json!({}),
+        )
+        .json();
         assert_eq!(
             entity(&omitted["acl"], "allAuthenticatedUsers")["role"],
             "READER"
