@@ -11,6 +11,9 @@ only targets in the release matrix are built, tested and published.
 
 Each target builds and runs its Rust tests on the corresponding CPU, including
 the Linux musl tests. Cross-compilation alone is insufficient for publication.
+After validation, separate `test` and `build` matrices run in parallel alongside
+Foundation checks. Publication requires all three to pass. Foundation covers fmt
+and OS/ABI Clippy checks; release builds restore no Cargo cache.
 
 Every published release ships all eight targets.
 Directory synchronization remains unsupported on Windows;

@@ -52,6 +52,82 @@ jobs:
     uses: ./.github/workflows/ci.yaml
     with:
       skip-portability: true
+  # Foundation covers fmt and OS/ABI Clippy; repeating them per architecture adds no coverage.
+  # Keep the test and build matrices in sync; publish requires both to pass.
+  test:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            host: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            host: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: aarch64-pc-windows-msvc
+            host: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+          - target: x86_64-pc-windows-msvc
+            host: x86_64-pc-windows-msvc
+            runner: windows-2025
+          - target: aarch64-unknown-linux-gnu
+            host: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-gnu
+            host: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-musl
+            host: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            host: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ matrix.target }}
+      HOST: ${{ matrix.host }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust and native target
+        run: |
+          expected_arch=X64
+          if [[ "$HOST" == aarch64-* ]]; then expected_arch=ARM64; fi
+          test "$RUNNER_ARCH" = "$expected_arch"
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
+          toolchain="$pin-$HOST"
+          rustup toolchain install "$toolchain" --force-non-host --profile minimal --target "$TARGET"
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+      - name: Install native musl compiler
+        if: endsWith(matrix.target, '-musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools
+          echo "CC_${TARGET//-/_}=musl-gcc" >> "$GITHUB_ENV"
+          linker="CARGO_TARGET_${TARGET^^}_LINKER"
+          echo "${linker//-/_}=musl-gcc" >> "$GITHUB_ENV"
+      # As in the Foundation portability lane, Windows tests keep their many small
+      # synchronized files on the faster D: volume instead of the system temp on C:.
+      - name: Keep Windows test files on the workspace volume
+        if: runner.os == 'Windows'
+        run: printf '%s\n' "TMP=$RUNNER_TEMP" "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Use the static CRT for Windows tests
+        if: runner.os == 'Windows'
+        run: echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
+      - run: cargo fetch --locked
+      - run: cargo test --workspace --target "$TARGET" --locked --offline
+        # Deadline tests still use wall-clock budgets; fewer concurrent tests keep
+        # slower macOS, Windows and ARM runners from starving them.
+        env:
+          RUST_TEST_THREADS: '2'
   build:
     needs: validate
     strategy:
@@ -105,7 +181,7 @@ jobs:
           pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
           test -n "$pin"
           toolchain="$pin-$HOST"
-          rustup toolchain install "$toolchain" --force-non-host --profile minimal --component rustfmt --component clippy --target "$TARGET"
+          rustup toolchain install "$toolchain" --force-non-host --profile minimal --target "$TARGET"
           echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
       - name: Remove local source paths from binaries
         run: |
@@ -140,19 +216,7 @@ jobs:
             https://musl.libc.org/releases/musl-1.2.5.tar.gz \
             --output target/release-notices/musl-1.2.5.tar.gz
           echo 'a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4  target/release-notices/musl-1.2.5.tar.gz' | sha256sum --check
-      # As in the Foundation portability lane, Windows tests keep their many small
-      # synchronized files on the faster D: volume instead of the system temp on C:.
-      - name: Keep Windows test files on the workspace volume
-        if: runner.os == 'Windows'
-        run: printf '%s\n' "TMP=$RUNNER_TEMP" "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - run: cargo fetch --locked
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --target "$TARGET" --locked --offline -- -D warnings
-      - run: cargo test --workspace --target "$TARGET" --locked --offline
-        # Deadline tests still use wall-clock budgets; fewer concurrent tests keep
-        # slower macOS, Windows and ARM runners from starving them.
-        env:
-          RUST_TEST_THREADS: '2'
       - run: cargo build --release --locked --offline --target "$TARGET" --bin gcs-mimic
       - name: Verify Windows runtime imports
         if: runner.os == 'Windows'
@@ -210,7 +274,7 @@ jobs:
   # mistakes surface before an immutable tag; only tag pushes create the Release.
   publish:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
-    needs: [validate, foundation, build]
+    needs: [validate, foundation, test, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

@@ -219,7 +219,7 @@ fire only there. C dependencies compile to empty stub objects there, so
 this catches `cfg` and platform-API mistakes but not link or runtime failures.
 Foundation CI's `portability` job runs the tests natively on one target per
 OS family on every push; the release matrix still runs only for release tags
-and manual dispatch. Release workflows skip `portability` because their build
+and manual dispatch. Release workflows skip `portability` because their `test`
 matrix already tests every release target natively.
 
 Tests of deadlines and timeouts must not depend on how fast a shared CI runner

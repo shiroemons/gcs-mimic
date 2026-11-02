@@ -81,7 +81,7 @@ jobs:
       - run: bash scripts/check-cross.sh
   # Runtime behavior differs by OS (socket resets, timing, file APIs); run one
   # target per OS family on every push instead of only at tag time. Release
-  # workflows skip it because their build matrix tests every target natively.
+  # workflows skip it because their test matrix tests every target natively.
   portability:
     if: inputs.skip-portability != true
     strategy:
