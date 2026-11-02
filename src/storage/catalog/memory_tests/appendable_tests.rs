@@ -256,12 +256,12 @@ async fn ram_appendable_failed_size_and_publication_keep_acknowledged_state() {
         .append(4, Bytes::from_static(b"efgh"), 1024)
         .await
         .unwrap();
-    catalog.run_object(|connection| {
+    catalog.run::<_, ObjectError>(|connection| {
         connection.execute_batch("CREATE TEMP TRIGGER reject_ram_flush BEFORE UPDATE OF size ON appendable_objects BEGIN SELECT RAISE(ABORT,'injected checkpoint failure'); END;").unwrap(); Ok(())
     }).await.unwrap();
     assert!(writer.flush().await.is_err());
     assert_eq!(bytes(open(&catalog).await.1).await, b"abcd");
-    catalog.run_object(|connection| { connection.execute_batch("DROP TRIGGER reject_ram_flush; CREATE TEMP TRIGGER reject_ram_finalize BEFORE INSERT ON objects BEGIN SELECT RAISE(ABORT,'injected publication failure'); END;").unwrap(); Ok(()) }).await.unwrap();
+    catalog.run::<_, ObjectError>(|connection| { connection.execute_batch("DROP TRIGGER reject_ram_flush; CREATE TEMP TRIGGER reject_ram_finalize BEFORE INSERT ON objects BEGIN SELECT RAISE(ABORT,'injected publication failure'); END;").unwrap(); Ok(()) }).await.unwrap();
     assert!(
         writer
             .finalize(None, BucketAccess::Permissive, 1024)
@@ -271,7 +271,7 @@ async fn ram_appendable_failed_size_and_publication_keep_acknowledged_state() {
     assert!(catalog.next_notification().await.unwrap().is_none());
     assert_eq!(bytes(open(&catalog).await.1).await, b"abcdefgh");
     catalog
-        .run_object(|connection| {
+        .run::<_, ObjectError>(|connection| {
             connection
                 .execute_batch("DROP TRIGGER reject_ram_finalize")
                 .unwrap();
@@ -312,7 +312,7 @@ async fn ram_appendable_cancelled_flush_rolls_back_candidate_and_allows_takeover
         .await
         .unwrap();
     let id: String = catalog
-        .run_object(|connection| {
+        .run::<_, ObjectError>(|connection| {
             connection
                 .prepare_cached("SELECT blob_id FROM appendable_objects WHERE name='growing'")
                 .unwrap()
@@ -326,7 +326,7 @@ async fn ram_appendable_cancelled_flush_rolls_back_candidate_and_allows_takeover
     let worker = catalog.clone();
     let gate = tokio::spawn(async move {
         worker
-            .run_object(move |_| {
+            .run::<_, ObjectError>(move |_| {
                 entered.send(()).unwrap();
                 blocked.recv().unwrap();
                 Ok(())

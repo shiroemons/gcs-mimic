@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::storage::catalog::ConnectionUnavailable;
+use crate::storage::catalog::sql;
 
 #[derive(Clone, Copy)]
 pub(crate) enum SeedMode {
@@ -299,7 +300,7 @@ async fn prepare_entry(
             .file_workers
             .run(move || {
                 objects::publish_blob(&source, &destination)?;
-                Ok(())
+                Ok::<_, AdminError>(())
             })
             .await?;
         #[cfg(test)]
@@ -320,24 +321,23 @@ fn check_guards(
     mode: SeedMode,
     clock: &dyn Clock,
 ) -> Result<(), AdminError> {
-    let importing: bool = transaction
-        .prepare_cached("SELECT EXISTS(SELECT 1 FROM import_journal WHERE active = 1)")
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .map_err(objects_error)?;
+    let importing: bool = sql::scalar(
+        transaction,
+        "SELECT EXISTS(SELECT 1 FROM import_journal WHERE active = 1)",
+        [],
+    )
+    .map_err(objects_error)?;
     if importing {
         return Err(AdminError::Precondition);
     }
     if matches!(mode, SeedMode::Replace) {
-        let syncing: bool = transaction
-            .prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_roots)")
-            .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
+        let syncing: bool = sql::scalar(transaction, "SELECT EXISTS(SELECT 1 FROM sync_roots)", [])
             .map_err(objects_error)?;
         if syncing {
             return Err(AdminError::Precondition);
         }
         let now = crate::storage::catalog::unix_micros(clock.now())?;
-        let held: bool = transaction.prepare_cached("SELECT EXISTS(SELECT 1 FROM objects JOIN buckets ON objects.bucket = buckets.name WHERE event_based_hold = 1 OR temporary_hold = 1 OR objects.time_created + json_extract(buckets.retention_policy, '$.retention_period') * 1000000 > ?1 OR retain_until_time > ?1)")
-            .and_then(|mut statement| statement.query_row([now], |row| row.get(0))).map_err(objects_error)?;
+        let held: bool = sql::scalar(transaction, "SELECT EXISTS(SELECT 1 FROM objects JOIN buckets ON objects.bucket = buckets.name WHERE event_based_hold = 1 OR temporary_hold = 1 OR objects.time_created + json_extract(buckets.retention_policy, '$.retention_period') * 1000000 > ?1 OR retain_until_time > ?1)", [now]).map_err(objects_error)?;
         if held {
             return Err(AdminError::Hold);
         }
@@ -350,9 +350,7 @@ fn commit(
     batch: &SeedBatch,
     mode: SeedMode,
 ) -> Result<Counts, AdminError> {
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(objects_error)?;
+    let transaction = sql::immediate(connection).map_err(objects_error)?;
     let clock = batch.admin.catalog.0.clock.as_ref();
     check_guards(&transaction, mode, clock)?;
     let epoch = if matches!(mode, SeedMode::Replace) {
@@ -419,10 +417,12 @@ fn commit(
             counts.objects += 1;
         }
     }
-    transaction
-        .prepare_cached("UPDATE startup_seed SET complete = 1 WHERE singleton = 1")
-        .and_then(|mut statement| statement.execute([]))
-        .map_err(objects_error)?;
+    sql::exec(
+        &transaction,
+        "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
+        [],
+    )
+    .map_err(objects_error)?;
     if let Err(error) = objects::commit_publication(transaction)
         && !confirmed(connection, batch, &published, epoch)?
     {
@@ -454,16 +454,12 @@ fn confirmed(
     ids: &[&str],
     epoch: Option<i64>,
 ) -> Result<bool, AdminError> {
-    let (complete, current): (bool, i64) = connection.prepare_cached("SELECT complete, epoch FROM startup_seed, change_journal_state WHERE startup_seed.singleton = 1 AND change_journal_state.singleton = 1")
-        .and_then(|mut statement| statement.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))).map_err(objects_error)?;
+    let (complete, current): (bool, i64) = sql::row(connection, "SELECT complete, epoch FROM startup_seed, change_journal_state WHERE startup_seed.singleton = 1 AND change_journal_state.singleton = 1", [], |row| Ok((row.get(0)?, row.get(1)?))).map_err(objects_error)?;
     if !complete || epoch.is_some_and(|epoch| epoch != current) {
         return Ok(false);
     }
     for id in ids {
-        let exists: bool = connection
-            .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
-            .and_then(|mut statement| statement.query_row([id], |row| row.get(0)))
-            .map_err(objects_error)?;
+        let exists: bool = objects::blob_referenced(connection, id).map_err(objects_error)?;
         if !exists {
             return Ok(false);
         }

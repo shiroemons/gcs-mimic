@@ -2,6 +2,7 @@
 
 use super::{system_time_micros, unavailable, unix_micros};
 use crate::bucket::{BucketRecord, CatalogError};
+use crate::storage::catalog::sql;
 use rusqlite::{Connection, Row, params, types::Type};
 use std::time::{Duration, SystemTime};
 
@@ -41,7 +42,7 @@ pub(super) fn store_imported(
             "imported bucket timestamp is outside RFC3339 UTC range".into(),
         ));
     }
-    let base = system_time_micros(micros).map_err(unavailable)?;
+    let base = system_time_micros(micros)?;
     let nanos = created
         .duration_since(base)
         .map_err(unavailable)?
@@ -50,8 +51,11 @@ pub(super) fn store_imported(
     if nanos > 999 {
         return Err(unavailable("invalid imported bucket timestamp remainder"));
     }
-    connection.prepare_cached("UPDATE buckets SET time_created=?2, updated=?2, time_created_nanos=?3, updated_nanos=?3 WHERE name=?1")
-        .and_then(|mut statement|statement.execute(params![record.name,micros,nanos])).map_err(unavailable)?;
+    sql::exec(
+        connection,
+        "UPDATE buckets SET time_created=?2, updated=?2, time_created_nanos=?3, updated_nanos=?3 WHERE name=?1",
+        params![record.name, micros, nanos],
+    )?;
     record.time_created = created;
     record.updated = created;
     Ok(())

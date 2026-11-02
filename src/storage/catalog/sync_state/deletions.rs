@@ -6,6 +6,7 @@ use super::{
     SyncBinding,
     root::{RootError, RootLease},
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     object::{ObjectError, ObjectRecord},
@@ -127,24 +128,26 @@ fn new_revision() -> Result<String, CatalogError> {
 }
 
 fn fence(connection: &Connection) -> Result<JournalFence, CatalogError> {
-    connection
-        .prepare_cached(
-            "SELECT sequence,epoch FROM change_journal_state WHERE singleton=1 AND enabled=1",
-        )
-        .and_then(|mut statement| {
-            statement.query_row([], |row| {
-                Ok(JournalFence {
-                    sequence: JournalSeq(row.get::<_, i64>(0)? as u64),
-                    revision: row.get(1)?,
-                })
+    sql::row(
+        connection,
+        "SELECT sequence,epoch FROM change_journal_state WHERE singleton=1 AND enabled=1",
+        [],
+        |row| {
+            Ok(JournalFence {
+                sequence: JournalSeq(row.get::<_, i64>(0)? as u64),
+                revision: row.get(1)?,
             })
-        })
-        .map_err(unavailable)
+        },
+    )
+    .map_err(unavailable)
 }
 
 fn matching(connection: &Connection, root: [u8; 16], revision: &str) -> Result<(), CatalogError> {
-    let valid:bool=connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d JOIN sync_roots r ON r.root_id=d.root_id JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND d.revision=?2 AND d.valid=1 AND d.complete=1 AND r.complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence)")
-        .and_then(|mut statement|statement.query_row(params![root,revision],|row|row.get(0))).map_err(unavailable)?;
+    let valid: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d JOIN sync_roots r ON r.root_id=d.root_id JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND d.revision=?2 AND d.valid=1 AND d.complete=1 AND r.complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence)",
+        params![root, revision],
+    )?;
     if valid {
         Ok(())
     } else {
@@ -153,10 +156,9 @@ fn matching(connection: &Connection, root: [u8; 16], revision: &str) -> Result<(
 }
 
 fn read_set(connection: &Connection, root: [u8; 16]) -> Result<Option<DeletionSet>, CatalogError> {
-    connection.prepare_cached("SELECT revision,scan_revision,baseline_count,candidate_count,guard_enabled,guarded,authorization,d.sequence,d.epoch,(SELECT count(*) FROM sync_deletion_members m WHERE m.root_id=d.root_id AND m.done=1) FROM sync_deletion_sets d JOIN change_journal_state j ON j.singleton=1 WHERE root_id=?1 AND valid=1 AND complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence")
-        .and_then(|mut statement|statement.query_row([root],|row|Ok(DeletionSet {
+    sql::row(connection, "SELECT revision,scan_revision,baseline_count,candidate_count,guard_enabled,guarded,authorization,d.sequence,d.epoch,(SELECT count(*) FROM sync_deletion_members m WHERE m.root_id=d.root_id AND m.done=1) FROM sync_deletion_sets d JOIN change_journal_state j ON j.singleton=1 WHERE root_id=?1 AND valid=1 AND complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence", [root],|row|Ok(DeletionSet {
             revision:row.get(0)?,scan_revision:row.get(1)?,baseline_count:row.get::<_,i64>(2)? as u64,candidate_count:row.get::<_,i64>(3)? as u64,guard_enabled:row.get(4)?,guarded:row.get(5)?,authorization:row.get(6)?,journal_fence:DeletionFence {sequence:row.get::<_,i64>(7)? as u64,epoch:row.get(8)?},completed_count:row.get::<_,i64>(9)? as u64,
-        })).optional()).map_err(unavailable)
+        })).optional().map_err(unavailable)
 }
 
 fn read_candidate(row: &rusqlite::Row<'_>) -> rusqlite::Result<Candidate> {
@@ -177,13 +179,13 @@ impl RootLease {
         let scope = self.control_scope();
         self.catalog()
             .run_admin(move |connection| {
-                let tx = connection.transaction().map_err(unavailable)?;
+                let tx = connection.transaction()?;
                 scope.authorize(&tx)?;
-                tx.prepare_cached(
+                sql::exec(
+                    &tx,
                     "UPDATE sync_deletion_sets SET valid=0,authorization=0 WHERE root_id=?1",
-                )
-                .and_then(|mut statement| statement.execute([root]))
-                .map_err(unavailable)?;
+                    [root],
+                )?;
                 tx.commit().map_err(unavailable)
             })
             .await?;
@@ -202,7 +204,7 @@ impl RootLease {
         Ok(self
             .catalog()
             .run_admin(move |connection| {
-                let tx = connection.transaction().map_err(unavailable)?;
+                let tx = connection.transaction()?;
                 authority.authorize(&tx, root)?;
                 read_set(&tx, root)
             })
@@ -231,7 +233,7 @@ impl RootLease {
         }
         let root = self.status().root_id.as_bytes();
         Ok(self.catalog().run_admin(move |connection| {
-            let tx=connection.transaction().map_err(unavailable)?;
+            let tx=connection.transaction()?;
             authority.authorize(&tx,root)?;
             matching(&tx,root,&revision)?;
             tx.prepare_cached("SELECT bucket,name,owner_project,incarnation,generation,path,ordinal FROM sync_deletion_members WHERE root_id=?1 AND ordinal>?2 ORDER BY ordinal LIMIT ?3")
@@ -247,14 +249,13 @@ impl RootLease {
         let root = self.status().root_id.as_bytes();
         let scope = self.control_scope();
         Ok(self.catalog().run_admin(move |connection| {
-            let transaction=connection.transaction().map_err(unavailable)?;
+            let transaction=connection.transaction()?;
             scope.authorize(&transaction)?;
             matching(&transaction,root,&revision)?;
-            let count=transaction.prepare_cached("UPDATE sync_deletion_sets SET authorization=1 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1")
-                .and_then(|mut statement|statement.execute(params![root,revision])).map_err(unavailable)?;
+            let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET authorization=1 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision])?;
             if count!=1 {return Err(CatalogError::PreconditionFailed)}
             let snapshot=read_set(&transaction,root)?.ok_or(CatalogError::PreconditionFailed)?;
-            transaction.commit().map_err(unavailable)?;
+            transaction.commit()?;
             Ok(snapshot)
         }).await?)
     }
@@ -283,12 +284,24 @@ pub(super) fn consume(
         CatalogError::PreconditionFailed => ObjectError::PreconditionFailed,
         error => super::super::objects::object_unavailable(error),
     })?;
-    let count=transaction.prepare_cached("UPDATE sync_deletion_members SET done=1 WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND generation=?5 AND done=0 AND EXISTS(SELECT 1 FROM sync_deletion_sets d WHERE d.root_id=?1 AND d.authorization=1)")
-        .and_then(|mut statement|statement.execute(params![permit.root,permit.ordinal,record.bucket,record.name,record.generation])).map_err(super::super::objects::object_unavailable)?;
+    let count = sql::exec(
+        transaction,
+        "UPDATE sync_deletion_members SET done=1 WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND generation=?5 AND done=0 AND EXISTS(SELECT 1 FROM sync_deletion_sets d WHERE d.root_id=?1 AND d.authorization=1)",
+        params![
+            permit.root,
+            permit.ordinal,
+            record.bucket,
+            record.name,
+            record.generation
+        ],
+    )?;
     if count != 1 {
         return Err(ObjectError::PreconditionFailed);
     }
-    transaction.prepare_cached("UPDATE sync_deletion_sets SET execution_sequence=execution_sequence+1 WHERE root_id=?1 AND execution_sequence<9223372036854775807")
-        .and_then(|mut statement|statement.execute([permit.root])).map_err(super::super::objects::object_unavailable)?;
+    sql::exec(
+        transaction,
+        "UPDATE sync_deletion_sets SET execution_sequence=execution_sequence+1 WHERE root_id=?1 AND execution_sequence<9223372036854775807",
+        [permit.root],
+    )?;
     Ok(())
 }

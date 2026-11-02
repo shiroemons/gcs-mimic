@@ -11,6 +11,7 @@ use super::{
     root::{RootError, RootId, RootLease},
 };
 use crate::storage::blob_id::BlobId;
+use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     fsutil,
@@ -71,12 +72,6 @@ CREATE UNIQUE INDEX sync_writeback_target ON sync_writeback_ops(root_id,path) WH
 CREATE INDEX sync_writeback_page ON sync_writeback_ops(root_id,ordinal) WHERE phase != 4;
 CREATE INDEX sync_writeback_phase ON sync_writeback_ops(root_id,phase);
 PRAGMA user_version = 20;";
-
-pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Error {
@@ -323,7 +318,7 @@ impl RootLease {
         let owner = self.clone();
         let expected:Option<([u8;8],[u8;8])>=self.catalog().run_admin(move|c| {
             let _owner=owner;
-            c.prepare_cached("SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1").and_then(|mut statement|statement.query_row([root],|r|Ok((r.get(0)?,r.get(1)?)))).optional().map_err(unavailable)
+            sql::row(c, "SELECT workspace_device,workspace_inode FROM sync_writeback_roots WHERE root_id=?1", [root],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(unavailable)
         }).await?;
         let directory = self
             .file_job(move |root| {
@@ -357,7 +352,7 @@ impl RootLease {
             Ok(directory) => directory,
             Err(error) => {
                 let owner = self.clone();
-                self.catalog().run_admin(move|c| {let _owner=owner;c.prepare_cached("UPDATE sync_writeback_roots SET recovery=1,io_failure=1 WHERE root_id=?1").and_then(|mut statement|statement.execute([root])).map_err(unavailable)?;Ok(())}).await?;
+                self.catalog().run_admin(move|c| {let _owner=owner;sql::exec(c, "UPDATE sync_writeback_roots SET recovery=1,io_failure=1 WHERE root_id=?1", [root])?;Ok(())}).await?;
                 return Err(error);
             }
         };
@@ -730,12 +725,12 @@ impl Writeback {
         let lease = self.lease.clone();
         self.lease
             .catalog()
-            .run_admin(move |connection| {
+            .run_admin_with_error(move |connection| {
                 lease.control_scope().authorize(connection)?;
                 let _lease = lease;
-                Ok(job(connection))
+                job(connection)
             })
-            .await?
+            .await
     }
     async fn fs<T: Send + 'static>(
         &self,

@@ -687,17 +687,14 @@ async fn bind_after_time_wait(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TestDir;
     use gcs_mimic::{
         clock::{Clock, SystemClock},
         storage::Catalog,
     };
     use std::{
         fs::{self, File},
-        sync::{
-            Arc, Mutex,
-            atomic::{AtomicU64, Ordering},
-            mpsc,
-        },
+        sync::{Arc, Mutex, mpsc},
         task::Poll,
         time::{Duration, SystemTime},
     };
@@ -851,33 +848,12 @@ mod tests {
         reopened.close().await.unwrap();
     }
 
-    struct TestDir(std::path::PathBuf);
-
     impl TestDir {
-        fn new() -> Self {
-            static NEXT: AtomicU64 = AtomicU64::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "gcs-mimic-startup-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::create_dir(&path).unwrap();
-            Self(path)
-        }
-
         fn config(&self) -> Config {
             Config {
                 data_dir: self.0.clone(),
                 listen: "127.0.0.1:0".parse().unwrap(),
                 ..Config::default()
-            }
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            if let Err(error) = fs::remove_dir_all(&self.0) {
-                assert!(std::thread::panicking(), "fixture cleanup failed: {error}");
             }
         }
     }

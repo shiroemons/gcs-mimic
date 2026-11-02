@@ -29,14 +29,6 @@ PRAGMA user_version = 16;";
 pub(super) const FAILURE_SCHEMA: &str = "ALTER TABLE import_journal ADD COLUMN failure TEXT CHECK(failure IS NULL OR length(CAST(failure AS BLOB)) BETWEEN 1 AND 1024);
 PRAGMA user_version = 18;";
 
-pub(super) fn migrate_failure(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction
-        .execute_batch(FAILURE_SCHEMA)
-        .map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
-
 #[cfg(test)]
 mod tests;
 
@@ -66,24 +58,13 @@ pub struct ImportProgress {
 #[derive(Clone)]
 pub struct ImportJournal(Catalog);
 
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
-
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let valid: bool = connection.query_row(
+    super::sql::validate(connection,
         "SELECT (SELECT count(*) FROM import_journal) <= 1
          AND (SELECT count(*) FROM import_observations) = coalesce((SELECT cursor FROM import_journal), 0)
          AND NOT EXISTS(SELECT 1 FROM import_observations WHERE ordinal > (SELECT cursor FROM import_journal))
          AND NOT EXISTS(SELECT 1 FROM import_journal WHERE active = 0 AND (SELECT complete FROM startup_seed) != 1)",
-        [], |row| row.get(0),
-    ).map_err(unavailable)?;
-    if !valid {
-        return Err(unavailable("invalid import journal state"));
-    }
-    Ok(())
+        "invalid import journal state")
 }
 
 fn progress(connection: &Connection) -> Result<Option<ImportProgress>, CatalogError> {
@@ -118,13 +99,11 @@ pub(super) fn verify_destination(
     state: &ImportProgress,
 ) -> Result<(), CatalogError> {
     if state.active && state.failure.is_none() {
-        let count: i64 = connection
-            .query_row(
-                "SELECT (SELECT count(*) FROM buckets) + (SELECT count(*) FROM objects)",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(unavailable)?;
+        let count: i64 = connection.query_row(
+            "SELECT (SELECT count(*) FROM buckets) + (SELECT count(*) FROM objects)",
+            [],
+            |row| row.get(0),
+        )?;
         if count != state.cursor {
             return Err(CatalogError::PreconditionFailed);
         }
@@ -173,44 +152,36 @@ pub(super) fn record_outcomes(
             return Err(CatalogError::PreconditionFailed);
         }
         if *success {
-            transaction
-                .execute(
-                    "INSERT INTO import_observations VALUES (?1,?2,?3,?4)",
-                    params![
-                        ordinal,
-                        element.fingerprint,
-                        element.inode.map(u64::to_be_bytes),
-                        element.ctime_ns.map(i128::to_be_bytes)
-                    ],
-                )
-                .map_err(unavailable)?;
+            transaction.execute(
+                "INSERT INTO import_observations VALUES (?1,?2,?3,?4)",
+                params![
+                    ordinal,
+                    element.fingerprint,
+                    element.inode.map(u64::to_be_bytes),
+                    element.ctime_ns.map(i128::to_be_bytes)
+                ],
+            )?;
         }
     }
-    transaction
-        .execute(
-            "UPDATE import_journal SET cursor = ?1, failure = ?2 WHERE singleton = 1",
-            params![
-                cursor + prefix as i64,
-                (prefix != succeeded.len()).then_some("element_rejected")
-            ],
-        )
-        .map_err(unavailable)?;
+    transaction.execute(
+        "UPDATE import_journal SET cursor = ?1, failure = ?2 WHERE singleton = 1",
+        params![
+            cursor + prefix as i64,
+            (prefix != succeeded.len()).then_some("element_rejected")
+        ],
+    )?;
     Ok(())
 }
 
 pub(super) fn validate_failure(connection: &Connection) -> Result<(), CatalogError> {
-    let valid: bool = connection.query_row(
+    super::sql::validate(connection,
         "SELECT (SELECT count(*) FROM import_journal) <= 1
          AND NOT EXISTS(SELECT 1 FROM import_journal WHERE failure IS NOT NULL AND active = 0)
          AND NOT EXISTS(SELECT 1 FROM import_observations WHERE ordinal > coalesce((SELECT expected FROM import_journal),0))
          AND (SELECT count(*) FROM import_observations WHERE ordinal <= coalesce((SELECT cursor FROM import_journal),0)) = coalesce((SELECT cursor FROM import_journal),0)
          AND NOT EXISTS(SELECT 1 FROM import_journal WHERE failure IS NULL AND (SELECT count(*) FROM import_observations) != cursor)
-         AND NOT EXISTS(SELECT 1 FROM import_journal WHERE active = 0 AND (SELECT complete FROM startup_seed) != 1)", [], |row| row.get(0),
-    ).map_err(unavailable)?;
-    if !valid {
-        return Err(unavailable("invalid import failure state"));
-    }
-    Ok(())
+         AND NOT EXISTS(SELECT 1 FROM import_journal WHERE active = 0 AND (SELECT complete FROM startup_seed) != 1)",
+        "invalid import failure state")
 }
 
 impl ImportJournal {
@@ -239,17 +210,15 @@ impl ImportJournal {
         };
         self.0
             .run_admin(move |connection| {
-                let transaction = connection.transaction().map_err(unavailable)?;
+                let transaction = connection.transaction()?;
                 let state = progress(&transaction)?
                     .filter(|state| state.active && state.binding == binding)
                     .ok_or(CatalogError::PreconditionFailed)?;
                 if state.failure.is_none() {
-                    transaction
-                        .execute(
-                            "UPDATE import_journal SET failure = ?1 WHERE singleton = 1",
-                            [reason],
-                        )
-                        .map_err(unavailable)?;
+                    transaction.execute(
+                        "UPDATE import_journal SET failure = ?1 WHERE singleton = 1",
+                        [reason],
+                    )?;
                 }
                 transaction.commit().map_err(unavailable)
             })
@@ -270,7 +239,7 @@ impl ImportJournal {
         }
         let expected = binding.expected_elements;
         self.0.run_admin(move |connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
+            let transaction = connection.transaction()?;
             if let Some(state) = progress(&transaction)? {
                 verify_destination(&transaction, &state)?;
                 return if state.active && state.failure.is_none() && state.binding == binding { Ok(state) }
@@ -279,13 +248,13 @@ impl ImportJournal {
             let occupied: bool = transaction.query_row(
                 "SELECT EXISTS(SELECT 1 FROM buckets) OR (SELECT complete FROM startup_seed WHERE singleton = 1)",
                 [], |row| row.get(0),
-            ).map_err(unavailable)?;
+            )?;
             if occupied { return Err(CatalogError::PreconditionFailed); }
             transaction.execute(
                 "INSERT INTO import_journal (singleton,source,fingerprint,expected,cursor,active) VALUES (1, ?1, ?2, ?3, 0, 1)",
                 params![binding.source, binding.fingerprint, expected],
-            ).map_err(unavailable)?;
-            transaction.commit().map_err(unavailable)?;
+            )?;
+            transaction.commit()?;
             Ok(ImportProgress { binding, cursor: 0, active: true, failure: None })
         }).await
     }
@@ -305,13 +274,13 @@ impl ImportJournal {
             matching(connection, &binding)?;
             connection.prepare_cached(
                 "SELECT ordinal, fingerprint, inode, ctime_ns FROM import_observations WHERE ordinal > ?1 ORDER BY ordinal LIMIT ?2",
-            ).map_err(unavailable)?.query_map(params![after, limit as i64], |row| {
+            )?.query_map(params![after, limit as i64], |row| {
                 Ok(ImportElement {
                     ordinal: row.get(0)?, fingerprint: row.get(1)?,
                     inode: row.get::<_, Option<[u8; 8]>>(2)?.map(u64::from_be_bytes),
                     ctime_ns: row.get::<_, Option<[u8; 16]>>(3)?.map(i128::from_be_bytes),
                 })
-            }).map_err(unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
+            })?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await
     }
 
@@ -328,12 +297,12 @@ impl ImportJournal {
             ));
         }
         self.0.run_admin(move |connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
+            let transaction = connection.transaction()?;
             matching(&transaction, &binding)?;
             let updated = transaction.execute(
                 "UPDATE import_observations SET inode = ?1, ctime_ns = ?2 WHERE ordinal = ?3 AND fingerprint = ?4 AND inode IS ?5 AND ctime_ns IS ?6",
                 params![after.inode.map(u64::to_be_bytes), after.ctime_ns.map(i128::to_be_bytes), before.ordinal, before.fingerprint, before.inode.map(u64::to_be_bytes), before.ctime_ns.map(i128::to_be_bytes)],
-            ).map_err(unavailable)?;
+            )?;
             if updated != 1 { return Err(CatalogError::PreconditionFailed); }
             transaction.commit().map_err(unavailable)
         }).await
@@ -343,24 +312,20 @@ impl ImportJournal {
     pub async fn finish(&self, binding: ImportBinding) -> Result<(), AdminError> {
         self.0
             .run_admin(move |connection| {
-                let transaction = connection.transaction().map_err(unavailable)?;
+                let transaction = connection.transaction()?;
                 let state = matching(&transaction, &binding)?;
                 verify_destination(&transaction, &state)?;
                 if state.cursor != binding.expected_elements {
                     return Err(CatalogError::PreconditionFailed);
                 }
-                transaction
-                    .execute(
-                        "UPDATE import_journal SET active = 0 WHERE singleton = 1",
-                        [],
-                    )
-                    .map_err(unavailable)?;
-                transaction
-                    .execute(
-                        "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
-                        [],
-                    )
-                    .map_err(unavailable)?;
+                transaction.execute(
+                    "UPDATE import_journal SET active = 0 WHERE singleton = 1",
+                    [],
+                )?;
+                transaction.execute(
+                    "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
+                    [],
+                )?;
                 transaction.commit().map_err(unavailable)
             })
             .await
@@ -394,23 +359,19 @@ pub(crate) fn record_in_transaction(
         }
     }
     for element in elements {
-        transaction
-            .execute(
-                "INSERT INTO import_observations VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    element.ordinal,
-                    element.fingerprint,
-                    element.inode.map(u64::to_be_bytes),
-                    element.ctime_ns.map(i128::to_be_bytes)
-                ],
-            )
-            .map_err(unavailable)?;
+        transaction.execute(
+            "INSERT INTO import_observations VALUES (?1, ?2, ?3, ?4)",
+            params![
+                element.ordinal,
+                element.fingerprint,
+                element.inode.map(u64::to_be_bytes),
+                element.ctime_ns.map(i128::to_be_bytes)
+            ],
+        )?;
     }
-    transaction
-        .execute(
-            "UPDATE import_journal SET cursor = ?1 WHERE singleton = 1",
-            [cursor],
-        )
-        .map_err(unavailable)?;
+    transaction.execute(
+        "UPDATE import_journal SET cursor = ?1 WHERE singleton = 1",
+        [cursor],
+    )?;
     Ok(())
 }

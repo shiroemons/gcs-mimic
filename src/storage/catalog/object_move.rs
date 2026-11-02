@@ -2,15 +2,16 @@ use super::{
     Catalog,
     objects::{
         GenerationAssignment, NewVersion, authorized_bucket, check_publication, lookup,
-        object_unavailable, publish_in_transaction, selected,
+        publish_in_transaction, selected,
     },
     unix_micros,
 };
+use crate::storage::catalog::sql;
 use crate::{
     bucket::BucketAccess,
     object::{ObjectConditions, ObjectError, ObjectRecord},
 };
-use rusqlite::{TransactionBehavior, params};
+use rusqlite::params;
 
 /// The three authorities a move checks in its single transaction.
 #[derive(Clone, Copy)]
@@ -39,10 +40,8 @@ impl Catalog {
         let destination_create = access.destination_create.clone();
         let clock = self.0.clock.clone();
         let record = self
-            .run_object(move |connection| {
-                let transaction = connection
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(object_unavailable)?;
+            .run(move |connection| {
+                let transaction = sql::immediate(connection)?;
                 let (mut record, blob_id) = selected(
                     &transaction,
                     &bucket,
@@ -59,8 +58,7 @@ impl Catalog {
                     record.generation,
                     &source_read,
                 )?;
-                let source_acl = super::acl::effective_object_entries(&transaction, &record)
-                    .map_err(object_unavailable)?;
+                let source_acl = super::acl::effective_object_entries(&transaction, &record)?;
                 let (_, delete_permission) =
                     authorized_bucket(&transaction, &bucket, &destination_create)?;
                 let previous = lookup(&transaction, &bucket, &destination)?;
@@ -74,10 +72,9 @@ impl Catalog {
                 if source == destination {
                     return Err(ObjectError::InvalidMetadata);
                 }
-                let (versioning, _) = Self::bucket_settings_in_transaction(&transaction, &bucket)
-                    .map_err(object_unavailable)?;
+                let (versioning, _) = Self::bucket_settings_in_transaction(&transaction, &bucket)?;
                 let now = clock.now();
-                let micros = unix_micros(now).map_err(object_unavailable)?;
+                let micros = unix_micros(now)?;
                 let origin = super::change_journal::origin(&destination_create);
                 super::notification_outbox::enqueue(
                     &transaction,
@@ -87,24 +84,19 @@ impl Catalog {
                         time: now,
                         replacement: None,
                     },
-                )
-                .map_err(object_unavailable)?;
+                )?;
                 super::change_journal::object(
                     &transaction,
                     origin,
                     super::change_journal::ChangeKind::Delete,
                     &record,
-                )
-                .map_err(object_unavailable)?;
+                )?;
                 // Remove only the live source generation; its blob becomes the destination's blob.
-                transaction
-                    .prepare_cached(
-                        "DELETE FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
-                    )
-                    .and_then(|mut statement| {
-                        statement.execute(params![bucket, source, record.generation])
-                    })
-                    .map_err(object_unavailable)?;
+                sql::exec(
+                    &transaction,
+                    "DELETE FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
+                    params![bucket, source, record.generation],
+                )?;
                 record.name = destination;
                 record.metageneration = 1;
                 record.time_created = now;
@@ -130,7 +122,7 @@ impl Catalog {
                         Ok((record, ()))
                     },
                 )?;
-                transaction.commit().map_err(object_unavailable)?;
+                transaction.commit()?;
                 Ok(record)
             })
             .await?;

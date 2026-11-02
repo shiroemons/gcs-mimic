@@ -1,6 +1,7 @@
 //! Ownership joins the existing metadata publication transaction, without new blob steps.
 
-use super::{objects::object_unavailable, principals::Profile, unavailable};
+use super::{principals::Profile, unavailable};
+use crate::storage::catalog::sql;
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{
@@ -8,7 +9,7 @@ use crate::{
         owner::{LOCAL_CREATOR_ID, ObjectOwner},
     },
 };
-use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params, types::Type};
+use rusqlite::{Connection, OptionalExtension, Row, params, types::Type};
 
 pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN owner TEXT CHECK(owner IS NULL OR (json_valid(owner) AND json_type(owner) = 'object')); PRAGMA user_version=44;";
 
@@ -52,35 +53,30 @@ pub(super) fn reconcile(
     }
     let mut after: Option<(String, String, i64)> = None;
     loop {
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(unavailable)?;
+        let transaction = sql::immediate(connection)?;
         let query = if after.is_some() {
             "SELECT bucket,name,generation,owner FROM objects WHERE owner IS NOT NULL AND (bucket,name,generation)>(?1,?2,?3) ORDER BY bucket,name,generation LIMIT 1"
         } else {
             "SELECT bucket,name,generation,owner FROM objects WHERE owner IS NOT NULL AND ?1 IS NULL AND ?2 IS NULL AND ?3 IS NULL ORDER BY bucket,name,generation LIMIT 1"
         };
-        let row = transaction
-            .prepare_cached(query)
-            .and_then(|mut statement| {
-                statement.query_row(
-                    params![
-                        after.as_ref().map(|key| &key.0),
-                        after.as_ref().map(|key| &key.1),
-                        after.as_ref().map(|key| key.2)
-                    ],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, i64>(2)?,
-                            read(row, 3)?,
-                        ))
-                    },
-                )
-            })
-            .optional()
-            .map_err(unavailable)?;
+        let row = sql::row(
+            &transaction,
+            query,
+            params![
+                after.as_ref().map(|key| &key.0),
+                after.as_ref().map(|key| &key.1),
+                after.as_ref().map(|key| key.2)
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    read(row, 3)?,
+                ))
+            },
+        )
+        .optional()?;
         let Some((bucket, name, generation, Some(mut owner))) = row else {
             return Ok(());
         };
@@ -89,16 +85,13 @@ pub(super) fn reconcile(
         if owner != before {
             reconcile_grant(&transaction, (&bucket, &name, generation), &before, &owner)?;
             let owner = serde_json::to_string(&owner).map_err(unavailable)?;
-            transaction
-                .prepare_cached(
-                    "UPDATE objects SET owner=?4 WHERE bucket=?1 AND name=?2 AND generation=?3",
-                )
-                .and_then(|mut statement| {
-                    statement.execute(params![bucket, name, generation, owner])
-                })
-                .map_err(unavailable)?;
+            sql::exec(
+                &transaction,
+                "UPDATE objects SET owner=?4 WHERE bucket=?1 AND name=?2 AND generation=?3",
+                params![bucket, name, generation, owner],
+            )?;
         }
-        transaction.commit().map_err(unavailable)?;
+        transaction.commit()?;
         after = Some((bucket, name, generation));
     }
 }
@@ -112,10 +105,11 @@ fn reconcile_grant(
     let Some(previous) = before.entity() else {
         return Ok(());
     };
-    let stored: Option<String> = connection.prepare_cached(
+    let stored: Option<String> = sql::optional_scalar(
+        connection,
         "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
-    ).and_then(|mut statement| statement.query_row(params![key.0, key.1, key.2], |row| row.get(0)))
-        .optional().map_err(unavailable)?;
+        params![key.0, key.1, key.2],
+    )?;
     let Some(stored) = stored else { return Ok(()) };
     let mut entries: Vec<crate::acl::AclEntry> =
         serde_json::from_str(&stored).map_err(unavailable)?;
@@ -138,9 +132,11 @@ fn reconcile_grant(
         }
     }
     let stored = serde_json::to_string(&entries).map_err(unavailable)?;
-    connection.prepare_cached(
+    sql::exec(
+        connection,
         "UPDATE acl_object_entries SET entries = ?4 WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
-    ).and_then(|mut statement| statement.execute(params![key.0, key.1, key.2, stored])).map_err(unavailable)?;
+        params![key.0, key.1, key.2, stored],
+    )?;
     Ok(())
 }
 
@@ -173,10 +169,11 @@ pub(super) fn for_publication(
             entity: Some(creator.to_string()),
         });
     }
-    let project = connection
-        .prepare_cached("SELECT project FROM buckets WHERE name=?1")
-        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
-        .map_err(object_unavailable)?;
+    let project = sql::scalar(
+        connection,
+        "SELECT project FROM buckets WHERE name=?1",
+        [bucket],
+    )?;
     Ok(ObjectOwner::ProjectOwners { project })
 }
 
@@ -196,14 +193,13 @@ pub(super) fn selected(
     name: &str,
     generation: i64,
 ) -> Result<Option<ObjectOwner>, CatalogError> {
-    connection
-        .prepare_cached("SELECT owner FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3")
-        .and_then(|mut statement| {
-            statement.query_row(rusqlite::params![bucket, name, generation], |row| {
-                read(row, 0)
-            })
-        })
-        .optional()
-        .map(Option::flatten)
-        .map_err(unavailable)
+    sql::row(
+        connection,
+        "SELECT owner FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3",
+        rusqlite::params![bucket, name, generation],
+        |row| read(row, 0),
+    )
+    .optional()
+    .map(Option::flatten)
+    .map_err(unavailable)
 }

@@ -1,4 +1,5 @@
 use super::{Catalog, UploadGuard, objects, unavailable, unix_micros};
+use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{ObjectConditions, ObjectError, ObjectRecord},
@@ -37,7 +38,6 @@ pub(super) const SCHEMA: &str = "CREATE TABLE upload_replays (
 ) WITHOUT ROWID;
 CREATE INDEX upload_replays_deadline ON upload_replays(deadline, token);
 PRAGMA user_version = 35;";
-const SELECT_INCARNATION: &str = "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1";
 
 /// The client's idempotency token and the exact request it binds; without a token the
 /// request is not replayable.
@@ -56,18 +56,9 @@ pub(crate) struct CopyReplaySource<'a> {
     pub(crate) access: &'a BucketAccess,
 }
 
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
-
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     // The same statement as the per-upload `capacity` check, so validation reuses its entry.
-    let count: i64 = connection
-        .prepare_cached("SELECT count(*) FROM upload_replays")
-        .and_then(|mut statement| statement.query_row([], |r| r.get(0)))
-        .map_err(unavailable)?;
+    let count: i64 = sql::scalar(connection, "SELECT count(*) FROM upload_replays", [])?;
     if count > CAPACITY {
         return Err(unavailable("upload replay capacity exceeded"));
     }
@@ -132,10 +123,7 @@ impl CopyReplay {
         )?;
         self.replay
             .check_incarnation(connection, &self.destination_bucket)?;
-        let incarnation: String = connection
-            .prepare_cached(SELECT_INCARNATION)
-            .and_then(|mut statement| statement.query_row([&self.source_bucket], |row| row.get(0)))
-            .map_err(objects::object_unavailable)?;
+        let incarnation: String = bucket_incarnation(connection, &self.source_bucket)?;
         if incarnation != self.source_incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
@@ -191,12 +179,11 @@ impl UploadReplay {
         connection: &Connection,
         now: i64,
     ) -> Result<Option<(Vec<u8>, Completion)>, ObjectError> {
-        let row = connection.prepare_cached(
+        let row = sql::row(connection,
             "SELECT request, incarnation, fingerprint, completion FROM upload_replays WHERE token = ?1 AND deadline > ?2",
-        ).and_then(|mut statement| statement.query_row(
             params![self.token, now],
             |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?, r.get::<_, Vec<u8>>(2)?, r.get::<_, String>(3)?)),
-        )).optional().map_err(objects::object_unavailable)?;
+        ).optional()?;
         row.map(|(request, incarnation, fingerprint, completion)| {
             if request != self.request || incarnation != self.incarnation {
                 return Err(invalid());
@@ -266,16 +253,18 @@ impl UploadReplay {
             Err(ObjectError::Forbidden) => false,
             Err(error) => return Err(error),
         };
-        let (uniform, project): (bool, String) = connection
-            .prepare_cached("SELECT uniform_bucket_level_access_locked_time IS NOT NULL, project FROM buckets WHERE name = ?1")
-            .and_then(|mut statement| statement.query_row([&record.bucket], |r| Ok((r.get(0)?, r.get(1)?))))
-            .map_err(objects::object_unavailable)?;
+        let (uniform, project): (bool, String) = sql::row(
+            connection,
+            "SELECT uniform_bucket_level_access_locked_time IS NOT NULL, project FROM buckets WHERE name = ?1",
+            [&record.bucket],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
         let acl = if visible && !uniform {
-            let entries: Option<String> = connection
-                .prepare_cached("SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3")
-                .and_then(|mut statement| statement.query_row(params![record.bucket, record.name, record.generation], |r| r.get(0)))
-                .optional()
-                .map_err(objects::object_unavailable)?;
+            let entries: Option<String> = sql::optional_scalar(
+                connection,
+                "SELECT entries FROM acl_object_entries WHERE bucket = ?1 AND name = ?2 AND generation = ?3",
+                params![record.bucket, record.name, record.generation],
+            )?;
             Some(
                 entries
                     .map(|v| serde_json::from_str(&v).map_err(objects::object_unavailable))
@@ -297,20 +286,19 @@ impl UploadReplay {
         let deadline = now
             .checked_add(LIFETIME_MICROS)
             .ok_or_else(|| objects::object_unavailable("upload replay deadline overflow"))?;
-        connection
-            .prepare_cached("INSERT INTO upload_replays VALUES (?1,?2,?3,?4,?5,?6,?7)")
-            .and_then(|mut statement| {
-                statement.execute(params![
-                    self.token,
-                    self.request,
-                    self.incarnation,
-                    now,
-                    deadline,
-                    fingerprint,
-                    completion
-                ])
-            })
-            .map_err(objects::object_unavailable)?;
+        sql::exec(
+            connection,
+            "INSERT INTO upload_replays VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                self.token,
+                self.request,
+                self.incarnation,
+                now,
+                deadline,
+                fingerprint,
+                completion
+            ],
+        )?;
         let snapshot = acl
             .map(|entries| super::acl::ObjectAclSnapshot::new(record, entries, &self.incarnation));
         let _ = self.snapshot.set(snapshot);
@@ -322,10 +310,7 @@ impl UploadReplay {
         connection: &Connection,
         bucket: &str,
     ) -> Result<(), ObjectError> {
-        let incarnation: String = connection
-            .prepare_cached(SELECT_INCARNATION)
-            .and_then(|mut statement| statement.query_row([bucket], |r| r.get(0)))
-            .map_err(objects::object_unavailable)?;
+        let incarnation: String = bucket_incarnation(connection, bucket)?;
         if incarnation != self.incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
@@ -334,14 +319,12 @@ impl UploadReplay {
 }
 
 pub(super) fn capacity(connection: &Connection, now: i64) -> Result<(), ObjectError> {
-    connection
-        .prepare_cached("DELETE FROM upload_replays WHERE deadline <= ?1")
-        .and_then(|mut statement| statement.execute([now]))
-        .map_err(objects::object_unavailable)?;
-    let count: i64 = connection
-        .prepare_cached("SELECT count(*) FROM upload_replays")
-        .and_then(|mut statement| statement.query_row([], |r| r.get(0)))
-        .map_err(objects::object_unavailable)?;
+    sql::exec(
+        connection,
+        "DELETE FROM upload_replays WHERE deadline <= ?1",
+        [now],
+    )?;
+    let count: i64 = sql::scalar(connection, "SELECT count(*) FROM upload_replays", [])?;
     if count >= CAPACITY {
         return Err(objects::object_unavailable(
             "Upload replay capacity reached; retry after retained requests expire",
@@ -363,11 +346,11 @@ fn copy_source_generation(
     if objects::object_acl_authority(connection, source.bucket, source.access)?.is_none() {
         return Ok(source.generation);
     }
-    let stored: Option<String> = connection
-        .prepare_cached("SELECT completion FROM upload_replays WHERE token=?1 AND deadline>?2")
-        .and_then(|mut statement| statement.query_row(params![token, now], |row| row.get(0)))
-        .optional()
-        .map_err(objects::object_unavailable)?;
+    let stored: Option<String> = sql::optional_scalar(
+        connection,
+        "SELECT completion FROM upload_replays WHERE token=?1 AND deadline>?2",
+        params![token, now],
+    )?;
     let generation = match stored {
         Some(stored) => {
             let completion: Completion =
@@ -423,35 +406,25 @@ impl Catalog {
         let source_object = source_name.clone();
         let source_authority = source_access.clone();
         let token = hash(invocation.token.unwrap_or_default().as_bytes());
-        let now = unix_micros(self.0.clock.now()).map_err(objects::object_unavailable)?;
+        let now = unix_micros(self.0.clock.now())?;
         let (source_incarnation, source_generation): (String, Option<i64>) = self
             .run_waiting(move |connection| {
-                Ok((|| {
-                    let transaction = connection
-                        .transaction()
-                        .map_err(objects::object_unavailable)?;
-                    let generation = copy_source_generation(
-                        &transaction,
-                        CopyReplaySource {
-                            bucket: &source_query,
-                            name: &source_object,
-                            generation: source_requested_generation,
-                            access: &source_authority,
-                        },
-                        &token,
-                        now,
-                    )?;
-                    let incarnation = transaction
-                        .prepare_cached(SELECT_INCARNATION)
-                        .and_then(|mut statement| {
-                            statement.query_row([&source_query], |row| row.get(0))
-                        })
-                        .map_err(objects::object_unavailable)?;
-                    Ok::<_, ObjectError>((incarnation, generation))
-                })())
+                let transaction = connection.transaction()?;
+                let generation = copy_source_generation(
+                    &transaction,
+                    CopyReplaySource {
+                        bucket: &source_query,
+                        name: &source_object,
+                        generation: source_requested_generation,
+                        access: &source_authority,
+                    },
+                    &token,
+                    now,
+                )?;
+                let incarnation = bucket_incarnation(&transaction, &source_query)?;
+                Ok::<_, ObjectError>((incarnation, generation))
             })
-            .await
-            .map_err(objects::object_unavailable)??;
+            .await?;
         let request = serde_json::to_string(&(invocation.request, &source_incarnation))
             .map_err(objects::object_unavailable)?;
         let mut permit = self.admit_object_upload()?;
@@ -491,18 +464,10 @@ impl Catalog {
         let replay = replay.clone();
         let clock = self.0.clock.clone();
         self.run_waiting(move |connection| {
-            Ok((|| {
-                let transaction = connection
-                    .transaction()
-                    .map_err(objects::object_unavailable)?;
-                replay.cached(
-                    &transaction,
-                    unix_micros(clock.now()).map_err(objects::object_unavailable)?,
-                )
-            })())
+            let transaction = connection.transaction()?;
+            replay.cached(&transaction, unix_micros(clock.now())?)
         })
         .await
-        .map_err(objects::object_unavailable)?
     }
 
     /// Upload advisory checks also bind the invocation and its admission permit.
@@ -542,45 +507,37 @@ impl Catalog {
         let principals = self.0.principals.get().cloned();
         let replay = self
             .run_waiting(move |connection| {
-                Ok((|| {
-                    let transaction = connection
-                        .transaction()
-                        .map_err(objects::object_unavailable)?;
-                    let (_, delete_permission) =
-                        objects::authorized_bucket(&transaction, &bucket, &access)?;
-                    let incarnation = transaction
-                        .prepare_cached(SELECT_INCARNATION)
-                        .and_then(|mut statement| statement.query_row([&bucket], |r| r.get(0)))
-                        .map_err(objects::object_unavailable)?;
-                    if expected_incarnation
-                        .as_ref()
-                        .is_some_and(|expected| expected != &incarnation)
-                    {
-                        return Err(ObjectError::PreconditionFailed);
-                    }
-                    let replay = UploadReplay {
-                        token,
-                        request,
-                        incarnation,
-                        snapshot: Arc::new(OnceLock::new()),
-                        principals,
-                    };
-                    let now = unix_micros(clock.now()).map_err(objects::object_unavailable)?;
-                    if replay.cached(&transaction, now)?.is_none() {
-                        capacity(&transaction, now)?;
-                        let previous = objects::lookup(&transaction, &bucket, &name)?;
-                        objects::check_publication(
-                            previous.as_ref(),
-                            conditions,
-                            delete_permission,
-                            clock.now(),
-                        )?;
-                    }
-                    Ok::<_, ObjectError>(replay)
-                })())
+                let transaction = connection.transaction()?;
+                let (_, delete_permission) =
+                    objects::authorized_bucket(&transaction, &bucket, &access)?;
+                let incarnation = bucket_incarnation(&transaction, &bucket)?;
+                if expected_incarnation
+                    .as_ref()
+                    .is_some_and(|expected| expected != &incarnation)
+                {
+                    return Err(ObjectError::PreconditionFailed);
+                }
+                let replay = UploadReplay {
+                    token,
+                    request,
+                    incarnation,
+                    snapshot: Arc::new(OnceLock::new()),
+                    principals,
+                };
+                let now = unix_micros(clock.now())?;
+                if replay.cached(&transaction, now)?.is_none() {
+                    capacity(&transaction, now)?;
+                    let previous = objects::lookup(&transaction, &bucket, &name)?;
+                    objects::check_publication(
+                        previous.as_ref(),
+                        conditions,
+                        delete_permission,
+                        clock.now(),
+                    )?;
+                }
+                Ok::<_, ObjectError>(replay)
             })
-            .await
-            .map_err(objects::object_unavailable)??;
+            .await?;
         permit.replay = Some(replay);
         Ok(())
     }

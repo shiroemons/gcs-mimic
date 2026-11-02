@@ -71,3 +71,28 @@ fn classification_passes_through_already_classified_errors() {
     let nested = unavailable(CatalogError::NotFound);
     assert_eq!(nested.to_string(), "catalog unavailable: bucket not found");
 }
+
+#[test]
+fn catalog_from_conversion_preserves_backend_classification_and_cause_chain() {
+    let cases: [fn() -> CatalogError; 5] = [
+        || CatalogError::Io(io::Error::new(io::ErrorKind::PermissionDenied, "denied").into()),
+        || {
+            CatalogError::Corrupt(BackendCause::from_error(sqlite_failure(
+                rusqlite::ffi::SQLITE_CORRUPT,
+            )))
+        },
+        || CatalogError::Unavailable("offline".into()),
+        || CatalogError::NotFound,
+        || CatalogError::InvalidMetadata("invalid field".into()),
+    ];
+    for make_error in cases {
+        let mapped = object_unavailable(make_error());
+        let converted = ObjectError::from(make_error());
+        assert_eq!(converted, mapped);
+        assert_eq!(converted.to_string(), mapped.to_string());
+        assert_eq!(
+            converted.source().map(ToString::to_string),
+            mapped.source().map(ToString::to_string)
+        );
+    }
+}

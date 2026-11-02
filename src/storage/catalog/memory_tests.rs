@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::catalog::sql;
 use crate::{
     object::{ExpectedHashes, ObjectConditions, ObjectError, UploadChunk},
     storage::admin::{AdminError, BucketDefinition, BucketName},
@@ -152,7 +153,7 @@ async fn ram_derived_pins_survive_source_delete_and_checkpoints_share_hash_and_p
         Err(ObjectError::DerivedTransferNotFound)
     );
     catalog
-        .run_object(|connection| {
+        .run::<_, ObjectError>(|connection| {
             let count: i64 = connection
                 .prepare_cached("SELECT count(*) FROM derived_inputs")
                 .unwrap()
@@ -220,7 +221,7 @@ async fn ram_derived_capacity_and_sql_failure_preserve_acknowledged_offset_and_o
     );
     let transfer = ram_transfer(&catalog).await;
     catalog.advance_derived(&transfer.id, 2).await.unwrap();
-    catalog.run_object(|connection| {
+    catalog.run::<_, ObjectError>(|connection| {
         connection.execute_batch("CREATE TEMP TRIGGER reject_derived_offset BEFORE UPDATE OF offset ON derived_transfers BEGIN SELECT RAISE(ABORT, 'injected SQL checkpoint failure'); END;").unwrap();
         Ok(())
     }).await.unwrap();
@@ -232,7 +233,7 @@ async fn ram_derived_capacity_and_sql_failure_preserve_acknowledged_offset_and_o
     );
     assert_eq!(catalog.get_derived(&transfer.id).await.unwrap().offset, 2);
     catalog
-        .run_object(|connection| {
+        .run::<_, ObjectError>(|connection| {
             connection
                 .execute_batch("DROP TRIGGER reject_derived_offset")
                 .unwrap();
@@ -676,7 +677,7 @@ async fn ram_default_budgets_accept_one_thousand_small_objects_and_report_databa
             .unwrap();
     }
     let pages = catalog
-        .run(|connection| {
+        .run::<_, CatalogError>(|connection| {
             let main: i64 = connection
                 .pragma_query_value(None, "page_count", |row| row.get(0))
                 .map_err(unavailable)?;
@@ -720,7 +721,7 @@ async fn ram_last_catalog_drop_wakes_and_releases_an_idle_notification_publisher
     let (release, held) = std::sync::mpsc::channel();
     let (entered, running) = tokio::sync::oneshot::channel();
     {
-        let blocked = catalog.run(move |_| {
+        let blocked = catalog.run::<_, CatalogError>(move |_| {
             entered.send(()).unwrap();
             held.recv().unwrap();
             Ok(())
@@ -768,7 +769,7 @@ async fn ram_last_catalog_drop_wakes_and_releases_an_idle_notification_publisher
 async fn ram_pragmas_keep_main_and_temp_page_limits_and_memory_journaling() {
     let catalog = setup(1024, false).await;
     catalog
-        .run(|connection| {
+        .run::<_, CatalogError>(|connection| {
             for schema in [None, Some("temp")] {
                 let pages: i64 = connection
                     .pragma_query_value(schema, "max_page_count", |row| row.get(0))
@@ -835,13 +836,13 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
         .await
         .unwrap();
     let id: String = catalog
-        .run(|connection| {
-            connection
-                .prepare_cached(
-                    "SELECT blob_id FROM objects WHERE bucket='test-bucket' AND name='value'",
-                )
-                .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-                .map_err(unavailable)
+        .run::<_, CatalogError>(|connection| {
+            sql::scalar(
+                connection,
+                "SELECT blob_id FROM objects WHERE bucket='test-bucket' AND name='value'",
+                [],
+            )
+            .map_err(unavailable)
         })
         .await
         .unwrap();
@@ -920,11 +921,13 @@ async fn ram_restore_shares_retained_bytes_and_preserves_deleted_generation() {
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"data"[..]);
     assert!(paths.iter().all(|path| !path.exists()));
     let pending: i64 = catalog
-        .run(|connection| {
-            connection
-                .prepare_cached("SELECT count(*) FROM pending_blob_deletions")
-                .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-                .map_err(unavailable)
+        .run::<_, CatalogError>(|connection| {
+            sql::scalar(
+                connection,
+                "SELECT count(*) FROM pending_blob_deletions",
+                [],
+            )
+            .map_err(unavailable)
         })
         .await
         .unwrap();
@@ -937,7 +940,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
     for budget in [400, 520] {
         let catalog = setup(budget, false).await;
         catalog
-            .run_object(|connection| {
+            .run::<_, ObjectError>(|connection| {
                 let policy = crate::bucket::SoftDeletePolicy {
                     retention_duration_seconds: 604800,
                     effective_time: SystemClock.now(),
@@ -963,7 +966,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
             .await
             .unwrap();
         if budget == 520 {
-            catalog.run_object(|connection| {
+            catalog.run::<_, ObjectError>(|connection| {
                 connection.execute_batch("CREATE TEMP TRIGGER reject_ram_restore BEFORE INSERT ON objects BEGIN SELECT RAISE(ABORT,'injected restore failure'); END;").unwrap();
                 Ok(())
             }).await.unwrap();
@@ -999,7 +1002,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
             .unwrap();
         assert_eq!(retained.md5, first.md5);
         let pending: i64 = catalog
-            .run_object(|connection| {
+            .run::<_, ObjectError>(|connection| {
                 connection
                     .prepare_cached("SELECT count(*) FROM pending_blob_deletions")
                     .unwrap()
@@ -1011,7 +1014,7 @@ async fn ram_restore_quota_and_failed_sql_keep_source_and_retry_capacity() {
         assert_eq!(pending, 0);
         if budget == 520 {
             catalog
-                .run_object(|connection| {
+                .run::<_, ObjectError>(|connection| {
                     connection
                         .execute_batch("DROP TRIGGER reject_ram_restore")
                         .unwrap();

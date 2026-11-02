@@ -23,7 +23,7 @@ async fn legacy_reconciliation_preserves_existing_iam_bindings_and_permission_un
         Auth::strict(Registry::parse(br#"{"identities":[{"id":"reader","tokens":[]}]}"#).unwrap());
     let identity = auth.principals().unwrap()[0].clone();
     catalog
-        .run(move |connection| {
+        .run::<_, crate::bucket::CatalogError>(move |connection| {
             let transaction = connection.transaction().unwrap();
             let mut policy = Policy {
                 bindings: vec![Binding {
@@ -85,7 +85,7 @@ async fn legacy_reconciliation_preserves_existing_iam_bindings_and_permission_un
 #[tokio::test]
 async fn legacy_reconciliation_rejects_invalid_or_oversized_acls_and_rolls_back_partial_writes() {
     let (_data, catalog) = fixture().await;
-    catalog.run(|connection| {
+    catalog.run::<_, crate::bucket::CatalogError>(|connection| {
         for case in 0..3 {
             let entries = match case {
                 0 => (0..100).map(|index| json!({"entity":format!("user-{index}"),"role":"READER"})).collect::<Vec<_>>(),

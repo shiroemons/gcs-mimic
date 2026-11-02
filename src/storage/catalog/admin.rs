@@ -16,6 +16,7 @@
 //! ```
 
 use super::{Catalog, objects, read_bucket, select_bucket, unavailable};
+use crate::storage::catalog::sql;
 use crate::storage::failure::BackendCause;
 use crate::{
     bucket::{BucketAccess, BucketRecord, CatalogError},
@@ -25,7 +26,7 @@ use crate::{
         UploadChunk,
     },
 };
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::Connection;
 use std::{fmt, io, num::NonZeroI64, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
@@ -424,16 +425,28 @@ impl Catalog {
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
     ) -> Result<T, AdminError> {
+        self.run_admin_with_error(move |connection| operation(connection).map_err(AdminError::from))
+            .await
+    }
+
+    /// Unlike `run_admin`, accepts a job that already selects its domain error.
+    pub(super) async fn run_admin_with_error<
+        T: Send + 'static,
+        E: From<AdminError> + Send + 'static,
+    >(
+        &self,
+        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
         let deadline = tokio::time::Instant::now() + WAIT_TIMEOUT;
         self.run_admin_until(deadline, operation).await
     }
 
-    async fn run_admin_until<T: Send + 'static>(
+    async fn run_admin_until<T: Send + 'static, E: From<AdminError> + Send + 'static>(
         &self,
         deadline: tokio::time::Instant,
-        operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
-    ) -> Result<T, AdminError> {
-        let activity = self.activity()?;
+        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
+        let activity = self.activity().map_err(AdminError::from)?;
         let admission = self
             .wait_admin(self.0.admin_reads.clone(), deadline)
             .await?;
@@ -444,9 +457,9 @@ impl Catalog {
             .run(move || {
                 let (_admission, _execution, _activity) = (admission, execution, activity);
                 let result = match inner.with_connection(operation) {
-                    Ok(result) => result.map_err(AdminError::from),
-                    Err(super::ConnectionUnavailable::Closed) => Err(AdminError::Closed),
-                    Err(error) => Err(AdminError::backend(error)),
+                    Ok(result) => result,
+                    Err(super::ConnectionUnavailable::Closed) => Err(AdminError::Closed.into()),
+                    Err(error) => Err(AdminError::backend(error).into()),
                 };
                 drop(inner);
                 result
@@ -500,7 +513,7 @@ impl Admin {
     pub(crate) async fn finish_seed(&self) -> Result<(), AdminError> {
         self.catalog
             .run_admin(|connection| {
-                let transaction = connection.transaction().map_err(unavailable)?;
+                let transaction = connection.transaction()?;
                 transaction
                     .execute(
                         "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
@@ -537,9 +550,7 @@ impl Admin {
         let default_retention = self.catalog.default_soft_delete_retention();
         self.catalog
             .run_admin(move |connection| {
-                let transaction = connection
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(unavailable)?;
+                let transaction = sql::immediate(connection)?;
                 grant.authorize(&transaction)?;
                 let mut results = Vec::with_capacity(records.len());
                 // The names are bound as one JSON array so the statement text stays static.
@@ -583,7 +594,7 @@ impl Admin {
                     )?;
                     results.push(EnsureBucket::Created(record));
                 }
-                transaction.commit().map_err(unavailable)?;
+                transaction.commit()?;
                 Ok(results)
             })
             .await
@@ -762,22 +773,19 @@ impl Admin {
         self.catalog
             .run_admin_until(deadline, move |connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
-                let result = (|| {
-                    objects::authorized_bucket(&transaction, &bucket, &access)?;
-                    let previous = objects::lookup(&transaction, &bucket, &name)?;
-                    objects::check_publication(
-                        previous.as_ref(),
-                        condition
-                            .map(GenerationCondition::conditions)
-                            .unwrap_or_default(),
-                        objects::DeletePermission::Granted,
-                        clock.now(),
-                    )
-                })();
-                Ok(result)
+                objects::authorized_bucket(&transaction, &bucket, &access)?;
+                let previous = objects::lookup(&transaction, &bucket, &name)?;
+                objects::check_publication(
+                    previous.as_ref(),
+                    condition
+                        .map(GenerationCondition::conditions)
+                        .unwrap_or_default(),
+                    objects::DeletePermission::Granted,
+                    clock.now(),
+                )
+                .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 
     pub async fn get_object(
@@ -790,9 +798,9 @@ impl Admin {
         let name = name.0.clone();
         let access = BucketAccess::Admin(self.grant.clone());
         self.catalog
-            .run_admin(move |connection| {
+            .run_admin_with_error(move |connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
-                Ok(objects::selected(
+                objects::selected(
                     &transaction,
                     &bucket,
                     &name,
@@ -801,10 +809,10 @@ impl Admin {
                     super::objects::RequestKind::Read,
                     &access,
                 )
-                .map(|(record, _)| record))
+                .map(|(record, _)| record)
+                .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 
     pub async fn open_object(
@@ -818,8 +826,8 @@ impl Admin {
         let access = BucketAccess::Admin(self.grant.clone());
         let catalog = self.catalog.clone();
         self.catalog
-            .run_admin(move |connection| {
-                Ok(objects::open_selected(
+            .run_admin_with_error(move |connection| {
+                objects::open_selected(
                     connection,
                     &catalog,
                     &bucket,
@@ -827,10 +835,10 @@ impl Admin {
                     generation.map(Generation::get),
                     ObjectConditions::default(),
                     &access,
-                ))
+                )
+                .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 
     pub async fn list_objects(
@@ -850,15 +858,12 @@ impl Admin {
         query.bucket = bucket.0.clone();
         let access = BucketAccess::Admin(self.grant.clone());
         self.catalog
-            .run_admin(move |connection| {
+            .run_admin_with_error(move |connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
-                Ok((|| {
-                    objects::authorized_bucket(&transaction, &query.bucket, &access)?;
-                    objects::list_page(&transaction, &query, limit)
-                })())
+                objects::authorized_bucket(&transaction, &query.bucket, &access)?;
+                objects::list_page(&transaction, &query, limit).map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 
     pub async fn delete_object(
@@ -893,8 +898,8 @@ impl Admin {
         let access = BucketAccess::Admin(self.grant.clone());
         let clock = self.catalog.0.clock.clone();
         self.catalog
-            .run_admin(move |connection| {
-                Ok(objects::delete_selected(
+            .run_admin_with_error(move |connection| {
+                objects::delete_selected(
                     connection,
                     clock.as_ref(),
                     objects::ObjectSelector {
@@ -905,10 +910,10 @@ impl Admin {
                     },
                     &access,
                     binding.as_ref(),
-                ))
+                )
+                .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)?;
+            .await?;
         self.catalog.reclaim_after_commit().await;
         Ok(())
     }

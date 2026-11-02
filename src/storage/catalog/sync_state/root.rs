@@ -2,6 +2,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::{CatalogId, SyncState, catalog_id};
+use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     fsutil::{self, FileIdentity, FsError},
@@ -30,16 +31,6 @@ pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_roots (
     UNIQUE(device, inode)
 ) WITHOUT ROWID;
 PRAGMA user_version = 19;";
-
-pub(in crate::storage) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection
-        .transaction()
-        .map_err(super::super::unavailable)?;
-    transaction
-        .execute_batch(SCHEMA)
-        .map_err(super::super::unavailable)?;
-    transaction.commit().map_err(super::super::unavailable)
-}
 
 #[cfg(test)]
 static FAILURE: std::sync::Mutex<Option<(PathBuf, &'static str)>> = std::sync::Mutex::new(None);
@@ -210,31 +201,27 @@ fn reserve(
     if catalog_id(&transaction)? != catalog {
         return Err(RootError::ForeignMarker);
     }
-    let found = transaction
-        .prepare_cached(
-            "SELECT root_id, device, inode, complete, location FROM sync_roots
+    let found = sql::row(
+        &transaction,
+        "SELECT root_id, device, inode, complete, location FROM sync_roots
          WHERE location = ?1 OR (device = ?2 AND inode = ?3) LIMIT 1",
-        )
-        .and_then(|mut statement| {
-            statement.query_row(
-                params![
-                    location,
-                    identity.device.to_be_bytes(),
-                    identity.inode.to_be_bytes()
-                ],
-                |row| {
-                    Ok((
-                        RootId(row.get(0)?),
-                        row.get::<_, [u8; 8]>(1)?,
-                        row.get::<_, [u8; 8]>(2)?,
-                        row.get::<_, bool>(3)?,
-                        row.get::<_, Vec<u8>>(4)?,
-                    ))
-                },
-            )
-        })
-        .optional()
-        .map_err(super::super::unavailable)?;
+        params![
+            location,
+            identity.device.to_be_bytes(),
+            identity.inode.to_be_bytes()
+        ],
+        |row| {
+            Ok((
+                RootId(row.get(0)?),
+                row.get::<_, [u8; 8]>(1)?,
+                row.get::<_, [u8; 8]>(2)?,
+                row.get::<_, bool>(3)?,
+                row.get::<_, Vec<u8>>(4)?,
+            ))
+        },
+    )
+    .optional()
+    .map_err(super::super::unavailable)?;
     let status = if let Some((id, device, inode, complete, stored_location)) = found {
         if device != identity.device.to_be_bytes()
             || inode != identity.inode.to_be_bytes()
@@ -252,10 +239,12 @@ fn reserve(
             }
             (Activation::Open, None) => return Err(RootError::MissingMarker),
             (Activation::Reinitialize { catalog_id }, None) if catalog_id == catalog => {
-                transaction
-                    .prepare_cached("UPDATE sync_roots SET complete = 0 WHERE root_id = ?1")
-                    .and_then(|mut statement| statement.execute([id.0]))
-                    .map_err(super::super::unavailable)?;
+                sql::exec(
+                    &transaction,
+                    "UPDATE sync_roots SET complete = 0 WHERE root_id = ?1",
+                    [id.0],
+                )
+                .map_err(super::super::unavailable)?;
                 Baseline::Activating
             }
             (Activation::Reinitialize { .. }, _) => return Err(RootError::ReinitializeDenied),
@@ -275,17 +264,17 @@ fn reserve(
         }
         let mut id = [0; 16];
         getrandom::fill(&mut id).map_err(|error| RootError::Admin(AdminError::backend(error)))?;
-        transaction
-            .prepare_cached("INSERT INTO sync_roots VALUES (?1,?2,?3,?4,0)")
-            .and_then(|mut statement| {
-                statement.execute(params![
-                    id,
-                    location,
-                    identity.device.to_be_bytes(),
-                    identity.inode.to_be_bytes()
-                ])
-            })
-            .map_err(super::super::unavailable)?;
+        sql::exec(
+            &transaction,
+            "INSERT INTO sync_roots VALUES (?1,?2,?3,?4,0)",
+            params![
+                id,
+                location,
+                identity.device.to_be_bytes(),
+                identity.inode.to_be_bytes()
+            ],
+        )
+        .map_err(super::super::unavailable)?;
         RootStatus {
             catalog_id: catalog,
             root_id: RootId(id),
@@ -407,14 +396,12 @@ impl RootLease {
             .0
             .file_workers
             .run(move || {
-                Ok((|| {
-                    lease.validate()?;
-                    let result = job(lease.ownership.lock.file()).map_err(RootError::from)?;
-                    lease.validate()?;
-                    Ok(result)
-                })())
+                lease.validate()?;
+                let result = job(lease.ownership.lock.file()).map_err(RootError::from)?;
+                lease.validate()?;
+                Ok(result)
             })
-            .await?
+            .await
     }
 
     /// The adapter calls this only after its complete durable initial merge.
@@ -427,10 +414,11 @@ impl RootLease {
             .run_admin(move |connection| {
                 lease.control_scope().authorize(connection)?;
                 let _lease = lease;
-                let changed = connection
-                    .prepare_cached("UPDATE sync_roots SET complete = 1 WHERE root_id = ?1")
-                    .and_then(|mut statement| statement.execute([id.0]))
-                    .map_err(super::super::unavailable)?;
+                let changed = sql::exec(
+                    connection,
+                    "UPDATE sync_roots SET complete = 1 WHERE root_id = ?1",
+                    [id.0],
+                )?;
                 if changed != 1 {
                     return Err(CatalogError::Corrupt("missing root association".into()));
                 }
@@ -468,27 +456,25 @@ impl SyncState {
                 .0
                 .file_workers
                 .run(move || {
-                    Ok((|| {
-                        let selected_path = std::path::absolute(&path)?;
-                        let lock = lock::acquire_directory(&selected_path)?;
-                        let canonical = selected_path.canonicalize()?;
-                        if crate::source_tree::paths_overlap(&canonical, &data_dir)? {
-                            return Err(RootError::RootChanged);
-                        }
-                        let identity = fsutil::stat_identity(lock.file())?;
-                        let ownership = Ownership {
-                            lock,
-                            path: canonical,
-                            selected_path,
-                            identity,
-                            _catalog_permit: permit,
-                        };
-                        ownership.validate()?;
-                        let marker = read_marker(ownership.lock.file())?;
-                        Ok((Arc::new(ownership), marker))
-                    })())
+                    let selected_path = std::path::absolute(&path)?;
+                    let lock = lock::acquire_directory(&selected_path)?;
+                    let canonical = selected_path.canonicalize()?;
+                    if crate::source_tree::paths_overlap(&canonical, &data_dir)? {
+                        return Err(RootError::RootChanged);
+                    }
+                    let identity = fsutil::stat_identity(lock.file())?;
+                    let ownership = Ownership {
+                        lock,
+                        path: canonical,
+                        selected_path,
+                        identity,
+                        _catalog_permit: permit,
+                    };
+                    ownership.validate()?;
+                    let marker = read_marker(ownership.lock.file())?;
+                    Ok((Arc::new(ownership), marker))
                 })
-                .await??;
+                .await?;
             state
                 .activate_owned(ownership.0, ownership.1, catalog, activation)
                 .await
@@ -511,59 +497,56 @@ impl SyncState {
             .map(|(m, _)| (m.catalog_id.clone(), m.root_id.clone()));
         let status = self
             .0
-            .run_admin(move |connection| {
-                Ok(reserve(
+            .run_admin_with_error(move |connection| {
+                reserve(
                     connection, &location, identity, marker_ids, catalog, activation,
-                ))
+                )
             })
-            .await??;
+            .await?;
         let owns = ownership.clone();
         let marker_identity = self
             .0
             .0
             .file_workers
             .run(move || {
-                Ok((|| {
-                    owns.validate()?;
+                owns.validate()?;
+                #[cfg(test)]
+                failure_boundary(&owns.path, "reserved")?;
+                if marker.is_none() {
+                    let bytes = serde_json::to_vec(&Marker {
+                        version: 1,
+                        catalog_id: catalog.to_string(),
+                        root_id: status.root_id.to_string(),
+                    })
+                    .map_err(|_| RootError::InvalidMarker)?;
+                    let mut file = fsutil::create_regular_at(owns.lock.file(), MARKER.as_ref())?;
                     #[cfg(test)]
-                    failure_boundary(&owns.path, "reserved")?;
-                    if marker.is_none() {
-                        let bytes = serde_json::to_vec(&Marker {
-                            version: 1,
-                            catalog_id: catalog.to_string(),
-                            root_id: status.root_id.to_string(),
-                        })
-                        .map_err(|_| RootError::InvalidMarker)?;
-                        let mut file =
-                            fsutil::create_regular_at(owns.lock.file(), MARKER.as_ref())?;
-                        #[cfg(test)]
-                        failure_boundary(&owns.path, "created")?;
-                        file.write_all(&bytes)?;
-                        file.sync_all()?;
-                        #[cfg(test)]
-                        failure_boundary(&owns.path, "file_synced")?;
-                        owns.lock.file().sync_all()?;
-                        #[cfg(test)]
-                        failure_boundary(&owns.path, "directory_synced")?;
-                    }
-                    let (current, identity) =
-                        read_marker(owns.lock.file())?.ok_or(RootError::MissingMarker)?;
-                    if current.catalog_id != catalog.to_string()
-                        || current.root_id != status.root_id.to_string()
-                    {
-                        return Err(RootError::ForeignMarker);
-                    }
-                    if marker
-                        .as_ref()
-                        .is_some_and(|(_, previous)| *previous != identity)
-                    {
-                        return Err(RootError::InvalidMarker);
-                    }
-                    owns.validate()?;
-                    Ok(identity)
-                })())
+                    failure_boundary(&owns.path, "created")?;
+                    file.write_all(&bytes)?;
+                    file.sync_all()?;
+                    #[cfg(test)]
+                    failure_boundary(&owns.path, "file_synced")?;
+                    owns.lock.file().sync_all()?;
+                    #[cfg(test)]
+                    failure_boundary(&owns.path, "directory_synced")?;
+                }
+                let (current, identity) =
+                    read_marker(owns.lock.file())?.ok_or(RootError::MissingMarker)?;
+                if current.catalog_id != catalog.to_string()
+                    || current.root_id != status.root_id.to_string()
+                {
+                    return Err(RootError::ForeignMarker);
+                }
+                if marker
+                    .as_ref()
+                    .is_some_and(|(_, previous)| *previous != identity)
+                {
+                    return Err(RootError::InvalidMarker);
+                }
+                owns.validate()?;
+                Ok(identity)
             })
-            .await??;
+            .await?;
         Ok(RootLease {
             ownership,
             state: self.clone(),

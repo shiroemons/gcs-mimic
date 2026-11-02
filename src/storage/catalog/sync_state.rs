@@ -6,6 +6,7 @@ use super::{
     admin::{AdminError, BucketName, Generation, ObjectName},
     unavailable,
 };
+use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     bucket::CatalogError,
     object::{ObjectError, ObjectRecord},
@@ -142,7 +143,7 @@ fn valid_path(path: &str) -> bool {
     reason = "a one-time schema migration step"
 )]
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
+    let transaction = connection.transaction()?;
     transaction.execute_batch(SCHEMA).map_err(unavailable)?;
     let mut id = [0; 16];
     getrandom::fill(&mut id).map_err(unavailable)?;
@@ -152,31 +153,24 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(unavailable)
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "validates catalog state once at open"
-)]
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let valid: bool = connection
-        .query_row(
-            "SELECT count(*) = 1 AND min(singleton) = 1 FROM catalog_identity",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(unavailable)?;
-    if !valid {
-        return Err(unavailable("invalid catalog identity"));
-    }
+    sql::validate(
+        connection,
+        "SELECT count(*) = 1 AND min(singleton) = 1 FROM catalog_identity",
+        "invalid catalog identity",
+    )?;
     catalog_id(connection)?;
     Ok(())
 }
 
 fn catalog_id(connection: &Connection) -> Result<CatalogId, CatalogError> {
-    connection
-        .prepare_cached("SELECT id FROM catalog_identity WHERE singleton = 1")
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .map(CatalogId)
-        .map_err(unavailable)
+    sql::scalar(
+        connection,
+        "SELECT id FROM catalog_identity WHERE singleton = 1",
+        [],
+    )
+    .map(CatalogId)
+    .map_err(unavailable)
 }
 
 pub(super) fn matching(
@@ -190,12 +184,8 @@ pub(super) fn matching(
             error => ObjectError::from(error),
         })?;
     }
-    let incarnation: Option<String> = connection
-        .prepare_cached(SELECT_INCARNATION)
-        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
-        .optional()
-        .map_err(super::objects::object_unavailable)?;
-    if binding.catalog != catalog_id(connection).map_err(super::objects::object_unavailable)?
+    let incarnation: Option<String> = bucket_incarnation(connection, bucket).optional()?;
+    if binding.catalog != catalog_id(connection)?
         || binding.bucket != bucket
         || incarnation.as_ref() != Some(&binding.incarnation)
     {
@@ -214,26 +204,34 @@ pub(super) fn record_in_transaction(
     if fp.size != record.size || fp.md5 != record.md5 || fp.crc32c != record.crc32c {
         return Err(ObjectError::ChecksumMismatch);
     }
-    let occupied: bool = transaction.prepare_cached(
+    let occupied: bool = sql::scalar(
+        transaction,
         "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE path = ?1 AND (bucket != ?2 OR name != ?3))",
-    ).and_then(|mut statement| statement.query_row(params![update.path,record.bucket,record.name], |row| row.get(0)))
-    .map_err(super::objects::object_unavailable)?;
+        params![update.path, record.bucket, record.name],
+    )?;
     if occupied {
         return Err(ObjectError::PreconditionFailed);
     }
-    transaction.prepare_cached(
+    sql::exec(transaction,
         "INSERT INTO sync_objects (bucket,name,incarnation,path,generation,size,mtime_ns,ctime_ns,inode,md5,crc32c,racy)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
          ON CONFLICT(bucket,name) DO UPDATE SET incarnation=excluded.incarnation,path=excluded.path,
          generation=excluded.generation,size=excluded.size,mtime_ns=excluded.mtime_ns,ctime_ns=excluded.ctime_ns,
          inode=excluded.inode,md5=excluded.md5,crc32c=excluded.crc32c,racy=excluded.racy",
-    ).and_then(|mut statement| statement.execute(
         params![record.bucket,record.name,update.binding.incarnation,update.path,record.generation,fp.size as i64,
             fp.mtime_ns.to_be_bytes(),fp.ctime_ns.to_be_bytes(),fp.inode.to_be_bytes(),fp.md5,fp.crc32c,fp.racy],
-    )).map_err(super::objects::object_unavailable)?;
+    )?;
     if let Some(scope) = &update.binding.control {
-        transaction.prepare_cached("DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4")
-            .and_then(|mut statement|statement.execute(params![scope.root_id().as_bytes(),record.bucket,record.name,update.binding.incarnation])).map_err(super::objects::object_unavailable)?;
+        sql::exec(
+            transaction,
+            "DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4",
+            params![
+                scope.root_id().as_bytes(),
+                record.bucket,
+                record.name,
+                update.binding.incarnation
+            ],
+        )?;
     }
     Ok(())
 }
@@ -247,18 +245,21 @@ pub(super) fn delete_in_transaction(
     if let Some(permit) = &binding.deletion {
         deletions::consume(transaction, permit, record)?;
     }
-    let count = transaction.prepare_cached(
+    let count = sql::exec(
+        transaction,
         "DELETE FROM sync_objects WHERE bucket = ?1 AND name = ?2 AND incarnation = ?3 AND generation = ?4",
-    ).and_then(|mut statement| statement.execute(
-        params![record.bucket,record.name,binding.incarnation,record.generation],
-    )).map_err(super::objects::object_unavailable)?;
+        params![
+            record.bucket,
+            record.name,
+            binding.incarnation,
+            record.generation
+        ],
+    )?;
     if count != 1 {
         return Err(ObjectError::PreconditionFailed);
     }
     Ok(())
 }
-
-const SELECT_INCARNATION: &str = "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1";
 
 // A literal macro keeps the statements below static for the prepared statement cache.
 macro_rules! sync_columns {
@@ -314,9 +315,7 @@ impl SyncState {
         let bucket = bucket.as_str().to_owned();
         self.0
             .run_admin(move |connection| {
-                let incarnation = connection
-                    .prepare_cached(SELECT_INCARNATION)
-                    .and_then(|mut statement| statement.query_row([&bucket], |row| row.get(0)))
+                let incarnation = bucket_incarnation(connection, &bucket)
                     .optional()
                     .map_err(unavailable)?
                     .ok_or(CatalogError::NotFound)?;
@@ -340,27 +339,24 @@ impl SyncState {
     ) -> Result<(), AdminError> {
         let name = name.as_str().to_owned();
         self.0
-            .run_admin(move |connection| {
-                Ok((|| {
-                    let transaction = connection
-                        .transaction()
-                        .map_err(super::objects::object_unavailable)?;
-                    matching(&transaction, &update.binding, &update.binding.bucket)?;
-                    let record =
-                        super::objects::lookup(&transaction, &update.binding.bucket, &name)?
-                            .ok_or(ObjectError::ObjectNotFound)?
-                            .0;
-                    if record.generation != generation.get() {
-                        return Err(ObjectError::PreconditionFailed);
-                    }
-                    record_in_transaction(&transaction, &update, &record)?;
-                    transaction
-                        .commit()
-                        .map_err(super::objects::object_unavailable)
-                })())
+            .run_admin_with_error(move |connection| {
+                let transaction = connection
+                    .transaction()
+                    .map_err(super::objects::object_unavailable)?;
+                matching(&transaction, &update.binding, &update.binding.bucket)?;
+                let record = super::objects::lookup(&transaction, &update.binding.bucket, &name)?
+                    .ok_or(ObjectError::ObjectNotFound)?
+                    .0;
+                if record.generation != generation.get() {
+                    return Err(ObjectError::PreconditionFailed.into());
+                }
+                record_in_transaction(&transaction, &update, &record)?;
+                transaction
+                    .commit()
+                    .map_err(super::objects::object_unavailable)
+                    .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 
     pub async fn get_path(
@@ -372,24 +368,19 @@ impl SyncState {
             return Err(AdminError::Invalid("invalid synchronization path".into()));
         }
         self.0
-            .run_admin(move |connection| {
-                Ok((|| {
-                    matching(connection, &binding, &binding.bucket)?;
-                    connection
-                        .prepare_cached(SELECT_BY_PATH)
-                        .and_then(|mut statement| {
-                            statement
-                                .query_row(
-                                    params![path, binding.bucket, binding.incarnation],
-                                    read_record,
-                                )
-                                .optional()
-                        })
-                        .map_err(super::objects::object_unavailable)
-                })())
+            .run_admin_with_error(move |connection| {
+                matching(connection, &binding, &binding.bucket)?;
+                sql::row(
+                    connection,
+                    SELECT_BY_PATH,
+                    params![path, binding.bucket, binding.incarnation],
+                    read_record,
+                )
+                .optional()
+                .map_err(super::objects::object_unavailable)
+                .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 
     /// Continue after the last returned path; an empty page terminates traversal.
@@ -403,22 +394,20 @@ impl SyncState {
             return Err(AdminError::Invalid("invalid synchronization page".into()));
         }
         self.0
-            .run_admin(move |connection| {
-                Ok((|| {
-                    matching(connection, &binding, &binding.bucket)?;
-                    connection
-                        .prepare_cached(SELECT_PAGE)
-                        .map_err(super::objects::object_unavailable)?
-                        .query_map(
-                            params![after, binding.bucket, binding.incarnation, limit as i64],
-                            read_record,
-                        )
-                        .map_err(super::objects::object_unavailable)?
-                        .collect::<rusqlite::Result<Vec<_>>>()
-                        .map_err(super::objects::object_unavailable)
-                })())
+            .run_admin_with_error(move |connection| {
+                matching(connection, &binding, &binding.bucket)?;
+                connection
+                    .prepare_cached(SELECT_PAGE)
+                    .map_err(super::objects::object_unavailable)?
+                    .query_map(
+                        params![after, binding.bucket, binding.incarnation, limit as i64],
+                        read_record,
+                    )
+                    .map_err(super::objects::object_unavailable)?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(super::objects::object_unavailable)
+                    .map_err(AdminError::from)
             })
-            .await?
-            .map_err(AdminError::from)
+            .await
     }
 }

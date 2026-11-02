@@ -7,9 +7,7 @@ use crate::bucket::{
 };
 use crate::clock::{Clock, SystemClock};
 use crate::storage::failure::unavailable;
-use rusqlite::{
-    Connection, OpenFlags, OptionalExtension, Row, TransactionBehavior, params, types::Type,
-};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, types::Type};
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -27,6 +25,9 @@ mod memory_tests;
 #[cfg(test)]
 mod timestamp_tests;
 
+// Keep crate-local fixtures separate from schema helpers included by integration tests.
+#[cfg(test)]
+pub(super) mod test_fixtures;
 #[cfg(test)]
 pub(super) mod test_support;
 
@@ -40,7 +41,7 @@ pub(super) async fn replace_resumable_cleanup_obstacle(catalog: &Catalog, stage:
             // Maintenance must not clear the deletion journal while this path is temporarily absent.
             std::fs::remove_dir(&stage).unwrap();
             std::fs::write(stage, b"uncommitted tail").unwrap();
-            Ok(())
+            Ok::<_, CatalogError>(())
         })
         .await
         .unwrap();
@@ -62,6 +63,7 @@ pub(crate) mod xml_multipart;
 
 mod executor;
 mod principals;
+mod sql;
 
 mod resumable_recovery;
 
@@ -195,18 +197,18 @@ const BUCKET_SCHEMA: &str = "CREATE TABLE buckets (
                      CREATE INDEX buckets_project_name ON buckets(project, name);
                      PRAGMA user_version = 1;";
 
+fn bucket_incarnation(connection: &Connection, bucket: &str) -> rusqlite::Result<String> {
+    sql::scalar(
+        connection,
+        "SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1",
+        [bucket],
+    )
+}
+
 /// A bounded keyset page. Continue after the last returned name when `has_more` is true.
 pub(crate) struct BucketListPage {
     pub items: Vec<BucketRecord>,
     pub has_more: bool,
-}
-
-fn migrate_bucket_settings(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction
-        .execute_batch(BUCKET_SETTINGS_SCHEMA)
-        .map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
 }
 
 #[expect(
@@ -214,7 +216,7 @@ fn migrate_bucket_settings(connection: &mut Connection) -> Result<(), CatalogErr
     reason = "a one-time schema migration at open"
 )]
 fn migrate_timestamp_precision(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
+    let transaction = connection.transaction()?;
     // SQLite promotes overflowing integer multiplication to REAL, losing precision.
     macro_rules! unconvertible {
         ($column:literal) => {
@@ -253,9 +255,7 @@ fn migrate_timestamp_precision(connection: &mut Connection) -> Result<(), Catalo
             ),
         ),
     ] {
-        let invalid: bool = transaction
-            .query_row(check, [], |row| row.get(0))
-            .map_err(unavailable)?;
+        let invalid: bool = transaction.query_row(check, [], |row| row.get(0))?;
         if invalid {
             return Err(unavailable(format!(
                 "{table} timestamps cannot be converted to integer Unix microseconds"
@@ -265,10 +265,8 @@ fn migrate_timestamp_precision(connection: &mut Connection) -> Result<(), Catalo
     transaction.execute_batch(
         "UPDATE buckets SET time_created = time_created * 1000, updated = updated * 1000;
          UPDATE objects SET time_created = time_created * 1000, updated = updated * 1000, time_deleted = time_deleted * 1000;",
-    ).map_err(unavailable)?;
-    transaction
-        .pragma_update(None, "user_version", TIMESTAMP_MICROS_SCHEMA_VERSION)
-        .map_err(unavailable)?;
+    )?;
+    transaction.pragma_update(None, "user_version", TIMESTAMP_MICROS_SCHEMA_VERSION)?;
     transaction.commit().map_err(unavailable)
 }
 
@@ -375,13 +373,11 @@ const SCHEMA_STEPS: &[(i64, &str, Option<StateCheck>)] = &[
     reason = "schema validation runs once at open"
 )]
 fn validate_seed(connection: &Connection) -> Result<(), CatalogError> {
-    let valid: bool = connection
-        .query_row(
-            "SELECT count(*) = 1 AND min(singleton) = 1 FROM startup_seed",
-            [],
-            |r| r.get(0),
-        )
-        .map_err(unavailable)?;
+    let valid: bool = connection.query_row(
+        "SELECT count(*) = 1 AND min(singleton) = 1 FROM startup_seed",
+        [],
+        |r| r.get(0),
+    )?;
     if valid {
         Ok(())
     } else {
@@ -394,13 +390,13 @@ fn validate_seed(connection: &Connection) -> Result<(), CatalogError> {
     reason = "schema validation runs once at open"
 )]
 fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogError> {
-    let expected = Connection::open_in_memory().map_err(unavailable)?;
-    expected.execute_batch(BUCKET_SCHEMA).map_err(unavailable)?;
+    let expected = Connection::open_in_memory()?;
+    expected.execute_batch(BUCKET_SCHEMA)?;
     for &(introduced, schema, check) in SCHEMA_STEPS {
         if version < introduced {
             break;
         }
-        expected.execute_batch(schema).map_err(unavailable)?;
+        expected.execute_batch(schema)?;
         if let Some(check) = check {
             check(connection)?;
         }
@@ -411,11 +407,10 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
     }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
-            db.prepare_cached("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 257")
-            .map_err(unavailable)?.query_map([], |row| {
+            db.prepare_cached("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 257")?.query_map([], |row| {
                 let sql: String = row.get(3)?;
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, sql.split_whitespace().collect::<Vec<_>>().join(" ")))
-            }).map_err(unavailable)?.collect::<rusqlite::Result<_>>().map_err(unavailable)
+            })?.collect::<rusqlite::Result<_>>().map_err(unavailable)
         };
     // Versioned catalogs must retain our constraints, collations, indexes and table inventory.
     let actual = inventory(connection)?;
@@ -423,7 +418,7 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
         return Err(unavailable("catalog schema does not match its version"));
     }
     if version >= 3 {
-        let valid: bool = connection.query_row("SELECT count(*) = 1 AND min(singleton) = 1 AND min(last_generation) >= (SELECT coalesce(max(generation), 0) FROM objects) FROM object_generation", [], |row| row.get(0)).map_err(unavailable)?;
+        let valid: bool = connection.query_row("SELECT count(*) = 1 AND min(singleton) = 1 AND min(last_generation) >= (SELECT coalesce(max(generation), 0) FROM objects) FROM object_generation", [], |row| row.get(0))?;
         if !valid {
             return Err(unavailable("invalid generation allocator state"));
         }
@@ -669,16 +664,12 @@ pub struct Catalog(Arc<Inner>);
 )]
 fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
     // A read-write connection can checkpoint a rejected catalog's hot WAL on close.
-    let connection = if path.try_exists().map_err(unavailable)? {
-        if path
-            .with_extension("sqlite3-wal")
-            .try_exists()
-            .map_err(unavailable)?
-        {
+    let connection = if path.try_exists()? {
+        if path.with_extension("sqlite3-wal").try_exists()? {
             Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         } else {
             // Directory ownership makes a WAL-free main file safe for immutable reads.
-            let absolute = path.canonicalize().map_err(unavailable)?;
+            let absolute = path.canonicalize()?;
             Connection::open_with_flags(
                 immutable_catalog_uri(&absolute)?,
                 OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
@@ -688,41 +679,31 @@ fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
         Connection::open_in_memory()
     }
     .map_err(unavailable)?;
-    connection
-        .busy_timeout(Duration::from_secs(5))
-        .map_err(unavailable)?;
-    connection
-        .execute_batch(
-            "PRAGMA cache_size = -2048;
+    connection.busy_timeout(Duration::from_secs(5))?;
+    connection.execute_batch(
+        "PRAGMA cache_size = -2048;
                  PRAGMA mmap_size = 0;
                  PRAGMA temp_store = FILE;",
-        )
-        .map_err(unavailable)?;
-    let version: i64 = connection
-        .pragma_query_value(None, "user_version", |r| r.get(0))
-        .map_err(unavailable)?;
+    )?;
+    let version: i64 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
     validate_schema_version(version, CATALOG_SCHEMA_VERSION)?;
     if version == 2 {
         return Err(unavailable(
             "unsupported unreleased catalog schema version 2; deleted generation history cannot be recovered",
         ));
     }
-    let check: String = connection
-        .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
-        .map_err(unavailable)?;
+    let check: String = connection.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
     if check != "ok" {
         return Err(CatalogError::Unavailable(
             format!("catalog quick_check failed: {check}").into(),
         ));
     }
     if version == 0 {
-        let tables: i64 = connection
-            .query_row(
-                "SELECT count(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
-                [],
-                |r| r.get(0),
-            )
-            .map_err(unavailable)?;
+        let tables: i64 = connection.query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
+            [],
+            |r| r.get(0),
+        )?;
         if tables != 0 {
             return Err(CatalogError::Unavailable(
                 "unversioned catalog is not empty".into(),
@@ -741,49 +722,35 @@ fn inspect_catalog(path: &Path) -> Result<i64, CatalogError> {
     reason = "switches the journal mode once at open"
 )]
 fn open_writable(path: &Path) -> Result<Connection, CatalogError> {
-    let connection = Connection::open(path).map_err(unavailable)?;
-    connection
-        .busy_timeout(Duration::from_secs(5))
-        .map_err(unavailable)?;
+    let connection = Connection::open(path)?;
+    connection.busy_timeout(Duration::from_secs(5))?;
     connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
-    connection
-        .execute_batch(
-            "PRAGMA foreign_keys = ON;
+    connection.execute_batch(
+        "PRAGMA foreign_keys = ON;
                  PRAGMA cache_size = -2048;
                  PRAGMA mmap_size = 0;
                  PRAGMA temp_store = FILE;",
-        )
-        .map_err(unavailable)?;
-    let mode: String = connection
-        .pragma_query_value(None, "journal_mode", |r| r.get(0))
-        .map_err(unavailable)?;
+    )?;
+    let mode: String = connection.pragma_query_value(None, "journal_mode", |r| r.get(0))?;
     if mode != "wal" {
-        let mode: String = connection
-            .query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))
-            .map_err(unavailable)?;
+        let mode: String = connection.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
         if mode != "wal" {
             return Err(CatalogError::Unavailable(
                 "SQLite WAL mode is required".into(),
             ));
         }
     }
-    connection
-        .execute_batch("PRAGMA synchronous = FULL; PRAGMA wal_autocheckpoint = 256;")
-        .map_err(unavailable)?;
+    connection.execute_batch("PRAGMA synchronous = FULL; PRAGMA wal_autocheckpoint = 256;")?;
     Ok(connection)
 }
 
 fn open_memory(max_bytes: u64) -> Result<Connection, CatalogError> {
-    let connection = Connection::open_in_memory().map_err(unavailable)?;
+    let connection = Connection::open_in_memory()?;
     connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
-    connection.execute_batch("PRAGMA page_size = 4096; PRAGMA foreign_keys = ON; PRAGMA temp_store = MEMORY; PRAGMA cache_size = -2048;").map_err(unavailable)?;
+    connection.execute_batch("PRAGMA page_size = 4096; PRAGMA foreign_keys = ON; PRAGMA temp_store = MEMORY; PRAGMA cache_size = -2048;")?;
     let pages = i64::try_from(max_bytes / 4096).map_err(unavailable)?;
-    connection
-        .pragma_update(None, "max_page_count", pages)
-        .map_err(unavailable)?;
-    connection
-        .pragma_update(Some("temp"), "max_page_count", pages)
-        .map_err(unavailable)?;
+    connection.pragma_update(None, "max_page_count", pages)?;
+    connection.pragma_update(Some("temp"), "max_page_count", pages)?;
     Ok(connection)
 }
 
@@ -793,10 +760,8 @@ fn open_memory(max_bytes: u64) -> Result<Connection, CatalogError> {
     reason = "creates a new catalog once at open"
 )]
 fn initialize_catalog(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction
-        .execute_batch(BUCKET_SCHEMA)
-        .map_err(unavailable)?;
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(BUCKET_SCHEMA)?;
     // Freshness and the retryable seed state must survive the same commit.
     for schema in [
         objects::SCHEMA,
@@ -804,14 +769,10 @@ fn initialize_catalog(connection: &mut Connection) -> Result<(), CatalogError> {
         objects::METADATA_SCHEMA,
         SEED_SCHEMA,
     ] {
-        transaction.execute_batch(schema).map_err(unavailable)?;
+        transaction.execute_batch(schema)?;
     }
-    transaction
-        .execute("INSERT INTO object_generation VALUES (1, 0)", [])
-        .map_err(unavailable)?;
-    transaction
-        .execute("INSERT INTO startup_seed VALUES (1, 0)", [])
-        .map_err(unavailable)?;
+    transaction.execute("INSERT INTO object_generation VALUES (1, 0)", [])?;
+    transaction.execute("INSERT INTO startup_seed VALUES (1, 0)", [])?;
     transaction.commit().map_err(unavailable)
 }
 
@@ -820,14 +781,10 @@ fn initialize_catalog(connection: &mut Connection) -> Result<(), CatalogError> {
     reason = "a one-time schema migration at open"
 )]
 fn migrate_seed(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction
-        .execute_batch(SEED_SCHEMA)
-        .map_err(unavailable)?;
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(SEED_SCHEMA)?;
     // Older catalogs have already served user mutations, even if now empty.
-    transaction
-        .execute("INSERT INTO startup_seed VALUES (1, 1)", [])
-        .map_err(unavailable)?;
+    transaction.execute("INSERT INTO startup_seed VALUES (1, 1)", [])?;
     transaction.commit().map_err(unavailable)
 }
 
@@ -841,8 +798,8 @@ impl Migration {
     fn apply(&self, connection: &mut Connection) -> Result<(), CatalogError> {
         match self {
             Self::Statements(schema) => {
-                let transaction = connection.transaction().map_err(unavailable)?;
-                transaction.execute_batch(schema).map_err(unavailable)?;
+                let transaction = connection.transaction()?;
+                transaction.execute_batch(schema)?;
                 transaction.commit().map_err(unavailable)
             }
             Self::Function(migrate) => migrate(connection),
@@ -857,7 +814,7 @@ const MIGRATIONS: &[(i64, Migration)] = &[
     (5, Migration::Function(migrate_seed)),
     (6, Migration::Function(policies::migrate)),
     (7, Migration::Function(resumable::migrate)),
-    (8, Migration::Function(migrate_bucket_settings)),
+    (8, Migration::Statements(BUCKET_SETTINGS_SCHEMA)),
     (9, Migration::Function(objects::migrate_versioning)),
     (10, Migration::Statements(derived::SCHEMA)),
     (11, Migration::Statements(rewrite::SCHEMA)),
@@ -867,27 +824,27 @@ const MIGRATIONS: &[(i64, Migration)] = &[
         TIMESTAMP_MICROS_SCHEMA_VERSION,
         Migration::Function(migrate_timestamp_precision),
     ),
-    (15, Migration::Function(change_journal::migrate)),
-    (16, Migration::Function(import_journal::migrate)),
+    (15, Migration::Statements(change_journal::SCHEMA)),
+    (16, Migration::Statements(import_journal::SCHEMA)),
     (17, Migration::Function(sync_state::migrate)),
-    (18, Migration::Function(import_journal::migrate_failure)),
-    (19, Migration::Function(sync_state::root::migrate)),
-    (20, Migration::Function(sync_state::writeback::migrate)),
-    (21, Migration::Function(sync_state::findings::migrate)),
+    (18, Migration::Statements(import_journal::FAILURE_SCHEMA)),
+    (19, Migration::Statements(sync_state::root::SCHEMA)),
+    (20, Migration::Statements(sync_state::writeback::SCHEMA)),
+    (21, Migration::Statements(sync_state::findings::SCHEMA)),
     (22, Migration::Statements(OBJECT_HOLDS_CUSTOM_TIME_SCHEMA)),
     (23, Migration::Statements(BUCKET_UNIFORM_ACCESS_SCHEMA)),
     (24, Migration::Statements(BUCKET_LIFECYCLE_SCHEMA)),
     (25, Migration::Statements(BUCKET_RETENTION_SCHEMA)),
     (26, Migration::Statements(SOFT_DELETE_SCHEMA)),
-    (27, Migration::Function(sync_state::buckets::migrate)),
-    (28, Migration::Function(notifications::migrate)),
+    (27, Migration::Statements(sync_state::buckets::SCHEMA)),
+    (28, Migration::Statements(notifications::SCHEMA)),
     (29, Migration::Function(objects::retention::migrate)),
     (30, Migration::Function(customer_keys::migrate)),
-    (31, Migration::Function(bucket_autoclass::migrate)),
-    (32, Migration::Function(hmac_keys::migrate)),
-    (33, Migration::Function(acl::migrate)),
-    (34, Migration::Function(appendable::migrate)),
-    (35, Migration::Function(upload_replay::migrate)),
+    (31, Migration::Statements(bucket_autoclass::SCHEMA)),
+    (32, Migration::Statements(hmac_keys::SCHEMA)),
+    (33, Migration::Statements(acl::SCHEMA)),
+    (34, Migration::Statements(appendable::SCHEMA)),
+    (35, Migration::Statements(upload_replay::SCHEMA)),
     (36, Migration::Statements(md5_availability::SCHEMA)),
     (37, Migration::Statements(xml_multipart::SCHEMA)),
     (38, Migration::Statements(notification_outbox::SCHEMA)),
@@ -920,47 +877,43 @@ fn recover_on_open(
     data_dir: &Path,
     clock: &dyn Clock,
 ) -> Result<(), CatalogError> {
-    let pending: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(unavailable)?;
+    let pending: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)",
+        [],
+        |row| row.get(0),
+    )?;
     if pending {
-        connection.execute("UPDATE sync_writeback_roots SET recovery=1 WHERE EXISTS(SELECT 1 FROM sync_writeback_ops p WHERE p.root_id=sync_writeback_roots.root_id AND p.phase!=4)",[]).map_err(unavailable)?;
+        connection.execute("UPDATE sync_writeback_roots SET recovery=1 WHERE EXISTS(SELECT 1 FROM sync_writeback_ops p WHERE p.root_id=sync_writeback_roots.root_id AND p.phase!=4)",[])?;
     }
-    let journal_enabled: bool = connection
-        .query_row(
-            "SELECT enabled FROM change_journal_state WHERE singleton = 1",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(unavailable)?;
+    let journal_enabled: bool = connection.query_row(
+        "SELECT enabled FROM change_journal_state WHERE singleton = 1",
+        [],
+        |row| row.get(0),
+    )?;
     if journal_enabled {
         // shortcut: restart requires a full rescan, add durable consumer checkpoints when restart continuity is needed.
-        connection
-                        .execute(
-                "UPDATE change_journal_state SET enabled = 0, epoch = epoch + 1 WHERE singleton = 1",
-                [],
-            )
-            .map_err(unavailable)?;
+        connection.execute(
+            "UPDATE change_journal_state SET enabled = 0, epoch = epoch + 1 WHERE singleton = 1",
+            [],
+        )?;
     }
-    connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(unavailable)?;
+    connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
     notification_outbox::open(connection)?;
-    let has_deletion_revision: bool = connection
-        .prepare_cached(
-            "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets WHERE valid=1 OR authorization!=0)",
-        )
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .map_err(unavailable)?;
+    let has_deletion_revision: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets WHERE valid=1 OR authorization!=0)",
+        [],
+    )?;
     if has_deletion_revision {
-        connection.execute_batch("UPDATE sync_deletion_sets SET valid=0,authorization=0 WHERE valid=1 OR authorization!=0;").map_err(unavailable)?;
+        connection.execute_batch("UPDATE sync_deletion_sets SET valid=0,authorization=0 WHERE valid=1 OR authorization!=0;")?;
     }
-    let has_conflict_revision:bool=connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_conflict_roots UNION ALL SELECT 1 FROM sync_recovery_workspaces)")
-        .and_then(|mut statement|statement.query_row([],|row|row.get(0))).map_err(unavailable)?;
+    let has_conflict_revision: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM sync_conflict_roots UNION ALL SELECT 1 FROM sync_recovery_workspaces)",
+        [],
+    )?;
     if has_conflict_revision {
-        connection.execute_batch("UPDATE sync_conflict_roots SET revision=lower(hex(randomblob(16))); UPDATE sync_recovery_workspaces SET revision=lower(hex(randomblob(16)));").map_err(unavailable)?;
+        connection.execute_batch("UPDATE sync_conflict_roots SET revision=lower(hex(randomblob(16))); UPDATE sync_recovery_workspaces SET revision=lower(hex(randomblob(16)));")?;
     }
     let recovery_now = unix_millis(clock.now())?;
     rewrite::recover_due(connection, recovery_now)?;
@@ -1045,8 +998,7 @@ impl Catalog {
             }
             // A version marker alone must not make a missing or incompatible schema ready.
             connection
-                .prepare_cached("SELECT name, project, location, location_type, storage_class, labels, metageneration, time_created, updated FROM buckets LIMIT 0")
-                .map_err(unavailable)?;
+                .prepare_cached("SELECT name, project, location, location_type, storage_class, labels, metageneration, time_created, updated FROM buckets LIMIT 0")?;
             for (before, migration) in MIGRATIONS {
                 if version < *before {
                     migration.apply(&mut connection)?;
@@ -1061,7 +1013,7 @@ impl Catalog {
                 );
             }
             if memory_limits.is_some() {
-                connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(unavailable)?;
+                connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;")?;
                 notification_outbox::open(&connection)?;
             } else {
                 recover_on_open(&mut connection, &data_dir, &*clock)?;
@@ -1072,7 +1024,7 @@ impl Catalog {
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),
-                executor: executor::Executor::start().map_err(unavailable)?,
+                executor: executor::Executor::start()?,
                 reclamation: Arc::new(Semaphore::new(1)),
                 uploads: Mutex::new(UploadState::default()),
                 uploads_idle: Notify::new(),
@@ -1083,7 +1035,7 @@ impl Catalog {
                 publication_batch: Arc::new(Semaphore::new(1)),
                 publication_requests: Arc::new(Semaphore::new(2)),
                 writeback_execution: Arc::new(Semaphore::new(1)),
-                file_workers: admin::FileWorkers::new().map_err(unavailable)?,
+                file_workers: admin::FileWorkers::new()?,
                 admin_shutdown: Notify::new(),
                 sync_control: Mutex::new(None),
                 local_admin: admin::startup_grant(local_admin),
@@ -1109,8 +1061,7 @@ impl Catalog {
                 maintenance_panics: std::sync::atomic::AtomicUsize::new(0),
             })))
         })
-        .await
-        .map_err(unavailable)??;
+        .await??;
         Ok(catalog)
     }
 
@@ -1236,7 +1187,7 @@ impl Catalog {
                         lock.release().map_err(unavailable)?;
                     }
                     if let Some(memory) = &inner.memory {
-                        memory.clear().map_err(unavailable)?;
+                        memory.clear()?;
                     }
                 }
                 Ok(())
@@ -1250,10 +1201,10 @@ impl Catalog {
         }
     }
 
-    async fn run<T: Send + 'static>(
+    async fn run<T: Send + 'static, E: From<CatalogError> + Send + 'static>(
         &self,
-        operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
-    ) -> Result<T, CatalogError> {
+        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
         let admission = self
             .0
             .admission
@@ -1271,10 +1222,10 @@ impl Catalog {
         self.run_admitted(admission, operation).await
     }
 
-    async fn run_waiting<T: Send + 'static>(
+    async fn run_waiting<T: Send + 'static, E: From<CatalogError> + Send + 'static>(
         &self,
-        operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
-    ) -> Result<T, CatalogError> {
+        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
         let admission = self
             .0
             .admission
@@ -1285,11 +1236,11 @@ impl Catalog {
         self.run_admitted(admission, operation).await
     }
 
-    async fn run_admitted<T: Send + 'static>(
+    async fn run_admitted<T: Send + 'static, E: From<CatalogError> + Send + 'static>(
         &self,
         admission: tokio::sync::OwnedSemaphorePermit,
-        operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
-    ) -> Result<T, CatalogError> {
+        operation: impl FnOnce(&mut Connection) -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
         let activity = self.activity()?;
         let execution = self
             .0
@@ -1306,9 +1257,9 @@ impl Catalog {
                 let result = match inner.with_connection(operation) {
                     Ok(result) => result,
                     Err(ConnectionUnavailable::Closed) => {
-                        Err(CatalogError::Unavailable("catalog is closed".into()))
+                        Err(CatalogError::Unavailable("catalog is closed".into()).into())
                     }
-                    Err(error) => Err(unavailable(error)),
+                    Err(error) => Err(unavailable(error).into()),
                 };
                 // Release ownership before the reply publishes completion to an immediate reopen.
                 drop(inner);
@@ -1340,9 +1291,7 @@ impl Catalog {
         let default_retention = self.default_soft_delete_retention();
         self.run(move |connection| {
             validate_cors(&record.cors)?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(unavailable)?;
+            let transaction = sql::immediate(connection)?;
             insert_bucket_in_transaction(&transaction, &mut record, default_retention)?;
             change_journal::append(
                 &transaction,
@@ -1351,7 +1300,7 @@ impl Catalog {
                 &record.name,
                 None,
             )?;
-            transaction.commit().map_err(unavailable)?;
+            transaction.commit()?;
             Ok(record)
         })
         .await
@@ -1417,11 +1366,8 @@ impl Catalog {
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
         self.run(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(unavailable)?;
-            let mut record = select_bucket(&transaction, &name)
-                .map_err(unavailable)?
+            let transaction = sql::immediate(connection)?;
+            let mut record = select_bucket(&transaction, &name)?
                 .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &record.project, &access)?;
             let pap = update.public_access_prevention_enforced.unwrap_or(record.public_access_prevention_enforced);
@@ -1477,12 +1423,11 @@ impl Catalog {
                 .checked_add(1)
                 .ok_or_else(|| unavailable("bucket metageneration exhausted"))?;
             let updated = unix_micros(clock.now())?;
-            record.updated = system_time_micros(updated).map_err(unavailable)?;
+            record.updated = system_time_micros(updated)?;
             record.uniform_bucket_level_access_locked_time = record.uniform_bucket_level_access_locked_time
                 .map(|time| unix_micros(time).and_then(|time| system_time_micros(time).map_err(unavailable))).transpose()?;
             transaction
-                .prepare_cached(UPDATE_BUCKET)
-                .map_err(unavailable)?
+                .prepare_cached(UPDATE_BUCKET)?
                 .execute(
                     params![
                         name,
@@ -1500,8 +1445,7 @@ impl Catalog {
                         record.soft_delete_policy.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?,
                         record.versioning_configured,
                     ],
-                )
-                .map_err(unavailable)?;
+                )?;
             for (target, entries) in [
                 (acl::ResolvedAclTarget::Bucket(&name), update.acl),
                 (acl::ResolvedAclTarget::DefaultObject(&name), update.default_object_acl),
@@ -1511,7 +1455,7 @@ impl Catalog {
                 }
             }
             change_journal::append(&transaction, change_journal::origin(&access), change_journal::ChangeKind::BucketUpdate, &name, None)?;
-            transaction.commit().map_err(unavailable)?;
+            transaction.commit()?;
             Ok(record)
         })
         .await
@@ -1522,23 +1466,21 @@ impl Catalog {
         transaction: &rusqlite::Transaction<'_>,
         name: &str,
     ) -> Result<(objects::Versioning, bool), CatalogError> {
-        transaction
-            .prepare_cached(
-                "SELECT versioning_enabled, default_event_based_hold FROM buckets WHERE name = ?1",
-            )
-            .and_then(|mut statement| {
-                statement.query_row([name], |row| {
-                    let versioning = if row.get(0)? {
-                        objects::Versioning::Enabled
-                    } else {
-                        objects::Versioning::Disabled
-                    };
-                    Ok((versioning, row.get(1)?))
-                })
-            })
-            .optional()
-            .map_err(unavailable)?
-            .ok_or(CatalogError::NotFound)
+        sql::row(
+            transaction,
+            "SELECT versioning_enabled, default_event_based_hold FROM buckets WHERE name = ?1",
+            [name],
+            |row| {
+                let versioning = if row.get(0)? {
+                    objects::Versioning::Enabled
+                } else {
+                    objects::Versioning::Disabled
+                };
+                Ok((versioning, row.get(1)?))
+            },
+        )
+        .optional()?
+        .ok_or(CatalogError::NotFound)
     }
 
     /// Reads the bucket and checks `access` against the owner observed by the same read.
@@ -1550,8 +1492,8 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         self.run(move |connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
-            let record = select_bucket(&transaction, &name).map_err(unavailable)?;
+            let transaction = connection.transaction()?;
+            let record = select_bucket(&transaction, &name)?;
             if let Some(record) = &record {
                 check_access(&transaction, &name, &record.project, &access)?;
             }
@@ -1565,13 +1507,13 @@ impl Catalog {
     pub(crate) async fn bucket_has_cors(&self, name: &str) -> Result<bool, CatalogError> {
         let name = name.to_owned();
         self.run(move |connection| {
-            let stored = connection
-                .prepare_cached("SELECT cors FROM buckets WHERE name = ?1")
-                .and_then(|mut statement| {
-                    statement.query_row([name], |row| row.get::<_, String>(0))
-                })
-                .optional()
-                .map_err(unavailable)?;
+            let stored = sql::row(
+                connection,
+                "SELECT cors FROM buckets WHERE name = ?1",
+                [name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
             Ok(stored.is_some_and(|cors| cors != "[]"))
         })
         .await
@@ -1661,45 +1603,34 @@ impl Catalog {
         let maintenance_wake = self.0.maintenance_wake.clone();
         let clock = self.0.clock.clone();
         self.run(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(unavailable)?;
-            let (metageneration, project): (i64, String) = transaction
-                .prepare_cached("SELECT metageneration, project FROM buckets WHERE name = ?1")
-                .and_then(|mut statement| {
-                    statement.query_row([&name], |r| Ok((r.get(0)?, r.get(1)?)))
-                })
-                .optional()
-                .map_err(unavailable)?
-                .ok_or(CatalogError::NotFound)?;
+            let transaction = sql::immediate(connection)?;
+            let (metageneration, project): (i64, String) = sql::row(
+                &transaction,
+                "SELECT metageneration, project FROM buckets WHERE name = ?1",
+                [&name],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?
+            .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &project, &access)?;
             if if_metageneration_match.is_some_and(|value| value != metageneration)
                 || if_metageneration_not_match == Some(metageneration)
             {
                 return Err(CatalogError::PreconditionFailed);
             }
-            let nonempty: bool = transaction
-                .prepare_cached(
-                    "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL)",
-                )
-                .and_then(|mut statement| statement.query_row([&name], |r| r.get(0)))
-                .map_err(unavailable)?;
+            const NONEMPTY: &str = "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL)";
+            let nonempty: bool = sql::scalar(&transaction, NONEMPTY, [&name])?;
             if nonempty {
                 return Err(CatalogError::NotEmpty);
             }
             // With a soft delete policy the version and its retained objects move aside first,
             // so the permanent deletions below no longer find them.
             bucket_soft_delete::retire(&transaction, &name, unix_micros(clock.now())?)?;
-            let execute = |sql: &'static str| {
-                transaction
-                    .prepare_cached(sql)
-                    .and_then(|mut statement| statement.execute([&name]))
-                    .map_err(unavailable)
-            };
-            execute(
+            sql::exec(&transaction,
                 "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1",
+                [&name],
             )?;
-            execute("DELETE FROM objects WHERE bucket = ?1")?;
+            sql::exec(&transaction, "DELETE FROM objects WHERE bucket = ?1", [&name])?;
             change_journal::append(
                 &transaction,
                 change_journal::origin(&access),
@@ -1707,10 +1638,10 @@ impl Catalog {
                 &name,
                 None,
             )?;
-            execute("DELETE FROM bucket_policies WHERE bucket = ?1")?;
-            execute("DELETE FROM bucket_incarnations WHERE bucket = ?1")?;
-            execute("DELETE FROM sync_objects WHERE bucket = ?1")?;
-            execute("DELETE FROM buckets WHERE name = ?1")?;
+            sql::exec(&transaction, "DELETE FROM bucket_policies WHERE bucket = ?1", [&name])?;
+            sql::exec(&transaction, "DELETE FROM bucket_incarnations WHERE bucket = ?1", [&name])?;
+            sql::exec(&transaction, "DELETE FROM sync_objects WHERE bucket = ?1", [&name])?;
+            sql::exec(&transaction, "DELETE FROM buckets WHERE name = ?1", [&name])?;
             let result = transaction.commit().map_err(unavailable);
             // Commit failures may be ambiguous; cleanup rechecks the current bucket incarnation.
             maintenance_wake.notify_one();
@@ -1791,16 +1722,11 @@ fn validate_retention_expiration(
         253_402_300_799_999_999_i128 - i128::from(policy.retention_period) * 1_000_000,
     )
     .map_err(unavailable)?;
-    let invalid: bool = connection
-        .prepare_cached(
-            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND time_created > ?2)",
-        )
-        .and_then(|mut statement| {
-            statement.query_row(rusqlite::params![record.name, latest_creation], |row| {
-                row.get(0)
-            })
-        })
-        .map_err(unavailable)?;
+    let invalid: bool = sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND time_created > ?2)",
+        rusqlite::params![record.name, latest_creation],
+    )?;
     if invalid {
         return Err(CatalogError::InvalidMetadata("Bucket retention would place an existing object's expiration outside the supported RFC3339 UTC range".into()));
     }
@@ -2008,21 +1934,19 @@ fn bucket_list_page(
         values.push(Value::Blob(upper));
     }
     values.push(Value::Integer(limit as i64 + 1));
-    let mut statement = connection.prepare_cached(sql).map_err(unavailable)?;
-    let mut rows = statement
-        .query(rusqlite::params_from_iter(values))
-        .map_err(unavailable)?;
+    let mut statement = connection.prepare_cached(sql)?;
+    let mut rows = statement.query(rusqlite::params_from_iter(values))?;
     let mut records = Vec::new();
     let mut remaining = BUCKET_LIST_METADATA_BUDGET;
     let mut has_more = false;
-    while let Some(row) = rows.next().map_err(unavailable)? {
+    while let Some(row) = rows.next()? {
         // Charge typed rules, JSON values and serialization before allocating any of them.
         let charge = bucket_metadata_charge(row)?;
         if records.len() == limit || (!records.is_empty() && charge > remaining) {
             has_more = !records.is_empty();
             break;
         }
-        records.push(read_bucket(row).map_err(unavailable)?);
+        records.push(read_bucket(row)?);
         remaining = remaining.saturating_sub(charge);
     }
     Ok(BucketListPage {
@@ -2043,12 +1967,7 @@ fn bucket_metadata_charge(row: &Row<'_>) -> Result<usize, CatalogError> {
         (11, 64),
         (14, 64),
     ] {
-        let bytes = row
-            .get_ref(column)
-            .map_err(unavailable)?
-            .as_str()
-            .map_err(unavailable)?
-            .len();
+        let bytes = row.get_ref(column)?.as_str().map_err(unavailable)?.len();
         charge = charge.saturating_add(bytes.saturating_mul(multiplier));
     }
     Ok(charge)
@@ -2083,8 +2002,8 @@ fn insert_bucket_in_transaction(
         .unwrap_or_else(|_| created.saturating_mul(1000))
         .min(MAX_GENERATION_SEED);
     let updated = unix_micros(record.updated)?;
-    record.time_created = system_time_micros(created).map_err(unavailable)?;
-    record.updated = system_time_micros(updated).map_err(unavailable)?;
+    record.time_created = system_time_micros(created)?;
+    record.updated = system_time_micros(updated)?;
     record.uniform_bucket_level_access_locked_time = record
         .uniform_bucket_level_access_locked_time
         .map(|time| {
@@ -2095,70 +2014,69 @@ fn insert_bucket_in_transaction(
     // Cloud Storage bucket generations are 19-digit nanosecond values. A dedicated allocator
     // keeps them unique and increasing even under a frozen injected clock, and across a
     // recreated name's soft-deleted versions, without disturbing object generations.
-    let last: i64 = transaction
-        .prepare_cached("SELECT last_generation FROM bucket_generation WHERE singleton = 1")
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .map_err(unavailable)?;
+    let last: i64 = sql::scalar(
+        transaction,
+        "SELECT last_generation FROM bucket_generation WHERE singleton = 1",
+        [],
+    )?;
     record.generation = created_nanos.max(
         last.checked_add(1)
             .ok_or_else(|| unavailable("generation exhausted"))?,
     );
-    let changed = transaction
-        .prepare_cached(INSERT_BUCKET)
-        .map_err(unavailable)?
-        .execute(params![
-            record.name,
-            record.project,
-            record.location,
-            record.location_type,
-            record.storage_class,
-            labels,
-            record.metageneration,
-            created,
-            updated,
-            record.versioning_enabled,
-            record.default_event_based_hold,
-            cors_value(&record.cors).to_string(),
-            record.public_access_prevention_enforced,
-            record
-                .uniform_bucket_level_access_locked_time
-                .map(unix_micros)
-                .transpose()?,
-            serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
-            record
-                .retention_policy
-                .as_ref()
-                .map(serde_json::to_string)
-                .transpose()
-                .map_err(unavailable)?,
-            record
-                .soft_delete_policy
-                .as_ref()
-                .map(serde_json::to_string)
-                .transpose()
-                .map_err(unavailable)?,
-            record.object_retention_enabled,
-            record.generation,
-            record.versioning_configured,
-        ])
-        .map_err(unavailable)?;
+    let changed = transaction.prepare_cached(INSERT_BUCKET)?.execute(params![
+        record.name,
+        record.project,
+        record.location,
+        record.location_type,
+        record.storage_class,
+        labels,
+        record.metageneration,
+        created,
+        updated,
+        record.versioning_enabled,
+        record.default_event_based_hold,
+        cors_value(&record.cors).to_string(),
+        record.public_access_prevention_enforced,
+        record
+            .uniform_bucket_level_access_locked_time
+            .map(unix_micros)
+            .transpose()?,
+        serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
+        record
+            .retention_policy
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(unavailable)?,
+        record
+            .soft_delete_policy
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(unavailable)?,
+        record.object_retention_enabled,
+        record.generation,
+        record.versioning_configured,
+    ])?;
     if changed == 0 {
         return Err(CatalogError::AlreadyExists);
     }
-    transaction
-        .prepare_cached("UPDATE bucket_generation SET last_generation = ?1 WHERE singleton = 1")
-        .and_then(|mut statement| statement.execute([record.generation]))
-        .map_err(unavailable)?;
+    sql::exec(
+        transaction,
+        "UPDATE bucket_generation SET last_generation = ?1 WHERE singleton = 1",
+        [record.generation],
+    )?;
     bucket_autoclass::insert(transaction, record)?;
     insert_policy(
         transaction,
         &record.name,
         &Policy::default_for(&record.project),
     )?;
-    transaction
-        .prepare_cached("INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))")
-        .and_then(|mut statement| statement.execute([&record.name]))
-        .map_err(unavailable)?;
+    sql::exec(
+        transaction,
+        "INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))",
+        [&record.name],
+    )?;
     Ok(())
 }
 
@@ -2272,8 +2190,17 @@ mod tests {
     /// Shutdown must not look like overload: only a full catalog asks the client to retry.
     #[tokio::test]
     async fn a_closed_catalog_reports_closed_and_a_full_one_reports_its_limit() {
+        use crate::object::ObjectError;
+
         let dir = crate::test_support::TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
+        assert_eq!(
+            catalog
+                .run::<(), ObjectError>(|_| Err(ObjectError::ObjectNotFound))
+                .await
+                .unwrap_err(),
+            ObjectError::ObjectNotFound
+        );
         let record =
             crate::json::parse_insert(br#"{"name":"admission"}"#, "project", UNIX_EPOCH).unwrap();
         let held = catalog
@@ -2293,6 +2220,14 @@ mod tests {
         assert!(
             matches!(&closed, CatalogError::Unavailable(cause) if *cause == "catalog is closed"),
             "{closed}"
+        );
+        let closed_object = catalog
+            .run::<(), ObjectError>(|_| Ok(()))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            closed_object,
+            ObjectError::from(CatalogError::Unavailable("catalog is closed".into()))
         );
     }
 
@@ -2430,7 +2365,9 @@ mod tests {
                 10,
             );
         }
-        let error = migrate_bucket_settings(&mut connection).unwrap_err();
+        let error = Migration::Statements(BUCKET_SETTINGS_SCHEMA)
+            .apply(&mut connection)
+            .unwrap_err();
         assert!(error.to_string().contains("too many columns"), "{error}");
         assert_eq!(
             connection
@@ -2459,7 +2396,9 @@ mod tests {
                 2000,
             );
         }
-        migrate_bucket_settings(&mut connection).unwrap();
+        Migration::Statements(BUCKET_SETTINGS_SCHEMA)
+            .apply(&mut connection)
+            .unwrap();
         assert_eq!(
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
@@ -2543,7 +2482,7 @@ mod tests {
                 .run(move |_| {
                     started.send(()).unwrap();
                     finish.recv().unwrap();
-                    Ok(())
+                    Ok::<_, CatalogError>(())
                 })
                 .await
         });
@@ -2604,7 +2543,7 @@ mod tests {
     /// Opens a raw transaction that rusqlite will not roll back on unwind, then panics.
     async fn panic_inside_transaction(catalog: &Catalog) -> CatalogError {
         catalog
-            .run::<()>(|connection| {
+            .run::<(), CatalogError>(|connection| {
                 connection
                     .execute_batch("BEGIN IMMEDIATE; CREATE TABLE panic_probe (x INTEGER);")
                     .unwrap();
@@ -2722,20 +2661,17 @@ mod tests {
                     ("user_version", CATALOG_SCHEMA_VERSION),
                 ] {
                     assert_eq!(
-                        connection
-                            .pragma_query_value(None, pragma, |row| row.get::<_, i64>(0))
-                            .map_err(unavailable)?,
+                        connection.pragma_query_value(None, pragma, |row| row.get::<_, i64>(0))?,
                         expected,
                         "{pragma}"
                     );
                 }
                 assert_eq!(
                     connection
-                        .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
-                        .map_err(unavailable)?,
+                        .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))?,
                     "wal"
                 );
-                Ok(())
+                Ok::<_, CatalogError>(())
             })
             .await
             .unwrap();

@@ -2,6 +2,7 @@
 
 use super::objects::object_unavailable as objects_error;
 use super::*;
+use crate::storage::catalog::sql;
 use crate::{fsutil, hashing::Hasher, storage::failure::BackendCause};
 use std::{
     fs::{File, OpenOptions},
@@ -68,10 +69,10 @@ impl FileWorkers {
         })
     }
 
-    pub(crate) async fn run<T: Send + 'static>(
+    pub(crate) async fn run<T: Send + 'static, E: From<AdminError> + Send + 'static>(
         &self,
-        job: impl FnOnce() -> Result<T, AdminError> + Send + 'static,
-    ) -> Result<T, AdminError> {
+        job: impl FnOnce() -> Result<T, E> + Send + 'static,
+    ) -> Result<T, E> {
         let permit = self
             .slots
             .clone()
@@ -85,7 +86,7 @@ impl FileWorkers {
                 // A panicking job must neither end its worker, which would shrink the pool for
                 // every later job, nor leave its caller without a reply.
                 let result = crate::task::catch_job(FILE_WORKER, job)
-                    .unwrap_or_else(|panicked| Err(AdminError::backend(panicked)));
+                    .unwrap_or_else(|panicked| Err(AdminError::backend(panicked).into()));
                 let _ = sender.send(result);
             }))
             .map_err(|error| AdminError::backend(without_job(&error)))?;
@@ -337,11 +338,7 @@ async fn cleanup(catalog: &Catalog, id: String) -> Result<(), AdminError> {
     let probe = id.clone();
     let referenced = catalog
         .run_upload(move |connection| {
-            // Shares the cached statement of the upload path's unreferenced-stage probe.
-            connection
-                .prepare_cached("SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)")
-                .and_then(|mut statement| statement.query_row([probe], |row| row.get::<_, bool>(0)))
-                .map_err(objects_error)
+            objects::blob_referenced(connection, &probe).map_err(objects_error)
         })
         .await
         .map_err(AdminError::from)?;
@@ -694,7 +691,7 @@ async fn run_batch(
                 .file_workers
                 .run(move || {
                     objects::publish_blob(&stage, &blob)?;
-                    Ok(())
+                    Ok::<_, AdminError>(())
                 })
                 .await?;
             entry.staged.published = true;
@@ -757,9 +754,7 @@ fn commit_batch(
     budget: Duration,
     import: Option<&ImportBatch>,
 ) -> Result<CommittedBatch, ObjectError> {
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(objects_error)?;
+    let transaction = sql::immediate(connection).map_err(objects_error)?;
     let started = std::time::Instant::now();
     if let Some(import) = import {
         import_journal::check_publication(&transaction, &import.binding, import.cursor).map_err(
@@ -855,36 +850,14 @@ fn publication_record(
     generation: i64,
     defaults: objects::PublicationDefaults,
 ) -> Result<ObjectRecord, ObjectError> {
-    let mut record = ObjectRecord {
-        bucket: entry.bucket.as_str().into(),
-        name: entry.name.as_str().into(),
+    let mut record = defaults.record(
+        entry.bucket.as_str().into(),
+        entry.name.as_str().into(),
         generation,
-        metageneration: 1,
-        owner: defaults.owner,
-        content_type: entry.request.content_type.clone(),
-        size: entry.staged.size,
-        md5: entry.staged.hashes.md5,
-        md5_availability: Default::default(),
-        crc32c: entry.staged.hashes.crc32c,
-        component_count: None,
-        storage_class: defaults.storage_class,
-        content_encoding: None,
-        content_disposition: None,
-        content_language: None,
-        cache_control: None,
-        metadata: Default::default(),
-        time_created: defaults.time,
-        updated: defaults.time,
-        time_deleted: None,
-        soft_delete_time: None,
-        hard_delete_time: None,
-        event_based_hold: defaults.event_based_hold.then_some(true),
-        temporary_hold: None,
-        custom_time: None,
-        retention_expiration_time: None,
-        retention: None,
-        customer_key_sha256: None,
-    };
+        entry.request.content_type.clone(),
+        entry.staged.size,
+        entry.staged.hashes,
+    );
     entry.request.metadata.clone().apply(&mut record)?;
     if let Some(identity) = entry.staged.import_identity {
         record.time_created = identity.time_created();
@@ -1014,8 +987,7 @@ fn record_publication_metadata(
         .and_then(ImportedIdentity::time_deleted)
     {
         let micros = super::super::unix_micros(deleted).map_err(objects_error)?;
-        transaction.prepare_cached("UPDATE objects SET time_deleted = ?4 WHERE bucket = ?1 AND name = ?2 AND generation = ?3")
-            .and_then(|mut statement| statement.execute(rusqlite::params![record.bucket, record.name, record.generation, micros]))
+        sql::exec(transaction, "UPDATE objects SET time_deleted = ?4 WHERE bucket = ?1 AND name = ?2 AND generation = ?3", rusqlite::params![record.bucket, record.name, record.generation, micros])
             .map_err(objects_error)?;
         record.time_deleted = Some(deleted);
     }

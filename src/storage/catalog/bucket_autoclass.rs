@@ -5,17 +5,12 @@ use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CatalogError,
     autoclass::{self, AUTOCLASS_STORAGE_CLASS, Autoclass},
 };
+use crate::storage::catalog::sql;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, types::Type};
 use std::time::SystemTime;
 
 pub(super) const SCHEMA: &str =
     "ALTER TABLE buckets ADD COLUMN autoclass TEXT; PRAGMA user_version = 31;";
-
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
-    let transaction = connection.transaction().map_err(unavailable)?;
-    transaction.execute_batch(SCHEMA).map_err(unavailable)?;
-    transaction.commit().map_err(unavailable)
-}
 
 /// Read by column name so the bucket column list can grow independently.
 pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Option<Autoclass>> {
@@ -38,10 +33,11 @@ fn store(
         .map(serde_json::to_string)
         .transpose()
         .map_err(unavailable)?;
-    transaction
-        .prepare_cached("UPDATE buckets SET autoclass = ?2 WHERE name = ?1")
-        .and_then(|mut statement| statement.execute(rusqlite::params![bucket, value]))
-        .map_err(unavailable)?;
+    sql::exec(
+        transaction,
+        "UPDATE buckets SET autoclass = ?2 WHERE name = ?1",
+        rusqlite::params![bucket, value],
+    )?;
     Ok(())
 }
 
@@ -84,14 +80,11 @@ pub(super) fn update(
                 record.storage_class = AUTOCLASS_STORAGE_CLASS.to_owned();
             }
             // Enabling moves every object except soft-deleted ones to STANDARD storage.
-            transaction
-                .prepare_cached(
-                    "UPDATE objects SET storage_class = ?2 WHERE bucket = ?1 AND soft_delete_time IS NULL AND storage_class != ?2",
-                )
-                .and_then(|mut statement| {
-                    statement.execute([record.name.as_str(), AUTOCLASS_STORAGE_CLASS])
-                })
-                .map_err(unavailable)?;
+            sql::exec(
+                transaction,
+                "UPDATE objects SET storage_class = ?2 WHERE bucket = ?1 AND soft_delete_time IS NULL AND storage_class != ?2",
+                [record.name.as_str(), AUTOCLASS_STORAGE_CLASS],
+            )?;
         }
         if config != record.autoclass {
             store(transaction, &record.name, config.as_ref())?;
@@ -115,17 +108,17 @@ pub(crate) fn object_storage_class(
     requested: Option<String>,
     bucket_default: String,
 ) -> Result<String, CatalogError> {
-    let config = connection
-        .prepare_cached("SELECT autoclass FROM buckets WHERE name = ?1")
-        .and_then(|mut statement| {
-            statement.query_row([bucket], |row| row.get::<_, Option<String>>(0))
-        })
-        .optional()
-        .map_err(unavailable)?
-        .flatten()
-        .map(|value| serde_json::from_str::<Autoclass>(&value))
-        .transpose()
-        .map_err(|error| CatalogError::Corrupt(format!("bucket autoclass: {error}").into()))?;
+    let config = sql::row(
+        connection,
+        "SELECT autoclass FROM buckets WHERE name = ?1",
+        [bucket],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .optional()?
+    .flatten()
+    .map(|value| serde_json::from_str::<Autoclass>(&value))
+    .transpose()
+    .map_err(|error| CatalogError::Corrupt(format!("bucket autoclass: {error}").into()))?;
     Ok(autoclass::object_storage_class(
         config.as_ref(),
         requested,

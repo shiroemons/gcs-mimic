@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::admin::{BucketName, GenerationCondition, Origin, Publication, PublishMode};
+use crate::storage::catalog::sql;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -78,8 +79,11 @@ pub(crate) fn validate_restore(
 }
 
 fn active_restore(tx: &Transaction<'_>, binding: &ResolutionBinding) -> Result<(), ObjectError> {
-    let active:bool=tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_conflict_operations o JOIN sync_conflicts c ON c.id=o.target_id AND c.root_id=o.root_id WHERE o.root_id=?1 AND o.operation_id=?2 AND o.target_id=?3 AND o.target_kind=0 AND o.action=0 AND o.done=0 AND c.state=1)")
-        .and_then(|mut statement|statement.query_row(params![binding.root,binding.operation_id,binding.target_id],|row|row.get(0))).map_err(objects::object_unavailable)?;
+    let active: bool = sql::scalar(
+        tx,
+        "SELECT EXISTS(SELECT 1 FROM sync_conflict_operations o JOIN sync_conflicts c ON c.id=o.target_id AND c.root_id=o.root_id WHERE o.root_id=?1 AND o.operation_id=?2 AND o.target_id=?3 AND o.target_kind=0 AND o.action=0 AND o.done=0 AND c.state=1)",
+        params![binding.root, binding.operation_id, binding.target_id],
+    )?;
     if !active {
         return Err(ObjectError::PreconditionFailed);
     }
@@ -100,8 +104,11 @@ pub(crate) fn complete_restore(
     if record.bucket != binding.binding.bucket || record.name != binding.name.as_str() {
         return Err(ObjectError::PreconditionFailed);
     }
-    tx.prepare_cached("UPDATE sync_conflict_operations SET done=1,result_generation=?3 WHERE root_id=?1 AND operation_id=?2 AND done=0")
-        .and_then(|mut statement|statement.execute(params![binding.root,binding.operation_id,record.generation])).map_err(objects::object_unavailable)?;
+    sql::exec(
+        tx,
+        "UPDATE sync_conflict_operations SET done=1,result_generation=?3 WHERE root_id=?1 AND operation_id=?2 AND done=0",
+        params![binding.root, binding.operation_id, record.generation],
+    )?;
     #[cfg(test)]
     super::super::super::fault::hit(
         &super::super::super::fault::database_dir(tx),

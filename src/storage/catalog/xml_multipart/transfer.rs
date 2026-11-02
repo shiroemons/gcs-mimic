@@ -1,5 +1,6 @@
 use super::super::transfer_io::{InputReader, Output};
 use super::*;
+use crate::storage::catalog::sql;
 use crate::{
     hashing::Hasher,
     object::{ExpectedHashes, UploadChunk},
@@ -45,16 +46,12 @@ impl Catalog {
             let now=unix_millis(catalog.0.clock.now())?;
             let target=lease.upload.target.clone();
             let access=lease.access.clone();
-            let retained=catalog.run_object(move |connection| {
+            let retained=catalog.run(move |connection| -> Result<_, Error> {
                 let transaction=connection.transaction().map_err(object_unavailable)?;
-                let result=(|| -> Result<_,Error> {
-                    active(&transaction,&target,&access,now)?;
-                    objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
-                    transaction.prepare_cached("SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2")
-                        .and_then(|mut s|s.query_row(params![target.id,request.number],|r|r.get::<_,i64>(0))).map(|value|value as u64).map_err(object_unavailable).map_err(Error::from)
-                })();
-                Ok(result)
-            }).await??;
+                active(&transaction,&target,&access,now)?;
+                objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
+                sql::scalar::<i64>(&transaction, "SELECT coalesce(sum(size),0) FROM xml_multipart_parts WHERE upload_id=?1 AND number!=?2", params![target.id,request.number]).map(|value|value as u64).map_err(object_unavailable).map_err(Error::from)
+            }).await?;
             let budget=request.max_bytes.checked_sub(retained).ok_or(ObjectError::TooLarge)?.min(MAX_PART_BYTES);
             let blob=super::super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
             let id=blob.to_hex();
@@ -74,33 +71,28 @@ impl Catalog {
                 let clock=catalog.0.clock.clone();
                 #[cfg(unix)]
                 let memory=catalog.0.memory.clone();
-                catalog.run_object(move |connection| {
+                catalog.run(move |connection| -> Result<_, Error> {
                     if let objects::UploadSink::Memory(stage)=file { stage.publish(id.clone()).map_err(object_unavailable)?; }
                     #[cfg(unix)] if memory.is_none() { objects::sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?; }
                     #[cfg(test)] super::super::fault::hit(&data_dir,super::super::fault::Step::Checkpoint).map_err(object_unavailable)?;
-                    let transaction=connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(object_unavailable)?;
-                    let result=(|| -> Result<_,Error> {
-                        let now=unix_millis(clock.now())?;
-                        active(&transaction,&target,&access,now)?;
-                        objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
-                        transaction.prepare_cached("INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2")
-                            .and_then(|mut s|s.execute(params![target.id,request.number])).map_err(object_unavailable)?;
-                        transaction.prepare_cached("INSERT INTO xml_multipart_parts VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated")
-                            .and_then(|mut s|s.execute(params![target.id,request.number,id,size as i64,md5.as_slice(),crc32c,now])).map_err(object_unavailable)?;
-                        let stored=part(&transaction,&target.id,request.number)?;
-                        objects::commit_publication(transaction)?;
-                        Ok(stored)
-                    })();
-                    Ok(result)
-                }).await?
+                    let transaction=sql::immediate(connection).map_err(object_unavailable)?;
+                    let now=unix_millis(clock.now())?;
+                    active(&transaction,&target,&access,now)?;
+                    objects::authorized_bucket(&transaction,&target.bucket,&access_for(&access,Permission::ObjectsCreate))?;
+                    sql::exec(&transaction, "INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![target.id,request.number]).map_err(object_unavailable)?;
+                    sql::exec(&transaction, "INSERT INTO xml_multipart_parts VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated", params![target.id,request.number,id,size as i64,md5.as_slice(),crc32c,now]).map_err(object_unavailable)?;
+                    let stored=part(&transaction,&target.id,request.number)?;
+                    objects::commit_publication(transaction)?;
+                    Ok(stored)
+                }).await
             }.await;
             // An error after COMMIT is ambiguous: only reclaim a file without a committed reference.
             let data_dir=catalog.0.data_dir.clone();
             let memory=catalog.0.memory.clone();
-            if let Err(error)=catalog.run_object(move |connection| {
-                let referenced:bool=connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1)").and_then(|mut s|s.query_row([&id],|r|r.get(0))).map_err(object_unavailable)?;
+            if let Err(error)=catalog.run(move |connection| {
+                let referenced:bool=sql::scalar(connection, "SELECT EXISTS(SELECT 1 FROM xml_multipart_parts WHERE blob_id=?1)", [&id])?;
                 if !referenced {
-                    connection.prepare_cached("INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)").and_then(|mut s|s.execute([id])).map_err(object_unavailable)?;
+                    sql::exec(connection, "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)", [id])?;
                 }
                 maintenance::drain_storage(connection,&data_dir,memory.as_deref())?;
                 Ok(())
@@ -145,13 +137,12 @@ impl Catalog {
                 let orphan = id.clone();
                 let memory = catalog.0.memory.clone();
                 if let Err(cleanup) = catalog
-                    .run_object(move |connection| {
-                        connection
-                            .prepare_cached(
-                                "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)",
-                            )
-                            .and_then(|mut s| s.execute([orphan]))
-                            .map_err(object_unavailable)?;
+                    .run(move |connection| {
+                        sql::exec(
+                            connection,
+                            "INSERT OR IGNORE INTO xml_multipart_deletions VALUES (?1)",
+                            [orphan],
+                        )?;
                         maintenance::drain_storage(connection, &data_dir, memory.as_deref())?;
                         Ok(())
                     })
@@ -182,13 +173,9 @@ impl Catalog {
                     destination,
                     move |connection, record| {
                         record.md5_availability = crate::object::Md5Availability::Unavailable;
-                        let upload = active(
-                            connection,
-                            &target,
-                            &access,
-                            unix_millis(clock.now()).map_err(object_unavailable)?,
-                        )
-                        .map_err(publication_error)?;
+                        let upload =
+                            active(connection, &target, &access, unix_millis(clock.now())?)
+                                .map_err(publication_error)?;
                         if upload.incarnation != incarnation {
                             return Err(ObjectError::DerivedTransferNotFound);
                         }
@@ -202,7 +189,7 @@ impl Catalog {
             let data_dir = catalog.0.data_dir.clone();
             let memory = catalog.0.memory.clone();
             if let Err(error) = catalog
-                .run_object(move |connection| {
+                .run(move |connection| {
                     maintenance::drain_storage(connection, &data_dir, memory.as_deref())?;
                     Ok(())
                 })
@@ -229,33 +216,31 @@ impl Catalog {
         let target = lease.upload.target.clone();
         let access = lease.access.clone();
         let now = unix_millis(self.0.clock.now())?;
-        self.run_object(move |connection| {
+        self.run(move |connection| -> Result<_, Error> {
             let transaction = connection.transaction().map_err(object_unavailable)?;
-            Ok((|| -> Result<_, Error> {
-                active(&transaction, &target, &access, now)?;
-                objects::authorized_bucket(
-                    &transaction,
-                    &target.bucket,
-                    &access_for(&access, Permission::ObjectsCreate),
-                )?;
-                let mut total = 0u64;
-                for (index, wanted) in requested.iter().enumerate() {
-                    let stored = part(&transaction, &target.id, wanted.number)?;
-                    if stored.etag != wanted.etag {
-                        return Err(Error::InvalidPart);
-                    }
-                    if index + 1 < requested.len() && stored.size < MIN_PART_BYTES {
-                        return Err(Error::PartTooSmall);
-                    }
-                    total = total
-                        .checked_add(stored.size)
-                        .filter(|n| *n <= max_bytes)
-                        .ok_or(ObjectError::TooLarge)?;
+            active(&transaction, &target, &access, now)?;
+            objects::authorized_bucket(
+                &transaction,
+                &target.bucket,
+                &access_for(&access, Permission::ObjectsCreate),
+            )?;
+            let mut total = 0u64;
+            for (index, wanted) in requested.iter().enumerate() {
+                let stored = part(&transaction, &target.id, wanted.number)?;
+                if stored.etag != wanted.etag {
+                    return Err(Error::InvalidPart);
                 }
-                Ok(total)
-            })())
+                if index + 1 < requested.len() && stored.size < MIN_PART_BYTES {
+                    return Err(Error::PartTooSmall);
+                }
+                total = total
+                    .checked_add(stored.size)
+                    .filter(|n| *n <= max_bytes)
+                    .ok_or(ObjectError::TooLarge)?;
+            }
+            Ok(total)
         })
-        .await?
+        .await
     }
 
     async fn assemble_xml_parts(
@@ -281,8 +266,8 @@ impl Catalog {
             let upload_id = lease.upload.target.id.clone();
             let number = wanted.number;
             let stored = self
-                .run_object(move |connection| Ok(part(connection, &upload_id, number)))
-                .await??;
+                .run(move |connection| part(connection, &upload_id, number))
+                .await?;
             let mut input = InputReader::open(self, &stored.blob_id, 0).await?;
             let mut remaining = stored.size;
             let mut part_hash = Hasher::default();
@@ -319,31 +304,31 @@ impl Catalog {
         let (state, crc32c) = hasher.md5_state();
         #[cfg(unix)]
         let memory = self.0.memory.clone();
-        self.run_object(move |connection| {
+        self.run(move |connection| {
             #[cfg(unix)]
             if memory.is_none() {
                 objects::sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?;
             }
-            let count: i64 = connection
-                .prepare_cached("SELECT count(*) FROM derived_transfers WHERE ephemeral=1")
-                .and_then(|mut s| s.query_row([], |r| r.get(0)))
-                .map_err(object_unavailable)?;
+            let count: i64 = sql::scalar(
+                connection,
+                "SELECT count(*) FROM derived_transfers WHERE ephemeral=1",
+                [],
+            )?;
             if count >= 128 {
                 return Err(object_unavailable("derived transfer limit reached"));
             }
-            connection
-                .prepare_cached("INSERT INTO derived_transfers VALUES (?1,?2,?2,?3,?4,1,?5,?6,0)")
-                .and_then(|mut s| {
-                    s.execute(params![
-                        id,
-                        total as i64,
-                        state.as_slice(),
-                        crc32c,
-                        now,
-                        now + 900000
-                    ])
-                })
-                .map_err(object_unavailable)?;
+            sql::exec(
+                connection,
+                "INSERT INTO derived_transfers VALUES (?1,?2,?2,?3,?4,1,?5,?6,0)",
+                params![
+                    id,
+                    total as i64,
+                    state.as_slice(),
+                    crc32c,
+                    now,
+                    now + 900000
+                ],
+            )?;
             file.acknowledge(total);
             Ok(())
         })

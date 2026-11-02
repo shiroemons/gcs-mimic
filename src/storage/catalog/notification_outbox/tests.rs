@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::catalog::sql;
 use crate::{
     bucket::BucketAccess,
     notification::NotificationConfig,
@@ -381,9 +382,9 @@ async fn full_outbox_rolls_back_the_object_mutation() {
     catalog.run(|connection| {
         let transaction = connection.transaction().map_err(unavailable)?;
         for id in 1..=4096 {
-            transaction.prepare_cached("INSERT INTO notification_outbox VALUES (?1, '//pubsub.googleapis.com/projects/p/topics/topic', '{\"messages\":[]}', 0, 0)").and_then(|mut statement| statement.execute([id])).map_err(unavailable)?;
+            sql::exec(&transaction, "INSERT INTO notification_outbox VALUES (?1, '//pubsub.googleapis.com/projects/p/topics/topic', '{\"messages\":[]}', 0, 0)", [id]).map_err(unavailable)?;
         }
-        transaction.prepare_cached("UPDATE notification_outbox_state SET last_id = 4096").and_then(|mut statement| statement.execute([])).map_err(unavailable)?;
+        sql::exec(&transaction, "UPDATE notification_outbox_state SET last_id = 4096", []).map_err(unavailable)?;
         transaction.commit().map_err(unavailable)
     }).await.unwrap();
     assert!(matches!(
@@ -397,8 +398,7 @@ async fn full_outbox_rolls_back_the_object_mutation() {
         Err(ObjectError::ObjectNotFound)
     );
     let (generation, acl_rows): (i64, i64) = catalog.run(|connection| {
-        connection.prepare_cached("SELECT last_generation, (SELECT count(*) FROM acl_object_entries) FROM object_generation")
-            .and_then(|mut statement| statement.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))).map_err(unavailable)
+        sql::row(connection, "SELECT last_generation, (SELECT count(*) FROM acl_object_entries) FROM object_generation", [], |row| Ok((row.get(0)?, row.get(1)?))).map_err(unavailable)
     }).await.unwrap();
     // Buckets use their own allocator, so the failed upload leaves the object allocator unused.
     assert_eq!((generation, acl_rows), (0, 0));
@@ -767,22 +767,28 @@ async fn byte_budget_and_count_budget_both_rollback_the_mutation() {
             let size = message.len() + topic.len();
             let count = 16_777_216 / size;
             for id in 1..=count {
-                transaction
-                    .prepare_cached("INSERT INTO notification_outbox VALUES (?1, ?2, ?3, 0, 0)")
-                    .and_then(|mut statement| statement.execute(params![id as i64, topic, message]))
-                    .map_err(unavailable)?;
+                sql::exec(
+                    &transaction,
+                    "INSERT INTO notification_outbox VALUES (?1, ?2, ?3, 0, 0)",
+                    params![id as i64, topic, message],
+                )
+                .map_err(unavailable)?;
             }
             // Leave less capacity than even the smallest notification, without exceeding a row bound.
             let remainder = 16_777_216 - count * size;
             let last = json!({"padding": "x".repeat(remainder - topic.len() - 14)}).to_string();
-            transaction
-                .prepare_cached("INSERT INTO notification_outbox VALUES (?1, ?2, ?3, 0, 0)")
-                .and_then(|mut statement| statement.execute(params![count as i64 + 1, topic, last]))
-                .map_err(unavailable)?;
-            transaction
-                .prepare_cached("UPDATE notification_outbox_state SET last_id = ?1")
-                .and_then(|mut statement| statement.execute([count as i64 + 1]))
-                .map_err(unavailable)?;
+            sql::exec(
+                &transaction,
+                "INSERT INTO notification_outbox VALUES (?1, ?2, ?3, 0, 0)",
+                params![count as i64 + 1, topic, last],
+            )
+            .map_err(unavailable)?;
+            sql::exec(
+                &transaction,
+                "UPDATE notification_outbox_state SET last_id = ?1",
+                [count as i64 + 1],
+            )
+            .map_err(unavailable)?;
             transaction.commit().map_err(unavailable)
         })
         .await

@@ -83,7 +83,7 @@ async fn reclaimed(catalog: &Catalog) {
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
             let empty = catalog
-                .run_object(|connection| {
+                .run::<_, ObjectError>(|connection| {
                     connection
                         .prepare_cached("SELECT NOT EXISTS(SELECT 1 FROM derived_transfers)")
                         .unwrap()
@@ -109,13 +109,13 @@ async fn ram_xml_multipart_part_eof_sql_failure_and_replacement_keep_selected_by
     let target = begin(&catalog).await;
     let first = part(&catalog, &target, b"first", true).await.unwrap();
     assert!(part(&catalog, &target, b"aborted", false).await.is_err());
-    catalog.run_object(|connection| {
+    catalog.run::<_, ObjectError>(|connection| {
         connection.execute_batch("CREATE TEMP TRIGGER reject_ram_part BEFORE INSERT ON xml_multipart_parts BEGIN SELECT RAISE(ABORT, 'injected part checkpoint failure'); END;").unwrap();
         Ok(())
     }).await.unwrap();
     assert!(part(&catalog, &target, b"rejected", true).await.is_err());
     catalog
-        .run_object(|connection| {
+        .run::<_, ObjectError>(|connection| {
             connection
                 .execute_batch("DROP TRIGGER reject_ram_part")
                 .unwrap();
@@ -264,7 +264,7 @@ async fn ram_xml_multipart_publication_failure_rolls_back_session_parts_and_outb
     let target = begin(&catalog).await;
     let selected = part(&catalog, &target, b"assembled", true).await.unwrap();
     assert!(catalog.next_notification().await.unwrap().is_none());
-    catalog.run_object(|connection| {
+    catalog.run::<_, ObjectError>(|connection| {
         connection.execute_batch("CREATE TEMP TRIGGER reject_ram_multipart BEFORE INSERT ON objects BEGIN SELECT RAISE(ABORT, 'injected completion failure'); END;").unwrap();
         Ok(())
     }).await.unwrap();
@@ -284,7 +284,7 @@ async fn ram_xml_multipart_publication_failure_rolls_back_session_parts_and_outb
         .unwrap();
     assert_eq!(listed[0].etag, selected.etag);
     catalog
-        .run_object(|connection| {
+        .run::<_, ObjectError>(|connection| {
             connection
                 .execute_batch("DROP TRIGGER reject_ram_multipart")
                 .unwrap();
@@ -371,7 +371,7 @@ async fn ram_xml_multipart_queued_part_checkpoint_rechecks_deadline_without_repl
     let target = begin(&catalog).await;
     let old = part(&catalog, &target, b"first", true).await.unwrap();
     let upload = target.id.clone();
-    let identity = catalog.run_object(move |connection| {
+    let identity = catalog.run::<_, ObjectError>(move |connection| {
         connection.prepare_cached("SELECT blob_id,size,md5,crc32c FROM xml_multipart_parts WHERE upload_id=?1 AND number=1").unwrap()
             .query_row([upload], |row| Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?,row.get::<_,Vec<u8>>(2)?,row.get::<_,u32>(3)?))).map_err(crate::storage::failure::object_unavailable)
     }).await.unwrap();
@@ -411,7 +411,7 @@ async fn ram_xml_multipart_queued_part_checkpoint_rechecks_deadline_without_repl
     let worker = catalog.clone();
     let gate = tokio::spawn(async move {
         worker
-            .run_object(move |_| {
+            .run::<_, ObjectError>(move |_| {
                 entered.send(()).unwrap();
                 blocked.recv().unwrap();
                 Ok(())
@@ -429,7 +429,7 @@ async fn ram_xml_multipart_queued_part_checkpoint_rechecks_deadline_without_repl
     gate.await.unwrap().unwrap();
     assert!(matches!(request.await.unwrap(), Err(Error::NoSuchUpload)));
     let upload = target.id;
-    let retained = catalog.run_object(move |connection| {
+    let retained = catalog.run::<_, ObjectError>(move |connection| {
         connection.prepare_cached("SELECT blob_id,size,md5,crc32c FROM xml_multipart_parts WHERE upload_id=?1 AND number=1").unwrap()
             .query_row([upload], |row| Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?,row.get::<_,Vec<u8>>(2)?,row.get::<_,u32>(3)?))).map_err(crate::storage::failure::object_unavailable)
     }).await.unwrap();

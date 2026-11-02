@@ -9,7 +9,8 @@ use super::{
 };
 use crate::hashing::Hashes;
 use crate::object::{ObjectError, ObjectRecord, UploadChunk};
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use crate::storage::catalog::{bucket_incarnation, sql};
+use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
 use std::io;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -109,19 +110,20 @@ fn check_session_publishable(
     session: &super::resumable::ResumableSession,
     now: std::time::SystemTime,
 ) -> Result<(), ResumableError> {
-    let stored = transaction
-        .prepare_cached("SELECT * FROM resumable_sessions WHERE id = ?1")
-        .and_then(|mut statement| statement.query_row([&session.id], read_session))
-        .map_err(object_unavailable)?;
+    let stored = sql::row(
+        transaction,
+        "SELECT * FROM resumable_sessions WHERE id = ?1",
+        [&session.id],
+        read_session,
+    )
+    .map_err(object_unavailable)?;
     if now >= stored.deadline {
         return Err(ResumableError::NotFound);
     }
     if stored.state != SessionState::Active {
         return Err(ResumableError::Gone);
     }
-    let incarnation: Option<String> = transaction
-        .prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1")
-        .and_then(|mut statement| statement.query_row([&session.bucket], |r| r.get(0)))
+    let incarnation: Option<String> = bucket_incarnation(transaction, &session.bucket)
         .optional()
         .map_err(object_unavailable)?;
     if incarnation.as_deref() != Some(&session.incarnation) {
@@ -139,44 +141,24 @@ fn publication_record(
     hashes: Hashes,
     length: u64,
 ) -> Result<ObjectRecord, ObjectError> {
-    let mut record = ObjectRecord {
-        owner: defaults.owner,
-        bucket: session.bucket.clone(),
-        name: session.name.clone(),
+    let time = defaults.time;
+    let mut record = defaults.record(
+        session.bucket.clone(),
+        session.name.clone(),
         generation,
-        metageneration: 1,
-        content_type: options.content_type,
-        content_encoding: None,
-        content_disposition: None,
-        content_language: None,
-        cache_control: None,
-        metadata: Default::default(),
-        size: length,
-        md5: hashes.md5,
-        md5_availability: Default::default(),
-        crc32c: hashes.crc32c,
-        component_count: None,
-        storage_class: defaults.storage_class,
-        time_created: defaults.time,
-        updated: defaults.time,
-        time_deleted: None,
-        soft_delete_time: None,
-        hard_delete_time: None,
-        event_based_hold: defaults.event_based_hold.then_some(true),
-        temporary_hold: None,
-        custom_time: None,
-        retention_expiration_time: None,
-        retention: None,
-        customer_key_sha256: None,
-    };
-    options.metadata.reject_past_retention(defaults.time)?;
+        options.content_type,
+        length,
+        hashes,
+    );
+    options.metadata.reject_past_retention(time)?;
     options.metadata.apply(&mut record)?;
-    let period: Option<i64> = connection
-        .prepare_cached("SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1")
-        .and_then(|mut statement| statement.query_row([&record.bucket], |row| row.get(0)))
-        .map_err(object_unavailable)?;
+    let period: Option<i64> = sql::scalar(
+        connection,
+        "SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1",
+        [&record.bucket],
+    )?;
     record.retention_expiration_time =
-        period.map(|period| defaults.time + std::time::Duration::from_secs(period as u64));
+        period.map(|period| time + std::time::Duration::from_secs(period as u64));
     Ok(record)
 }
 
@@ -243,11 +225,14 @@ impl Catalog {
         let id = lease.session.id.clone();
         let committed = self
             .run_upload(move |connection| {
-                connection
-                    .prepare_cached("SELECT * FROM resumable_sessions WHERE id = ?1")
-                    .and_then(|mut statement| statement.query_row([id], read_session))
-                    .optional()
-                    .map_err(object_unavailable)
+                sql::row(
+                    connection,
+                    "SELECT * FROM resumable_sessions WHERE id = ?1",
+                    [id],
+                    read_session,
+                )
+                .optional()
+                .map_err(object_unavailable)
             })
             .await?;
         if let Some(session) = committed
@@ -305,14 +290,14 @@ impl Catalog {
         #[cfg(test)]
         let data_dir = self.0.data_dir.clone();
         let changed = self.run_upload(move |connection| {
-            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(object_unavailable)?;
-            let changed = transaction.prepare_cached("UPDATE resumable_sessions SET state = 'CANCELLED', options = json_set(options, '$.terminal_error', ?2) WHERE id = ?1 AND state = 'ACTIVE'").and_then(|mut statement| statement.execute(params![id, reason])).map_err(object_unavailable)?;
+            let transaction = sql::immediate(connection)?;
+            let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED', options = json_set(options, '$.terminal_error', ?2) WHERE id = ?1 AND state = 'ACTIVE'", params![id, reason])?;
             if changed == 1 {
-                transaction.prepare_cached("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)").and_then(|mut statement| statement.execute([&blob_id])).map_err(object_unavailable)?;
+                sql::exec(&transaction, "INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [&blob_id])?;
             }
             #[cfg(test)]
             fault::hit(&data_dir, Step::SessionFailureCommit).map_err(object_unavailable)?;
-            transaction.commit().map_err(object_unavailable)?;
+            transaction.commit()?;
             #[cfg(test)]
             fault::hit(&data_dir, Step::SessionFailureCommitted).map_err(object_unavailable)?;
             Ok(changed)
@@ -378,9 +363,7 @@ impl Catalog {
         catalog_wait.send_replace(true);
         let publication =
             move |connection: &mut rusqlite::Connection| -> Result<Value, ResumableError> {
-                let transaction = connection
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(object_unavailable)?;
+                let transaction = sql::immediate(connection).map_err(object_unavailable)?;
                 check_session_publishable(&transaction, &session, clock.now())?;
                 let (storage_class, delete_permission) =
                     authorized_bucket(&transaction, &session.bucket, &options.access)?;
@@ -404,7 +387,7 @@ impl Catalog {
                 let now = clock.now();
                 now.duration_since(std::time::UNIX_EPOCH)
                     .map_err(object_unavailable)?;
-                let micros = unix_micros(now).map_err(object_unavailable)?;
+                let micros = unix_micros(now)?;
                 let time = system_time_micros(micros).map_err(object_unavailable)?;
                 let defaults = objects::PublicationDefaults {
                     storage_class,
@@ -449,7 +432,7 @@ impl Catalog {
                         Ok((record, resource))
                     },
                 )?;
-                transaction.prepare_cached("UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'").and_then(|mut statement| statement.execute(params![resource.to_string(),session.id])).map_err(object_unavailable)?;
+                sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'", params![resource.to_string(),session.id]).map_err(object_unavailable)?;
                 objects::commit_publication(transaction)?;
                 Ok(resource)
             };

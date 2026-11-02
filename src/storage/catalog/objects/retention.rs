@@ -1,7 +1,7 @@
 //! Catalog persistence for bucket object-retention enablement and per-object retention.
 
-use super::object_unavailable;
 use crate::storage::catalog::resumable::InvalidOptions;
+use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
     object::{
@@ -10,7 +10,7 @@ use crate::{
         unix_nanos::UnixNanos,
     },
 };
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, types::Type};
+use rusqlite::{Connection, Row, Transaction, types::Type};
 
 /// Schema 29. Both object columns are NULL when the object has no configuration.
 pub(in crate::storage) const SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN object_retention_enabled INTEGER NOT NULL DEFAULT 0 CHECK(object_retention_enabled IN (0, 1));
@@ -148,12 +148,12 @@ pub(super) fn bucket_enabled(
     transaction: &Transaction<'_>,
     bucket: &str,
 ) -> Result<bool, ObjectError> {
-    transaction
-        .prepare_cached("SELECT object_retention_enabled FROM buckets WHERE name = ?1")
-        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
-        .optional()
-        .map_err(object_unavailable)?
-        .ok_or(ObjectError::BucketNotFound)
+    sql::optional_scalar(
+        transaction,
+        "SELECT object_retention_enabled FROM buckets WHERE name = ?1",
+        [bucket],
+    )?
+    .ok_or(ObjectError::BucketNotFound)
 }
 
 /// Validates a stored configuration on a new generation inside its publication transaction.
@@ -184,6 +184,17 @@ mod tests {
 
     /// Not a multiple of 100, so a platform that floors a `SystemTime` to 100 ns would lose it.
     const REMAINDER: u32 = 789;
+
+    #[test]
+    fn migration_keeps_malformed_schema_errors_unavailable() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE buckets (name TEXT); PRAGMA writable_schema=ON; UPDATE sqlite_schema SET sql='invalid schema' WHERE name='buckets'; PRAGMA writable_schema=OFF; PRAGMA schema_version=123;").unwrap();
+        let error = migrate(&mut connection).unwrap_err();
+        assert!(matches!(error, CatalogError::Unavailable(_)));
+        assert!(
+            matches!(std::error::Error::source(&error).and_then(|source| source.downcast_ref::<rusqlite::Error>()), Some(rusqlite::Error::SqliteFailure(failure, _)) if failure.code == rusqlite::ErrorCode::DatabaseCorrupt)
+        );
+    }
 
     #[test]
     fn columns_split_a_time_into_microseconds_and_a_remainder() {

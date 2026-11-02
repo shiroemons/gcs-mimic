@@ -1,6 +1,7 @@
 use super::{
     Catalog, DerivedDestination, DerivedSource, DerivedSourceSpec, compose_crc32c::combine, objects,
 };
+use crate::storage::catalog::bucket_incarnation;
 use crate::{
     bucket::BucketAccess,
     clock::Clock,
@@ -16,13 +17,6 @@ use crate::storage::failure::object_unavailable;
 pub(crate) enum SourceDisposal {
     Keep,
     Delete,
-}
-
-fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectError> {
-    connection
-        .prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1")
-        .and_then(|mut statement| statement.query_row([bucket], |row| row.get(0)))
-        .map_err(object_unavailable)
 }
 
 /// The source identities a compose read, re-checked when it publishes.
@@ -84,7 +78,7 @@ impl ComposePlan {
     /// The bucket is unchanged and, when sources are deleted, the caller may still delete
     /// them and their retention allows it.
     fn validate(&self, connection: &Connection, clock: &dyn Clock) -> Result<(), ObjectError> {
-        if incarnation(connection, &self.bucket)? != self.expected_incarnation {
+        if bucket_incarnation(connection, &self.bucket)? != self.expected_incarnation {
             return Err(ObjectError::PreconditionFailed);
         }
         if self.disposal == SourceDisposal::Delete {
@@ -168,8 +162,7 @@ impl Catalog {
                 .compose_detached(destination, sources, disposal, max_bytes)
                 .await
         })
-        .await
-        .map_err(object_unavailable)?
+        .await?
     }
 
     async fn compose_detached(
@@ -244,8 +237,8 @@ impl Catalog {
         disposal: SourceDisposal,
     ) -> Result<String, ObjectError> {
         let clock = self.0.clock.clone();
-        self.run_object(move |connection| {
-            let transaction = connection.transaction().map_err(object_unavailable)?;
+        self.run(move |connection| {
+            let transaction = connection.transaction()?;
             let (_, destination_delete) =
                 objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
             if disposal == SourceDisposal::Delete {
@@ -262,7 +255,7 @@ impl Catalog {
                 destination_delete,
                 clock.now(),
             )?;
-            incarnation(&transaction, &destination.bucket)
+            bucket_incarnation(&transaction, &destination.bucket).map_err(Into::into)
         })
         .await
     }

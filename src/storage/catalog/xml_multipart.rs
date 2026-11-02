@@ -1,13 +1,14 @@
 //! Persistent XML multipart state; ordinary objects appear only at completion.
 
 use super::{Catalog, objects, resumable, system_time_millis, unix_millis};
+use crate::storage::catalog::{bucket_incarnation, sql};
 use crate::{
     auth::Permission,
     bucket::{BucketAccess, CatalogError},
     object::{ObjectError, ObjectRecord},
     storage::failure::object_unavailable,
 };
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::{fmt, path::Path, time::SystemTime};
 
 mod listing;
@@ -172,9 +173,7 @@ fn active(
     now: i64,
 ) -> Result<Upload, Error> {
     objects::authorized_bucket(connection, &target.bucket, access)?;
-    connection.prepare_cached("SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.id=?1 AND u.bucket=?2 AND u.name=?3 AND u.deadline>?4")
-        .and_then(|mut statement| statement.query_row(params![target.id,target.bucket,target.name,now],read_upload))
-        .optional().map_err(object_unavailable)?.ok_or(Error::NoSuchUpload)
+    sql::row(connection, "SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.id=?1 AND u.bucket=?2 AND u.name=?3 AND u.deadline>?4", params![target.id,target.bucket,target.name,now],read_upload).optional().map_err(object_unavailable)?.ok_or(Error::NoSuchUpload)
 }
 
 fn read_part(row: &rusqlite::Row<'_>) -> rusqlite::Result<Part> {
@@ -191,9 +190,7 @@ fn read_part(row: &rusqlite::Row<'_>) -> rusqlite::Result<Part> {
 }
 
 fn part(connection: &Connection, id: &str, number: u16) -> Result<Part, Error> {
-    connection.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2")
-        .and_then(|mut statement| statement.query_row(params![id,number],read_part))
-        .optional().map_err(object_unavailable)?.ok_or(Error::InvalidPart)
+    sql::row(connection, "SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![id,number],read_part).optional().map_err(object_unavailable)?.ok_or(Error::InvalidPart)
 }
 
 impl Catalog {
@@ -225,10 +222,8 @@ impl Catalog {
             .checked_add(LIFETIME_MILLIS)
             .ok_or_else(|| object_unavailable("multipart deadline overflow"))?;
         let upload = self
-            .run_object(move |connection| {
-                let transaction = connection
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(object_unavailable)?;
+            .run(move |connection| {
+                let transaction = sql::immediate(connection)?;
                 let (storage_class, _) =
                     objects::authorized_bucket(&transaction, &target.bucket, &access)?;
                 objects::authorized_bucket(
@@ -243,41 +238,36 @@ impl Catalog {
                 if encoded.len() > 65536 {
                     return Err(ObjectError::TooLarge);
                 }
-                let count: i64 = transaction
-                    .prepare_cached("SELECT count(*) FROM xml_multipart_uploads")
-                    .and_then(|mut s| s.query_row([], |r| r.get(0)))
-                    .map_err(object_unavailable)?;
+                let count: i64 = sql::scalar(
+                    &transaction,
+                    "SELECT count(*) FROM xml_multipart_uploads",
+                    [],
+                )?;
                 if count >= 128 {
                     return Err(object_unavailable(
                         "retained multipart session limit reached",
                     ));
                 }
-                let incarnation: String = transaction
-                    .prepare_cached("SELECT incarnation FROM bucket_incarnations WHERE bucket=?1")
-                    .and_then(|mut s| s.query_row([&target.bucket], |r| r.get(0)))
-                    .map_err(object_unavailable)?;
-                transaction
-                    .prepare_cached(
-                        "INSERT INTO xml_multipart_uploads VALUES (?1,?2,?3,?4,?5,?6,?7)",
-                    )
-                    .and_then(|mut s| {
-                        s.execute(params![
-                            target.id,
-                            target.bucket,
-                            target.name,
-                            incarnation,
-                            encoded,
-                            now,
-                            deadline
-                        ])
-                    })
-                    .map_err(object_unavailable)?;
-                transaction.commit().map_err(object_unavailable)?;
+                let incarnation: String = bucket_incarnation(&transaction, &target.bucket)?;
+                sql::exec(
+                    &transaction,
+                    "INSERT INTO xml_multipart_uploads VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                    params![
+                        target.id,
+                        target.bucket,
+                        target.name,
+                        incarnation,
+                        encoded,
+                        now,
+                        deadline
+                    ],
+                )?;
+                transaction.commit()?;
                 Ok(Upload {
                     target,
                     incarnation,
                     options,
-                    created: system_time_millis(now).map_err(object_unavailable)?,
+                    created: system_time_millis(now)?,
                 })
             })
             .await?;
@@ -309,11 +299,11 @@ impl Catalog {
         let checked = access.clone();
         let now = unix_millis(self.0.clock.now())?;
         let upload = self
-            .run_object(move |connection| {
+            .run(move |connection| {
                 let transaction = connection.transaction().map_err(object_unavailable)?;
-                Ok(active(&transaction, &target, &checked, now))
+                active(&transaction, &target, &checked, now)
             })
-            .await??;
+            .await?;
         Ok(Lease {
             upload,
             access,
@@ -329,25 +319,20 @@ impl Catalog {
         limit: usize,
     ) -> Result<(Upload, Vec<Part>, bool), Error> {
         let now = unix_millis(self.0.clock.now())?;
-        self.run_object(move |connection| {
+        self.run(move |connection| -> Result<_, Error> {
             let transaction=connection.transaction().map_err(object_unavailable)?;
-            let result=(|| -> Result<_,Error> {
-                let upload=active(&transaction,&target,&access,now)?;
-                let mut parts=transaction.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number>?2 ORDER BY number LIMIT ?3")
-                    .and_then(|mut s|s.query_map(params![target.id,marker,(limit.clamp(1,1000)+1) as i64],read_part)?.collect::<rusqlite::Result<Vec<_>>>()).map_err(object_unavailable)?;
-                let more=parts.len()>limit.clamp(1,1000); if more {parts.pop();}
-                Ok((upload,parts,more))
-            })();
-            Ok(result)
-        }).await?
+            let upload=active(&transaction,&target,&access,now)?;
+            let mut parts=transaction.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number>?2 ORDER BY number LIMIT ?3")
+                .and_then(|mut s|s.query_map(params![target.id,marker,(limit.clamp(1,1000)+1) as i64],read_part)?.collect::<rusqlite::Result<Vec<_>>>()).map_err(object_unavailable)?;
+            let more=parts.len()>limit.clamp(1,1000); if more {parts.pop();}
+            Ok((upload,parts,more))
+        }).await
     }
 
     pub(crate) async fn abort_xml_multipart(&self, lease: Lease) -> Result<(), Error> {
         let catalog = self.clone();
-        self.run_object(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(object_unavailable)?;
+        self.run(move |connection| {
+            let transaction = sql::immediate(connection).map_err(object_unavailable)?;
             let result = (|| -> Result<(), Error> {
                 active(
                     &transaction,
@@ -366,9 +351,9 @@ impl Catalog {
             ) {
                 catalog.multipart_cleanup_failed(&error);
             }
-            Ok(result)
+            result
         })
-        .await?
+        .await
     }
 
     fn multipart_cleanup_failed(&self, error: &ObjectError) {
@@ -395,8 +380,11 @@ pub(super) fn recover(
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let bounded:bool=connection.prepare_cached("SELECT (SELECT count(*) FROM xml_multipart_uploads)<=128 AND NOT EXISTS(SELECT 1 FROM xml_multipart_parts p LEFT JOIN xml_multipart_uploads u ON u.id=p.upload_id WHERE u.id IS NULL)")
-        .and_then(|mut s|s.query_row([],|r|r.get(0))).map_err(super::unavailable)?;
+    let bounded: bool = sql::scalar(
+        connection,
+        "SELECT (SELECT count(*) FROM xml_multipart_uploads)<=128 AND NOT EXISTS(SELECT 1 FROM xml_multipart_parts p LEFT JOIN xml_multipart_uploads u ON u.id=p.upload_id WHERE u.id IS NULL)",
+        [],
+    )?;
     if !bounded {
         return Err(super::unavailable("invalid multipart catalog state"));
     }
