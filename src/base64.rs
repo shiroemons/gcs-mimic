@@ -12,7 +12,7 @@ pub(crate) enum Padding {
     Required,
     Optional,
     Forbidden,
-    /// XML POST policies historically accept nonzero unused bits, but require padding.
+    /// Preserve the previous XML POST decoder's tolerance of nonzero unused bits.
     RequiredUncheckedBits,
 }
 

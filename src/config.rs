@@ -492,6 +492,7 @@ fn apply_setting(config: &mut Config, key: &str, value: String) -> Result<(), Se
         | "event_list" => return notifications::apply(config, key, value),
         _ => {}
     }
+    // Ok(true) owns the key; Ok(false) lets the next applier try it.
     for apply in [
         apply_network_setting,
         apply_url_setting,
