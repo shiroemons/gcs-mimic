@@ -4,11 +4,11 @@ mod common;
 mod etag;
 
 use common::TestDir;
-use common::server::{Server, http_command};
+use common::server::{Server, http_command, write_request};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read},
     net::TcpStream,
     time::Duration,
 };
@@ -48,13 +48,7 @@ impl Server {
         stream
             .set_write_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        write!(
-            stream,
-            "{method} {path} HTTP/1.1\r\nHost: local\r\nContent-Length: {}\r\n{headers}\r\n",
-            body.len()
-        )
-        .unwrap();
-        stream.write_all(body).unwrap();
+        write_request(&mut stream, method, path, "local", headers, body);
         BufReader::new(stream)
     }
 

@@ -7,12 +7,36 @@ use super::{TestDir, server_command, stop_server};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
     path::Path,
     process::{Child, ChildStdout, Command, Stdio},
     time::{Duration, Instant},
 };
+
+pub(crate) fn write_request(
+    stream: &mut impl Write,
+    method: &str,
+    path: &str,
+    host: &str,
+    headers: &str,
+    body: &[u8],
+) {
+    stream
+        .write_all(request_head(method, path, host, headers, body.len()).as_bytes())
+        .unwrap();
+    stream.write_all(body).unwrap();
+}
+
+pub(crate) fn request_head(
+    method: &str,
+    path: &str,
+    host: &str,
+    headers: &str,
+    length: usize,
+) -> String {
+    format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nContent-Length: {length}\r\n{headers}\r\n")
+}
 
 pub(crate) struct Reply {
     pub(crate) status: u16,
@@ -111,6 +135,7 @@ pub(crate) struct Server {
     pub(crate) address: String,
     pub(crate) stdout: BufReader<ChildStdout>,
     pub(crate) ready: Value,
+    pub(crate) client_timeout: Duration,
     shutdown: Shutdown,
 }
 
@@ -147,6 +172,7 @@ impl Server {
             child,
             stdout,
             ready,
+            client_timeout: Duration::from_secs(5),
             shutdown: Shutdown::Kill,
         }
     }
@@ -159,14 +185,13 @@ impl Server {
 
 impl Drop for Server {
     fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            match self.shutdown {
-                Shutdown::Kill => {
-                    self.child.kill().unwrap();
-                    self.child.wait().unwrap();
-                }
-                Shutdown::Graceful => stop_server(&mut self.child, &mut self.stdout),
+        match self.shutdown {
+            Shutdown::Graceful => stop_server(&mut self.child, &mut self.stdout),
+            Shutdown::Kill if self.child.try_wait().unwrap().is_none() => {
+                self.child.kill().unwrap();
+                self.child.wait().unwrap();
             }
+            Shutdown::Kill => {}
         }
     }
 }

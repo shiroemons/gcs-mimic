@@ -1,13 +1,9 @@
 mod common;
 
 use common::TestDir;
-use common::server::{Server, http_command};
+use common::server::{Server, http_command, write_request};
 use serde_json::{Value, json};
-use std::{
-    io::{BufReader, Write},
-    net::TcpStream,
-    time::Duration,
-};
+use std::{io::BufReader, net::TcpStream, time::Duration};
 
 impl Server {
     fn start(dir: &TestDir) -> Self {
@@ -15,15 +11,18 @@ impl Server {
     }
 
     fn request(&self, method: &str, path: &str, body: &str) -> (u16, Value) {
-        let request = format!(
-            "{method} {path} HTTP/1.1\r\nHost: local.invalid\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
         let mut stream = TcpStream::connect(&self.address).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
-        stream.write_all(request.as_bytes()).unwrap();
+        write_request(
+            &mut stream,
+            method,
+            path,
+            "local.invalid",
+            "Content-Type: application/json\r\nConnection: close\r\n",
+            body.as_bytes(),
+        );
         let mut reader = BufReader::new(stream);
         let reply = common::read_http_response(&mut reader, false).unwrap();
         let reply = String::from_utf8(reply).unwrap();

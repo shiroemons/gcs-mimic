@@ -1,13 +1,9 @@
 mod common;
 
 use common::TestDir;
-use common::server::{Server, http_command};
+use common::server::{Server, http_command, write_request};
 use serde_json::{Value, json};
-use std::{
-    io::{BufReader, Write},
-    net::TcpStream,
-    time::Duration,
-};
+use std::{io::BufReader, net::TcpStream, time::Duration};
 
 impl Server {
     fn start(dir: &TestDir) -> Self {
@@ -24,7 +20,14 @@ impl Server {
         stream
             .set_write_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        write!(stream, "{method} {path} HTTP/1.1\r\nHost: untrusted.invalid\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+        write_request(
+            &mut stream,
+            method,
+            path,
+            "untrusted.invalid",
+            "Content-Type: application/json\r\n",
+            body.as_bytes(),
+        );
         let response =
             common::read_http_response(&mut BufReader::new(stream), method == "HEAD").unwrap();
         let response = String::from_utf8(response).unwrap();

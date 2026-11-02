@@ -1,13 +1,13 @@
 mod common;
 
 use common::TestDir;
-use common::server::{Server, http_command};
+use common::server::{Server, http_command, write_request};
 use gcs_mimic::auth::signature::sign_url;
 use hyper::{HeaderMap, Method, Uri};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read},
     net::TcpStream,
     time::{Duration, SystemTime},
 };
@@ -70,9 +70,14 @@ impl Server {
         stream
             .set_write_timeout(Some(Duration::from_secs(5)))
             .unwrap();
-        write!(stream, "{method} {} HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n",
-            uri.path_and_query().unwrap(), uri.authority().unwrap(), body.len()).unwrap();
-        stream.write_all(body).unwrap();
+        write_request(
+            &mut stream,
+            method,
+            uri.path_and_query().unwrap().as_str(),
+            uri.authority().unwrap().as_str(),
+            &format!("Connection: close\r\n{headers}"),
+            body,
+        );
         Reply::read(stream, method == "HEAD")
     }
 

@@ -1,7 +1,7 @@
 mod common;
 
 use common::TestDir;
-use common::server::{Reply, Server, http_command, no_leaks};
+use common::server::{Reply, Server, http_command, no_leaks, write_request};
 use serde_json::{Value, json};
 use std::{
     io::{Read, Write},
@@ -39,7 +39,14 @@ impl Server {
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-        request(&self.address, method, path, headers, body)
+        request(
+            &self.address,
+            method,
+            path,
+            headers,
+            body,
+            self.client_timeout,
+        )
     }
 
     fn upload(&self, query: &str, body: &[u8]) -> Reply {
@@ -97,20 +104,33 @@ impl Reply {
 }
 
 fn socket(address: &str) -> TcpStream {
+    socket_with_timeout(address, Duration::from_secs(5))
+}
+
+fn socket_with_timeout(address: &str, timeout: Duration) -> TcpStream {
     let stream = TcpStream::connect(address).unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
-    stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
+    stream.set_read_timeout(Some(timeout)).unwrap();
+    stream.set_write_timeout(Some(timeout)).unwrap();
     stream
 }
 
-fn request(address: &str, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-    let mut stream = socket(address);
-    write!(stream,"{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n{headers}Connection: close\r\n\r\n",body.len()).unwrap();
-    stream.write_all(body).unwrap();
+fn request(
+    address: &str,
+    method: &str,
+    path: &str,
+    headers: &str,
+    body: &[u8],
+    timeout: Duration,
+) -> Reply {
+    let mut stream = socket_with_timeout(address, timeout);
+    write_request(
+        &mut stream,
+        method,
+        path,
+        "localhost",
+        &format!("{headers}Connection: close\r\n"),
+        body,
+    );
     Reply::read(stream)
 }
 
@@ -1011,7 +1031,14 @@ fn obj_multipart_http_unconditional_replay_and_python_advisory_mime() {
                 let body = &body;
                 scope.spawn(move || {
                     barrier.wait();
-                    request(&address, "POST", path, headers, body)
+                    request(
+                        &address,
+                        "POST",
+                        path,
+                        headers,
+                        body,
+                        Duration::from_secs(5),
+                    )
                 })
             })
             .collect();
@@ -1144,7 +1171,7 @@ fn obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body() {
                 format!("{token}{token}"),
             ] {
                 for query in ["", "&ifGenerationMatch=0"] {
-                    let mut stream = socket(&server.address);
+                    let mut stream = socket_with_timeout(&server.address, server.client_timeout);
                     write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType={upload}{name}{query} HTTP/1.1\r\nHost: local\r\n{content_type}Content-Length: {length}\r\n{headers}\r\n").unwrap();
                     Reply::read(stream).json_error(400, "invalidParameter");
                 }
@@ -1166,7 +1193,7 @@ fn token_server(dir: &TestDir, upload: &str) -> Server {
         server.bucket();
         return server;
     }
-    let server = Server::launch(http_command(&dir.0).args([
+    let mut server = Server::launch(http_command(&dir.0).args([
         "--api-base-url",
         "https://advertised.invalid/api",
         "--max-object-bytes",
@@ -1180,6 +1207,7 @@ fn token_server(dir: &TestDir, upload: &str) -> Server {
         "--max-connections",
         "32",
     ]));
+    server.client_timeout = Duration::from_secs(30);
     assert_eq!(server.ready["max_object_bytes"], 1000);
     assert_eq!(server.ready["object_request_timeout_ms"], 900_000);
     assert_eq!(server.ready["catalog_wait_timeout_ms"], 30_000);

@@ -7,7 +7,7 @@ mod upload_admission;
 #[path = "object_http/upload_replay.rs"]
 mod upload_replay;
 
-use common::server::{Reply, Server, http_command};
+use common::server::{Reply, Server, http_command, request_head};
 use common::{TestDir, closed_by_server};
 use serde_json::{Value, json};
 use std::{
@@ -84,7 +84,14 @@ impl Server {
     /// One-shot requests ask for `Connection: close`, so the server closes first
     /// (see [`common::await_server_close`]).
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-        let mut request = format!("{method} {path} HTTP/1.1\r\nHost: untrusted.invalid\r\nX-Forwarded-Host: evil.invalid\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n", body.len()).into_bytes();
+        let mut request = request_head(
+            method,
+            path,
+            "untrusted.invalid",
+            &format!("X-Forwarded-Host: evil.invalid\r\nConnection: close\r\n{headers}"),
+            body.len(),
+        )
+        .into_bytes();
         request.extend_from_slice(body);
         self.raw(&request)
     }

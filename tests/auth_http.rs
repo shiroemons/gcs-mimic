@@ -19,7 +19,7 @@ mod signing;
 mod virtual_host;
 
 use common::TestDir;
-use common::server::{Server, http_command};
+use common::server::{Server, http_command, request_head};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -123,11 +123,7 @@ impl Server {
     }
 
     fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-        let mut request = format!(
-            "{method} {path} HTTP/1.1\r\nHost: local\r\nContent-Length: {}\r\n{headers}\r\n",
-            body.len()
-        )
-        .into_bytes();
+        let mut request = request_head(method, path, "local", headers, body.len()).into_bytes();
         request.extend_from_slice(body);
         let mut stream = self.stream();
         stream.write_all(&close_after_response(&request)).unwrap();

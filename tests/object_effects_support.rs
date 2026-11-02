@@ -2,10 +2,11 @@
 
 #[path = "common/mod.rs"]
 pub(crate) mod common;
+use common::server::write_request;
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read},
     net::TcpStream,
     process::{Child, ChildStdout, Stdio},
     time::Duration,
@@ -226,8 +227,14 @@ pub(crate) fn request(
     stream
         .set_write_timeout(Some(Duration::from_secs(10)))
         .unwrap();
-    write!(stream, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{headers}Connection: close\r\n\r\n", body.len()).unwrap();
-    stream.write_all(body).unwrap();
+    write_request(
+        &mut stream,
+        method,
+        path,
+        "localhost",
+        &format!("Content-Type: application/json\r\n{headers}Connection: close\r\n"),
+        body,
+    );
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();

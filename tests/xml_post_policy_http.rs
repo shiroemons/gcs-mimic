@@ -1,6 +1,6 @@
 mod object_effects_support;
 
-use common::server::{Server, http_command};
+use common::server::{Server, http_command, write_request};
 use gcs_mimic::auth::signature::{encode_query_component, sign_policy, timestamp};
 use object_effects_support::{
     Reply,
@@ -90,17 +90,21 @@ impl Server {
         body.extend_from_slice(format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"file.bin\"\r\n\r\n").as_bytes());
         body.extend_from_slice(bytes);
         body.extend_from_slice(format!("\r\n--{BOUNDARY}--\r\n").as_bytes());
-        // The shared raw client supplies JSON Content-Type, so send an explicit wire request.
-        use std::{
-            io::{Read, Write},
-            net::TcpStream,
-        };
+        use std::{io::Read, net::TcpStream};
         let mut stream = TcpStream::connect(&self.address).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(20)))
             .unwrap();
-        write!(stream,"POST /{bucket} HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/form-data; boundary={BOUNDARY}\r\nContent-Length: {}\r\n{extra_headers}Connection: close\r\n\r\n",body.len()).unwrap();
-        stream.write_all(&body).unwrap();
+        write_request(
+            &mut stream,
+            "POST",
+            &format!("/{bucket}"),
+            "localhost",
+            &format!(
+                "Content-Type: multipart/form-data; boundary={BOUNDARY}\r\n{extra_headers}Connection: close\r\n"
+            ),
+            &body,
+        );
         let mut reader = BufReader::new(stream);
         let mut raw = common::read_http_response(&mut reader, false).unwrap();
         reader.read_to_end(&mut raw).unwrap();

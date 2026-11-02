@@ -1,5 +1,5 @@
 pub(super) use crate::common::server::Server;
-use crate::common::server::http_command;
+use crate::common::server::{http_command, request_head};
 use crate::common::{self, TestDir};
 use serde_json::Value;
 use std::{
@@ -14,7 +14,16 @@ impl Server {
     }
 
     pub(super) fn request(&self, method: &str, path: &str, headers: &str, body: &[u8]) -> Reply {
-        self.raw(&format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n{headers}\r\n", body.len()), body)
+        self.raw(
+            &request_head(
+                method,
+                path,
+                "localhost",
+                &format!("Connection: close\r\n{headers}"),
+                body.len(),
+            ),
+            body,
+        )
     }
 
     pub(super) fn connect(&self) -> TcpStream {

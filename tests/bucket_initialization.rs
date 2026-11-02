@@ -1,11 +1,11 @@
 mod common;
 
 use common::TestDir;
-use common::server::Server;
+use common::server::{Server, write_request};
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::{BufReader, Read, Write},
+    io::{BufReader, Read},
     net::{TcpListener, TcpStream},
     path::Path,
     process::{Command, Stdio},
@@ -59,7 +59,14 @@ impl Server {
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
-        write!(stream, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{headers}\r\n{body}", body.len()).unwrap();
+        write_request(
+            &mut stream,
+            method,
+            path,
+            "localhost",
+            &format!("Content-Type: application/json\r\n{headers}"),
+            body.as_bytes(),
+        );
         let raw =
             common::read_http_response(&mut BufReader::new(stream), method == "HEAD").unwrap();
         let end = raw

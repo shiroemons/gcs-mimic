@@ -1,6 +1,6 @@
 mod common;
 
-use common::server::{Server, http_command};
+use common::server::{Server, http_command, request_head};
 use common::{CleanEnv, TestDir};
 use serde_json::{Value, json};
 use std::{
@@ -30,11 +30,29 @@ impl Server {
     /// One-shot requests ask for `Connection: close`, so the server closes first
     /// (see [`common::await_server_close`]).
     fn request(&self, method: &str, path: &str, body: &str) -> Reply {
-        self.raw(&format!("{method} {path} HTTP/1.1\r\nHost: untrusted.invalid\r\nX-Forwarded-Host: evil.invalid\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()))
+        let mut request = request_head(
+            method,
+            path,
+            "untrusted.invalid",
+            "X-Forwarded-Host: evil.invalid\r\nContent-Type: application/json\r\nConnection: close\r\n",
+            body.len(),
+        );
+        request.push_str(body);
+        self.raw(&request)
     }
 
     fn authorized(&self, token: &str, method: &str, path: &str, body: &str) -> Reply {
-        self.raw(&format!("{method} {path} HTTP/1.1\r\nHost: local.invalid\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()))
+        let mut request = request_head(
+            method,
+            path,
+            "local.invalid",
+            &format!(
+                "Authorization: Bearer {token}\r\nContent-Type: application/json\r\nConnection: close\r\n"
+            ),
+            body.len(),
+        );
+        request.push_str(body);
+        self.raw(&request)
     }
 
     fn insert(&self, name: &str, project: &str) -> Reply {
