@@ -149,7 +149,7 @@ Content-Location, Vary and Expires are absent on the corresponding normal
 responses and are not invented for 304. Exact exhaustive Google header parity
 remains SPEC-012.
 
-Media uses `open_object_authorized` once. That call rechecks authorization,
+Media uses `open_object_keyed` once. That call rechecks authorization,
 selects one record and opens its immutable blob under the existing catalog
 execution permit. The validator and range are checked against that returned
 record; there is no metadata lookup followed by a separate object open.
