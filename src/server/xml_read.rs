@@ -10,7 +10,7 @@ use crate::{
     bucket::BucketAccess,
     csek::CustomerKey,
     json,
-    object::{ObjectRecord, ObjectTarget},
+    object::{ObjectConditions, ObjectRecord, ObjectTarget},
     storage::ObjectReader,
     xml,
 };
@@ -18,7 +18,7 @@ use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValu
 
 pub(super) async fn respond(
     mut request: Request<Incoming>,
-    mut operation: xml::ReadRequest,
+    operation: xml::ReadRequest,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, xml::Error> {
     if operation.name.is_empty() {
@@ -34,9 +34,8 @@ pub(super) async fn respond(
         .authorize(permission, &operation.bucket)
         .await
         .map_err(|error| anonymous_error(error, ctx.caller))?;
-    xml::headers(
+    let conditions = xml::headers(
         request.headers(),
-        &mut operation,
         if delete {
             xml::UnknownGoogHeaders::Reject
         } else {
@@ -56,17 +55,18 @@ pub(super) async fn respond(
         let target = ObjectTarget::new(operation.bucket, operation.name, operation.generation);
         ctx.state
             .catalog
-            .delete_object(target, operation.conditions, &access)
+            .delete_object(target, conditions, &access)
             .await
             .map_err(|error| anonymous_error(error.into(), ctx.caller))?;
         return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
     }
-    read(&request, operation, ctx, &access, key).await
+    read(&request, operation, conditions, ctx, &access, key).await
 }
 
 async fn read(
     request: &Request<Incoming>,
     operation: xml::ReadRequest,
+    conditions: ObjectConditions,
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
     key: Option<CustomerKey>,
@@ -77,11 +77,11 @@ async fn read(
     // HEAD returns only metadata, which an encrypted object exposes without its key.
     let (record, mut reader, reveal) = if head {
         catalog
-            .open_object_metadata_keyed(target, operation.conditions, access, key)
+            .open_object_metadata_keyed(target, conditions, access, key)
             .await
     } else {
         catalog
-            .open_object_keyed(target, operation.conditions, access, key)
+            .open_object_keyed(target, conditions, access, key)
             .await
             .map(|(record, reader)| (record, reader, true))
     }

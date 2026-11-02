@@ -1,6 +1,6 @@
 //! XML bucket operations reuse the shared project and bucket authorization decisions.
 
-use super::{Error, ErrorBody, ObjectPath, ReadRequest, element, signing_parameter};
+use super::{Error, ErrorBody, ObjectPath, element, signing_parameter};
 use crate::{
     auth, json,
     object::ObjectConditions,
@@ -182,15 +182,8 @@ fn validate_headers(headers: &HeaderMap) -> Result<(), Error> {
     }) {
         return Err(Error::unsupported(key.as_str()));
     }
-    let mut operation = ReadRequest {
-        bucket: String::new(),
-        name: String::new(),
-        generation: None,
-        conditions: ObjectConditions::default(),
-        response_overrides: HeaderMap::new(),
-    };
-    super::headers(headers, &mut operation, super::UnknownGoogHeaders::Reject)?;
-    if operation.conditions != ObjectConditions::default()
+    let conditions = super::headers(headers, super::UnknownGoogHeaders::Reject)?;
+    if conditions != ObjectConditions::default()
         || headers.contains_key("range")
         || crate::csek::has_headers(headers, crate::csek::DESTINATION_PREFIX).is_some()
     {

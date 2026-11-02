@@ -163,7 +163,7 @@ fn marker_cursor(
 
 pub(crate) async fn respond(
     request: Request<Incoming>,
-    mut operation: ReadRequest,
+    operation: ReadRequest,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
     let access = ctx
@@ -187,8 +187,8 @@ pub(crate) async fn respond(
         ));
     }
     headers.remove("x-goog-interop-list-objects-format");
-    super::headers(&headers, &mut operation, super::UnknownGoogHeaders::Reject)?;
-    if operation.conditions != crate::object::ObjectConditions::default()
+    let conditions = super::headers(&headers, super::UnknownGoogHeaders::Reject)?;
+    if conditions != crate::object::ObjectConditions::default()
         || headers
             .keys()
             .any(|key| crate::csek::is_key_header(key.as_str(), crate::csek::DESTINATION_PREFIX))

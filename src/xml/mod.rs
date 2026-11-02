@@ -194,7 +194,6 @@ pub(crate) struct ReadRequest {
     pub bucket: String,
     pub name: String,
     pub generation: Option<i64>,
-    pub conditions: ObjectConditions,
     pub response_overrides: HeaderMap,
 }
 
@@ -614,7 +613,6 @@ pub(crate) fn route(
                 bucket,
                 name,
                 generation: None,
-                conditions: ObjectConditions::default(),
                 response_overrides: HeaderMap::new(),
             });
         }
@@ -623,7 +621,6 @@ pub(crate) fn route(
                 bucket,
                 name: String::new(),
                 generation: None,
-                conditions: ObjectConditions::default(),
                 response_overrides: HeaderMap::new(),
             });
         }
@@ -692,7 +689,6 @@ pub(crate) fn route(
             bucket,
             name,
             generation,
-            conditions: ObjectConditions::default(),
             response_overrides,
         })
     })())
@@ -788,11 +784,11 @@ fn is_common_object_header(name: &str) -> bool {
         )
 }
 
+/// Validates an XML object request's headers and returns their preconditions.
 pub(crate) fn headers(
     headers: &HeaderMap,
-    request: &mut ReadRequest,
     unknown: UnknownGoogHeaders,
-) -> Result<(), Error> {
+) -> Result<ObjectConditions, Error> {
     if let Some(hash) = crate::auth::signature::payload_hash(headers).map_err(|_| {
         Error::new(
             StatusCode::BAD_REQUEST,
@@ -847,15 +843,16 @@ pub(crate) fn headers(
             return Err(Error::unsupported(key));
         }
     }
+    let mut conditions = ObjectConditions::default();
     for (key, target, min) in [
         (
             "x-goog-if-generation-match",
-            &mut request.conditions.if_generation_match,
+            &mut conditions.if_generation_match,
             MinValue::Zero,
         ),
         (
             "x-goog-if-metageneration-match",
-            &mut request.conditions.if_metageneration_match,
+            &mut conditions.if_metageneration_match,
             MinValue::One,
         ),
     ] {
@@ -876,7 +873,7 @@ pub(crate) fn headers(
             )?);
         }
     }
-    Ok(())
+    Ok(conditions)
 }
 
 pub(crate) async fn empty_body<B>(mut body: B) -> Result<(), Error>
