@@ -266,10 +266,7 @@ pub fn encode_object_name(object: &str) -> String {
         .any(|segment| matches!(segment, "." | ".."));
     let mut encoded = String::with_capacity(object.len());
     for byte in object.bytes() {
-        if byte.is_ascii_alphanumeric()
-            || matches!(byte, b'-' | b'.' | b'_' | b'~')
-            || (byte == b'/' && keep_slash)
-        {
+        if is_unreserved(byte) || (byte == b'/' && keep_slash) {
             encoded.push(byte as char);
         } else {
             push_percent_encoded(&mut encoded, byte);
@@ -278,11 +275,15 @@ pub fn encode_object_name(object: &str) -> String {
     encoded
 }
 
+pub(crate) fn is_unreserved(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
+}
+
 /// Encode a literal path segment or query component using RFC 3986 unreserved bytes.
 pub(crate) fn encode_unreserved(raw: &str) -> String {
     let mut result = String::with_capacity(raw.len());
     for byte in raw.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+        if is_unreserved(byte) {
             result.push(byte as char);
         } else {
             push_percent_encoded(&mut result, byte);
